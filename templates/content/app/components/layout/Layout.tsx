@@ -96,9 +96,9 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen={!isMobile}
           emptyStateText="Ask me anything about your documents"
           suggestions={[
-            "Create a new page",
-            "Search my documents",
-            "Organize my pages",
+            "Draft a PRD for a new feature",
+            "Summarize this page in 5 bullets",
+            "Pull this page from Notion",
           ]}
         >
           <main className="relative flex min-w-0 min-h-0 flex-1 flex-col">

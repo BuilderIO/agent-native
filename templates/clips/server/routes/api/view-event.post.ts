@@ -225,8 +225,11 @@ export default defineEventHandler(async (event) => {
       });
 
       // Only broadcast a refresh signal on "meaningful" events to avoid
-      // spamming the polling clients every 2s with watch-progress heartbeats.
-      if (kind !== "watch-progress") {
+      // spamming the polling clients every 2s with watch-progress
+      // heartbeats. Skip for anonymous viewers — application_state writes
+      // require an authenticated request context, and a public-share
+      // viewer has no UI tab to invalidate anyway.
+      if (kind !== "watch-progress" && sessionEmail) {
         await writeAppState("refresh-signal", { ts: Date.now() });
       }
 

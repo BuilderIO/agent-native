@@ -65,6 +65,7 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
+import type { GoogleAuthMode } from "./google-auth-mode.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   readDesktopSso,
@@ -192,6 +193,18 @@ export interface AuthOptions {
     cancelLabel?: string;
   };
   /**
+   * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
+   *
+   * - `'auto'` — popup in normal browsers, redirect in Electron. Always uses
+   *   popup inside the Builder.io browser iframe (Google blocks framing).
+   * - `'popup'` — force popup everywhere.
+   * - `'redirect'` — force redirect everywhere except the Builder.io browser
+   *   iframe, which stays popup for technical reasons.
+   *
+   * Falls back to the `GOOGLE_AUTH_MODE` env var, then `'auto'`.
+   */
+  googleAuthMode?: GoogleAuthMode;
+  /**
    * Additional Better Auth configuration (social providers, plugins, etc.)
    */
   betterAuth?: BetterAuthConfig;
@@ -211,14 +224,61 @@ export interface AuthOptions {
  * `an_session` cookie and ping-pong each other into a logged-out state.
  *
  * When `APP_NAME` is set, suffix the cookie so each app gets its own slot.
+ *
+ * Workspace exception: in workspace mode (`AGENT_NATIVE_WORKSPACE=1`),
+ * every app shares the same origin AND the same DB, and cross-app SSO is
+ * the desired behavior — signing into Dispatch should mean you're signed
+ * in across the workspace's other apps too. Per-app suffixes break that.
+ * Use a single workspace-wide cookie so the legacy `an_session_*` token
+ * flow set by `setFrameworkSessionCookie` (which the Builder OAuth popup
+ * exchange relies on — see `desktop-exchange` and `oauthCallbackResponse`)
+ * is recognised by every app in the workspace.
+ *
+ * Cross-subdomain exception: when `COOKIE_DOMAIN` is set (e.g.
+ * `.agent-native.com` for first-party deploys where each app is its own
+ * subdomain — mail.agent-native.com, calendar.agent-native.com, …),
+ * use the unsuffixed `an_session` and emit `Domain=<COOKIE_DOMAIN>` so
+ * the cookie is shared across every subdomain. Signing into one app
+ * signs the user into all of them. Per-app suffixes would defeat the
+ * shared cookie since each subdomain reads a different name.
  */
 const APP_NAME_SLUG = (process.env.APP_NAME || "")
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, "_")
   .replace(/^_+|_+$/g, "");
-export const COOKIE_NAME = APP_NAME_SLUG
-  ? `an_session_${APP_NAME_SLUG}`
-  : "an_session";
+const IS_WORKSPACE_MODE = process.env.AGENT_NATIVE_WORKSPACE === "1";
+
+/**
+ * When set, the framework session cookie is shared across every subdomain
+ * matching this domain (e.g. `.agent-native.com`). Reads `COOKIE_DOMAIN`.
+ * Returns undefined when unset so cookies stay scoped to the origin host.
+ */
+export function getCookieDomain(): string | undefined {
+  const raw = process.env.COOKIE_DOMAIN;
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  return trimmed || undefined;
+}
+
+const HAS_COOKIE_DOMAIN = !!getCookieDomain();
+
+export const COOKIE_NAME = HAS_COOKIE_DOMAIN
+  ? "an_session"
+  : IS_WORKSPACE_MODE
+    ? "an_session_workspace"
+    : APP_NAME_SLUG
+      ? `an_session_${APP_NAME_SLUG}`
+      : "an_session";
+
+/**
+ * Cookie domain attribute spread into every `setCookie`/`deleteCookie`.
+ * Empty when `COOKIE_DOMAIN` isn't set so the cookie stays scoped to the
+ * single origin (current production default for non-first-party apps).
+ */
+export function cookieDomainAttrs(): { domain?: string } {
+  const domain = getCookieDomain();
+  return domain ? { domain } : {};
+}
 function getOAuthStateAppId(): string | undefined {
   const raw = process.env.APP_NAME || process.env.npm_package_name;
   if (!raw) return undefined;
@@ -1225,16 +1285,24 @@ function isReadMethod(event: H3Event): boolean {
 
 /**
  * Cookie attributes that work in both same-site and third-party iframe
- * contexts. Over HTTPS we emit `SameSite=None; Secure` (required by browsers
- * to ship the cookie back inside a cross-origin iframe); for plain HTTP dev
- * we keep `SameSite=Lax` since `None` requires Secure.
+ * contexts. Over HTTPS we emit `SameSite=None; Secure; Partitioned` —
+ * `None`+`Secure` is required by browsers to ship the cookie back inside a
+ * cross-origin iframe at all; `Partitioned` keeps the cookie working under
+ * Chrome's third-party-cookie deprecation by binding it to the embedding
+ * site's storage partition. (Better Auth already sets the same trio on its
+ * own session cookie; this matches so the framework's legacy cookie —
+ * which the Builder OAuth popup exchange writes via
+ * `setFrameworkSessionCookie` — survives iframe contexts too.) Plain-HTTP
+ * dev keeps the default `SameSite=Lax`; `None` requires Secure, and
+ * `Partitioned` only takes effect alongside `Secure`.
  */
 function crossSiteCookieAttrs(event: H3Event): {
   sameSite: "lax" | "none";
   secure: boolean;
+  partitioned?: boolean;
 } {
   return isHttpsRequest(event)
-    ? { sameSite: "none", secure: true }
+    ? { sameSite: "none", secure: true, partitioned: true }
     : { sameSite: "lax", secure: false };
 }
 
@@ -1242,6 +1310,7 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
   setCookie(event, COOKIE_NAME, token, {
     httpOnly: true,
     ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
     path: "/",
     maxAge: sessionMaxAge,
   });
@@ -2115,6 +2184,7 @@ async function mountBetterAuthRoutes(
         setCookie(event, COOKIE_NAME, sessionToken, {
           httpOnly: true,
           ...crossSiteCookieAttrs(event),
+          ...cookieDomainAttrs(),
           path: "/",
           maxAge: sessionMaxAge,
         });
@@ -2138,6 +2208,7 @@ async function mountBetterAuthRoutes(
           setCookie(event, COOKIE_NAME, result.token, {
             httpOnly: true,
             ...crossSiteCookieAttrs(event),
+            ...cookieDomainAttrs(),
             path: "/",
             maxAge: sessionMaxAge,
           });
@@ -2218,7 +2289,7 @@ async function mountBetterAuthRoutes(
       if (cookie) await removeSession(cookie);
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
-      deleteCookie(event, COOKIE_NAME, { path: "/" });
+      deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
 
       try {
         await auth.api.signOut({ headers: event.headers });
@@ -2285,7 +2356,7 @@ async function mountBetterAuthRoutes(
 
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).
-        deleteCookie(event, COOKIE_NAME, { path: "/" });
+        deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
         try {
           await auth.api.signOut({ headers: event.headers });
         } catch {
@@ -2338,6 +2409,7 @@ async function mountBetterAuthRoutes(
       googleOnly: options.googleOnly,
       marketing: options.marketing,
       googleSignInNotice: options.googleSignInNotice,
+      googleAuthMode: options.googleAuthMode,
     });
   _authGuardConfig = { loginHtml, publicPaths };
   const guardFn = createAuthGuardFn();
@@ -2376,6 +2448,7 @@ function mountTokenOnlyRoutes(
       setCookie(event, COOKIE_NAME, sessionToken, {
         httpOnly: true,
         ...crossSiteCookieAttrs(event),
+        ...cookieDomainAttrs(),
         path: "/",
         maxAge: sessionMaxAge,
       });
@@ -2390,7 +2463,7 @@ function mountTokenOnlyRoutes(
       if (cookie) await removeSession(cookie);
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
-      deleteCookie(event, COOKIE_NAME, { path: "/" });
+      deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
       if (isElectronRequest(event)) await clearDesktopSso();
       return { ok: true };
     }),
@@ -2450,6 +2523,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
           setCookie(event, COOKIE_NAME, result.token, {
             httpOnly: true,
             ...crossSiteCookieAttrs(event),
+            ...cookieDomainAttrs(),
             path: "/",
             maxAge: sessionMaxAge,
           });
@@ -2522,7 +2596,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
       if (cookie) await removeSession(cookie);
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
-      deleteCookie(event, COOKIE_NAME, { path: "/" });
+      deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
 
       try {
         const auth = await getBetterAuth();
@@ -2606,6 +2680,7 @@ export async function autoMountAuth(
             googleOnly: options.googleOnly,
             marketing: options.marketing,
             googleSignInNotice: options.googleSignInNotice,
+            googleAuthMode: options.googleAuthMode,
           });
       }
       if (options.publicPaths) {
@@ -2669,7 +2744,7 @@ export async function autoMountAuth(
         if (cookie) await removeSession(cookie);
         const bearerToken = getBearerSessionToken(event);
         if (bearerToken) await removeSession(bearerToken);
-        deleteCookie(event, COOKIE_NAME, { path: "/" });
+        deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
         if (isElectronRequest(event)) await clearDesktopSso();
         return { ok: true };
       }),
@@ -2725,6 +2800,7 @@ export async function autoMountAuth(
         googleOnly: options.googleOnly,
         marketing: options.marketing,
         googleSignInNotice: options.googleSignInNotice,
+        googleAuthMode: options.googleAuthMode,
       });
     _authGuardConfig = { loginHtml, publicPaths };
     const guardFn = createAuthGuardFn();

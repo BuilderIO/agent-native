@@ -77,9 +77,9 @@ function StudioContent({
         defaultOpen
         emptyStateText="Ask me anything about your videos"
         suggestions={[
-          "Create a new composition",
-          "Add a camera pan effect",
-          "Adjust the animation timing",
+          "Make a logo reveal for Acme",
+          "Add a camera zoom on this scene",
+          "Slow down the intro animation",
         ]}
       >
         <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
@@ -202,9 +202,9 @@ export default function Studio() {
                   defaultOpen
                   emptyStateText="Ask me anything about your videos"
                   suggestions={[
-                    "Create a new composition",
-                    "Add a camera pan effect",
-                    "Adjust the animation timing",
+                    "Make a logo reveal for Acme",
+                    "Add a camera zoom on this scene",
+                    "Slow down the intro animation",
                   ]}
                 >
                   <div className="flex flex-1 min-h-0 flex-col overflow-hidden">

@@ -24,6 +24,45 @@ import { isBlockedExtensionUrlWithDns } from "./url-safety.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+/**
+ * Headers that mimic a current Chrome on macOS so anti-bot middleware (Cloudflare,
+ * PerimeterX, Akamai) treats the request as a real user. We only fill in fields
+ * the caller hasn't supplied — explicit headers (e.g. an `Authorization` header
+ * for an API call) always win.
+ *
+ * `Accept-Encoding` deliberately omits `zstd` because Node's undici fetch only
+ * decompresses `gzip`, `deflate`, and `br`. Advertising `zstd` would let some
+ * servers send bytes we can't decode.
+ */
+const BROWSER_DEFAULT_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Accept-Encoding": "gzip, deflate, br",
+  "Sec-Ch-Ua":
+    '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+  "Sec-Ch-Ua-Mobile": "?0",
+  "Sec-Ch-Ua-Platform": '"macOS"',
+  "Sec-Fetch-Dest": "document",
+  "Sec-Fetch-Mode": "navigate",
+  "Sec-Fetch-Site": "none",
+  "Sec-Fetch-User": "?1",
+  "Upgrade-Insecure-Requests": "1",
+};
+
+function applyBrowserDefaults(
+  headers: Record<string, string>,
+): Record<string, string> {
+  const seen = new Set(Object.keys(headers).map((k) => k.toLowerCase()));
+  const merged = { ...headers };
+  for (const [name, value] of Object.entries(BROWSER_DEFAULT_HEADERS)) {
+    if (!seen.has(name.toLowerCase())) merged[name] = value;
+  }
+  return merged;
+}
+
 export interface FetchToolOptions {
   /** Resolve ${keys.NAME} references. Injected by the plugin at setup time. */
   resolveKeys?: (text: string) => Promise<{
@@ -44,7 +83,7 @@ export function createFetchToolEntry(
   return {
     "web-request": {
       tool: {
-        description: `Make an outbound HTTP request to EXTERNAL APIs, webhooks, and services only. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`log-meal\`, \`bigquery\`, \`hubspot-deals\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
+        description: `Make an outbound HTTP request to any EXTERNAL URL — APIs, webhooks, and arbitrary web pages (HTML, RSS, JSON, etc.). Use this to fetch the contents of a URL the user pastes in chat. Sends realistic Chrome-on-macOS headers by default (User-Agent, Accept, Sec-Fetch-*) so most sites that block obvious bots will respond normally; pass an explicit header to override any default. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`log-meal\`, \`bigquery\`, \`hubspot-deals\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
         parameters: {
           type: "object" as const,
           properties: {
@@ -138,13 +177,19 @@ export function createFetchToolEntry(
           }
         }
 
-        // Parse headers
+        // Parse headers, then merge in browser-like defaults for any header the
+        // caller didn't already specify. Real-browser headers (User-Agent,
+        // Accept, Sec-Fetch-*) are what gets you past Cloudflare / PerimeterX /
+        // generic UA-sniffing middleware on sites the user pastes in chat;
+        // explicit caller headers always win so API calls keep their auth
+        // headers untouched.
         let headers: Record<string, string>;
         try {
           headers = sanitizeOutboundHeaders(JSON.parse(resolvedHeaders));
         } catch {
           return `Invalid headers JSON: ${rawHeaders}`;
         }
+        headers = applyBrowserDefaults(headers);
 
         // Make the request
         const controller = new AbortController();
@@ -201,9 +246,11 @@ export function createFetchToolEntry(
           }
           body = redactString(body, secretValues);
 
-          // Truncate very long responses for the agent
-          if (body.length > 8000) {
-            body = body.slice(0, 8000) + "\n... (truncated)";
+          // Truncate very long responses for the agent. 32k chars (~8k tokens)
+          // is enough to read a full article or scrape a stats table without
+          // blowing out the model's context window.
+          if (body.length > 32_000) {
+            body = body.slice(0, 32_000) + "\n... (truncated)";
           }
 
           // Audit log

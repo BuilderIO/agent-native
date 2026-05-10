@@ -10,6 +10,28 @@ import { z } from "zod";
 import { notifyClients } from "../server/handlers/decks.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
+async function findCollabOrigin(): Promise<string | null> {
+  const tryOrigins = [
+    process.env.ORIGIN,
+    process.env.PORT ? `http://localhost:${process.env.PORT}` : null,
+    "http://localhost:8080",
+    "http://localhost:8081",
+    "http://localhost:8082",
+    "http://localhost:8083",
+  ].filter(Boolean) as string[];
+  for (const origin of tryOrigins) {
+    try {
+      const res = await fetch(`${origin}/_agent-native/ping`, {
+        signal: AbortSignal.timeout(500),
+      });
+      if (res.ok) return origin;
+    } catch {
+      // Try next
+    }
+  }
+  return null;
+}
+
 export default defineAction({
   description:
     "Surgically edit a slide's content using search-replace or full replacement. " +
@@ -42,7 +64,8 @@ export default defineAction({
     const docId = `deck-${deckId}-slide-${slideId}`;
     const client = getDbExec();
 
-    // 1. Update decks.data SQL snapshot
+    // Read SQL deck for the slide-existence check and the local fallback
+    // computation that keeps decks.data in sync.
     const existing = await client.execute({
       sql: "SELECT data FROM decks WHERE id = ?",
       args: [deckId],
@@ -57,6 +80,51 @@ export default defineAction({
     if (!slide) {
       throw new Error(`Slide ${slideId} not found in deck ${deckId}`);
     }
+
+    // ─── Step 1: Push the change through Yjs FIRST ─────────────────────────
+    //
+    // While an editor session is active the per-slide Y.Doc is the source of
+    // truth — TipTap renders the Y.XmlFragment, not decks.data. The previous
+    // order (SQL write first, Yjs push second) raced against the editor's
+    // autosave: by the time the agent's Yjs push landed, the editor had often
+    // already overwritten decks.data with its own pre-edit state, making the
+    // agent's edit appear to revert. Pushing to Yjs first lets the agent's
+    // change merge with concurrent typing via CRDT, and any subsequent
+    // autosave preserves it. (See #SLI-2026-05-09.)
+    let yjsAccepted = false;
+    const collabActive = find ? await hasCollabState(docId) : false;
+    if (collabActive && find) {
+      agentEnterDocument(docId);
+      agentEnterDocument(`deck-${deckId}`);
+      try {
+        const serverOrigin = await findCollabOrigin();
+        if (serverOrigin) {
+          const res = await fetch(
+            `${serverOrigin}/_agent-native/collab/${docId}/search-replace`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                find,
+                replace: replace ?? "",
+                requestSource: "agent",
+              }),
+            },
+          ).catch(() => null);
+          if (res?.ok) {
+            const json = (await res.json().catch(() => null)) as {
+              found?: boolean;
+            } | null;
+            yjsAccepted = !!json?.found;
+          }
+        }
+      } finally {
+        agentLeaveDocument(docId);
+        agentLeaveDocument(`deck-${deckId}`);
+      }
+    }
+
+    // ─── Step 2: Apply the same edit locally for SQL persistence ────────────
 
     let applied = false;
     let findFound = true;
@@ -77,13 +145,25 @@ export default defineAction({
       }
     }
 
-    if (!findFound) {
+    // Only fail when neither the local SQL state nor Yjs had the find text.
+    // If Yjs accepted but local SQL didn't (because the editor's recent
+    // typing hasn't been autosaved yet), the edit is still successful — the
+    // editor's autosave will catch decks.data up to the merged Y.Doc state.
+    if (!findFound && !yjsAccepted) {
       return {
         ok: false,
         message: `Text not found in slide: "${find?.slice(0, 60)}". Use get-deck to see current slide content.`,
       };
     }
 
+    // ─── Step 3: Persist to SQL ─────────────────────────────────────────────
+    //
+    // Always write SQL when local computation produced a change so decks.data
+    // stays current for closed-editor sessions and for new clients that load
+    // the deck via /api/decks/:id before they fetch the Yjs state. Concurrent
+    // editor autosaves will overwrite this with the merged Y.Doc state, which
+    // already contains the agent's edit (Yjs accepted it in Step 1) — so the
+    // brief window where decks.data lags Yjs is invisible to users.
     if (applied) {
       const now = new Date().toISOString();
       deck.updatedAt = now;
@@ -91,69 +171,20 @@ export default defineAction({
         sql: "UPDATE decks SET data = ?, updated_at = ? WHERE id = ?",
         args: [JSON.stringify(deck), now, deckId],
       });
-      // Broadcast so in-memory deck list in the editor refreshes. Yjs handles
-      // live content sync for find/replace, but --fullContent and the slide
-      // list itself aren't covered by Yjs — the SSE push fills that gap.
-      notifyClients(deckId);
     }
 
-    // 2. Push through Yjs for live collaborative sync (only if editor is open and
-    //    collab state exists, and only for find/replace — fullContent goes via SSE)
-    const collabEnabled = find ? await hasCollabState(docId) : false;
-    if (collabEnabled) {
-      // Enter both slide-level and deck-level presence
-      agentEnterDocument(docId);
-      agentEnterDocument(`deck-${deckId}`);
-      try {
-        const tryOrigins = [
-          process.env.ORIGIN,
-          process.env.PORT ? `http://localhost:${process.env.PORT}` : null,
-          "http://localhost:8080",
-          "http://localhost:8081",
-          "http://localhost:8082",
-          "http://localhost:8083",
-        ].filter(Boolean) as string[];
-
-        let serverOrigin: string | null = null;
-        for (const origin of tryOrigins) {
-          try {
-            const res = await fetch(`${origin}/_agent-native/ping`, {
-              signal: AbortSignal.timeout(500),
-            });
-            if (res.ok) {
-              serverOrigin = origin;
-              break;
-            }
-          } catch {
-            // Try next
-          }
-        }
-
-        if (serverOrigin) {
-          // Apply surgical search-replace to the Yjs doc
-          await fetch(
-            `${serverOrigin}/_agent-native/collab/${docId}/search-replace`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                find,
-                replace: replace ?? "",
-                requestSource: "agent",
-              }),
-            },
-          ).catch(() => {});
-        }
-      } finally {
-        agentLeaveDocument(docId);
-        agentLeaveDocument(`deck-${deckId}`);
-      }
-    }
+    notifyClients(deckId);
 
     console.log(
-      `update-slide: deck=${deckId} slide=${slideId} ${find ? `find="${find.slice(0, 40)}"` : "fullContent"} collab=${collabEnabled}`,
+      `update-slide: deck=${deckId} slide=${slideId} ${find ? `find="${find.slice(0, 40)}"` : "fullContent"} yjs=${yjsAccepted} sql=${applied}`,
     );
 
-    return { ok: true, deckId, slideId, applied, collabSynced: collabEnabled };
+    return {
+      ok: true,
+      deckId,
+      slideId,
+      applied: applied || yjsAccepted,
+      collabSynced: yjsAccepted,
+    };
   },
 });

@@ -120,10 +120,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         animateMobile
         emptyStateText="Just tell me what you ate — I'll estimate the macros"
         suggestions={[
-          "Fried chicken dinner, 600 cal",
-          "Oatmeal with banana for breakfast",
+          "Chicken burrito bowl for lunch",
           "What are my macros today?",
-          "Protein shake after gym",
+          "I ran 30 minutes this morning",
         ]}
       >
         <div className="flex flex-1 overflow-hidden">

@@ -271,9 +271,35 @@ export function FormsListPage() {
   }
 
   if (error && !forms?.length) {
+    const status = (error as { status?: number })?.status;
+    if (status === 401) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-3">
+          <p className="text-sm text-muted-foreground">
+            Sign in to see your forms.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const next = encodeURIComponent(
+                window.location.pathname + window.location.search,
+              );
+              window.location.href = `/login?next=${next}`;
+            }}
+          >
+            Sign in
+          </Button>
+        </div>
+      );
+    }
+    const reason =
+      error instanceof Error
+        ? error.message.replace(/^Action list-forms failed:\s*/, "")
+        : "Couldn't load forms";
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-3">
-        <p className="text-sm text-muted-foreground">Failed to load forms</p>
+      <div className="flex flex-col items-center justify-center h-full gap-3 px-4 text-center">
+        <p className="text-sm text-muted-foreground max-w-sm">{reason}</p>
         <Button
           variant="outline"
           size="sm"

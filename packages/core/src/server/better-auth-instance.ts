@@ -802,6 +802,19 @@ async function createBetterAuthInstance(
             },
           }
         : {}),
+      // When `COOKIE_DOMAIN` is set, share Better Auth's session cookie
+      // across every subdomain matching that domain. Pairs with the legacy
+      // framework cookie's matching `Domain=` attribute (auth.ts) so that
+      // signing into one first-party app (e.g. mail.agent-native.com)
+      // signs the user into all sibling apps without re-authenticating.
+      ...(process.env.COOKIE_DOMAIN
+        ? {
+            crossSubDomainCookies: {
+              enabled: true,
+              domain: process.env.COOKIE_DOMAIN,
+            },
+          }
+        : {}),
     },
     plugins: [
       // Organizations: many:many user:org, roles, invitations

@@ -153,9 +153,9 @@ export function AppLayout({ children }: AppLayoutProps) {
         defaultOpen={false}
         emptyStateText="Ask me anything about your recruiting pipeline"
         suggestions={[
-          "Show me open jobs",
-          "Who's in the pipeline?",
-          "Summarize my dashboard",
+          "Find candidates with React experience",
+          "Compare my top three candidates",
+          "Generate interview questions for this role",
         ]}
       >
         <div className="flex h-screen overflow-hidden bg-background">

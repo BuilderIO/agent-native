@@ -26,6 +26,37 @@ function safeHeaderParam(value: string): string {
   return stripCrlf(value).replace(/["\\]/g, "_") || "attachment";
 }
 
+// RFC 2047 base64-encode a header value when it contains non-ASCII. Without
+// this, characters like the em-dash "—" arrive as mojibake (e.g. "Ã¢Â€Â\"")
+// because intermediate MTAs interpret raw UTF-8 bytes in headers as Latin-1.
+export function encodeMimeHeaderValue(value: string): string {
+  if (/^[\x20-\x7e]*$/.test(value)) return value;
+  return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
+}
+
+// RFC 2047 encode the display-name part of an address-list header
+// (To/From/Cc/Bcc). The bare email itself is always ASCII-safe, so we leave it
+// alone and only encode the name when needed.
+export function encodeAddressHeader(value: string): string {
+  return value
+    .split(",")
+    .map((part) => encodeSingleAddress(part.trim()))
+    .filter(Boolean)
+    .join(", ");
+}
+
+function encodeSingleAddress(addr: string): string {
+  if (!addr) return "";
+  const m = addr.match(/^("?)([^<"]*?)\1\s*<([^>]+)>$/);
+  if (m) {
+    const name = m[2].trim();
+    const email = m[3].trim();
+    if (!name) return `<${email}>`;
+    return `${encodeMimeHeaderValue(name)} <${email}>`;
+  }
+  return encodeMimeHeaderValue(addr);
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -248,11 +279,11 @@ export function buildRawEmail(opts: {
   ];
 
   const headers = [
-    `From: ${safeFrom}`,
-    `To: ${safeTo}`,
-    ...(safeCc ? [`Cc: ${safeCc}`] : []),
-    ...(safeBcc ? [`Bcc: ${safeBcc}`] : []),
-    `Subject: ${safeSubject}`,
+    `From: ${encodeAddressHeader(safeFrom)}`,
+    `To: ${encodeAddressHeader(safeTo)}`,
+    ...(safeCc ? [`Cc: ${encodeAddressHeader(safeCc)}`] : []),
+    ...(safeBcc ? [`Bcc: ${encodeAddressHeader(safeBcc)}`] : []),
+    `Subject: ${encodeMimeHeaderValue(safeSubject)}`,
     ...(safeInReplyTo ? [`In-Reply-To: ${safeInReplyTo}`] : []),
     ...(safeReferences ? [`References: ${safeReferences}`] : []),
     `MIME-Version: 1.0`,

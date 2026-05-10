@@ -196,8 +196,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         emptyStateText="How can I help with your recordings?"
         suggestions={[
           "Summarize my last recording",
-          "Find the recording where I mentioned the Q3 plan",
-          "Create a folder called Onboarding",
+          "Find where I mentioned pricing",
+          "Remove filler words from this clip",
         ]}
       >
         <RequireActiveOrg

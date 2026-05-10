@@ -50,4 +50,9 @@ export const dispatchRoutes: RouteConfig = [
   route("team", "./pages/team.js"),
   route("extensions", "./pages/extensions._index.js"),
   route("extensions/:id", "./pages/extensions.$id.js"),
+  // Catch-all for /:appId — bounces /dispatch/<appId> to /<appId> when the
+  // segment names a workspace app sibling (e.g. Builder.io routing a "go to
+  // /todo" call through Dispatch's mount). Declared last so React Router 7's
+  // specificity ranking still matches explicit static routes above first.
+  route(":appId", "./pages/$appId.js"),
 ];

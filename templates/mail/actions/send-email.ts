@@ -8,6 +8,10 @@ import {
   googleFetch,
 } from "../server/lib/google-api.js";
 import { invalidateListCacheForOwner } from "../server/lib/google-auth.js";
+import {
+  encodeAddressHeader,
+  encodeMimeHeaderValue,
+} from "../server/lib/outgoing-email.js";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { emit } from "@agent-native/core/event-bus";
@@ -172,11 +176,11 @@ function buildRawEmail(opts: {
   const textBody = markdownToPlainText(opts.body);
   const htmlBody = bodyToHtml(opts.body, opts.tracking);
   const lines = [
-    `From: ${opts.from}`,
-    `To: ${opts.to}`,
-    ...(opts.cc ? [`Cc: ${opts.cc}`] : []),
-    ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
-    `Subject: ${opts.subject}`,
+    `From: ${encodeAddressHeader(opts.from)}`,
+    `To: ${encodeAddressHeader(opts.to)}`,
+    ...(opts.cc ? [`Cc: ${encodeAddressHeader(opts.cc)}`] : []),
+    ...(opts.bcc ? [`Bcc: ${encodeAddressHeader(opts.bcc)}`] : []),
+    `Subject: ${encodeMimeHeaderValue(opts.subject)}`,
     ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`] : []),
     ...(opts.references ? [`References: ${opts.references}`] : []),
     `MIME-Version: 1.0`,

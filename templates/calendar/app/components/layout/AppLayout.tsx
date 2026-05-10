@@ -207,8 +207,8 @@ export function AppLayout({ children }: AppLayoutProps) {
           emptyStateText="Ask me anything about your calendar"
           suggestions={[
             "What's on my calendar today?",
-            "Find a free slot this week",
-            "Show me upcoming events",
+            "Find a 30-min slot with Alice next week",
+            "Schedule a Zoom with the team Friday",
           ]}
         >
           <div className="flex flex-1 flex-col overflow-hidden">

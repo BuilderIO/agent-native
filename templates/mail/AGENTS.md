@@ -289,6 +289,7 @@ Common operations:
 - **Mark read/unread:** `pnpm action mark-read --id=<id> [--unread]`
 - **Star emails:** `pnpm action star-email --id=<id>`
 - **Send email:** `pnpm action send-email --to=<email> --subject="..." --body="..."`
+- **Look up an address by name:** `pnpm action find-contact --query="Jacqueline"` — run this BEFORE asking the user for an address or guessing patterns like `firstinitiallastname@company.com`. It searches Google Contacts + recent message history.
 - **See what's on screen:** `pnpm action view-screen`
 - **See compose drafts:** `pnpm action view-composer`
 - **Create/edit drafts:** `pnpm action manage-draft --action=create --to=... --subject=... --body=...`
@@ -449,6 +450,7 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 | `search-emails`       | `--q <term> [--view <name>] [--account <email>] [--includeCounts=true]`                            | Search emails across all views (requires --q) |
 | `get-email`           | `--id <email-id>`                                                                                  | Get a single email by ID                      |
 | `get-thread`          | `--id <thread-id> [--compact]`                                                                     | Get all messages in a thread                  |
+| `find-contact`        | `--query <name-or-partial-email> [--limit=5]`                                                      | Look up an address from contacts + history    |
 | `get-hubspot-contact` | `--email <email>`                                                                                  | Look up HubSpot contact, deals, and tickets   |
 
 ### Actions
@@ -491,32 +493,33 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ### Action tasks
 
-| User request                        | Action to run                                                                                                                                   |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| "What's on my screen?"              | `pnpm action view-screen`                                                                                                                       |
-| "Summarize my inbox"                | `pnpm action view-screen` (emails are already in the response)                                                                                  |
-| "Summarize my unread emails"        | `pnpm action list-emails --view=unread --compact`                                                                                               |
-| "How many unread emails do I have?" | `pnpm action list-emails --view=unread --includeCounts=true --compact`                                                                          |
-| "How many unread are on this page?" | `pnpm action list-emails --view=inbox --limit=50 --includeCounts=true --compact`                                                                |
-| "What emails do I have from Alice?" | `pnpm action search-emails --q=alice --compact`                                                                                                 |
-| "Archive this email"                | `pnpm action view-screen` to get ID, then `pnpm action archive-email --id=<id>`                                                                 |
-| "Archive emails from netlify[bot]"  | `pnpm action view-screen`, find matching IDs, then `pnpm action archive-email --id=id1,id2,id3`                                                 |
-| "Always archive emails from X"      | `pnpm action manage-gmail-filters --operation=create --from=x@example.com --archive=true`                                                       |
-| "Edit that Gmail filter"            | `pnpm action manage-gmail-filters --operation=list`, then `pnpm action manage-gmail-filters --operation=replace --id=<id> ...`                  |
-| "Mark this as unread"               | `pnpm action mark-read --id=<id> --unread`                                                                                                      |
-| "Star this email"                   | `pnpm action star-email --id=<id>`                                                                                                              |
-| "Trash this email"                  | `pnpm action trash-email --id=<id>`                                                                                                             |
-| "Find the email about X"            | `pnpm action search-emails --q=X`, then `pnpm action navigate --threadId=<id>`                                                                  |
-| "Open my starred emails"            | `pnpm action navigate --view=starred`                                                                                                           |
-| "Draft an email to Alice about X"   | `pnpm action get-mail-settings`, then `pnpm action manage-draft --action=create --to=alice@example.com --subject="X" --body="..."`              |
-| "Queue Steve a draft to Alice"      | `pnpm action list-org-members`, then `pnpm action queue-email-draft --ownerEmail=steve@... --to=alice@example.com --subject="..." --body="..."` |
-| "Make this draft more formal"       | `pnpm action view-composer`, then `pnpm action manage-draft --action=update --id=<id> --body="..."`                                             |
-| "Make queued drafts sound like me"  | `pnpm action list-queued-drafts --scope=review`, then `pnpm action update-queued-draft --id=<id> --body="..."`                                  |
-| "Send all queued drafts"            | `pnpm action send-queued-drafts --all=true`                                                                                                     |
-| "Send this email"                   | `pnpm action send-email --to=<email> --subject="..." --body="..."`                                                                              |
-| "Did they open my email?"           | `pnpm action get-tracking --id=<message-id>`                                                                                                    |
-| "What thread am I looking at?"      | `pnpm action view-screen --full`                                                                                                                |
-| "Archive old emails"                | `pnpm action bulk-archive --older-than=30`                                                                                                      |
+| User request                                  | Action to run                                                                                                                                                                      |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "What's on my screen?"                        | `pnpm action view-screen`                                                                                                                                                          |
+| "Summarize my inbox"                          | `pnpm action view-screen` (emails are already in the response)                                                                                                                     |
+| "Summarize my unread emails"                  | `pnpm action list-emails --view=unread --compact`                                                                                                                                  |
+| "How many unread emails do I have?"           | `pnpm action list-emails --view=unread --includeCounts=true --compact`                                                                                                             |
+| "How many unread are on this page?"           | `pnpm action list-emails --view=inbox --limit=50 --includeCounts=true --compact`                                                                                                   |
+| "What emails do I have from Alice?"           | `pnpm action search-emails --q=alice --compact`                                                                                                                                    |
+| "Archive this email"                          | `pnpm action view-screen` to get ID, then `pnpm action archive-email --id=<id>`                                                                                                    |
+| "Archive emails from netlify[bot]"            | `pnpm action view-screen`, find matching IDs, then `pnpm action archive-email --id=id1,id2,id3`                                                                                    |
+| "Always archive emails from X"                | `pnpm action manage-gmail-filters --operation=create --from=x@example.com --archive=true`                                                                                          |
+| "Edit that Gmail filter"                      | `pnpm action manage-gmail-filters --operation=list`, then `pnpm action manage-gmail-filters --operation=replace --id=<id> ...`                                                     |
+| "Mark this as unread"                         | `pnpm action mark-read --id=<id> --unread`                                                                                                                                         |
+| "Star this email"                             | `pnpm action star-email --id=<id>`                                                                                                                                                 |
+| "Trash this email"                            | `pnpm action trash-email --id=<id>`                                                                                                                                                |
+| "Find the email about X"                      | `pnpm action search-emails --q=X`, then `pnpm action navigate --threadId=<id>`                                                                                                     |
+| "Open my starred emails"                      | `pnpm action navigate --view=starred`                                                                                                                                              |
+| "Draft an email to Alice about X"             | `pnpm action get-mail-settings`, then `pnpm action manage-draft --action=create --to=alice@example.com --subject="X" --body="..."`                                                 |
+| "Email Jacqueline about Y" (no address given) | `pnpm action find-contact --query="Jacqueline"` first — pick the top match, then draft. Only ask the user when there's no match or it's ambiguous between multiple senior matches. |
+| "Queue Steve a draft to Alice"                | `pnpm action list-org-members`, then `pnpm action queue-email-draft --ownerEmail=steve@... --to=alice@example.com --subject="..." --body="..."`                                    |
+| "Make this draft more formal"                 | `pnpm action view-composer`, then `pnpm action manage-draft --action=update --id=<id> --body="..."`                                                                                |
+| "Make queued drafts sound like me"            | `pnpm action list-queued-drafts --scope=review`, then `pnpm action update-queued-draft --id=<id> --body="..."`                                                                     |
+| "Send all queued drafts"                      | `pnpm action send-queued-drafts --all=true`                                                                                                                                        |
+| "Send this email"                             | `pnpm action send-email --to=<email> --subject="..." --body="..."`                                                                                                                 |
+| "Did they open my email?"                     | `pnpm action get-tracking --id=<message-id>`                                                                                                                                       |
+| "What thread am I looking at?"                | `pnpm action view-screen --full`                                                                                                                                                   |
+| "Archive old emails"                          | `pnpm action bulk-archive --older-than=30`                                                                                                                                         |
 
 ## API Routes
 

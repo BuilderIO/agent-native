@@ -177,6 +177,106 @@ imports.
 
 Always wrap `x-if` and `x-for` in a `<template>` tag.
 
+## Component shape: inline `x-data` vs. `Alpine.data()`
+
+For trivial components (a couple of state fields, no methods, no string
+templating) inline `x-data="{ count: 0, items: [] }"` is fine. **For anything
+beyond that — multiple methods, string formatting, classification logic,
+async fetches with branching — put the component in a `<script>` block and
+register it with `Alpine.data()`.** The inline form is a string inside an
+HTML attribute; the longer it gets the more fragile it becomes (one stray
+quote, one closing-tag-shaped substring, one template literal and the
+attribute terminates early — Alpine then evaluates a half-parsed expression
+and throws `ReferenceError: <var> is not defined`).
+
+**Use this pattern for any non-trivial extension:**
+
+```html
+<div x-data="customerAnalyzer" class="p-4">
+  <button @click="analyze()" class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground cursor-pointer">
+    Analyze
+  </button>
+  <template x-if="error"><p class="text-red-500" x-text="error"></p></template>
+  <template x-if="results">
+    <div class="space-y-2">
+      <div class="rounded-lg border p-3">
+        <p class="font-medium">Action — Builder Side</p>
+        <p class="text-sm text-muted-foreground" x-text="results.builderActions.length + ' items'"></p>
+      </div>
+      <!-- ...other buckets... -->
+    </div>
+  </template>
+</div>
+
+<script>
+  document.addEventListener('alpine:init', () => {
+    Alpine.data('customerAnalyzer', () => ({
+      loading: false,
+      error: '',
+      results: null,
+      async analyze() {
+        this.loading = true;
+        this.error = '';
+        try {
+          const { emails } = await appAction('list-emails', { view: 'inbox', limit: 50 });
+          // ...categorize into 3 buckets...
+          this.results = {
+            builderActions: emails.filter((e) => /* ... */),
+            waitingOnCustomer: emails.filter((e) => /* ... */),
+            fyi: emails.filter((e) => /* ... */),
+          };
+        } catch (e) {
+          this.error = e?.message || 'Analysis failed';
+        } finally {
+          this.loading = false;
+        }
+      },
+    }));
+  });
+</script>
+```
+
+**Hard rules for `x-data` / `x-*` attributes:**
+
+- Never put template literals (backticks) inside an HTML attribute. Use
+  string concatenation or pre-format in the script block. Backticks can
+  trip the HTML parser and the resulting string isn't a JS template literal
+  anyway — the attribute is read as plain text.
+- Never put a multi-method object literal inline. Move methods into
+  `Alpine.data()`.
+- In the `<script>` block, write normal JS — template literals, async/await,
+  optional chaining all work.
+- One source of truth for state: define every variable referenced from any
+  `x-text`, `x-show`, `x-if`, `x-for`, `:class`, etc. on the `Alpine.data()`
+  object's initial state. If `x-text="results.foo"` references `results`,
+  `results` must be a property of the data object — null is a fine initial
+  value as long as you guard with `<template x-if="results">`.
+- When showing an error, render `error.message`-style text, never a raw
+  boolean. `x-text="error"` is correct only when `error` is a string;
+  if it's `true` the user sees the literal word "true".
+
+## AI / LLM features in extensions
+
+Extensions can do AI work two ways. Pick deliberately — silent fallbacks
+end up rendering nonsense like the literal text `true`.
+
+1. **Delegate to the agent chat.** If the user says "analyze my emails",
+   "summarize this", "categorize these tickets" and there is no API key
+   already configured for the relevant provider, prefer doing the work in
+   the agent chat instead of inside the extension. The extension can have
+   a button that calls `parent.postMessage({ type: 'agent-native-send-to-chat', message: '...' })`,
+   or you can just answer in chat and skip the extension. Don't ship an
+   extension with a stubbed AI step that returns a placeholder — that's
+   how you end up rendering `true` in red.
+2. **Call an LLM directly via `extensionFetch`.** Requires a real key the
+   user has set up. Reference it via `${keys.OPENAI_API_KEY}` /
+   `${keys.ANTHROPIC_API_KEY}` and surface a clear error if the proxy
+   reports the key isn't configured. Tell the user where to add the key
+   (Settings → Secrets) before the extension can work.
+
+If you're not sure a key is configured, ask the user before generating an
+extension whose primary value is the AI step.
+
 ## Accessing app data
 
 Extensions can call the host app's actions and API endpoints directly. The
@@ -571,6 +671,8 @@ Persistent notes using localStorage -- no API key needed:
 - **Keep extensions focused.** One extension, one job. A "GitHub PR Dashboard" should show PRs, not also manage issues.
 - **Handle loading and error states.** Always show a loading indicator during fetch and handle failures gracefully.
 - **All functions referenced in Alpine expressions must be defined in `x-data`.** If you use `@click="add()"`, there must be an `add()` method in the component's `x-data` object. Undefined references cause runtime errors.
+- **For non-trivial components, use a `<script>` + `Alpine.data('name', () => ({...}))` block and reference it with `x-data="name"`.** Inline `x-data="{ ...big object... }"` is brittle: stuffing many methods, branching logic, or any backtick template literal into an HTML attribute leads to half-parsed expressions and `ReferenceError` failures. See the "Component shape" section above.
+- **Don't ship a stubbed AI step.** If the extension's value is "AI analysis" and no LLM key is configured, either route the work to the agent chat or tell the user which key to add — never render a placeholder/boolean as the result.
 - **Use the right fetch helper.** `appAction()` for app actions and app data, `appFetch()` for allowed framework `/_agent-native/*` endpoints, and `extensionFetch()` for external APIs. Never call template `/api/*` routes from an extension and never use raw `fetch()` -- secrets won't be injected and CORS will block external APIs.
 - **Single quotes around `${keys.*}`** to prevent browser-side template literal evaluation.
 - **Prefer patches over full rewrites** when editing existing extensions. Smaller diffs are less error-prone.

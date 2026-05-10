@@ -48,13 +48,35 @@ const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set(
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 
-interface WorkspaceAppManifestEntry {
+export interface WorkspaceAppManifestEntry {
   id: string;
   name: string;
   description: string;
   path: string;
   url?: string | null;
   isDispatch?: boolean;
+}
+
+/**
+ * Resolve the workspace app manifest from the same fallback chain that
+ * `discoverWorkspaceAgents` uses: `AGENT_NATIVE_WORKSPACE_APPS_JSON` env →
+ * `.agent-native/workspace-apps.json` (or sibling) on disk → live filesystem
+ * scan of `apps/<id>/package.json` under the workspace root.
+ *
+ * Callers (e.g. the dispatch `/dispatch/<appId>` catch-all loader) need this
+ * to behave the same in production deploys (which write the manifest file)
+ * and during local dev (where new apps appear under `apps/` without an env
+ * restart). Reading only the env var would silently downgrade the behavior
+ * in both cases.
+ */
+export function loadWorkspaceAppsManifest():
+  | WorkspaceAppManifestEntry[]
+  | null {
+  return (
+    readWorkspaceAppsFromEnv() ??
+    readWorkspaceAppsFromManifestFile() ??
+    readWorkspaceAppsFromFilesystem()
+  );
 }
 
 export function shouldIncludeRemoteAgentManifest(
@@ -365,10 +387,7 @@ function workspaceAppUrl(app: WorkspaceAppManifestEntry): string | null {
 }
 
 function discoverWorkspaceAgents(selfAppId?: string): DiscoveredAgent[] {
-  const workspaceApps =
-    readWorkspaceAppsFromEnv() ??
-    readWorkspaceAppsFromManifestFile() ??
-    readWorkspaceAppsFromFilesystem();
+  const workspaceApps = loadWorkspaceAppsManifest();
   if (!workspaceApps) return [];
 
   return workspaceApps

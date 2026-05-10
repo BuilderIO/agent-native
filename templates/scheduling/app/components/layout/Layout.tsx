@@ -125,8 +125,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           emptyStateText="Ask me anything about your scheduling"
           suggestions={[
             "Create a 30-minute intro call",
-            "What's my availability tomorrow?",
-            "Show my upcoming bookings",
+            "Build a round-robin between Alice and Bob",
+            "Block my calendar next Friday",
           ]}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">

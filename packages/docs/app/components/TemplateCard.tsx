@@ -251,6 +251,16 @@ function CliPopover({
           )}
         </button>
       </div>
+      <div className="border-t border-[var(--code-border)] px-3 py-1.5 text-[10px] text-[var(--fg-secondary)]">
+        Paste into your terminal.{" "}
+        <Link
+          prefetch="render"
+          to="/docs/getting-started"
+          className="text-[var(--docs-accent)] no-underline hover:underline"
+        >
+          New to the CLI?
+        </Link>
+      </div>
     </div>,
     document.body,
   );

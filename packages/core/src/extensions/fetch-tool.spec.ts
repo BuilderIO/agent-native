@@ -101,4 +101,44 @@ describe("createFetchToolEntry", () => {
     ).resolves.toContain("Unsupported HTTP method");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("sends browser-like headers by default so anti-bot middleware doesn't block the fetch", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response("<html></html>", { status: 200, statusText: "OK" }),
+      );
+
+    await runWebRequest("https://93.184.216.34/page");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const sentHeaders = (fetchSpy.mock.calls[0][1] as RequestInit)
+      ?.headers as Record<string, string>;
+    expect(sentHeaders["User-Agent"]).toMatch(/Chrome\/\d+/);
+    expect(sentHeaders["Accept"]).toContain("text/html");
+    expect(sentHeaders["Accept-Language"]).toBe("en-US,en;q=0.9");
+    expect(sentHeaders["Sec-Fetch-Mode"]).toBe("navigate");
+  });
+
+  it("lets caller-supplied headers override the browser defaults", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("{}", { status: 200, statusText: "OK" }));
+
+    const entry = createFetchToolEntry()["web-request"];
+    await entry.run({
+      url: "https://93.184.216.34/api",
+      headers:
+        '{"User-Agent":"my-bot/1.0","Authorization":"Bearer xyz","Accept":"application/json"}',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const sentHeaders = (fetchSpy.mock.calls[0][1] as RequestInit)
+      ?.headers as Record<string, string>;
+    expect(sentHeaders["User-Agent"]).toBe("my-bot/1.0");
+    expect(sentHeaders["Authorization"]).toBe("Bearer xyz");
+    expect(sentHeaders["Accept"]).toBe("application/json");
+    // Other browser defaults still fill in for headers the caller didn't set.
+    expect(sentHeaders["Sec-Fetch-Mode"]).toBe("navigate");
+  });
 });

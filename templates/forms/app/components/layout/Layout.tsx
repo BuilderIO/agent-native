@@ -39,9 +39,9 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen
           emptyStateText="Ask me anything about your forms"
           suggestions={[
-            "Create a contact form",
-            "Show me form responses",
-            "Add a rating field",
+            "Build a customer feedback survey",
+            "Summarize this week's responses",
+            "Export responses to CSV",
           ]}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">

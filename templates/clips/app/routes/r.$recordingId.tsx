@@ -893,8 +893,8 @@ export default function RecordingPage() {
                       emptyStateText="Ask about this clip…"
                       suggestions={[
                         "Summarize this clip",
-                        "Suggest a better title",
                         "Generate chapters from the transcript",
+                        "Remove filler words and silences",
                       ]}
                     />
                   </TabsContent>

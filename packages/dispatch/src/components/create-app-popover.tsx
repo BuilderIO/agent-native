@@ -124,7 +124,7 @@ function buildAppCreationPrompt(input: {
     `- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model.`,
     `- Ensure the React Router client entry preserves APP_BASE_PATH/VITE_APP_BASE_PATH via appBasePath() so /${input.appId} hydrates correctly.`,
     `- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment.`,
-    `When it is ready, start or update the workspace dev server and navigate the user to /${input.appId}.`,
+    `When it is ready, start or update the workspace dev server and navigate the user to the absolute path /${input.appId} on the workspace origin. Do not prefix with /dispatch/, /apps/, /workspace/, or any other Dispatch tab — the new app is mounted at the workspace root, not under Dispatch. If you have a navigate tool available, pass /${input.appId} verbatim; if you only have a window.location-style escape hatch, set it to /${input.appId}.`,
   ].join("\n");
 }
 

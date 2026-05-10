@@ -170,9 +170,9 @@ const OPERATIONS_NAV_ITEMS = [
 const EMPTY_NAV_ITEMS: readonly DispatchNavItem[] = [];
 
 const SIDEBAR_SUGGESTIONS = [
-  "Create a new app",
-  "Grant a key to an app",
-  "Check integration health",
+  "Build a workspace app for X",
+  "Route Slack mentions to my analytics app",
+  "Grant my OpenAI key to this app",
 ];
 
 const CHROMELESS_PATHS = ["/approval"];
