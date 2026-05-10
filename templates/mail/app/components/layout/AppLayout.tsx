@@ -107,6 +107,7 @@ interface AppLayoutProps {
 
 // System views that can be shown/hidden via settings
 const collapsibleViews = [
+  { id: "unread", label: "Unread" },
   { id: "starred", label: "Starred" },
   { id: "sent", label: "Sent" },
   { id: "drafts", label: "Drafts" },
@@ -1340,6 +1341,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   <div className="space-y-0.5">
                     {[
                       { id: "inbox", label: "Inbox", href: "/inbox" },
+                      { id: "unread", label: "Unread", href: "/unread" },
                       { id: "starred", label: "Starred", href: "/starred" },
                       { id: "snoozed", label: "Snoozed", href: "/snoozed" },
                       { id: "sent", label: "Sent", href: "/sent" },
@@ -1697,6 +1699,7 @@ function StandardLayout({ children }: AppLayoutProps) {
               <div className="space-y-0.5">
                 {[
                   { id: "inbox", label: "Inbox", href: "/inbox" },
+                  { id: "unread", label: "Unread", href: "/unread" },
                   { id: "starred", label: "Starred", href: "/starred" },
                   { id: "snoozed", label: "Snoozed", href: "/snoozed" },
                   { id: "sent", label: "Sent", href: "/sent" },
