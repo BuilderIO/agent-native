@@ -1,6 +1,7 @@
-import { ReactNode, useCallback, useState } from "react";
+import { ReactNode, useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
+import { useCreatePage } from "@/hooks/use-create-page";
 import { AgentSidebar } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -55,6 +56,22 @@ export function Layout({ children }: LayoutProps) {
   const showHeader = !NO_HEADER_PREFIXES.some((prefix) =>
     location.pathname.startsWith(prefix),
   );
+
+  const createPage = useCreatePage();
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      if (e.key !== "n" && e.key !== "N") return;
+      const target = e.target as HTMLElement | null;
+      if (target?.isContentEditable) return;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      void createPage();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [createPage]);
 
   return (
     <HeaderActionsProvider>
