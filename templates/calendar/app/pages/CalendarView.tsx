@@ -17,6 +17,7 @@ import {
   parseISO,
 } from "date-fns";
 import {
+  IconCheck,
   IconChevronLeft,
   IconChevronRight,
   IconChevronDown,
@@ -27,7 +28,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuCheckboxItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -666,15 +666,17 @@ export default function CalendarView() {
                   <DropdownMenuLabel className="text-[10px] font-normal uppercase tracking-wider text-muted-foreground">
                     Display
                   </DropdownMenuLabel>
-                  <DropdownMenuCheckboxItem
-                    checked={viewPrefs.hideWeekends}
-                    onCheckedChange={(checked) =>
-                      setViewPrefs({ hideWeekends: !!checked })
-                    }
-                    onSelect={(e) => e.preventDefault()}
+                  <DropdownMenuItem
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      setViewPrefs({ hideWeekends: !viewPrefs.hideWeekends });
+                    }}
                   >
                     Hide weekends
-                  </DropdownMenuCheckboxItem>
+                    {viewPrefs.hideWeekends && (
+                      <IconCheck className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
