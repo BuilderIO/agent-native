@@ -320,6 +320,8 @@ export function createGoogleAuthPlugin(
       "/_agent-native/auth/ba",
       ...(options?.publicPaths ?? []),
     ],
-    loginHtml: getGoogleLoginHtml(resolveGoogleAuthMode(options?.googleAuthMode)),
+    loginHtml: getGoogleLoginHtml(
+      resolveGoogleAuthMode(options?.googleAuthMode),
+    ),
   });
 }
