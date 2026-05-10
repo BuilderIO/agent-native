@@ -69,6 +69,10 @@ interface EditorToolbarProps {
   deck: Deck;
   deckId: string;
   deckTitle: string;
+  /** When false, the user is a viewer — render the editor shell with all
+   *  edit affordances disabled, matching Google Slides' viewer experience.
+   *  Defaults to true for backward compatibility. */
+  canEdit?: boolean;
   onTitleChange: (title: string) => void;
   activeTab: "visual" | "code";
   onTabChange: (tab: "visual" | "code") => void;
@@ -249,8 +253,17 @@ export default function EditorToolbar({
   aspectRatio,
   onSetAspectRatio,
   designSystemTitle,
+  canEdit = true,
 }: EditorToolbarProps) {
-  const shareUrl =
+  // Mirror Google Slides: the share dialog exposes both the editor URL
+  // (primary) and the presentation URL (secondary). Access is enforced on
+  // the deck, not the URL shape — anyone with at least viewer access can
+  // open either link.
+  const editorUrl =
+    typeof window === "undefined"
+      ? `/deck/${deckId}`
+      : `${window.location.origin}${appPath(`/deck/${deckId}`)}`;
+  const presentationUrl =
     typeof window === "undefined"
       ? `/p/${deckId}`
       : `${window.location.origin}${appPath(`/p/${deckId}`)}`;
@@ -407,8 +420,15 @@ export default function EditorToolbar({
       {/* Spacer */}
       <div className="flex-1 min-w-2" />
 
+      {/* "View only" badge — mirrors Google Slides' viewer chrome */}
+      {!canEdit && (
+        <span className="flex-shrink-0 inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+          View only
+        </span>
+      )}
+
       {/* Slide settings cog menu */}
-      {currentSlide && onUpdateSlide && (
+      {canEdit && currentSlide && onUpdateSlide && (
         <>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -662,178 +682,187 @@ graph TD
       )}
 
       {/* Slide tools palette — animations, tweaks, draw, comment-pin all live
-       * inside one popover so the toolbar doesn't drown in icons. */}
-      {(onToggleAnimations ||
-        onToggleTweaks ||
-        onToggleDrawMode ||
-        onTogglePinMode) && (
-        <>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                ref={toolsRef}
-                onClick={() => {
-                  closeAll();
-                  setToolsOpen(!toolsOpen);
-                }}
-                className={`relative p-1.5 rounded cursor-pointer flex-shrink-0 ${
-                  anyToolActive || toolsOpen
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
-                }`}
-                aria-label="Slide tools"
-              >
-                <IconWand className="w-4 h-4" />
-                {anyToolActive && !toolsOpen && (
-                  <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#609FF8]" />
+       * inside one popover so the toolbar doesn't drown in icons. Hidden in
+       * view-only mode since none of these affordances apply. */}
+      {canEdit &&
+        (onToggleAnimations ||
+          onToggleTweaks ||
+          onToggleDrawMode ||
+          onTogglePinMode) && (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  ref={toolsRef}
+                  onClick={() => {
+                    closeAll();
+                    setToolsOpen(!toolsOpen);
+                  }}
+                  className={`relative p-1.5 rounded cursor-pointer flex-shrink-0 ${
+                    anyToolActive || toolsOpen
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
+                  }`}
+                  aria-label="Slide tools"
+                >
+                  <IconWand className="w-4 h-4" />
+                  {anyToolActive && !toolsOpen && (
+                    <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#609FF8]" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Slide tools</TooltipContent>
+            </Tooltip>
+            <ToolbarPopover
+              open={toolsOpen}
+              anchorRef={toolsRef}
+              onClose={() => setToolsOpen(false)}
+              width={200}
+            >
+              <div className="py-1.5">
+                {currentSlide && onToggleAnimations && (
+                  <button
+                    onClick={() => {
+                      onToggleAnimations();
+                      setToolsOpen(false);
+                    }}
+                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                      animationsOpen
+                        ? "text-[#609FF8] bg-accent/50"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    }`}
+                  >
+                    <IconBolt className="w-3.5 h-3.5" />
+                    Element animations
+                  </button>
                 )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Slide tools</TooltipContent>
-          </Tooltip>
-          <ToolbarPopover
-            open={toolsOpen}
-            anchorRef={toolsRef}
-            onClose={() => setToolsOpen(false)}
-            width={200}
-          >
-            <div className="py-1.5">
-              {currentSlide && onToggleAnimations && (
-                <button
-                  onClick={() => {
-                    onToggleAnimations();
-                    setToolsOpen(false);
-                  }}
-                  className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
-                    animationsOpen
-                      ? "text-[#609FF8] bg-accent/50"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                  }`}
-                >
-                  <IconBolt className="w-3.5 h-3.5" />
-                  Element animations
-                </button>
-              )}
-              {onToggleTweaks && (
-                <button
-                  onClick={() => {
-                    onToggleTweaks();
-                    setToolsOpen(false);
-                  }}
-                  className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
-                    tweaksOpen
-                      ? "text-foreground bg-accent/50"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                  }`}
-                >
-                  <IconAdjustments className="w-3.5 h-3.5" />
-                  Tweaks
-                </button>
-              )}
-              {onToggleDrawMode && (
-                <button
-                  onClick={() => {
-                    onToggleDrawMode();
-                    setToolsOpen(false);
-                  }}
-                  data-toolbar-draw-button
-                  className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
-                    drawMode
-                      ? "text-foreground bg-accent/50"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                  }`}
-                >
-                  <IconPencilPlus className="w-3.5 h-3.5" />
-                  Draw on slide
-                </button>
-              )}
-              {onTogglePinMode && (
-                <button
-                  onClick={() => {
-                    onTogglePinMode();
-                    setToolsOpen(false);
-                  }}
-                  data-toolbar-pin-button
-                  className={`flex items-start gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
-                    pinMode
-                      ? "text-foreground bg-accent/50"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                  }`}
-                >
-                  <IconPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                  <span className="flex flex-col items-start min-w-0">
-                    <span>Pin comments</span>
-                    <span className="text-[10px] text-muted-foreground/80 leading-tight mt-0.5">
-                      Click spots on the slide to queue several edits, then send
-                      them all at once.
+                {onToggleTweaks && (
+                  <button
+                    onClick={() => {
+                      onToggleTweaks();
+                      setToolsOpen(false);
+                    }}
+                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                      tweaksOpen
+                        ? "text-foreground bg-accent/50"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    }`}
+                  >
+                    <IconAdjustments className="w-3.5 h-3.5" />
+                    Tweaks
+                  </button>
+                )}
+                {onToggleDrawMode && (
+                  <button
+                    onClick={() => {
+                      onToggleDrawMode();
+                      setToolsOpen(false);
+                    }}
+                    data-toolbar-draw-button
+                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                      drawMode
+                        ? "text-foreground bg-accent/50"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    }`}
+                  >
+                    <IconPencilPlus className="w-3.5 h-3.5" />
+                    Draw on slide
+                  </button>
+                )}
+                {onTogglePinMode && (
+                  <button
+                    onClick={() => {
+                      onTogglePinMode();
+                      setToolsOpen(false);
+                    }}
+                    data-toolbar-pin-button
+                    className={`flex items-start gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                      pinMode
+                        ? "text-foreground bg-accent/50"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    }`}
+                  >
+                    <IconPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                    <span className="flex flex-col items-start min-w-0">
+                      <span>Pin comments</span>
+                      <span className="text-[10px] text-muted-foreground/80 leading-tight mt-0.5">
+                        Click spots on the slide to queue several edits, then
+                        send them all at once.
+                      </span>
                     </span>
-                  </span>
+                  </button>
+                )}
+              </div>
+            </ToolbarPopover>
+          </>
+        )}
+
+      {/* Edit-only cluster — undo/redo + edit-mode tabs */}
+      {canEdit && (
+        <>
+          {/* Separator */}
+          <div className="w-px h-5 bg-accent flex-shrink-0 hidden sm:block" />
+
+          {/* Undo/Redo */}
+          <div className="flex items-center flex-shrink-0">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onUndo}
+                  disabled={!canUndo}
+                  className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
+                  aria-label="Undo"
+                >
+                  <IconArrowBackUp className="w-3.5 h-3.5 text-muted-foreground" />
                 </button>
-              )}
-            </div>
-          </ToolbarPopover>
+              </TooltipTrigger>
+              <TooltipContent>Undo ({shortcutLabel("cmd+z")})</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onRedo}
+                  disabled={!canRedo}
+                  className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
+                  aria-label="Redo"
+                >
+                  <IconArrowForwardUp className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Redo ({shortcutLabel("cmd+shift+z")})
+              </TooltipContent>
+            </Tooltip>
+          </div>
+
+          {/* Separator */}
+          <div className="w-px h-5 bg-accent flex-shrink-0 hidden sm:block" />
+
+          {/* Edit mode tabs */}
+          <div className="flex items-center rounded-md border border-border overflow-hidden flex-shrink-0">
+            <button
+              onClick={() => onTabChange("visual")}
+              className={`px-3 py-2 sm:py-1.5 text-xs font-medium transition-colors ${
+                activeTab === "visual"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:text-muted-foreground"
+              }`}
+            >
+              Preview
+            </button>
+            <button
+              onClick={() => onTabChange("code")}
+              className={`px-3 py-2 sm:py-1.5 text-xs font-medium transition-colors ${
+                activeTab === "code"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:text-muted-foreground"
+              }`}
+            >
+              Code
+            </button>
+          </div>
         </>
       )}
-
-      {/* Separator */}
-      <div className="w-px h-5 bg-accent flex-shrink-0 hidden sm:block" />
-
-      {/* Undo/Redo */}
-      <div className="flex items-center flex-shrink-0">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={onUndo}
-              disabled={!canUndo}
-              className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
-              aria-label="Undo"
-            >
-              <IconArrowBackUp className="w-3.5 h-3.5 text-muted-foreground" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Undo ({shortcutLabel("cmd+z")})</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={onRedo}
-              disabled={!canRedo}
-              className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
-              aria-label="Redo"
-            >
-              <IconArrowForwardUp className="w-3.5 h-3.5 text-muted-foreground" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Redo ({shortcutLabel("cmd+shift+z")})</TooltipContent>
-        </Tooltip>
-      </div>
-
-      {/* Separator */}
-      <div className="w-px h-5 bg-accent flex-shrink-0 hidden sm:block" />
-
-      {/* Edit mode tabs */}
-      <div className="flex items-center rounded-md border border-border overflow-hidden flex-shrink-0">
-        <button
-          onClick={() => onTabChange("visual")}
-          className={`px-3 py-2 sm:py-1.5 text-xs font-medium transition-colors ${
-            activeTab === "visual"
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:text-muted-foreground"
-          }`}
-        >
-          Preview
-        </button>
-        <button
-          onClick={() => onTabChange("code")}
-          className={`px-3 py-2 sm:py-1.5 text-xs font-medium transition-colors ${
-            activeTab === "code"
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:text-muted-foreground"
-          }`}
-        >
-          Code
-        </button>
-      </div>
 
       {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
       <PresenceBar
@@ -892,11 +921,12 @@ graph TD
           resourceType="deck"
           resourceId={deckId}
           resourceTitle={deckTitle}
-          shareUrl={shareUrl}
-          shareUrlLabel="Presentation link"
-          shareUrlDescription="Read-only presentation view for anyone with public access."
-          shareUrlRequiresPublic
-          shareUrlUnavailableDescription="This link opens only after general access is Public. Keep the deck private to invite specific people instead."
+          shareUrl={editorUrl}
+          shareUrlLabel="Editor link"
+          shareUrlDescription="Opens the deck in the editor. Anyone with access can use this link."
+          secondaryShareUrl={presentationUrl}
+          secondaryShareUrlLabel="Presentation link"
+          secondaryShareUrlDescription="Opens directly in fullscreen presentation mode."
         />
       </div>
       {/* Present button — matches Share trigger height (h-9) */}

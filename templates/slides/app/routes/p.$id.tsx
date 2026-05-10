@@ -1,9 +1,9 @@
 import SharedPresentation from "@/pages/SharedPresentation";
 import { Spinner } from "@/components/ui/spinner";
 import type { SharedDeckResponse } from "@shared/api";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { useLoaderData } from "react-router";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../../server/db";
@@ -50,20 +50,23 @@ export async function loader({
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
 
+  // Mirror Google Slides: access is checked on the deck, not on the URL shape.
+  // `/p/<id>` (presentation) and `/deck/<id>` (editor) share the same access
+  // rules. Anyone with at least viewer access — owner, explicit share grant,
+  // org visibility for an org member, or public visibility — can open the
+  // presentation. Earlier behavior gated `/p/<id>` on `visibility = "public"`,
+  // which 404'd shared admins and broke the share-link copy flow.
   const db = getDb();
-  if (getRequestUserEmail()) {
-    const [directAccess] = await db
-      .select({ id: schema.decks.id })
-      .from(schema.decks)
-      .where(
-        and(
-          eq(schema.decks.id, id),
+  const userEmail = getRequestUserEmail();
+  const where = userEmail
+    ? and(
+        eq(schema.decks.id, id),
+        or(
           accessFilter(schema.decks, schema.deckShares),
+          eq(schema.decks.visibility, "public"),
         ),
       )
-      .limit(1);
-    if (directAccess) throw redirect(`/deck/${id}`);
-  }
+    : and(eq(schema.decks.id, id), eq(schema.decks.visibility, "public"));
 
   const [deck] = await db
     .select({
@@ -71,7 +74,7 @@ export async function loader({
       data: schema.decks.data,
     })
     .from(schema.decks)
-    .where(and(eq(schema.decks.id, id), eq(schema.decks.visibility, "public")))
+    .where(where)
     .limit(1);
 
   if (!deck) throw new Response("Not found", { status: 404 });
