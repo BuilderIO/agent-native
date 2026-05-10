@@ -203,8 +203,7 @@ body {
     background var(--ease);
 }
 
-.tab:hover .tab-close,
-.tab--active .tab-close {
+.tab:hover .tab-close {
   opacity: 0.5;
 }
 
