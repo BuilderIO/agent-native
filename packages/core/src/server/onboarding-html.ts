@@ -921,7 +921,23 @@ ${
       var origin = __anIsBuilderPreview() ? __anConfiguredOAuthOrigin() : '';
       return origin ? origin + path : __anPath(path);
     }
+    function __anBuilderPreviewReturnOrigin() {
+      try {
+        var url = new URL(window.location.href);
+        var host = url.hostname.toLowerCase();
+        var isPreviewHost =
+          host === 'builderio.xyz' || host.slice(-14) === '.builderio.xyz' ||
+          host === 'builderio.dev' || host.slice(-14) === '.builderio.dev' ||
+          host === 'builder.codes' || host.slice(-14) === '.builder.codes' ||
+          host === 'builder.my' || host.slice(-11) === '.builder.my';
+        return url.protocol === 'https:' && isPreviewHost ? url.origin : '';
+      } catch(e) {
+        return '';
+      }
+    }
     function __anWorkspaceGatewayReturnOrigin() {
+      var previewOrigin = __anBuilderPreviewReturnOrigin();
+      if (previewOrigin) return previewOrigin;
       if (__AN_WORKSPACE_GATEWAY_RETURN_ORIGIN) return __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN;
       return __anIsBuilderDesktop() ? 'http://127.0.0.1:8080' : '';
     }
@@ -971,7 +987,7 @@ ${
       } catch(e) {}
       try {
         var ref = document.referrer || '';
-        return ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1 || ref.indexOf('builderio.xyz') !== -1;
+        return ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1 || ref.indexOf('builderio.xyz') !== -1 || ref.indexOf('builderio.dev') !== -1 || ref.indexOf('builder.codes') !== -1;
       } catch(e) {
         return false;
       }

@@ -21,6 +21,26 @@ function isLoopbackOrigin(origin: string): boolean {
   }
 }
 
+function isBuilderPreviewOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    const hostname = url.hostname.toLowerCase();
+    return (
+      url.protocol === "https:" &&
+      (hostname === "builderio.xyz" ||
+        hostname.endsWith(".builderio.xyz") ||
+        hostname === "builderio.dev" ||
+        hostname.endsWith(".builderio.dev") ||
+        hostname === "builder.codes" ||
+        hostname.endsWith(".builder.codes") ||
+        hostname === "builder.my" ||
+        hostname.endsWith(".builder.my"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function getWorkspaceGatewayReturnOrigin(): string {
   for (const raw of [
     process.env.WORKSPACE_GATEWAY_URL,
@@ -42,7 +62,10 @@ function allowedOAuthReturnOrigins(allowDefaultLoopback: boolean): Set<string> {
 
 export function safeOAuthReturnUrl(
   raw: string | null | undefined,
-  opts: { allowDefaultLoopback?: boolean } = {},
+  opts: {
+    allowDefaultLoopback?: boolean;
+    allowedOrigins?: Iterable<string | undefined>;
+  } = {},
 ): string {
   if (!raw) return "/";
   if (/[\x00-\x1f]/.test(raw)) return "/";
@@ -54,6 +77,10 @@ export function safeOAuthReturnUrl(
     const allowedOrigins = allowedOAuthReturnOrigins(
       opts.allowDefaultLoopback === true,
     );
+    for (const origin of opts.allowedOrigins ?? []) {
+      const normalized = normalizeOrigin(origin);
+      if (normalized) allowedOrigins.add(normalized);
+    }
     if (allowedOrigins.has(parsed.origin)) {
       return parsed.toString();
     }
@@ -67,11 +94,24 @@ export function appendSessionToOAuthReturnUrl(
   raw: string | null | undefined,
   sessionToken: string | undefined,
 ): string {
-  const safe = safeOAuthReturnUrl(raw, { allowDefaultLoopback: true });
+  let safe = safeOAuthReturnUrl(raw, { allowDefaultLoopback: true });
+  if (safe === "/" && raw && !/[\x00-\x1f]/.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      if (isBuilderPreviewOrigin(parsed.origin)) {
+        safe = parsed.toString();
+      }
+    } catch {}
+  }
   if (!sessionToken) return safe;
   try {
     const parsed = new URL(safe);
-    if (!allowedOAuthReturnOrigins(true).has(parsed.origin)) return safe;
+    if (
+      !allowedOAuthReturnOrigins(true).has(parsed.origin) &&
+      !isBuilderPreviewOrigin(parsed.origin)
+    ) {
+      return safe;
+    }
     parsed.searchParams.set("_session", sessionToken);
     return parsed.toString();
   } catch {

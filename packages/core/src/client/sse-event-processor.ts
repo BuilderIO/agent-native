@@ -127,13 +127,23 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "invalid_request_error" ||
     code === "request_too_large" ||
     code === "not_found_error" ||
-    code === "model_not_found"
+    code === "model_not_found" ||
+    // `builder_gateway_error` is the no-detail fallback the Builder engine
+    // emits when the gateway returns `{type:"stop",reason:"error"}` with no
+    // explanation — almost always the upstream provider giving up (model
+    // quota hit, account misconfiguration, opaque downstream failure). The
+    // production-agent already retries this synchronously up to MAX_RETRIES
+    // before the error escapes to the SSE stream, so by the time the client
+    // sees it, retrying again with another POST /agent-chat will hit the
+    // same wall. This used to send the chat into a 32-continuation runaway
+    // (each turn cleared+regenerated visible content) for users hitting a
+    // misbehaving Builder route. Surface the error instead.
+    code === "builder_gateway_error"
   ) {
     return false;
   }
 
   if (
-    code === "builder_gateway_error" ||
     code === "builder_gateway_network_error" ||
     code === "builder_gateway_timeout" ||
     code === "stale_run" ||
@@ -154,12 +164,17 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
 
   if (ev.recoverable === true) return true;
 
+  // "gateway error" intentionally absent — that's the no-detail Builder
+  // gateway fallback and the production-agent already retries it
+  // synchronously up to MAX_RETRIES before the error escapes here. Treating
+  // it as auto-recoverable on top of that produced a 32-continuation
+  // runaway in production for users hitting a misbehaving Builder route.
+  // (See `code === "builder_gateway_error"` in the not-recoverable list.)
   return (
     msg.includes("overloaded") ||
     msg.includes("rate_limit") ||
     msg.includes("too many requests") ||
     msg.includes("timeout") ||
-    msg.includes("gateway error") ||
     msg.includes("gateway timeout") ||
     msg.includes("inactivity timeout") ||
     msg.includes("socket hang up") ||

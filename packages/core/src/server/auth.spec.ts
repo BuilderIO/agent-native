@@ -232,6 +232,84 @@ describe("server/auth", () => {
       ).toBeUndefined();
     });
 
+    it("preserves matching Builder preview proxy return URLs in OAuth state", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+            listOrganizations: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const { decodeOAuthState } = await import("./google-oauth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const authUrlHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/google/auth-url",
+      )?.[1];
+      const previewOrigin =
+        "https://940ebc5a83164aa6a37dde445e494f3a-electric-cliff-2caez1jb.builderio.xyz";
+
+      const result = await authUrlHandler(
+        createMockEvent({
+          path: "/_agent-native/google/auth-url",
+          query: {
+            return: `${previewOrigin}/dispatch?builder.preview=interact`,
+          },
+          headers: {
+            host: "agent-workspace.builder.io",
+            "x-forwarded-proto": "https",
+            referer: `${previewOrigin}/?builder.preview=interact`,
+          },
+        }),
+      );
+
+      const authUrl = new URL(result.url);
+      const state = decodeOAuthState(
+        authUrl.searchParams.get("state") || undefined,
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+      expect(state.returnUrl).toBe(
+        `${previewOrigin}/dispatch?builder.preview=interact`,
+      );
+
+      const rejected = await authUrlHandler(
+        createMockEvent({
+          path: "/_agent-native/google/auth-url",
+          query: {
+            return:
+              "https://other-electric-cliff.builderio.xyz/dispatch?builder.preview=interact",
+          },
+          headers: {
+            host: "agent-workspace.builder.io",
+            "x-forwarded-proto": "https",
+            referer: `${previewOrigin}/?builder.preview=interact`,
+          },
+        }),
+      );
+      const rejectedState = decodeOAuthState(
+        new URL(rejected.url).searchParams.get("state") || undefined,
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+      expect(rejectedState.returnUrl).toBeUndefined();
+    });
+
     it("mounts auth when ACCESS_TOKEN is set in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -1170,6 +1248,30 @@ describe("server/auth", () => {
       expect(safeOAuthReturnUrl("http://127.0.0.1:9090/dispatch")).toBe("/");
     });
 
+    it("allows the active Builder preview proxy origin when supplied by the auth request", async () => {
+      const { safeOAuthReturnUrl } = await import("./oauth-return-url.js");
+      const previewOrigin =
+        "https://940ebc5a83164aa6a37dde445e494f3a-electric-cliff-2caez1jb.builderio.xyz";
+
+      expect(
+        safeOAuthReturnUrl(
+          `${previewOrigin}/dispatch?builder.preview=interact`,
+        ),
+      ).toBe("/");
+      expect(
+        safeOAuthReturnUrl(
+          `${previewOrigin}/dispatch?builder.preview=interact`,
+          { allowedOrigins: [previewOrigin] },
+        ),
+      ).toBe(`${previewOrigin}/dispatch?builder.preview=interact`);
+      expect(
+        safeOAuthReturnUrl(
+          "https://other-electric-cliff.builderio.xyz/dispatch",
+          { allowedOrigins: [previewOrigin] },
+        ),
+      ).toBe("/");
+    });
+
     it("can bridge a hosted OAuth session back to the local workspace gateway", async () => {
       vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080/");
       const { appendSessionToOAuthReturnUrl } =
@@ -1185,6 +1287,17 @@ describe("server/auth", () => {
       );
       expect(appendSessionToOAuthReturnUrl("/dispatch", "session-token")).toBe(
         "/dispatch",
+      );
+    });
+
+    it("can bridge a hosted OAuth session back to a Builder preview proxy URL", async () => {
+      const { appendSessionToOAuthReturnUrl } =
+        await import("./oauth-return-url.js");
+      const previewUrl =
+        "https://940ebc5a83164aa6a37dde445e494f3a-electric-cliff-2caez1jb.builderio.xyz/dispatch?builder.preview=interact";
+
+      expect(appendSessionToOAuthReturnUrl(previewUrl, "session-token")).toBe(
+        `${previewUrl}&_session=session-token`,
       );
     });
   });
@@ -1311,6 +1424,7 @@ describe("server/auth", () => {
       expect(html).toContain(
         "__anSetOAuthDebug('Opening Google sign-in redirect')",
       );
+      expect(html).toContain("function __anBuilderPreviewReturnOrigin()");
       expect(html).toContain("function __anOAuthReturnTarget(ret)");
       expect(html).toContain(
         "params.set('return', __anOAuthReturnTarget(ret))",
@@ -1353,6 +1467,7 @@ describe("server/auth", () => {
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Opening Google sign-in redirect')",
       );
+      expect(loginHtml).toContain("function __anBuilderPreviewReturnOrigin()");
       expect(loginHtml).toContain("function __anOAuthReturnTarget(ret)");
       expect(loginHtml).toContain(
         "params.set('return', __anOAuthReturnTarget(ret))",
