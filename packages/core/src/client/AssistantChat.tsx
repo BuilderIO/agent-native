@@ -2860,7 +2860,10 @@ function ensureMessageMetadata(repo: any): any {
 }
 
 // Re-export for backwards compatibility
-import { extractThreadMeta } from "../agent/thread-data-builder.js";
+import {
+  extractThreadMeta,
+  normalizeThreadRepository,
+} from "../agent/thread-data-builder.js";
 export { extractThreadMeta };
 
 const AssistantChatInner = forwardRef<
@@ -2984,8 +2987,9 @@ const AssistantChatInner = forwardRef<
 
   const importThreadData = useCallback(
     (threadData: unknown, options?: { markTitleGenerated?: boolean }): any => {
-      const repo =
-        typeof threadData === "string" ? JSON.parse(threadData) : threadData;
+      const repo = normalizeThreadRepository(
+        typeof threadData === "string" ? JSON.parse(threadData) : threadData,
+      );
       if (repo?.messages?.length > 0) {
         if (options?.markTitleGenerated) {
           titleGeneratedRef.current = true;
