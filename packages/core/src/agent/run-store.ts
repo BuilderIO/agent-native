@@ -459,9 +459,7 @@ async function safeAppendTerminalRunEvent(
         runId,
         eventType: typeof event.type === "string" ? event.type : "(unknown)",
         firstError:
-          firstError instanceof Error
-            ? firstError.message
-            : String(firstError),
+          firstError instanceof Error ? firstError.message : String(firstError),
       },
     });
   }
