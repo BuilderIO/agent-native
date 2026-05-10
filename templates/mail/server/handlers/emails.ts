@@ -69,6 +69,8 @@ import {
 import {
   bodyToHtml as outgoingBodyToHtml,
   buildRawEmail as buildOutgoingRawEmail,
+  encodeAddressHeader,
+  encodeMimeHeaderValue,
   resolveComposeAttachments,
 } from "../lib/outgoing-email.js";
 import { normalizeSignature } from "../../shared/signature.js";
@@ -1809,11 +1811,11 @@ function buildRawEmail(opts: {
   const textBody = markdownToPlainText(opts.body);
   const htmlBody = bodyToHtml(opts.body, opts.tracking);
   const lines = [
-    `From: ${safeFrom}`,
-    `To: ${safeTo}`,
-    ...(safeCc ? [`Cc: ${safeCc}`] : []),
-    ...(safeBcc ? [`Bcc: ${safeBcc}`] : []),
-    `Subject: ${safeSubject}`,
+    `From: ${encodeAddressHeader(safeFrom)}`,
+    `To: ${encodeAddressHeader(safeTo)}`,
+    ...(safeCc ? [`Cc: ${encodeAddressHeader(safeCc)}`] : []),
+    ...(safeBcc ? [`Bcc: ${encodeAddressHeader(safeBcc)}`] : []),
+    `Subject: ${encodeMimeHeaderValue(safeSubject)}`,
     ...(safeInReplyTo ? [`In-Reply-To: ${safeInReplyTo}`] : []),
     ...(safeReferences ? [`References: ${safeReferences}`] : []),
     `MIME-Version: 1.0`,
