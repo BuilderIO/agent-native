@@ -910,16 +910,27 @@ function collectTextParts(parts: EngineContentPart[]): string {
 export const AGENT_INTERNAL_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
 
+export type AgentLoopContinuationReason =
+  | "run_timeout"
+  | "loop_limit"
+  | "stream_ended"
+  | "gateway_timeout"
+  | "network_interrupted";
+
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
-  reason: "run_timeout" | "loop_limit" | "stream_ended",
+  reason: AgentLoopContinuationReason,
 ) {
   const note =
     reason === "loop_limit"
       ? "The previous run reached an internal step budget."
       : reason === "stream_ended"
         ? "The previous stream ended before the agent sent a final completion signal."
-        : "The previous run reached an internal execution budget.";
+        : reason === "gateway_timeout"
+          ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
+          : reason === "network_interrupted"
+            ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
+            : "The previous run reached an internal execution budget.";
   messages.push({
     role: "user",
     content: [
@@ -929,6 +940,93 @@ export function appendAgentLoopContinuation(
       },
     ],
   });
+}
+
+/**
+ * True when an error thrown by `runAgentLoop` is a recoverable transport- or
+ * gateway-level interruption that the agent can resume from rather than a
+ * terminal failure. The continuation pattern works because the LLM call's
+ * conversation prefix is preserved on the next attempt — Anthropic's prompt
+ * cache rescues the latency, and the agent gets a "you got cut off, continue"
+ * nudge so it doesn't redo work it already finished.
+ *
+ * Distinct from `isRetryableError` which guides per-engine quick retries:
+ * `isResumableEngineError` is checked AFTER engine retries are exhausted, at
+ * the run level. It catches both gateway-reported timeouts (where engine
+ * retries don't apply because the gateway already gave up) and transport
+ * errors that survived engine retry budgets.
+ */
+export function isResumableEngineError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code =
+    err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
+  if (
+    code === "builder_gateway_timeout" ||
+    code === "builder_gateway_network_error"
+  ) {
+    return true;
+  }
+  if (
+    code === "http_502" ||
+    code === "http_503" ||
+    code === "http_504" ||
+    code === "timeout"
+  ) {
+    return true;
+  }
+  const text = errorSearchText(err);
+  return (
+    text.includes("socket hang up") ||
+    text.includes("econnreset") ||
+    text.includes("enetreset") ||
+    text.includes("econnaborted") ||
+    text.includes("fetch failed") ||
+    text.includes("network error") ||
+    text.includes("connection reset") ||
+    text.includes("connection closed") ||
+    text.includes("stream closed") ||
+    text.includes("inactivity timeout") ||
+    text.includes("gateway timeout") ||
+    text.includes("upstream timeout") ||
+    text.includes("function timeout") ||
+    text.includes("too much time has passed without sending any data") ||
+    text.includes("terminated")
+  );
+}
+
+/**
+ * Map a resumable error to the most descriptive continuation reason. Used
+ * when surfacing the resume to the agent and to clients via the
+ * `auto_continue` event.
+ */
+export function continuationReasonForResumableError(
+  err: unknown,
+): "gateway_timeout" | "network_interrupted" {
+  const code =
+    err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
+  if (code === "builder_gateway_timeout") return "gateway_timeout";
+  const text = err instanceof Error ? err.message.toLowerCase() : "";
+  if (
+    text.includes("gateway timeout") ||
+    text.includes("upstream timeout") ||
+    text.includes("function timeout")
+  ) {
+    return "gateway_timeout";
+  }
+  return "network_interrupted";
+}
+
+function errorSearchText(err: unknown): string {
+  const parts: string[] = [];
+  if (err instanceof Error) {
+    parts.push(err.name, err.message);
+    const maybe = err as Error & { code?: unknown; cause?: unknown };
+    if (typeof maybe.code === "string") parts.push(maybe.code);
+    if (maybe.cause) parts.push(errorSearchText(maybe.cause));
+  } else {
+    parts.push(String(err));
+  }
+  return parts.join(" ").toLowerCase();
 }
 
 function textFromEngineMessage(message: EngineMessage): string {
