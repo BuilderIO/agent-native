@@ -1,5 +1,6 @@
 import { createAuthPlugin } from "./auth-plugin.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
+import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 import {
   resolveGoogleAuthMode,
   type GoogleAuthMode,
@@ -20,6 +21,7 @@ export interface GoogleAuthPluginOptions {
 
 function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
   const publicOAuthOrigin = getPublicOAuthOrigin();
+  const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -100,6 +102,7 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
     return __anBasePath() + path;
   }
   var __AN_PUBLIC_OAUTH_ORIGIN = ${JSON.stringify(publicOAuthOrigin)};
+  var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = ${JSON.stringify(workspaceGatewayReturnOrigin)};
   var __AN_GOOGLE_AUTH_MODE = ${JSON.stringify(googleAuthMode)};
   function __anConfiguredOAuthOrigin() {
     if (!__AN_PUBLIC_OAUTH_ORIGIN) return '';
@@ -113,6 +116,42 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
   function __anAuthPath(path) {
     var origin = __anIsBuilderPreview() ? __anConfiguredOAuthOrigin() : '';
     return origin ? origin + path : __anPath(path);
+  }
+  function __anWorkspaceGatewayReturnOrigin() {
+    if (__AN_WORKSPACE_GATEWAY_RETURN_ORIGIN) return __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN;
+    return __anIsBuilderDesktop() ? 'http://127.0.0.1:8080' : '';
+  }
+  function __anNormalizeWorkspaceReturnPath(ret) {
+    try {
+      var url = new URL(ret || '/', window.location.origin);
+      var path = url.pathname || '/';
+      if (path === '/dispatch/dispatch') {
+        path = '/dispatch';
+      } else if (path.indexOf('/dispatch/') === 0) {
+        var rest = path.slice('/dispatch/'.length);
+        var first = rest.split('/')[0];
+        var dispatchRoutes = {
+          overview: true, apps: true, metrics: true, vault: true,
+          integrations: true, messaging: true, workspace: true,
+          agents: true, destinations: true, identities: true,
+          approvals: true, audit: true, team: true, 'thread-debug': true,
+          'new-app': true
+        };
+        if (first === 'dispatch') {
+          path = '/dispatch' + rest.slice(first.length);
+        } else if (first && !dispatchRoutes[first]) {
+          path = '/' + rest;
+        }
+      }
+      return path + url.search + url.hash;
+    } catch(e) {
+      return ret || '/';
+    }
+  }
+  function __anOAuthReturnTarget(ret) {
+    var path = __anNormalizeWorkspaceReturnPath(ret);
+    var origin = __anWorkspaceGatewayReturnOrigin();
+    return origin ? origin + path : path;
   }
   function __anIsBuilderPreview() {
     try {
@@ -265,7 +304,7 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
     }
     if (__anIsBuilderPreview()) {
       var params = new URLSearchParams();
-      if (ret) params.set('return', ret);
+      if (ret) params.set('return', __anOAuthReturnTarget(ret));
       params.set('redirect', '1');
       __anSetOAuthDebug('Opening Google sign-in redirect');
       __anOpenOAuthUrl(__anAuthPath('/_agent-native/google/auth-url') + '?' + params.toString());
