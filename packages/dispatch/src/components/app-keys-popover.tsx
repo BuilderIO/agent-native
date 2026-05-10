@@ -13,6 +13,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface VaultSecret {
   id: string;
@@ -180,7 +181,20 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
 
       <div className="max-h-[320px] space-y-1.5 overflow-y-auto rounded-md border border-border bg-card p-1.5">
         {isLoading ? (
-          <p className="px-3 py-3 text-xs text-muted-foreground">Loading…</p>
+          <div className="space-y-1.5 p-1.5">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div
+                key={index}
+                className="flex items-start gap-3 rounded-md px-2.5 py-2"
+              >
+                <Skeleton className="mt-0.5 h-4 w-4 shrink-0 rounded" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-3 w-1/2" />
+                  <Skeleton className="h-3 w-3/4" />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : typedSecrets.length === 0 ? (
           <p className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
             No vault keys yet. Add one from the Vault page.

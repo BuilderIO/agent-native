@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const PROVIDERS = [
   "google",
@@ -549,22 +550,34 @@ export default function VaultRoute() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <IconKey size={16} />
-              <span>
-                {secretsLoading
-                  ? "Loading..."
-                  : `${secrets?.length || 0} secret${(secrets?.length || 0) !== 1 ? "s" : ""}`}
-              </span>
+              {secretsLoading ? (
+                <Skeleton className="h-4 w-20" />
+              ) : (
+                <span>
+                  {`${secrets?.length || 0} secret${(secrets?.length || 0) !== 1 ? "s" : ""}`}
+                </span>
+              )}
             </div>
             <AddSecretDialog />
           </div>
 
-          {(secrets || []).map((secret: any) => (
-            <SecretRow
-              key={secret.id}
-              secret={secret}
-              grants={grantsBySecret[secret.id] || []}
-            />
-          ))}
+          {secretsLoading && (secrets ?? []).length === 0
+            ? Array.from({ length: 3 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="rounded-2xl border bg-card px-5 py-4 space-y-2"
+                >
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-2/3" />
+                </div>
+              ))
+            : (secrets || []).map((secret: any) => (
+                <SecretRow
+                  key={secret.id}
+                  secret={secret}
+                  grants={grantsBySecret[secret.id] || []}
+                />
+              ))}
 
           {!secretsLoading && (secrets?.length || 0) === 0 && (
             <div className="rounded-2xl border border-dashed px-6 py-12 text-center">
