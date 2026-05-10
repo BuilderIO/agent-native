@@ -397,6 +397,18 @@ async function createDbExecInternal(
     if (isNeonUrl(url)) {
       const { Pool } = await import("@neondatabase/serverless");
       const pool = new Pool({ connectionString: url });
+      // Neon's serverless Pool extends EventEmitter and emits 'error'
+      // when its WebSocket connection drops (idle timeout, Lambda
+      // suspend, network blip). Without a listener, Node 24 surfaces
+      // these as fatal `Unhandled error` / `Connection terminated
+      // unexpectedly` uncaught exceptions, even though the next query
+      // would have transparently re-connected. Log and swallow.
+      pool.on("error", (err: unknown) => {
+        console.warn(
+          "[db/neon] pool error (will reconnect on next query):",
+          err instanceof Error ? err.message : err,
+        );
+      });
       if (trackSingletonResources) _neonPool = pool;
       return {
         async execute(sql) {

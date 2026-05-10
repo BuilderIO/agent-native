@@ -103,6 +103,16 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
       if (isNeonUrl(url)) {
         _dbReady = getNeonServerlessDrizzle().then(({ drizzle, Pool }) => {
           const pool = new Pool({ connectionString: url });
+          // Neon Pool emits 'error' on WebSocket drops (idle, Lambda
+          // suspend, network). Without a listener Node 24 throws
+          // `Unhandled error` as a fatal uncaught exception. The next
+          // query reconnects transparently, so just log and swallow.
+          pool.on("error", (err: unknown) => {
+            console.warn(
+              "[db/neon] pool error (will reconnect on next query):",
+              err instanceof Error ? err.message : err,
+            );
+          });
           _db = drizzle(pool, { schema });
         });
       } else {
