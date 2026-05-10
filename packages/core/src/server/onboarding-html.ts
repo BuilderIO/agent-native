@@ -1008,6 +1008,12 @@ ${
       }
     }
     function __anResolveAuthFlow() {
+      // Per-session override for ad-hoc testing: append ?authMode=popup
+      // or ?authMode=redirect to the sign-in URL. Wins over every other rule.
+      try {
+        var qp = new URLSearchParams(window.location.search).get('authMode');
+        if (qp === 'popup' || qp === 'redirect') return qp;
+      } catch(e) {}
       // Builder.io browser iframe must use popup — Google sets
       // X-Frame-Options: DENY so a redirect inside the iframe fails.
       if (__anIsBuilderPreview() && !__anIsBuilderDesktop()) return 'popup';
