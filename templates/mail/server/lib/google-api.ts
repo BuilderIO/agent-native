@@ -748,9 +748,7 @@ async function gmailBatchGet(
   const quotaPart = parsed.find((part) => isQuotaErrorText(part.error));
   if (quotaPart) {
     tripCooldown(accessToken);
-    throw new Error(
-      `Google API error (429): Gmail batch rate limit for ${quotaPart.id}; ${quotaCooldownMessage()}`,
-    );
+    throw new Error(quotaCooldownMessage());
   }
   return parsed;
 }

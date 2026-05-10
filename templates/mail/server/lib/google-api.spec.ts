@@ -30,7 +30,7 @@ describe("googleFetch quota handling", () => {
         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
         "quota-token-a",
       ),
-    ).rejects.toThrow(/retry in 120s/);
+    ).rejects.toThrow(/about 120s/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await expect(
@@ -38,7 +38,7 @@ describe("googleFetch quota handling", () => {
         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
         "quota-token-a",
       ),
-    ).rejects.toThrow(/Rate limit cooldown/);
+    ).rejects.toThrow(/briefly busy/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -67,12 +67,12 @@ describe("googleFetch quota handling", () => {
 
     await expect(
       gmailBatchGetMessages("quota-token-b", ["msg-1"], "metadata"),
-    ).rejects.toThrow(/Gmail batch rate limit/);
+    ).rejects.toThrow(/briefly busy/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await expect(
       gmailBatchGetMessages("quota-token-b", ["msg-2"], "metadata"),
-    ).rejects.toThrow(/Rate limit cooldown/);
+    ).rejects.toThrow(/briefly busy/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
