@@ -2434,6 +2434,7 @@ function mountTokenOnlyRoutes(
       setCookie(event, COOKIE_NAME, sessionToken, {
         httpOnly: true,
         ...crossSiteCookieAttrs(event),
+        ...cookieDomainAttrs(),
         path: "/",
         maxAge: sessionMaxAge,
       });
@@ -2448,7 +2449,7 @@ function mountTokenOnlyRoutes(
       if (cookie) await removeSession(cookie);
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
-      deleteCookie(event, COOKIE_NAME, { path: "/" });
+      deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
       if (isElectronRequest(event)) await clearDesktopSso();
       return { ok: true };
     }),
@@ -2508,6 +2509,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
           setCookie(event, COOKIE_NAME, result.token, {
             httpOnly: true,
             ...crossSiteCookieAttrs(event),
+            ...cookieDomainAttrs(),
             path: "/",
             maxAge: sessionMaxAge,
           });
