@@ -2973,6 +2973,44 @@ const AssistantChatInner = forwardRef<
   const threadRuntime = useThreadRuntime();
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
+
+  // Patch the underlying assistant-ui MessageRepository so addOrUpdateMessage
+  // can't throw "Parent message not found" mid-run. assistant-ui calls
+  // `repository.clear()` from `runtime.import()` and from `resetHead(null)`,
+  // and on a few async paths (history-adapter load, branch reset, repeat
+  // imports) the repo can be cleared between the `append` that added the
+  // user message and the `performRoundtrip` call that tries to record the
+  // assistant placeholder against that user message's id. The internal-bug
+  // throw turns into an unhandled rejection that Sentry captures from the
+  // images.agent-native.com prompt composer (AGENT-NATIVE-BROWSER-18). Fix
+  // it by relinking to the current head whenever the requested parent has
+  // gone missing instead of throwing.
+  useEffect(() => {
+    const repo = (threadRuntime as any)?.__internal_threadBinding?.getState?.()
+      ?.repository as
+      | { addOrUpdateMessage?: (parentId: any, message: any) => void }
+      | undefined;
+    if (!repo || typeof repo.addOrUpdateMessage !== "function") return;
+    const patched = repo as any;
+    if (patched.__agentNativePatched) return;
+    patched.__agentNativePatched = true;
+    const original = repo.addOrUpdateMessage.bind(repo);
+    repo.addOrUpdateMessage = function (parentId: any, message: any) {
+      try {
+        return original(parentId, message);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (parentId && msg.includes("Parent message not found")) {
+          const fallbackParent = (this as any).head?.current?.id ?? null;
+          if (fallbackParent && fallbackParent !== parentId) {
+            return original(fallbackParent, message);
+          }
+          return original(null, message);
+        }
+        throw err;
+      }
+    };
+  }, [threadRuntime]);
   const [missingApiKey, setMissingApiKey] = useState(false);
   const isComposerDisabled = missingApiKey || composerDisabled;
   // Increments each time the user clicks the (disabled) composer while no LLM
