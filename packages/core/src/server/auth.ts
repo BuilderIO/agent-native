@@ -65,6 +65,7 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
+import type { GoogleAuthMode } from "./google-auth-mode.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   readDesktopSso,
@@ -191,6 +192,18 @@ export interface AuthOptions {
     continueLabel?: string;
     cancelLabel?: string;
   };
+  /**
+   * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
+   *
+   * - `'auto'` — popup in normal browsers, redirect in Electron. Always uses
+   *   popup inside the Builder.io browser iframe (Google blocks framing).
+   * - `'popup'` — force popup everywhere.
+   * - `'redirect'` — force redirect everywhere except the Builder.io browser
+   *   iframe, which stays popup for technical reasons.
+   *
+   * Falls back to the `GOOGLE_AUTH_MODE` env var, then `'auto'`.
+   */
+  googleAuthMode?: GoogleAuthMode;
   /**
    * Additional Better Auth configuration (social providers, plugins, etc.)
    */
@@ -2396,6 +2409,7 @@ async function mountBetterAuthRoutes(
       googleOnly: options.googleOnly,
       marketing: options.marketing,
       googleSignInNotice: options.googleSignInNotice,
+      googleAuthMode: options.googleAuthMode,
     });
   _authGuardConfig = { loginHtml, publicPaths };
   const guardFn = createAuthGuardFn();
@@ -2666,6 +2680,7 @@ export async function autoMountAuth(
             googleOnly: options.googleOnly,
             marketing: options.marketing,
             googleSignInNotice: options.googleSignInNotice,
+            googleAuthMode: options.googleAuthMode,
           });
       }
       if (options.publicPaths) {
@@ -2785,6 +2800,7 @@ export async function autoMountAuth(
         googleOnly: options.googleOnly,
         marketing: options.marketing,
         googleSignInNotice: options.googleSignInNotice,
+        googleAuthMode: options.googleAuthMode,
       });
     _authGuardConfig = { loginHtml, publicPaths };
     const guardFn = createAuthGuardFn();

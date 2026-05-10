@@ -80,6 +80,7 @@ export {
   createGoogleAuthPlugin,
   type GoogleAuthPluginOptions,
 } from "./google-auth-plugin.js";
+export type { GoogleAuthMode } from "./google-auth-mode.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
