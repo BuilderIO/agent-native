@@ -8,6 +8,10 @@
  */
 
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
+import {
+  resolveGoogleAuthMode,
+  type GoogleAuthMode,
+} from "./google-auth-mode.js";
 
 function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -72,6 +76,12 @@ export interface OnboardingHtmlOptions {
     continueLabel?: string;
     cancelLabel?: string;
   };
+  /**
+   * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
+   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. The Builder.io
+   * browser iframe always uses popup regardless (Google blocks framing).
+   */
+  googleAuthMode?: GoogleAuthMode;
 }
 
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
@@ -81,6 +91,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
   const publicOAuthOrigin = getPublicOAuthOrigin();
+  const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
 
   const marketing = opts.marketing;
   const hasMarketing = !!marketing;
@@ -893,6 +904,7 @@ ${
       return __anBasePath() + path;
     }
     var __AN_PUBLIC_OAUTH_ORIGIN = ${JSON.stringify(publicOAuthOrigin)};
+    var __AN_GOOGLE_AUTH_MODE = ${JSON.stringify(googleAuthMode)};
     function __anConfiguredOAuthOrigin() {
       if (!__AN_PUBLIC_OAUTH_ORIGIN) return '';
       try {
@@ -932,6 +944,22 @@ ${
       } catch(e) {
         return false;
       }
+    }
+    function __anIsElectron() {
+      try {
+        return (navigator.userAgent || '').indexOf('Electron') !== -1;
+      } catch(e) {
+        return false;
+      }
+    }
+    function __anResolveAuthFlow() {
+      // Builder.io browser iframe must use popup — Google sets
+      // X-Frame-Options: DENY so a redirect inside the iframe fails.
+      if (__anIsBuilderPreview() && !__anIsBuilderDesktop()) return 'popup';
+      var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
+      if (mode === 'popup') return 'popup';
+      if (mode === 'redirect') return 'redirect';
+      return __anIsElectron() ? 'redirect' : 'popup';
     }
     var __anOAuthPollTimer = null;
     var __anOAuthPollCount = 0;
@@ -1003,7 +1031,7 @@ ${
       __anOAuthPollTimer = setInterval(check, 1000);
       setTimeout(check, 500);
     }
-    function __anStartBuilderOAuth(ret, btn, err) {
+    function __anStartPopupOAuth(ret, btn, err) {
       var flowId = __anNewOAuthFlowId();
       var params = new URLSearchParams();
       if (ret) params.set('return', ret);
@@ -1512,8 +1540,8 @@ ${
     var ret = __anGetReturnPath();
     btn.disabled = true;
     err.classList.remove('show');
-    if (__anIsBuilderPreview() && !__anIsBuilderDesktop()) {
-      __anStartBuilderOAuth(ret, btn, err);
+    if (__anResolveAuthFlow() === 'popup') {
+      __anStartPopupOAuth(ret, btn, err);
       return;
     }
     if (__anIsBuilderPreview()) {
