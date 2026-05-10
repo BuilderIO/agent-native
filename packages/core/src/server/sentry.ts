@@ -118,6 +118,43 @@ export function initServerSentry(): boolean {
       ) {
         return null;
       }
+      // h3's `createError({ statusCode: 4xx, ... })` produces an
+      // `HTTPError` (h3 v2) / `H3Error` (h3 v1). 4xx HTTPErrors are
+      // handler-controlled "expected failure" responses (404 not found,
+      // 400 bad input) that route through Nitro's error hook just
+      // because they bubble out of `defineEventHandler`. They aren't
+      // bugs — they're the documented way to return a 4xx in h3.
+      // Capture only when the statusCode looks like 5xx (real failure)
+      // or is missing (generic Error masquerading as HTTPError).
+      if (exceptionType === "HTTPError" || exceptionType === "H3Error") {
+        const statusCode = (event.tags?.statusCode ??
+          (
+            event.contexts as
+              | Record<string, Record<string, unknown>>
+              | undefined
+          )?.h3?.statusCode) as number | string | undefined;
+        const code =
+          typeof statusCode === "string"
+            ? parseInt(statusCode, 10)
+            : statusCode;
+        if (typeof code === "number" && code >= 400 && code < 500) {
+          return null;
+        }
+        // No statusCode in the event payload — fall back to matching the
+        // common 4xx messages so handler-thrown 404/400/403/401 don't
+        // pollute Sentry. This is a heuristic, but the alternatives
+        // (every 4xx becomes a "real" issue, or we patch every route to
+        // catch+return) are worse.
+        const value = event.exception?.values?.[0]?.value ?? "";
+        if (
+          /^Cannot find any route matching/i.test(value) ||
+          / not found$/i.test(value) ||
+          /Unauthenticated$/i.test(value) ||
+          /^No access to /i.test(value)
+        ) {
+          return null;
+        }
+      }
 
       // Defense in depth: scrub PII even if some integration auto-attached
       // request metadata despite sendDefaultPii: false.
