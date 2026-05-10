@@ -322,6 +322,48 @@ describe("mergeThreadDataForClientSave", () => {
     expect(merged.messages).toEqual(existing.messages);
   });
 
+  it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {
+    // The runtime's saveThreadData PUT sends the runtime export, which
+    // assigns every user message `attachments: []`. The server's
+    // `persistSubmittedUserMessage` → `buildUserMessage` writes the same
+    // logical message but omits `attachments` entirely. Without
+    // attachment normalization in `messageIdentityKeys`, the merge sees
+    // them as different fingerprints and keeps both, producing a duplicate
+    // user-message row per turn (observed on slides prod: every turn
+    // ended up as `client_user → assistant → server_user`).
+    const existing = {
+      messages: [
+        {
+          message: {
+            id: "server-user-run-2026-05-10",
+            role: "user",
+            content: [{ type: "text", text: "make me a deck about pumpkins" }],
+            metadata: { custom: { submittedRunId: "run-2026-05-10" } },
+          },
+          parentId: null,
+        },
+      ],
+    };
+    const incoming = {
+      messages: [
+        {
+          message: {
+            id: "client-runtime-id",
+            role: "user",
+            content: [{ type: "text", text: "make me a deck about pumpkins" }],
+            attachments: [],
+            metadata: { custom: {} },
+          },
+          parentId: null,
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+
+    expect(merged.messages).toHaveLength(1);
+  });
+
   it("keeps a terminal server message over a stale same-run partial", () => {
     const existing = {
       messages: [
