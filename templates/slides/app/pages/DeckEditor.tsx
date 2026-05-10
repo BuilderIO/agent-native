@@ -365,37 +365,46 @@ export default function DeckEditor() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !activeSlideId) return;
-      // Don't intercept if user is typing in an input/textarea/contenteditable
-      // OR if a slide element is selected (image/text element selection state
-      // is owned by SlideEditor — we shouldn't blast the whole slide just
-      // because the user clicked an image then hit Delete).
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      )
-        return;
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // Don't intercept while the user is in an annotation mode (pin / draw)
+      // — they are clearly composing, not navigating slides.
+      if (pinMode || drawMode) return;
+      // Bail if the focused element OR the event target is editable, lives
+      // inside the agent sidebar, lives inside a pin popover, or is a slide
+      // element selection. Walking ancestors instead of relying on tagName
+      // alone catches Tiptap (contenteditable), portaled popovers, and
+      // shadcn wrappers that re-route focus.
+      const isInsideSafeZone = (el: Element | null) => {
+        if (!el) return false;
+        if (el instanceof HTMLInputElement) return true;
+        if (el instanceof HTMLTextAreaElement) return true;
+        if (el instanceof HTMLElement) {
+          if (el.isContentEditable) return true;
+          if (el.closest("[contenteditable='true']")) return true;
+          if (el.closest("input, textarea, [role='textbox']")) return true;
+          if (el.closest("[data-pin-popover]")) return true;
+          if (el.closest(".agent-panel-root")) return true;
+        }
+        return false;
+      };
+      const target = e.target as Element | null;
+      if (isInsideSafeZone(target)) return;
+      if (isInsideSafeZone(document.activeElement)) return;
       // Skip if the SlideEditor reports an element is selected (image, text
       // block, or builder-id selector). Slide-level delete is reserved for
       // when the canvas itself has focus.
       if (document.querySelector("[data-slide-element-selected='true']"))
         return;
-      if (
-        (e.key === "Delete" || e.key === "Backspace") &&
-        !e.metaKey &&
-        !e.ctrlKey
-      ) {
-        if (deck.slides.length <= 1) return; // don't delete last slide
-        const idx = deck.slides.findIndex((s) => s.id === activeSlideId);
-        const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
-        deleteSlideWithUndo(id, activeSlideId);
-        if (nextSlide) setActiveSlideId(nextSlide.id);
-      }
+      if (deck.slides.length <= 1) return; // don't delete last slide
+      const idx = deck.slides.findIndex((s) => s.id === activeSlideId);
+      const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
+      deleteSlideWithUndo(id, activeSlideId);
+      if (nextSlide) setActiveSlideId(nextSlide.id);
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [deck, id, activeSlideId, deleteSlideWithUndo]);
+  }, [deck, id, activeSlideId, deleteSlideWithUndo, pinMode, drawMode]);
 
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.

@@ -28,6 +28,18 @@ export function useNavigationState() {
       if (path.endsWith("/present")) {
         state.view = "present";
       }
+      // The deck editor stores the active slide as a 1-based ?slide=N URL
+      // param. Convert to a 0-based index for the agent so view-screen can
+      // pick the correct slide; without this, the agent always thought the
+      // user was on slide 1 (off-by-one vs. the toolbar's "6 of 10").
+      const params = new URLSearchParams(location.search);
+      const slideParam = params.get("slide");
+      if (slideParam) {
+        const oneBased = parseInt(slideParam, 10);
+        if (Number.isFinite(oneBased) && oneBased >= 1) {
+          state.slideIndex = oneBased - 1;
+        }
+      }
     } else if (path.startsWith("/settings")) {
       state.view = "settings";
     } else if (path.startsWith("/share/")) {
@@ -43,7 +55,7 @@ export function useNavigationState() {
       },
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({

@@ -388,7 +388,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         // Also re-fetch the currently-open deck so agent-added slides show up.
         // The list endpoint may not include full slide contents, and SSE can
         // miss events if the client reconnects between broadcasts.
-        if (currentOpenId && !pending.has(currentOpenId)) {
+        //
+        // Skip the refetch if a save is pending or in flight — the server's
+        // copy might be a few hundred ms behind the local edits the user is
+        // mid-typing, and overwriting wholesale would briefly revert their
+        // characters before the next save lands. The next poll tick (after
+        // saves settle) catches up.
+        if (
+          currentOpenId &&
+          !pending.has(currentOpenId) &&
+          !pendingSaves.has(currentOpenId) &&
+          !inFlightSaves.has(currentOpenId)
+        ) {
           try {
             const res = await fetch(
               `${appBasePath()}/api/decks/${currentOpenId}`,
@@ -469,6 +480,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           lastExternalUpdateRef.current = Date.now();
           setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
         } else if (data.type === "deck-changed" && data.deckId) {
+          // Skip if a save for this deck is pending or in flight — this
+          // event is most likely the echo of our own write and the server
+          // copy may be a few hundred ms behind what the user just typed.
+          // Polling and the next save's response will bring the canonical
+          // state once the local burst settles.
+          if (pendingSaves.has(data.deckId) || inFlightSaves.has(data.deckId)) {
+            return;
+          }
           // Refetch the changed deck from the API
           const res = await fetch(`${appBasePath()}/api/decks/${data.deckId}`);
           if (!res.ok) return;

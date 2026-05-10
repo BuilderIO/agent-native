@@ -754,14 +754,20 @@ graph TD
                     setToolsOpen(false);
                   }}
                   data-toolbar-pin-button
-                  className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                  className={`flex items-start gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
                     pinMode
                       ? "text-foreground bg-accent/50"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                   }`}
                 >
-                  <IconPin className="w-3.5 h-3.5" />
-                  Drop comment pin
+                  <IconPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                  <span className="flex flex-col items-start min-w-0">
+                    <span>Pin comments</span>
+                    <span className="text-[10px] text-muted-foreground/80 leading-tight mt-0.5">
+                      Click spots on the slide to queue several edits, then send
+                      them all at once.
+                    </span>
+                  </span>
                 </button>
               )}
             </div>
