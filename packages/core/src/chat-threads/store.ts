@@ -1,4 +1,8 @@
-import { getDbExec, isPostgres, intType } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
+import {
+  mergeThreadDataForClientSave,
+  normalizeThreadRepository,
+} from "../agent/thread-data-builder.js";
 import { emitChatThreadChange } from "./emitter.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -13,10 +17,9 @@ let _initPromise: Promise<void> | undefined;
  * while leaving straight reads and other thread-data-unrelated updates
  * untouched.
  *
- * Cross-process races (multiple Node replicas writing the same thread at
- * the same instant) are not fixed here — acceptable for `thread_data`
- * today because writes come from either the user's own tab or an agent
- * run owned by that user, which run in one place at a time.
+ * Cross-process races are handled by `updateThreadData`, which performs a
+ * compare-and-swap on `updated_at`, rereads the latest row on conflict, and
+ * remerges message history before retrying.
  */
 const _threadDataLocks = new Map<string, Promise<unknown>>();
 
@@ -85,6 +88,47 @@ export interface ChatThreadSummary {
   updatedAt: number;
 }
 
+function deriveMessageCount(threadData: unknown, fallback: number): number {
+  if (typeof threadData !== "string" || !threadData.trim()) return fallback;
+  try {
+    const repo = normalizeThreadRepository(JSON.parse(threadData));
+    if (Array.isArray(repo.messages)) return repo.messages.length;
+  } catch {
+    // Keep the stored count if the JSON blob is malformed.
+  }
+  return fallback;
+}
+
+function rowToThread(r: Record<string, unknown>): ChatThread {
+  const threadData = (r.thread_data as string) ?? "{}";
+  const storedCount = Number(r.message_count);
+  return {
+    id: r.id as string,
+    ownerEmail: r.owner_email as string,
+    title: r.title as string,
+    preview: r.preview as string,
+    threadData,
+    messageCount: deriveMessageCount(threadData, storedCount),
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+  };
+}
+
+function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
+  const threadData = r.thread_data as string | undefined;
+  const storedCount = Number(r.message_count);
+  const messageCount = deriveMessageCount(threadData, storedCount);
+  if (messageCount <= 0) return null;
+  return {
+    id: r.id as string,
+    title: r.title as string,
+    preview: r.preview as string,
+    messageCount,
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+  };
+}
+
 export async function createThread(
   ownerEmail: string,
   opts?: { id?: string; title?: string },
@@ -120,17 +164,7 @@ export async function getThread(id: string): Promise<ChatThread | null> {
     args: [id],
   });
   if (rows.length === 0) return null;
-  const r = rows[0];
-  return {
-    id: r.id as string,
-    ownerEmail: r.owner_email as string,
-    title: r.title as string,
-    preview: r.preview as string,
-    threadData: r.thread_data as string,
-    messageCount: Number(r.message_count),
-    createdAt: Number(r.created_at),
-    updatedAt: Number(r.updated_at),
-  };
+  return rowToThread(rows[0]);
 }
 
 export async function forkThread(
@@ -177,17 +211,12 @@ export async function listThreads(
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, title, preview, message_count, created_at, updated_at FROM chat_threads WHERE owner_email = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+    sql: `SELECT id, title, preview, thread_data, message_count, created_at, updated_at FROM chat_threads WHERE owner_email = ? AND (message_count > 0 OR thread_data LIKE '%"messages"%') ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
     args: [ownerEmail, limit, offset],
   });
-  return rows.map((r) => ({
-    id: r.id as string,
-    title: r.title as string,
-    preview: r.preview as string,
-    messageCount: Number(r.message_count),
-    createdAt: Number(r.created_at),
-    updatedAt: Number(r.updated_at),
-  }));
+  return rows
+    .map((r) => rowToSummary(r))
+    .filter((r): r is ChatThreadSummary => r !== null);
 }
 
 function escapeLike(s: string): string {
@@ -203,17 +232,26 @@ export async function searchThreads(
   const client = getDbExec();
   const pattern = `%${escapeLike(query)}%`;
   const { rows } = await client.execute({
-    sql: `SELECT id, title, preview, message_count, created_at, updated_at FROM chat_threads WHERE owner_email = ? AND (title LIKE ? OR preview LIKE ? OR thread_data LIKE ?) ORDER BY updated_at DESC LIMIT ?`,
+    sql: `SELECT id, title, preview, thread_data, message_count, created_at, updated_at FROM chat_threads WHERE owner_email = ? AND (message_count > 0 OR thread_data LIKE '%"messages"%') AND (title LIKE ? OR preview LIKE ? OR thread_data LIKE ?) ORDER BY updated_at DESC LIMIT ?`,
     args: [ownerEmail, pattern, pattern, pattern, limit],
   });
-  return rows.map((r) => ({
-    id: r.id as string,
-    title: r.title as string,
-    preview: r.preview as string,
-    messageCount: Number(r.message_count),
-    createdAt: Number(r.created_at),
-    updatedAt: Number(r.updated_at),
-  }));
+  return rows
+    .map((r) => rowToSummary(r))
+    .filter((r): r is ChatThreadSummary => r !== null);
+}
+
+export interface UpdateThreadDataOptions {
+  preserveExistingQueuedMessages?: boolean;
+  preserveExistingTopLevelKeys?: boolean;
+  maxAttempts?: number;
+}
+
+function parseThreadData(value: string): any {
+  try {
+    return JSON.parse(value || "{}");
+  } catch {
+    return {};
+  }
 }
 
 export async function updateThreadData(
@@ -222,14 +260,66 @@ export async function updateThreadData(
   title: string,
   preview: string,
   messageCount: number,
+  options: UpdateThreadDataOptions = {},
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ?`,
-    args: [threadData, title, preview, messageCount, Date.now(), id],
-  });
-  emitChatThreadChange(id);
+  const maxAttempts = options.maxAttempts ?? 5;
+  let lastConflict = false;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const current = await getThread(id);
+    if (!current) return;
+
+    let nextThreadData = threadData;
+    let nextMessageCount = messageCount;
+    try {
+      const merged = mergeThreadDataForClientSave(
+        parseThreadData(current.threadData),
+        parseThreadData(threadData),
+        {
+          preserveExistingQueuedMessages:
+            options.preserveExistingQueuedMessages ?? true,
+          preserveExistingTopLevelKeys:
+            options.preserveExistingTopLevelKeys ?? true,
+        },
+      );
+      nextThreadData = JSON.stringify(merged);
+      if (Array.isArray(merged.messages)) {
+        nextMessageCount = merged.messages.length;
+      }
+    } catch {
+      // Keep the caller's serialized value if either JSON blob is malformed.
+    }
+
+    const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
+    const result = await client.execute({
+      sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
+      args: [
+        nextThreadData,
+        title,
+        preview,
+        nextMessageCount,
+        nextUpdatedAt,
+        id,
+        current.updatedAt,
+      ],
+    });
+
+    if (result.rowsAffected > 0) {
+      emitChatThreadChange(id);
+      return;
+    }
+
+    lastConflict = true;
+    await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+  }
+
+  if (lastConflict) {
+    throw new Error(
+      `Failed to update chat thread ${id} after concurrent write conflicts.`,
+    );
+  }
 }
 
 export interface ThreadEngineMeta {
@@ -313,6 +403,7 @@ export async function setThreadQueuedMessages(
       thread.title,
       thread.preview,
       thread.messageCount,
+      { preserveExistingQueuedMessages: false },
     );
   });
 }

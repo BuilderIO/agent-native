@@ -370,6 +370,72 @@ function repoHasAssistantMessage(repo: any): boolean {
   );
 }
 
+function getRepoMessages(repo: any): any[] {
+  return Array.isArray(repo?.messages) ? repo.messages : [];
+}
+
+function getRepoMessage(entry: any): any {
+  return entry?.message ?? entry;
+}
+
+function isAssistantMessageTerminal(message: any): boolean {
+  const statusType =
+    message?.status && typeof message.status === "object"
+      ? message.status.type
+      : undefined;
+  return statusType === "complete" || statusType === "incomplete";
+}
+
+function repoTextLength(repo: any): number {
+  let length = 0;
+  for (const entry of getRepoMessages(repo)) {
+    const message = getRepoMessage(entry);
+    const content = message?.content;
+    if (typeof content === "string") {
+      length += content.length;
+    } else if (Array.isArray(content)) {
+      for (const part of content) {
+        if (part?.type === "text" && typeof part.text === "string") {
+          length += part.text.length;
+        }
+      }
+    }
+  }
+  return length;
+}
+
+function repoTerminalAssistantCount(repo: any): number {
+  return getRepoMessages(repo).filter((entry) => {
+    const message = getRepoMessage(entry);
+    return message?.role === "assistant" && isAssistantMessageTerminal(message);
+  }).length;
+}
+
+function shouldImportServerThreadData(currentRepo: any, incomingRepo: any) {
+  const incomingCount = getRepoMessages(incomingRepo).length;
+  if (incomingCount === 0) return false;
+
+  const currentCount = getRepoMessages(currentRepo).length;
+  if (currentCount === 0) return true;
+  if (incomingCount < currentCount) return false;
+
+  if (incomingCount === currentCount) {
+    const currentTerminalAssistants = repoTerminalAssistantCount(currentRepo);
+    const incomingTerminalAssistants = repoTerminalAssistantCount(incomingRepo);
+    if (incomingTerminalAssistants < currentTerminalAssistants) {
+      return false;
+    }
+    if (
+      incomingTerminalAssistants <= currentTerminalAssistants &&
+      repoTextLength(incomingRepo) < repoTextLength(currentRepo)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function clearPendingSelection() {
   fetch(
     agentNativePath(
@@ -2860,7 +2926,10 @@ function ensureMessageMetadata(repo: any): any {
 }
 
 // Re-export for backwards compatibility
-import { extractThreadMeta } from "../agent/thread-data-builder.js";
+import {
+  extractThreadMeta,
+  normalizeThreadRepository,
+} from "../agent/thread-data-builder.js";
 export { extractThreadMeta };
 
 const AssistantChatInner = forwardRef<
@@ -2984,13 +3053,25 @@ const AssistantChatInner = forwardRef<
 
   const importThreadData = useCallback(
     (threadData: unknown, options?: { markTitleGenerated?: boolean }): any => {
-      const repo =
-        typeof threadData === "string" ? JSON.parse(threadData) : threadData;
+      const repo = normalizeThreadRepository(
+        typeof threadData === "string" ? JSON.parse(threadData) : threadData,
+      );
       if (repo?.messages?.length > 0) {
-        if (options?.markTitleGenerated) {
-          titleGeneratedRef.current = true;
+        let shouldImport = true;
+        try {
+          shouldImport = shouldImportServerThreadData(
+            normalizeThreadRepository(threadRuntime.export()),
+            repo,
+          );
+        } catch {
+          shouldImport = true;
         }
-        threadRuntime.import(ensureMessageMetadata(repo));
+        if (shouldImport) {
+          if (options?.markTitleGenerated) {
+            titleGeneratedRef.current = true;
+          }
+          threadRuntime.import(ensureMessageMetadata(repo));
+        }
       }
       if (Array.isArray(repo?.queuedMessages)) {
         setQueuedMessages(repo.queuedMessages);

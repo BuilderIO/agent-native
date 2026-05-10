@@ -26,9 +26,9 @@ function isInternalContinuationError(event: {
 }): boolean {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
+  if (code === "builder_gateway_error") return false;
   return (
     event.recoverable === true ||
-    code === "builder_gateway_error" ||
     code === "builder_gateway_timeout" ||
     code === "stale_run" ||
     code === "timeout" ||
@@ -43,7 +43,6 @@ function isInternalContinuationError(event: {
     code === "too_many_concurrent_requests" ||
     code === "overloaded_error" ||
     msg.includes("timeout") ||
-    msg.includes("gateway error") ||
     msg.includes("gateway timeout") ||
     msg.includes("inactivity timeout") ||
     msg.includes("stream ended") ||
@@ -203,6 +202,22 @@ function getStoredMessage(entry: any): any {
   return entry?.message ?? entry;
 }
 
+function getStoredParentId(entry: any): string | null | undefined {
+  return typeof entry?.parentId === "string" || entry?.parentId === null
+    ? entry.parentId
+    : undefined;
+}
+
+function getStoredRunConfig(entry: any): any {
+  return entry && typeof entry === "object" && "runConfig" in entry
+    ? entry.runConfig
+    : undefined;
+}
+
+function messageId(message: any): string | undefined {
+  return typeof message?.id === "string" && message.id ? message.id : undefined;
+}
+
 function getMessageRunId(message: any): string | undefined {
   const meta = message?.metadata;
   const direct = meta?.runId;
@@ -309,6 +324,75 @@ function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   return incomingEntry;
 }
 
+function normalizeMessageEntry(
+  entry: any,
+  parentId: string | null,
+): { message: any; parentId: string | null; runConfig?: any } | null {
+  const message = getStoredMessage(entry);
+  if (!messageId(message)) return null;
+  const runConfig = getStoredRunConfig(entry);
+  return {
+    message,
+    parentId,
+    ...(runConfig !== undefined ? { runConfig } : {}),
+  };
+}
+
+/**
+ * Convert legacy/partially merged thread data into assistant-ui's exported
+ * repository shape and repair parent links so `threadRuntime.import()` cannot
+ * fail with "Parent message not found".
+ */
+export function normalizeThreadRepository(repo: any): any {
+  const normalized = repo && typeof repo === "object" ? { ...repo } : {};
+  const sourceMessages = Array.isArray(repo?.messages) ? repo.messages : [];
+  const messages: Array<{
+    message: any;
+    parentId: string | null;
+    runConfig?: any;
+  }> = [];
+  const seenIds = new Set<string>();
+  let previousId: string | null = null;
+
+  for (const entry of sourceMessages) {
+    const message = getStoredMessage(entry);
+    const id = messageId(message);
+    if (!id) continue;
+
+    const requestedParentId = getStoredParentId(entry);
+    const parentId =
+      requestedParentId === null
+        ? null
+        : requestedParentId && seenIds.has(requestedParentId)
+          ? requestedParentId
+          : previousId;
+
+    const normalizedEntry = normalizeMessageEntry(entry, parentId);
+    if (!normalizedEntry) continue;
+
+    messages.push(normalizedEntry);
+    seenIds.add(id);
+    previousId = id;
+  }
+
+  normalized.messages = messages;
+  const headId = typeof repo?.headId === "string" ? repo.headId : undefined;
+  normalized.headId =
+    headId && seenIds.has(headId) ? headId : (previousId ?? null);
+  return normalized;
+}
+
+function rewriteEntryParentId(
+  entry: any,
+  idRewrites: Map<string, string>,
+): any {
+  const parentId = getStoredParentId(entry);
+  if (!parentId) return entry;
+  const rewritten = idRewrites.get(parentId);
+  if (!rewritten) return entry;
+  return { ...entry, parentId: rewritten };
+}
+
 /**
  * Merge an incoming client-side full-thread save over the current SQL copy.
  *
@@ -318,23 +402,52 @@ function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
  * reconstructed from run events. Preserve server-only messages while still
  * accepting client-only messages and metadata.
  */
+export interface MergeThreadDataOptions {
+  preserveExistingQueuedMessages?: boolean;
+  preserveExistingTopLevelKeys?: boolean;
+}
+
 export function mergeThreadDataForClientSave(
   existingRepo: any,
   incomingRepo: any,
+  options: MergeThreadDataOptions = {},
 ) {
+  const preserveExistingQueuedMessages =
+    options.preserveExistingQueuedMessages ?? true;
+  const preserveExistingTopLevelKeys =
+    options.preserveExistingTopLevelKeys ?? true;
+  const existingNormalized = normalizeThreadRepository(existingRepo);
+  const incomingNormalized = normalizeThreadRepository(incomingRepo);
   const merged =
-    incomingRepo && typeof incomingRepo === "object" ? incomingRepo : {};
+    incomingNormalized && typeof incomingNormalized === "object"
+      ? { ...incomingNormalized }
+      : {};
   if (
-    existingRepo &&
-    typeof existingRepo === "object" &&
-    existingRepo.queuedMessages !== undefined &&
+    preserveExistingTopLevelKeys &&
+    existingNormalized &&
+    typeof existingNormalized === "object"
+  ) {
+    for (const [key, value] of Object.entries(existingNormalized)) {
+      if (key === "messages" || key === "headId") continue;
+      if (key === "queuedMessages" && !preserveExistingQueuedMessages) {
+        continue;
+      }
+      if (!(key in merged)) {
+        merged[key] = value;
+      }
+    }
+  } else if (
+    preserveExistingQueuedMessages &&
+    existingNormalized &&
+    typeof existingNormalized === "object" &&
+    existingNormalized.queuedMessages !== undefined &&
     merged.queuedMessages === undefined
   ) {
-    merged.queuedMessages = existingRepo.queuedMessages;
+    merged.queuedMessages = existingNormalized.queuedMessages;
   }
 
-  const existingMessages = Array.isArray(existingRepo?.messages)
-    ? existingRepo.messages
+  const existingMessages = Array.isArray(existingNormalized?.messages)
+    ? existingNormalized.messages
     : null;
   const incomingMessages = Array.isArray(merged.messages)
     ? merged.messages
@@ -346,6 +459,7 @@ export function mergeThreadDataForClientSave(
   );
   const usedIncoming = new Set<number>();
   const nextMessages: any[] = [];
+  const idRewrites = new Map<string, string>();
 
   for (const existingEntry of existingMessages) {
     const existingKeys = messageIdentityKeys(getStoredMessage(existingEntry));
@@ -360,17 +474,24 @@ export function mergeThreadDataForClientSave(
     }
 
     usedIncoming.add(incomingIndex);
-    nextMessages.push(
-      chooseMergedMessageEntry(existingEntry, incomingMessages[incomingIndex]),
-    );
+    const incomingEntry = incomingMessages[incomingIndex];
+    const chosen = chooseMergedMessageEntry(existingEntry, incomingEntry);
+    const existingId = messageId(getStoredMessage(existingEntry));
+    const chosenId = messageId(getStoredMessage(chosen));
+    if (existingId && chosenId && existingId !== chosenId) {
+      idRewrites.set(existingId, chosenId);
+    }
+    nextMessages.push(chosen);
   }
 
   for (let index = 0; index < incomingMessages.length; index++) {
     if (!usedIncoming.has(index)) nextMessages.push(incomingMessages[index]);
   }
 
-  merged.messages = nextMessages;
-  return merged;
+  merged.messages = nextMessages.map((entry) =>
+    rewriteEntryParentId(entry, idRewrites),
+  );
+  return normalizeThreadRepository(merged);
 }
 
 function escapeAttachmentAttribute(value: string): string {
@@ -485,8 +606,7 @@ export function buildUserMessage(opts: {
 }
 
 export function upsertUserMessage(repo: any, userMsg: UserMessage): any {
-  const nextRepo = repo && typeof repo === "object" ? repo : {};
-  if (!Array.isArray(nextRepo.messages)) nextRepo.messages = [];
+  const nextRepo = normalizeThreadRepository(repo);
 
   const lastIndex = nextRepo.messages.length - 1;
   const lastEntry = lastIndex >= 0 ? nextRepo.messages[lastIndex] : undefined;
@@ -495,14 +615,10 @@ export function upsertUserMessage(repo: any, userMsg: UserMessage): any {
     return nextRepo;
   }
 
-  const isWrapped = Boolean(lastEntry && "message" in lastEntry);
-  if (isWrapped) {
-    const parentId =
-      lastIndex >= 0 ? (getStoredMessage(lastEntry)?.id ?? null) : null;
-    nextRepo.messages.push({ message: userMsg, parentId });
-  } else {
-    nextRepo.messages.push(userMsg);
-  }
+  const parentId =
+    lastIndex >= 0 ? (messageId(getStoredMessage(lastEntry)) ?? null) : null;
+  nextRepo.messages.push({ message: userMsg, parentId });
+  nextRepo.headId = userMsg.id;
   return nextRepo;
 }
 
@@ -549,35 +665,30 @@ export function upsertAssistantMessage(
   repo: any,
   assistantMsg: AssistantMessage,
 ): any {
-  const nextRepo = repo && typeof repo === "object" ? repo : {};
-  if (!Array.isArray(nextRepo.messages)) nextRepo.messages = [];
+  const nextRepo = normalizeThreadRepository(repo);
 
   const lastIndex = nextRepo.messages.length - 1;
   const lastEntry = lastIndex >= 0 ? nextRepo.messages[lastIndex] : undefined;
   const lastMsg = getStoredMessage(lastEntry);
   const lastRole = lastMsg?.role;
-  const isWrapped = Boolean(lastEntry && "message" in lastEntry);
 
   if (
     lastRole === "assistant" &&
     shouldReplaceLastAssistant(lastMsg, assistantMsg)
   ) {
-    nextRepo.messages[lastIndex] = isWrapped
-      ? { ...lastEntry, message: assistantMsg }
-      : assistantMsg;
+    nextRepo.messages[lastIndex] = { ...lastEntry, message: assistantMsg };
+    nextRepo.headId = assistantMsg.id;
     return nextRepo;
   }
 
-  if (isWrapped) {
-    const parentId =
-      nextRepo.messages.length > 0
-        ? (getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1])
-            ?.id ?? null)
-        : null;
-    nextRepo.messages.push({ message: assistantMsg, parentId });
-  } else {
-    nextRepo.messages.push(assistantMsg);
-  }
+  const parentId =
+    nextRepo.messages.length > 0
+      ? (messageId(
+          getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1]),
+        ) ?? null)
+      : null;
+  nextRepo.messages.push({ message: assistantMsg, parentId });
+  nextRepo.headId = assistantMsg.id;
   return nextRepo;
 }
 
