@@ -103,7 +103,18 @@ function scrubUrl(url: string | undefined): string | undefined {
 }
 
 function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
-  const exceptionText = (event.exception?.values ?? [])
+  const exceptionValues = event.exception?.values ?? [];
+  // AgentAutoContinueSignal is a control-flow sentinel thrown to bubble
+  // out of the SSE stream parser when the agent run needs to be
+  // auto-continued. It's caught by the chat adapter and is never a real
+  // error. Drop it unconditionally — capturing it as a Sentry exception
+  // pollutes the issue list with sentinels that have no actionable stack.
+  if (
+    exceptionValues.some((value) => value.type === "AgentAutoContinueSignal")
+  ) {
+    return true;
+  }
+  const exceptionText = exceptionValues
     .map((value) => `${value.type ?? ""} ${value.value ?? ""}`)
     .join(" ")
     .toLowerCase();

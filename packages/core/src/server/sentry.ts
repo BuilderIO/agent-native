@@ -105,6 +105,19 @@ export function initServerSentry(): boolean {
       ) {
         return null;
       }
+      // Drop access-control rejections (caller lacks permission, signed
+      // out, etc.). These are 4xx user-facing errors that propagated to
+      // Nitro's error hook because a route forgot to catch them — fixing
+      // the route is the right answer, but in the meantime they bury
+      // real bugs and don't represent server failures. Auth-routes use
+      // `captureAuthError` directly with `level: warning` so this filter
+      // only sees the generic-handler escape path.
+      if (
+        exceptionType === "ForbiddenError" ||
+        exceptionType === "UnauthorizedError"
+      ) {
+        return null;
+      }
 
       // Defense in depth: scrub PII even if some integration auto-attached
       // request metadata despite sendDefaultPii: false.
