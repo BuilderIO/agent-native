@@ -179,14 +179,7 @@ export function ConnectBuilderCard({
       wasConnectingRef.current = false;
       void handleSend();
     }
-  }, [
-    flow.connecting,
-    canSend,
-    sending,
-    runResult,
-    sendErr,
-    handleSend,
-  ]);
+  }, [flow.connecting, canSend, sending, runResult, sendErr, handleSend]);
   // Branch creation is gated by a server-side project id, which may come
   // from deployment config or org-scoped secrets.
   const showWaitlist = !builderEnabled && hasPrompt;
