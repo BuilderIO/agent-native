@@ -76,16 +76,29 @@ export function CanvasCommentPins({
     setActivePinId(null);
   }, [contextId]);
 
-  // Find the canvas container the pins overlay
+  // Find the canvas container the pins overlay. The canvas can take a few
+  // frames to land in the DOM after a slide change — retry until we find
+  // it so the click handler isn't permanently stuck on a stale (or null)
+  // ref when the user navigates between slides with pin mode active.
   useEffect(() => {
     if (!active) return;
+    let cancelled = false;
+    let attempts = 0;
     const findCanvas = () => {
+      if (cancelled) return;
       const el = document.querySelector(canvasSelector) as HTMLElement | null;
-      if (el) containerRef.current = el;
+      if (el) {
+        containerRef.current = el;
+        return;
+      }
+      if (attempts++ < 30) {
+        setTimeout(findCanvas, 50);
+      }
     };
     findCanvas();
-    const t = setTimeout(findCanvas, 50);
-    return () => clearTimeout(t);
+    return () => {
+      cancelled = true;
+    };
   }, [active, canvasSelector, contextId]);
 
   // Click handler — drops a pin where the user clicks the canvas

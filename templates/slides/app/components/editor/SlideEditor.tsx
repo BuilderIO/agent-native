@@ -1217,6 +1217,7 @@ export default function SlideEditor({
         }}
       />
       <CanvasCommentPins
+        key={slideId || slide.id}
         active={!!pinMode}
         onClose={() => onExitPinMode?.()}
         canvasSelector="[data-main-slide-canvas='true'] .slide-content"

@@ -51,11 +51,25 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
     );
+    expect(html).toContain('var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";');
     expect(html).toContain(
       "__anSetOAuthDebug('Opening Google sign-in redirect')",
     );
+    expect(html).toContain("function __anOAuthReturnTarget(ret)");
+    expect(html).toContain("params.set('return', __anOAuthReturnTarget(ret))");
+  });
+
+  it("embeds the local workspace gateway return origin when configured", () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080/");
+    vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
+
+    const html = getOnboardingHtml();
+
     expect(html).toContain(
-      "__anOpenOAuthUrl(__anAuthPath('/_agent-native/google/auth-url') + '?' + params.toString())",
+      'var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "http://127.0.0.1:8080";',
     );
+    expect(html).toContain("function __anNormalizeWorkspaceReturnPath(ret)");
+    expect(html).toContain("path === '/dispatch/dispatch'");
   });
 });

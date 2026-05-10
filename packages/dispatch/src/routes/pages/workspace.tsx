@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function meta() {
   return [{ title: "Workspace Resources — Dispatch" }];
@@ -528,6 +529,21 @@ export default function WorkspaceRoute() {
     items: any[];
     emptyText: string;
   }) {
+    if (isLoading && (resources ?? []).length === 0) {
+      return (
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div
+              key={index}
+              className="rounded-2xl border bg-card px-5 py-4 space-y-2"
+            >
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          ))}
+        </div>
+      );
+    }
     if (items.length === 0) {
       return (
         <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
@@ -555,9 +571,11 @@ export default function WorkspaceRoute() {
     >
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          {isLoading
-            ? "Loading..."
-            : `${resources?.length || 0} resource${(resources?.length || 0) !== 1 ? "s" : ""}`}
+          {isLoading ? (
+            <Skeleton className="h-4 w-24" />
+          ) : (
+            `${resources?.length || 0} resource${(resources?.length || 0) !== 1 ? "s" : ""}`
+          )}
         </div>
         <div className="flex gap-2">
           <Button

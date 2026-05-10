@@ -9,6 +9,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   IconCheck,
   IconX,
@@ -98,9 +99,38 @@ export default function ApprovalPreviewRoute() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-6">
-        <div className="w-full max-w-md rounded-2xl border bg-card p-6 text-center">
-          <p className="text-sm text-muted-foreground">Loading...</p>
+      <div className="flex min-h-screen items-start justify-center bg-background p-6">
+        <div className="w-full max-w-md space-y-4">
+          <div className="rounded-2xl border bg-card p-5">
+            <div className="flex items-start gap-3">
+              <Skeleton className="h-9 w-9 shrink-0 rounded-xl" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-5 w-20 rounded-full" />
+                </div>
+                <Skeleton className="h-3 w-32" />
+              </div>
+            </div>
+            <div className="mt-4 space-y-2 rounded-xl border bg-muted/30 px-4 py-3">
+              <div className="flex justify-between gap-4">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+              <div className="flex justify-between gap-4">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-3 w-28" />
+              </div>
+              <div className="flex justify-between gap-4">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-3 w-32" />
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <Skeleton className="h-8 flex-1 rounded-md" />
+              <Skeleton className="h-8 flex-1 rounded-md" />
+            </div>
+          </div>
         </div>
       </div>
     );

@@ -14,6 +14,8 @@ import {
   updateRunHeartbeat,
   bumpRunProgress,
   reapIfStale,
+  ensureTerminalRunEvent,
+  STALE_RUN_ERROR_EVENT,
 } from "./run-store.js";
 
 export interface ActiveRun {
@@ -668,16 +670,23 @@ function subscribeFromSQL(
                   return;
                 }
               } else if (run?.status === "errored") {
+                // The run row was flipped to `errored` but no terminal event
+                // was ever persisted — almost always means a reaper's silent
+                // `appendTerminalRunEvent(...).catch(() => {})` swallowed a
+                // transient DB error, so the user-facing situation is the
+                // same as a stale-run reap. Send the friendly event AND try
+                // to persist it so future reconnects replay it from SQL
+                // rather than regenerating it (the user used to see a bare
+                // "run_terminal_event_missing" debug string here).
+                await ensureTerminalRunEvent(
+                  runId,
+                  STALE_RUN_ERROR_EVENT,
+                ).catch(() => {});
                 try {
                   controller.enqueue(
                     encoder.encode(
                       `data: ${JSON.stringify({
-                        type: "error",
-                        error:
-                          "Agent run ended before its final error event was persisted.",
-                        errorCode: "run_terminal_event_missing",
-                        details:
-                          "The persisted run status is errored, but no terminal SSE event was available during reconnect.",
+                        ...STALE_RUN_ERROR_EVENT,
                         seq: lastSeq,
                       })}\n\n`,
                     ),

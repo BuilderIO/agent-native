@@ -61,7 +61,9 @@ export default defineAction({
       );
       lines.push(`deckTitle: ${rows[0].title ?? deck?.title ?? "(untitled)"}`);
       lines.push(`slideCount: ${slides.length}`);
-      lines.push(`currentSlideIndex: ${slideIndex}`);
+      lines.push(
+        `currentSlideIndex: ${slideIndex}   (0-based; the user's UI shows this as "slide ${slideIndex + 1} of ${slides.length}" — use the 1-based number when talking to them)`,
+      );
       if (currentSlide) {
         lines.push(
           `currentSlideId: ${currentSlide.id}   ← use this for update-slide --slideId`,

@@ -1157,6 +1157,38 @@ describe("server/auth", () => {
     });
   });
 
+  describe("OAuth return URLs", () => {
+    it("allows the configured local workspace gateway but rejects other absolute returns", async () => {
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080/");
+      const { safeOAuthReturnUrl } = await import("./oauth-return-url.js");
+
+      expect(safeOAuthReturnUrl("http://127.0.0.1:8080/dispatch")).toBe(
+        "http://127.0.0.1:8080/dispatch",
+      );
+      expect(safeOAuthReturnUrl("/todo")).toBe("/todo");
+      expect(safeOAuthReturnUrl("https://evil.example/todo")).toBe("/");
+      expect(safeOAuthReturnUrl("http://127.0.0.1:9090/dispatch")).toBe("/");
+    });
+
+    it("can bridge a hosted OAuth session back to the local workspace gateway", async () => {
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080/");
+      const { appendSessionToOAuthReturnUrl } =
+        await import("./oauth-return-url.js");
+
+      expect(
+        appendSessionToOAuthReturnUrl(
+          "http://127.0.0.1:8080/dispatch?builder.preview=interact",
+          "session-token",
+        ),
+      ).toBe(
+        "http://127.0.0.1:8080/dispatch?builder.preview=interact&_session=session-token",
+      );
+      expect(appendSessionToOAuthReturnUrl("/dispatch", "session-token")).toBe(
+        "/dispatch",
+      );
+    });
+  });
+
   describe("OAuth state returnUrl round-trip", () => {
     beforeEach(() => {
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "test-signing-key-do-not-use");
@@ -1253,6 +1285,7 @@ describe("server/auth", () => {
       expect(html).toContain(
         'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
       );
+      expect(html).toContain('var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";');
       expect(html).toContain("__anStartPopupOAuth(ret, btn, err)");
       expect(html).toContain(
         "__anPath('/_agent-native/auth/desktop-exchange')",
@@ -1278,8 +1311,9 @@ describe("server/auth", () => {
       expect(html).toContain(
         "__anSetOAuthDebug('Opening Google sign-in redirect')",
       );
+      expect(html).toContain("function __anOAuthReturnTarget(ret)");
       expect(html).toContain(
-        "__anOpenOAuthUrl(__anAuthPath('/_agent-native/google/auth-url') + '?' + params.toString())",
+        "params.set('return', __anOAuthReturnTarget(ret))",
       );
       expect(html).toContain(
         "window.open('', '_blank', 'width=640,height=760')",
@@ -1305,6 +1339,9 @@ describe("server/auth", () => {
       expect(loginHtml).toContain(
         'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
       );
+      expect(loginHtml).toContain(
+        'var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";',
+      );
       expect(loginHtml).toContain('id="debug"');
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
@@ -1316,8 +1353,9 @@ describe("server/auth", () => {
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Opening Google sign-in redirect')",
       );
+      expect(loginHtml).toContain("function __anOAuthReturnTarget(ret)");
       expect(loginHtml).toContain(
-        "__anOpenOAuthUrl(__anAuthPath('/_agent-native/google/auth-url') + '?' + params.toString())",
+        "params.set('return', __anOAuthReturnTarget(ret))",
       );
       expect(loginHtml).toContain(
         "window.open('', '_blank', 'width=640,height=760')",
@@ -1624,6 +1662,25 @@ describe("server/auth", () => {
       expect(typeof response === "string" || response === "").toBe(true);
       expect(event.res.status).toBe(302);
       expect(event.res.headers.get("Location")).toBe("/dashboard");
+    });
+
+    it("bridges hosted OAuth completion back to the local workspace gateway", async () => {
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080/");
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const event = createMockEvent();
+      const response = await Promise.resolve(
+        oauthCallbackResponse(event, "steve@example.com", {
+          sessionToken: "token-1",
+          returnUrl: "http://127.0.0.1:8080/dispatch",
+        }),
+      );
+
+      expect(typeof response === "string" || response === "").toBe(true);
+      expect(event.res.status).toBe(302);
+      expect(event.res.headers.get("Location")).toBe(
+        "http://127.0.0.1:8080/dispatch?_session=token-1",
+      );
+      expect(event.res.headers.get("Referrer-Policy")).toBe("no-referrer");
     });
   });
 

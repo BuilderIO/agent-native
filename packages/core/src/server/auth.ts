@@ -85,6 +85,7 @@ import {
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
+import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import { captureAuthError } from "./sentry.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
@@ -301,6 +302,15 @@ function oauthDebugUrlPath(value: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function isBuilderOAuthRequest(event: H3Event): boolean {
+  const userAgent = getHeader(event, "user-agent") || "";
+  const referer = getHeader(event, "referer") || "";
+  return (
+    /Electron/i.test(userAgent) ||
+    /builder\.(io|my)|builderio\.(xyz|dev)/i.test(referer)
+  );
 }
 
 function logGoogleOAuthDebug(
@@ -1750,7 +1760,11 @@ async function mountBetterAuthRoutes(
         // small for the common case.
         const returnQuery = q.return;
         const validated =
-          typeof returnQuery === "string" ? safeReturnPath(returnQuery) : "/";
+          typeof returnQuery === "string"
+            ? safeOAuthReturnUrl(returnQuery, {
+                allowDefaultLoopback: isBuilderOAuthRequest(event),
+              })
+            : "/";
         const returnUrl = validated !== "/" ? validated : undefined;
         const state = encodeOAuthState({
           redirectUri,

@@ -131,6 +131,60 @@ function AppCardSkeleton() {
   );
 }
 
+interface RecentAuditEvent {
+  id: string;
+  summary: string;
+  actor: string;
+  createdAt: string;
+}
+
+function RecentActivityList({
+  isLoading,
+  events,
+}: {
+  isLoading: boolean;
+  events: RecentAuditEvent[];
+}) {
+  if (isLoading && events.length === 0) {
+    return (
+      <div className="mt-4 space-y-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div
+            key={index}
+            className="rounded-xl border bg-muted/30 px-4 py-3 space-y-2"
+          >
+            <Skeleton className="h-4 w-3/5" />
+            <Skeleton className="h-3 w-2/5" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (events.length === 0) {
+    return (
+      <div className="mt-4 space-y-3">
+        <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
+          No activity yet.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-4 space-y-3">
+      {events.map((event) => (
+        <div key={event.id} className="rounded-xl border bg-muted/30 px-4 py-3">
+          <div className="text-sm font-medium text-foreground">
+            {event.summary}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {event.actor} · {new Date(event.createdAt).toLocaleString()}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function WorkspaceAppsSection({
   apps,
   isLoading,
@@ -625,33 +679,11 @@ export default function OverviewRoute() {
                 <h2 className="text-lg font-semibold text-foreground">
                   Recent activity
                 </h2>
-                {isLoading && (
-                  <span className="text-xs text-muted-foreground">
-                    Loading...
-                  </span>
-                )}
               </div>
-              <div className="mt-4 space-y-3">
-                {(data?.recentAudit || []).map((event) => (
-                  <div
-                    key={event.id}
-                    className="rounded-xl border bg-muted/30 px-4 py-3"
-                  >
-                    <div className="text-sm font-medium text-foreground">
-                      {event.summary}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {event.actor} ·{" "}
-                      {new Date(event.createdAt).toLocaleString()}
-                    </div>
-                  </div>
-                ))}
-                {!isLoading && (data?.recentAudit?.length || 0) === 0 && (
-                  <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                    No activity yet.
-                  </div>
-                )}
-              </div>
+              <RecentActivityList
+                isLoading={isLoading}
+                events={data?.recentAudit ?? []}
+              />
             </section>
 
             <section className="rounded-2xl border bg-card p-5">

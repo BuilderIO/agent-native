@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, type Ref } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import {
   AssistantRuntimeProvider,
   ComposerPrimitive,
@@ -149,6 +156,52 @@ function getImageSrc(attachment: Attachment): string | null {
   return imagePart && "image" in imagePart ? imagePart.image : null;
 }
 
+function ImagePreviewLightbox({
+  src,
+  alt,
+  onClose,
+}: {
+  src: string;
+  alt: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handler);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Image preview"
+      onClick={onClose}
+      className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 p-6 cursor-zoom-out"
+    >
+      <img
+        src={src}
+        alt={alt}
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-full max-w-full object-contain rounded-md shadow-2xl cursor-default"
+      />
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close preview"
+        className="absolute right-4 top-4 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/30 bg-black/40 text-white hover:bg-black/60"
+      >
+        <IconX className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 function AttachmentChip({
   attachment,
   onRemove,
@@ -157,6 +210,7 @@ function AttachmentChip({
   onRemove: (id: string) => void;
 }) {
   const src = useMemo(() => getImageSrc(attachment), [attachment]);
+  const [previewOpen, setPreviewOpen] = useState(false);
   useEffect(
     () => () => {
       if (src?.startsWith("blob:")) URL.revokeObjectURL(src);
@@ -170,21 +224,46 @@ function AttachmentChip({
 
   if (src) {
     return (
-      <div className="group relative flex h-16 min-w-16 max-w-28 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50">
-        <img
-          src={src}
-          alt={attachment.name}
-          className="max-h-full max-w-full object-contain p-1"
-        />
+      <>
         <button
           type="button"
-          onClick={() => onRemove(attachment.id)}
-          aria-label={`Remove ${attachment.name}`}
-          className="absolute right-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground"
+          onClick={() => setPreviewOpen(true)}
+          aria-label={`Preview ${attachment.name}`}
+          className="group relative flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
         >
-          <IconX className="h-3 w-3" />
+          <img
+            src={src}
+            alt={attachment.name}
+            className="max-h-full max-w-full object-contain p-1"
+          />
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove(attachment.id);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                onRemove(attachment.id);
+              }
+            }}
+            aria-label={`Remove ${attachment.name}`}
+            className="absolute right-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground"
+          >
+            <IconX className="h-3 w-3" />
+          </span>
         </button>
-      </div>
+        {previewOpen ? (
+          <ImagePreviewLightbox
+            src={src}
+            alt={attachment.name}
+            onClose={() => setPreviewOpen(false)}
+          />
+        ) : null}
+      </>
     );
   }
 

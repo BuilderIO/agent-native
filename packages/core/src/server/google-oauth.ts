@@ -19,11 +19,11 @@ import {
   addSession,
   getSession,
   getSessionMaxAge,
-  safeReturnPath,
   setFrameworkSessionCookie,
 } from "./auth.js";
 import { getAppName } from "./app-name.js";
 import { writeDesktopSso } from "./desktop-sso.js";
+import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 
@@ -770,13 +770,17 @@ export function oauthCallbackResponse(
       </script></body></html>`);
   }
 
-  // Web: redirect to the requested return path (validated same-origin) or
-  // "/" if no return was supplied / the return failed validation. Returning
-  // an empty string body keeps h3's `prepareResponseBody` → `FastResponse`
-  // path, which merges the prepared event headers (Location + any cookies
-  // set via `setCookie(event, ...)`).
+  // Web: redirect to the requested return target. Path-only returns stay
+  // same-origin; Builder desktop workspace returns may point back to the
+  // local loopback gateway and carry the short-lived `_session` bridge so
+  // the local app can promote the newly created hosted OAuth session.
   setResponseStatus(event, 302);
-  setResponseHeader(event, "Location", safeReturnPath(opts.returnUrl));
+  setResponseHeader(
+    event,
+    "Location",
+    appendSessionToOAuthReturnUrl(opts.returnUrl, opts.sessionToken),
+  );
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
   return "";
 }
 

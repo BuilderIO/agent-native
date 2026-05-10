@@ -330,9 +330,13 @@ export function DesignCanvas({
   // CanvasCommentPins can absolutely-position themselves on top of the
   // iframe. The pin component anchors to `.design-canvas-iframe-wrapper`
   // via canvasSelector.
+  //
+  // The wrapper carries a faint outline + soft shadow so the frame edge is
+  // visible even when the design's background matches the canvas dot-grid
+  // (e.g. both dark). Without this, a dark design dissolves into the canvas.
   const iframeElement = (
     <div
-      className="design-canvas-iframe-wrapper relative inline-block"
+      className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.45)]"
       style={{
         width: iframeWidth,
         height: deviceFrame === "none" ? "100%" : (iframeHeight ?? undefined),

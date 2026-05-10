@@ -9,6 +9,7 @@ import {
 import { DispatchShell } from "@/components/dispatch-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   workspaceAppHref,
   type WorkspaceAppSummary,
@@ -53,7 +54,11 @@ export default function WorkspaceAppRoute() {
         </Button>
 
         {isLoading && !app ? (
-          <p className="text-sm text-muted-foreground">Loading app status...</p>
+          <div className="space-y-3">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
         ) : !app ? (
           <div className="space-y-3">
             <h2 className="text-base font-semibold text-foreground">
