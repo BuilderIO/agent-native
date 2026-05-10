@@ -1,5 +1,10 @@
 import { useEffect, useMemo } from "react";
-import { Link, redirect, useParams, type LoaderFunctionArgs } from "react-router";
+import {
+  Link,
+  redirect,
+  useParams,
+  type LoaderFunctionArgs,
+} from "react-router";
 import { useActionQuery, appPath } from "@agent-native/core/client";
 import {
   IconArrowLeft,
