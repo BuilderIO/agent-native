@@ -4,6 +4,7 @@
  * reliable reconnection after page refreshes.
  */
 import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { captureError } from "../server/capture-error.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -154,7 +155,11 @@ export async function reapIfStale(
   });
   const reaped = (rowsAffected ?? 0) > 0;
   if (reaped) {
-    await appendTerminalRunEvent(runId, STALE_RUN_ERROR_EVENT).catch(() => {});
+    await safeAppendTerminalRunEvent(
+      runId,
+      STALE_RUN_ERROR_EVENT,
+      "reap-if-stale",
+    );
   }
   return reaped;
 }
@@ -181,7 +186,7 @@ export async function markRunAborted(
     sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ? WHERE id = ?`,
     args: [reason ?? "user", Date.now(), runId],
   });
-  await appendTerminalRunEvent(runId, { type: "done" }).catch(() => {});
+  await safeAppendTerminalRunEvent(runId, { type: "done" }, "mark-aborted");
 }
 
 export async function isRunAborted(runId: string): Promise<boolean> {
@@ -334,7 +339,11 @@ export async function reapAllStaleRuns(): Promise<number> {
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id === "string") {
-      await appendTerminalRunEvent(id, STALE_RUN_ERROR_EVENT).catch(() => {});
+      await safeAppendTerminalRunEvent(
+        id,
+        STALE_RUN_ERROR_EVENT,
+        "reap-all-stale",
+      );
     }
   }
   return rowsAffected ?? 0;
@@ -348,13 +357,19 @@ export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
   const client = getDbExec();
   const cutoff = Date.now() - olderThanMs;
   // Expire stale running rows on the absolute-age threshold — safety net
-  // for runs that never received a heartbeat (very old deployments).
+  // for runs that never received a heartbeat (very old deployments). The
+  // SELECT covers BOTH UPDATE conditions so the terminal-event-append loop
+  // below catches every row we're about to flip — a 24h-old row with a
+  // somehow-fresh heartbeat would slip past a heartbeat-only SELECT.
   const heartbeatCutoff = Date.now() - RUN_STALE_MS;
   const stale = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [heartbeatCutoff],
+            AND (
+              COALESCE(heartbeat_at, started_at) < ?
+              OR started_at < ?
+            )`,
+    args: [heartbeatCutoff, cutoff],
   });
   await client.execute({
     sql: `UPDATE agent_runs SET status = 'errored', completed_at = ? WHERE status = 'running' AND started_at < ?`,
@@ -371,7 +386,11 @@ export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id === "string") {
-      await appendTerminalRunEvent(id, STALE_RUN_ERROR_EVENT).catch(() => {});
+      await safeAppendTerminalRunEvent(
+        id,
+        STALE_RUN_ERROR_EVENT,
+        "cleanup-old-runs",
+      );
     }
   }
   // Delete events for old non-running runs
@@ -402,6 +421,50 @@ export async function ensureTerminalRunEvent(
   event: Record<string, unknown>,
 ): Promise<void> {
   return appendTerminalRunEvent(runId, event);
+}
+
+/**
+ * Append a terminal run event, retrying once on failure and reporting to
+ * Sentry if both attempts fail. Background reaper paths can't surface errors
+ * to a user, but they MUST eventually persist a terminal event — losing it
+ * leaves reconnecting clients staring at a bare `status='errored'` row with
+ * no payload to render. The previous `.catch(() => {})` callsites silently
+ * dropped transient SQL blips and produced exactly that bug. Never throws.
+ */
+async function safeAppendTerminalRunEvent(
+  runId: string,
+  event: Record<string, unknown>,
+  source: string,
+): Promise<void> {
+  let firstError: unknown;
+  try {
+    await appendTerminalRunEvent(runId, event);
+    return;
+  } catch (err) {
+    firstError = err;
+  }
+  // Brief backoff — most "transient" SQL failures (connection blip, lock
+  // contention) clear within a couple hundred ms.
+  await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  try {
+    await appendTerminalRunEvent(runId, event);
+  } catch (retryErr) {
+    captureError(retryErr, {
+      tags: {
+        component: "agent-run-store",
+        operation: "append-terminal-event",
+        source,
+      },
+      extra: {
+        runId,
+        eventType: typeof event.type === "string" ? event.type : "(unknown)",
+        firstError:
+          firstError instanceof Error
+            ? firstError.message
+            : String(firstError),
+      },
+    });
+  }
 }
 
 async function appendTerminalRunEvent(

@@ -136,15 +136,20 @@ export function useChatThreads(
     );
   }, []);
 
-  // Initial load: load threads from server. If the saved active thread
-  // exists on the server (or was just created client-side this session),
-  // keep it. If localStorage points at a thread the server doesn't know
-  // about and we didn't create it locally this session, the saved id is
-  // either a stale ghost or an in-flight thread the server hasn't observed
-  // yet — we still keep it (don't auto-swap to most-recent), because
-  // swapping mid-conversation is exactly the "reverts to a chat from an
-  // hour ago" symptom users were reporting. Once the user sends a message,
-  // the server creates the row and the next refresh reconciles.
+  // Initial load: load threads from server, then reconcile against the
+  // saved active thread.
+  //
+  // - savedId in loadedThreads → keep it (user's last conversation).
+  // - savedId in newlyCreatedRef (we just created it this session) → keep
+  //   it; the server hasn't seen it yet because there's no POST anymore,
+  //   the row gets written when the user sends a message.
+  // - savedId is set but neither on the server nor newly created here →
+  //   it's a stale id from a previous session whose row no longer exists
+  //   (was a ghost cleaned up, or the user emptied their account, etc.).
+  //   Drop them on the most-recent real thread instead of leaving them
+  //   staring at a 404'd composer.
+  // - No savedId, no server threads → synthesize a fresh local id (no
+  //   POST; server creates the row on first message).
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
@@ -152,22 +157,26 @@ export function useChatThreads(
     (async () => {
       setIsLoading(true);
       const loadedThreads = await fetchThreads();
-
       const savedId = activeThreadIdRef.current;
-      if (!savedId) {
-        if (loadedThreads && loadedThreads.length > 0) {
-          // First-ever session for this user (no saved id) but they have
-          // existing chats — drop them on the most recent.
+
+      if (loadedThreads && loadedThreads.length > 0) {
+        if (
+          savedId &&
+          !newlyCreatedRef.current.has(savedId) &&
+          !loadedThreads.find((t) => t.id === savedId)
+        ) {
           setActiveThreadId(loadedThreads[0].id);
-        } else {
-          // Brand new — synthesize a local id so the composer has a target.
-          // No POST: the server will create the row when the user sends.
-          if (typeof crypto !== "undefined" && crypto.randomUUID) {
-            const id = crypto.randomUUID();
-            newlyCreatedRef.current.add(id);
-            addOptimisticThread(id);
-            setActiveThreadId(id);
-          }
+        } else if (!savedId) {
+          setActiveThreadId(loadedThreads[0].id);
+        }
+      } else if (!savedId) {
+        // Brand new user — synthesize a local id so the composer has a
+        // target. No POST: the server creates the row on first send.
+        if (typeof crypto !== "undefined" && crypto.randomUUID) {
+          const id = crypto.randomUUID();
+          newlyCreatedRef.current.add(id);
+          addOptimisticThread(id);
+          setActiveThreadId(id);
         }
       }
       setIsLoading(false);
