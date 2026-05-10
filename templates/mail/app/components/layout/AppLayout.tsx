@@ -134,9 +134,9 @@ export function AppLayout({ children }: AppLayoutProps) {
       defaultOpen={!isMobile}
       emptyStateText="Ask me anything about your emails"
       suggestions={[
-        "What's in my inbox?",
         "Summarize my unread emails",
-        "Show me the database schema",
+        "What needs my reply today?",
+        "Catch me up on this week",
       ]}
     >
       {content}
