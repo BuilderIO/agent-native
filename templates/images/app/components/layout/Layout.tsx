@@ -31,9 +31,9 @@ export function Layout({ children }: LayoutProps) {
         position="right"
         emptyStateText="Describe the image you want to make"
         suggestions={[
-          "Generate 3 blog hero directions from this library",
-          "Make this candidate darker and more editorial",
-          "Create product imagery that matches my references",
+          "Generate 3 blog heroes from this library",
+          "Refine this image — darker and more editorial",
+          "Match the style of my reference images",
         ]}
       >
         <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">

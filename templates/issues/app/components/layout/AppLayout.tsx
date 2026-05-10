@@ -241,7 +241,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
 
-        <AgentSidebar>
+        <AgentSidebar
+          emptyStateText="Ask me anything about your issues"
+          suggestions={[
+            "What's in my sprint right now?",
+            "Show open bugs assigned to me",
+            "Move PROJ-123 to In Progress",
+          ]}
+        >
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <Header onOpenSidebar={() => setMobileMenuOpen(true)} />
             <InvitationBanner />

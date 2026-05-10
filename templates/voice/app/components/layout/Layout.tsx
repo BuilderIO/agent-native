@@ -27,9 +27,9 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen
           emptyStateText="Ask me anything about your dictations"
           suggestions={[
-            "Show my recent dictations",
             "Add a snippet for my email signature",
             "Make my work messages more formal",
+            "Add Kubernetes to my dictionary",
           ]}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">

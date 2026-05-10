@@ -63,9 +63,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           emptyStateText="How can I help with your calls?"
           suggestions={[
             "Summarize the call I just reviewed",
-            "Find the moment someone objected to pricing",
-            "Create a tracker for competitor mentions",
-            "Invite bob@example.com to this workspace",
+            "Find every pricing objection this week",
+            "Track competitor mentions across calls",
           ]}
         >
           <div className="flex h-full w-full">
