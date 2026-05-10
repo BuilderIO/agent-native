@@ -21,6 +21,8 @@ import {
   abortRun,
   subscribeToRun,
   appendAgentLoopContinuation,
+  isResumableEngineError,
+  continuationReasonForResumableError,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { resolveRunSoftTimeoutMs } from "../agent/run-manager.js";
@@ -182,6 +184,19 @@ function resolveArtifactBaseUrl(event: any | undefined): string | undefined {
   return undefined;
 }
 
+/**
+ * Cap on continuation iterations inside a single runAgentLoopDirectWithSoftTimeout
+ * invocation. Each iteration runs a fresh LLM call after the previous one was
+ * cut off (soft timeout, gateway timeout, network blip). The host's hard
+ * function timeout (e.g., Lambda's 75s) usually bounds this naturally — but
+ * a defensive cap prevents an instant-error spiral from looping forever
+ * inside a hosting environment with a generous budget.
+ *
+ * 6 leaves room for: 1 normal completion + a few resume rounds for design
+ * generation (prompt + 3 variants ≈ 4 LLM calls), with a small safety margin.
+ */
+const MAX_RUN_LOOP_CONTINUATIONS = 6;
+
 async function runAgentLoopDirectWithSoftTimeout(
   opts: Parameters<typeof runAgentLoop>[0],
   softTimeoutMs?: number,
@@ -206,7 +221,9 @@ async function runAgentLoopDirectWithSoftTimeout(
     usage.model = next.model;
   };
 
-  while (!upstreamSignal.aborted) {
+  let attempts = 0;
+  while (!upstreamSignal.aborted && attempts < MAX_RUN_LOOP_CONTINUATIONS) {
+    attempts++;
     const controller = new AbortController();
     const abortFromUpstream = () => controller.abort();
     if (upstreamSignal.aborted) {
@@ -238,6 +255,20 @@ async function runAgentLoopDirectWithSoftTimeout(
     } catch (err) {
       if (softTimedOut && !upstreamSignal.aborted) {
         appendAgentLoopContinuation(opts.messages, "run_timeout");
+        continue;
+      }
+      // Resumable transport / gateway interruptions: the LLM call was cut off
+      // mid-stream (gateway 45s timeout, socket hang up, function-level
+      // timeout that didn't trip our soft timer first). Treat it the same
+      // way as a soft timeout — append a "continue from where you left off"
+      // nudge and let the loop run another LLM call. The conversation prefix
+      // up to the cut-off is preserved in opts.messages, and Anthropic's
+      // prompt cache makes the resume call much faster.
+      if (!upstreamSignal.aborted && isResumableEngineError(err)) {
+        appendAgentLoopContinuation(
+          opts.messages,
+          continuationReasonForResumableError(err),
+        );
         continue;
       }
       throw err;
