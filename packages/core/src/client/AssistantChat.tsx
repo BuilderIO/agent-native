@@ -2201,10 +2201,11 @@ function BuilderSetupCard({
         </div>
         <div>
           <h3 className="text-sm font-medium text-foreground">
-            Connect an LLM
+            Turn on the AI assistant
           </h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Use the hosted agent without adding a separate model provider key.
+            One click to connect Builder for free hosted access — no API keys
+            needed.
           </p>
         </div>
       </div>
