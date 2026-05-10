@@ -236,7 +236,7 @@ function isTerminalAssistantStatus(status: unknown): boolean {
 }
 
 function normalizeAttachmentIdentity(attachments: unknown): unknown {
-  if (!Array.isArray(attachments)) return undefined;
+  if (!Array.isArray(attachments) || attachments.length === 0) return undefined;
   return attachments.map((att: any) => ({
     type: att?.type,
     name: att?.name,
@@ -252,12 +252,23 @@ function messageIdentityKeys(message: any): string[] {
   const runId = getMessageRunId(message);
   if (runId) keys.push(`run:${runId}`);
 
+  // Normalize attachments through `normalizeAttachmentIdentity` so an
+  // explicit empty `[]` (assistant-ui's default for messages with no
+  // attachments) and an omitted/undefined `attachments` field hash to the
+  // same fingerprint. Without this, every user message ended up duplicated
+  // in `chat_threads`: one copy from `saveThreadData` (runtime export
+  // includes `attachments: []`) and one from `persistSubmittedUserMessage`
+  // → `buildUserMessage` (omits the field entirely). The merge couldn't
+  // dedupe them because their fingerprints differed by exactly one
+  // `[]` vs `undefined`. (Repro on slides prod: every user turn produced
+  // a `client_user → assistant → server_user` triple instead of a
+  // `user → assistant` pair.)
   try {
     keys.push(
       `fingerprint:${JSON.stringify({
         role: message?.role,
         content: message?.content,
-        attachments: message?.attachments,
+        attachments: normalizeAttachmentIdentity(message?.attachments),
       })}`,
     );
   } catch {

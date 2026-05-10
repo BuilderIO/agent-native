@@ -46,6 +46,7 @@ import {
   useGuidedQuestionFlow,
 } from "@agent-native/core/client";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
+import { useDeckRole } from "@/hooks/use-deck-role";
 import { useSlideComments } from "@/hooks/use-slide-comments";
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
@@ -125,6 +126,10 @@ export default function DeckEditor() {
 
   const deck = getDeck(id || "");
   const slideCount = deck?.slides.length ?? 0;
+  // Mirror Google Slides: viewers see the editor shell with edit affordances
+  // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
+  // get the full editor.
+  const { canEdit } = useDeckRole(id);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingOverlay({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
@@ -542,6 +547,7 @@ export default function DeckEditor() {
         deck={deck}
         deckId={id}
         deckTitle={deck.title}
+        canEdit={canEdit}
         onTitleChange={(title) => updateDeck(id, { title })}
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -699,6 +705,7 @@ export default function DeckEditor() {
           currentSlide && (
             <SlideEditor
               slide={currentSlide}
+              readOnly={!canEdit}
               onUpdateSlide={(updates) =>
                 updateSlide(id, currentSlide.id, updates)
               }

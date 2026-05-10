@@ -25,6 +25,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ and: conditions }),
+  or: (...conditions: unknown[]) => ({ or: conditions }),
   eq: (column: unknown, value: unknown) => ({ column, value }),
 }));
 
@@ -57,7 +58,7 @@ describe("public deck route", () => {
     mockGetRequestUserEmail.mockReturnValue(undefined);
   });
 
-  it("serves a public deck without speaker notes", async () => {
+  it("serves a public deck for anonymous viewers without speaker notes", async () => {
     resultQueue.current = [publicDeckRows()];
 
     const result = await loader(requestFor());
@@ -73,6 +74,7 @@ describe("public deck route", () => {
         background: "#111",
       },
     ]);
+    // Anonymous viewers only see decks with visibility = "public".
     expect(where).toHaveBeenCalledWith({
       and: [
         { column: "id_col", value: "deck-1" },
@@ -81,32 +83,33 @@ describe("public deck route", () => {
     });
   });
 
-  it("redirects signed-in viewers with access to the editor", async () => {
+  it("renders the presentation for signed-in viewers with share access", async () => {
     mockGetRequestUserEmail.mockReturnValue("viewer@example.com");
-    resultQueue.current = [[{ id: "deck-1" }]];
-
-    try {
-      await loader(requestFor());
-      throw new Error("Expected redirect");
-    } catch (error) {
-      expect(error).toBeInstanceOf(Response);
-      const response = error as Response;
-      expect(response.status).toBe(302);
-      expect(response.headers.get("Location")).toBe("/deck/deck-1");
-    }
-  });
-
-  it("keeps signed-in public-link-only viewers on the read-only route", async () => {
-    mockGetRequestUserEmail.mockReturnValue("viewer@example.com");
-    resultQueue.current = [[], publicDeckRows()];
+    resultQueue.current = [publicDeckRows()];
 
     const result = await loader(requestFor());
 
+    // Mirrors Google Slides: shared users open the presentation directly
+    // instead of being bounced to the editor.
     expect(result.deck?.title).toBe("Launch review");
-    expect(result.deck?.slides[0]?.notes).toBe("");
+    // Signed-in viewers query unions accessFilter and visibility=public.
+    expect(where).toHaveBeenCalledWith({
+      and: [
+        { column: "id_col", value: "deck-1" },
+        {
+          or: ["access_filter", { column: "visibility_col", value: "public" }],
+        },
+      ],
+    });
   });
 
-  it("404s when the deck is not public", async () => {
+  it("404s when the deck is private and the viewer has no access", async () => {
+    mockGetRequestUserEmail.mockReturnValue("viewer@example.com");
+    resultQueue.current = [[]];
+    await expect(loader(requestFor())).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("404s anonymous visitors when the deck is not public", async () => {
     await expect(loader(requestFor())).rejects.toMatchObject({ status: 404 });
   });
 });

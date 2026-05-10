@@ -178,6 +178,10 @@ function stripBuilderIds(html: string): string {
 interface SlideEditorProps {
   slide: Slide;
   onUpdateSlide: (updates: Partial<Omit<Slide, "id">>) => void;
+  /** When true, all inline-edit affordances are disabled — the slide is
+   *  navigable but contentEditable / image overlays don't activate.
+   *  Mirrors Google Slides' viewer experience. */
+  readOnly?: boolean;
   activeTab: "visual" | "code";
   onGenerateImage: () => void;
   onOpenAssetLibrary: (replaceSrc: string) => void;
@@ -329,6 +333,7 @@ function syncSelectionToAppState(
 export default function SlideEditor({
   slide,
   onUpdateSlide,
+  readOnly = false,
   activeTab,
   onGenerateImage,
   onOpenAssetLibrary,
@@ -983,6 +988,10 @@ export default function SlideEditor({
 
   const handleSlideDoubleClick = useCallback(
     (e: ReactMouseEvent) => {
+      // Viewers see the slide but can't enter edit mode — matches Google
+      // Slides' viewer experience.
+      if (readOnly) return;
+
       const target = e.target as HTMLElement;
 
       // For images / placeholders, show overlay
@@ -1008,7 +1017,7 @@ export default function SlideEditor({
       e.stopPropagation();
       enterInlineEdit(block);
     },
-    [showImageOverlay, enterInlineEdit, isHtmlSlide],
+    [showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
   );
 
   const slideElementSelected = !!selectedImg || !!editingEl;

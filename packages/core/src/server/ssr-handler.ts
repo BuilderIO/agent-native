@@ -16,8 +16,24 @@
  * the unknown scheme — silently 302'ing every request to "/".
  */
 import { createRequestHandler } from "react-router";
-import { defineEventHandler } from "h3";
+import { defineEventHandler, type H3Event } from "h3";
 import { getSentryClientConfigScript } from "./sentry-config.js";
+import { getSession } from "./auth.js";
+import { runWithRequestContext } from "./request-context.js";
+
+/**
+ * Read the active org for a request without forcing every template to bundle
+ * the org module. Mirrors what `core-routes-plugin` does for action handlers.
+ */
+async function readOrgIdForEvent(event: H3Event): Promise<string | undefined> {
+  try {
+    const { getOrgContext } = await import("../org/context.js");
+    const ctx = await getOrgContext(event);
+    return ctx?.orgId ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function normalizeAppBasePath(value: string | undefined): string {
   if (!value || value === "/") return "";
@@ -188,13 +204,31 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
     }
     try {
       const request = requestWithPathname(event.req as Request, p, basePath);
+      // Pin the active session onto the async request context so React Router
+      // loaders that call `getRequestUserEmail()` / `accessFilter()` see the
+      // signed-in user. Without this, SSR loaders fall through to the
+      // unauthenticated branch even when the user is logged in — which broke
+      // shared-deck "Presentation link" access for non-public decks.
+      let session: Awaited<ReturnType<typeof getSession>> | null = null;
+      try {
+        session = await getSession(event);
+      } catch {
+        // Auth lookup failures must not break SSR; treat as unauthenticated.
+      }
+      const orgId = session?.email ? await readOrgIdForEvent(event) : undefined;
+      const ctx = {
+        userEmail: session?.email ?? undefined,
+        orgId,
+      };
       if (request.method === "HEAD") {
         const getRequest = new Request(request.url, {
           method: "GET",
           headers: request.headers,
           signal: request.signal,
         });
-        const response = await handler(getRequest);
+        const response = await runWithRequestContext(ctx, () =>
+          handler(getRequest),
+        );
         return await rewriteMountedResponse(
           new Response(null, {
             status: response.status,
@@ -204,7 +238,10 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           basePath,
         );
       }
-      return await rewriteMountedResponse(await handler(request), basePath);
+      return await rewriteMountedResponse(
+        await runWithRequestContext(ctx, () => handler(request)),
+        basePath,
+      );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.
       // Stack traces expose file paths, library versions, and code structure
