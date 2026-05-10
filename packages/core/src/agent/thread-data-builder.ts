@@ -26,6 +26,7 @@ function isInternalContinuationError(event: {
 }): boolean {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
+  if (code === "builder_gateway_error") return false;
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
@@ -381,7 +382,10 @@ export function normalizeThreadRepository(repo: any): any {
   return normalized;
 }
 
-function rewriteEntryParentId(entry: any, idRewrites: Map<string, string>): any {
+function rewriteEntryParentId(
+  entry: any,
+  idRewrites: Map<string, string>,
+): any {
   const parentId = getStoredParentId(entry);
   if (!parentId) return entry;
   const rewritten = idRewrites.get(parentId);
@@ -398,17 +402,42 @@ function rewriteEntryParentId(entry: any, idRewrites: Map<string, string>): any 
  * reconstructed from run events. Preserve server-only messages while still
  * accepting client-only messages and metadata.
  */
+export interface MergeThreadDataOptions {
+  preserveExistingQueuedMessages?: boolean;
+  preserveExistingTopLevelKeys?: boolean;
+}
+
 export function mergeThreadDataForClientSave(
   existingRepo: any,
   incomingRepo: any,
+  options: MergeThreadDataOptions = {},
 ) {
+  const preserveExistingQueuedMessages =
+    options.preserveExistingQueuedMessages ?? true;
+  const preserveExistingTopLevelKeys =
+    options.preserveExistingTopLevelKeys ?? true;
   const existingNormalized = normalizeThreadRepository(existingRepo);
   const incomingNormalized = normalizeThreadRepository(incomingRepo);
   const merged =
     incomingNormalized && typeof incomingNormalized === "object"
-      ? incomingNormalized
+      ? { ...incomingNormalized }
       : {};
   if (
+    preserveExistingTopLevelKeys &&
+    existingNormalized &&
+    typeof existingNormalized === "object"
+  ) {
+    for (const [key, value] of Object.entries(existingNormalized)) {
+      if (key === "messages" || key === "headId") continue;
+      if (key === "queuedMessages" && !preserveExistingQueuedMessages) {
+        continue;
+      }
+      if (!(key in merged)) {
+        merged[key] = value;
+      }
+    }
+  } else if (
+    preserveExistingQueuedMessages &&
     existingNormalized &&
     typeof existingNormalized === "object" &&
     existingNormalized.queuedMessages !== undefined &&
@@ -654,8 +683,9 @@ export function upsertAssistantMessage(
 
   const parentId =
     nextRepo.messages.length > 0
-      ? (messageId(getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1])) ??
-        null)
+      ? (messageId(
+          getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1]),
+        ) ?? null)
       : null;
   nextRepo.messages.push({ message: assistantMsg, parentId });
   nextRepo.headId = assistantMsg.id;

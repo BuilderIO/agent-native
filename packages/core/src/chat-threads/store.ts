@@ -1,5 +1,8 @@
-import { getDbExec, isPostgres, intType } from "../db/client.js";
-import { normalizeThreadRepository } from "../agent/thread-data-builder.js";
+import { getDbExec, intType } from "../db/client.js";
+import {
+  mergeThreadDataForClientSave,
+  normalizeThreadRepository,
+} from "../agent/thread-data-builder.js";
 import { emitChatThreadChange } from "./emitter.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -14,10 +17,9 @@ let _initPromise: Promise<void> | undefined;
  * while leaving straight reads and other thread-data-unrelated updates
  * untouched.
  *
- * Cross-process races (multiple Node replicas writing the same thread at
- * the same instant) are not fixed here — acceptable for `thread_data`
- * today because writes come from either the user's own tab or an agent
- * run owned by that user, which run in one place at a time.
+ * Cross-process races are handled by `updateThreadData`, which performs a
+ * compare-and-swap on `updated_at`, rereads the latest row on conflict, and
+ * remerges message history before retrying.
  */
 const _threadDataLocks = new Map<string, Promise<unknown>>();
 
@@ -238,20 +240,86 @@ export async function searchThreads(
     .filter((r): r is ChatThreadSummary => r !== null);
 }
 
+export interface UpdateThreadDataOptions {
+  preserveExistingQueuedMessages?: boolean;
+  preserveExistingTopLevelKeys?: boolean;
+  maxAttempts?: number;
+}
+
+function parseThreadData(value: string): any {
+  try {
+    return JSON.parse(value || "{}");
+  } catch {
+    return {};
+  }
+}
+
 export async function updateThreadData(
   id: string,
   threadData: string,
   title: string,
   preview: string,
   messageCount: number,
+  options: UpdateThreadDataOptions = {},
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ?`,
-    args: [threadData, title, preview, messageCount, Date.now(), id],
-  });
-  emitChatThreadChange(id);
+  const maxAttempts = options.maxAttempts ?? 5;
+  let lastConflict = false;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const current = await getThread(id);
+    if (!current) return;
+
+    let nextThreadData = threadData;
+    let nextMessageCount = messageCount;
+    try {
+      const merged = mergeThreadDataForClientSave(
+        parseThreadData(current.threadData),
+        parseThreadData(threadData),
+        {
+          preserveExistingQueuedMessages:
+            options.preserveExistingQueuedMessages ?? true,
+          preserveExistingTopLevelKeys:
+            options.preserveExistingTopLevelKeys ?? true,
+        },
+      );
+      nextThreadData = JSON.stringify(merged);
+      if (Array.isArray(merged.messages)) {
+        nextMessageCount = merged.messages.length;
+      }
+    } catch {
+      // Keep the caller's serialized value if either JSON blob is malformed.
+    }
+
+    const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
+    const result = await client.execute({
+      sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
+      args: [
+        nextThreadData,
+        title,
+        preview,
+        nextMessageCount,
+        nextUpdatedAt,
+        id,
+        current.updatedAt,
+      ],
+    });
+
+    if (result.rowsAffected > 0) {
+      emitChatThreadChange(id);
+      return;
+    }
+
+    lastConflict = true;
+    await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+  }
+
+  if (lastConflict) {
+    throw new Error(
+      `Failed to update chat thread ${id} after concurrent write conflicts.`,
+    );
+  }
 }
 
 export interface ThreadEngineMeta {
@@ -335,6 +403,7 @@ export async function setThreadQueuedMessages(
       thread.title,
       thread.preview,
       thread.messageCount,
+      { preserveExistingQueuedMessages: false },
     );
   });
 }
