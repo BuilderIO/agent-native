@@ -17,11 +17,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  IconAlertTriangle,
-  IconFilterOff,
-  IconDeviceFloppy,
-} from "@tabler/icons-react";
+import { IconFilterOff, IconDeviceFloppy } from "@tabler/icons-react";
 import type { DashboardFilter } from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
@@ -124,7 +120,7 @@ export function DashboardFilterBar({
   const [searchParams, setSearchParams] = useSearchParams();
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
-  const { uniqueFilters, duplicateFilterIds } = useMemo(() => {
+  const uniqueFilters = useMemo(() => {
     const seen = new Set<string>();
     const duplicates = new Set<string>();
     const unique: DashboardFilter[] = [];
@@ -136,10 +132,12 @@ export function DashboardFilterBar({
       seen.add(filter.id);
       unique.push(filter);
     }
-    return {
-      uniqueFilters: unique,
-      duplicateFilterIds: Array.from(duplicates),
-    };
+    if (duplicates.size > 0) {
+      console.warn(
+        `[DashboardFilterBar] Skipped duplicate filter ids: ${Array.from(duplicates).join(", ")}`,
+      );
+    }
+    return unique;
   }, [filters]);
 
   const getParam = useCallback(
@@ -230,14 +228,6 @@ export function DashboardFilterBar({
             )}
           </div>
         </div>
-        {duplicateFilterIds.length > 0 && (
-          <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-300">
-            <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            <span>
-              Skipped duplicate filter ids: {duplicateFilterIds.join(", ")}
-            </span>
-          </div>
-        )}
         <div className="flex flex-wrap gap-3 items-end">
           {uniqueFilters.map((f) => (
             <FilterControl
