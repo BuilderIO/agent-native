@@ -170,6 +170,10 @@ function isBuilderPreviewHost(host: string | undefined): boolean {
     return (
       hostname === "builderio.xyz" ||
       hostname.endsWith(".builderio.xyz") ||
+      hostname === "builderio.dev" ||
+      hostname.endsWith(".builderio.dev") ||
+      hostname === "builder.codes" ||
+      hostname.endsWith(".builder.codes") ||
       hostname === "builder.io" ||
       hostname.endsWith(".builder.io") ||
       hostname === "builder.my" ||

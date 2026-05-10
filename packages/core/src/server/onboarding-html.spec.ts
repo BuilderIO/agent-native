@@ -55,6 +55,7 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "__anSetOAuthDebug('Opening Google sign-in redirect')",
     );
+    expect(html).toContain("function __anBuilderPreviewReturnOrigin()");
     expect(html).toContain("function __anOAuthReturnTarget(ret)");
     expect(html).toContain("params.set('return', __anOAuthReturnTarget(ret))");
   });

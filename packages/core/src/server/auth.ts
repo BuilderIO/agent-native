@@ -309,8 +309,31 @@ function isBuilderOAuthRequest(event: H3Event): boolean {
   const referer = getHeader(event, "referer") || "";
   return (
     /Electron/i.test(userAgent) ||
-    /builder\.(io|my)|builderio\.(xyz|dev)/i.test(referer)
+    /builder\.(io|my)|builderio\.(xyz|dev)|builder\.codes/i.test(referer)
   );
+}
+
+function builderPreviewReturnOrigin(event: H3Event): string | undefined {
+  const referer = getHeader(event, "referer") || "";
+  if (!referer) return undefined;
+  try {
+    const url = new URL(referer);
+    const hostname = url.hostname.toLowerCase();
+    if (
+      url.protocol === "https:" &&
+      (hostname === "builderio.xyz" ||
+        hostname.endsWith(".builderio.xyz") ||
+        hostname === "builderio.dev" ||
+        hostname.endsWith(".builderio.dev") ||
+        hostname === "builder.codes" ||
+        hostname.endsWith(".builder.codes") ||
+        hostname === "builder.my" ||
+        hostname.endsWith(".builder.my"))
+    ) {
+      return url.origin;
+    }
+  } catch {}
+  return undefined;
 }
 
 function logGoogleOAuthDebug(
@@ -330,7 +353,8 @@ function logGoogleOAuthDebug(
     flow: oauthDebugFlowId(flowId),
     electron: /Electron/i.test(userAgent),
     agentNativeDesktop: /AgentNativeDesktop/i.test(userAgent),
-    builderReferrer: /builder\.(io|my)|builderio\.xyz/i.test(referer),
+    builderReferrer:
+      /builder\.(io|my)|builderio\.(xyz|dev)|builder\.codes/i.test(referer),
     ...rest,
   });
 }
@@ -1763,6 +1787,7 @@ async function mountBetterAuthRoutes(
           typeof returnQuery === "string"
             ? safeOAuthReturnUrl(returnQuery, {
                 allowDefaultLoopback: isBuilderOAuthRequest(event),
+                allowedOrigins: [builderPreviewReturnOrigin(event)],
               })
             : "/";
         const returnUrl = validated !== "/" ? validated : undefined;
