@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.14.3
+
+### Patch Changes
+
+- 740bca9: ux(extensions sidebar): trim the section header's right padding from `pr-24` to `pr-20`. The previous value reserved space for icons that were since removed; the new value lines up cleanly with the action buttons that are actually rendered.
+
 ## 0.14.2
 
 ### Patch Changes
