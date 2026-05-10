@@ -2059,20 +2059,27 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
 
 // ─── Contacts (extracted from email history) ─────────────────────────────────
 
+export type ContactEntry = { name: string; email: string; count: number };
+
 // Contact cache: keyed by user email, TTL 10 minutes
 const contactCache = new Map<
   string,
   {
-    data: Array<{ name: string; email: string; count: number }>;
+    data: ContactEntry[];
     expiresAt: number;
   }
 >();
 const CONTACT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
-export const listContacts = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-
-  // Return cached contacts if fresh
+/**
+ * Load (or return cached) contacts for the given user, ranked by send/receive
+ * frequency. Exposed so agent actions like `find-contact` can reuse the same
+ * waterfall (saved contacts → other contacts → recent Gmail headers → local
+ * fallback) without duplicating the People API calls or the cache.
+ */
+export async function loadContactsForEmail(
+  email: string,
+): Promise<ContactEntry[]> {
   const cached = contactCache.get(email);
   if (cached && Date.now() < cached.expiresAt) {
     return cached.data;
@@ -2291,6 +2298,11 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
     expiresAt: Date.now() + CONTACT_CACHE_TTL,
   });
   return contacts;
+}
+
+export const listContacts = defineEventHandler(async (event: H3Event) => {
+  const email = await userEmail(event);
+  return loadContactsForEmail(email);
 });
 
 // ─── Labels ───────────────────────────────────────────────────────────────────
