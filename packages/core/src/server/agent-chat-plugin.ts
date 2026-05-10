@@ -1607,7 +1607,19 @@ Convert natural language to 5-field cron format:
 - "every morning" / "daily at 9am" → \`0 9 * * *\`
 - "every weekday at 9am" → \`0 9 * * 1-5\`
 - "every hour" → \`0 * * * *\`
-- "every monday at 9am" → \`0 9 * * 1\``,
+- "every monday at 9am" → \`0 9 * * 1\`
+
+#### Suggesting "Save as automation"
+
+When you finish a task that has obvious recurring value — daily inbox triage, weekly metrics summaries, archive sweeps, status digests, anything the user would plausibly want re-run on a fresh cadence — close the response with ONE short line offering to save it. Examples:
+
+- After "Summarize my unread emails": _"Want me to run this every morning?"_
+- After "What's our top traffic source this week": _"Want a weekly digest on Mondays?"_
+- After "Archive emails older than 30 days": _"Should I run this every Sunday?"_
+
+If the user says yes, call \`manage-jobs\` (action: "create") with the original prompt as the job's instructions and the cadence they confirmed.
+
+Do NOT add this offer for one-shot work: lookups (find Alice, what's the schema, who reported X), single drafts/replies, navigation requests, or any task whose value is in the moment. Skip it when the prompt is already explicitly recurring (the user said "every morning…" — you'd be asking what they already told you). One short sentence at most; do not turn it into a list of cadence options.`,
 
   builder: `### Connecting Builder.io
 
@@ -1806,6 +1818,12 @@ When the user asks for something recurring ("every morning", "daily at 9am", "we
 - "twice a day" / "morning and evening" → \`0 9,17 * * *\`
 
 Job instructions should be self-contained — include which actions to call, what conditions to check, and what to do with results. The agent executing the job has access to all the same tools you do.
+
+#### Offering "Save as automation"
+
+After completing a task with obvious recurring value (daily triage, weekly digests, archive sweeps, status summaries, anything the user would plausibly re-run on a fresh cadence), close the reply with ONE short line offering to save it: _"Want me to run this every morning?"_, _"Want a weekly digest on Mondays?"_, _"Should I run this every Sunday?"_. If they say yes, call \`manage-jobs\` (action: "create") with the original prompt as the job instructions and the cadence they picked.
+
+Skip this offer for one-shot work — single lookups (find X, who is Y), one-off drafts/replies, navigation, anything whose value is in the moment. Also skip it when the prompt was already explicitly recurring (the user said "every morning…"; offering again would just be asking what they already told you). Keep it to one sentence; do not enumerate cadence options.
 
 ### Connecting Builder.io
 
