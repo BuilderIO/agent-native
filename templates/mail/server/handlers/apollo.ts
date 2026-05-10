@@ -41,6 +41,32 @@ export const apolloSaveKey = defineEventHandler(async (event: H3Event) => {
   return { connected: true };
 });
 
+// POST /api/apollo/validate — verify a key without saving it
+export const apolloValidate = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event).catch(() => ({}));
+  const apiKey = (body as { apiKey?: unknown })?.apiKey;
+  if (!apiKey || typeof apiKey !== "string") {
+    setResponseStatus(event, 400);
+    return { valid: false, error: "apiKey is required" };
+  }
+  try {
+    const response = await fetch("https://api.apollo.io/api/v1/auth/health", {
+      method: "GET",
+      headers: { "x-api-key": apiKey },
+    });
+    if (response.ok) return { valid: true };
+    if (response.status === 401 || response.status === 403) {
+      setResponseStatus(event, response.status);
+      return { valid: false, error: "Invalid Apollo API key." };
+    }
+    setResponseStatus(event, response.status);
+    return { valid: false, error: `Apollo API returned ${response.status}.` };
+  } catch {
+    setResponseStatus(event, 502);
+    return { valid: false, error: "Could not reach Apollo to verify the key." };
+  }
+});
+
 // DELETE /api/apollo/key — remove API key
 export const apolloDeleteKey = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);

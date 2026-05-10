@@ -509,6 +509,8 @@ function IntegrationKeyEntry({
 }) {
   const [apiKey, setApiKey] = useState("");
   const { connect } = useIntegration(def.id);
+  const errorMessage =
+    connect.error instanceof Error ? connect.error.message : null;
 
   return (
     <div className="px-4 py-3">
@@ -527,11 +529,14 @@ function IntegrationKeyEntry({
         </span>
       </div>
 
-      <div className="flex gap-1.5 mb-3">
+      <div className="flex gap-1.5 mb-2">
         <input
           type="password"
           value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
+          onChange={(e) => {
+            setApiKey(e.target.value);
+            if (connect.error) connect.reset();
+          }}
           placeholder={def.keyPlaceholder}
           autoFocus
           className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
@@ -545,9 +550,13 @@ function IntegrationKeyEntry({
           disabled={!apiKey.trim() || connect.isPending}
           className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
-          {connect.isPending ? "..." : "Save"}
+          {connect.isPending ? "Checking..." : "Save"}
         </button>
       </div>
+
+      {errorMessage && (
+        <p className="mb-3 text-[11px] text-destructive">{errorMessage}</p>
+      )}
 
       {/* Instructions always visible */}
       <div className="rounded-md bg-accent/30 px-2.5 py-2">
@@ -610,7 +619,10 @@ function IntegrationNotice({
           <input
             type="password"
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            onChange={(e) => {
+              setApiKey(e.target.value);
+              if (connect.error) connect.reset();
+            }}
             placeholder={def.keyPlaceholder}
             autoFocus
             className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
@@ -626,9 +638,14 @@ function IntegrationNotice({
             disabled={!apiKey.trim() || connect.isPending}
             className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
-            {connect.isPending ? "..." : "Save"}
+            {connect.isPending ? "Checking..." : "Save"}
           </button>
         </div>
+        {connect.error instanceof Error && (
+          <p className="mb-2 text-[11px] text-destructive">
+            {connect.error.message}
+          </p>
+        )}
         <a
           href={def.helpUrl}
           target="_blank"

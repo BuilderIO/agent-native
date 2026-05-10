@@ -1,11 +1,37 @@
 import {
   defineEventHandler,
   getQuery,
+  readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
 import { appStateGet } from "@agent-native/core/application-state";
 import { getSession } from "@agent-native/core/server";
+
+// POST /api/pylon/validate — verify a key without saving it
+export const pylonValidate = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event).catch(() => ({}));
+  const apiKey = (body as { apiKey?: unknown })?.apiKey;
+  if (!apiKey || typeof apiKey !== "string") {
+    setResponseStatus(event, 400);
+    return { valid: false, error: "apiKey is required" };
+  }
+  try {
+    const response = await fetch("https://api.usepylon.com/me", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (response.ok) return { valid: true };
+    if (response.status === 401 || response.status === 403) {
+      setResponseStatus(event, response.status);
+      return { valid: false, error: "Invalid Pylon API key." };
+    }
+    setResponseStatus(event, response.status);
+    return { valid: false, error: `Pylon API returned ${response.status}.` };
+  } catch {
+    setResponseStatus(event, 502);
+    return { valid: false, error: "Could not reach Pylon to verify the key." };
+  }
+});
 
 async function getSessionId(event: H3Event): Promise<string> {
   const session = await getSession(event);

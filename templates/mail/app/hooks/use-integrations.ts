@@ -22,11 +22,45 @@ function useIntegrationStatus(provider: Provider) {
   return !!data?.apiKey;
 }
 
+export class IntegrationConnectError extends Error {
+  constructor(
+    message: string,
+    public readonly kind: "invalid-key" | "unreachable" | "save-failed",
+  ) {
+    super(message);
+    this.name = "IntegrationConnectError";
+  }
+}
+
 function useIntegrationConnect(provider: Provider) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (apiKey: string) => {
-      const res = await fetch(
+      // Verify the key against the upstream provider before persisting it,
+      // so the user sees a real error instead of a key that silently fails
+      // the next time they open a contact.
+      const validateRes = await fetch(appApiPath(`/api/${provider}/validate`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey }),
+      });
+      if (!validateRes.ok) {
+        const data: { error?: string } = await validateRes
+          .json()
+          .catch(() => ({}));
+        const kind =
+          validateRes.status === 401 || validateRes.status === 403
+            ? "invalid-key"
+            : "unreachable";
+        throw new IntegrationConnectError(
+          data.error ||
+            (kind === "invalid-key"
+              ? "Invalid API key."
+              : "Could not reach the provider to verify the key."),
+          kind,
+        );
+      }
+      const saveRes = await fetch(
         agentNativePath(`/_agent-native/application-state/${provider}`),
         {
           method: "PUT",
@@ -34,7 +68,12 @@ function useIntegrationConnect(provider: Provider) {
           body: JSON.stringify({ apiKey }),
         },
       );
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!saveRes.ok) {
+        throw new IntegrationConnectError(
+          "Could not save the API key.",
+          "save-failed",
+        );
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["integration-status", provider] });
