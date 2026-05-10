@@ -297,7 +297,7 @@
 
 /* Paragraphs */
 .notion-editor p {
-  margin: 0.15em 0;
+  margin: 0.5em 0;
   min-height: 1.5em;
 }
 
@@ -318,7 +318,7 @@
 .notion-editor ul {
   list-style-type: disc;
   padding-left: 1.5em;
-  margin: 0.2em 0;
+  margin: 0.5em 0;
 }
 .notion-editor ul ul {
   list-style-type: circle;
@@ -329,7 +329,7 @@
 .notion-editor ol {
   list-style-type: decimal;
   padding-left: 1.5em;
-  margin: 0.2em 0;
+  margin: 0.5em 0;
 }
 .notion-editor ol ol {
   list-style-type: lower-alpha;
@@ -338,7 +338,7 @@
   list-style-type: lower-roman;
 }
 .notion-editor li {
-  margin: 0.1em 0;
+  margin: 0.2em 0;
 }
 .notion-editor li p {
   margin: 0;
@@ -348,7 +348,7 @@
 .notion-task-list {
   list-style: none;
   padding-left: 0;
-  margin: 0.2em 0;
+  margin: 0.5em 0;
 }
 .notion-task-list li {
   display: flex;
@@ -375,12 +375,12 @@
 .notion-editor blockquote {
   border-left: none;
   padding-left: 1.5em;
-  margin: 0.15em 0;
+  margin: 0.5em 0;
 }
 
 /* Code block wrapper */
 .notion-editor .notion-code-block-wrapper {
-  margin: 0.4em 0;
+  margin: 0.6em 0;
   border-radius: 6px;
   background: hsl(var(--muted));
 }

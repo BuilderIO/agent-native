@@ -261,385 +261,397 @@ export function DocumentToolbar({
   };
 
   return (
-    <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-xl border border-border/70 bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:top-3 sm:right-4 sm:gap-1">
-      {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
-      <PresenceBar
-        activeUsers={activeUsers ?? []}
-        agentPresent={agentPresent}
-        agentActive={agentActive}
-        currentUserEmail={currentUserEmail}
-        className="mr-1"
-      />
-      {isSaving && (
-        <div className="flex items-center gap-1 text-xs text-muted-foreground mr-1">
-          <IconLoader2 size={12} className="animate-spin" />
-          <span className="hidden sm:inline">Saving...</span>
-        </div>
-      )}
-      <ShareButton
-        resourceType="document"
-        resourceId={documentId}
-        resourceTitle={documentTitle}
-        shareUrl={shareUrl}
-        variant="compact"
-      />
+    <>
+      <div
+        aria-hidden={!isSaving}
+        className={cn(
+          "pointer-events-none absolute top-3 left-4 z-10 flex items-center gap-1 text-xs text-muted-foreground/70 transition-opacity duration-200 sm:top-4 sm:left-6",
+          isSaving ? "opacity-100" : "opacity-0",
+        )}
+      >
+        <IconLoader2 size={12} className="animate-spin" />
+        <span>Saving</span>
+      </div>
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-xl border border-border/70 bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:top-3 sm:right-4 sm:gap-1">
+        {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
+        <PresenceBar
+          activeUsers={activeUsers ?? []}
+          agentPresent={agentPresent}
+          agentActive={agentActive}
+          currentUserEmail={currentUserEmail}
+          className="mr-1"
+        />
+        <ShareButton
+          resourceType="document"
+          resourceId={documentId}
+          resourceTitle={documentTitle}
+          shareUrl={shareUrl}
+          variant="compact"
+        />
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            onClick={() => setHistoryOpen(true)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-          >
-            <IconHistory size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Version history</TooltipContent>
-      </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setHistoryOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+            >
+              <IconHistory size={16} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Version history</TooltipContent>
+        </Tooltip>
 
-      <VersionHistoryPanel
-        documentId={documentId}
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
-        canRestore={canEdit}
-      />
+        <VersionHistoryPanel
+          documentId={documentId}
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          canRestore={canEdit}
+        />
 
-      {canEdit ? (
-        <Popover open={open} onOpenChange={setOpen}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PopoverTrigger asChild>
-                <button
-                  className={cn(
-                    "flex h-9 w-9 items-center justify-center rounded-lg hover:bg-accent",
-                    isLinked
-                      ? "text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {hasConflict ? (
-                    <div className="relative">
-                      <NotionIcon className="h-4 w-4" />
-                      <IconAlertTriangle
-                        size={8}
-                        className="absolute -right-1 -top-1 text-amber-500"
-                      />
-                    </div>
-                  ) : isLinked && autoSync ? (
-                    <div className="relative">
-                      <NotionIcon className="h-4 w-4" />
-                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
-                    </div>
-                  ) : (
-                    <NotionIcon className="h-4 w-4" />
-                  )}
-                </button>
-              </PopoverTrigger>
-            </TooltipTrigger>
-            <TooltipContent>
-              {isLinked
-                ? "Linked to Notion"
-                : isConnected
-                  ? "Link to Notion"
-                  : "Connect Notion"}
-            </TooltipContent>
-          </Tooltip>
-
-          <PopoverContent
-            side="bottom"
-            align="end"
-            sideOffset={4}
-            className="w-80 p-0"
-            onOpenAutoFocus={(e) => e.preventDefault()}
-          >
-            {!isConnected ? (
-              /* ─── Not connected ─── */
-              <div className="p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <NotionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <p className="text-sm font-medium">Connect Notion</p>
-                </div>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Set up Notion to sync this document.
-                </p>
-                <Button size="sm" className="w-full" onClick={handleSetup}>
-                  Set up Notion
-                </Button>
-              </div>
-            ) : isLinked ? (
-              /* ─── Linked — show sync actions ─── */
-              <div>
-                <div className="px-4 py-3 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <NotionIcon className="h-3.5 w-3.5 shrink-0" />
-                    <span className="text-xs font-medium truncate">
-                      Linked to Notion
-                    </span>
-                    {autoSync && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
-                        <IconRefresh size={9} />
-                        Auto
-                      </span>
-                    )}
-                  </div>
-                  {syncStatus?.lastSyncedAt && (
-                    <p className="mt-1 text-[10px] text-muted-foreground">
-                      Last synced{" "}
-                      {new Date(syncStatus.lastSyncedAt).toLocaleString()}
-                    </p>
-                  )}
-                  {syncStatus?.lastError && (
-                    <p className="mt-1 text-[10px] text-destructive">
-                      {syncStatus.lastError}
-                    </p>
-                  )}
-                  {syncStatus?.warnings?.length ? (
-                    <div className="mt-1.5 space-y-1">
-                      {syncStatus.warnings.slice(0, 3).map((warning, index) => (
-                        <p
-                          key={`${warning}-${index}`}
-                          className="text-[10px] text-muted-foreground"
-                        >
-                          {warning}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-
-                {/* Conflict is shown via NotionConflictBanner above the title */}
-
-                <div className="p-1.5">
+        {canEdit ? (
+          <Popover open={open} onOpenChange={setOpen}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
                   <button
-                    onClick={() => setAutoSync(!autoSync)}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent rounded-md"
+                    className={cn(
+                      "flex h-9 w-9 items-center justify-center rounded-lg hover:bg-accent",
+                      isLinked
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
                   >
-                    <IconRefresh
-                      size={12}
-                      className={
-                        autoSync ? "text-emerald-500" : "text-muted-foreground"
-                      }
-                    />
-                    <span
-                      className={
-                        autoSync
-                          ? "text-foreground font-medium"
-                          : "text-muted-foreground"
-                      }
-                    >
-                      Auto-sync
-                    </span>
-                    <span
-                      className={cn(
-                        "ml-auto h-4 w-7 rounded-full relative",
-                        autoSync ? "bg-emerald-500" : "bg-muted-foreground/30",
+                    {hasConflict ? (
+                      <div className="relative">
+                        <NotionIcon className="h-4 w-4" />
+                        <IconAlertTriangle
+                          size={8}
+                          className="absolute -right-1 -top-1 text-amber-500"
+                        />
+                      </div>
+                    ) : isLinked && autoSync ? (
+                      <div className="relative">
+                        <NotionIcon className="h-4 w-4" />
+                        <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
+                      </div>
+                    ) : (
+                      <NotionIcon className="h-4 w-4" />
+                    )}
+                  </button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isLinked
+                  ? "Linked to Notion"
+                  : isConnected
+                    ? "Link to Notion"
+                    : "Connect Notion"}
+              </TooltipContent>
+            </Tooltip>
+
+            <PopoverContent
+              side="bottom"
+              align="end"
+              sideOffset={4}
+              className="w-80 p-0"
+              onOpenAutoFocus={(e) => e.preventDefault()}
+            >
+              {!isConnected ? (
+                /* ─── Not connected ─── */
+                <div className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <NotionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <p className="text-sm font-medium">Connect Notion</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Set up Notion to sync this document.
+                  </p>
+                  <Button size="sm" className="w-full" onClick={handleSetup}>
+                    Set up Notion
+                  </Button>
+                </div>
+              ) : isLinked ? (
+                /* ─── Linked — show sync actions ─── */
+                <div>
+                  <div className="px-4 py-3 border-b border-border">
+                    <div className="flex items-center gap-2">
+                      <NotionIcon className="h-3.5 w-3.5 shrink-0" />
+                      <span className="text-xs font-medium truncate">
+                        Linked to Notion
+                      </span>
+                      {autoSync && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                          <IconRefresh size={9} />
+                          Auto
+                        </span>
                       )}
+                    </div>
+                    {syncStatus?.lastSyncedAt && (
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        Last synced{" "}
+                        {new Date(syncStatus.lastSyncedAt).toLocaleString()}
+                      </p>
+                    )}
+                    {syncStatus?.lastError && (
+                      <p className="mt-1 text-[10px] text-destructive">
+                        {syncStatus.lastError}
+                      </p>
+                    )}
+                    {syncStatus?.warnings?.length ? (
+                      <div className="mt-1.5 space-y-1">
+                        {syncStatus.warnings
+                          .slice(0, 3)
+                          .map((warning, index) => (
+                            <p
+                              key={`${warning}-${index}`}
+                              className="text-[10px] text-muted-foreground"
+                            >
+                              {warning}
+                            </p>
+                          ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* Conflict is shown via NotionConflictBanner above the title */}
+
+                  <div className="p-1.5">
+                    <button
+                      onClick={() => setAutoSync(!autoSync)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent rounded-md"
                     >
+                      <IconRefresh
+                        size={12}
+                        className={
+                          autoSync
+                            ? "text-emerald-500"
+                            : "text-muted-foreground"
+                        }
+                      />
+                      <span
+                        className={
+                          autoSync
+                            ? "text-foreground font-medium"
+                            : "text-muted-foreground"
+                        }
+                      >
+                        Auto-sync
+                      </span>
                       <span
                         className={cn(
-                          "absolute top-0.5 h-3 w-3 rounded-full bg-white",
-                          autoSync ? "right-0.5" : "left-0.5",
+                          "ml-auto h-4 w-7 rounded-full relative",
+                          autoSync
+                            ? "bg-emerald-500"
+                            : "bg-muted-foreground/30",
                         )}
-                      />
-                    </span>
-                  </button>
-                  <button
-                    onClick={handlePull}
-                    disabled={isWorking}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md disabled:opacity-40"
-                  >
-                    {pullDocument.isPending ? (
-                      <IconLoader2 size={12} className="animate-spin" />
-                    ) : (
-                      <IconArrowBarDown size={12} />
-                    )}
-                    Pull from Notion
-                  </button>
-                  <button
-                    onClick={handlePush}
-                    disabled={isWorking}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md disabled:opacity-40"
-                  >
-                    {pushDocument.isPending ? (
-                      <IconLoader2 size={12} className="animate-spin" />
-                    ) : (
-                      <IconArrowBarUp size={12} />
-                    )}
-                    Push to Notion
-                  </button>
-                  {syncStatus?.pageUrl && (
-                    <a
-                      href={syncStatus.pageUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md"
-                    >
-                      <IconExternalLink size={12} />
-                      Open in Notion
-                    </a>
-                  )}
-                  <button
-                    onClick={handleUnlink}
-                    disabled={isWorking}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md disabled:opacity-40"
-                  >
-                    <IconLinkOff size={12} />
-                    Unlink
-                  </button>
-                </div>
-              </div>
-            ) : (
-              /* ─── Not linked — show search ─── */
-              <div>
-                <div className="p-3 pb-2">
-                  <div className="flex items-center gap-2 mb-2">
-                    <NotionIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="text-xs font-medium">
-                      Link to Notion page
-                    </span>
-                  </div>
-                  <div className="relative">
-                    <IconSearch
-                      size={13}
-                      className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-                    />
-                    <input
-                      ref={searchInputRef}
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search Notion pages..."
-                      className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
-                    />
-                  </div>
-                </div>
-
-                <div className="max-h-64 overflow-y-auto border-t border-border">
-                  {/* Create new page option */}
-                  <div className="p-1.5 border-b border-border">
-                    {requiresExplicitCreateParent ? (
-                      <p className="px-2.5 py-2 text-xs text-muted-foreground">
-                        Notion API-key connections need a parent page shared
-                        with the integration. Pick where to create this page.
-                      </p>
-                    ) : (
-                      <button
-                        onClick={() => handleCreateAndLink()}
-                        disabled={isWorking}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
                       >
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                          {createAndLink.isPending ? (
-                            <IconLoader2
-                              size={14}
-                              className="animate-spin text-muted-foreground"
-                            />
-                          ) : (
-                            <IconPlus
-                              size={14}
-                              className="text-muted-foreground"
-                            />
+                        <span
+                          className={cn(
+                            "absolute top-0.5 h-3 w-3 rounded-full bg-white",
+                            autoSync ? "right-0.5" : "left-0.5",
                           )}
-                        </span>
-                        <span className="text-xs font-medium">
-                          Create new page in Notion
-                        </span>
-                      </button>
+                        />
+                      </span>
+                    </button>
+                    <button
+                      onClick={handlePull}
+                      disabled={isWorking}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md disabled:opacity-40"
+                    >
+                      {pullDocument.isPending ? (
+                        <IconLoader2 size={12} className="animate-spin" />
+                      ) : (
+                        <IconArrowBarDown size={12} />
+                      )}
+                      Pull from Notion
+                    </button>
+                    <button
+                      onClick={handlePush}
+                      disabled={isWorking}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md disabled:opacity-40"
+                    >
+                      {pushDocument.isPending ? (
+                        <IconLoader2 size={12} className="animate-spin" />
+                      ) : (
+                        <IconArrowBarUp size={12} />
+                      )}
+                      Push to Notion
+                    </button>
+                    {syncStatus?.pageUrl && (
+                      <a
+                        href={syncStatus.pageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md"
+                      >
+                        <IconExternalLink size={12} />
+                        Open in Notion
+                      </a>
                     )}
+                    <button
+                      onClick={handleUnlink}
+                      disabled={isWorking}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md disabled:opacity-40"
+                    >
+                      <IconLinkOff size={12} />
+                      Unlink
+                    </button>
                   </div>
-
-                  {searchLoading ? (
-                    <div className="flex items-center justify-center py-6">
-                      <IconLoader2
-                        size={16}
-                        className="animate-spin text-muted-foreground"
+                </div>
+              ) : (
+                /* ─── Not linked — show search ─── */
+                <div>
+                  <div className="p-3 pb-2">
+                    <div className="flex items-center gap-2 mb-2">
+                      <NotionIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="text-xs font-medium">
+                        Link to Notion page
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <IconSearch
+                        size={13}
+                        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                      />
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search Notion pages..."
+                        className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
                       />
                     </div>
-                  ) : searchResults?.results.length ? (
-                    <div className="p-1.5">
-                      {searchResults.results.map((page) => (
-                        <div
-                          key={page.id}
-                          className="flex items-center gap-1 rounded-md hover:bg-accent"
-                        >
-                          <button
-                            onClick={() => handleLink(page.id)}
-                            disabled={isWorking}
-                            className="min-w-0 flex-1 flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md disabled:opacity-40"
-                          >
-                            <span className="flex h-5 w-5 shrink-0 items-center justify-center text-sm">
-                              {linkingPageId === page.id ? (
-                                <IconLoader2
-                                  size={14}
-                                  className="animate-spin text-muted-foreground"
-                                />
-                              ) : (
-                                page.icon || (
-                                  <IconFileText
-                                    size={14}
-                                    className="text-muted-foreground"
-                                  />
-                                )
-                              )}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-medium truncate">
-                                {page.title}
-                              </p>
-                              {linkingPageId === page.id ? (
-                                <p className="text-[10px] text-muted-foreground">
-                                  Importing from Notion…
-                                </p>
-                              ) : page.lastEditedTime ? (
-                                <p className="text-[10px] text-muted-foreground">
-                                  Edited{" "}
-                                  {new Date(
-                                    page.lastEditedTime,
-                                  ).toLocaleDateString()}
-                                </p>
-                              ) : null}
-                            </div>
-                          </button>
-                          {requiresExplicitCreateParent && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  onClick={() => handleCreateAndLink(page.id)}
-                                  disabled={isWorking}
-                                  className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
-                                  aria-label={`Create new page inside ${page.title}`}
-                                >
-                                  {creatingParentPageId === page.id ? (
-                                    <IconLoader2
-                                      size={13}
-                                      className="animate-spin"
-                                    />
-                                  ) : (
-                                    <IconPlus size={13} />
-                                  )}
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                Create new page inside this page
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : debouncedQuery || searchResults ? (
-                    <div className="py-6 text-center text-xs text-muted-foreground">
-                      No pages found
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            )}
-          </PopoverContent>
-        </Popover>
-      ) : null}
+                  </div>
 
-      <NotificationsBell />
-      <AgentToggleButton />
-    </div>
+                  <div className="max-h-64 overflow-y-auto border-t border-border">
+                    {/* Create new page option */}
+                    <div className="p-1.5 border-b border-border">
+                      {requiresExplicitCreateParent ? (
+                        <p className="px-2.5 py-2 text-xs text-muted-foreground">
+                          Notion API-key connections need a parent page shared
+                          with the integration. Pick where to create this page.
+                        </p>
+                      ) : (
+                        <button
+                          onClick={() => handleCreateAndLink()}
+                          disabled={isWorking}
+                          className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
+                        >
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                            {createAndLink.isPending ? (
+                              <IconLoader2
+                                size={14}
+                                className="animate-spin text-muted-foreground"
+                              />
+                            ) : (
+                              <IconPlus
+                                size={14}
+                                className="text-muted-foreground"
+                              />
+                            )}
+                          </span>
+                          <span className="text-xs font-medium">
+                            Create new page in Notion
+                          </span>
+                        </button>
+                      )}
+                    </div>
+
+                    {searchLoading ? (
+                      <div className="flex items-center justify-center py-6">
+                        <IconLoader2
+                          size={16}
+                          className="animate-spin text-muted-foreground"
+                        />
+                      </div>
+                    ) : searchResults?.results.length ? (
+                      <div className="p-1.5">
+                        {searchResults.results.map((page) => (
+                          <div
+                            key={page.id}
+                            className="flex items-center gap-1 rounded-md hover:bg-accent"
+                          >
+                            <button
+                              onClick={() => handleLink(page.id)}
+                              disabled={isWorking}
+                              className="min-w-0 flex-1 flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md disabled:opacity-40"
+                            >
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-sm">
+                                {linkingPageId === page.id ? (
+                                  <IconLoader2
+                                    size={14}
+                                    className="animate-spin text-muted-foreground"
+                                  />
+                                ) : (
+                                  page.icon || (
+                                    <IconFileText
+                                      size={14}
+                                      className="text-muted-foreground"
+                                    />
+                                  )
+                                )}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-medium truncate">
+                                  {page.title}
+                                </p>
+                                {linkingPageId === page.id ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Importing from Notion…
+                                  </p>
+                                ) : page.lastEditedTime ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Edited{" "}
+                                    {new Date(
+                                      page.lastEditedTime,
+                                    ).toLocaleDateString()}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </button>
+                            {requiresExplicitCreateParent && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    onClick={() => handleCreateAndLink(page.id)}
+                                    disabled={isWorking}
+                                    className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
+                                    aria-label={`Create new page inside ${page.title}`}
+                                  >
+                                    {creatingParentPageId === page.id ? (
+                                      <IconLoader2
+                                        size={13}
+                                        className="animate-spin"
+                                      />
+                                    ) : (
+                                      <IconPlus size={13} />
+                                    )}
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Create new page inside this page
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : debouncedQuery || searchResults ? (
+                      <div className="py-6 text-center text-xs text-muted-foreground">
+                        No pages found
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+        ) : null}
+
+        <NotificationsBell />
+        <AgentToggleButton />
+      </div>
+    </>
   );
 }
