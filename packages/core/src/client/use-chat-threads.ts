@@ -22,16 +22,6 @@ export interface ChatThreadData {
 }
 
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
-const THREAD_DATA_CACHE_PREFIX = "agent-chat-thread-cache:";
-
-/**
- * Key for the per-thread message cache in localStorage. AssistantChat reads
- * this synchronously on mount so existing chats can hydrate from cache and
- * paint immediately, then refreshes from the server in the background.
- */
-export function getThreadCacheKey(threadId: string): string {
-  return `${THREAD_DATA_CACHE_PREFIX}${threadId}`;
-}
 
 export function useChatThreads(
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
@@ -48,20 +38,18 @@ export function useChatThreads(
   // never need to re-render when the set changes.
   const newlyCreatedRef = useRef<Set<string>>(new Set());
 
+  // Restore the saved active thread synchronously on mount so the chat shell
+  // can paint immediately. We do NOT synthesize a fresh UUID here when no
+  // saved id exists — that races with the agent run's server-side thread
+  // create and was producing ghost threads that disappeared from history.
+  // First-time users see the brief loading state while threads load.
   const [activeThreadId, setActiveThreadId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     try {
-      const saved = localStorage.getItem(activeThreadKey);
-      if (saved) return saved;
-    } catch {}
-    // No saved thread — generate one synchronously so the chat shell + composer
-    // can paint on first render instead of after a network round-trip.
-    if (typeof crypto !== "undefined" && crypto.randomUUID) {
-      const id = crypto.randomUUID();
-      newlyCreatedRef.current.add(id);
-      return id;
+      return localStorage.getItem(activeThreadKey);
+    } catch {
+      return null;
     }
-    return null;
   });
   const [isLoading, setIsLoading] = useState(true);
   const fetchedRef = useRef(false);
@@ -102,7 +90,10 @@ export function useChatThreads(
 
   // Persist a client-generated thread to the server in the background.
   // Optimistically adds it to the local thread list so callers can render
-  // immediately; rolls back on failure.
+  // immediately. POST /threads is idempotent server-side (returns the
+  // existing thread on UNIQUE conflict instead of 500), so client retries
+  // and races with the agent run's `persistSubmittedUserMessage` no longer
+  // wipe a freshly-created thread out of local state.
   const persistNewThread = useCallback(
     (id: string) => {
       const now = Date.now();
@@ -123,9 +114,7 @@ export function useChatThreads(
         body: JSON.stringify({ id }),
       })
         .then(async (res) => {
-          if (!res.ok) {
-            throw new Error(`Thread create failed with ${res.status}`);
-          }
+          if (!res.ok) return;
           const created = (await res
             .json()
             .catch(() => null)) as ChatThreadSummary | null;
@@ -135,44 +124,49 @@ export function useChatThreads(
           );
         })
         .catch(() => {
-          setThreads((prev) => prev.filter((t) => t.id !== id));
-          newlyCreatedRef.current.delete(id);
-          setActiveThreadId((current) => (current === id ? null : current));
+          // Network blip — keep the optimistic row and let the next
+          // fetchThreads reconcile. Don't yank the thread out of local
+          // state: the agent's onRunPrepared will (idempotently) create
+          // it server-side anyway and we don't want to drop the user's
+          // active conversation just because POST /threads was flaky.
         });
     },
     [apiUrl],
   );
 
-  // Initial load. Runs in the background — does NOT gate the consumer's
-  // first paint. The composer renders against the optimistic active thread
-  // we set up in useState above; this fetch just populates the history list
-  // and reconciles a stale saved active id.
+  // Initial load.
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
 
-    // Persist any thread we optimistically created during the initial render.
-    for (const id of newlyCreatedRef.current) {
-      persistNewThread(id);
-    }
-
     (async () => {
+      setIsLoading(true);
       const loadedThreads = await fetchThreads();
+
       if (loadedThreads && loadedThreads.length > 0) {
         const savedId = activeThreadIdRef.current;
-        // If the saved active thread isn't on the server (and isn't one we
-        // just created client-side), fall back to the most recent.
-        if (
-          savedId &&
-          !newlyCreatedRef.current.has(savedId) &&
-          !loadedThreads.find((t) => t.id === savedId)
-        ) {
+        // If the saved active thread isn't on the server, fall back to the
+        // most recent so the user lands on real history instead of a ghost.
+        if (!savedId || !loadedThreads.find((t) => t.id === savedId)) {
           setActiveThreadId(loadedThreads[0].id);
         }
+      } else if (!activeThreadIdRef.current) {
+        // No threads on server and no saved active id — create a fresh one
+        // so the composer has something to send into. This matches the
+        // pre-instant-paint behavior.
+        try {
+          const res = await fetch(`${apiUrl}/threads`, { method: "POST" });
+          if (res.ok) {
+            const thread = (await res.json()) as ChatThreadSummary;
+            newlyCreatedRef.current.add(thread.id);
+            setThreads([thread]);
+            setActiveThreadId(thread.id);
+          }
+        } catch {}
       }
       setIsLoading(false);
     })();
-  }, [fetchThreads, persistNewThread]);
+  }, [fetchThreads, apiUrl]);
 
   const createThread = useCallback(
     (preferredId?: string): Promise<string | null> => {
@@ -202,9 +196,6 @@ export function useChatThreads(
           method: "DELETE",
         });
       } catch {}
-      try {
-        localStorage.removeItem(getThreadCacheKey(id));
-      } catch {}
       setThreads((prev) => {
         const next = prev.filter((t) => t.id !== id);
         if (id === activeThreadId) {
@@ -232,12 +223,6 @@ export function useChatThreads(
         messageCount?: number;
       },
     ) => {
-      // Cache locally so the next mount of this thread can hydrate
-      // synchronously and skip the per-message restore skeleton. Quota errors
-      // (5–10MB cap) are swallowed — the thread just falls back to fetching.
-      try {
-        localStorage.setItem(getThreadCacheKey(id), data.threadData);
-      } catch {}
       try {
         await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
           method: "PUT",
