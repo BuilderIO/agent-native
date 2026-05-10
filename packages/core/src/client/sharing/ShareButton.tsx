@@ -37,15 +37,28 @@ export interface ShareButtonProps {
    *  button next to an iframe use this to disable the iframe's pointer events
    *  while the popover is open, so popover hover/clicks aren't swallowed. */
   onOpenChange?: (open: boolean) => void;
-  /** Optional public/share URL shown as a copyable link in the popover. */
+  /** Optional public/share URL shown as a copyable link in the popover.
+   *  This is treated as the primary "Copy link" target — same convention
+   *  as Google Docs' Share dialog, which copies the editor URL. */
   shareUrl?: string;
-  /** Optional label for the copyable link section. */
+  /** Optional label for the primary copyable link section. */
   shareUrlLabel?: string;
-  /** Optional helper text for the copyable link section. */
+  /** Optional helper text for the primary copyable link section. */
   shareUrlDescription?: ReactNode;
-  /** When true, the share URL is only copyable after visibility is public. */
+  /** Optional secondary copyable link (e.g. a presentation / read-only
+   *  surface for the same resource). Anyone with at least viewer access
+   *  can open it — access is enforced on the resource itself, not the
+   *  URL shape, so we never gate this behind visibility. */
+  secondaryShareUrl?: string;
+  /** Optional label for the secondary copyable link. */
+  secondaryShareUrlLabel?: string;
+  /** Optional helper text for the secondary copyable link. */
+  secondaryShareUrlDescription?: ReactNode;
+  /** @deprecated No longer enforced — access is checked on the resource,
+   *  not the URL shape, mirroring Google Slides. Kept for callsite
+   *  compatibility; the prop is now a no-op. */
   shareUrlRequiresPublic?: boolean;
-  /** Optional helper text shown when the share URL requires public visibility. */
+  /** @deprecated See `shareUrlRequiresPublic`. No longer rendered. */
   shareUrlUnavailableDescription?: ReactNode;
   /** Optional template-specific copy for the visibility picker. */
   visibilityCopy?: Partial<
@@ -683,20 +696,14 @@ function SharePanel(
           value={props.shareUrl}
           label={props.shareUrlLabel}
           description={props.shareUrlDescription}
-          unavailable={props.shareUrlRequiresPublic && visibility !== "public"}
-          unavailableDescription={
-            props.shareUrlUnavailableDescription ??
-            (canManage
-              ? "Make general access public before copying this link."
-              : "This link is not public. Ask an owner or admin to make it public.")
-          }
-          unavailableActionLabel={
-            canManage ? "Make public and copy" : "Not public"
-          }
-          unavailableActionBusyLabel="Making public..."
-          onUnavailableAction={
-            canManage ? () => onVisibilityChange("public") : undefined
-          }
+        />
+      ) : null}
+
+      {props.secondaryShareUrl ? (
+        <CopyLinkField
+          value={props.secondaryShareUrl}
+          label={props.secondaryShareUrlLabel}
+          description={props.secondaryShareUrlDescription}
         />
       ) : null}
 
@@ -717,23 +724,12 @@ function CopyLinkField({
   value,
   label = "Share link",
   description,
-  unavailable = false,
-  unavailableDescription,
-  unavailableActionLabel = "Unavailable",
-  unavailableActionBusyLabel = "Working...",
-  onUnavailableAction,
 }: {
   value: string;
   label?: string;
   description?: ReactNode;
-  unavailable?: boolean;
-  unavailableDescription?: ReactNode;
-  unavailableActionLabel?: string;
-  unavailableActionBusyLabel?: string;
-  onUnavailableAction?: () => Promise<void> | void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
   const resetRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -742,41 +738,16 @@ function CopyLinkField({
     };
   }, []);
 
-  const markCopied = () => {
-    setCopied(true);
-    if (resetRef.current) clearTimeout(resetRef.current);
-    resetRef.current = setTimeout(() => setCopied(false), 1400);
-  };
-
-  const copyValue = async () => {
-    await navigator.clipboard.writeText(value);
-    markCopied();
-  };
-
   const handleCopy = async () => {
     try {
-      await copyValue();
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      if (resetRef.current) clearTimeout(resetRef.current);
+      resetRef.current = setTimeout(() => setCopied(false), 1400);
     } catch {
       setCopied(false);
     }
   };
-
-  const handleUnavailableAction = async () => {
-    if (!onUnavailableAction) return;
-    setBusy(true);
-    try {
-      await onUnavailableAction();
-      await copyValue();
-    } catch {
-      setCopied(false);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const inputValue = unavailable
-    ? "Link available after general access is Public"
-    : value;
 
   return (
     <div className="mb-4">
@@ -784,39 +755,20 @@ function CopyLinkField({
       {description ? (
         <div className="mb-2 text-xs text-muted-foreground">{description}</div>
       ) : null}
-      {unavailable && unavailableDescription ? (
-        <div className="mb-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
-          {unavailableDescription}
-        </div>
-      ) : null}
       <div className="flex min-w-0 items-center gap-2">
         <input
           readOnly
-          disabled={unavailable}
-          value={inputValue}
-          aria-disabled={unavailable}
-          className={cn(
-            "h-9 min-w-0 flex-1 rounded-md border border-input px-3 text-sm text-muted-foreground outline-none",
-            unavailable ? "cursor-not-allowed bg-muted/40" : "bg-background",
-          )}
-          onFocus={(event) => {
-            if (!unavailable) event.currentTarget.select();
-          }}
+          value={value}
+          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground outline-none"
+          onFocus={(event) => event.currentTarget.select()}
         />
         <button
           type="button"
-          onClick={unavailable ? handleUnavailableAction : handleCopy}
-          disabled={unavailable && !onUnavailableAction}
+          onClick={handleCopy}
           className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent"
         >
           {copied ? <IconCheck size={15} /> : <IconCopy size={15} />}
-          {busy
-            ? unavailableActionBusyLabel
-            : unavailable
-              ? unavailableActionLabel
-              : copied
-                ? "Copied"
-                : "Copy"}
+          {copied ? "Copied" : "Copy"}
         </button>
       </div>
     </div>

@@ -137,69 +137,17 @@ describe("ShareButton", () => {
     );
   });
 
-  it("requires public visibility before copying a public-only link", async () => {
-    const writeText = vi.fn(async () => undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText },
-      configurable: true,
-    });
-
+  it("shows the copy action for share URLs regardless of visibility", async () => {
+    // Mirrors Google Slides: the copy button is always live. Access is
+    // enforced when the recipient opens the URL, not by hiding the link in
+    // the share dialog.
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
           <ShareButton
             resourceType="deck"
             resourceId="deck-1"
-            resourceTitle="Launch deck"
-            shareUrl="https://slides.agent-native.com/p/deck-1"
-            shareUrlRequiresPublic
-          />
-        </QueryClientProvider>,
-      );
-    });
-
-    const makePublicAndCopy = Array.from(
-      container.querySelectorAll("button"),
-    ).find((button) => button.textContent === "Make public and copy");
-    if (!makePublicAndCopy) throw new Error("Make public button not found");
-
-    const linkInput = container.querySelector(
-      'input[value="Link available after general access is Public"]',
-    );
-    expect(linkInput).toBeTruthy();
-
-    await act(async () => {
-      makePublicAndCopy.click();
-    });
-
-    expect(otherMutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resourceType: "deck",
-        resourceId: "deck-1",
-        visibility: "public",
-      }),
-      expect.any(Object),
-    );
-    expect(writeText).not.toHaveBeenCalled();
-  });
-
-  it("shows the copy action for public public-only links", async () => {
-    sharesData.current = {
-      ownerEmail: "owner@example.com",
-      orgId: null,
-      visibility: "public",
-      role: "owner",
-      shares: [],
-    };
-
-    await act(async () => {
-      root.render(
-        <QueryClientProvider client={queryClient}>
-          <ShareButton
-            resourceType="deck"
-            resourceId="deck-1"
-            shareUrl="https://slides.agent-native.com/p/deck-1"
-            shareUrlRequiresPublic
+            shareUrl="https://slides.agent-native.com/deck/deck-1"
           />
         </QueryClientProvider>,
       );
@@ -210,5 +158,32 @@ describe("ShareButton", () => {
         (button) => button.textContent === "Copy",
       ),
     ).toBe(true);
+  });
+
+  it("renders both primary and secondary share URLs", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrl="https://slides.agent-native.com/deck/deck-1"
+            shareUrlLabel="Editor link"
+            secondaryShareUrl="https://slides.agent-native.com/p/deck-1"
+            secondaryShareUrlLabel="Presentation link"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const inputs = Array.from(container.querySelectorAll("input"));
+    const editorInput = inputs.find(
+      (i) => i.value === "https://slides.agent-native.com/deck/deck-1",
+    );
+    const presentationInput = inputs.find(
+      (i) => i.value === "https://slides.agent-native.com/p/deck-1",
+    );
+    expect(editorInput).toBeTruthy();
+    expect(presentationInput).toBeTruthy();
   });
 });
