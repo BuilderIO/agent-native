@@ -63,9 +63,9 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen
           emptyStateText="Ask me anything about your data"
           suggestions={[
-            "Show weekly signup trends",
-            "Query top pages by traffic",
-            "Check error rates",
+            "Build a dashboard for our pipeline",
+            "Why did signups drop last week?",
+            "Compare this week's revenue to last",
           ]}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">

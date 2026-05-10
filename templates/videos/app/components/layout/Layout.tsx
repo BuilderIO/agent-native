@@ -68,9 +68,9 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen
           emptyStateText="Ask me anything about your videos"
           suggestions={[
-            "Create a new composition",
-            "Add a camera pan effect",
-            "Adjust the animation timing",
+            "Make a logo reveal for Acme",
+            "Add a camera zoom on this scene",
+            "Slow down the intro animation",
           ]}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">

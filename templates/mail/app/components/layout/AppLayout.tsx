@@ -136,7 +136,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       suggestions={[
         "Summarize my unread emails",
         "What needs my reply today?",
-        "Catch me up on this week",
+        "Build me a custom widget for my inbox",
       ]}
     >
       {content}

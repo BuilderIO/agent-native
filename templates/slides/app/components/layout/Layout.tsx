@@ -52,9 +52,9 @@ export function Layout({ children }: LayoutProps) {
         defaultOpen
         emptyStateText="Ask me anything about your presentations"
         suggestions={[
-          "Create a new deck",
-          "Generate slides about AI",
-          "Add an image to this slide",
+          "Build a 10-slide pitch from this doc",
+          "Apply our brand to this deck",
+          "Generate a hero image for this slide",
         ]}
       >
         <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">

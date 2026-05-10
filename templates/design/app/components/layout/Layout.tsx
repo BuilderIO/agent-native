@@ -47,9 +47,9 @@ export function Layout({ children }: LayoutProps) {
         position="right"
         emptyStateText="Describe a design to create"
         suggestions={[
-          "Create a todo app prototype",
           "Design a landing page for my startup",
-          "Build a dashboard with charts",
+          "Make this match our brand",
+          "Add a mobile version of this",
         ]}
       >
         <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
