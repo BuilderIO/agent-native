@@ -224,6 +224,7 @@ function validateDashboardConfig(
   }
   if (Array.isArray(filters)) {
     const seen = new Set<string>();
+    const deduped: unknown[] = [];
     for (let i = 0; i < filters.length; i++) {
       const f = filters[i] as Record<string, unknown> | null;
       if (!f || typeof f !== "object") {
@@ -231,10 +232,12 @@ function validateDashboardConfig(
       }
       const id = typeof f.id === "string" ? f.id.trim() : "";
       if (!id) return `config.filters[${i}].id is required`;
-      if (seen.has(id)) {
-        return `config.filters[${i}].id "${id}" is a duplicate. Use unique ids per filter, or a single date-range filter for paired start/end dates (it auto-expands to <id>Start and <id>End in SQL).`;
-      }
+      if (seen.has(id)) continue;
       seen.add(id);
+      deduped.push(f);
+    }
+    if (deduped.length !== filters.length) {
+      (config as Record<string, unknown>).filters = deduped;
     }
   }
   const panels = config.panels;
