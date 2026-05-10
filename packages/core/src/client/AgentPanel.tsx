@@ -575,7 +575,13 @@ function AgentPanelInner({
   const codeUnavailableSecondaryCtaHref =
     codeAccess?.unavailableSecondaryCtaHref;
   const canUseCodeTools = isDevMode && codeAccessEnabled;
-  const showCliMode = isDevMode || !codeAccessEnabled;
+  // Hide the CLI tab when embedded in the Builder.io frame — code editing
+  // there happens via Builder, and the CLI panel only offers a Download
+  // Desktop CTA, which adds clutter without value.
+  const showCliMode = (isDevMode || !codeAccessEnabled) && !isInFrame();
+  useEffect(() => {
+    if (mode === "cli" && !showCliMode) switchMode("chat");
+  }, [mode, showCliMode, switchMode]);
 
   // Notify frame when dev mode changes — use both a local CustomEvent (for
   // when AgentPanel is rendered directly in the frame) AND postMessage (for
