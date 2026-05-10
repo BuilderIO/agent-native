@@ -424,14 +424,14 @@ export function ExtensionsSidebarSection() {
             }
             aria-expanded={extensionsOpen}
           />
-          <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-3 px-3 py-1.5 pr-24">
+          <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 pr-24">
             <IconTool className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 whitespace-nowrap">Extensions</span>
+            <span className="min-w-0 truncate">Extensions</span>
             <HoverCard openDelay={250} closeDelay={120}>
               <HoverCardTrigger asChild>
                 <button
                   type="button"
-                  className="pointer-events-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="pointer-events-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:opacity-100 group-hover/extensions-section:opacity-100"
                   aria-label="About extensions"
                 >
                   <IconInfoCircle className="h-3.5 w-3.5" />
