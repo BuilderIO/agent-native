@@ -220,17 +220,52 @@ export interface AuthOptions {
  * flow set by `setFrameworkSessionCookie` (which the Builder OAuth popup
  * exchange relies on — see `desktop-exchange` and `oauthCallbackResponse`)
  * is recognised by every app in the workspace.
+ *
+ * Cross-subdomain exception: when `COOKIE_DOMAIN` is set (e.g.
+ * `.agent-native.com` for first-party deploys where each app is its own
+ * subdomain — mail.agent-native.com, calendar.agent-native.com, …),
+ * use the unsuffixed `an_session` and emit `Domain=<COOKIE_DOMAIN>` so
+ * the cookie is shared across every subdomain. Signing into one app
+ * signs the user into all of them. Per-app suffixes would defeat the
+ * shared cookie since each subdomain reads a different name.
  */
 const APP_NAME_SLUG = (process.env.APP_NAME || "")
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, "_")
   .replace(/^_+|_+$/g, "");
 const IS_WORKSPACE_MODE = process.env.AGENT_NATIVE_WORKSPACE === "1";
-export const COOKIE_NAME = IS_WORKSPACE_MODE
-  ? "an_session_workspace"
-  : APP_NAME_SLUG
-    ? `an_session_${APP_NAME_SLUG}`
-    : "an_session";
+
+/**
+ * When set, the framework session cookie is shared across every subdomain
+ * matching this domain (e.g. `.agent-native.com`). Reads `COOKIE_DOMAIN`.
+ * Returns undefined when unset so cookies stay scoped to the origin host.
+ */
+export function getCookieDomain(): string | undefined {
+  const raw = process.env.COOKIE_DOMAIN;
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  return trimmed || undefined;
+}
+
+const HAS_COOKIE_DOMAIN = !!getCookieDomain();
+
+export const COOKIE_NAME = HAS_COOKIE_DOMAIN
+  ? "an_session"
+  : IS_WORKSPACE_MODE
+    ? "an_session_workspace"
+    : APP_NAME_SLUG
+      ? `an_session_${APP_NAME_SLUG}`
+      : "an_session";
+
+/**
+ * Cookie domain attribute spread into every `setCookie`/`deleteCookie`.
+ * Empty when `COOKIE_DOMAIN` isn't set so the cookie stays scoped to the
+ * single origin (current production default for non-first-party apps).
+ */
+export function cookieDomainAttrs(): { domain?: string } {
+  const domain = getCookieDomain();
+  return domain ? { domain } : {};
+}
 function getOAuthStateAppId(): string | undefined {
   const raw = process.env.APP_NAME || process.env.npm_package_name;
   if (!raw) return undefined;
@@ -1262,6 +1297,7 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
   setCookie(event, COOKIE_NAME, token, {
     httpOnly: true,
     ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
     path: "/",
     maxAge: sessionMaxAge,
   });
@@ -2135,6 +2171,7 @@ async function mountBetterAuthRoutes(
         setCookie(event, COOKIE_NAME, sessionToken, {
           httpOnly: true,
           ...crossSiteCookieAttrs(event),
+          ...cookieDomainAttrs(),
           path: "/",
           maxAge: sessionMaxAge,
         });
@@ -2158,6 +2195,7 @@ async function mountBetterAuthRoutes(
           setCookie(event, COOKIE_NAME, result.token, {
             httpOnly: true,
             ...crossSiteCookieAttrs(event),
+            ...cookieDomainAttrs(),
             path: "/",
             maxAge: sessionMaxAge,
           });
@@ -2238,7 +2276,7 @@ async function mountBetterAuthRoutes(
       if (cookie) await removeSession(cookie);
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
-      deleteCookie(event, COOKIE_NAME, { path: "/" });
+      deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
 
       try {
         await auth.api.signOut({ headers: event.headers });
@@ -2305,7 +2343,7 @@ async function mountBetterAuthRoutes(
 
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).
-        deleteCookie(event, COOKIE_NAME, { path: "/" });
+        deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
         try {
           await auth.api.signOut({ headers: event.headers });
         } catch {
