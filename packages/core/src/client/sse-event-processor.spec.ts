@@ -543,28 +543,34 @@ describe("SSE event processor error classification", () => {
     );
   });
 
-  it("auto-continues bare gateway errors instead of surfacing a dead-end card", async () => {
-    const err = await readSSEStream(
+  it("surfaces bare 'builder_gateway_error' instead of looping auto-continuation", async () => {
+    // Production-agent retries this synchronously up to MAX_RETRIES inside
+    // the run before emitting `error`. By the time the client sees this
+    // event the server has given up — auto-continuing on top of that just
+    // sends another POST that hits the same wall, which is what produced
+    // the 32-continuation regenerate-loop user-visible bug.
+    const iter = readSSEStream(
       eventStream([
         {
           type: "error",
           error:
             'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+          errorCode: "builder_gateway_error",
         },
       ]),
       [],
       { value: 0 },
       "tab-gateway",
-    )
-      [Symbol.asyncIterator]()
-      .next()
-      .then(
-        () => undefined,
-        (caught) => caught,
-      );
+    )[Symbol.asyncIterator]();
 
-    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
-    expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+    const first = await iter.next();
+    expect(first.done).toBe(false);
+    expect(first.value?.status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+    const second = await iter.next();
+    expect(second.done).toBe(true);
   });
 
   it("auto-continues Builder gateway network errors", async () => {

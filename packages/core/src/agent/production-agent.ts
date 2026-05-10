@@ -528,7 +528,30 @@ export async function resolveAgentOwnerEmail(
 }
 
 const MAX_RETRIES = 3;
+/**
+ * Retry budget override for `builder_gateway_error` — the no-detail Builder
+ * gateway fallback. Production data shows this code is almost never
+ * transient: it's the gateway emitting `{type:"stop",reason:"error"}` with
+ * no explanation, which usually means the upstream provider rejected the
+ * call (model quota, account misconfiguration). Retrying the same request
+ * synchronously rarely recovers, and each retry emits a `clear` event that
+ * wipes the user's visible content and re-streams from scratch — three
+ * cycles of "regenerate, clear, regenerate" inside a single run for a
+ * failure mode where retrying doesn't help. Keep the budget at 1 so we
+ * cover genuinely transient cases without the visible flicker storm.
+ */
+const BUILDER_GATEWAY_ERROR_MAX_RETRIES = 1;
 const RETRY_BASE_DELAY_MS = 2000;
+
+function maxRetriesForError(err: unknown): number {
+  if (err instanceof EngineError) {
+    const code = (err.errorCode ?? "").toLowerCase();
+    if (code === "builder_gateway_error") {
+      return BUILDER_GATEWAY_ERROR_MAX_RETRIES;
+    }
+  }
+  return MAX_RETRIES;
+}
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 
@@ -1338,7 +1361,7 @@ export async function runAgentLoop(opts: {
             { errorCode: "context_length_exceeded" },
           );
         }
-        if (retry < MAX_RETRIES && isRetryableError(err)) {
+        if (retry < maxRetriesForError(err) && isRetryableError(err)) {
           // Clear partial text from the failed attempt so the retry
           // doesn't produce garbled duplicate output. Keep the retry itself
           // silent so transient provider/backend failures do not leak into
