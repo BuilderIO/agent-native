@@ -1,6 +1,7 @@
 import {
   defineEventHandler,
   getQuery,
+  readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -9,6 +10,7 @@ import {
   getHubSpotApiKey,
   HubSpotLookupError,
   lookupHubSpotContact,
+  validateHubSpotKey,
 } from "../lib/hubspot.js";
 
 async function getSessionId(event: H3Event): Promise<string> {
@@ -21,6 +23,19 @@ async function getHubSpotKey(event: H3Event): Promise<string | undefined> {
   const sessionId = await getSessionId(event);
   return getHubSpotApiKey(sessionId);
 }
+
+// POST /api/hubspot/validate — verify a key without saving it
+export const hubspotValidate = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event).catch(() => ({}));
+  const apiKey = (body as { apiKey?: unknown })?.apiKey;
+  if (!apiKey || typeof apiKey !== "string") {
+    setResponseStatus(event, 400);
+    return { valid: false, error: "apiKey is required" };
+  }
+  const result = await validateHubSpotKey(apiKey);
+  if (!result.valid) setResponseStatus(event, result.statusCode || 401);
+  return result;
+});
 
 // GET /api/hubspot/contact?email=...
 export const hubspotContactLookup = defineEventHandler(

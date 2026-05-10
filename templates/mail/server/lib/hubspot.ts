@@ -197,6 +197,42 @@ async function readAssociatedTickets(
   }
 }
 
+export type ValidateResult = {
+  valid: boolean;
+  statusCode?: number;
+  error?: string;
+};
+
+export async function validateHubSpotKey(
+  apiKey: string,
+): Promise<ValidateResult> {
+  try {
+    const response = await fetch(
+      `${HUBSPOT_BASE_URL}/crm/v3/objects/contacts?limit=1`,
+      { headers: { Authorization: `Bearer ${apiKey}` } },
+    );
+    if (response.ok) return { valid: true };
+    if (response.status === 401 || response.status === 403) {
+      return {
+        valid: false,
+        statusCode: response.status,
+        error: "Invalid HubSpot API key.",
+      };
+    }
+    return {
+      valid: false,
+      statusCode: response.status,
+      error: `HubSpot API returned ${response.status}.`,
+    };
+  } catch {
+    return {
+      valid: false,
+      statusCode: 502,
+      error: "Could not reach HubSpot to verify the key.",
+    };
+  }
+}
+
 export async function lookupHubSpotContact(
   apiKey: string,
   email: string,
