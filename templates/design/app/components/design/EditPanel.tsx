@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { IconPointer } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -407,6 +408,21 @@ function PageProperties({
 
   return (
     <div className="space-y-4">
+      {/* Lead with a clear CTA so users discover the much richer per-element
+          panel. Without this it's easy to mistake the 3 page-level fields for
+          "the entire editor" — the cause of the "controls too limited"
+          feedback. */}
+      <div className="rounded-lg border border-border/70 bg-accent/30 p-3 text-xs text-muted-foreground/90 leading-relaxed">
+        <p className="font-medium text-foreground/85 mb-1 flex items-center gap-1.5">
+          <IconPointer className="w-3.5 h-3.5" />
+          Click any element on the canvas
+        </p>
+        <p>
+          Edit typography, spacing, sizing, borders and fill for whatever you
+          select. Page defaults below.
+        </p>
+      </div>
+
       <SectionTitle>Page</SectionTitle>
       <ColorInput
         label="Background"

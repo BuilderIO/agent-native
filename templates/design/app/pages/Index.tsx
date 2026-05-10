@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, Link } from "react-router";
 import { nanoid } from "nanoid";
 import {
@@ -62,6 +62,9 @@ interface Design {
   designSystemId?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  /** Preview HTML for the thumbnail. Only present when the list query asks
+   *  for `includePreview: 'true'`. Truncated server-side. */
+  previewHtml?: string | null;
 }
 
 export default function Index() {
@@ -86,7 +89,7 @@ export default function Index() {
   const { data: designsData, isLoading } = useActionQuery<{
     count: number;
     designs: Design[];
-  }>("list-designs");
+  }>("list-designs", { includePreview: "true" });
 
   const createMutation = useActionMutation("create-design");
   const deleteMutation = useActionMutation("delete-design");
@@ -166,7 +169,7 @@ export default function Index() {
 
       // Optimistic update
       queryClient.setQueryData(
-        ["action", "list-designs", undefined],
+        ["action", "list-designs", { includePreview: "true" }],
         (old: any) => {
           const newDesign: Design = {
             id,
@@ -234,7 +237,7 @@ export default function Index() {
 
     // Optimistic update
     queryClient.setQueryData(
-      ["action", "list-designs", undefined],
+      ["action", "list-designs", { includePreview: "true" }],
       (old: any) => ({
         count: Math.max((old?.count ?? 1) - 1, 0),
         designs: (old?.designs ?? []).filter((d: Design) => d.id !== id),
@@ -259,7 +262,7 @@ export default function Index() {
     const idsToDelete = new Set(ids);
 
     queryClient.setQueryData(
-      ["action", "list-designs", undefined],
+      ["action", "list-designs", { includePreview: "true" }],
       (old: any) => ({
         count: Math.max(
           (old?.count ?? (old?.designs ?? []).length) - ids.length,
@@ -312,7 +315,7 @@ export default function Index() {
     if (!next) return;
 
     queryClient.setQueryData(
-      ["action", "list-designs", undefined],
+      ["action", "list-designs", { includePreview: "true" }],
       (old: any) => ({
         count: old?.count ?? 0,
         designs: (old?.designs ?? []).map((d: Design) =>
@@ -391,7 +394,10 @@ export default function Index() {
         {isLoading ? (
           <LoadingSkeleton />
         ) : designs.length === 0 ? (
-          <EmptyState onCreateDesign={openNewDesign} />
+          <EmptyState
+            onCreateDesign={openNewDesign}
+            onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
+          />
         ) : (
           <>
             {isSelectionMode ? (
@@ -473,9 +479,7 @@ export default function Index() {
                 const isSelected = selectedDesignIds.has(design.id);
                 const cardContent = (
                   <>
-                    <div className="aspect-video bg-muted/50 flex items-center justify-center">
-                      <IconCode className="w-8 h-8 text-muted-foreground/40" />
-                    </div>
+                    <DesignThumbnail html={design.previewHtml ?? null} />
                     <div className="p-4">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-medium text-sm text-foreground/90 truncate flex-1">
@@ -696,6 +700,72 @@ function derivePromptTitle(prompt: string): string {
   return `${trimmed.trim()}…`;
 }
 
+/**
+ * Render the design's index.html as a non-interactive thumbnail. The iframe
+ * renders at a fixed natural size (so designs that assume a desktop viewport
+ * still look right) and is then scaled to fill the card via a transform.
+ *
+ * The size is recomputed via ResizeObserver so the same component works in
+ * 1, 2, 3 and 4-column grid layouts. We use a sandboxed iframe with the same
+ * settings as DesignCanvas (allow-scripts + allow-same-origin) so Tailwind
+ * CDN + Alpine.js can run.
+ */
+function DesignThumbnail({ html }: { html: string | null }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.25);
+
+  // Designs are generated for a desktop-ish viewport. Render at 1280×720 then
+  // shrink — close enough to 16:10 for the aspect-video card without leaving
+  // a sliver of letterbox at the bottom.
+  const NATURAL_WIDTH = 1280;
+  const NATURAL_HEIGHT = 720;
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.clientWidth;
+      if (w > 0) setScale(w / NATURAL_WIDTH);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  if (!html) {
+    return (
+      <div className="aspect-video bg-muted/50 flex items-center justify-center">
+        <IconCode className="w-8 h-8 text-muted-foreground/40" />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="aspect-video relative overflow-hidden bg-white"
+    >
+      <iframe
+        srcDoc={html}
+        sandbox="allow-scripts allow-same-origin"
+        loading="lazy"
+        tabIndex={-1}
+        aria-hidden
+        title="Design preview"
+        style={{
+          width: `${NATURAL_WIDTH}px`,
+          height: `${NATURAL_HEIGHT}px`,
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+          border: 0,
+          pointerEvents: "none",
+        }}
+      />
+    </div>
+  );
+}
+
 function LoadingSkeleton() {
   return (
     <>
@@ -717,10 +787,40 @@ function LoadingSkeleton() {
   );
 }
 
+// Starter prompt chips shown on the empty home state. Each one is a fully
+// formed prompt that the user can run with one click instead of staring at
+// an empty composer. Keep these distinct enough that the four results would
+// all look meaningfully different — same approach as Phase 2 variant
+// generation in the design agent.
+const STARTER_PROMPTS: { label: string; prompt: string }[] = [
+  {
+    label: "SaaS landing page",
+    prompt:
+      "A modern SaaS landing page with a dark theme, hero section, three feature cards, and a final CTA section.",
+  },
+  {
+    label: "Dashboard",
+    prompt:
+      "A clean analytics dashboard with a sidebar nav, four KPI tiles, a chart, and a recent-activity table.",
+  },
+  {
+    label: "Mobile app",
+    prompt:
+      "A mobile app prototype shown on a phone frame, with a tab bar at the bottom and three list cards on the home screen.",
+  },
+  {
+    label: "Pricing page",
+    prompt:
+      "A three-tier pricing page with a monthly/annual toggle, feature checklists, and a highlighted recommended tier.",
+  },
+];
+
 function EmptyState({
   onCreateDesign,
+  onStarterPrompt,
 }: {
   onCreateDesign: (e: React.MouseEvent<HTMLElement>) => void;
+  onStarterPrompt: (prompt: string) => void;
 }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
@@ -730,11 +830,23 @@ function EmptyState({
       <h2 className="text-xl font-semibold text-foreground mb-2">
         Create your first design
       </h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
-        Build interactive prototypes and design artifacts with AI-powered
-        generation and a visual editor.
+      <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
+        Pick a starting point or write your own prompt.
       </p>
+      <div className="flex flex-wrap items-center justify-center gap-2 max-w-md mb-6">
+        {STARTER_PROMPTS.map((s) => (
+          <button
+            key={s.label}
+            type="button"
+            onClick={() => onStarterPrompt(s.prompt)}
+            className="cursor-pointer rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground/80 hover:border-foreground/30 hover:text-foreground/95 transition-colors"
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
       <Button
+        variant="outline"
         onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
           onCreateDesign(e as React.MouseEvent<HTMLElement>)
         }
