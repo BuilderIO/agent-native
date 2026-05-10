@@ -12,6 +12,7 @@ import {
   IconCopy,
   IconCode,
   IconX,
+  IconPencil,
 } from "@tabler/icons-react";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -74,6 +75,8 @@ export default function Index() {
     () => new Set(),
   );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
 
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
@@ -88,6 +91,7 @@ export default function Index() {
   const createMutation = useActionMutation("create-design");
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
+  const updateMutation = useActionMutation("update-design");
 
   const designs = designsData?.designs ?? [];
 
@@ -209,13 +213,10 @@ export default function Index() {
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
     ) => {
-      // Derive a title from the prompt — first line / first ~60 chars
-      const derivedTitle =
-        prompt
-          .split("\n")[0]
-          ?.trim()
-          .replace(/[.!?]+$/, "")
-          .slice(0, 60) || "New Design";
+      // Derive a short title from the prompt — first line, ~40 chars max,
+      // word-boundary truncated. The full prompt still drives generation;
+      // the title is just a label, so longer is worse.
+      const derivedTitle = derivePromptTitle(prompt);
 
       const { id, title } = createDesign(derivedTitle);
 
@@ -297,6 +298,37 @@ export default function Index() {
     },
     [duplicateMutation, queryClient, navigate],
   );
+
+  const startRename = useCallback((design: Design) => {
+    setRenameId(design.id);
+    setRenameDraft(design.title);
+  }, []);
+
+  const commitRename = useCallback(() => {
+    if (!renameId) return;
+    const id = renameId;
+    const next = renameDraft.trim();
+    setRenameId(null);
+    if (!next) return;
+
+    queryClient.setQueryData(
+      ["action", "list-designs", undefined],
+      (old: any) => ({
+        count: old?.count ?? 0,
+        designs: (old?.designs ?? []).map((d: Design) =>
+          d.id === id ? { ...d, title: next } : d,
+        ),
+      }),
+    );
+
+    updateMutation.mutate({ id, title: next } as any, {
+      onError: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-designs"],
+        });
+      },
+    });
+  }, [renameId, renameDraft, queryClient, updateMutation]);
 
   const projectTypeBadge = (type: ProjectType) => {
     const labels: Record<ProjectType, string> = {
@@ -513,6 +545,13 @@ export default function Index() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem
+                                onClick={() => startRename(design)}
+                                className="cursor-pointer"
+                              >
+                                <IconPencil className="w-3.5 h-3.5 mr-2" />
+                                Rename
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
                                 onClick={() => handleDuplicate(design.id)}
                                 className="cursor-pointer"
                               >
@@ -592,8 +631,69 @@ export default function Index() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Rename Dialog */}
+      <AlertDialog
+        open={!!renameId}
+        onOpenChange={(open) => {
+          if (!open) setRenameId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rename design</AlertDialogTitle>
+          </AlertDialogHeader>
+          <Input
+            value={renameDraft}
+            onChange={(e) => setRenameDraft(e.target.value)}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitRename();
+              }
+            }}
+            placeholder="Design name"
+            className="h-9 text-sm"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={commitRename}
+              disabled={!renameDraft.trim()}
+              className="cursor-pointer"
+            >
+              Save
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
+}
+
+/**
+ * Derive a short, friendly title from a prompt. The full prompt still drives
+ * generation — the title is just a label that shows up in the editor header
+ * and the design card, so longer is worse.
+ *
+ * Strategy: take the first line, strip trailing punctuation, then truncate
+ * at the nearest word boundary near 40 chars (with an ellipsis when cut).
+ */
+function derivePromptTitle(prompt: string): string {
+  const firstLine = prompt
+    .split("\n")[0]
+    ?.trim()
+    .replace(/[.!?]+$/, "");
+  if (!firstLine) return "Untitled Design";
+  const MAX = 40;
+  if (firstLine.length <= MAX) return firstLine;
+  const slice = firstLine.slice(0, MAX);
+  const lastSpace = slice.lastIndexOf(" ");
+  const trimmed = lastSpace > 20 ? slice.slice(0, lastSpace) : slice;
+  return `${trimmed.trim()}…`;
 }
 
 function LoadingSkeleton() {

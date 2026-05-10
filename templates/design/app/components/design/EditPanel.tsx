@@ -19,25 +19,55 @@ interface EditPanelProps {
   onStyleChange: (property: string, value: string) => void;
 }
 
-/** Compact input row: label + text input */
+/**
+ * Normalize a CSS length-ish value typed by the user. If the input is bare
+ * digits (e.g. "32" or "32.5"), append the default unit so it parses as a
+ * valid CSS length. Lets users type "32" and get the expected "32px" when
+ * the field is committed.
+ */
+function normalizeLengthValue(raw: string, defaultUnit: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return `${trimmed}${defaultUnit}`;
+  return trimmed;
+}
+
+/** Compact input row: label + text input.
+ *
+ * For CSS length fields (font-size, padding, width, etc.) pass `defaultUnit`
+ * so the change is committed on blur/Enter and a bare number auto-appends the
+ * unit. Without that, intermediate keystrokes apply invalid CSS — typing "32"
+ * for a font-size silently fails because "32" alone isn't a valid length, and
+ * it never reaches "32px" because every keystroke re-applies the broken
+ * value.
+ */
 function PropInput({
   label,
   value,
   onChange,
   placeholder,
   type = "text",
+  defaultUnit,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   type?: string;
+  defaultUnit?: string;
 }) {
   const [draft, setDraft] = useState(value);
 
   useEffect(() => {
     setDraft(value);
   }, [value]);
+
+  const commit = () => {
+    if (defaultUnit === undefined) return;
+    const next = normalizeLengthValue(draft, defaultUnit);
+    if (next !== draft) setDraft(next);
+    if (next !== value) onChange(next);
+  };
 
   return (
     <div className="flex items-center gap-2">
@@ -49,7 +79,19 @@ function PropInput({
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value);
-          onChange(e.target.value);
+          // For length fields, defer the live update until blur/Enter so that
+          // invalid intermediate strings ("3", "32", "32p") don't get applied
+          // and discarded by the browser. Free-text fields (without
+          // defaultUnit) keep the responsive live-update behavior.
+          if (defaultUnit === undefined) onChange(e.target.value);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+            (e.currentTarget as HTMLInputElement).blur();
+          }
         }}
         placeholder={placeholder}
         className="h-7 text-xs"
@@ -209,6 +251,46 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
+function FourSideCell({
+  side,
+  placeholder,
+  value,
+  onChange,
+}: {
+  side: string;
+  placeholder: string;
+  value: string;
+  onChange: (side: string, value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const commit = () => {
+    const next = normalizeLengthValue(draft, "px");
+    if (next !== draft) setDraft(next);
+    if (next !== value) onChange(side, next);
+  };
+
+  return (
+    <Input
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+          (e.currentTarget as HTMLInputElement).blur();
+        }
+      }}
+      placeholder={placeholder}
+      className="h-7 text-xs text-center"
+    />
+  );
+}
+
 function FourSideInput({
   label,
   values,
@@ -222,29 +304,29 @@ function FourSideInput({
     <div className="space-y-1.5">
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <div className="grid grid-cols-4 gap-1">
-        <Input
-          value={values.top}
-          onChange={(e) => onChange("Top", e.target.value)}
+        <FourSideCell
+          side="Top"
           placeholder="T"
-          className="h-7 text-xs text-center"
+          value={values.top}
+          onChange={onChange}
         />
-        <Input
-          value={values.right}
-          onChange={(e) => onChange("Right", e.target.value)}
+        <FourSideCell
+          side="Right"
           placeholder="R"
-          className="h-7 text-xs text-center"
+          value={values.right}
+          onChange={onChange}
         />
-        <Input
-          value={values.bottom}
-          onChange={(e) => onChange("Bottom", e.target.value)}
+        <FourSideCell
+          side="Bottom"
           placeholder="B"
-          className="h-7 text-xs text-center"
+          value={values.bottom}
+          onChange={onChange}
         />
-        <Input
-          value={values.left}
-          onChange={(e) => onChange("Left", e.target.value)}
+        <FourSideCell
+          side="Left"
           placeholder="L"
-          className="h-7 text-xs text-center"
+          value={values.left}
+          onChange={onChange}
         />
       </div>
     </div>
@@ -342,6 +424,7 @@ function PageProperties({
         value={styles.fontSize || "16px"}
         onChange={(v) => onStyleChange("fontSize", v)}
         placeholder="16px"
+        defaultUnit="px"
       />
     </div>
   );
@@ -371,6 +454,7 @@ function TextProperties({
         value={styles.fontSize || ""}
         onChange={(v) => onStyleChange("fontSize", v)}
         placeholder="16px"
+        defaultUnit="px"
       />
       <PropSelect
         label="Weight"
@@ -400,6 +484,7 @@ function TextProperties({
         value={styles.letterSpacing || ""}
         onChange={(v) => onStyleChange("letterSpacing", v)}
         placeholder="0px"
+        defaultUnit="px"
       />
     </div>
   );
@@ -441,6 +526,7 @@ function FlexProperties({
         value={styles.gap || ""}
         onChange={(v) => onStyleChange("gap", v)}
         placeholder="0px"
+        defaultUnit="px"
       />
     </div>
   );
@@ -478,12 +564,14 @@ function ElementProperties({
         value={styles.width || ""}
         onChange={(v) => onStyleChange("width", v)}
         placeholder="auto"
+        defaultUnit="px"
       />
       <PropInput
         label="Height"
         value={styles.height || ""}
         onChange={(v) => onStyleChange("height", v)}
         placeholder="auto"
+        defaultUnit="px"
       />
       <PropSlider
         label="Opacity"
@@ -527,6 +615,7 @@ function ElementProperties({
         value={styles.borderWidth || "0"}
         onChange={(v) => onStyleChange("borderWidth", v)}
         placeholder="0px"
+        defaultUnit="px"
       />
       <ColorInput
         label="Color"
@@ -538,6 +627,7 @@ function ElementProperties({
         value={styles.borderRadius || "0"}
         onChange={(v) => onStyleChange("borderRadius", v)}
         placeholder="0px"
+        defaultUnit="px"
       />
 
       <Separator />

@@ -11,10 +11,12 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import {
   IconEraser,
   IconArrowBackUp,
+  IconArrowForwardUp,
   IconSend,
   IconCursorText,
   IconX,
 } from "@tabler/icons-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -97,6 +99,10 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
   const [lineWidth, setLineWidth] = useState(LINE_WIDTHS[1].value);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [textAnnotations, setTextAnnotations] = useState<DrawAnnotation[]>([]);
+  // Redo stack. Pushing here happens via undo(); a fresh stroke clears it
+  // (standard editor convention — once you draw something new, the redo
+  // history is no longer reachable).
+  const [redoStrokes, setRedoStrokes] = useState<Stroke[]>([]);
   const [currentStroke, setCurrentStroke] = useState<Point[] | null>(null);
   const [textMode, setTextMode] = useState(false);
   const [textInput, setTextInput] = useState<{
@@ -112,6 +118,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
     if (!visible) {
       setStrokes([]);
       setTextAnnotations([]);
+      setRedoStrokes([]);
       setCurrentStroke(null);
       setTextInput(null);
       setInstruction("");
@@ -187,14 +194,50 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
           lineWidth,
         },
       ]);
+      setRedoStrokes([]);
     }
     setCurrentStroke(null);
   }, [currentStroke, color, lineWidth]);
 
-  const undo = () => setStrokes((prev) => prev.slice(0, -1));
+  const undo = () => {
+    setStrokes((prev) => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      setRedoStrokes((stack) => [...stack, last]);
+      return prev.slice(0, -1);
+    });
+  };
+
+  const redo = () => {
+    setRedoStrokes((stack) => {
+      if (stack.length === 0) return stack;
+      const top = stack[stack.length - 1];
+      setStrokes((prev) => [...prev, top]);
+      return stack.slice(0, -1);
+    });
+  };
+
   const clear = () => {
+    if (strokes.length === 0 && textAnnotations.length === 0) return;
+    // Snapshot for the toast's Undo. Using a toast (instead of an AlertDialog
+    // confirm) keeps Clear a single click for users who know what they want,
+    // while still letting an accidental click be recovered for the toast's
+    // lifetime.
+    const prevStrokes = strokes;
+    const prevTexts = textAnnotations;
     setStrokes([]);
     setTextAnnotations([]);
+    setRedoStrokes([]);
+    toast("Cleared all annotations", {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          setStrokes(prevStrokes);
+          setTextAnnotations(prevTexts);
+        },
+      },
+      duration: 6000,
+    });
   };
 
   const commitTextAnnotation = () => {
@@ -396,6 +439,20 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
             </button>
           </TooltipTrigger>
           <TooltipContent>Undo stroke</TooltipContent>
+        </Tooltip>
+
+        {/* Redo */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={redo}
+              disabled={redoStrokes.length === 0}
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
+            >
+              <IconArrowForwardUp className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Redo stroke</TooltipContent>
         </Tooltip>
 
         {/* Clear all */}

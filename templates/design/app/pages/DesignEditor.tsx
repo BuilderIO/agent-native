@@ -19,6 +19,7 @@ import {
   IconPin,
   IconDownload,
   IconCode,
+  IconRefresh,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -34,9 +35,11 @@ import {
   type CollabUser,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -169,9 +172,12 @@ function isDesignData(
 export default function DesignEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // Editor state
   const [mode, setMode] = useState<EditorMode>("comment");
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
   const [zoom, setZoom] = useState(100);
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrameType>("none");
   const [viewMode, setViewMode] = useState<"single" | "overview">("single");
@@ -201,6 +207,16 @@ export default function DesignEditor() {
     hasFreshPendingGeneration(id),
   );
   const [generationIssue, setGenerationIssue] = useState<string | null>(null);
+  // When generation stalls we keep the original prompt + files around so the
+  // user can retry with one click instead of re-typing. Cleared as soon as the
+  // user kicks off a new run (retry or fresh prompt).
+  const [retryablePrompt, setRetryablePrompt] = useState<{
+    prompt: string;
+    files: UploadedFile[];
+    model?: PromptComposerSubmitOptions["model"];
+    engine?: PromptComposerSubmitOptions["engine"];
+    effort?: PromptComposerSubmitOptions["effort"];
+  } | null>(null);
   const generationOutputReadyRef = useRef(false);
   const generationCompleteTimerRef = useRef<number | null>(null);
   const clearGenerationCompleteTimer = useCallback(() => {
@@ -212,6 +228,19 @@ export default function DesignEditor() {
   const staleToastShownRef = useRef(false);
   const markGenerationStale = useCallback(() => {
     clearGenerationCompleteTimer();
+    // Capture the original prompt before clearing so the user can retry without
+    // re-typing it. The full pending payload (model/engine/effort) is preserved
+    // so the retry runs with identical settings.
+    const pending = readPendingGeneration(id);
+    if (pending?.prompt) {
+      setRetryablePrompt({
+        prompt: pending.prompt,
+        files: Array.isArray(pending.files) ? pending.files : [],
+        model: pending.model,
+        engine: pending.engine,
+        effort: pending.effort,
+      });
+    }
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
     setGenerationIssue(
@@ -331,6 +360,7 @@ export default function DesignEditor() {
   }, [id, hasPendingGeneration, markGenerationStale]);
 
   const updateFileMutation = useActionMutation("update-file");
+  const updateDesignMutation = useActionMutation("update-design");
   const createCodingHandoffMutation = useActionMutation(
     "export-coding-handoff",
   );
@@ -368,6 +398,36 @@ export default function DesignEditor() {
   }, []);
 
   const design = isDesignData(designResult) ? designResult : null;
+
+  const commitTitleEdit = useCallback(() => {
+    setTitleEditing(false);
+    if (!id) return;
+    const next = titleDraft.trim();
+    if (!next || next === design?.title) return;
+
+    queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
+      if (!old || typeof old !== "object") return old;
+      return { ...old, title: next };
+    });
+    queryClient.setQueryData(
+      ["action", "list-designs", undefined],
+      (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          designs: (old.designs ?? []).map((d: any) =>
+            d.id === id ? { ...d, title: next } : d,
+          ),
+        };
+      },
+    );
+
+    updateDesignMutation.mutate({ id, title: next } as any, {
+      onError: () => {
+        queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
+      },
+    });
+  }, [id, titleDraft, design?.title, updateDesignMutation, queryClient]);
 
   const files = design?.files ?? [];
 
@@ -709,6 +769,43 @@ export default function DesignEditor() {
     setDrawMode(false);
   }, [activeFile, pinMode, viewMode]);
 
+  const handleRetryGeneration = useCallback(() => {
+    if (!id || !design || !retryablePrompt) return;
+    const fileContext = formatUploadedFileContext(retryablePrompt.files);
+    const context = [
+      `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
+      `User request: "${retryablePrompt.prompt}"`,
+      fileContext,
+      "",
+      "(Retrying — the previous attempt did not complete.)",
+      `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
+      "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
+    ].join("\n");
+    clearGenerationCompleteTimer();
+    setGenerationIssue(null);
+    const runTabId = agentSubmit(
+      `Generate design for "${design.title}": ${retryablePrompt.prompt}`,
+      context,
+      {
+        model: retryablePrompt.model,
+        engine: retryablePrompt.engine,
+        effort: retryablePrompt.effort,
+      },
+    );
+    patchPendingGeneration(id, {
+      prompt: retryablePrompt.prompt,
+      files: retryablePrompt.files,
+      title: design.title,
+      model: retryablePrompt.model,
+      engine: retryablePrompt.engine,
+      effort: retryablePrompt.effort,
+      runTabId,
+      startedAt: Date.now(),
+    });
+    setHasPendingGeneration(true);
+    setRetryablePrompt(null);
+  }, [id, design, retryablePrompt, agentSubmit, clearGenerationCompleteTimer]);
+
   const handleCopyCodingHandoff = useCallback(() => {
     if (!id) return;
     createCodingHandoffMutation.mutate(
@@ -792,9 +889,36 @@ export default function DesignEditor() {
           >
             <IconArrowLeft className="w-4 h-4" />
           </Link>
-          <span className="text-sm font-medium text-foreground/90 truncate max-w-[200px]">
-            {design.title}
-          </span>
+          {titleEditing ? (
+            <Input
+              autoFocus
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={commitTitleEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitTitleEdit();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setTitleEditing(false);
+                }
+              }}
+              className="h-7 w-[240px] text-sm"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setTitleDraft(design.title);
+                setTitleEditing(true);
+              }}
+              title="Click to rename"
+              className="text-sm font-medium text-foreground/90 truncate max-w-[240px] cursor-text rounded px-1 -mx-1 hover:bg-accent/50 text-left"
+            >
+              {design.title}
+            </button>
+          )}
           <Badge variant="secondary" className="text-[10px]">
             {design.projectType}
           </Badge>
@@ -1178,16 +1302,36 @@ export default function DesignEditor() {
                     {generationIssue ??
                       "No files yet. Ask the agent to generate a design."}
                   </p>
-                  <Button
-                    ref={generateBtnRef}
-                    variant="outline"
-                    size="sm"
-                    className="cursor-pointer"
-                    onClick={() => setShowPrompt(true)}
-                  >
-                    <IconPlus className="w-3.5 h-3.5" />
-                    Generate Design
-                  </Button>
+                  {retryablePrompt ? (
+                    <p className="text-xs text-muted-foreground/70 mb-4 max-w-sm mx-auto italic">
+                      "{retryablePrompt.prompt}"
+                    </p>
+                  ) : null}
+                  <div className="flex items-center justify-center gap-2">
+                    {retryablePrompt ? (
+                      <Button
+                        size="sm"
+                        className="cursor-pointer"
+                        onClick={handleRetryGeneration}
+                      >
+                        <IconRefresh className="w-3.5 h-3.5" />
+                        Try again
+                      </Button>
+                    ) : null}
+                    <Button
+                      ref={generateBtnRef}
+                      variant={retryablePrompt ? "ghost" : "outline"}
+                      size="sm"
+                      className="cursor-pointer"
+                      onClick={() => {
+                        setRetryablePrompt(null);
+                        setShowPrompt(true);
+                      }}
+                    >
+                      <IconPlus className="w-3.5 h-3.5" />
+                      {retryablePrompt ? "New prompt" : "Generate Design"}
+                    </Button>
+                  </div>
                 </>
               )}
             </div>
