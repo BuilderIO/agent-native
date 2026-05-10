@@ -33,16 +33,19 @@ export function useChatThreads(
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
 
   // IDs we generated client-side this session — consumers use this to know
-  // whether to skip the per-thread restore skeleton. Tracked by ref instead
-  // of state because the consumer reads it inside the render path and we
-  // never need to re-render when the set changes.
+  // whether to skip the per-thread restore skeleton, and we use it to
+  // protect the optimistic-only thread from being yanked out of local
+  // state when the server's threads list (which never sees it) loads.
   const newlyCreatedRef = useRef<Set<string>>(new Set());
 
   // Restore the saved active thread synchronously on mount so the chat shell
   // can paint immediately. We do NOT synthesize a fresh UUID here when no
-  // saved id exists — that races with the agent run's server-side thread
-  // create and was producing ghost threads that disappeared from history.
-  // First-time users see the brief loading state while threads load.
+  // saved id exists — that flow was creating empty `chat_threads` rows on
+  // every page load via the optimistic POST, even if the user never chatted.
+  // (Steve's account had 127 threads; 112 had message_count=0 and zero
+  // agent_runs — pure ghosts.) When localStorage is empty, the initial
+  // useEffect picks the most-recent server thread, or synthesizes a brand
+  // new id only when there are no server threads at all.
   const [activeThreadId, setActiveThreadId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -76,7 +79,9 @@ export function useChatThreads(
         const loaded = (data.threads ?? []) as ChatThreadSummary[];
         const loadedIds = new Set(loaded.map((t) => t.id));
         // Preserve any optimistic threads we've created this session that
-        // haven't shown up in the server list yet (POST still in-flight).
+        // haven't shown up in the server list yet — the server only learns
+        // about a thread when the user actually sends a message and the
+        // agent run's `persistSubmittedUserMessage` writes the row.
         const optimisticOnly = prev.filter(
           (t) => newlyCreatedRef.current.has(t.id) && !loadedIds.has(t.id),
         );
@@ -107,53 +112,39 @@ export function useChatThreads(
     }
   }, [apiUrl]);
 
-  // Persist a client-generated thread to the server in the background.
-  // Optimistically adds it to the local thread list so callers can render
-  // immediately. POST /threads is idempotent server-side (returns the
-  // existing thread on UNIQUE conflict instead of 500), so client retries
-  // and races with the agent run's `persistSubmittedUserMessage` no longer
-  // wipe a freshly-created thread out of local state.
-  const persistNewThread = useCallback(
-    (id: string) => {
-      const now = Date.now();
-      const optimistic: ChatThreadSummary = {
-        id,
-        title: "",
-        preview: "",
-        messageCount: 0,
-        createdAt: now,
-        updatedAt: now,
-      };
-      setThreads((prev) =>
-        prev.some((t) => t.id === id) ? prev : [optimistic, ...prev],
-      );
-      fetch(`${apiUrl}/threads`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      })
-        .then(async (res) => {
-          if (!res.ok) return;
-          const created = (await res
-            .json()
-            .catch(() => null)) as ChatThreadSummary | null;
-          if (!created) return;
-          setThreads((prev) =>
-            prev.map((thread) => (thread.id === id ? created : thread)),
-          );
-        })
-        .catch(() => {
-          // Network blip — keep the optimistic row and let the next
-          // fetchThreads reconcile. Don't yank the thread out of local
-          // state: the agent's onRunPrepared will (idempotently) create
-          // it server-side anyway and we don't want to drop the user's
-          // active conversation just because POST /threads was flaky.
-        });
-    },
-    [apiUrl],
-  );
+  // Add a client-generated thread to the local list optimistically.
+  //
+  // Critically, this does NOT `POST /threads` to the server — that path was
+  // creating an empty row in `chat_threads` (message_count=0, no
+  // agent_runs) on every page mount and every "+" click. The server
+  // already creates the row idempotently the moment the user actually
+  // sends their first message (`persistSubmittedUserMessage` →
+  // `createThread`), so the client doesn't need to pre-create it. This
+  // makes the threads table reflect real conversations only.
+  const addOptimisticThread = useCallback((id: string) => {
+    const now = Date.now();
+    const optimistic: ChatThreadSummary = {
+      id,
+      title: "",
+      preview: "",
+      messageCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setThreads((prev) =>
+      prev.some((t) => t.id === id) ? prev : [optimistic, ...prev],
+    );
+  }, []);
 
-  // Initial load.
+  // Initial load: load threads from server. If the saved active thread
+  // exists on the server (or was just created client-side this session),
+  // keep it. If localStorage points at a thread the server doesn't know
+  // about and we didn't create it locally this session, the saved id is
+  // either a stale ghost or an in-flight thread the server hasn't observed
+  // yet — we still keep it (don't auto-swap to most-recent), because
+  // swapping mid-conversation is exactly the "reverts to a chat from an
+  // hour ago" symptom users were reporting. Once the user sends a message,
+  // the server creates the row and the next refresh reconciles.
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
@@ -162,41 +153,40 @@ export function useChatThreads(
       setIsLoading(true);
       const loadedThreads = await fetchThreads();
 
-      if (loadedThreads && loadedThreads.length > 0) {
-        const savedId = activeThreadIdRef.current;
-        // If the saved active thread isn't on the server, fall back to the
-        // most recent so the user lands on real history instead of a ghost.
-        if (!savedId || !loadedThreads.find((t) => t.id === savedId)) {
+      const savedId = activeThreadIdRef.current;
+      if (!savedId) {
+        if (loadedThreads && loadedThreads.length > 0) {
+          // First-ever session for this user (no saved id) but they have
+          // existing chats — drop them on the most recent.
           setActiveThreadId(loadedThreads[0].id);
-        }
-      } else if (!activeThreadIdRef.current) {
-        // No threads on server and no saved active id — create a fresh one
-        // so the composer has something to send into. This matches the
-        // pre-instant-paint behavior.
-        try {
-          const res = await fetch(`${apiUrl}/threads`, { method: "POST" });
-          if (res.ok) {
-            const thread = (await res.json()) as ChatThreadSummary;
-            newlyCreatedRef.current.add(thread.id);
-            setThreads([thread]);
-            setActiveThreadId(thread.id);
+        } else {
+          // Brand new — synthesize a local id so the composer has a target.
+          // No POST: the server will create the row when the user sends.
+          if (typeof crypto !== "undefined" && crypto.randomUUID) {
+            const id = crypto.randomUUID();
+            newlyCreatedRef.current.add(id);
+            addOptimisticThread(id);
+            setActiveThreadId(id);
           }
-        } catch {}
+        }
       }
       setIsLoading(false);
     })();
-  }, [fetchThreads, apiUrl]);
+  }, [fetchThreads, addOptimisticThread]);
 
   const createThread = useCallback(
     (preferredId?: string): Promise<string | null> => {
-      // Generate ID client-side for instant UI response
+      // Generate ID client-side for instant UI response. No POST — the
+      // server creates the row when the user actually sends a message,
+      // which prevents accumulation of empty thread rows when the user
+      // clicks "+" but never chats.
       const id = preferredId || crypto.randomUUID();
       newlyCreatedRef.current.add(id);
+      addOptimisticThread(id);
       setActiveThreadId(id);
-      persistNewThread(id);
       return Promise.resolve(id);
     },
-    [persistNewThread],
+    [addOptimisticThread],
   );
 
   const isNewThread = useCallback(
@@ -248,22 +238,40 @@ export function useChatThreads(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
         });
-        // Update local thread list metadata
-        setThreads((prev) =>
-          prev.map((t) =>
-            t.id === id
-              ? {
-                  ...t,
-                  title: data.title,
-                  preview: data.preview,
-                  ...(data.messageCount != null && {
-                    messageCount: data.messageCount,
-                  }),
-                  updatedAt: Date.now(),
-                }
-              : t,
-          ),
-        );
+        // Update local thread list metadata. If the thread isn't in our
+        // local list yet (an optimistic-only thread that the server just
+        // created via persistSubmittedUserMessage), add it so HistoryPopover
+        // can show it once it has messages.
+        setThreads((prev) => {
+          const exists = prev.some((t) => t.id === id);
+          if (exists) {
+            return prev.map((t) =>
+              t.id === id
+                ? {
+                    ...t,
+                    title: data.title,
+                    preview: data.preview,
+                    ...(data.messageCount != null && {
+                      messageCount: data.messageCount,
+                    }),
+                    updatedAt: Date.now(),
+                  }
+                : t,
+            );
+          }
+          const now = Date.now();
+          return [
+            {
+              id,
+              title: data.title,
+              preview: data.preview,
+              messageCount: data.messageCount ?? 0,
+              createdAt: now,
+              updatedAt: now,
+            },
+            ...prev,
+          ];
+        });
       } catch {}
     },
     [apiUrl],
