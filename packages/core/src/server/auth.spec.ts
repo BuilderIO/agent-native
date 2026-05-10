@@ -1253,7 +1253,7 @@ describe("server/auth", () => {
       expect(html).toContain(
         'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
       );
-      expect(html).toContain("__anStartBuilderOAuth(ret, btn, err)");
+      expect(html).toContain("__anStartPopupOAuth(ret, btn, err)");
       expect(html).toContain(
         "__anPath('/_agent-native/auth/desktop-exchange')",
       );
@@ -1330,6 +1330,34 @@ describe("server/auth", () => {
         "check server logs for [agent-native][google-oauth]",
       );
       expect(loginHtml).not.toContain("&debug=1");
+    });
+
+    it("defaults googleAuthMode to 'auto' and honors explicit overrides + env var", async () => {
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
+      const { getOnboardingHtml } = await import("./onboarding-html.js");
+
+      const auto = getOnboardingHtml({ googleOnly: true });
+      expect(auto).toContain('var __AN_GOOGLE_AUTH_MODE = "auto"');
+      expect(auto).toContain("function __anResolveAuthFlow()");
+      expect(auto).toContain("function __anIsElectron()");
+      expect(auto).toContain("__anResolveAuthFlow() === 'popup'");
+
+      const popup = getOnboardingHtml({
+        googleOnly: true,
+        googleAuthMode: "popup",
+      });
+      expect(popup).toContain('var __AN_GOOGLE_AUTH_MODE = "popup"');
+
+      vi.stubEnv("GOOGLE_AUTH_MODE", "redirect");
+      const fromEnv = getOnboardingHtml({ googleOnly: true });
+      expect(fromEnv).toContain('var __AN_GOOGLE_AUTH_MODE = "redirect"');
+
+      const explicitWins = getOnboardingHtml({
+        googleOnly: true,
+        googleAuthMode: "popup",
+      });
+      expect(explicitWins).toContain('var __AN_GOOGLE_AUTH_MODE = "popup"');
     });
 
     it("uses sign-in copy when only Google auth is enabled", async () => {
