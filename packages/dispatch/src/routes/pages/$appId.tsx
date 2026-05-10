@@ -6,6 +6,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { useActionQuery, appPath } from "@agent-native/core/client";
+import { loadWorkspaceAppsManifest } from "@agent-native/core/server/agent-discovery";
 import {
   IconArrowLeft,
   IconArrowUpRight,
@@ -24,22 +25,6 @@ export function meta() {
   return [{ title: "Workspace app - Dispatch" }];
 }
 
-interface WorkspaceAppManifestEntry {
-  id: string;
-  path?: string;
-}
-
-function parseWorkspaceAppsEnv(): WorkspaceAppManifestEntry[] | null {
-  const raw = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Catch-all for `/dispatch/<segment>` paths that don't match an explicit
  * Dispatch route. When `<segment>` is the id of a workspace app sibling
@@ -47,11 +32,14 @@ function parseWorkspaceAppsEnv(): WorkspaceAppManifestEntry[] | null {
  * call through Dispatch's mount point), bounce to the absolute `/<appId>`
  * so the user lands on the actual app instead of a 404 inside Dispatch.
  *
- * Server-side redirect: we read the workspace app manifest from
- * AGENT_NATIVE_WORKSPACE_APPS_JSON (set by both `workspace-dev.ts` and
- * `workspace-deploy.ts`) and throw `redirect("/<appId>")`. React Router 7
- * does not prepend the basename to absolute paths returned from a loader,
- * so the redirect escapes Dispatch's `/dispatch` mount cleanly.
+ * Server-side redirect: we resolve the workspace app manifest via the
+ * shared `loadWorkspaceAppsManifest()` helper, which checks the
+ * `AGENT_NATIVE_WORKSPACE_APPS_JSON` env var, then the
+ * `.agent-native/workspace-apps.json` file written by `workspace-deploy.ts`,
+ * then a live filesystem scan of `apps/` for local dev. We then throw
+ * `redirect("/<appId>")`. React Router 7 does not prepend the basename to
+ * absolute paths returned from a loader, so the redirect escapes Dispatch's
+ * `/dispatch` mount cleanly.
  *
  * Why a catch-all instead of fixing the agent prompt: Builder.io currently
  * resolves "navigate to /todo" relative to Dispatch's mount, sending the
@@ -63,7 +51,7 @@ function parseWorkspaceAppsEnv(): WorkspaceAppManifestEntry[] | null {
 export function loader({ params }: LoaderFunctionArgs) {
   const appId = params.appId;
   if (!appId) return null;
-  const apps = parseWorkspaceAppsEnv();
+  const apps = loadWorkspaceAppsManifest();
   if (!apps) return null;
   const app = apps.find((entry) => entry?.id === appId);
   const target =
