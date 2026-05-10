@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
 import { notifyClients } from "../server/handlers/decks.js";
+import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 
 // In-process serialization per deckId. `add-slide` is intentionally advertised
 // as a sequential write, but the lock still protects against accidental
@@ -87,7 +88,10 @@ export default defineAction({
         `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const newSlide: any = { id: newSlideId, content };
+      const newSlide: any = {
+        id: newSlideId,
+        content: normalizeSlidePadding(content),
+      };
       if (layout) newSlide.layout = layout;
       if (notes) newSlide.notes = notes;
 

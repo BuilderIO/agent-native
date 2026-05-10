@@ -10,6 +10,8 @@ import { z } from "zod";
 import { notifyClients } from "../server/handlers/decks.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
+import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+
 async function findCollabOrigin(): Promise<string | null> {
   const tryOrigins = [
     process.env.ORIGIN,
@@ -130,7 +132,7 @@ export default defineAction({
     let findFound = true;
 
     if (fullContent) {
-      slide.content = fullContent;
+      slide.content = normalizeSlidePadding(fullContent);
       applied = true;
     } else if (find) {
       const idx = (slide.content as string).indexOf(find);

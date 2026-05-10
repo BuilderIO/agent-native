@@ -11,6 +11,7 @@ import {
 import { notifyClients } from "../server/handlers/decks.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { getDeckUrl } from "./_app-url.js";
+import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
@@ -67,9 +68,20 @@ export default defineAction({
       .describe("Optional design system ID to link to the deck"),
   }),
   http: false,
-  run: async ({ title, slides, deckId, aspectRatio, designSystemId }) => {
+  run: async ({
+    title,
+    slides: rawSlides,
+    deckId,
+    aspectRatio,
+    designSystemId,
+  }) => {
     const db = getDb();
     const now = new Date().toISOString();
+
+    const slides = rawSlides.map((s) => ({
+      ...s,
+      content: normalizeSlidePadding(s.content),
+    }));
 
     if (deckId) {
       if (designSystemId) {
