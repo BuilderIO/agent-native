@@ -74,13 +74,32 @@ export function useChatThreads(
       const data = await res.json();
       setThreads((prev) => {
         const loaded = (data.threads ?? []) as ChatThreadSummary[];
+        const loadedIds = new Set(loaded.map((t) => t.id));
         // Preserve any optimistic threads we've created this session that
         // haven't shown up in the server list yet (POST still in-flight).
-        const loadedIds = new Set(loaded.map((t) => t.id));
         const optimisticOnly = prev.filter(
           (t) => newlyCreatedRef.current.has(t.id) && !loadedIds.has(t.id),
         );
-        return [...optimisticOnly, ...loaded];
+        // Reconcile each server thread against our local copy. If the local
+        // copy has a newer updatedAt or higher messageCount, keep those
+        // fields — the server probably hasn't observed the user's latest
+        // send yet, and naively replacing makes the recent-chats list
+        // visibly jump back to older timestamps right after a send.
+        const merged = loaded.map((server) => {
+          const local = prev.find((t) => t.id === server.id);
+          if (!local) return server;
+          const next = { ...server };
+          if (local.updatedAt > server.updatedAt) {
+            next.updatedAt = local.updatedAt;
+          }
+          if (local.messageCount > server.messageCount) {
+            next.messageCount = local.messageCount;
+            if (local.preview) next.preview = local.preview;
+            if (local.title) next.title = local.title;
+          }
+          return next;
+        });
+        return [...optimisticOnly, ...merged];
       });
       return data.threads as ChatThreadSummary[];
     } catch {

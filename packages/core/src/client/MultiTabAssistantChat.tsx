@@ -149,12 +149,14 @@ function ChatSkeleton({
 function HistoryPopover({
   threads,
   openTabIds,
+  activeThreadId,
   onSelect,
   onClose,
   onSearch,
 }: {
   threads: ChatThreadSummary[];
   openTabIds: Set<string>;
+  activeThreadId: string | null;
   onSelect: (id: string) => void;
   onClose: () => void;
   onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
@@ -208,10 +210,18 @@ function HistoryPopover({
     };
   }, [search, onSearch]);
 
-  const visibleThreads = threads.filter((t) => t.messageCount > 0);
+  // Hide empty threads from the history list — except the currently-active
+  // one. The active thread always belongs in the list so the user can see
+  // they're in it (the previous filter dropped a brand-new chat the user
+  // had just opened, making them think their chat had vanished).
+  const visibleThreads = threads.filter(
+    (t) => t.messageCount > 0 || t.id === activeThreadId,
+  );
 
   const filtered = search.trim()
-    ? (searchResults ?? visibleThreads).filter((t) => t.messageCount > 0)
+    ? (searchResults ?? visibleThreads).filter(
+        (t) => t.messageCount > 0 || t.id === activeThreadId,
+      )
     : visibleThreads;
 
   const formatTime = (ts: number) => {
@@ -251,32 +261,40 @@ function HistoryPopover({
               {search ? "No matching chats" : "No chats yet"}
             </div>
           ) : (
-            filtered.map((thread) => (
-              <button
-                key={thread.id}
-                onClick={() => {
-                  onSelect(thread.id);
-                  onClose();
-                }}
-                className="w-full px-3 py-2 text-left hover:bg-accent/50"
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-xs font-medium text-foreground truncate">
-                    {thread.title || thread.preview || "Chat"}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground shrink-0">
-                    {openTabIds.has(thread.id)
-                      ? "Open"
-                      : formatTime(thread.updatedAt)}
-                  </span>
-                </div>
-                {thread.preview && thread.title !== thread.preview && (
-                  <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-                    {thread.preview}
+            filtered.map((thread) => {
+              const isActive = thread.id === activeThreadId;
+              return (
+                <button
+                  key={thread.id}
+                  onClick={() => {
+                    onSelect(thread.id);
+                    onClose();
+                  }}
+                  className={cn(
+                    "w-full px-3 py-2 text-left hover:bg-accent/50",
+                    isActive && "bg-accent/30",
+                  )}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs font-medium text-foreground truncate">
+                      {thread.title || thread.preview || "Chat"}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {isActive
+                        ? "Active"
+                        : openTabIds.has(thread.id)
+                          ? "Open"
+                          : formatTime(thread.updatedAt)}
+                    </span>
                   </div>
-                )}
-              </button>
-            ))
+                  {thread.preview && thread.title !== thread.preview && (
+                    <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                      {thread.preview}
+                    </div>
+                  )}
+                </button>
+              );
+            })
           )}
         </div>
       </div>
@@ -1522,6 +1540,7 @@ export function MultiTabAssistantChat({
           <HistoryPopover
             threads={threads}
             openTabIds={new Set(openTabIds)}
+            activeThreadId={activeThreadId}
             onSelect={openFromHistory}
             onClose={() => setShowHistory(false)}
             onSearch={searchThreads}
