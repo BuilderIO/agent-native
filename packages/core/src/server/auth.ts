@@ -2582,7 +2582,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
       if (cookie) await removeSession(cookie);
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
-      deleteCookie(event, COOKIE_NAME, { path: "/" });
+      deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
 
       try {
         const auth = await getBetterAuth();
@@ -2729,7 +2729,7 @@ export async function autoMountAuth(
         if (cookie) await removeSession(cookie);
         const bearerToken = getBearerSessionToken(event);
         if (bearerToken) await removeSession(bearerToken);
-        deleteCookie(event, COOKIE_NAME, { path: "/" });
+        deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
         if (isElectronRequest(event)) await clearDesktopSso();
         return { ok: true };
       }),
