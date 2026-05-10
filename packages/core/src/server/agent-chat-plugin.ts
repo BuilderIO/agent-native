@@ -4952,11 +4952,37 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
 
           if (method === "POST") {
             const body = await readBody(event);
-            const thread = await createThread(owner, {
-              id: body?.id,
-              title: body?.title ?? "",
-            });
-            return thread;
+            // Idempotent: when the caller supplies an id and a thread with
+            // that id already exists for this owner, return it instead of
+            // 500'ing on the UNIQUE constraint. The client can race with
+            // the agent run's `persistSubmittedUserMessage` (which also
+            // creates the thread on first message); we don't want either
+            // racer's POST/onRunPrepared retry to wipe the thread out of
+            // the user's history.
+            if (body?.id) {
+              const existing = await getThread(body.id);
+              if (existing) {
+                if (existing.ownerEmail === owner) return existing;
+                setResponseStatus(event, 409);
+                return { error: "Thread id already in use" };
+              }
+            }
+            try {
+              const thread = await createThread(owner, {
+                id: body?.id,
+                title: body?.title ?? "",
+              });
+              return thread;
+            } catch (err) {
+              // Lost the create race against another in-flight POST or
+              // against `persistSubmittedUserMessage`. Re-fetch and
+              // return the row that actually landed.
+              if (body?.id) {
+                const existing = await getThread(body.id);
+                if (existing && existing.ownerEmail === owner) return existing;
+              }
+              throw err;
+            }
           }
 
           setResponseStatus(event, 405);
