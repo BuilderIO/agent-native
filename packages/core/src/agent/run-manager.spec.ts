@@ -15,6 +15,16 @@ vi.mock("./run-store.js", () => ({
   updateRunHeartbeat: vi.fn(() => Promise.resolve()),
   bumpRunProgress: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
+  ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
+  STALE_RUN_ERROR_EVENT: {
+    type: "error",
+    error:
+      "The agent stopped before it could finish. It may have hit a server timeout or the worker may have been interrupted.",
+    errorCode: "stale_run",
+    recoverable: true,
+    details:
+      "The run heartbeat stopped while the run was still marked running. Partial output and tool calls were preserved when available.",
+  },
 }));
 
 import {
@@ -37,6 +47,7 @@ import {
   getRunEventsSince,
   markRunAborted,
   updateRunStatus,
+  ensureTerminalRunEvent,
 } from "./run-store.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 
@@ -710,7 +721,7 @@ describe("run manager soft timeout", () => {
     });
   });
 
-  it("synthesizes an explicit error for errored SQL runs missing terminal events", async () => {
+  it("synthesizes a friendly stale-run error for errored SQL runs missing terminal events and heals SQL", async () => {
     vi.mocked(getRunById).mockResolvedValue({
       id: "run-sql-errored",
       threadId: "thread-sql-errored",
@@ -718,6 +729,7 @@ describe("run manager soft timeout", () => {
       startedAt: Date.now(),
     });
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(ensureTerminalRunEvent).mockClear();
 
     const stream = subscribeToRun("run-sql-errored", 0);
     expect(stream).not.toBeNull();
@@ -733,6 +745,41 @@ describe("run manager soft timeout", () => {
 
     const output = chunks.join("");
     expect(output).toContain('"type":"error"');
-    expect(output).toContain('"errorCode":"run_terminal_event_missing"');
+    expect(output).toContain('"errorCode":"stale_run"');
+    expect(output).toContain('"recoverable":true');
+    // Self-heal: persist the synthesized terminal event back to SQL so future
+    // reconnects replay it normally instead of regenerating it each time.
+    expect(ensureTerminalRunEvent).toHaveBeenCalledWith(
+      "run-sql-errored",
+      expect.objectContaining({ errorCode: "stale_run" }),
+    );
+  });
+
+  it("still streams the synthesized stale-run error when persistence to SQL fails", async () => {
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-sql-errored-persist-fail",
+      threadId: "thread-persist-fail",
+      status: "errored",
+      startedAt: Date.now(),
+    });
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(ensureTerminalRunEvent).mockRejectedValueOnce(
+      new Error("DB unavailable"),
+    );
+
+    const stream = subscribeToRun("run-sql-errored-persist-fail", 0);
+    expect(stream).not.toBeNull();
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain('"errorCode":"stale_run"');
   });
 });
