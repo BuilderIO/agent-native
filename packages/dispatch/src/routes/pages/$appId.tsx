@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import {
   Link,
+  Navigate,
   redirect,
   useParams,
   type LoaderFunctionArgs,
@@ -47,16 +48,34 @@ export function meta() {
  * OAuth callbackURL, so Google sign-in completes back at /dispatch/todo
  * and looks broken. This route fixes both the post-creation navigation
  * and the OAuth round-trip from a single place.
+ *
+ * `appId === "dispatch"` short-circuit: when the segment matches Dispatch
+ * itself (e.g. `/dispatch/dispatch`), we go straight to the overview rather
+ * than chaining through `/dispatch` (which polled `useActionQuery` re-fired
+ * `window.location.assign` against and looped forever in production).
  */
+function dispatchSelfRedirect(appId: string | undefined): string | null {
+  if (appId === "dispatch") return appPath("/overview");
+  return null;
+}
+
 export function loader({ params }: LoaderFunctionArgs) {
   const appId = params.appId;
   if (!appId) return null;
+  const selfTarget = dispatchSelfRedirect(appId);
+  if (selfTarget) throw redirect(selfTarget);
   const apps = loadWorkspaceAppsManifest();
   if (!apps) return null;
   const app = apps.find((entry) => entry?.id === appId);
   const target =
     app?.path && app.path.startsWith("/") ? app.path : app ? `/${appId}` : null;
   if (target) throw redirect(target);
+  return null;
+}
+
+export function clientLoader({ params }: LoaderFunctionArgs) {
+  const selfTarget = dispatchSelfRedirect(params.appId);
+  if (selfTarget) throw redirect(selfTarget);
   return null;
 }
 
@@ -73,11 +92,17 @@ export default function WorkspaceAppCatchAllRoute() {
     [appId, apps],
   );
   const href = app ? workspaceAppHref(app) : null;
+  const isSelfReference = appId === "dispatch";
 
   useEffect(() => {
+    if (isSelfReference) return;
     if (!app || app.status === "pending" || !href) return;
     window.location.assign(href);
-  }, [app, href]);
+  }, [app, href, isSelfReference]);
+
+  if (isSelfReference) {
+    return <Navigate to={appPath("/overview")} replace />;
+  }
 
   if ((isLoading && !app) || (app && app.status !== "pending" && href)) {
     return (

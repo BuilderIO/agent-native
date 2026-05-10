@@ -1,4 +1,5 @@
 export {
+  clientLoader,
   default,
   loader,
   meta,
