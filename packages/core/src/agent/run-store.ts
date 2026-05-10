@@ -15,7 +15,7 @@ let _initPromise: Promise<void> | undefined;
  */
 export const RUN_STALE_MS = 6_000;
 
-const STALE_RUN_ERROR_EVENT = {
+export const STALE_RUN_ERROR_EVENT = {
   type: "error",
   error:
     "The agent stopped before it could finish. It may have hit a server timeout or the worker may have been interrupted.",
@@ -385,6 +385,23 @@ export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
     sql: `DELETE FROM agent_runs WHERE status != 'running' AND completed_at < ?`,
     args: [cutoff],
   });
+}
+
+/**
+ * Idempotently append a terminal event to a run's event stream. No-op if the
+ * stream already ends in a terminal event. Used by reapers AND by SSE
+ * reconnect paths that discover an `errored` run row with no terminal event
+ * (e.g. an earlier reaper's silent `.catch(() => {})` swallowed the append).
+ *
+ * Persisting from the reconnect path is what keeps the system self-healing:
+ * subsequent reconnects replay the proper terminal event from SQL instead of
+ * synthesizing a fresh one each time.
+ */
+export async function ensureTerminalRunEvent(
+  runId: string,
+  event: Record<string, unknown>,
+): Promise<void> {
+  return appendTerminalRunEvent(runId, event);
 }
 
 async function appendTerminalRunEvent(
