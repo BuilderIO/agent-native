@@ -211,14 +211,26 @@ export interface AuthOptions {
  * `an_session` cookie and ping-pong each other into a logged-out state.
  *
  * When `APP_NAME` is set, suffix the cookie so each app gets its own slot.
+ *
+ * Workspace exception: in workspace mode (`AGENT_NATIVE_WORKSPACE=1`),
+ * every app shares the same origin AND the same DB, and cross-app SSO is
+ * the desired behavior — signing into Dispatch should mean you're signed
+ * in across the workspace's other apps too. Per-app suffixes break that.
+ * Use a single workspace-wide cookie so the legacy `an_session_*` token
+ * flow set by `setFrameworkSessionCookie` (which the Builder OAuth popup
+ * exchange relies on — see `desktop-exchange` and `oauthCallbackResponse`)
+ * is recognised by every app in the workspace.
  */
 const APP_NAME_SLUG = (process.env.APP_NAME || "")
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, "_")
   .replace(/^_+|_+$/g, "");
-export const COOKIE_NAME = APP_NAME_SLUG
-  ? `an_session_${APP_NAME_SLUG}`
-  : "an_session";
+const IS_WORKSPACE_MODE = process.env.AGENT_NATIVE_WORKSPACE === "1";
+export const COOKIE_NAME = IS_WORKSPACE_MODE
+  ? "an_session_workspace"
+  : APP_NAME_SLUG
+    ? `an_session_${APP_NAME_SLUG}`
+    : "an_session";
 function getOAuthStateAppId(): string | undefined {
   const raw = process.env.APP_NAME || process.env.npm_package_name;
   if (!raw) return undefined;
@@ -1225,16 +1237,24 @@ function isReadMethod(event: H3Event): boolean {
 
 /**
  * Cookie attributes that work in both same-site and third-party iframe
- * contexts. Over HTTPS we emit `SameSite=None; Secure` (required by browsers
- * to ship the cookie back inside a cross-origin iframe); for plain HTTP dev
- * we keep `SameSite=Lax` since `None` requires Secure.
+ * contexts. Over HTTPS we emit `SameSite=None; Secure; Partitioned` —
+ * `None`+`Secure` is required by browsers to ship the cookie back inside a
+ * cross-origin iframe at all; `Partitioned` keeps the cookie working under
+ * Chrome's third-party-cookie deprecation by binding it to the embedding
+ * site's storage partition. (Better Auth already sets the same trio on its
+ * own session cookie; this matches so the framework's legacy cookie —
+ * which the Builder OAuth popup exchange writes via
+ * `setFrameworkSessionCookie` — survives iframe contexts too.) Plain-HTTP
+ * dev keeps the default `SameSite=Lax`; `None` requires Secure, and
+ * `Partitioned` only takes effect alongside `Secure`.
  */
 function crossSiteCookieAttrs(event: H3Event): {
   sameSite: "lax" | "none";
   secure: boolean;
+  partitioned?: boolean;
 } {
   return isHttpsRequest(event)
-    ? { sameSite: "none", secure: true }
+    ? { sameSite: "none", secure: true, partitioned: true }
     : { sameSite: "lax", secure: false };
 }
 
