@@ -244,7 +244,15 @@ export const updateDeck = defineEventHandler(async (event) => {
         );
       }
       if (nextDesignSystemId) {
-        await assertAccess("design-system", nextDesignSystemId, "viewer");
+        try {
+          await assertAccess("design-system", nextDesignSystemId, "viewer");
+        } catch (err) {
+          if (err instanceof ForbiddenError) {
+            setResponseStatus(event, 400);
+            return { error: "Design system not accessible" };
+          }
+          throw err;
+        }
       }
       try {
         await db.insert(schema.decks).values({
@@ -271,7 +279,15 @@ export const updateDeck = defineEventHandler(async (event) => {
       access.role === "editor"
     ) {
       if (nextDesignSystemId) {
-        await assertAccess("design-system", nextDesignSystemId, "viewer");
+        try {
+          await assertAccess("design-system", nextDesignSystemId, "viewer");
+        } catch (err) {
+          if (err instanceof ForbiddenError) {
+            setResponseStatus(event, 400);
+            return { error: "Design system not accessible" };
+          }
+          throw err;
+        }
       }
       // Caller has editor+ access — perform the update. The access check
       // above already confirmed the row exists and the caller can write.
@@ -326,7 +342,15 @@ export const createDeck = defineEventHandler(async (event) => {
         : null;
 
     if (designSystemId) {
-      await assertAccess("design-system", designSystemId, "viewer");
+      try {
+        await assertAccess("design-system", designSystemId, "viewer");
+      } catch (err) {
+        if (err instanceof ForbiddenError) {
+          setResponseStatus(event, 400);
+          return { error: "Design system not accessible" };
+        }
+        throw err;
+      }
     }
 
     await db.insert(schema.decks).values({
