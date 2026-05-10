@@ -1,5 +1,18 @@
 # @agent-native/dispatch
 
+## 0.6.0
+
+### Minor Changes
+
+- 04fe544: feat(integrations): redesign the Integrations page as service-grouped Connectors. The page now groups by credential key (OpenAI, Stripe, Slack, …) across every app in the workspace, and the new Connect dialog creates the vault secret, grants it to every app that wants it, and syncs in one flow. Old per-app progress cards and individual integration rows are replaced by a flat list of providers with their connect status.
+
+### Patch Changes
+
+- 04fe544: fix: bounce `/dispatch/<workspace-app-id>` to `/<workspace-app-id>` so Builder.io's "navigate to /<id>" calls — and any OAuth round-trip whose callbackURL captured that wrong path — land on the actual workspace app instead of a 404 inside Dispatch's chrome.
+- 04fe544: fix(dispatch): make the `/dispatch/<appId>` server-side bounce work in production deploys and after live workspace changes by reading the same env-→file-→filesystem manifest fallback chain that the rest of agent discovery uses, instead of only checking `AGENT_NATIVE_WORKSPACE_APPS_JSON`.
+
+  Core now exports `loadWorkspaceAppsManifest()` and the `WorkspaceAppManifestEntry` type from `@agent-native/core/server/agent-discovery`, so other server entrypoints can resolve the workspace manifest without re-implementing the fallback.
+
 ## 0.5.1
 
 ### Patch Changes

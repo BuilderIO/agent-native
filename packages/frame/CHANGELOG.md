@@ -1,5 +1,25 @@
 # @agent-native/frame
 
+## 0.1.57
+
+### Patch Changes
+
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+- Updated dependencies [04fe544]
+  - @agent-native/core@0.14.0
+
 ## 0.1.56
 
 ### Patch Changes
