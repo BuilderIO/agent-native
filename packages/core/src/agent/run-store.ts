@@ -213,8 +213,14 @@ export async function insertRunEvent(
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
+  // ON CONFLICT DO NOTHING: a (runId, seq) collision can happen on the
+  // soft-timeout / terminal-event path where `pendingTerminalEvent` was
+  // assigned a seq that later gets reused by an event pushed after it.
+  // It can also race with `appendTerminalRunEvent` (max-seq + 1) when a
+  // run aborts at the same time the producer emits its final event.
+  // Treat the second write as a no-op so the run completes cleanly.
   await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_data) VALUES (?, ?, ?)`,
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_data) VALUES (?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
     args: [runId, seq, eventData],
   });
 }
@@ -412,7 +418,7 @@ async function appendTerminalRunEvent(
   }
   const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
   await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_data) VALUES (?, ?, ?)`,
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_data) VALUES (?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
     args: [runId, nextSeq, JSON.stringify(event)],
   });
 }
