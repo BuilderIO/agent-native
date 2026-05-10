@@ -80,6 +80,14 @@ export function ConnectBuilderCard({
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [localBrowser, setLocalBrowser] = useState(false);
   const mountedRef = useRef(true);
+  // Tracks whether the user clicked "Connect Builder" *this session*. When
+  // the connect-then-poll round-trip lands `configured=true`, we use this
+  // flag to decide whether to retry the user's pending prompt automatically
+  // — the alternative is making them click "Send to Builder" a second time
+  // even though the agent had already captured their original ask. We do
+  // NOT auto-send when the card mounts already-connected (e.g. user
+  // revisits an old thread) — only when the connect just succeeded.
+  const wasConnectingRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -156,6 +164,29 @@ export function ConnectBuilderCard({
 
   const hasPrompt = prompt.trim().length > 0;
   const canSend = configured && builderEnabled && hasPrompt;
+
+  // Auto-send the user's pending prompt the moment connecting finishes
+  // successfully. Without this, the connect popup closing leaves the user
+  // staring at a "Send to Builder" button — feels like they have to
+  // re-submit even though the prompt is right there in the card.
+  useEffect(() => {
+    if (flow.connecting) {
+      wasConnectingRef.current = true;
+      return;
+    }
+    if (!wasConnectingRef.current) return;
+    if (canSend && !sending && !runResult && !sendErr) {
+      wasConnectingRef.current = false;
+      void handleSend();
+    }
+  }, [
+    flow.connecting,
+    canSend,
+    sending,
+    runResult,
+    sendErr,
+    handleSend,
+  ]);
   // Branch creation is gated by a server-side project id, which may come
   // from deployment config or org-scoped secrets.
   const showWaitlist = !builderEnabled && hasPrompt;
