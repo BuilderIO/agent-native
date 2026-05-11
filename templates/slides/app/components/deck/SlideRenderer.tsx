@@ -28,6 +28,10 @@ interface SlideRendererProps {
   designSystem?: DesignSystemData;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+  /** Fires when the natural slide content overflows the canvas vertically.
+   * The renderer no longer shrinks slides for vertical overflow — instead the
+   * editor surfaces this so the agent can rewrite the slide to fit. */
+  onOverflowChange?: (info: SlideOverflowInfo) => void;
 }
 
 export const layoutClasses: Record<string, string> = {
@@ -580,6 +584,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={left}
           className="slide-content text-white/90"
+          onOverflowChange={onOverflowChange}
         >
           <ReactMarkdown components={markdownComponents}>
             {left.trim()}
@@ -611,6 +616,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={content}
           className="h-full w-full"
+          onOverflowChange={onOverflowChange}
         >
           <BlankSlideContent content={content} />
         </AutoFitContent>
@@ -635,6 +641,7 @@ export function SlideInner({
         canvasHeight={dims.height}
         fitKey={content}
         className="slide-content text-white/90 w-full"
+        onOverflowChange={onOverflowChange}
       >
         <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
       </AutoFitContent>
@@ -648,6 +655,7 @@ export default function SlideRenderer({
   thumbnail = true,
   designSystem,
   aspectRatio,
+  onOverflowChange,
 }: SlideRendererProps) {
   const dims = getAspectRatioDims(aspectRatio);
 
@@ -667,6 +675,7 @@ export default function SlideRenderer({
             slide={slide}
             designSystem={designSystem}
             aspectRatio={aspectRatio}
+            onOverflowChange={onOverflowChange}
           />
         </div>
         <ScaleHelper
@@ -696,6 +705,7 @@ export default function SlideRenderer({
           slide={slide}
           designSystem={designSystem}
           aspectRatio={aspectRatio}
+          onOverflowChange={onOverflowChange}
         />
       </div>
       <ScaleHelper targetWidth={dims.width} />

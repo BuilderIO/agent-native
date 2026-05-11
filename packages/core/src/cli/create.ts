@@ -506,9 +506,10 @@ async function createStandaloneApp(
   }
 
   const s = clack.spinner();
-  s.start("Working... no action needed. Scaffolding your app.");
+  s.start(`Downloading the ${template} template from GitHub…`);
   try {
     await scaffoldAppTemplate(targetDir, template);
+    s.message(`Setting up ${name}…`);
     postProcessStandalone(name, targetDir, template);
     s.stop("App created!");
   } catch (err: any) {
