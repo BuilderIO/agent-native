@@ -234,6 +234,10 @@ interface SlideEditorProps {
   slideId?: string;
   /** Slide title for pin mode contextLabel */
   slideTitle?: string;
+  /** Owning deck id — surfaced in the slide-fit-check app-state payload so
+   *  `_await-fit-check` can build correct `update-slide --deckId=<id>`
+   *  agent retry commands. */
+  deckId?: string;
 }
 
 /** Selection outline rendered over a selected image */
@@ -410,6 +414,7 @@ export default function SlideEditor({
   onExitPinMode,
   slideId,
   slideTitle,
+  deckId,
 }: SlideEditorProps) {
   const content = typeof slide.content === "string" ? slide.content : "";
   const isHtmlSlide =
@@ -491,13 +496,13 @@ export default function SlideEditor({
       // slide they just wrote has been re-rendered and re-measured.
       syncOverflowToAppState({
         slideId: slide.id,
-        deckId: slideId,
+        deckId,
         contentHeight: info.contentHeight,
         viewportHeight: info.viewportHeight,
         verticalOverflow: info.verticalOverflow,
       });
     },
-    [slide.id, slideId],
+    [slide.id, deckId],
   );
 
   const handleAskAgentToFixLayout = useCallback(() => {

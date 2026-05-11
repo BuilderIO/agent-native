@@ -781,6 +781,7 @@ export default function DeckEditor() {
           currentSlide && (
             <SlideEditor
               slide={currentSlide}
+              deckId={id}
               readOnly={!canEdit}
               onUpdateSlide={(updates) =>
                 updateSlide(id, currentSlide.id, updates)

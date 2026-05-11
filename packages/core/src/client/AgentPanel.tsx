@@ -252,22 +252,35 @@ function useBuilderConnectUrl() {
 
   useEffect(() => {
     let cancelled = false;
+    // Track previous configured state so we only fanout the
+    // `agent-engine:configured-changed` event on a real false→true
+    // transition. Without this, every `/builder/status` response with
+    // `configured: true` dispatched the event, our own `onConfigured`
+    // listener caught it (because we both fire AND listen on the same
+    // global), refresh fired again, and we'd loop forever.
+    let lastConfigured = false;
     const refresh = () => {
       fetch(agentNativePath("/_agent-native/builder/status"))
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (cancelled || !data) return;
           if (data.connectUrl) setConnectUrl(data.connectUrl);
-          setConfigured(!!data.configured);
-          // Tell other listeners (the agent panel's "Use Builder" CTA lives
-          // in a different React tree than the connect-flow popup poller, so
-          // a fresh status read here is the only thing that flips its UI).
-          if (data.configured) {
+          const nextConfigured = !!data.configured;
+          setConfigured(nextConfigured);
+          if (nextConfigured && !lastConfigured) {
+            lastConfigured = true;
+            // Tell other listeners (the agent panel's "Use Builder" CTA
+            // lives in a different React tree than the connect-flow popup
+            // poller, so a fresh status read here is the only thing that
+            // flips its UI). Dispatch only on transition so listeners
+            // that share this hook don't bounce the event back here.
             window.dispatchEvent(
               new CustomEvent("agent-engine:configured-changed", {
                 detail: { source: "builder-status" },
               }),
             );
+          } else if (!nextConfigured) {
+            lastConfigured = false;
           }
         })
         .catch(() => {});
@@ -280,7 +293,16 @@ function useBuilderConnectUrl() {
     const onVisibility = () => {
       if (document.visibilityState === "visible") refresh();
     };
-    const onConfigured = () => refresh();
+    const onConfigured = (e: Event) => {
+      // Ignore our own dispatch — refresh() already wrote the new state.
+      // Other dispatchers (the connect-flow popup poller, an external
+      // tab that completed connect, etc.) get the refresh they need.
+      const detail = (e as CustomEvent).detail as
+        | { source?: string }
+        | undefined;
+      if (detail?.source === "builder-status") return;
+      refresh();
+    };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("agent-engine:configured-changed", onConfigured);

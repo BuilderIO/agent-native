@@ -1211,16 +1211,19 @@ const AUTO_DEV_ACCOUNT_PASSWORD = "local-dev-account";
  * in the app immediately instead of being asked to fill in name + email
  * + password to try the framework.
  *
- * Once a real user signs up via the regular form, the email-filter
- * short-circuit fires and this helper returns null on every subsequent
- * request, so the normal login flow takes over. Set
- * `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out (useful for tests
- * that exercise the unauthenticated branch).
+ * Auto-create fires exactly once per local DB: as soon as `dev@local`
+ * (or any real user) exists in the `user` table, the helper returns
+ * null and the normal login flow takes over. Signing out then leaves
+ * the user on the regular sign-in form; without this guard the
+ * post-logout reload would silently re-create the session.
  *
- * The fixed password is intentional: it means a developer who signs out
- * of the dev account can sign back in with `dev@local` / `local-dev-account`
- * without having to delete the row from SQL. This is local-only — the
- * helper is gated on NODE_ENV.
+ * The fixed password is intentional: it means a developer who signs
+ * out can sign back in with `dev@local` / `local-dev-account` from
+ * the regular login form. To get the auto-flow back, drop the user
+ * row or wipe the local DB. Set
+ * `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely
+ * (useful for tests that exercise the unauthenticated branch). This
+ * is local-only — the helper is gated on NODE_ENV.
  */
 async function maybeAutoCreateDevSession(
   event: H3Event,
@@ -1236,6 +1239,19 @@ async function maybeAutoCreateDevSession(
       args: [AUTO_DEV_ACCOUNT_EMAIL],
     });
     if (realUsers.length > 0) return null;
+
+    // If `dev@local` already exists, this is not a freshly-scaffolded
+    // app — the user has been through the auto-create flow at least
+    // once. Skip auto-create so signing out actually works: without
+    // this guard, the post-logout reload immediately re-creates the
+    // session and the user is stuck in dev@local forever (or has to
+    // set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1). To get the demo
+    // experience back, drop the row or wipe the local DB.
+    const { rows: devUsers } = await db.execute({
+      sql: 'SELECT 1 FROM "user" WHERE email = ? LIMIT 1',
+      args: [AUTO_DEV_ACCOUNT_EMAIL],
+    });
+    if (devUsers.length > 0) return null;
 
     const auth = await getBetterAuth();
     if (!auth) return null;
