@@ -17,8 +17,8 @@ interface FileUploadGlobals {
   __agentNativeFileUploadWarnedFallback?: { value: boolean };
 }
 const globals = globalThis as typeof globalThis & FileUploadGlobals;
-const providers: Map<string, FileUploadProvider> = (globals.__agentNativeFileUploadProviders ??=
-  new Map());
+const providers: Map<string, FileUploadProvider> =
+  (globals.__agentNativeFileUploadProviders ??= new Map());
 const warnedFallbackRef: { value: boolean } =
   (globals.__agentNativeFileUploadWarnedFallback ??= { value: false });
 
