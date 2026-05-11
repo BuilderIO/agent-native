@@ -293,7 +293,10 @@ describe("requireOrgMemberForUserShares: true", () => {
     });
   });
 
-  it("still allows org-principal shares without org-member checking", async () => {
+  it("refuses cross-org org-principal shares", async () => {
+    // An extension shared to a different org would let that org's members
+    // run code with the viewer's credentials — same threat model as a
+    // public extension. Pin org-principal shares to the resource's own org.
     await insertDoc({ id: "doc-6" });
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await expect(
@@ -302,6 +305,22 @@ describe("requireOrgMemberForUserShares: true", () => {
           resourceId: "doc-6",
           principalType: "org",
           principalId: "org-other",
+          role: "viewer",
+          notify: false,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it("allows org-principal shares to the resource's own org", async () => {
+    await insertDoc({ id: "doc-6-self" });
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-6-self",
+          principalType: "org",
+          principalId: orgId,
           role: "viewer",
           notify: false,
         }),
@@ -324,6 +343,28 @@ describe("requireOrgMemberForUserShares: true", () => {
           resourceId: "doc-no-org",
           principalType: "user",
           principalId: orgMemberEmail,
+          role: "viewer",
+          notify: false,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it("refuses org-principal shares when the resource has no org context", async () => {
+    await db.insert(docs).values({
+      id: "doc-no-org-2",
+      title: "doc-no-org-2",
+      ownerEmail,
+      orgId: null,
+      visibility: "private",
+    });
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-no-org-2",
+          principalType: "org",
+          principalId: orgId,
           role: "viewer",
           notify: false,
         }),

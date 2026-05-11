@@ -159,18 +159,30 @@ export default defineAction({
     const actor = getRequestUserEmail();
     if (!actor) throw new ForbiddenError("Not signed in");
 
-    if (reg.requireOrgMemberForUserShares && args.principalType === "user") {
+    if (reg.requireOrgMemberForUserShares) {
       const resourceOrgId = access.resource?.orgId as string | undefined | null;
       if (!resourceOrgId) {
         throw new ForbiddenError(
           `${reg.displayName} can only be shared from within an organization. Create or join an organization first.`,
         );
       }
-      const ok = await isOrgMemberOrInvited(resourceOrgId, args.principalId);
-      if (!ok) {
-        throw new ForbiddenError(
-          `${args.principalId} is not in your organization. Invite them to the organization first, then share.`,
-        );
+      if (args.principalType === "user") {
+        const ok = await isOrgMemberOrInvited(resourceOrgId, args.principalId);
+        if (!ok) {
+          throw new ForbiddenError(
+            `${args.principalId} is not in your organization. Invite them to the organization first, then share.`,
+          );
+        }
+      } else if (args.principalType === "org") {
+        // Cross-org org shares would let an outside org's members run
+        // extension code in the viewer's auth context — the same threat
+        // model that blocks public + cross-org user shares. Pin org-
+        // principal shares to the resource's own org.
+        if (args.principalId !== resourceOrgId) {
+          throw new ForbiddenError(
+            `${reg.displayName} can only be shared with its own organization, not a different one.`,
+          );
+        }
       }
     }
 
