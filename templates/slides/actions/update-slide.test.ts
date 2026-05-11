@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockExecute = vi.fn();
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+let mockFitCheckResult:
+  | { status: "fits" | "overflows" | "timeout"; measurement?: unknown }
+  | undefined;
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: mockExecute }),
@@ -23,6 +26,13 @@ vi.mock("../server/handlers/decks.js", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({}));
+
+vi.mock("./_await-fit-check.js", () => ({
+  awaitLayoutFitCheck: async () =>
+    mockFitCheckResult ?? { status: "timeout" },
+  formatOverflowForTool: (deckId: string, m: { verticalOverflow: number }) =>
+    `MOCK_OVERFLOW_MESSAGE deck=${deckId} overflow=${m.verticalOverflow}`,
+}));
 
 import action from "./update-slide";
 
