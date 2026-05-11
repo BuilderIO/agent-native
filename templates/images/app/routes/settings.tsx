@@ -70,10 +70,39 @@ export default function SettingsPage() {
 function ManageCredentialsSection() {
   const { status } = useBuilderStatus();
   const flow = useBuilderConnectFlow();
+  // `BUILDER_IMAGE_GENERATION_ENABLED=false` deployments reject Builder
+  // credentials in `generateWithManagedImageProvider` even when Builder is
+  // connected. Surface that here so the settings UI doesn't send users
+  // down a Connect-Builder path that can't succeed. The onboarding plugin
+  // already marks the corresponding setup step `disabled` in this case;
+  // this card mirrors the gating.
+  const { data: configData } = useActionQuery(
+    "get-image-generation-config",
+    {},
+  ) as { data?: { builderEnabled?: boolean } };
+  // While the flag query is loading, assume Builder is enabled (the
+  // production default) so the connect button doesn't briefly flash as
+  // disabled on first render.
+  const builderEnabled = configData?.builderEnabled ?? true;
   const configured = flow.hasFetchedStatus
     ? flow.configured
     : !!status?.configured;
   const orgName = flow.orgName ?? status?.orgName ?? null;
+
+  if (!builderEnabled) {
+    return (
+      <div className="rounded-lg border border-border p-4">
+        <h3 className="text-sm font-semibold">Manage credentials</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Builder-managed image generation is disabled for this deployment by
+          the <code className="text-xs">BUILDER_IMAGE_GENERATION_ENABLED</code>{" "}
+          environment variable. Add a Gemini API key from the Setup checklist
+          above; the manual fallback is the only path that will succeed until
+          the flag is re-enabled.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-border p-4">
