@@ -178,11 +178,23 @@ async function createWorkspaceInteractive(
 
     for (let i = 0; i < templates.length; i++) {
       const t = templates[i];
+      // Distinguish download vs local copy in the spinner so a multi-second
+      // GitHub fetch doesn't look like a frozen "Scaffolding..." message.
+      // Mirrors the local-vs-remote decision inside scaffoldAppTemplate.
+      const willDownload =
+        t !== "blank" && t.startsWith("github:")
+          ? true
+          : !findLocalTemplate(t === "video" ? "videos" : t);
       s.message(
-        `Scaffolding ${titleCase(t)} (${i + 1}/${templates.length})...`,
+        willDownload
+          ? `Downloading ${titleCase(t)} template (${i + 1}/${templates.length})...`
+          : `Scaffolding ${titleCase(t)} (${i + 1}/${templates.length})...`,
       );
       const appDir = path.join(targetDir, "apps", t);
       await scaffoldAppTemplate(appDir, t);
+      s.message(
+        `Configuring ${titleCase(t)} (${i + 1}/${templates.length})...`,
+      );
       replacePlaceholders(appDir, t, titleCase(t), name);
       rewriteTrackingAppId(appDir, t, t);
       workspacifyApp({
