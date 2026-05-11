@@ -323,7 +323,13 @@ export function OrgSwitcher({
               )}
               <button
                 type="button"
-                onClick={() => setMode("create")}
+                onClick={() => {
+                  // Clear any leftover input from a prior session — otherwise
+                  // the create form re-opens prefilled with the just-created
+                  // org's name and looks like a create dialog for the new org.
+                  setNewName("");
+                  setMode("create");
+                }}
                 className={`${ITEM_CLASS} cursor-pointer`}
               >
                 <IconPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -332,7 +338,10 @@ export function OrgSwitcher({
               {canInvite && (
                 <button
                   type="button"
-                  onClick={() => setMode("invite")}
+                  onClick={() => {
+                    setInviteEmail("");
+                    setMode("invite");
+                  }}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
                   <IconUserPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
