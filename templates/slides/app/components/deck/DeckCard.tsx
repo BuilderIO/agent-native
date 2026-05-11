@@ -40,6 +40,7 @@ export default function DeckCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(deck.title);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pendingRenameRef = useRef(false);
 
   useEffect(() => {
     if (isRenaming) {
@@ -72,8 +73,8 @@ export default function DeckCard({
   };
 
   const startRename = () => {
+    pendingRenameRef.current = true;
     setMenuOpen(false);
-    window.setTimeout(() => setIsRenaming(true), 0);
   };
 
   return (
@@ -152,7 +153,17 @@ export default function DeckCard({
               <IconDots className="w-3.5 h-3.5 text-foreground/70" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuContent
+            align="end"
+            className="w-40"
+            onCloseAutoFocus={(e) => {
+              if (pendingRenameRef.current) {
+                e.preventDefault();
+                pendingRenameRef.current = false;
+                setIsRenaming(true);
+              }
+            }}
+          >
             <DropdownMenuItem
               onSelect={(e) => {
                 e.preventDefault();
