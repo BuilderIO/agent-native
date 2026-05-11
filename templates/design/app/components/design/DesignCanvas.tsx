@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback, useMemo } from "react";
 import { agentChat } from "@agent-native/core";
+import { usePinchZoom } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { DeviceFrame } from "./DeviceFrame";
 import type { ElementInfo, DeviceFrameType } from "./types";
@@ -204,6 +205,7 @@ const EDIT_BRIDGE_SCRIPT = `
 interface DesignCanvasProps {
   content: string;
   zoom: number;
+  onZoomChange?: (zoom: number) => void;
   deviceFrame: DeviceFrameType;
   editMode: boolean;
   onElementSelect: (info: ElementInfo) => void;

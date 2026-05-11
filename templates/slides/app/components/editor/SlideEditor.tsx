@@ -10,6 +10,7 @@ import {
   AgentPresenceChip,
   agentNativePath,
   sendToAgentChat,
+  usePinchZoom,
 } from "@agent-native/core/client";
 import { createPortal } from "react-dom";
 import { enterSelectionMode } from "@/root";
@@ -431,6 +432,7 @@ export default function SlideEditor({
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // --- Multi-select state ---
   /** Set of data-builder-id values currently in the multi-select */
@@ -470,6 +472,14 @@ export default function SlideEditor({
       .find((preset) => preset < canvasZoom);
     setCanvasZoom(previous ?? CANVAS_ZOOM_PRESETS[0]);
   }, [canvasZoom]);
+
+  usePinchZoom({
+    containerRef: scrollContainerRef,
+    zoom: canvasZoom,
+    setZoom: setCanvasZoom,
+    min: 25,
+    max: 400,
+  });
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits).
@@ -1247,6 +1257,7 @@ export default function SlideEditor({
                 </Tooltip>
               </div>
               <div
+                ref={scrollContainerRef}
                 className={`h-full overflow-auto ${
                   drawMode ? "pb-24 sm:pb-28" : ""
                 }`}
