@@ -625,9 +625,9 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
               onOpenChange={onPopoverOpenChange}
               accessNote={
                 <>
-                  Extensions can be shared inside your organization only —
-                  they run with the viewer's credentials, so cross-org access
-                  isn't supported.
+                  Extensions can be shared inside your organization only — they
+                  run with the viewer's credentials, so cross-org access isn't
+                  supported.
                 </>
               }
             />
