@@ -14,6 +14,7 @@ import {
   useThread,
   useAui,
   useComposer,
+  useComposerRuntime,
   useMessageRuntime,
   ThreadPrimitive,
   ComposerPrimitive,
@@ -3086,8 +3087,58 @@ const AssistantChatInner = forwardRef<
   const scrollRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const threadRuntime = useThreadRuntime();
+  const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
+
+  // Chat-wide drag-and-drop: users expect to drop a file anywhere on the agent
+  // sidebar (thread, header, composer) and have it attach — same as ChatGPT,
+  // Claude.ai, Linear, Slack, etc. Tiptap's own `handleDrop` only fires inside
+  // the contenteditable; drops on the message thread or the composer
+  // attachment strip otherwise navigate to the file (browser default), which
+  // is why "upload does nothing" — the chat refreshes to the dropped image.
+  const [dropActive, setDropActive] = useState(false);
+  const dropDepthRef = useRef(0);
+  const handleChatDragEnter = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    e.preventDefault();
+    dropDepthRef.current += 1;
+    setDropActive(true);
+  }, []);
+  const handleChatDragOver = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  }, []);
+  const handleChatDragLeave = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    dropDepthRef.current = Math.max(0, dropDepthRef.current - 1);
+    if (dropDepthRef.current === 0) setDropActive(false);
+  }, []);
+  const handleChatDrop = useCallback(
+    (e: React.DragEvent) => {
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (files.length === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dropDepthRef.current = 0;
+      setDropActive(false);
+      // Mirror TiptapComposer's paste/drop name-uniqueness so consecutive
+      // screenshots (all named `image.png`) don't collide on the
+      // SimpleImageAttachmentAdapter id.
+      const attachments = files.map((file) => {
+        if (!file.type.startsWith("image/")) return file;
+        const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
+        return new File([file], uniqueName, { type: file.type });
+      });
+      void Promise.all(
+        attachments.map((file) => composerRuntime.addAttachment(file)),
+      ).catch((error) => {
+        console.error("Error adding dropped chat attachment:", error);
+      });
+    },
+    [composerRuntime],
+  );
 
   // Patch the underlying assistant-ui MessageRepository so addOrUpdateMessage
   // can't throw "Parent message not found" mid-run. assistant-ui calls
@@ -4194,10 +4245,24 @@ const AssistantChatInner = forwardRef<
         <ChatRunningContext.Provider value={isRunning}>
           <div
             className={cn(
-              "flex flex-1 flex-col h-full min-h-0 text-foreground",
+              "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
               className,
             )}
+            onDragEnter={handleChatDragEnter}
+            onDragOver={handleChatDragOver}
+            onDragLeave={handleChatDragLeave}
+            onDrop={handleChatDrop}
           >
+            {dropActive && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-md border-2 border-dashed border-primary/70 bg-primary/5 backdrop-blur-[1px]"
+              >
+                <span className="rounded-md bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
+                  Drop to attach
+                </span>
+              </div>
+            )}
             {showHeader && (
               <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
                 <span className="text-[13px] font-medium text-muted-foreground">

@@ -340,6 +340,42 @@ function syncSelectionToAppState(
   }).catch(() => {});
 }
 
+/**
+ * Push the current slide's vertical-overflow measurement to application_state
+ * under "slide-overflow" so the agent (which has no DOM measurement of its
+ * own) can see whether the slide it just generated actually fits the canvas.
+ * `view-screen` reads from this key and surfaces a "this slide overflows by
+ * Xpx — please rewrite to fit" hint inside the screen context block.
+ */
+function syncOverflowToAppState(
+  payload: {
+    slideId: string;
+    deckId?: string;
+    contentHeight: number;
+    viewportHeight: number;
+    verticalOverflow: number;
+  } | null,
+) {
+  const url = agentNativePath("/_agent-native/application-state/slide-overflow");
+  if (!payload || payload.verticalOverflow <= 0) {
+    fetch(url, {
+      method: "DELETE",
+      keepalive: true,
+      headers: { "X-Request-Source": TAB_ID },
+    }).catch(() => {});
+    return;
+  }
+  fetch(url, {
+    method: "PUT",
+    keepalive: true,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Request-Source": TAB_ID,
+    },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
 export default function SlideEditor({
   slide,
   onUpdateSlide,
@@ -424,11 +460,35 @@ export default function SlideEditor({
   useEffect(() => {
     setOverflowInfo(null);
     setIsAskingAgentToFix(false);
+    syncOverflowToAppState(null);
   }, [slide.id, slide.content]);
 
-  const handleOverflowChange = useCallback((info: SlideOverflowInfo) => {
-    setOverflowInfo(info.verticalOverflow > 0 ? info : null);
+  // Clear the app-state overflow key when this editor unmounts, so a stale
+  // measurement never leaks into a different deck/slide context.
+  useEffect(() => {
+    return () => {
+      syncOverflowToAppState(null);
+    };
   }, []);
+
+  const handleOverflowChange = useCallback(
+    (info: SlideOverflowInfo) => {
+      const overflowing = info.verticalOverflow > 0 ? info : null;
+      setOverflowInfo(overflowing);
+      syncOverflowToAppState(
+        overflowing
+          ? {
+              slideId: slide.id,
+              deckId: slideId,
+              contentHeight: overflowing.contentHeight,
+              viewportHeight: overflowing.viewportHeight,
+              verticalOverflow: overflowing.verticalOverflow,
+            }
+          : null,
+      );
+    },
+    [slide.id, slideId],
+  );
 
   const handleAskAgentToFixLayout = useCallback(() => {
     if (!overflowInfo || overflowInfo.verticalOverflow <= 0) return;
