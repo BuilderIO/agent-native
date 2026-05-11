@@ -77,6 +77,60 @@ describe("resolveCatchAllTarget", () => {
     expect(resolveCatchAllTarget("todo")).toBe("/todo");
   });
 
+  it("uses app.path when id !== path (not /${appId})", () => {
+    // Before the fix, an entry whose mounted path differs from its id —
+    // e.g. id: "forms", path: "my-forms" without a leading slash — was
+    // silently rewritten to `/forms` (the appId) and routed to the wrong
+    // app. The normalizer now keeps the manifest path and only prepends
+    // the missing slash.
+    loadWorkspaceAppsManifestMock.mockReturnValue([
+      { id: "forms", name: "Forms", path: "my-forms" },
+    ]);
+    getBuiltinAgentsMock.mockReturnValue([]);
+
+    expect(resolveCatchAllTarget("forms")).toBe("/my-forms");
+  });
+
+  it("prefers app.url when the manifest entry has an externally-hosted URL", () => {
+    // Workspaces can point at remote deploys. The catch-all should bounce
+    // to the absolute URL instead of mounting a local path that doesn't
+    // exist inside the gateway.
+    loadWorkspaceAppsManifestMock.mockReturnValue([
+      {
+        id: "forms",
+        name: "Forms",
+        path: "/forms",
+        url: "https://forms.example.com",
+      },
+    ]);
+    getBuiltinAgentsMock.mockReturnValue([]);
+
+    expect(resolveCatchAllTarget("forms")).toBe("https://forms.example.com");
+  });
+
+  it("ignores an empty/whitespace app.url and falls back to path", () => {
+    loadWorkspaceAppsManifestMock.mockReturnValue([
+      {
+        id: "forms",
+        name: "Forms",
+        path: "/forms",
+        url: "   ",
+      },
+    ]);
+    getBuiltinAgentsMock.mockReturnValue([]);
+
+    expect(resolveCatchAllTarget("forms")).toBe("/forms");
+  });
+
+  it("falls back to /${appId} when the manifest entry has neither path nor url", () => {
+    loadWorkspaceAppsManifestMock.mockReturnValue([
+      { id: "forms", name: "Forms", path: "" },
+    ]);
+    getBuiltinAgentsMock.mockReturnValue([]);
+
+    expect(resolveCatchAllTarget("forms")).toBe("/forms");
+  });
+
   it("returns null when nothing matches", () => {
     loadWorkspaceAppsManifestMock.mockReturnValue([
       { id: "dispatch", name: "Dispatch", path: "/dispatch" },
