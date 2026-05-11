@@ -96,7 +96,7 @@ export default defineAction({
   description:
     "Upload an image to the configured file-upload provider (Builder.io by default) and return a hosted CDN URL. " +
     "Use this to turn a base64 data URL, a chat-attached image, or a transient remote URL into a stable URL that " +
-    "can be embedded in <img src=\"...\">, slide HTML, documents, or shared with other apps. Falls back to a clear " +
+    'can be embedded in <img src="...">, slide HTML, documents, or shared with other apps. Falls back to a clear ' +
     "'connect Builder.io' message when no provider is configured.",
   schema: z
     .object({

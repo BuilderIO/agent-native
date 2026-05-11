@@ -800,12 +800,12 @@ export async function runWorkspaceDev(
     child.unref();
   }
 
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const parsedUrl = new URL(req.url || "/", "http://workspace.local");
     const pathname = parsedUrl.pathname;
 
     if (pathname === "/" || pathname === "/index.html") {
-      void syncApps().catch(() => {});
+      await syncApps().catch(() => {});
       const currentDefaultApp =
         explicitDefaultApp && appById.has(explicitDefaultApp)
           ? explicitDefaultApp
@@ -828,7 +828,7 @@ export async function runWorkspaceDev(
     }
 
     if (pathname === "/_workspace/apps") {
-      void syncApps().catch(() => {});
+      await syncApps().catch(() => {});
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify(

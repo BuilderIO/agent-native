@@ -127,7 +127,7 @@ export async function preUploadImageAttachments(opts: {
       return `<chat-image-attachment ${attrs.join(" ")} />`;
     });
     injectedText = [
-      "<chat-image-attachments note=\"The user attached these images. They have been uploaded — use the url attribute when embedding in HTML, slide content, or any outbound message.\">",
+      '<chat-image-attachments note="The user attached these images. They have been uploaded — use the url attribute when embedding in HTML, slide content, or any outbound message.">',
       ...lines,
       "</chat-image-attachments>",
     ].join("\n");
