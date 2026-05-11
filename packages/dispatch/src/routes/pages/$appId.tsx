@@ -9,10 +9,6 @@ import {
 } from "react-router";
 import { useActionQuery, appPath } from "@agent-native/core/client";
 import {
-  getBuiltinAgents,
-  loadWorkspaceAppsManifest,
-} from "@agent-native/core/server/agent-discovery";
-import {
   IconArrowLeft,
   IconArrowUpRight,
   IconClockHour4,
@@ -21,6 +17,7 @@ import { DispatchShell } from "@/components/dispatch-shell";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { resolveCatchAllTarget } from "@/lib/catch-all-target";
 import {
   workspaceAppHref,
   type WorkspaceAppSummary,
@@ -69,27 +66,6 @@ export function meta() {
 function dispatchSelfRedirect(appId: string | undefined): string | null {
   if (appId === "dispatch") return appPath("/overview");
   return null;
-}
-
-function resolveCatchAllTarget(appId: string): string | null {
-  const apps = loadWorkspaceAppsManifest();
-  if (apps) {
-    const app = apps.find((entry) => entry?.id === appId);
-    if (app) {
-      return app.path && app.path.startsWith("/") ? app.path : `/${appId}`;
-    }
-  }
-  // Fall back to the first-party template registry: outside a workspace
-  // (framework dev, hosted dispatch), `/<appId>` lands on dispatch's
-  // catch-all and otherwise renders "Page not found". When the segment
-  // matches a known first-party template, redirect to its deploy URL —
-  // dev URL when running locally (e.g. http://localhost:8084 for forms),
-  // prod URL when deployed (e.g. https://forms.agent-native.com). The
-  // user crosses to the real app instead of seeing dispatch's 404.
-  const builtin = getBuiltinAgents("dispatch").find(
-    (agent) => agent.id === appId,
-  );
-  return builtin?.url ?? null;
 }
 
 export function loader({ params }: LoaderFunctionArgs) {
