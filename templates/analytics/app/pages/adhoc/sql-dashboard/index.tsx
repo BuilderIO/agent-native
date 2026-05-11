@@ -56,7 +56,7 @@ import {
   useSession,
   agentNativePath,
   appApiPath,
-  useChangeVersion,
+  useChangeVersions,
   type CollabUser,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
@@ -175,14 +175,17 @@ export default function SqlDashboardPage() {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const viewedDashboardIdRef = useRef<string | null>(null);
 
-  // Refetch the dashboard whenever the `dashboards` source bumps — that
-  // covers writes from update-dashboard (agent), the editor's own save, and
-  // cross-tab edits. Folding the counter into the queryKey is the framework
-  // pattern for "agent writes show up without a manual refresh"; see
-  // `use-change-version.ts`.
-  const dashboardsSync = useChangeVersion("dashboards");
+  // Refetch the dashboard whenever the `dashboards` source bumps OR any
+  // agent action runs. We depend on both because:
+  // - `dashboards` covers same-process writes from upsertDashboard
+  // - `action` covers every successful agent action and is emitted by the
+  //   agent runner unconditionally, which makes the refresh resilient even
+  //   if the dashboards-store emit is missed (different process, etc.).
+  // Folding counters into the queryKey is the framework pattern for "agent
+  // writes show up without a manual refresh"; see `use-change-version.ts`.
+  const sync = useChangeVersions(["dashboards", "action"]);
   const dashboardQuery = useQuery({
-    queryKey: ["data", "sql-dashboard", dashboardId, dashboardsSync],
+    queryKey: ["data", "sql-dashboard", dashboardId, sync],
     enabled: !!dashboardId,
     queryFn: async () => {
       if (!dashboardId) return null;

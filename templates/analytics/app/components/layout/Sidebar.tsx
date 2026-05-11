@@ -82,7 +82,7 @@ import {
   appApiPath,
   appPath,
   useActionMutation,
-  useChangeVersion,
+  useChangeVersions,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { NewDashboardDialog } from "./NewDashboardDialog";
@@ -1039,10 +1039,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   }, []);
 
   // Fold per-source counters into sidebar list query keys so agent-driven
-  // create/rename/archive/delete shows up without a manual refresh. See
-  // `use-change-version.ts` in @agent-native/core for the pattern.
-  const dashboardsSync = useChangeVersion("dashboards");
-  const analysesSync = useChangeVersion("analyses");
+  // create/rename/archive/delete shows up without a manual refresh. We
+  // depend on `action` too because the agent runner emits an `action`
+  // event for every successful tool call — even when the matching
+  // resource-table emit (`dashboards` / `analyses`) is missed (e.g. event
+  // batching). See `use-change-version.ts` in @agent-native/core.
+  const dashboardsSync = useChangeVersions(["dashboards", "action"]);
+  const analysesSync = useChangeVersions(["analyses", "action"]);
 
   const { data: sqlDashboards = [], isLoading: sqlDashboardsLoading } =
     useQuery({
