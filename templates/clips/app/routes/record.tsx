@@ -1724,13 +1724,16 @@ export default function RecordRoute() {
         </div>
       )}
 
-      {/* Camera bubble */}
+      {/* Camera bubble — only visible while actively recording. During
+          uploading/compressing the overlay is semi-transparent (bg-black/70),
+          so a still-visible bubble in the corner makes it look like recording
+          is ongoing. */}
       {showCameraBubble && (
         <CameraBubble
           stream={cameraStream}
           size={cameraSize}
           onSizeChange={setCameraSize}
-          hidden={!showRecordingUi}
+          hidden={uiState !== "recording"}
         />
       )}
 
