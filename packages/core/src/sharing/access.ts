@@ -19,10 +19,28 @@ import {
   getRequestOrgId,
 } from "../server/request-context.js";
 import {
+  listShareableResources,
   requireShareableResource,
   type ShareableResourceRegistration,
 } from "./registry.js";
 import { ROLE_RANK, type ShareRole } from "./schema.js";
+
+/**
+ * Find a registration by its drizzle table identity. Used to look up
+ * per-resource policy flags (e.g. `allowPublic`) inside `accessFilter`,
+ * which receives only the table — not the resource-type name.
+ *
+ * Identity is stable within a single bundle (Vite dedupes module instances);
+ * the SSR/server side is the only caller, so per-bundle identity is fine.
+ */
+function findRegistrationByTable(
+  resourceTable: any,
+): ShareableResourceRegistration | undefined {
+  for (const reg of listShareableResources()) {
+    if (reg.resourceTable === resourceTable) return reg;
+  }
+  return undefined;
+}
 
 export class ForbiddenError extends Error {
   statusCode = 403;
@@ -71,7 +89,13 @@ export function accessFilter(
   options: { includePublic?: boolean } = {},
 ): SQL {
   const { userEmail, orgId } = ctx;
-  const { includePublic = false } = options;
+  // Defense in depth — resources registered with `allowPublic: false` must
+  // never participate in cross-user "public" discovery, even if a caller
+  // accidentally passes `includePublic: true` or if a stale public row sits
+  // in the DB.
+  const reg = findRegistrationByTable(resourceTable);
+  const publicAllowed = reg?.allowPublic !== false;
+  const includePublic = (options.includePublic ?? false) && publicAllowed;
   const clauses: SQL[] = [];
 
   if (userEmail) {
@@ -153,11 +177,14 @@ export async function resolveAccess(
   if (userEmail && resource.ownerEmail === userEmail) {
     return { role: "owner", resource };
   }
-  if (resource.visibility === "public") {
+  if (resource.visibility === "public" && reg.allowPublic !== false) {
     // No share row needed; default viewer unless upgraded below.
     const role = await highestShareRole(reg, resourceId, ctx);
     return { role: role ?? "viewer", resource };
   }
+  // `visibility === "public"` on an `allowPublic: false` resource is treated
+  // as private: only owner + explicit shares grant access. Falls through to
+  // the explicit-share lookup below.
   if (resource.visibility === "org" && orgId && resource.orgId === orgId) {
     const role = await highestShareRole(reg, resourceId, ctx);
     return { role: role ?? "viewer", resource };

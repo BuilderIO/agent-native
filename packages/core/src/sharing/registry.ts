@@ -42,6 +42,32 @@ export interface ShareableResourceRegistration {
    * the right DB instance (schema is template-specific).
    */
   getDb: () => any;
+  /**
+   * When `false`, `visibility: "public"` is rejected by `set-resource-visibility`,
+   * and `accessFilter` / `resolveAccess` treat any stored public row as private
+   * (defense in depth — only owner + explicit shares grant access).
+   *
+   * Use this for resources that execute code or expose privileged data and must
+   * never be reachable by a random authenticated user. Extensions set this:
+   * extension HTML runs inside an iframe that calls actions / DB / proxied APIs
+   * as the *viewer*, so a public extension would be arbitrary code with the
+   * viewer's credentials.
+   *
+   * Default: `true` (matches the historical behavior — most resources can be public).
+   */
+  allowPublic?: boolean;
+  /**
+   * When `true`, individual user shares (`principalType: "user"`) must target
+   * an email that is already a member of the same org as the resource, OR has
+   * a pending invitation to that org. Cross-org user shares are rejected.
+   *
+   * Pair with `allowPublic: false` for resources that need a hard "this org
+   * only" trust boundary. Extensions set this so a malicious caller can't
+   * widen reach by sharing a code-executing extension to an outsider email.
+   *
+   * Default: `false` (matches the historical behavior — any email can be granted).
+   */
+  requireOrgMemberForUserShares?: boolean;
 }
 
 // Stash the registry on globalThis so it survives SSR bundle duplication.

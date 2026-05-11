@@ -143,6 +143,7 @@ export const dispatchExtensions = {
 - `send-platform-message`: proactive send to a saved or raw destination (Slack, Telegram, or email)
 - `list-linked-identities`: linked platform users and unclaimed `/link` tokens
 - `create-link-token`: create a Slack or Telegram `/link` token
+- `create-pylon-ticket`: create a Pylon ticket — use for escalating blockers, routing unmatched `#customer-*` posts that have no Slack channel, or opening a follow-up that needs tracking. Requires `PYLON_API_KEY` in the Vault.
 - `get-dispatch-settings`: read approval settings
 - `set-dispatch-approval-policy`: enable or disable approval flow
 - `list-dispatch-approvals`: read pending and historical approval requests

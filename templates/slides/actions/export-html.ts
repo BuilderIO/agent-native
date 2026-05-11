@@ -284,13 +284,33 @@ export default defineAction({
     }
 
     const html = buildStandaloneHtml(row.title, slides, aspectRatio);
-
-    const exportDir = tenantExportDir(userEmail);
-    fs.mkdirSync(exportDir, { recursive: true });
     const filename = safeGeneratedFilename(row.title, ".html");
-    const filePath = path.join(exportDir, filename);
-    fs.writeFileSync(filePath, html);
 
-    return { filePath, filename, slideCount: slides.length };
+    // Disk write is only useful when the same process can later serve the
+    // file. On serverless (Netlify / Vercel / Lambda), the function filesystem
+    // vanishes between invocations, so `/api/exports/:filename` requests land
+    // on a different container that doesn't have the file — the user sees
+    // "file doesn't exist on site". Skip the disk write entirely on those
+    // hosts; the route handler streams `html` directly. CLI and local-dev
+    // still get a real file path.
+    let filePath: string | undefined;
+    if (!isServerless()) {
+      const exportDir = tenantExportDir(userEmail);
+      fs.mkdirSync(exportDir, { recursive: true });
+      filePath = path.join(exportDir, filename);
+      fs.writeFileSync(filePath, html);
+    }
+
+    return { html, filePath, filename, slideCount: slides.length };
   },
 });
+
+function isServerless(): boolean {
+  return Boolean(
+    process.env.NETLIFY ||
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.cwd() === "/var/task" ||
+    process.cwd().startsWith("/var/task/"),
+  );
+}

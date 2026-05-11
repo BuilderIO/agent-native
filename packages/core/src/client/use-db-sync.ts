@@ -170,14 +170,29 @@ export function useDbSync(
         : events;
 
       if (relevant.length > 0 && queryClient) {
-        // Invalidate every active query. The agent-native promise is that
-        // agent/server mutations show up in the UI without a manual refresh
-        // — relying on each template to enumerate its own queryKeys made
-        // that fragile (every new query key was a chance to silently miss
-        // an update). React Query refetches only active observers by
-        // default, dedupes concurrent invalidates, and respects each
-        // query's staleTime, so the cost is bounded.
-        queryClient.invalidateQueries();
+        // Framework-level invalidation: always invalidate framework query
+        // keys on any non-own change event so that mutating actions
+        // (agent or HTTP) auto-refresh the UI — regardless of how the
+        // template configured queryKeys / onEvent.
+        queryClient.invalidateQueries({ queryKey: ["action"] });
+        queryClient.invalidateQueries({ queryKey: ["extension"] });
+        queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
+        queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
+        queryClient.invalidateQueries({ queryKey: ["slot-available"] });
+        queryClient.invalidateQueries({ queryKey: ["tool"] });
+        queryClient.invalidateQueries({ queryKey: ["tools"] });
+        queryClient.invalidateQueries({ queryKey: ["app-state"] });
+        queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
+        queryClient.invalidateQueries({ queryKey: ["show-questions"] });
+        queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
+        // Also invalidate any data-source queries (the common analytics /
+        // dashboards / explorer prefixes templates currently use). This
+        // catches updates the per-template queryKeys list used to miss.
+        queryClient.invalidateQueries({ queryKey: ["data"] });
+        queryClient.invalidateQueries({ queryKey: ["dashboards"] });
+        queryClient.invalidateQueries({ queryKey: ["analyses"] });
+        queryClient.invalidateQueries({ queryKey: ["dashboard-views"] });
       }
 
       // Always forward all events to onEvent — templates can layer surgical

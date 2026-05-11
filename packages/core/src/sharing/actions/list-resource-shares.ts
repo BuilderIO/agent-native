@@ -14,8 +14,15 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
+    const policy = {
+      // Defaults match registration defaults so the UI behaves the same for
+      // resources that haven't opted into restrictions.
+      allowPublic: reg.allowPublic !== false,
+      requireOrgMemberForUserShares: reg.requireOrgMemberForUserShares === true,
+    };
     const access = await resolveAccess(args.resourceType, args.resourceId);
-    if (!access) return { ownerEmail: null, visibility: null, shares: [] };
+    if (!access)
+      return { ownerEmail: null, visibility: null, shares: [], policy };
 
     const db = reg.getDb() as any;
     const shares = await db
@@ -35,6 +42,7 @@ export default defineAction({
         role: s.role,
         createdAt: s.createdAt,
       })),
+      policy,
     };
   },
 });

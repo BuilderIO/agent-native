@@ -216,6 +216,13 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
   function __anFlowDebugId(flowId) {
     return flowId ? String(flowId).slice(-10) : '';
   }
+  function __anShouldShowOAuthDebug() {
+    try {
+      var loc = window.location || {};
+      return (typeof loc.hash === 'string' && loc.hash.indexOf('oauth-debug') !== -1) ||
+        (typeof loc.search === 'string' && loc.search.indexOf('oauth_debug=1') !== -1);
+    } catch(e) { return false; }
+  }
   function __anSetOAuthDebug(message, flowId) {
     var text = message + (flowId ? ' (flow ' + __anFlowDebugId(flowId) + ')' : '');
     try {
@@ -224,7 +231,7 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
     var debug = document.getElementById('debug');
     if (debug) {
       debug.textContent = text;
-      debug.classList.add('show');
+      if (__anShouldShowOAuthDebug()) debug.classList.add('show');
     }
   }
   function __anShowOAuthError(err, btn, message) {

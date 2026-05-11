@@ -688,7 +688,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   </TooltipTrigger>
                   <TooltipContent side="right">
                     <p>
-                      View teammates' calendars or subscribe to ICS/webcal feeds
+                      Add a teammate's calendar or subscribe to a public
+                      calendar URL
                     </p>
                   </TooltipContent>
                 </Tooltip>

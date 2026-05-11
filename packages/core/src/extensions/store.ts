@@ -6,6 +6,7 @@ import {
   accessFilter,
   assertAccess,
   resolveAccess,
+  ForbiddenError,
 } from "../sharing/access.js";
 import {
   getRequestUserEmail,
@@ -207,6 +208,14 @@ export function registerExtensionsShareable() {
     displayName: "Extension",
     titleColumn: "name",
     getDb: () => getDb(),
+    // Extension HTML executes inside an iframe and calls actions / SQL / the
+    // secrets-injecting proxy as the *viewer*. A public extension would let a
+    // random authenticated user run code with the viewer's credentials — and
+    // a malicious shared extension could re-share itself wider. Lock both:
+    // no public visibility, and individual user shares must already be (or
+    // be invited to) the org.
+    allowPublic: false,
+    requireOrgMemberForUserShares: true,
   });
 }
 
@@ -287,6 +296,11 @@ export interface UpdateExtensionData {
   name?: string;
   description?: string;
   icon?: string;
+  /**
+   * Extensions cannot be public — `set-resource-visibility` and this store
+   * helper both reject `"public"`. The type lists it so the framework's
+   * generic share UI compiles, not because it's allowed at runtime.
+   */
   visibility?: "private" | "org" | "public";
 }
 
@@ -296,6 +310,15 @@ export async function updateExtension(
 ): Promise<ExtensionRow | null> {
   await ensureExtensionsTables();
   await assertAccess("extension", id, "editor");
+  if (data.visibility === "public") {
+    // Defense in depth — `registerExtensionsShareable` sets
+    // `allowPublic: false`, so `set-resource-visibility` already rejects
+    // this. Block direct callers too (HTTP `PUT /extensions/:id`, internal
+    // refactors) so the rule holds regardless of entry point.
+    throw new ForbiddenError(
+      "Extensions cannot be made public — share with specific people or your organization instead.",
+    );
+  }
   const db = getDb();
   const updates: Record<string, unknown> = {
     updatedAt: new Date().toISOString(),

@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { defineAction } from "../../action.js";
-import { assertAccess } from "../access.js";
+import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
 
 export default defineAction({
@@ -17,6 +17,11 @@ export default defineAction({
   }),
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
+    if (args.visibility === "public" && reg.allowPublic === false) {
+      throw new ForbiddenError(
+        `${reg.displayName} cannot be made public — share with specific people or your organization instead.`,
+      );
+    }
     await assertAccess(args.resourceType, args.resourceId, "admin");
     const db = reg.getDb() as any;
     await db
