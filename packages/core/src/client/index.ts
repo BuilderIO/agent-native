@@ -147,6 +147,18 @@ export {
   themeInitScript,
   type ThemePreference,
 } from "./theme.js";
+export {
+  APPEARANCE_PRESETS,
+  applyAppearance,
+  getStoredAppearance,
+  useAppearance,
+  AppearanceSync,
+  type AppearancePresetId,
+} from "./appearance.js";
+export {
+  AppearancePicker,
+  type AppearancePickerProps,
+} from "./AppearancePicker.js";
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
 export {
   trackEvent,

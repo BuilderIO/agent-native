@@ -481,6 +481,10 @@ export async function mergeCoreSharingActions(
       () => import("../sharing/actions/set-resource-visibility.js"),
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    [
+      "change-appearance",
+      () => import("../appearance/actions/change-appearance.js"),
+    ],
   ];
   for (const [name, loader] of entries) {
     if (registry[name]) continue;

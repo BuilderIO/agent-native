@@ -24,6 +24,7 @@ export default defineAction({
       description: row.description,
       data: row.data ?? null,
       assets: row.assets ?? null,
+      customInstructions: row.customInstructions ?? "",
       isDefault: row.isDefault,
       visibility: row.visibility,
       createdAt: row.createdAt,

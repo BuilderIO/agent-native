@@ -144,6 +144,10 @@ export default runMigrations(
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
     },
+    {
+      version: 17,
+      sql: `ALTER TABLE design_systems ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT ''`,
+    },
   ],
   { table: "slides_migrations" },
 );

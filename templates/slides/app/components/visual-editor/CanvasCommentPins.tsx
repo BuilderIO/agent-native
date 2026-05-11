@@ -264,6 +264,13 @@ export function CanvasCommentPins({
                   value={pin.draft || ""}
                   onChange={(e) => updatePin(pin.id, { draft: e.target.value })}
                   onKeyDown={(e) => {
+                    // Backspace / Delete must stay inside the textarea — the
+                    // global DeckEditor handler treats them as "delete current
+                    // slide" when the canvas has focus, and any focus race
+                    // (e.g. autoFocus not yet landed, popover unmount during
+                    // submit) would otherwise blow away the slide the user is
+                    // commenting on. Stop at the source.
+                    e.stopPropagation();
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                       e.preventDefault();
                       submitPin(pin);

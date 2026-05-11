@@ -130,6 +130,10 @@ export default runMigrations(
     created_at TEXT DEFAULT (datetime('now'))
   )`,
     },
+    {
+      version: 15,
+      sql: `ALTER TABLE design_systems ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT ''`,
+    },
   ],
   { table: "videos_migrations" },
 );

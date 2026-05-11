@@ -66,6 +66,7 @@ export function DesignSystemSetup({
   const [docFiles, setDocFiles] = useState<UploadedFile[]>([]);
   const [imageFiles, setImageFiles] = useState<UploadedFile[]>([]);
   const [brandNotes, setBrandNotes] = useState("");
+  const [customInstructions, setCustomInstructions] = useState("");
   const [generating, setGenerating] = useState(false);
 
   const codeInputRef = useRef<HTMLInputElement>(null);
@@ -76,6 +77,7 @@ export function DesignSystemSetup({
     title?: string;
     description?: string;
     data?: string | null;
+    customInstructions?: string;
   }>("get-design-system", editingId ? { id: editingId } : undefined, {
     enabled: !!editingId && open,
   });
@@ -91,6 +93,7 @@ export function DesignSystemSetup({
     if (existingDs && editingId) {
       setCompanyName(existingDs.title ?? "");
       setBrandNotes(existingDs.description ?? "");
+      setCustomInstructions(existingDs.customInstructions ?? "");
       try {
         const parsed = existingDs.data ? JSON.parse(existingDs.data) : null;
         if (parsed?.notes) setBrandNotes(parsed.notes);
@@ -111,6 +114,7 @@ export function DesignSystemSetup({
       setDocFiles([]);
       setImageFiles([]);
       setBrandNotes("");
+      setCustomInstructions("");
       setSelectedSystemId("");
     }
   }, [open]);
@@ -124,7 +128,8 @@ export function DesignSystemSetup({
       docFiles.length > 0 ||
       imageFiles.length > 0 ||
       selectedSystemId ||
-      brandNotes.trim()
+      brandNotes.trim() ||
+      customInstructions.trim()
     );
   }, [
     companyName,
@@ -135,6 +140,7 @@ export function DesignSystemSetup({
     imageFiles,
     selectedSystemId,
     brandNotes,
+    customInstructions,
   ]);
 
   const addWebsiteUrl = useCallback(() => {
@@ -200,6 +206,7 @@ export function DesignSystemSetup({
             id: editingId,
             title: companyName || "My Brand",
             description: brandNotes || undefined,
+            customInstructions,
           }),
         },
       );
@@ -282,8 +289,18 @@ export function DesignSystemSetup({
       parts.push(`\n## Additional Notes\n${brandNotes.trim()}`);
     }
 
+    if (customInstructions.trim()) {
+      parts.push(
+        `\n## Custom Instructions (durable — store on the design system)\nWhen you call \`create-design-system\`, pass these verbatim as the \`customInstructions\` argument. They will be re-applied every time the design system is used to generate compositions:\n\n${customInstructions.trim()}`,
+      );
+    }
+
     parts.push(
-      `\n---\nAfter processing all sources, call \`create-design-system\` with the combined tokens. Present a summary for review.`,
+      `\n---\nAfter processing all sources, call \`create-design-system\` with the combined tokens${
+        customInstructions.trim()
+          ? " AND the verbatim --customInstructions string from above"
+          : ""
+      }. Present a summary for review.`,
     );
 
     openAgentSidebar();
@@ -300,6 +317,7 @@ export function DesignSystemSetup({
     selectedSystemId,
     existingSystems,
     brandNotes,
+    customInstructions,
     onComplete,
   ]);
 
@@ -568,6 +586,22 @@ export function DesignSystemSetup({
                 rows={3}
                 className="bg-accent/50 border-border text-foreground/90 placeholder:text-muted-foreground/60 resize-none"
               />
+            </div>
+
+            {/* Custom Instructions — durable, stored on the design system */}
+            <div className="space-y-2">
+              <Label className="text-foreground/70">Custom instructions</Label>
+              <Textarea
+                value={customInstructions}
+                onChange={(e) => setCustomInstructions(e.target.value)}
+                placeholder="e.g. Always lead with a 1-second logo sting. Keep camera moves subtle (max 1.2x zoom). Never use cinematic shake..."
+                rows={4}
+                className="bg-accent/50 border-border text-foreground/90 placeholder:text-muted-foreground/60 resize-none"
+              />
+              <p className="text-[11px] text-muted-foreground/70">
+                Saved with the design system. Re-applied every time the agent
+                uses it to generate compositions.
+              </p>
             </div>
           </div>
         </ScrollArea>
