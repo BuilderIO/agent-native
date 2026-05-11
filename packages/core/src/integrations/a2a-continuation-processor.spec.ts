@@ -133,7 +133,10 @@ describe("A2A continuation processor", () => {
     process.env = originalEnv;
   });
 
-  it("dispatches without aborting a long-running processor request", async () => {
+  // CI's slower transform/import phase pushes the import of the processor
+  // module into the per-test budget; bump to 15s so the 2s fake-timer
+  // advance + module load doesn't get clipped by the default 5s timeout.
+  it("dispatches without aborting a long-running processor request", { timeout: 15000 }, async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",

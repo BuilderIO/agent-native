@@ -184,7 +184,12 @@ describe("integration webhook handler engine resolution", () => {
     }
   });
 
-  it("uses the shared engine resolver instead of forcing Anthropic", async () => {
+  // CI runs this suite with a much longer transform/import phase than local
+  // (~28s vs ~7s observed on 2026-05-11), which left the per-test 5s budget
+  // too tight for the full processIntegrationTask pipeline. Bumping these two
+  // mock-heavy run-loop tests to 15s avoids flake without masking real perf
+  // regressions: the test bodies still finish in well under a second locally.
+  it("uses the shared engine resolver instead of forcing Anthropic", { timeout: 15000 }, async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const sendResponse = vi.fn();
     const task: PendingTask = {
@@ -243,7 +248,7 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
-  it("uses the explicit engine provider when resolving owner API keys", async () => {
+  it("uses the explicit engine provider when resolving owner API keys", { timeout: 15000 }, async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const sendResponse = vi.fn();
     getOwnerApiKeyMock.mockResolvedValue("openai-user-key");
