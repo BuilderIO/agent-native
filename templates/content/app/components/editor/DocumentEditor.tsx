@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useNavigate } from "react-router";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
 import { NotionConflictBanner } from "./NotionConflictBanner";
@@ -75,21 +76,19 @@ function DocumentEditorSkeleton() {
  * an infinite spinner plus repeating 404/403 polls in the console.
  */
 export function DocumentEditor({ documentId }: DocumentEditorProps) {
-  const { data: document, isLoading, isError } = useDocument(documentId);
+  const { data: document, isError } = useDocument(documentId);
+  const navigate = useNavigate();
+
+  // If the page id in the URL points at a deleted/inaccessible document,
+  // bounce back to the landing page instead of rendering a dead-end empty
+  // state that the user has to escape by editing the URL by hand.
+  useEffect(() => {
+    if (isError && !document) navigate("/", { replace: true });
+  }, [isError, document, navigate]);
 
   // If we have a doc (real or optimistic from create) render the editor —
   // an `isError` blip during a just-fired create shouldn't flash "not found".
   if (!document) {
-    if (isLoading) {
-      return <DocumentEditorSkeleton />;
-    }
-    if (isError) {
-      return (
-        <div className="flex items-center justify-center h-full text-muted-foreground">
-          Document not found
-        </div>
-      );
-    }
     return <DocumentEditorSkeleton />;
   }
 
