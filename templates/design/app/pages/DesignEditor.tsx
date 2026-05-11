@@ -1270,6 +1270,7 @@ export default function DesignEditor() {
             <DesignCanvas
               content={activeContent}
               zoom={zoom}
+              onZoomChange={setZoom}
               deviceFrame={deviceFrame}
               editMode={mode === "edit"}
               onElementSelect={handleElementSelect}

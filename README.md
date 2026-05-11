@@ -98,7 +98,7 @@ Connect any data source, prompt for any chart. Build reusable dashboards, not th
 
 **Clips**
 
-<a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7366585df5a545e697e254bb0138182d?format=webp&width=800" alt="Clips template" width="100%" /></a>
+<a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F678be5a501a14ab8a508e5f7bc92c468?format=webp&width=800" alt="Clips template" width="100%" /></a>
 
 **Agent-Native Loom**
 

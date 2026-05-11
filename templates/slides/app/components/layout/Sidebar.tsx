@@ -41,7 +41,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
     return (
       <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 overflow-hidden border-r border-border bg-sidebar py-2 text-sidebar-foreground">
         {onToggleCollapsed && (
-          <Tooltip>
+          <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
               <button
                 onClick={onToggleCollapsed}
@@ -51,7 +51,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                 <IconLayoutSidebarLeftExpand className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Expand sidebar</TooltipContent>
+            <TooltipContent side="right">Expand sidebar</TooltipContent>
           </Tooltip>
         )}
         <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
@@ -59,7 +59,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             const Icon = item.icon;
             const isActive = isItemActive(item.href);
             return (
-              <Tooltip key={item.href}>
+              <Tooltip key={item.href} delayDuration={0}>
                 <TooltipTrigger asChild>
                   <Link
                     to={item.href}
@@ -74,7 +74,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                     <Icon className="h-4 w-4" />
                   </Link>
                 </TooltipTrigger>
-                <TooltipContent>{item.label}</TooltipContent>
+                <TooltipContent side="right">{item.label}</TooltipContent>
               </Tooltip>
             );
           })}

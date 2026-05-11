@@ -191,6 +191,21 @@ export function AppSync() {
 }
 ```
 
+**The agent-native promise: agent writes show up in the UI without a manual refresh.** `useActionQuery` is the easy path — every hook is auto-refetched on every change event the framework sees. If you reach for raw `useQuery` with a custom key (e.g. for a non-action HTTP endpoint, integration status, etc.), you must fold the per-source counter into the queryKey or agent writes will be silently invisible:
+
+```tsx
+import { useChangeVersions } from "@agent-native/core/client";
+
+const v = useChangeVersions(["dashboards", "action"]);
+useQuery({
+  queryKey: ["dashboard", id, v],
+  queryFn: () => fetchDashboard(id),
+  placeholderData: (prev) => prev, // no flicker on refetch
+});
+```
+
+Common sources: `"action"` (every successful agent action — the reliable fallback), `"app-state"`, `"settings"`, plus any custom resource source your store emits via `recordChange`. See the `real-time-sync` skill for the full pattern.
+
 ## Add Application State {#application-state}
 
 Application state is how the agent knows what the user is seeing. At minimum, add:

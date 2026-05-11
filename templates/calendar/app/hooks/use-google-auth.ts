@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 import type { GoogleAuthStatus } from "@shared/api";
 import { useEffect } from "react";
 
@@ -87,7 +87,6 @@ export function useGoogleAuthUrl(enabled = false) {
   const query = useQuery<{ url: string }>({
     queryKey: ["google-auth-url"],
     queryFn: async () => {
-      const { oauthRedirectUri } = await import("@agent-native/core/client");
       const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
       return fetchJson<{ url: string }>(
         agentNativePath(
@@ -115,7 +114,6 @@ export function useGoogleAddAccountUrl(enabled = false) {
   const query = useQuery<{ url: string }>({
     queryKey: ["google-add-account-url"],
     queryFn: async () => {
-      const { oauthRedirectUri } = await import("@agent-native/core/client");
       const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
       return fetchJson<{ url: string }>(
         agentNativePath(

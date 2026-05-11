@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,6 +10,10 @@ import {
 export interface NavigationState {
   view: string;
   path?: string;
+  /** Optional unique-per-write token. Used by the UI to dedup the same
+   * command being re-read when the fire-and-forget DELETE below loses its
+   * race against the next polling refetch. */
+  _writeId?: string;
 }
 
 export function useNavigationState() {
@@ -31,7 +35,11 @@ export function useNavigationState() {
     }).catch(() => {});
   }, [location.pathname]);
 
-  const { data: navCommand } = useQuery({
+  // Default React Query structuralSharing reuses the previous reference when
+  // the JSON is unchanged, so repeated invalidations driven by `useDbSync`
+  // (which fire on every relevant app-state event) don't re-fire the
+  // useEffect with a brand-new object containing the same command.
+  const { data: navCommand } = useQuery<NavigationState | null>({
     queryKey: ["navigate-command"],
     queryFn: async () => {
       const res = await fetch(
@@ -39,19 +47,35 @@ export function useNavigationState() {
       );
       if (!res.ok) return null;
       const data = await res.json();
-      return data ? { ...data, _ts: Date.now() } : null;
+      return data ?? null;
     },
     refetchInterval: 2_000,
-    structuralSharing: false,
   });
+
+  const lastProcessedDedupKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!navCommand) return;
+    const cmd = navCommand;
+    const dedupKey =
+      cmd._writeId ?? JSON.stringify({ view: cmd.view, path: cmd.path });
+    if (lastProcessedDedupKeyRef.current === dedupKey) {
+      // Same command we already handled — the consume-DELETE races against
+      // the next polling refetch, so when it loses the same command can show
+      // up again. Re-fire DELETE and bail rather than navigate again.
+      fetch(agentNativePath("/_agent-native/application-state/navigate"), {
+        method: "DELETE",
+        headers: { "X-Agent-Native-CSRF": "1" },
+      }).catch(() => {});
+      qc.setQueryData(["navigate-command"], null);
+      return;
+    }
+    lastProcessedDedupKeyRef.current = dedupKey;
+
     fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
       headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
-    const cmd = navCommand as NavigationState;
 
     const path = routerPath(cmd.path || pathFromView(cmd.view));
     navigate(path);

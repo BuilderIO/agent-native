@@ -25,6 +25,10 @@ export default defineAction({
     if (args.view) nav.view = args.view;
     if (args.deckId) nav.deckId = args.deckId;
     if (args.slideIndex != null) nav.slideIndex = args.slideIndex;
+    // Unique-per-write token so the UI's `use-navigation-state` hook can
+    // dedup race-driven re-reads of the same command (see that hook for the
+    // full reasoning).
+    nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await writeAppState("navigate", nav);
     return `Navigating to ${args.view || ""}${args.deckId ? ` deck:${args.deckId}` : ""}${args.slideIndex != null ? ` slide:${args.slideIndex}` : ""}`;
   },

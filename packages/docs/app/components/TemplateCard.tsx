@@ -103,7 +103,7 @@ export const templates = [
       "Screen recordings, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
     color: "#0EA5E9",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7366585df5a545e697e254bb0138182d?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F678be5a501a14ab8a508e5f7bc92c468?format=webp&width=800",
   },
   {
     name: "Design",

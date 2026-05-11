@@ -1597,8 +1597,15 @@ function URLSync() {
     }).catch(() => {});
   }, [location.pathname, location.search, location.hash]);
 
-  // Inbound: poll for URL-update commands from the agent. We piggyback on
-  // the same 2-second cadence useDbSync uses so there's no extra timer.
+  // Inbound: poll for URL-update commands from the agent. `useDbSync`
+  // invalidates this key on every relevant app-state event, so default
+  // `structuralSharing: true` is critical — without it, repeated reads of the
+  // same stale command (when the consume-DELETE below races against the next
+  // invalidation) churned the useEffect and re-applied the navigation in a
+  // tight loop. With structural sharing on, the previous reference is reused
+  // when the JSON is unchanged so the useEffect only fires when the command
+  // actually changes; the `lastProcessedDedupKeyRef` below covers the residual
+  // race window after the cache is cleared to `null`.
   const { data: command } = useQuery({
     queryKey: ["__set_url__"],
     queryFn: async () => {
@@ -1610,30 +1617,54 @@ function URLSync() {
         const text = await res.text();
         if (!text) return null;
         const data = JSON.parse(text);
-        return data ? { ...data, _ts: Date.now() } : null;
+        return data ?? null;
       } catch {
         return null;
       }
     },
     refetchInterval: 2_000,
-    structuralSharing: false,
     retry: false,
   });
 
+  const lastProcessedDedupKeyRef = React.useRef<string | null>(null);
+
   React.useEffect(() => {
     if (!command) return;
+    const cmd = command as {
+      pathname?: string;
+      searchParams?: Record<string, string | null>;
+      mergeSearchParams?: boolean;
+      hash?: string;
+      _writeId?: string;
+    };
+    const dedupKey =
+      cmd._writeId ??
+      JSON.stringify({
+        pathname: cmd.pathname,
+        searchParams: cmd.searchParams,
+        mergeSearchParams: cmd.mergeSearchParams,
+        hash: cmd.hash,
+      });
+    if (lastProcessedDedupKeyRef.current === dedupKey) {
+      // Same command we already handled — the DELETE below races against the
+      // next polling refetch, so when it loses the same command can show up
+      // again on the next tick. Re-fire DELETE and bail rather than navigate
+      // again.
+      fetch(agentNativePath("/_agent-native/application-state/__set_url__"), {
+        method: "DELETE",
+        headers: { "X-Agent-Native-CSRF": "1" },
+      }).catch(() => {});
+      queryClient.setQueryData(["__set_url__"], null);
+      return;
+    }
+    lastProcessedDedupKeyRef.current = dedupKey;
+
     // Delete the one-shot command before applying so duplicate events
     // don't cause repeated navigation.
     fetch(agentNativePath("/_agent-native/application-state/__set_url__"), {
       method: "DELETE",
       headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
-    const cmd = command as {
-      pathname?: string;
-      searchParams?: Record<string, string | null>;
-      mergeSearchParams?: boolean;
-      hash?: string;
-    };
     try {
       const current = new URL(window.location.href);
       const nextPath = cmd.pathname ?? current.pathname;

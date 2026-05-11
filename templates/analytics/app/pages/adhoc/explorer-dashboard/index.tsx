@@ -385,12 +385,24 @@ export default function ExplorerDashboardPage() {
   }
 
   if (!loaded) {
+    // Match the eventual DashboardChartCard layout (Card chrome + title row +
+    // chart-body skeleton) so the transition from "dashboard config loading"
+    // to "queries loading" doesn't morph skeleton shape — the title text just
+    // fills in. Otherwise the bare h-64 rectangles jump into Card-chromed
+    // panels and the page visibly shifts.
     return (
       <div className="space-y-4">
-        <Skeleton className="h-8 w-64" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Skeleton className="h-64" />
-          <Skeleton className="h-64" />
+          {[0, 1].map((i) => (
+            <Card key={i} className="flex flex-col overflow-visible">
+              <CardHeader className="pb-2 shrink-0">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent className="flex flex-1 flex-col pt-0">
+                <Skeleton className="w-full flex-1 min-h-[250px]" />
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </div>
     );

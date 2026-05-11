@@ -133,6 +133,12 @@ export default defineAction({
         await writeAppState("navigate", {
           deckId,
           slideIndex: insertIndex,
+          // Unique-per-write token. The UI's `use-navigation-state` hook
+          // dedups by this so a race between the GET and the consume-DELETE
+          // doesn't cause the same command to be re-applied repeatedly
+          // (which previously bounced the editor between slides whenever the
+          // agent path errored partway through a turn).
+          _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         }).catch(() => {});
       }
 

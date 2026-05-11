@@ -47,6 +47,7 @@ import {
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
+import { useChartTooltipFlip } from "@/hooks/use-chart-tooltip-flip";
 import type {
   SqlPanel,
   ChartType,
@@ -142,6 +143,7 @@ function ChartTooltip({
   labelFormatter?: (value: string) => string;
   valueFormatter?: (value: number) => string;
 }) {
+  const tooltipRef = useChartTooltipFlip<HTMLDivElement>();
   const items =
     payload?.filter((item) => item.value != null && item.value !== "") ?? [];
   if (!active || items.length === 0) return null;
@@ -154,7 +156,10 @@ function ChartTooltip({
         : String(label);
 
   return (
-    <div className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg">
+    <div
+      ref={tooltipRef}
+      className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg"
+    >
       {labelText && (
         <div className="mb-1.5 truncate font-medium text-foreground">
           {labelText}

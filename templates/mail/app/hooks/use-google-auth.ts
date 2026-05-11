@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 
 interface GoogleAuthStatus {
   connected: boolean;
@@ -93,7 +93,6 @@ export function useGoogleAuthUrl(enabled = false) {
   const query = useQuery<{ url: string }>({
     queryKey: ["google-auth-url"],
     queryFn: async () => {
-      const { oauthRedirectUri } = await import("@agent-native/core/client");
       const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
       const returnPath = `${window.location.pathname}${window.location.search}`;
       return fetchJson<{ url: string }>(
@@ -121,7 +120,6 @@ export function useGoogleAddAccountUrl(enabled = false) {
   const query = useQuery<{ url: string }>({
     queryKey: ["google-add-account-url"],
     queryFn: async () => {
-      const { oauthRedirectUri } = await import("@agent-native/core/client");
       const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
       // Use the main callback URL — the server-side state param carries the
       // add-account flag so only one redirect URI needs Google Console registration.

@@ -244,6 +244,7 @@ export {
   useActionMutation,
   type ActionRegistry,
 } from "./use-action.js";
+export { usePinchZoom, type UsePinchZoomOptions } from "./use-pinch-zoom.js";
 export {
   ShareButton,
   ShareDialog,

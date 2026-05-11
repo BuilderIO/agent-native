@@ -92,6 +92,16 @@ Template roots call `configureTracking()` once during app startup. That installs
 - Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `app`, and inferred `template`
 - Does not send first-party events from localhost/local dev
 
+### Visitor identity (`anonymousId` + `sessionId`)
+
+Every browser-side `trackEvent()` POST to the Agent Native Analytics `/track` endpoint includes:
+
+- `anonymousId` — persistent per-browser visitor ID stored in `localStorage` under `agent-native.anonymous_id`. Generated once and reused across sessions. Use this for unique-visitor and returning-visitor metrics.
+- `sessionId` — rotating per-visit ID stored in `localStorage` under `agent-native.session_id`, with a 30-minute idle timeout (matches GA4 / Mixpanel defaults). Use this for sessions-per-visitor, pages-per-session, and session-duration metrics.
+- `userId` — only set when the calling code passes `properties.userId`. Anonymous traffic leaves this NULL by design; `anonymousId` is the fallback.
+
+These fields land in the `analytics_events.anonymous_id`, `analytics_events.session_id`, and `analytics_events.user_id` columns in the analytics template. Storage access is wrapped in try/catch — private-browsing / blocked-storage clients silently degrade to NULL rather than crashing the page.
+
 Other framework-level baseline events:
 
 - `session status` from `useSession()`, with `signed_in`
