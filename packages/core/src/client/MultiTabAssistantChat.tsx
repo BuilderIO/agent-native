@@ -179,9 +179,20 @@ function ChatSkeleton({
 function ScopeBadge({
   scope,
   onDetach,
+  otherScopedThreads,
+  activeThreadId,
+  openTabIds,
+  onSelectThread,
 }: {
   scope: ChatThreadScope;
   onDetach: () => void;
+  /** Other threads scoped to the same resource (excluding the active one),
+   *  pre-sorted most-recent-first. The chip popover lists these so the user
+   *  can hop between this design's chats without opening the full history. */
+  otherScopedThreads: ChatThreadSummary[];
+  activeThreadId: string;
+  openTabIds: Set<string>;
+  onSelectThread: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   // Templates that don't have the resource's display title at layout time
@@ -191,6 +202,7 @@ function ScopeBadge({
     ? `Linked to ${scope.label}`
     : `Linked to this ${scope.type}`;
   const detailLabel = scope.label || `this ${scope.type}`;
+  const otherCount = otherScopedThreads.length;
   return (
     <div className="flex items-center justify-center py-1 px-3 text-[11px] text-muted-foreground border-b border-border/40 shrink-0">
       <Popover open={open} onOpenChange={setOpen}>
@@ -202,33 +214,90 @@ function ScopeBadge({
           >
             <IconLink size={11} className="shrink-0 opacity-70" />
             <span className="truncate max-w-[220px]">{heading}</span>
+            {otherCount > 0 && (
+              <span
+                className="ml-0.5 rounded-full bg-muted px-1.5 py-px text-[10px] leading-none text-muted-foreground"
+                aria-label={`${otherCount} other chats for this ${scope.type}`}
+              >
+                {otherCount + 1}
+              </span>
+            )}
           </button>
         </PopoverTrigger>
-        <PopoverContent align="center" side="bottom" className="w-60 p-2">
-          <p className="px-2 py-1 text-[11px] text-muted-foreground">
+        <PopoverContent align="center" side="bottom" className="w-72 p-0">
+          <p className="px-3 pt-2 pb-1.5 text-[11px] text-muted-foreground">
             This chat is linked to{" "}
             <span className="text-foreground">{detailLabel}</span>. New chats
-            started here stay with this {scope.type}; switch to another{" "}
-            {scope.type} to find its threads.
+            started here stay with this {scope.type}.
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              onDetach();
-            }}
-            className="mt-1 flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent cursor-pointer"
-          >
-            <IconLinkOff size={13} />
-            <span>Detach from this {scope.type}</span>
-          </button>
+          {otherCount > 0 && (
+            <div className="border-t border-border">
+              <div className="px-3 pt-1.5 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                Other chats here
+              </div>
+              <div className="max-h-56 overflow-y-auto pb-1">
+                {otherScopedThreads.map((thread) =>
+                  renderThreadRow(
+                    thread,
+                    activeThreadId,
+                    openTabIds,
+                    formatThreadTime,
+                    onSelectThread,
+                    () => setOpen(false),
+                  ),
+                )}
+              </div>
+            </div>
+          )}
+          <div className="border-t border-border p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onDetach();
+              }}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent cursor-pointer"
+            >
+              <IconLinkOff size={13} />
+              <span>Detach from this {scope.type}</span>
+            </button>
+          </div>
         </PopoverContent>
       </Popover>
     </div>
   );
 }
 
+/**
+ * Thin confirmation banner shown briefly after detach. The chip itself
+ * unmounts the moment scope clears on the active thread, so this banner
+ * holds the visual feedback long enough for the user to register what
+ * just happened and learn where the chat went (History popover).
+ */
+function DetachConfirmationBanner({ scopeType }: { scopeType: string }) {
+  return (
+    <div className="flex items-center justify-center py-1 px-3 text-[11px] text-muted-foreground border-b border-border/40 shrink-0">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/40 px-2 py-0.5 text-foreground">
+        <IconCheck size={11} className="shrink-0 opacity-80" />
+        <span>Detached from this {scopeType} — find this chat in History</span>
+      </span>
+    </div>
+  );
+}
+
 // ─── History Popover ─────────────────────────────────────────────────────────
+
+function formatThreadTime(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays === 0)
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return d.toLocaleDateString([], { weekday: "short" });
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
 
 function renderThreadRow(
   thread: ChatThreadSummary,
@@ -377,18 +446,6 @@ function HistoryPopover({
       }
     : null;
 
-  const formatTime = (ts: number) => {
-    const d = new Date(ts);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffDays === 0)
-      return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    if (diffDays === 1) return "Yesterday";
-    if (diffDays < 7) return d.toLocaleDateString([], { weekday: "short" });
-    return d.toLocaleDateString([], { month: "short", day: "numeric" });
-  };
-
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
@@ -425,7 +482,7 @@ function HistoryPopover({
                       thread,
                       activeThreadId,
                       openTabIds,
-                      formatTime,
+                      formatThreadTime,
                       onSelect,
                       onClose,
                     ),
@@ -442,7 +499,7 @@ function HistoryPopover({
                       thread,
                       activeThreadId,
                       openTabIds,
-                      formatTime,
+                      formatThreadTime,
                       onSelect,
                       onClose,
                     ),
@@ -456,7 +513,7 @@ function HistoryPopover({
                 thread,
                 activeThreadId,
                 openTabIds,
-                formatTime,
+                formatThreadTime,
                 onSelect,
                 onClose,
               ),
