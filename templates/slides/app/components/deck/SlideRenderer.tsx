@@ -129,27 +129,27 @@ export interface SlideFitTransform {
 
 export function computeSlideFitTransform({
   contentWidth,
-  contentHeight,
   viewportWidth,
-  viewportHeight,
   minX = 0,
   minY = 0,
   minScale = MIN_AUTOFIT_SCALE,
 }: {
   contentWidth: number;
-  contentHeight: number;
+  contentHeight?: number;
   viewportWidth: number;
-  viewportHeight: number;
+  viewportHeight?: number;
   minX?: number;
   minY?: number;
   minScale?: number;
 }): SlideFitTransform {
+  // Only scale for horizontal overflow. Vertical overflow is clipped by
+  // .fmd-slide { overflow: hidden } — uniform-scaling for vertical overflow
+  // shrinks both axes and leaves ugly right/bottom margins (with origin top-left),
+  // which looks much worse than a clean clip at the slide boundary.
   const safeContentWidth = Math.max(1, contentWidth);
-  const safeContentHeight = Math.max(1, contentHeight);
   const rawScale = Math.min(
     1,
     Math.max(1, viewportWidth) / safeContentWidth,
-    Math.max(1, viewportHeight) / safeContentHeight,
   );
   const scale = Math.max(minScale, rawScale);
 

@@ -311,6 +311,24 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       _getCoreDependencyVersion(),
     );
   });
+
+  it("always scaffolds dispatch when creating a workspace, even if not in --template", async () => {
+    // Dispatch is the workspace control plane (shared secrets, messaging,
+    // approvals, A2A routing). A workspace without it has nowhere to live
+    // those responsibilities, so the CLI forces it in even when the caller
+    // only asked for other apps.
+    await createApp("test-ws", { template: "starter,forms" });
+
+    expect(
+      fs.existsSync(path.join(tmpDir, "test-ws", "apps", "dispatch")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(tmpDir, "test-ws", "apps", "starter")),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, "test-ws", "apps", "forms"))).toBe(
+      true,
+    );
+  });
 });
 
 describe("workspace add-app scaffold", { timeout: 60000 }, () => {

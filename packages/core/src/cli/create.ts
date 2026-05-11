@@ -208,6 +208,9 @@ async function createWorkspaceInteractive(
     );
   } catch (err: any) {
     s.stop("Failed to scaffold workspace.");
+    // Remove the partially-scaffolded workspace so a retry of `agent-native
+    // create <name>` doesn't trip the "Directory already exists" guard.
+    cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
@@ -428,6 +431,7 @@ async function scaffoldOneAppIntoWorkspace(
     s.stop(`Scaffolded apps/${appName}.`);
   } catch (err: any) {
     s.stop(`Failed to scaffold apps/${appName}.`);
+    cleanupOnFailure(appDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
