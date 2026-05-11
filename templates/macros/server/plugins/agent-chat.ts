@@ -1,4 +1,5 @@
 import { createAgentChatPlugin } from "@agent-native/core/server";
+import { getOrgContext } from "@agent-native/core/org";
 
 // Static action imports — ensures Nitro bundles them for serverless deployments
 // where filesystem-based discovery (autoDiscoverActions) is unavailable.
@@ -28,6 +29,7 @@ export default createAgentChatPlugin({
   // resource loading, SQL schema dump, and workspace inventory — the
   // template prompt below has everything this agent needs.
   leanPrompt: true,
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   actions: {
     "delete-exercise": deleteExercise,
     "delete-item": deleteItem,
