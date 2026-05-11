@@ -86,6 +86,7 @@ export function Layout({ children }: LayoutProps) {
             "Why did signups drop last week?",
             "Compare this week's revenue to last",
           ]}
+          scope={analyticsScope}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">
             <MobileNav />
