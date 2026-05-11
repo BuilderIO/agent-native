@@ -1053,10 +1053,13 @@ export function createCoreRoutesPlugin(
               /* org module not present in this template — keep user scope */
             }
           }
-          await writeBuilderCredentials(
+          const target = await writeBuilderCredentials(
             ownerEmail,
             { privateKey, publicKey, userId, orgName, orgKind },
             { orgId, role },
+          );
+          console.log(
+            `[builder-connect] wrote credentials email=${ownerEmail} requestOrgId=${orgId ?? "(none)"} role=${role ?? "(none)"} scope=${target.scope} scopeId=${target.scopeId}`,
           );
         } catch (err) {
           writeError = (err as Error)?.message ?? String(err);

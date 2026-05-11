@@ -5013,6 +5013,11 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
           const owner = ownerContext.owner;
 
           // Resolve org ID: explicit callback > session.orgId from Better Auth
+          // > implicit org membership. Better Auth leaves session.orgId null
+          // until the user explicitly switches orgs, so a fresh signup with
+          // implicit membership (e.g. domain-matched org) would otherwise see
+          // no org-scoped credentials. getOrgContext() does the same DB lookup
+          // the /builder/status endpoint uses to decide "Connected".
           let resolvedOrgId: string | undefined;
           if (options?.resolveOrgId) {
             resolvedOrgId = (await options.resolveOrgId(event)) ?? undefined;
@@ -5022,6 +5027,15 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
               resolvedOrgId = session?.orgId ?? undefined;
             } catch {
               // Session not available
+            }
+            if (!resolvedOrgId) {
+              try {
+                const { getOrgContext } = await import("../org/context.js");
+                const ctx = await getOrgContext(event);
+                resolvedOrgId = ctx.orgId ?? undefined;
+              } catch {
+                // org_members table may not exist yet on first boot
+              }
             }
           }
 

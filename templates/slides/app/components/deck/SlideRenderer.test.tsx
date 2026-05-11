@@ -34,7 +34,7 @@ describe("computeSlideFitTransform", () => {
     ).toEqual({ scale: 1, x: 0, y: 0, fitted: false });
   });
 
-  it("scales bottom overflow to the viewport height", () => {
+  it("does not scale for vertical overflow (clipped by overflow:hidden instead)", () => {
     expect(
       computeSlideFitTransform({
         contentWidth: 700,
@@ -42,7 +42,7 @@ describe("computeSlideFitTransform", () => {
         viewportWidth: 740,
         viewportHeight: 380,
       }),
-    ).toEqual({ scale: 0.76, x: 0, y: 0, fitted: true });
+    ).toEqual({ scale: 1, x: 0, y: 0, fitted: false });
   });
 
   it("scales horizontal overflow to the viewport width", () => {
@@ -56,7 +56,7 @@ describe("computeSlideFitTransform", () => {
     ).toEqual({ scale: 0.74, x: 0, y: 0, fitted: true });
   });
 
-  it("uses the limiting axis for two-axis overflow", () => {
+  it("uses the horizontal axis only — vertical overflow is ignored", () => {
     expect(
       computeSlideFitTransform({
         contentWidth: 1000,
@@ -64,7 +64,7 @@ describe("computeSlideFitTransform", () => {
         viewportWidth: 740,
         viewportHeight: 380,
       }),
-    ).toEqual({ scale: 0.65, x: 0, y: 0, fitted: true });
+    ).toEqual({ scale: 0.74, x: 0, y: 0, fitted: true });
   });
 
   it("translates negative content back into view", () => {

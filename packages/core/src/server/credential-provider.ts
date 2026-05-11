@@ -363,6 +363,12 @@ export async function deleteBuilderCredentials(
  * only when the deploy fallback policy allows it.
  */
 export async function resolveSecret(key: string): Promise<string | null> {
+  // Log Builder-credential lookups by default so "I connected Builder but
+  // chat says no LLM" reports can be diagnosed from server logs without
+  // re-running anything. Keep noise low by gating other keys behind a flag.
+  const traceLookup =
+    key.startsWith("BUILDER_") ||
+    /^(1|true)$/i.test(process.env.DEBUG_CREDENTIAL_RESOLVE ?? "");
   const email = getRequestUserEmail();
   if (email) {
     try {
@@ -373,7 +379,14 @@ export async function resolveSecret(key: string): Promise<string | null> {
         scope: "user",
         scopeId: email,
       });
-      if (userSecret?.value) return userSecret.value;
+      if (userSecret?.value) {
+        if (traceLookup) {
+          console.log(
+            `[resolve-secret] key=${key} email=${email} scope=user hit=true`,
+          );
+        }
+        return userSecret.value;
+      }
 
       const orgId = getRequestOrgId();
       if (orgId) {
@@ -384,7 +397,14 @@ export async function resolveSecret(key: string): Promise<string | null> {
           scope: "org",
           scopeId: orgId,
         });
-        if (orgSecret?.value) return orgSecret.value;
+        if (orgSecret?.value) {
+          if (traceLookup) {
+            console.log(
+              `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=org hit=true`,
+            );
+          }
+          return orgSecret.value;
+        }
 
         // Registered secrets historically used "workspace" scope for
         // org-shared configuration. Keep reading it so Settings status and
@@ -394,29 +414,60 @@ export async function resolveSecret(key: string): Promise<string | null> {
           scope: "workspace",
           scopeId: orgId,
         });
-        if (workspaceSecret?.value) return workspaceSecret.value;
+        if (workspaceSecret?.value) {
+          if (traceLookup) {
+            console.log(
+              `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=workspace hit=true`,
+            );
+          }
+          return workspaceSecret.value;
+        }
       } else {
         const soloWorkspaceSecret = await readAppSecret({
           key,
           scope: "workspace",
           scopeId: `solo:${email}`,
         });
-        if (soloWorkspaceSecret?.value) return soloWorkspaceSecret.value;
+        if (soloWorkspaceSecret?.value) {
+          if (traceLookup) {
+            console.log(
+              `[resolve-secret] key=${key} email=${email} scope=workspace-solo hit=true`,
+            );
+          }
+          return soloWorkspaceSecret.value;
+        }
       }
-    } catch {
+    } catch (err) {
+      if (traceLookup) {
+        console.log(
+          `[resolve-secret] key=${key} email=${email} scope=error err=${(err as Error)?.message ?? err}`,
+        );
+      }
       // Secrets table not ready — treat as missing.
     }
     // Authenticated multi-tenant context: never fall back to process.env.
     // The deploy-level value would silently impersonate the actual key
     // owner across every tenant. Local/single-tenant deployments keep the
     // original env fallback for BYO-server workflows.
-    return canUseDeployCredentialFallbackForRequest()
+    const envFallback = canUseDeployCredentialFallbackForRequest()
       ? process.env[key] || null
       : null;
+    if (traceLookup) {
+      console.log(
+        `[resolve-secret] key=${key} email=${email} orgId=${getRequestOrgId() ?? "(none)"} scope=${envFallback ? "env-fallback" : "none"} hit=${!!envFallback}`,
+      );
+    }
+    return envFallback;
   }
   // Unauthenticated / local-dev / CLI / background context: env fallback
   // is safe because there's no user to mis-identify.
-  return process.env[key] || null;
+  const value = process.env[key] || null;
+  if (traceLookup) {
+    console.log(
+      `[resolve-secret] key=${key} email=(none) scope=env-anonymous hit=${!!value}`,
+    );
+  }
+  return value;
 }
 
 // ---------------------------------------------------------------------------
