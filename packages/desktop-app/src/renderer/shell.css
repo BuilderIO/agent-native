@@ -1219,6 +1219,11 @@ body {
   border-radius: 12px;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
   -webkit-app-region: no-drag;
+  /* Promote to its own compositor layer + stacking context so it paints
+     reliably above Electron <webview> guest surfaces on macOS. Without this
+     the popover loses the composite race and gets covered by the webview. */
+  transform: translateZ(0);
+  isolation: isolate;
 }
 
 .update-prompt-body {
