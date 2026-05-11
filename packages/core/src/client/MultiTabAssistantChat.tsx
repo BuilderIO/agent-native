@@ -995,6 +995,43 @@ export function MultiTabAssistantChat({
     return stored;
   }, [threads, activeThreadId, scope?.type, scope?.id, scope?.label]);
 
+  // Brief confirmation banner shown after detach. The chip itself disappears
+  // the instant scope clears, which the user described as "nothing different
+  // happened." We hold the confirmation in the same slot for ~2s so the
+  // detach is visually acknowledged and the user is pointed at History.
+  const [detachConfirmType, setDetachConfirmType] = useState<string | null>(
+    null,
+  );
+  const detachTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (detachTimerRef.current) clearTimeout(detachTimerRef.current);
+    };
+  }, []);
+  const handleDetachActiveThread = useCallback(() => {
+    if (!activeThreadId || !activeThreadScope) return;
+    const type = activeThreadScope.type;
+    setDetachConfirmType(type);
+    if (detachTimerRef.current) clearTimeout(detachTimerRef.current);
+    detachTimerRef.current = setTimeout(() => setDetachConfirmType(null), 2200);
+    detachThread(activeThreadId);
+  }, [activeThreadId, activeThreadScope, detachThread]);
+
+  // Other chats scoped to the active thread's resource (excluding the active
+  // thread itself). Sorted most-recent-first to match user expectation in the
+  // chip popover and empty-state addon.
+  const otherScopedThreads = useMemo<ChatThreadSummary[]>(() => {
+    if (!activeThreadScope) return [];
+    return threads
+      .filter(
+        (t) =>
+          t.id !== activeThreadId &&
+          t.scope?.type === activeThreadScope.type &&
+          t.scope?.id === activeThreadScope.id,
+      )
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [threads, activeThreadId, activeThreadScope]);
+
   // Persist open tab IDs to localStorage (exclude sub-agent tabs — they're session-only)
   useEffect(() => {
     if (openTabsKeyRef.current !== OPEN_TABS_KEY) return;
@@ -1828,13 +1865,23 @@ export function MultiTabAssistantChat({
             Gated on `!contentHidden` because the wrapping AgentPanel keeps
             the chat mounted (to preserve state) while Workspace/Settings
             tabs are active — without this gate the badge leaks into those
-            tabs even though the chat itself is `display: none`. */}
-        {!contentHidden && activeThreadScope && activeThreadId && (
-          <ScopeBadge
-            scope={activeThreadScope}
-            onDetach={() => detachThread(activeThreadId)}
-          />
-        )}
+            tabs even though the chat itself is `display: none`.
+            When the user just detached, we hold a confirmation banner in
+            the same slot for ~2s so the action is visibly acknowledged
+            before the slot collapses. */}
+        {!contentHidden &&
+          (activeThreadScope && activeThreadId ? (
+            <ScopeBadge
+              scope={activeThreadScope}
+              onDetach={handleDetachActiveThread}
+              otherScopedThreads={otherScopedThreads}
+              activeThreadId={activeThreadId}
+              openTabIds={new Set(openTabIds)}
+              onSelectThread={openFromHistory}
+            />
+          ) : detachConfirmType ? (
+            <DetachConfirmationBanner scopeType={detachConfirmType} />
+          ) : null)}
 
         {/* History popover — rendered inside relative container so positioning works */}
         {showHistory && (
@@ -1887,6 +1934,17 @@ export function MultiTabAssistantChat({
                     activeThreadScope?.label && tabId === activeThreadId
                       ? `Ask about ${activeThreadScope.label}`
                       : props.emptyStateText
+                  }
+                  emptyStateAddon={
+                    tabId === activeThreadId &&
+                    activeThreadScope &&
+                    otherScopedThreads.length > 0 ? (
+                      <PreviousScopedChatsHint
+                        scope={activeThreadScope}
+                        threads={otherScopedThreads}
+                        onSelectThread={openFromHistory}
+                      />
+                    ) : undefined
                   }
                   ref={(handle) => {
                     if (handle) {
