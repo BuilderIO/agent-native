@@ -65,14 +65,14 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 All structured data lives in SQL via Drizzle ORM — **dialect-agnostic** (Neon Postgres in production, SQLite for local). See `server/db/schema.ts` for full column definitions. This is the summary:
 
-Team / tenant data lives in the framework's better-auth `organization` tables. Clips-specific data (spaces, folders, recordings, etc.) hangs off `organization_id` FKs.
+Team / tenant data lives in the framework's `organizations` / `org_members` / `org_invitations` tables (managed by `packages/core/src/org/`). Clips-specific data (spaces, folders, recordings, etc.) hangs off `organization_id` FKs that hold those org ids.
 
 | Table                        | Holds                                                                                                             |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `organization` (better-auth) | Team. Name, slug, logo. Managed by the framework — created via better-auth (or the `create-organization` action). |
-| `member` (better-auth)       | Who belongs to each org and their role (`owner` / `admin` / `member`).                                            |
-| `invitation` (better-auth)   | Pending org invites.                                                                                              |
-| `organization_settings`      | Clips-specific org sidecar: `brand_color`, `brand_logo_url`, `default_visibility`. Keyed by `organization.id`.    |
+| `organizations`              | Team. `id`, `name`, `created_by`, `created_at`. Created via the `create-organization` action.                     |
+| `org_members`                | Who belongs to each org and their role (`owner` / `admin` / `member`). Email-keyed.                               |
+| `org_invitations`            | Pending org invites. Email-keyed. No token expiry.                                                                |
+| `organization_settings`      | Clips-specific org sidecar: `brand_color`, `brand_logo_url`, `default_visibility`. Keyed by `organizations.id`.   |
 | `spaces`                     | Topic spaces inside an org (engineering, design, etc.). FK: `organization_id`.                                    |
 | `space_members`              | Who can see/post to each space.                                                                                   |
 | `folders`                    | Library folders (nest via `parent_id`, scoped to space or personal). FK: `organization_id`.                       |
@@ -86,7 +86,7 @@ Team / tenant data lives in the framework's better-auth `organization` tables. C
 | `recording_viewers`          | One row per viewer: watch total, completed %, whether the view counted.                                           |
 | `recording_events`           | Granular events: view-start, watch-progress, seek, pause, cta-click, etc.                                         |
 
-> Older schemas had Clips-specific `workspaces` / `workspace_members` / `invites` tables. Those have been **replaced** by better-auth's `organization` / `member` / `invitation` tables — any references you see to "workspace" in older code or data are deprecated aliases for "organization".
+> Older schemas had Clips-specific `workspaces` / `workspace_members` / `invites` tables. Those have been **replaced** by the framework's `organizations` / `org_members` / `org_invitations` tables — any references you see to "workspace" in older code or data are deprecated aliases for "organization". The `server/plugins/db.ts` sync copies any pre-existing workspace rows into the framework tables on boot.
 
 Visibility and sharing use the framework `sharing` system — recordings are registered as a shareable resource in `server/db/index.ts` via `registerShareableResource({ type: "recording", ... })`. Use the auto-mounted `share-resource` / `set-resource-visibility` / `list-resource-shares` actions (see Sharing below). Password and `expiresAt` are **extra** privacy controls on top of framework visibility — they're in the `recordings` table.
 
@@ -105,7 +105,7 @@ Ephemeral UI state lives in `application_state`, accessed via `readAppState(key)
 | `editor-draft`    | In-progress non-destructive edits for the recording being edited                | Bidirectional           |
 | `selection`       | User's current text selection inside transcript or comment                      | UI -> Agent (read-only) |
 
-> Active organization lives in the better-auth session (`session.activeOrganizationId`), **not** in application state. An older `current-workspace` app-state key is deprecated. To switch orgs, use `useSwitchOrg()` on the client or better-auth's `setActiveOrganization` API. The previous session's active org is restored automatically on login.
+> Active organization lives in the per-user `active-org-id` user-setting, **not** in application state. An older `current-workspace` app-state key is deprecated. To switch orgs, use `useSwitchOrg().mutate({ organizationId })` on the client (which hits `PUT /_agent-native/org/switch`) or `putUserSetting(email, "active-org-id", { orgId })` server-side. The framework's `getOrgContext(event)` resolves this on every request.
 
 ### Navigation state shape
 
@@ -153,8 +153,8 @@ Views: `library`, `spaces`, `space`, `archive`, `trash`, `record`, `recording`, 
 | "Who watched this?"                                 | `pnpm action list-viewers --recordingId=<id>`                                                                                                                                                                         |
 | "Reply to the comment at 1:23"                      | Use `list-comments --recordingId=<id>` to find the thread, then `add-comment --recordingId=<id> --threadId=<tid> --content="..."`                                                                                     |
 | "Give me a share link"                              | The public share link is `/share/<recordingId>` and the embed is `/embed/<recordingId>`. Make sure visibility is `public` via `set-resource-visibility` if needed.                                                    |
-| "Switch to the Product organization"                | Use `list-organization-state` to find the org id, then on the client call `useSwitchOrg().mutate({ organizationId })` (or better-auth's `setActiveOrganization`). There is no `set-current-workspace` action anymore. |
-| "Rename this organization"                          | Use better-auth's organization-update API, or `pnpm action set-organization-branding` for brand color / logo tweaks.                                                                                                  |
+| "Switch to the Product organization"                | Use `list-organization-state` to find the org id, then on the client call `useSwitchOrg().mutate({ organizationId })`. Server-side: `putUserSetting(email, "active-org-id", { orgId })`. There is no `set-current-workspace` action anymore. |
+| "Rename this organization"                          | Use the framework `PATCH /_agent-native/org` endpoint (via `useUpdateOrg()` on the client), or `pnpm action set-organization-branding` for brand color / logo tweaks.                                                                       |
 
 After any recording mutation (rename, move, edit, archive, delete, add comment, etc.) the actions trigger a UI refresh automatically via `refresh-signal`.
 
@@ -282,21 +282,21 @@ Granular per-event recording (view-start / watch-progress / seek / pause / cta-c
 
 ### Organization + invites
 
-Teams in Clips are better-auth organizations. Membership, roles, and invitations live on the framework `organization` / `member` / `invitation` tables. The actions below are thin Clips-specific wrappers that operate on those tables.
+Teams in Clips use the framework's `organizations` / `org_members` / `org_invitations` tables. The actions below are thin Clips-specific wrappers that operate on those tables (roster, branding sidecar, invites). For framework-wide org operations — rename, switch active org, set domain — use the `/_agent-native/org/*` endpoints + `useOrg()` / `useSwitchOrg()` hooks directly.
 
-| Action                      | Args                                    | Purpose                                                                                                                                                                          |
-| --------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list-organization-state`   |                                         | Roster + spaces + folders summary for the active organization.                                                                                                                   |
-| `create-organization`       | `--name <name> [--slug] [--brandColor]` | Create a new organization (delegates to better-auth, seeds `organization_settings`).                                                                                             |
-| `set-organization-branding` | `--brandColor <hex> [--brandLogoUrl]`   | Update the active organization's `organization_settings` row (brand color / logo).                                                                                               |
-| `invite-member`             | `--email <e> [--role admin\|member]`    | Send an invite. Roles use better-auth's `admin` / `member` model. Legacy Clips roles (`viewer`, `creator-lite`, `creator`) are still accepted by the action and map to `member`. |
-| `update-member-role`        | `--email <e> --role <r>`                | Change an existing member's role.                                                                                                                                                |
-| `remove-member`             | `--email <e>`                           | Remove a member from the organization.                                                                                                                                           |
-| `get-invite`                | `--token <t>`                           | Look up a pending invite.                                                                                                                                                        |
-| `accept-invite`             | `--token <t>`                           | Accept a pending invite.                                                                                                                                                         |
-| `decline-invite`            | `--token <t>`                           | Decline a pending invite.                                                                                                                                                        |
+| Action                      | Args                                  | Purpose                                                                                                                                              |
+| --------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list-organization-state`   |                                       | Roster + spaces + folders summary for the active organization.                                                                                       |
+| `create-organization`       | `--name <name>`                       | Create a new organization, add the caller as owner, seed `organization_settings`, and activate it.                                                   |
+| `set-organization-branding` | `--brandColor <hex> [--brandLogoUrl]` | Update the active organization's `organization_settings` row (brand color / logo).                                                                   |
+| `invite-member`             | `--email <e> [--role admin\|member]`  | Send an invite. Roles collapse to `admin` / `member`. Legacy Clips roles (`viewer`, `creator-lite`, `creator`) are still accepted and map to `member`. |
+| `update-member-role`        | `--email <e> --role <r>`              | Change an existing member's role. Cannot change the owner's role.                                                                                    |
+| `remove-member`             | `--email <e>`                         | Remove a member from the organization. Cannot remove the owner.                                                                                      |
+| `get-invite`                | `--token <t>`                         | Look up a pending invite.                                                                                                                            |
+| `accept-invite`             | `--token <t>`                         | Accept a pending invite. Activates the org for the caller via the `active-org-id` user-setting.                                                      |
+| `decline-invite`            | `--token <t>`                         | Decline a pending invite.                                                                                                                            |
 
-> **Switching orgs.** There is no `set-current-workspace` action — the active org lives in the better-auth session. From the client use `useSwitchOrg().mutate({ organizationId })`; server-side use better-auth's `setActiveOrganization` API.
+> **Switching orgs.** There is no `set-current-workspace` action — the active org lives in the per-user `active-org-id` user-setting. From the client use `useSwitchOrg().mutate({ organizationId })` (which hits `PUT /_agent-native/org/switch`); server-side, `putUserSetting(email, "active-org-id", { orgId })`. The framework's `getOrgContext(event)` resolves this on every request.
 
 ### Navigation + context
 
@@ -379,7 +379,7 @@ All standard CRUD (list, get, create, update) goes through `/_agent-native/actio
 
 ## Authentication
 
-This template uses the framework's default auth — Better Auth, with email/password and optional Google / GitHub social providers. Better Auth's organization plugin owns the team primitives (`organization` / `member` / `invitation` tables, see [Team & Recordings Data Model](#team--recordings-data-model)). Use `getSession(event)` server-side and `useSession()` client-side; per-user scoping inside actions / handlers reads `getRequestUserEmail()` from `@agent-native/core/server/request-context`.
+This template uses the framework's default auth — Better Auth, with email/password and optional Google / GitHub social providers. Team primitives live in the framework's own `organizations` / `org_members` / `org_invitations` tables (see [Data Sources](#data-sources)) — not in Better Auth's organization tables. Use `getSession(event)` server-side and `useSession()` client-side; per-user scoping inside actions / handlers reads `getRequestUserEmail()` from `@agent-native/core/server/request-context`, and per-org scoping reads `getOrgContext(event)` from `@agent-native/core/org`.
 
 See the `authentication` skill for the full mode matrix (`AUTH_MODE=local`, `ACCESS_TOKEN`, `AUTH_DISABLED`, BYOA) and the `security` skill for the access-control model (`ownableColumns`, `accessFilter`, `assertAccess`).
 

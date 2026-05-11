@@ -28,7 +28,6 @@ interface OrganizationStateResponse {
   organization: {
     id: string;
     name: string;
-    slug: string;
     brandColor: string;
     brandLogoUrl: string | null;
     defaultVisibility: string;
@@ -46,7 +45,6 @@ interface OrganizationStateResponse {
     email: string;
     role: MemberRole;
     createdAt: string;
-    expiresAt: string | null;
   }[];
 }
 
@@ -191,7 +189,6 @@ export default function OrganizationSettingsRoute() {
                       <TableHead>Email</TableHead>
                       <TableHead className="w-32">Role</TableHead>
                       <TableHead className="w-32">Sent</TableHead>
-                      <TableHead className="w-32">Expires</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -207,11 +204,6 @@ export default function OrganizationSettingsRoute() {
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">
                           {new Date(inv.createdAt).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-sm">
-                          {inv.expiresAt
-                            ? new Date(inv.expiresAt).toLocaleDateString()
-                            : "—"}
                         </TableCell>
                       </TableRow>
                     ))}

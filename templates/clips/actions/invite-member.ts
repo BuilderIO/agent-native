@@ -1,11 +1,10 @@
 /**
  * Invite an email address to the active organization.
  *
- * Creates an `invitation` row in the better-auth invitation table with a
- * 30-day expiry. Clips role mapping: `admin` → `admin`, everything else →
- * `member`. Returns the invitation id/token. Sends an email via the
- * framework email helper when a provider is configured — otherwise logs
- * the accept URL to the console.
+ * Creates an `org_invitations` row with status `pending`. Clips role mapping:
+ * `admin` → `admin`, everything else → `member`. Returns the invitation id
+ * (which is the accept token). Sends an email via the framework email helper
+ * when a provider is configured.
  *
  * Usage:
  *   pnpm action invite-member --email=alice@example.com --role=admin
@@ -13,7 +12,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import { emit } from "@agent-native/core/event-bus";
 import {
   sendEmail,
@@ -32,9 +31,9 @@ function getAppName(): string {
   return process.env.APP_NAME || "Clips";
 }
 
-// Accept the current better-auth role surface plus the old Clips roles for
+// Accept the current admin/member surface plus legacy Clips roles for
 // backwards-compatible CLI/agent calls. Legacy non-admin roles collapse to
-// `member` when writing to better-auth.
+// `member`.
 const ClipsRoleEnum = z.enum([
   "viewer",
   "creator-lite",
@@ -47,8 +46,6 @@ function mapRole(role: z.infer<typeof ClipsRoleEnum>): "admin" | "member" {
   return role === "admin" ? "admin" : "member";
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 function baseUrl(): string {
   return (
     process.env.APP_URL ||
@@ -58,28 +55,11 @@ function baseUrl(): string {
   ).replace(/\/+$/, "");
 }
 
-async function resolveUserId(email: string): Promise<string | null> {
+async function fetchOrgName(orgId: string): Promise<string> {
   const exec = getDbExec();
-  try {
-    const sql = isPostgres()
-      ? `SELECT id FROM "user" WHERE email = $1 LIMIT 1`
-      : `SELECT id FROM user WHERE email = ? LIMIT 1`;
-    const res = await exec.execute({ sql, args: [email] });
-    const row = (res.rows as Array<{ id?: string }>)[0];
-    return row?.id ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchOrgName(organizationId: string): Promise<string> {
-  const exec = getDbExec();
-  const pg = isPostgres();
   const res = await exec.execute({
-    sql: pg
-      ? `SELECT name FROM organization WHERE id = $1 LIMIT 1`
-      : `SELECT name FROM organization WHERE id = ? LIMIT 1`,
-    args: [organizationId],
+    sql: `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
+    args: [orgId],
   });
   const row = (res.rows as Array<{ name?: string }>)[0];
   return row?.name ?? "Organization";
@@ -87,7 +67,7 @@ async function fetchOrgName(organizationId: string): Promise<string> {
 
 export default defineAction({
   description:
-    "Invite someone to the active organization by email. Creates a pending invitation with a 30-day expiry. Role 'admin' maps to better-auth admin; all other Clips roles collapse to 'member'. Sends an email when a provider is configured.",
+    "Invite someone to the active organization by email. Creates a pending invitation. Role 'admin' maps to admin; all other Clips roles collapse to 'member'. Sends an email when a provider is configured.",
   schema: z.object({
     email: z.string().email().describe("Invitee email address"),
     role: ClipsRoleEnum.default("member").describe(
@@ -96,86 +76,49 @@ export default defineAction({
   }),
   run: async (args) => {
     const exec = getDbExec();
-    const pg = isPostgres();
 
     const { organizationId } = await requireOrganizationAccess(undefined, [
       "admin",
     ]);
     const inviter = getCurrentOwnerEmail();
-    const inviterUserId = (await resolveUserId(inviter)) ?? inviter;
-    const betterAuthRole = mapRole(args.role);
+    const role = mapRole(args.role);
+    const inviteeEmail = args.email.trim().toLowerCase();
 
-    // If there's already a pending invite for this email, rotate its id/expiry.
+    // Rotate any existing pending invite for this email so the latest one is
+    // the only live token.
     const existingRes = await exec.execute({
-      sql: pg
-        ? `SELECT id FROM invitation WHERE organization_id = $1 AND email = $2 AND status = 'pending' LIMIT 1`
-        : `SELECT id FROM invitation WHERE organization_id = ? AND email = ? AND status = 'pending' LIMIT 1`,
-      args: [organizationId, args.email],
+      sql: `SELECT id FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
+      args: [organizationId, inviteeEmail],
     });
     const existing = (existingRes.rows as Array<{ id?: string }>)[0];
+    if (existing?.id) {
+      await exec.execute({
+        sql: `UPDATE org_invitations SET status = 'canceled' WHERE id = ?`,
+        args: [existing.id],
+      });
+    }
 
-    // better-auth's invitation table has no separate token column — the
-    // invitation id IS the token (accept routes look up by id).
     const id = nanoid(24);
     const token = id;
     const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
-    const expiresMs = nowMs + 30 * DAY_MS;
-    const expiresIso = new Date(expiresMs).toISOString();
 
-    if (existing?.id) {
-      // Cancel the old pending row.
-      await exec.execute({
-        sql: pg
-          ? `UPDATE invitation SET status = 'canceled', updated_at = NOW() WHERE id = $1`
-          : `UPDATE invitation SET status = 'canceled', updated_at = ? WHERE id = ?`,
-        args: pg ? [existing.id] : [nowMs, existing.id],
-      });
-    }
-
-    if (pg) {
-      await exec.execute({
-        sql: `INSERT INTO invitation (id, organization_id, email, role, status, expires_at, inviter_id, created_at, updated_at)
-              VALUES ($1, $2, $3, $4, 'pending', $5, $6, NOW(), NOW())`,
-        args: [
-          id,
-          organizationId,
-          args.email,
-          betterAuthRole,
-          expiresIso,
-          inviterUserId,
-        ],
-      });
-    } else {
-      await exec.execute({
-        sql: `INSERT INTO invitation (id, organization_id, email, role, status, expires_at, inviter_id, created_at, updated_at)
-              VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
-        args: [
-          id,
-          organizationId,
-          args.email,
-          betterAuthRole,
-          expiresMs,
-          inviterUserId,
-          nowMs,
-          nowMs,
-        ],
-      });
-    }
+    await exec.execute({
+      sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+      args: [id, organizationId, args.email, inviter, nowMs, role],
+    });
 
     const orgName = await fetchOrgName(organizationId);
     const inviteUrl = `${baseUrl()}/invite/${token}`;
 
-    const appName = getAppName() ?? "Clips";
+    const appName = getAppName();
     const { html, text } = renderEmail({
       preheader: `${inviter} invited you to ${orgName} on ${appName}.`,
       heading: `You're invited to join ${orgName}`,
       paragraphs: [
-        `${emailStrong(inviter)} invited you to the ${emailStrong(orgName)} organization on ${emailStrong(appName)} as ${emailStrong(betterAuthRole)}.`,
+        `${emailStrong(inviter)} invited you to the ${emailStrong(orgName)} organization on ${emailStrong(appName)} as ${emailStrong(role)}.`,
         `Click the button below to accept the invite and start collaborating.`,
       ],
       cta: { label: "Accept invite", url: inviteUrl },
-      footer: "This invite expires in 30 days.",
       brandColor: "#18181B",
     });
     try {
@@ -191,14 +134,10 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    // Emit clip.shared event — best-effort, never block the main flow.
     try {
       emit(
         "clip.shared",
-        {
-          sharedWith: args.email,
-          sharedBy: inviter,
-        },
+        { sharedWith: args.email, sharedBy: inviter },
         { owner: inviter },
       );
     } catch (err) {
@@ -211,10 +150,9 @@ export default defineAction({
       id,
       organizationId,
       email: args.email,
-      role: betterAuthRole,
+      role,
       status: "pending" as const,
       token,
-      expiresAt: expiresIso,
       inviteUrl,
       emailConfigured: isEmailConfigured(),
     };
