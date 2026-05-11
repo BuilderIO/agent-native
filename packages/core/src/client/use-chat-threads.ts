@@ -138,6 +138,15 @@ export function useChatThreads(
             if (local.preview) next.preview = local.preview;
             if (local.title) next.title = local.title;
           }
+          // Preserve optimistic scope: when the server creates the row
+          // on first message it does so without scope, and the next PUT
+          // (saveThreadData) writes the local scope back. In the brief
+          // window between those, the server list returns scope: null
+          // while the user is clearly working inside a deck — keep the
+          // local value so the tab bar doesn't blink unscoped.
+          if (local.scope && !server.scope) {
+            next.scope = local.scope;
+          }
           return next;
         });
         return [...optimisticOnly, ...merged];
@@ -298,6 +307,15 @@ export function useChatThreads(
     [apiUrl, activeThreadId, createThread],
   );
 
+  // Ref to look up the latest scope of a known thread inside
+  // saveThreadData without making the callback re-create on every
+  // setThreads. The thread's scope is owned by createThread /
+  // detachThread / fetchThreads — saveThreadData just mirrors it on
+  // every save so the server eventually catches up after
+  // persistSubmittedUserMessage creates the row sans scope.
+  const threadsRef = useRef<ChatThreadSummary[]>(threads);
+  threadsRef.current = threads;
+
   const saveThreadData = useCallback(
     async (
       id: string,
@@ -309,10 +327,12 @@ export function useChatThreads(
       },
     ) => {
       try {
+        const localScope =
+          threadsRef.current.find((t) => t.id === id)?.scope ?? null;
         await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
+          body: JSON.stringify({ ...data, scope: localScope }),
         });
         // Update local thread list metadata. If the thread isn't in our
         // local list yet (an optimistic-only thread that the server just
