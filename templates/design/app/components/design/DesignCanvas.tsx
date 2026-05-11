@@ -36,6 +36,29 @@ const TWEAK_BRIDGE_SCRIPT = `
 `;
 
 /**
+ * Pinch-zoom bridge: forwards trackpad pinch / Cmd-Ctrl+scroll wheel events
+ * from inside the iframe to the parent window. Wheel events don't naturally
+ * bubble out of an iframe, so without this the user can only pinch in the
+ * empty area around the canvas, not over the design itself.
+ */
+const ZOOM_BRIDGE_SCRIPT = `
+<script data-agent-native-zoom-bridge>
+(function() {
+  window.addEventListener('wheel', function(e) {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    window.parent.postMessage({
+      type: 'pinch-zoom-wheel',
+      deltaY: e.deltaY,
+      clientX: e.clientX,
+      clientY: e.clientY,
+    }, window.location.origin);
+  }, { passive: false });
+})();
+</script>
+`;
+
+/**
  * Edit-mode bridge: element click/hover overlays + selector-targeted
  * style-change messages. Only injected when the user is in Edit mode.
  */
@@ -243,6 +266,8 @@ export function DesignCanvas({
 }: DesignCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
 
   usePinchZoom({
     containerRef: scrollContainerRef,
@@ -258,7 +283,9 @@ export function DesignCanvas({
   // outside Edit mode. The edit bridge (click/hover overlays) is gated.
   const srcdoc = useMemo(() => {
     const bridgeToInject =
-      TWEAK_BRIDGE_SCRIPT + (editMode ? EDIT_BRIDGE_SCRIPT : "");
+      TWEAK_BRIDGE_SCRIPT +
+      ZOOM_BRIDGE_SCRIPT +
+      (editMode ? EDIT_BRIDGE_SCRIPT : "");
     if (content.includes("</body>")) {
       return content.replace("</body>", bridgeToInject + "</body>");
     }
@@ -280,6 +307,26 @@ export function DesignCanvas({
       }
       if (e.data.type === "element-hover") {
         onElementHover(e.data.payload);
+      }
+      if (e.data.type === "pinch-zoom-wheel") {
+        const iframe = iframeRef.current;
+        const scroll = scrollContainerRef.current;
+        if (!iframe || !scroll) return;
+        const iframeRect = iframe.getBoundingClientRect();
+        const scale = zoomRef.current / 100;
+        // iframe-local coords (pre-scale) → absolute viewport coords
+        const clientX = iframeRect.left + e.data.clientX * scale;
+        const clientY = iframeRect.top + e.data.clientY * scale;
+        scroll.dispatchEvent(
+          new WheelEvent("wheel", {
+            deltaY: e.data.deltaY,
+            ctrlKey: true,
+            clientX,
+            clientY,
+            bubbles: false,
+            cancelable: true,
+          }),
+        );
       }
     }
     window.addEventListener("message", handleMessage);
