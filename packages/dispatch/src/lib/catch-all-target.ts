@@ -70,15 +70,23 @@ export function resolveCatchAllTarget(appId: string): string | null {
       // `path: "my-forms"`) still lands on the correct gateway mount —
       // not on `/${appId}`, which would silently route to the wrong app.
       //
-      // Reject scheme-relative paths (`//evil.example`). The manifest
-      // parser only checks `startsWith("/")`, so `//evil.example` passes
-      // — but browsers treat it as a network-path reference and the
-      // catch-all's `throw redirect("//evil.example")` becomes an
-      // off-origin redirect, the same phishing vector that the
-      // `validatedAbsoluteUrl` check closes for `app.url`. Strip the
-      // leading slashes down to one to keep the redirect on the gateway.
+      // Reject scheme-relative paths. Three variants reach this point —
+      // all of them get collapsed to a single leading slash so the
+      // redirect stays on the gateway:
+      //
+      //   `//evil.example`   — network-path reference, browser treats as
+      //                        absolute (https://evil.example).
+      //   `/\evil.example`   — browsers normalize backslashes to forward
+      //                        slashes during URL parsing, same result.
+      //   `\/evil.example`   — same idea, leading-backslash variant.
+      //
+      // The manifest parser only checks `startsWith("/")` for the first
+      // case, and even that allows `//evil…`. Defend in depth here by
+      // collapsing any run of leading slashes-or-backslashes to one
+      // forward slash. Same phishing vector that `validatedAbsoluteUrl`
+      // closes for `app.url`.
       if (typeof app.path === "string" && app.path.trim()) {
-        const normalized = app.path.trim().replace(/^\/+/, "/");
+        const normalized = app.path.trim().replace(/^[/\\]+/, "/");
         return normalized.startsWith("/") ? normalized : `/${normalized}`;
       }
       return `/${appId}`;

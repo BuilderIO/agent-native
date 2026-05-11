@@ -171,6 +171,18 @@ describe("resolveCatchAllTarget", () => {
     expect(resolveCatchAllTarget("forms")).toBe("/forms");
   });
 
+  it("collapses leading slashes/backslashes in app.path so `/\\evil.example` can't redirect off-origin", () => {
+    // Browsers normalize backslashes to forward slashes during URL
+    // parsing, so `throw redirect("/\\evil.example")` would resolve to
+    // `https://evil.example`. The regex covers both slash types.
+    loadWorkspaceAppsManifestMock.mockReturnValue([
+      { id: "forms", name: "Forms", path: "/\\evil.example" },
+    ]);
+    getBuiltinAgentsMock.mockReturnValue([]);
+
+    expect(resolveCatchAllTarget("forms")).toBe("/evil.example");
+  });
+
   it("collapses leading double slashes in app.path so `//evil.example` can't redirect off-origin", () => {
     // The manifest parser only checks `startsWith("/")`, so a path of
     // `//evil.example` slips through. Browsers treat that as a network-
