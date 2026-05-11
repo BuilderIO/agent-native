@@ -56,24 +56,31 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 - Don't create manual polling loops — `useDbSync()` handles SSE plus fallback polling
 - Don't create your own fetch-based polling alongside `useDbSync` — use the `onEvent` callback for custom handling
 
-## Tuning refetch behavior
+## Which sources to depend on
 
-`useDbSync` invalidates every active query on any non-own change event. The `onEvent` callback still fires with each change event, so templates can layer surgical extras on top — for example, invalidating an inactive query that wouldn't otherwise refetch:
+Common sources you'll fold into query keys:
+
+| Source            | Bumped by                                                                   |
+| ----------------- | --------------------------------------------------------------------------- |
+| `action`          | The agent runner after every successful mutating action tool call           |
+| `app-state`       | Writes to `application_state` (navigation, selections, ephemeral UI state)  |
+| `settings`        | Writes to the `settings` table                                              |
+| `dashboards`      | Dashboard CRUD via `upsertDashboard` / `archiveDashboard` etc.              |
+| `analyses`        | Analysis CRUD                                                               |
+| `extensions`      | Extension CRUD                                                              |
+| `collab`          | Yjs collaborative-doc updates                                               |
+| `screen-refresh`  | Explicit `refresh-screen` agent tool call                                   |
+
+If a query reads data the agent can mutate via more than one path, depend on multiple sources with `useChangeVersions`:
 
 ```ts
-useDbSync({
-  queryClient,
-  onEvent: (data) => {
-    if (data.source === "settings") {
-      // Force a refetch even when not actively observed
-      queryClient.invalidateQueries({
-        queryKey: ["settings"],
-        refetchType: "all",
-      });
-    }
-  },
-});
+const v = useChangeVersions(["dashboards", "action"]);
+useQuery({ queryKey: ["dashboard", id, v], ... });
 ```
+
+`useChangeVersions` returns a single integer that advances whenever any of the listed sources advance.
+
+## Tuning refetch behavior
 
 To prevent cache thrashing during rapid agent writes, set `staleTime` on your queries:
 
