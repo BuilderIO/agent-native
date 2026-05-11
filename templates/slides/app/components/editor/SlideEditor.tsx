@@ -6,7 +6,11 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { agentChat } from "@agent-native/core";
-import { AgentPresenceChip, agentNativePath } from "@agent-native/core/client";
+import {
+  AgentPresenceChip,
+  agentNativePath,
+  sendToAgentChat,
+} from "@agent-native/core/client";
 import { createPortal } from "react-dom";
 import { enterSelectionMode } from "@/root";
 import type { Slide } from "@/context/DeckContext";
@@ -30,13 +34,19 @@ import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
 } from "@/lib/slide-image-replacement";
-import { IconMaximize, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconMaximize,
+  IconZoomIn,
+  IconZoomOut,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 
 let builderIdCounter = 0;
 const CANVAS_ZOOM_PRESETS = [50, 75, 100, 125, 150, 200] as const;
@@ -388,6 +398,14 @@ export default function SlideEditor({
     w: number;
     h: number;
   } | null>(null);
+  /** Vertical overflow for the current slide (0 = fits). Reported by the
+   *  renderer so we can prompt the agent to rewrite the slide HTML instead of
+   *  silently scaling it down (which created unbalanced right/bottom margins
+   *  on slides whose content was too tall for the canvas). */
+  const [overflowInfo, setOverflowInfo] = useState<SlideOverflowInfo | null>(
+    null,
+  );
+  const [isAskingAgentToFix, setIsAskingAgentToFix] = useState(false);
   const dims = getAspectRatioDims(aspectRatio);
   const canvasWidth = Math.round(dims.width * (canvasZoom / 100));
   const canvasZoomIn = useCallback(() => {
