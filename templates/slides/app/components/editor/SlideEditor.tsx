@@ -345,11 +345,16 @@ function syncSelectionToAppState(
 }
 
 /**
- * Push the current slide's vertical-overflow measurement to application_state
- * under "slide-overflow" so the agent (which has no DOM measurement of its
- * own) can see whether the slide it just generated actually fits the canvas.
- * `view-screen` reads from this key and surfaces a "this slide overflows by
- * Xpx — please rewrite to fit" hint inside the screen context block.
+ * Push the current slide's vertical-fit measurement to application_state
+ * under `slide-fit-check`. Always written, even when the slide fits — the
+ * `add-slide` / `update-slide` actions poll this key and use the
+ * `measuredAt` timestamp + matching `slideId` to confirm the slide they
+ * just wrote has actually been re-rendered and re-measured. If
+ * `verticalOverflow > 0`, the action returns an "overflow" message so the
+ * agent can patch the slide; if it's 0, the action knows the slide fits.
+ *
+ * `view-screen` and the editor badge also read this key so the agent can
+ * see fit status without browser access of its own.
  */
 function syncOverflowToAppState(
   payload: {
@@ -361,9 +366,9 @@ function syncOverflowToAppState(
   } | null,
 ) {
   const url = agentNativePath(
-    "/_agent-native/application-state/slide-overflow",
+    "/_agent-native/application-state/slide-fit-check",
   );
-  if (!payload || payload.verticalOverflow <= 0) {
+  if (!payload) {
     fetch(url, {
       method: "DELETE",
       keepalive: true,
@@ -378,7 +383,7 @@ function syncOverflowToAppState(
       "Content-Type": "application/json",
       "X-Request-Source": TAB_ID,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, measuredAt: Date.now() }),
   }).catch(() => {});
 }
 
@@ -481,17 +486,16 @@ export default function SlideEditor({
     (info: SlideOverflowInfo) => {
       const overflowing = info.verticalOverflow > 0 ? info : null;
       setOverflowInfo(overflowing);
-      syncOverflowToAppState(
-        overflowing
-          ? {
-              slideId: slide.id,
-              deckId: slideId,
-              contentHeight: overflowing.contentHeight,
-              viewportHeight: overflowing.viewportHeight,
-              verticalOverflow: overflowing.verticalOverflow,
-            }
-          : null,
-      );
+      // Always write the measurement (even when verticalOverflow=0) so the
+      // add-slide / update-slide actions can poll for confirmation that the
+      // slide they just wrote has been re-rendered and re-measured.
+      syncOverflowToAppState({
+        slideId: slide.id,
+        deckId: slideId,
+        contentHeight: info.contentHeight,
+        viewportHeight: info.viewportHeight,
+        verticalOverflow: info.verticalOverflow,
+      });
     },
     [slide.id, slideId],
   );
