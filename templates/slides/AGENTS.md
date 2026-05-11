@@ -309,13 +309,13 @@ When `IMAGES_A2A_URL` is configured, `generate-image` delegates to the Images ap
 
 #### Chat-attached images (drag, paste, or attach into the agent composer)
 
-When the user attaches an image to the chat, the framework pre-uploads it through the configured file-upload provider (Builder.io by default) BEFORE you see the message. The hosted URL is injected into your user message as a `<chat-image-attachment url="..." name="..." />` block at the bottom. **Use that `url` directly in `<img src="...">` when embedding the image on a slide — do not re-upload, do not refuse.** You still receive the image visually for vision/analysis.
+When the user attaches an image to the chat, the framework pre-uploads it through the configured file-upload provider (Builder.io by default — or any provider registered via `registerFileUploadProvider`, e.g. S3 / R2 / GCS) BEFORE you see the message. The hosted URL is injected into your user message as a `<chat-image-attachment url="..." name="..." />` block at the bottom. **Use that `url` directly in `<img src="...">` when embedding the image on a slide — do not re-upload, do not refuse.** You still receive the image visually for vision/analysis.
 
-If the user attaches an image and you instead see `<chat-image-attachment-upload-error>`, image uploads are not configured. Suggest the user connect Builder.io for free image hosting (call `connect-builder` to render the one-click Connect card) or set `BUILDER_PRIVATE_KEY`. Until uploads are configured you can still see the image, but you cannot embed it on a slide as a URL.
+If the user attaches an image and you instead see `<chat-image-attachment-upload-error>`, no file-upload provider is configured. Suggest the user configure one — call `connect-builder` for the recommended one-click Builder.io setup (free credits), or point them at `BUILDER_PRIVATE_KEY` / a custom provider registered via `registerFileUploadProvider`. Until uploads are configured you can still see the image, but you cannot embed it on a slide as a URL.
 
 #### Re-hosting other images (generated images, search results, remote URLs)
 
-When `generate-image` or `image-search` returns a transient URL you want to preserve, or when you have an image as a base64 data URL from another tool, call `upload-image` to re-host it on Builder.io. Use `--url` for remote URLs (`upload-image --url "https://..."`) and `--data` for inline data URLs.
+When `generate-image` or `image-search` returns a transient URL you want to preserve, or when you have an image as a base64 data URL from another tool, call `upload-image` to re-host it on whatever provider is configured. Use `--url` for remote URLs (`upload-image --url "https://..."`) and `--data` for inline data URLs.
 
 ### Design Systems
 

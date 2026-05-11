@@ -8,7 +8,7 @@ import fs from "fs";
 import { nanoid } from "nanoid";
 import { getSession } from "@agent-native/core/server";
 import { tenantUploadDir } from "../lib/tenant-files.js";
-import { canSaveAsUploadedAsset, saveUploadedAsset } from "./assets.js";
+import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
 import {
   SLIDES_REFERENCE_FILE_ERROR_LABEL,
   isSlidesReferenceFileExtension,
@@ -94,6 +94,10 @@ export async function saveUploadedReferenceFile(args: {
   await fs.promises.mkdir(uploadDir, { recursive: true });
   const destPath = path.join(uploadDir, filename);
   await fs.promises.writeFile(destPath, args.data);
+  // For images, also push to the file-upload provider so the agent can embed
+  // a hosted URL (in slide HTML, chat replies, etc.). For non-image reference
+  // files (PPTX, DOCX, PDF), the on-disk path is what the agent uses via
+  // shell — no provider URL is required.
   let url: string | undefined;
   if (
     canSaveAsUploadedAsset({
@@ -103,7 +107,7 @@ export async function saveUploadedReferenceFile(args: {
   ) {
     try {
       url = (
-        await saveUploadedAsset({
+        await uploadImageAsset({
           email: args.email,
           originalName: args.originalName,
           data: args.data,
@@ -111,6 +115,9 @@ export async function saveUploadedReferenceFile(args: {
         })
       ).url;
     } catch {
+      // No provider configured or upload failed — the agent still has the
+      // on-disk path. The caller's UI can prompt the user to connect a
+      // provider if it needs a public URL.
       url = undefined;
     }
   }

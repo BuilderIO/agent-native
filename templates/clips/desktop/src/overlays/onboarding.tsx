@@ -28,6 +28,7 @@ export function Onboarding() {
           autoHidePopoverEnabled: false,
           meetingTranscriptionMode: "ask",
           showMeetingWidgetEnabled: true,
+          showInScreenCapture: false,
           onboardingComplete: true,
         },
       });

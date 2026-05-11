@@ -72,6 +72,15 @@ fn set_window_capture_excluded(window: &WebviewWindow, excluded: bool) {
 
 #[cfg(target_os = "macos")]
 pub fn set_capture_excluded(window: &WebviewWindow) {
+    // The "Show overlays in screen capture" debug toggle (Settings → Open
+    // at login section) keeps every overlay visible to screenshot and
+    // screen-recording APIs by short-circuiting exclusion here. Off by
+    // default, so the normal recording flow still keeps Clips chrome out
+    // of the user's captured video.
+    if crate::config::show_in_screen_capture(window.app_handle()) {
+        set_window_capture_excluded(window, false);
+        return;
+    }
     set_window_capture_excluded(window, true);
 }
 
@@ -89,6 +98,35 @@ pub fn set_capture_excluded(_window: &WebviewWindow) {
 #[cfg(not(target_os = "macos"))]
 pub fn set_capture_included(_window: &WebviewWindow) {
     // No-op on non-macOS platforms.
+}
+
+/// Walk every live overlay webview window and reapply its capture-sharing
+/// state so the "Show overlays in screen capture" toggle takes effect
+/// immediately on anything currently on screen. Called from
+/// `set_feature_config` when the toggle flips.
+///
+/// The popover is intentionally skipped — its sharing-type is dynamic
+/// (`set_capture_included` while shown, `set_capture_excluded` while
+/// parked at 2x2 px during recording). Both of those helpers now consult
+/// the toggle, so the next `show_popover` / `park_popover_offscreen` call
+/// picks up the new setting. Rewriting it here would clobber the parked
+/// state mid-recording.
+pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let visible = crate::config::show_in_screen_capture(app);
+        let windows = app.webview_windows();
+        for (label, window) in &windows {
+            if label.as_str() == "popover" {
+                continue;
+            }
+            set_window_capture_excluded(window, !visible);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+    }
 }
 
 /// Show a Tauri WebviewWindow on screen WITHOUT making it the key window or

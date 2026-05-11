@@ -5,8 +5,22 @@ import type {
 } from "./types.js";
 import { builderFileUploadProvider } from "./builder.js";
 
-const providers = new Map<string, FileUploadProvider>();
-let warnedFallback = false;
+// Why globalThis: in dev (Vite HMR) and in some Nitro/Rollup bundle splits,
+// this module can be evaluated more than once — the plugin file that
+// registers a provider lands in one module instance and the request handler
+// that reads providers lands in another, so the call site sees an empty map
+// even though `registerFileUploadProvider` succeeded. Pinning the singletons
+// on `globalThis` guarantees one set of providers per Node process,
+// independent of how the bundler split the chunks.
+interface FileUploadGlobals {
+  __agentNativeFileUploadProviders?: Map<string, FileUploadProvider>;
+  __agentNativeFileUploadWarnedFallback?: { value: boolean };
+}
+const globals = globalThis as typeof globalThis & FileUploadGlobals;
+const providers: Map<string, FileUploadProvider> =
+  (globals.__agentNativeFileUploadProviders ??= new Map());
+const warnedFallbackRef: { value: boolean } =
+  (globals.__agentNativeFileUploadWarnedFallback ??= { value: false });
 
 /**
  * Register a file upload provider. Call from a server plugin or app
@@ -83,12 +97,12 @@ export async function uploadFile(
     return await builderFileUploadProvider.upload(input);
   }
 
-  if (!warnedFallback) {
-    warnedFallback = true;
+  if (!warnedFallbackRef.value) {
+    warnedFallbackRef.value = true;
     console.warn(
-      "[agent-native] No file upload provider configured — storing files in SQL. " +
-        "Connect Builder.io in Settings → File uploads, or register a provider, " +
-        "for production-grade file storage.",
+      "[agent-native] No file upload provider configured. " +
+        "Connect Builder.io in Settings → File uploads, set BUILDER_PRIVATE_KEY, " +
+        "or register a custom provider (S3, R2, GCS, …) via registerFileUploadProvider().",
     );
   }
   return null;

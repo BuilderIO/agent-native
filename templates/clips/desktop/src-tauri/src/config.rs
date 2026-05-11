@@ -17,6 +17,13 @@ pub struct FeatureConfig {
     pub meeting_transcription_mode: MeetingTranscriptionMode,
     #[serde(default = "default_show_meeting_widget_enabled")]
     pub show_meeting_widget_enabled: bool,
+    // Debug / demo aid: when true, Clips's own overlay windows (popover,
+    // toolbar, countdown, finalizing, recording pill, sign-in, voice flow
+    // bar) drop NSWindowSharingNone so they DO appear in screenshots and
+    // screen recordings. Off by default — the windows normally stay out of
+    // captures so they don't leak into the user's recorded video.
+    #[serde(default)]
+    pub show_in_screen_capture: bool,
     pub onboarding_complete: bool,
 }
 
@@ -50,6 +57,7 @@ impl Default for FeatureConfig {
             auto_hide_popover_enabled: false,
             meeting_transcription_mode: default_meeting_transcription_mode(),
             show_meeting_widget_enabled: default_show_meeting_widget_enabled(),
+            show_in_screen_capture: false,
             onboarding_complete: false,
         }
     }
@@ -133,6 +141,10 @@ pub fn auto_hide_popover_enabled(app: &AppHandle) -> bool {
     load_config(app).auto_hide_popover_enabled
 }
 
+pub fn show_in_screen_capture(app: &AppHandle) -> bool {
+    load_config(app).show_in_screen_capture
+}
+
 pub fn feature_config(app: &AppHandle) -> FeatureConfig {
     load_config(app)
 }
@@ -152,7 +164,15 @@ pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result
             eprintln!("[clips-tray] launch-at-login apply failed: {err}");
         }
     }
+    let capture_changed = previous.show_in_screen_capture != config.show_in_screen_capture;
     save_config(&app, &config)?;
+    if capture_changed {
+        // Reapply NSWindow.sharingType to every live overlay window so the
+        // toggle takes effect on anything already on screen (popover,
+        // recording chrome, voice flow bar, etc.) without requiring a
+        // recording-flow round trip.
+        crate::util::reapply_capture_exclusion_to_overlays(&app);
+    }
     let _ = app.emit("app:feature-config-changed", config);
     Ok(())
 }

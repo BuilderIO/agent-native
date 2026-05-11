@@ -390,7 +390,7 @@ export default defineAction({
     "Edit a SQL dashboard config (scope-aware). Prefer this over raw db-patch on the settings table — " +
     "it resolves org vs. user scope correctly so the edit lands on the row the UI actually renders. " +
     "Use `ops` for structural changes (reorder/insert/remove panels, update field values via JSON Pointer paths). " +
-    "Use `config` to replace the entire dashboard config. Call `refresh-screen` after to update the UI.",
+    "Use `config` to replace the entire dashboard config. The UI auto-refreshes after this action — do NOT call `refresh-screen`.",
   schema: z.object({
     dashboardId: z
       .string()
@@ -493,8 +493,7 @@ export default defineAction({
       urlPath: `/adhoc/${args.dashboardId}`,
       message:
         `Dashboard "${args.dashboardId}" updated. ` +
-        `Applied ${details.length} op(s): ${details.join("; ")}. ` +
-        `Call refresh-screen to update the UI.`,
+        `Applied ${details.length} op(s): ${details.join("; ")}.`,
     };
   },
 });

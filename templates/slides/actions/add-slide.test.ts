@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+// Each test sets this; the helper consults it to decide whether to report
+// overflow, fit, or timeout.
+let mockFitCheckResult:
+  | { status: "fits" | "overflows" | "timeout"; measurement?: unknown }
+  | undefined;
 
 let deckData: Record<string, unknown>;
 let updatedFields: Record<string, unknown> | undefined;
@@ -41,6 +46,17 @@ vi.mock("../server/handlers/decks.js", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: (col: unknown, val: unknown) => ({ col, val }),
+}));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  readAppState: async () => null,
+  writeAppState: async () => undefined,
+}));
+
+vi.mock("./_await-fit-check.js", () => ({
+  awaitLayoutFitCheck: async () => mockFitCheckResult ?? { status: "timeout" },
+  formatOverflowForTool: (deckId: string, m: { verticalOverflow: number }) =>
+    `MOCK_OVERFLOW_MESSAGE deck=${deckId} overflow=${m.verticalOverflow}`,
 }));
 
 import action from "./add-slide";
@@ -107,5 +123,75 @@ describe("add-slide", () => {
         position: null as unknown as number,
       }),
     ).rejects.toThrow();
+  });
+
+  it("appends layoutOverflow + auto-fix message when the editor reports vertical overflow", async () => {
+    mockFitCheckResult = {
+      status: "overflows",
+      measurement: {
+        slideId: "slide-new",
+        contentHeight: 645,
+        viewportHeight: 420,
+        verticalOverflow: 225,
+        measuredAt: Date.now(),
+      },
+    };
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+    })) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      layoutOverflow: {
+        verticalOverflow: 225,
+        contentHeight: 645,
+        viewportHeight: 420,
+      },
+    });
+    expect(result.message).toMatch(/MOCK_OVERFLOW_MESSAGE/);
+  });
+
+  it("omits layoutOverflow when the editor reports the slide fits", async () => {
+    mockFitCheckResult = {
+      status: "fits",
+      measurement: {
+        slideId: "slide-new",
+        contentHeight: 380,
+        viewportHeight: 420,
+        verticalOverflow: 0,
+        measuredAt: Date.now(),
+      },
+    };
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+    })) as Record<string, unknown>;
+
+    expect(result.layoutOverflow).toBeUndefined();
+    expect(result.message).toBeUndefined();
+  });
+
+  it("omits layoutOverflow when no editor is open to measure (timeout)", async () => {
+    mockFitCheckResult = { status: "timeout" };
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+    })) as Record<string, unknown>;
+
+    expect(result.layoutOverflow).toBeUndefined();
+    expect(result.message).toBeUndefined();
+    expect(result).toMatchObject({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      slideCount: 3,
+    });
   });
 });
