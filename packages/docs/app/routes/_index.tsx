@@ -181,8 +181,8 @@ function BidirectionalTabs() {
             }
             className={`cursor-pointer rounded-xl border p-4 text-left transition-all md:p-5 ${
               i === activeTab
-                ? "border-[var(--docs-accent)] bg-[var(--docs-accent)]/5 shadow-[0_0_0_1px_var(--docs-accent)]"
-                : "border-[var(--docs-border)] hover:border-[var(--fg-secondary)]/40"
+                ? "border-[var(--docs-accent)] bg-[var(--docs-accent)]/12 shadow-[0_0_0_2px_var(--docs-accent)]"
+                : "border-[var(--docs-border)] hover:border-[var(--fg-secondary)]/40 hover:bg-[var(--docs-border)]/30"
             }`}
           >
             <div className="mb-1 whitespace-nowrap text-sm font-semibold md:whitespace-normal">
