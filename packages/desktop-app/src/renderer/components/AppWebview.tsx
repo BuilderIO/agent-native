@@ -55,14 +55,15 @@ export interface AppWebviewHandle {
  * Determine the URL to load for this app.
  *
  * Production mode (default): load the production URL (e.g. https://mail.agent-native.com).
- * Dev mode: load through the local dev frame (chat+CLI sidebar + app iframe).
+ * Dev mode: honor an explicit devUrl/port override; otherwise first-party templates
+ * fall back to the local dev frame (chat+CLI sidebar + app iframe).
  */
 function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
   if (appConfig?.mode === "dev") {
-    // First-party templates load through the local dev frame. Custom apps
-    // do not have a frame route, so honor their explicit dev URL/port.
-    if (getTemplate(appConfig.id)) return getAppUrl(app);
+    // User-edited dev URL always wins — even for first-party templates.
     if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();
+    // First-party templates without an explicit override go through the frame.
+    if (getTemplate(appConfig.id)) return getAppUrl(app);
     if (appConfig.devPort) return `http://localhost:${appConfig.devPort}`;
     if (appConfig.url) return appConfig.url;
     return getAppUrl(app);

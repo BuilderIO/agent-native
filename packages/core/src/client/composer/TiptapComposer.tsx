@@ -1639,8 +1639,7 @@ export function TiptapComposer({
               mode={plusMenuMode}
             />
           ))}
-        <div className="flex-1" />
-        {actionButton ?? (
+        {!actionButton && (
           <>
             {selectedModel && availableModels && onModelChange && (
               <ModelSelector
@@ -1659,6 +1658,11 @@ export function TiptapComposer({
                 planModeDisabledReason={planModeDisabledReason}
               />
             )}
+          </>
+        )}
+        <div className="flex-1" />
+        {actionButton ?? (
+          <>
             {voiceEnabled && (
               <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />
             )}

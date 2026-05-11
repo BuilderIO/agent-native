@@ -21,10 +21,9 @@ export interface AppDefinition {
   description: string;
   /** Dev server port (used in development mode) */
   devPort: number;
-  /** Accent color for the sidebar indicator */
-  color: string;
-  /** CSS-safe RGB triplet for color-mix usage, e.g. "124 106 247" */
-  colorRgb: string;
+  /** Legacy accent color — kept on built-in templates for the docs site; unused in electron/mobile UI. */
+  color?: string;
+  colorRgb?: string;
   /** Whether this app is a placeholder (no real server yet) */
   placeholder?: boolean;
 }
@@ -43,9 +42,9 @@ export interface AppConfig {
   devUrl?: string;
   /** Optional shell command to start the dev server */
   devCommand?: string;
-  /** Accent color */
-  color: string;
-  colorRgb: string;
+  /** Legacy accent color — kept on built-in templates for the docs site; unused in electron/mobile UI. */
+  color?: string;
+  colorRgb?: string;
   /** Whether this is a built-in default app */
   isBuiltIn: boolean;
   /** Whether the app is enabled/visible */

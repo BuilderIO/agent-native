@@ -31,11 +31,20 @@ function defaultApps(): AppConfig[] {
 }
 
 function canonicalizeDefaultApp(appConfig: AppConfig, def: AppConfig) {
+  // Preserve everything the user can edit in the settings dialog. Only
+  // structural fields the user can't edit (id, icon, isBuiltIn, placeholder)
+  // and template-canonical metadata (color) come from `def`. Without this,
+  // every restart wipes user-edited devUrl/url/name/etc. back to defaults.
   return {
     ...def,
     enabled: appConfig.enabled ?? def.enabled,
     mode: appConfig.mode ?? def.mode,
-    devCommand: def.devCommand ?? appConfig.devCommand,
+    name: appConfig.name || def.name,
+    description: appConfig.description || def.description,
+    url: appConfig.url ?? def.url,
+    devUrl: appConfig.devUrl ?? def.devUrl,
+    devCommand: appConfig.devCommand ?? def.devCommand,
+    devPort: appConfig.devPort || def.devPort,
   };
 }
 
