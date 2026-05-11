@@ -1,5 +1,17 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
-import { IconX, IconPlus, IconHistory, IconSearch } from "@tabler/icons-react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
+import {
+  IconX,
+  IconPlus,
+  IconHistory,
+  IconSearch,
+  IconLinkOff,
+} from "@tabler/icons-react";
 import {
   AssistantChat,
   type AssistantChatProps,
@@ -13,7 +25,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
-import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./components/ui/popover.js";
+import {
+  useChatThreads,
+  type ChatThreadScope,
+  type ChatThreadSummary,
+} from "./use-chat-threads.js";
 import { agentNativePath } from "./api-path.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
@@ -144,12 +165,121 @@ function ChatSkeleton({
   );
 }
 
+// ─── Scope Badge ─────────────────────────────────────────────────────────────
+
+/**
+ * Thin "Working on {Deck Title}" badge that appears at the top of a scoped
+ * chat. Click → popover with the Detach button. Steve called for "minimal
+ * UX, friendly nudge OK" so the badge is text-only and unobtrusive when
+ * the user doesn't need it. It is the only escape hatch for taking a
+ * deck-scoped chat back to a general one, so it stays visible the whole
+ * time a chat is scoped — not just on the empty state.
+ */
+function ScopeBadge({
+  scope,
+  onDetach,
+}: {
+  scope: ChatThreadScope;
+  onDetach: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // Templates that don't have the resource's display title at layout time
+  // pass `{ type, id }` without a label. Render "About this deck" as a
+  // graceful fallback instead of "About deck", which reads oddly.
+  const heading = scope.label
+    ? `About ${scope.label}`
+    : `About this ${scope.type}`;
+  const detailLabel = scope.label || `this ${scope.type}`;
+  return (
+    <div className="flex items-center justify-center py-1 px-3 text-[11px] text-muted-foreground border-b border-border/40 shrink-0">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 hover:bg-accent/50 hover:text-foreground cursor-pointer"
+            aria-label={heading}
+          >
+            <span className="truncate max-w-[220px]">{heading}</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="center" side="bottom" className="w-60 p-2">
+          <p className="px-2 py-1 text-[11px] text-muted-foreground">
+            This chat is bound to{" "}
+            <span className="text-foreground">{detailLabel}</span>. New chats
+            started while you're here stay in this chat list; switch to another{" "}
+            {scope.type} to find its threads.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onDetach();
+            }}
+            className="mt-1 flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent cursor-pointer"
+          >
+            <IconLinkOff size={13} />
+            <span>Detach from this {scope.type}</span>
+          </button>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 // ─── History Popover ─────────────────────────────────────────────────────────
+
+function renderThreadRow(
+  thread: ChatThreadSummary,
+  activeThreadId: string | null,
+  openTabIds: Set<string>,
+  formatTime: (ts: number) => string,
+  onSelect: (id: string) => void,
+  onClose: () => void,
+) {
+  const isActive = thread.id === activeThreadId;
+  return (
+    <button
+      key={thread.id}
+      onClick={() => {
+        onSelect(thread.id);
+        onClose();
+      }}
+      className={cn(
+        "w-full px-3 py-2 text-left hover:bg-accent/50 cursor-pointer",
+        isActive && "bg-accent/30",
+      )}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs font-medium text-foreground truncate">
+          {thread.title || thread.preview || "Chat"}
+        </span>
+        <span className="text-[10px] text-muted-foreground shrink-0">
+          {isActive
+            ? "Active"
+            : openTabIds.has(thread.id)
+              ? "Open"
+              : formatTime(thread.updatedAt)}
+        </span>
+      </div>
+      {thread.preview && thread.title !== thread.preview && (
+        <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+          {thread.preview}
+        </div>
+      )}
+      {thread.scope?.label && (
+        <div className="mt-0.5 text-[10px] text-muted-foreground/70 truncate">
+          {thread.scope.label}
+        </div>
+      )}
+    </button>
+  );
+}
 
 function HistoryPopover({
   threads,
   openTabIds,
   activeThreadId,
+  currentScope,
   onSelect,
   onClose,
   onSearch,
@@ -157,6 +287,7 @@ function HistoryPopover({
   threads: ChatThreadSummary[];
   openTabIds: Set<string>;
   activeThreadId: string | null;
+  currentScope?: ChatThreadScope | null;
   onSelect: (id: string) => void;
   onClose: () => void;
   onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
@@ -224,6 +355,26 @@ function HistoryPopover({
       )
     : visibleThreads;
 
+  // When scope is set we split history into two sections so the user can
+  // see "this deck's chats" first without losing access to general /
+  // other-deck chats. Section labels intentionally use the current
+  // resource type (deck/design/dashboard) instead of a generic phrase.
+  const sectionedThreads = currentScope
+    ? {
+        scoped: filtered.filter(
+          (t) =>
+            t.scope?.type === currentScope.type &&
+            t.scope?.id === currentScope.id,
+        ),
+        other: filtered.filter(
+          (t) =>
+            !t.scope ||
+            t.scope.type !== currentScope.type ||
+            t.scope.id !== currentScope.id,
+        ),
+      }
+    : null;
+
   const formatTime = (ts: number) => {
     const d = new Date(ts);
     const now = new Date();
@@ -260,41 +411,54 @@ function HistoryPopover({
             <div className="px-3 py-4 text-xs text-muted-foreground text-center">
               {search ? "No matching chats" : "No chats yet"}
             </div>
-          ) : (
-            filtered.map((thread) => {
-              const isActive = thread.id === activeThreadId;
-              return (
-                <button
-                  key={thread.id}
-                  onClick={() => {
-                    onSelect(thread.id);
-                    onClose();
-                  }}
-                  className={cn(
-                    "w-full px-3 py-2 text-left hover:bg-accent/50",
-                    isActive && "bg-accent/30",
-                  )}
-                >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-xs font-medium text-foreground truncate">
-                      {thread.title || thread.preview || "Chat"}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground shrink-0">
-                      {isActive
-                        ? "Active"
-                        : openTabIds.has(thread.id)
-                          ? "Open"
-                          : formatTime(thread.updatedAt)}
-                    </span>
+          ) : sectionedThreads ? (
+            <>
+              {sectionedThreads.scoped.length > 0 && (
+                <>
+                  <div className="px-3 pt-1.5 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                    This {currentScope!.type}
                   </div>
-                  {thread.preview && thread.title !== thread.preview && (
-                    <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-                      {thread.preview}
-                    </div>
+                  {sectionedThreads.scoped.map((thread) =>
+                    renderThreadRow(
+                      thread,
+                      activeThreadId,
+                      openTabIds,
+                      formatTime,
+                      onSelect,
+                      onClose,
+                    ),
                   )}
-                </button>
-              );
-            })
+                </>
+              )}
+              {sectionedThreads.other.length > 0 && (
+                <>
+                  <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                    All chats
+                  </div>
+                  {sectionedThreads.other.map((thread) =>
+                    renderThreadRow(
+                      thread,
+                      activeThreadId,
+                      openTabIds,
+                      formatTime,
+                      onSelect,
+                      onClose,
+                    ),
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            filtered.map((thread) =>
+              renderThreadRow(
+                thread,
+                activeThreadId,
+                openTabIds,
+                formatTime,
+                onSelect,
+                onClose,
+              ),
+            )
           )}
         </div>
       </div>
@@ -404,6 +568,15 @@ export type MultiTabAssistantChatProps = Omit<
   contentHidden?: boolean;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
+  /**
+   * Bind new chats to a resource (deck, design, dashboard, etc.). When set,
+   * the tab bar, history popover, and active-thread persistence all
+   * partition by `{type, id}` — switching resources lands the user on the
+   * thread they last had open for that resource, not whichever chat was
+   * globally active. New chats automatically inherit this scope; the user
+   * can detach a chat via the scope chip above the composer.
+   */
+  scope?: ChatThreadScope | null;
 };
 
 export function MultiTabAssistantChat({
@@ -413,6 +586,7 @@ export function MultiTabAssistantChat({
   contentHidden = false,
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
+  scope = null,
   ...props
 }: MultiTabAssistantChatProps) {
   const {
@@ -422,13 +596,14 @@ export function MultiTabAssistantChat({
     createThread,
     switchThread,
     deleteThread,
+    detachThread,
     forkThread,
     saveThreadData,
     generateTitle,
     searchThreads,
     refreshThreads,
     isNewThread,
-  } = useChatThreads(apiUrl, storageKey);
+  } = useChatThreads(apiUrl, storageKey, scope);
 
   // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -699,7 +874,11 @@ export function MultiTabAssistantChat({
   }, [subAgentNames, SUB_AGENT_NAMES_KEY]);
 
   // Open tabs — persisted to localStorage so they survive refresh.
-  const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}`;
+  // Per-scope: when scope changes (e.g. user navigates from Deck A to Deck
+  // B), the tab bar reflects whichever tabs they had open for *that*
+  // resource. We do not bleed deck A's tabs into deck B's view.
+  const scopeKeyPart = scope ? `:scope:${scope.type}:${scope.id}` : "";
+  const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}${scopeKeyPart}`;
   const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(OPEN_TABS_KEY);
@@ -716,8 +895,50 @@ export function MultiTabAssistantChat({
   });
   const initializedRef = useRef(false);
 
+  // Rehydrate open tabs when the scope flips. Mirrors `persistedKeyRef` in
+  // `useChatThreads`: on a scope change we need to read the new key BEFORE
+  // the persistence effect writes the current (now-wrong) tab list under
+  // that new key.
+  const openTabsKeyRef = useRef(OPEN_TABS_KEY);
+  useEffect(() => {
+    if (openTabsKeyRef.current === OPEN_TABS_KEY) return;
+    openTabsKeyRef.current = OPEN_TABS_KEY;
+    initializedRef.current = false;
+    try {
+      const saved = localStorage.getItem(OPEN_TABS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          for (const id of parsed) mountedTabsRef.current.add(id);
+          setOpenTabIds(parsed);
+          return;
+        }
+      }
+    } catch {}
+    setOpenTabIds([]);
+  }, [OPEN_TABS_KEY]);
+
+  // Look up the active thread's actual scope from the list — when the
+  // user opens a chat from history that was scoped to a different
+  // resource, the badge should advertise that thread's binding, not
+  // necessarily the resource currently in the viewport. When the thread
+  // and the live prop refer to the same resource, prefer the prop's
+  // label so a rename or a deferred deck-title load shows up in the UI
+  // without waiting on the next persistence cycle.
+  const activeThreadScope = useMemo<ChatThreadScope | null>(() => {
+    if (!activeThreadId) return null;
+    const t = threads.find((x) => x.id === activeThreadId);
+    const stored = t?.scope ?? null;
+    if (!stored) return null;
+    if (scope && stored.type === scope.type && stored.id === scope.id) {
+      return { ...stored, label: scope.label || stored.label };
+    }
+    return stored;
+  }, [threads, activeThreadId, scope?.type, scope?.id, scope?.label]);
+
   // Persist open tab IDs to localStorage (exclude sub-agent tabs — they're session-only)
   useEffect(() => {
+    if (openTabsKeyRef.current !== OPEN_TABS_KEY) return;
     const mainTabs = openTabIds.filter((id) => !parentMap[id]);
     if (mainTabs.length > 0) {
       try {
@@ -1540,12 +1761,25 @@ export function MultiTabAssistantChat({
       <div className="relative flex-1 flex flex-col min-h-0">
         {renderOverlay ? renderOverlay(headerProps) : null}
 
+        {/* Scope badge — only visible when the active chat is bound to a
+            resource. Click for the detach popover. The scope used here
+            comes from the THREAD (not the component prop) so a chat
+            opened from history accurately advertises its own binding,
+            not whichever resource the user happens to be viewing. */}
+        {activeThreadScope && activeThreadId && (
+          <ScopeBadge
+            scope={activeThreadScope}
+            onDetach={() => detachThread(activeThreadId)}
+          />
+        )}
+
         {/* History popover — rendered inside relative container so positioning works */}
         {showHistory && (
           <HistoryPopover
             threads={threads}
             openTabIds={new Set(openTabIds)}
             activeThreadId={activeThreadId}
+            currentScope={scope}
             onSelect={openFromHistory}
             onClose={() => setShowHistory(false)}
             onSearch={searchThreads}
@@ -1586,6 +1820,11 @@ export function MultiTabAssistantChat({
                 />
                 <AssistantChat
                   {...props}
+                  emptyStateText={
+                    activeThreadScope?.label && tabId === activeThreadId
+                      ? `Ask about ${activeThreadScope.label}`
+                      : props.emptyStateText
+                  }
                   ref={(handle) => {
                     if (handle) {
                       chatRefs.current.set(tabId, handle);

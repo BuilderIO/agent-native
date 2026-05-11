@@ -55,6 +55,7 @@ export default function DesignSystemSetup() {
   const [assets, setAssets] = useState<UploadedFile[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [notes, setNotes] = useState("");
+  const [customInstructions, setCustomInstructions] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const figInputRef = useRef<HTMLInputElement>(null);
@@ -98,7 +99,8 @@ export default function DesignSystemSetup() {
       imageFiles.length > 0 ||
       assets.length > 0 ||
       selectedProjectId ||
-      notes.trim()
+      notes.trim() ||
+      customInstructions.trim()
     );
   }, [
     companyInfo,
@@ -113,6 +115,7 @@ export default function DesignSystemSetup() {
     assets,
     selectedProjectId,
     notes,
+    customInstructions,
   ]);
 
   const addWebsiteUrl = useCallback(() => {
@@ -382,8 +385,18 @@ export default function DesignSystemSetup() {
       parts.push(`\n## Additional Notes\n${notes.trim()}`);
     }
 
+    if (customInstructions.trim()) {
+      parts.push(
+        `\n## Custom Instructions (durable — store on the design system)\nWhen you call \`create-design-system\`, pass these verbatim as the \`customInstructions\` argument. They will be re-applied every time the design system is used to generate a design:\n\n${customInstructions.trim()}`,
+      );
+    }
+
     parts.push(
-      `\n---\nAfter processing all sources, call \`create-design-system\` with the combined tokens. Present a summary for review.`,
+      `\n---\nAfter processing all sources, call \`create-design-system\` with the combined tokens${
+        customInstructions.trim()
+          ? " AND the verbatim --customInstructions string from above"
+          : ""
+      }. Present a summary for review.`,
     );
 
     openAgentSidebar();
@@ -403,6 +416,7 @@ export default function DesignSystemSetup() {
     assets,
     selectedProjectId,
     notes,
+    customInstructions,
     existingProjects,
     existingSystems,
     navigate,
@@ -854,6 +868,20 @@ export default function DesignSystemSetup() {
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="e.g. We prefer a dark theme with high contrast. Our brand uses Poppins for headings and DM Sans for body. Keep corners rounded at 12px..."
                 rows={3}
+                className="bg-accent/50 border-border"
+              />
+            </Section>
+
+            {/* Custom instructions — durable, stored on the design system */}
+            <Section
+              title="Custom instructions"
+              description="Saved with the design system. Re-applied every time the agent uses it to generate a design."
+            >
+              <Textarea
+                value={customInstructions}
+                onChange={(e) => setCustomInstructions(e.target.value)}
+                placeholder="e.g. Always include a sticky top nav. Prefer editorial pull quotes over hero stats. Never use gradient backgrounds. Logos always go bottom-left..."
+                rows={4}
                 className="bg-accent/50 border-border"
               />
             </Section>

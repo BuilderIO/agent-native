@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useLocation } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
@@ -20,6 +21,24 @@ const BARE_ROUTES = new Set(["/chart"]);
 export function Layout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
+
+  // Analytics has two distinct "primary resources" — dashboards
+  // (`/adhoc/:id`) and ad-hoc analyses (`/analyses/:id`). Each binds the
+  // chat to that artifact so a dashboard chat doesn't leak into a
+  // different analysis (and vice versa). The list pages and overview
+  // leave scope null so general data questions still work.
+  const analyticsScope = useMemo(() => {
+    const dashMatch = location.pathname.match(/^\/adhoc\/([^/]+)/);
+    if (dashMatch?.[1]) {
+      return { type: "dashboard" as const, id: dashMatch[1] };
+    }
+    const analysisMatch = location.pathname.match(/^\/analyses\/([^/]+)/);
+    if (analysisMatch?.[1]) {
+      return { type: "analysis" as const, id: analysisMatch[1] };
+    }
+    return null;
+  }, [location.pathname]);
+
   const {
     questions: guidedQuestions,
     title: guidedTitle,
@@ -67,6 +86,7 @@ export function Layout({ children }: LayoutProps) {
             "Why did signups drop last week?",
             "Compare this week's revenue to last",
           ]}
+          scope={analyticsScope}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">
             <MobileNav />

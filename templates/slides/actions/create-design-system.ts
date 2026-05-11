@@ -27,8 +27,14 @@ export default defineAction({
       .string()
       .optional()
       .describe("JSON string of DesignSystemAsset[] (logos, fonts, images)"),
+    customInstructions: z
+      .string()
+      .optional()
+      .describe(
+        "Free-form guidance the agent should follow whenever it generates slides using this design system (tone, voice, layout preferences, dos and don'ts).",
+      ),
   }),
-  run: async ({ title, description, data, assets }) => {
+  run: async ({ title, description, data, assets, customInstructions }) => {
     // Validate that data is valid JSON
     try {
       JSON.parse(data);
@@ -66,6 +72,7 @@ export default defineAction({
       description: description ?? null,
       data,
       assets: assets ?? null,
+      customInstructions: customInstructions ?? "",
       isDefault,
       ownerEmail,
       orgId,

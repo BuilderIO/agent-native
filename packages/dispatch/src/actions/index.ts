@@ -3,6 +3,7 @@ import approveDispatchChange from "./approve-dispatch-change.js";
 import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import createLinkToken from "./create-link-token.js";
+import createPylonTicket from "./create-pylon-ticket.js";
 import createVaultGrant from "./create-vault-grant.js";
 import createVaultSecret from "./create-vault-secret.js";
 import createWorkspaceResourceGrant from "./create-workspace-resource-grant.js";
@@ -68,6 +69,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "approve-vault-request": approveVaultRequest,
   "archive-workspace-app": archiveWorkspaceApp,
   "create-link-token": createLinkToken,
+  "create-pylon-ticket": createPylonTicket,
   "create-vault-grant": createVaultGrant,
   "create-vault-secret": createVaultSecret,
   "create-workspace-resource-grant": createWorkspaceResourceGrant,

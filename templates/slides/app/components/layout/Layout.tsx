@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
@@ -8,6 +8,7 @@ import { InvitationBanner } from "@agent-native/core/client/org";
 import { IconMenu2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
+import { useDecks } from "@/context/DeckContext";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 
 interface LayoutProps {
@@ -30,6 +31,20 @@ export function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
+  const { getDeck } = useDecks();
+
+  // Scope new chats to the deck the user is currently editing. The route
+  // is `/deck/:id`; everywhere else (list, settings, presentation) leaves
+  // scope null so chats stay in the general pool. Falling back to the
+  // raw deck id keeps the chat bound even before the deck object has
+  // streamed in — once the title arrives the badge updates in place.
+  const deckScope = useMemo(() => {
+    const match = location.pathname.match(/^\/deck\/([^/]+)/);
+    const deckId = match?.[1];
+    if (!deckId) return null;
+    const deck = getDeck(deckId);
+    return { type: "deck" as const, id: deckId, label: deck?.title || "" };
+  }, [location.pathname, getDeck]);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -56,6 +71,7 @@ export function Layout({ children }: LayoutProps) {
           "Apply our brand to this deck",
           "Generate a hero image for this slide",
         ]}
+        scope={deckScope}
       >
         <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
           {sidebarOpen && (

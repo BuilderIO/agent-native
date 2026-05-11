@@ -197,14 +197,25 @@ function saveDeckToAPI(deck: Deck) {
   notifySaveListeners();
 }
 
-async function fetchDecksFromAPI(): Promise<Deck[]> {
+/**
+ * Fetch the deck list. Returns `null` on any failure (network error, non-2xx
+ * response) so callers can distinguish "authoritative empty list" from
+ * "couldn't reach the server" — wiping local state on a transient failure
+ * kicks the user out of the editor and shows the "Create your first deck"
+ * empty state, even though their decks still exist on the server. The 200/[]
+ * case still means the user has no decks and is returned as `[]`.
+ */
+async function fetchDecksFromAPI(): Promise<Deck[] | null> {
   try {
     const res = await fetch(`${appBasePath()}/api/decks`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      console.warn(`Failed to fetch decks: HTTP ${res.status}`);
+      return null;
+    }
     return await res.json();
   } catch (err) {
     console.error("Failed to fetch decks:", err);
-    return [];
+    return null;
   }
 }
 
@@ -306,13 +317,17 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // Load decks from API on mount
   useEffect(() => {
     fetchDecksFromAPI().then((loaded) => {
+      // Initial fetch failed — start empty so the UI can render. The fallback
+      // poll will retry shortly; until then `decks` stays empty without
+      // triggering the save effect (lastExternalUpdateRef is bumped).
+      const initial = loaded ?? [];
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
-      setDecks(loaded);
+      setDecks(initial);
       setHistory([
         {
           timestamp: Date.now(),
           label: "Initial state",
-          decks: JSON.parse(JSON.stringify(loaded)),
+          decks: JSON.parse(JSON.stringify(initial)),
         },
       ]);
       setHistoryIndex(0);
@@ -359,29 +374,36 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         ) {
           lastListFetchAt = now;
           const fresh = await fetchDecksFromAPI();
-          const currentDecks = decksRef.current;
-          const currentIds = new Set(currentDecks.map((d) => d.id));
-          const freshIds = new Set(fresh.map((d) => d.id));
-          // Check if deck list changed (added or removed). Optimistic decks
-          // still in flight are preserved (not treated as removed).
-          const added = fresh.filter((d) => !currentIds.has(d.id));
-          const removed = currentDecks.filter(
-            (d) => !freshIds.has(d.id) && !pending.has(d.id),
-          );
-          if (added.length > 0 || removed.length > 0) {
-            lastExternalUpdateRef.current = Date.now();
-            setDecks((prev) => {
-              const prevIds = new Set(prev.map((d) => d.id));
-              let next = prev.filter(
-                (d) => freshIds.has(d.id) || pending.has(d.id),
-              );
-              // Only add decks that aren't already in prev (prevents duplicates
-              // when the closure's deck snapshot is stale compared to `prev`).
-              for (const a of added) {
-                if (!prevIds.has(a.id)) next = [...next, a];
-              }
-              return next;
-            });
+          // A null result means the fetch failed (network error or non-2xx).
+          // Skip the diff so we don't wipe local state on a transient failure
+          // — otherwise the user's open deck disappears and they're bounced
+          // back to the empty "Create your first deck" screen until the next
+          // poll succeeds.
+          if (fresh !== null) {
+            const currentDecks = decksRef.current;
+            const currentIds = new Set(currentDecks.map((d) => d.id));
+            const freshIds = new Set(fresh.map((d) => d.id));
+            // Check if deck list changed (added or removed). Optimistic decks
+            // still in flight are preserved (not treated as removed).
+            const added = fresh.filter((d) => !currentIds.has(d.id));
+            const removed = currentDecks.filter(
+              (d) => !freshIds.has(d.id) && !pending.has(d.id),
+            );
+            if (added.length > 0 || removed.length > 0) {
+              lastExternalUpdateRef.current = Date.now();
+              setDecks((prev) => {
+                const prevIds = new Set(prev.map((d) => d.id));
+                let next = prev.filter(
+                  (d) => freshIds.has(d.id) || pending.has(d.id),
+                );
+                // Only add decks that aren't already in prev (prevents duplicates
+                // when the closure's deck snapshot is stale compared to `prev`).
+                for (const a of added) {
+                  if (!prevIds.has(a.id)) next = [...next, a];
+                }
+                return next;
+              });
+            }
           }
         }
 

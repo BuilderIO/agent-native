@@ -20,14 +20,32 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 
 1. **Server** increments a version counter on every database write. In-process events stream through the authenticated `/_agent-native/events` endpoint.
 
-2. **Client** listens for SSE changes and invalidates React Query caches:
+2. **Client** listens for SSE/poll events and updates per-source change counters:
 
    ```ts
    import { useDbSync } from "@agent-native/core";
    useDbSync({ queryClient });
    ```
 
-   On any non-own change event, `useDbSync` calls `queryClient.invalidateQueries()` — every active query refetches. Templates no longer need to enumerate their keys; React Query only refetches active observers, dedupes concurrent invalidations, and respects each query's `staleTime`, so the cost is bounded. The legacy `queryKeys` option is still accepted for backward compatibility but is ignored.
+   For each non-own event, `useDbSync` bumps a per-source counter (e.g. `dashboards`, `analyses`, `settings`, `action`) and invalidates a small fixed list of framework-internal prefixes (`["action"]`, `["app-state"]`, `["__set_url__"]`, etc.). It does **not** blanket-invalidate templates' own data queries — that caused a request storm in production.
+
+3. **Templates fold per-source counters into their query keys.** This is the pattern that makes "agent writes show up without a manual refresh" reliable:
+
+   ```ts
+   import { useChangeVersion } from "@agent-native/core/client";
+   import { useQuery } from "@tanstack/react-query";
+
+   const v = useChangeVersion("dashboards");
+   const dashboard = useQuery({
+     queryKey: ["dashboard", id, v],
+     queryFn: () => fetchDashboard(id),
+     placeholderData: (prev) => prev, // no flicker on refetch
+   });
+   ```
+
+   When the agent writes (`update-dashboard` action → server emits `source: "dashboards"`), the counter advances, the queryKey changes, and React Query refetches that one query. The old data stays on screen during the refetch thanks to `placeholderData`.
+
+   For list/sidebar queries, use the same pattern — pass the counter into the queryKey of every list query you want to keep fresh.
 
 3. **Fallback** polling calls `/_agent-native/poll?since=N`. It runs every 2 seconds until SSE is connected, then relaxes to 15 seconds. If SSE is disabled or unavailable, polling continues at the normal cadence.
 
@@ -38,24 +56,31 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 - Don't create manual polling loops — `useDbSync()` handles SSE plus fallback polling
 - Don't create your own fetch-based polling alongside `useDbSync` — use the `onEvent` callback for custom handling
 
-## Tuning refetch behavior
+## Which sources to depend on
 
-`useDbSync` invalidates every active query on any non-own change event. The `onEvent` callback still fires with each change event, so templates can layer surgical extras on top — for example, invalidating an inactive query that wouldn't otherwise refetch:
+Common sources you'll fold into query keys:
+
+| Source            | Bumped by                                                                   |
+| ----------------- | --------------------------------------------------------------------------- |
+| `action`          | The agent runner after every successful mutating action tool call           |
+| `app-state`       | Writes to `application_state` (navigation, selections, ephemeral UI state)  |
+| `settings`        | Writes to the `settings` table                                              |
+| `dashboards`      | Dashboard CRUD via `upsertDashboard` / `archiveDashboard` etc.              |
+| `analyses`        | Analysis CRUD                                                               |
+| `extensions`      | Extension CRUD                                                              |
+| `collab`          | Yjs collaborative-doc updates                                               |
+| `screen-refresh`  | Explicit `refresh-screen` agent tool call                                   |
+
+If a query reads data the agent can mutate via more than one path, depend on multiple sources with `useChangeVersions`:
 
 ```ts
-useDbSync({
-  queryClient,
-  onEvent: (data) => {
-    if (data.source === "settings") {
-      // Force a refetch even when not actively observed
-      queryClient.invalidateQueries({
-        queryKey: ["settings"],
-        refetchType: "all",
-      });
-    }
-  },
-});
+const v = useChangeVersions(["dashboards", "action"]);
+useQuery({ queryKey: ["dashboard", id, v], ... });
 ```
+
+`useChangeVersions` returns a single integer that advances whenever any of the listed sources advance.
+
+## Tuning refetch behavior
 
 To prevent cache thrashing during rapid agent writes, set `staleTime` on your queries:
 

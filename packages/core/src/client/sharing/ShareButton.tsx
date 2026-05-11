@@ -83,12 +83,21 @@ interface Share {
   role: Role;
 }
 
+interface SharesPolicy {
+  /** When false, the visibility picker hides "Public". Default: true. */
+  allowPublic: boolean;
+  /** When true, individual user shares must target an org member or pending invitee. Default: false. */
+  requireOrgMemberForUserShares: boolean;
+}
+
 interface SharesResponse {
   ownerEmail: string | null;
   orgId: string | null;
   visibility: Visibility | null;
   role?: "owner" | Role;
   shares: Share[];
+  /** Server-declared policy for what visibilities and share targets are allowed. */
+  policy?: SharesPolicy;
 }
 
 // Mirror shadcn's <Button size="sm" variant="outline"> class string so the
@@ -246,6 +255,10 @@ export function ShareButton(props: ShareButtonProps) {
   // While the query is loading and we don't know the visibility yet,
   // render a skeleton placeholder in the icon slot instead of guessing.
   const loaded = sharesQuery.data !== undefined;
+  const policy: SharesPolicy = sharesQuery.data?.policy ?? {
+    allowPublic: true,
+    requireOrgMemberForUserShares: false,
+  };
   const serverVisibility =
     (sharesQuery.data?.visibility as Visibility | null) ?? "private";
   const currentVisibility = pendingVisibility ?? serverVisibility;
@@ -347,6 +360,7 @@ function SharePanel(
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
+  const [shareError, setShareError] = useState<string | null>(null);
   const hasInviteEmail = email.trim().length > 0;
   const orgMembers = useOrgMembers();
   const datalistId = `share-autocomplete-${resourceType}-${resourceId}`;
@@ -377,6 +391,10 @@ function SharePanel(
 
   const data = sharesQuery.data;
   const isLoading = data === undefined;
+  const policy: SharesPolicy = data?.policy ?? {
+    allowPublic: true,
+    requireOrgMemberForUserShares: false,
+  };
   const visibility: Visibility =
     visibilityOverride ?? (data?.visibility as Visibility | null) ?? "private";
   const canManage = data?.role === "owner" || data?.role === "admin";
@@ -392,7 +410,10 @@ function SharePanel(
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
-    void onVisibilityChange(next).catch(() => {});
+    setShareError(null);
+    void onVisibilityChange(next).catch((err) => {
+      setShareError(extractShareErrorMessage(err));
+    });
   };
 
   const handleAdd = () => {
@@ -407,6 +428,7 @@ function SharePanel(
     const k = keyOf(optimistic);
     // Ignore duplicate submits while an add for the same principal is in flight.
     if (inFlight.has(k)) return;
+    setShareError(null);
     setPendingAdds((p) => [...p, optimistic]);
     setEmail("");
     addInFlight(k);
@@ -427,9 +449,11 @@ function SharePanel(
             clearInFlight(k);
           });
         },
-        onError: () => {
+        onError: (err: any) => {
           setPendingAdds((p) => p.filter((s) => s.id !== optimistic.id));
           clearInFlight(k);
+          setEmail(trimmed);
+          setShareError(extractShareErrorMessage(err));
         },
       },
     );
@@ -558,9 +582,16 @@ function SharePanel(
           <div className="flex items-stretch gap-2">
             <input
               type="email"
-              placeholder="Add people by email"
+              placeholder={
+                policy.requireOrgMemberForUserShares
+                  ? "Add people from your organization"
+                  : "Add people by email"
+              }
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (shareError) setShareError(null);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleAdd();
               }}
@@ -591,6 +622,14 @@ function SharePanel(
             ) : null}
             <RoleSelect value={role} onChange={setRole} />
           </div>
+          {shareError ? (
+            <div
+              role="alert"
+              className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            >
+              {shareError}
+            </div>
+          ) : null}
           {hasInviteEmail ? (
             <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
               <input
@@ -683,6 +722,7 @@ function SharePanel(
             onChange={handleVisibility}
             disabled={!canManage}
             visibilityCopy={props.visibilityCopy}
+            allowPublic={policy.allowPublic}
           />
           <div className="mt-0.5 text-xs text-muted-foreground">
             {meta.description}
@@ -887,8 +927,14 @@ function VisibilitySelect(props: {
   onChange: (v: Visibility) => void;
   disabled?: boolean;
   visibilityCopy?: ShareButtonProps["visibilityCopy"];
+  /** When false, the "Public" option is omitted. Default: true. */
+  allowPublic?: boolean;
 }) {
+  const allowPublic = props.allowPublic !== false;
   const current = visibilityMeta(props.value, props.visibilityCopy);
+  const options = (Object.keys(VIS_META) as Visibility[]).filter(
+    (k) => allowPublic || k !== "public",
+  );
   return (
     <Select.Root
       value={props.value}
@@ -915,7 +961,7 @@ function VisibilitySelect(props: {
         >
           <Select.Viewport>
             <SelectItems
-              items={(Object.keys(VIS_META) as Visibility[]).map((k) => ({
+              items={options.map((k) => ({
                 value: k,
                 label: visibilityMeta(k, props.visibilityCopy).label,
                 description: visibilityMeta(k, props.visibilityCopy)
@@ -942,6 +988,33 @@ function Avatar({ label, org }: { label: string; org?: boolean }) {
 
 function keyOf(s: Share): string {
   return `${s.principalType}:${s.principalId}`;
+}
+
+/**
+ * Pull a user-readable error message out of a failed action call. Action
+ * routes surface server-side errors as a JSON `{ error: string }` body that
+ * the `useActionMutation` wrapper re-throws as
+ * `Error("Action <name> failed: <message>")`. Strip the framework prefix so
+ * what reaches the user is the underlying server message.
+ */
+function extractShareErrorMessage(err: unknown): string {
+  const fallback = "Could not update sharing — please try again.";
+  const pickRaw = (): string | null => {
+    if (!err) return null;
+    if (err instanceof Error) return err.message?.trim() || null;
+    if (typeof err === "string") return err.trim() || null;
+    if (typeof err === "object") {
+      const any = err as { error?: unknown; message?: unknown };
+      if (typeof any.error === "string" && any.error.trim()) return any.error;
+      if (typeof any.message === "string" && any.message.trim())
+        return any.message;
+    }
+    return null;
+  };
+  const raw = pickRaw();
+  if (!raw || raw.toLowerCase() === "failed to fetch") return fallback;
+  const stripped = raw.replace(/^Action\s+[\w-]+\s+failed:\s*/i, "");
+  return stripped || fallback;
 }
 function getNotificationUrl(explicit?: string): string | undefined {
   if (explicit) return explicit;

@@ -20,14 +20,27 @@ The agent modifies data in SQL, but the UI runs in the browser. Polling bridges 
 
 1. **Server** increments a version counter on every database write. The `/_agent-native/poll` endpoint returns the current version and any events since the last poll.
 
-2. **Client** polls for changes and invalidates React Query caches:
+2. **Client** polls for changes and updates per-source counters:
 
    ```ts
    import { useDbSync } from "@agent-native/core";
    useDbSync({ queryClient });
    ```
 
-3. When the agent writes to the database, the version increments, polling detects it, and React Query refetches every active query. Templates no longer need to enumerate their query keys — the hook invalidates the whole cache on any non-own change event. The legacy `queryKeys` option is still accepted for backward compatibility but is ignored.
+3. **Templates fold a per-source counter into the relevant query key.** When the source advances, only the dependent query refetches:
+
+   ```ts
+   import { useChangeVersion } from "@agent-native/core/client";
+
+   const v = useChangeVersion("items"); // or "settings", "dashboards", "action", etc.
+   const { data } = useQuery({
+     queryKey: ["items", v],
+     queryFn: fetchItems,
+     placeholderData: (prev) => prev,
+   });
+   ```
+
+4. When the agent writes to the database, the server emits a `recordChange({ source, ... })` event. `useDbSync` bumps the matching counter; any query with that counter in its key refetches; everything else stays untouched.
 
 ## Don't
 

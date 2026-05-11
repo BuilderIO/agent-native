@@ -11,7 +11,11 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconFlask, IconClock, IconDatabase } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
-import { appApiPath, useSendToAgentChat } from "@agent-native/core/client";
+import {
+  appApiPath,
+  useSendToAgentChat,
+  useChangeVersion,
+} from "@agent-native/core/client";
 
 interface AnalysisSummary {
   id: string;
@@ -49,10 +53,12 @@ function formatRelativeDate(iso: string): string {
 }
 
 export default function AnalysesList() {
+  const analysesSync = useChangeVersion("analyses");
   const { data: analyses, isLoading } = useQuery({
-    queryKey: ["analyses-list"],
+    queryKey: ["analyses-list", analysesSync],
     queryFn: fetchAnalyses,
     staleTime: 10_000,
+    placeholderData: (prev) => prev,
   });
 
   const { send, codeRequiredDialog } = useSendToAgentChat();

@@ -41,4 +41,9 @@ export const envKeys: EnvKeyConfig[] = [
     label: "WhatsApp phone number ID",
     required: false,
   },
+  {
+    key: "PYLON_API_KEY",
+    label: "Pylon API key",
+    required: false,
+  },
 ];

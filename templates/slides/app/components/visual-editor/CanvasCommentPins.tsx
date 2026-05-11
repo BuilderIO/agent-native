@@ -25,6 +25,77 @@ export interface CanvasPin {
   submitted?: boolean;
 }
 
+const POPOVER_WIDTH = 288; // tailwind w-72
+const POPOVER_HEIGHT_ESTIMATE = 200;
+const POPOVER_GAP = 12;
+const VIEWPORT_MARGIN = 16;
+
+/** Right-anchored sidebar inset (e.g. the agent sidebar) so we don't slide the
+ * composer underneath it. Mirrors the logic Pinpoint's toolbar uses. */
+function getRightSidebarInset(): number {
+  if (typeof window === "undefined" || typeof document === "undefined")
+    return 0;
+  let inset = 0;
+  for (const panel of document.querySelectorAll<HTMLElement>(
+    ".agent-sidebar-panel",
+  )) {
+    const style = window.getComputedStyle(panel);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      panel.getAttribute("aria-hidden") === "true"
+    ) {
+      continue;
+    }
+    const r = panel.getBoundingClientRect();
+    const anchoredRight =
+      r.width > 0 &&
+      r.right >= window.innerWidth - 1 &&
+      r.left < window.innerWidth - 1;
+    if (!anchoredRight) continue;
+    inset = Math.max(inset, Math.ceil(window.innerWidth - r.left));
+  }
+  return inset;
+}
+
+/** Compute popover offset relative to the pin anchor so the composer (and its
+ * Send button) stays inside the visible viewport — even when the right side is
+ * occluded by the agent sidebar. Without this the Send button drifts off the
+ * right edge for pins dropped near the right of the slide and clicks land on
+ * nothing. */
+function computePopoverOffset(pinX: number, pinY: number) {
+  if (typeof window === "undefined") {
+    return { left: POPOVER_GAP, top: 4 };
+  }
+  const safeRight =
+    window.innerWidth - getRightSidebarInset() - VIEWPORT_MARGIN;
+  const safeBottom = window.innerHeight - VIEWPORT_MARGIN;
+
+  let left = POPOVER_GAP;
+  if (pinX + POPOVER_GAP + POPOVER_WIDTH > safeRight) {
+    left = -POPOVER_WIDTH - POPOVER_GAP;
+  }
+  // After flipping, the popover's right edge could still spill into the
+  // sidebar if the pin sits close to it. Slide further left so the whole
+  // composer (including the Send button) stays inside the safe area.
+  if (pinX + left + POPOVER_WIDTH > safeRight) {
+    left = safeRight - pinX - POPOVER_WIDTH;
+  }
+  if (pinX + left < VIEWPORT_MARGIN) {
+    left = VIEWPORT_MARGIN - pinX;
+  }
+
+  let top = 4;
+  if (pinY + top + POPOVER_HEIGHT_ESTIMATE > safeBottom) {
+    top = -POPOVER_HEIGHT_ESTIMATE - 4;
+  }
+  if (pinY + top < VIEWPORT_MARGIN) {
+    top = VIEWPORT_MARGIN - pinY;
+  }
+
+  return { left, top };
+}
+
 interface CanvasCommentPinsProps {
   /** Whether the pin tool is active. When true, clicks drop pins. */
   active: boolean;
@@ -254,7 +325,11 @@ export function CanvasCommentPins({
             {isActive && !pin.submitted && (
               <div
                 data-pin-popover
-                className="absolute left-3 top-1 w-72 rounded-lg border border-border bg-popover shadow-xl p-2"
+                className="absolute w-72 rounded-lg border border-border bg-popover shadow-xl p-2"
+                style={(() => {
+                  const off = computePopoverOffset(left, top);
+                  return { left: off.left, top: off.top };
+                })()}
               >
                 <p className="mb-2 text-xs font-semibold text-foreground">
                   Edit slide
@@ -264,6 +339,13 @@ export function CanvasCommentPins({
                   value={pin.draft || ""}
                   onChange={(e) => updatePin(pin.id, { draft: e.target.value })}
                   onKeyDown={(e) => {
+                    // Backspace / Delete must stay inside the textarea — the
+                    // global DeckEditor handler treats them as "delete current
+                    // slide" when the canvas has focus, and any focus race
+                    // (e.g. autoFocus not yet landed, popover unmount during
+                    // submit) would otherwise blow away the slide the user is
+                    // commenting on. Stop at the source.
+                    e.stopPropagation();
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                       e.preventDefault();
                       submitPin(pin);

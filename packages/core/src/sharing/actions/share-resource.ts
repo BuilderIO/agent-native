@@ -7,6 +7,7 @@ import { requireShareableResource } from "../registry.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { renderEmail, emailStrong } from "../../server/email-template.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
+import { getDbExec } from "../../db/client.js";
 
 export function isSyntheticQaEmail(email: string): boolean {
   const trimmed = email.trim().toLowerCase();
@@ -83,6 +84,35 @@ function nanoid(size = 12): string {
   return id;
 }
 
+/**
+ * Returns true if the given email is either an active member of `orgId` or
+ * has a pending invitation to `orgId`. Used by resources whose registration
+ * sets `requireOrgMemberForUserShares` (currently extensions) to refuse
+ * cross-org user shares.
+ *
+ * Both `org_members` and `org_invitations` store email case-insensitively
+ * via `LOWER()` in the rest of the framework, so we follow the same
+ * convention here.
+ */
+async function isOrgMemberOrInvited(
+  orgId: string,
+  email: string,
+): Promise<boolean> {
+  const lower = email.trim().toLowerCase();
+  if (!lower || !orgId) return false;
+  const client = getDbExec();
+  const member = await client.execute({
+    sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    args: [orgId, lower],
+  });
+  if (member.rows.length > 0) return true;
+  const invited = await client.execute({
+    sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
+    args: [orgId, lower],
+  });
+  return invited.rows.length > 0;
+}
+
 export default defineAction({
   description:
     "Grant a user or org access to a shareable resource. Owner or admin role required.",
@@ -121,9 +151,40 @@ export default defineAction({
   }),
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
-    await assertAccess(args.resourceType, args.resourceId, "admin");
+    const access = await assertAccess(
+      args.resourceType,
+      args.resourceId,
+      "admin",
+    );
     const actor = getRequestUserEmail();
     if (!actor) throw new ForbiddenError("Not signed in");
+
+    if (reg.requireOrgMemberForUserShares) {
+      const resourceOrgId = access.resource?.orgId as string | undefined | null;
+      if (!resourceOrgId) {
+        throw new ForbiddenError(
+          `${reg.displayName} can only be shared from within an organization. Create or join an organization first.`,
+        );
+      }
+      if (args.principalType === "user") {
+        const ok = await isOrgMemberOrInvited(resourceOrgId, args.principalId);
+        if (!ok) {
+          throw new ForbiddenError(
+            `${args.principalId} is not in your organization. Invite them to the organization first, then share.`,
+          );
+        }
+      } else if (args.principalType === "org") {
+        // Cross-org org shares would let an outside org's members run
+        // extension code in the viewer's auth context — the same threat
+        // model that blocks public + cross-org user shares. Pin org-
+        // principal shares to the resource's own org.
+        if (args.principalId !== resourceOrgId) {
+          throw new ForbiddenError(
+            `${reg.displayName} can only be shared with its own organization, not a different one.`,
+          );
+        }
+      }
+    }
 
     const db = reg.getDb() as any;
     const [existing] = await db

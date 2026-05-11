@@ -56,9 +56,25 @@ async function ensureTable(): Promise<void> {
           thread_data TEXT NOT NULL DEFAULT '{}',
           message_count ${intType()} NOT NULL DEFAULT 0,
           created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL
+          updated_at ${intType()} NOT NULL,
+          scope_type TEXT,
+          scope_id TEXT,
+          scope_label TEXT
         )
       `);
+      // Additive migration for existing tables. Both SQLite and Postgres
+      // accept `ALTER TABLE ADD COLUMN` and will raise when the column
+      // already exists; the try/catch makes the call idempotent across
+      // both dialects without requiring an information_schema probe.
+      for (const col of ["scope_type", "scope_id", "scope_label"]) {
+        try {
+          await client.execute(
+            `ALTER TABLE chat_threads ADD COLUMN ${col} TEXT`,
+          );
+        } catch {
+          // Column already exists.
+        }
+      }
     })();
   }
   return _initPromise;
@@ -66,6 +82,20 @@ async function ensureTable(): Promise<void> {
 
 function generateId(): string {
   return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * A resource the chat is bound to, e.g. `{ type: "deck", id: "deck-abc" }`.
+ * The framework is opaque to the type string — each template chooses what
+ * its primary resource is and the surface it scopes to (deck, design,
+ * dashboard, etc.). `label` is a denormalized snapshot for display when
+ * the resource isn't on hand at render time; the live template can
+ * overwrite it via the next createThread call.
+ */
+export interface ChatThreadScope {
+  type: string;
+  id: string;
+  label?: string;
 }
 
 export interface ChatThread {
@@ -77,6 +107,7 @@ export interface ChatThread {
   messageCount: number;
   createdAt: number;
   updatedAt: number;
+  scope: ChatThreadScope | null;
 }
 
 export interface ChatThreadSummary {
@@ -86,6 +117,15 @@ export interface ChatThreadSummary {
   messageCount: number;
   createdAt: number;
   updatedAt: number;
+  scope: ChatThreadScope | null;
+}
+
+function readScope(r: Record<string, unknown>): ChatThreadScope | null {
+  const type = r.scope_type as string | null | undefined;
+  const id = r.scope_id as string | null | undefined;
+  if (!type || !id) return null;
+  const label = r.scope_label as string | null | undefined;
+  return label ? { type, id, label } : { type, id };
 }
 
 function deriveMessageCount(threadData: unknown, fallback: number): number {
@@ -111,6 +151,7 @@ function rowToThread(r: Record<string, unknown>): ChatThread {
     messageCount: deriveMessageCount(threadData, storedCount),
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
+    scope: readScope(r),
   };
 }
 
@@ -126,22 +167,33 @@ function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
     messageCount,
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
+    scope: readScope(r),
   };
 }
 
 export async function createThread(
   ownerEmail: string,
-  opts?: { id?: string; title?: string },
+  opts?: { id?: string; title?: string; scope?: ChatThreadScope | null },
 ): Promise<ChatThread> {
   await ensureTable();
   const client = getDbExec();
   const id = opts?.id ?? generateId();
   const now = Date.now();
   const title = opts?.title ?? "";
+  const scope = opts?.scope ?? null;
 
   await client.execute({
-    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at) VALUES (?, ?, ?, '', '{}', 0, ?, ?)`,
-    args: [id, ownerEmail, title, now, now],
+    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label) VALUES (?, ?, ?, '', '{}', 0, ?, ?, ?, ?, ?)`,
+    args: [
+      id,
+      ownerEmail,
+      title,
+      now,
+      now,
+      scope?.type ?? null,
+      scope?.id ?? null,
+      scope?.label ?? null,
+    ],
   });
 
   return {
@@ -153,14 +205,18 @@ export async function createThread(
     messageCount: 0,
     createdAt: now,
     updatedAt: now,
+    scope,
   };
 }
+
+const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label`;
+const SUMMARY_COLUMNS = `id, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label`;
 
 export async function getThread(id: string): Promise<ChatThread | null> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, owner_email, title, preview, thread_data, message_count, created_at, updated_at FROM chat_threads WHERE id = ?`,
+    sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE id = ?`,
     args: [id],
   });
   if (rows.length === 0) return null;
@@ -179,7 +235,7 @@ export async function forkThread(
   const title = source.title ? `${source.title} (fork)` : "";
   const client = getDbExec();
   await client.execute({
-    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       ownerEmail,
@@ -189,6 +245,9 @@ export async function forkThread(
       source.messageCount,
       now,
       now,
+      source.scope?.type ?? null,
+      source.scope?.id ?? null,
+      source.scope?.label ?? null,
     ],
   });
   return {
@@ -200,19 +259,53 @@ export async function forkThread(
     messageCount: source.messageCount,
     createdAt: now,
     updatedAt: now,
+    scope: source.scope,
   };
+}
+
+export interface ListThreadsOptions {
+  limit?: number;
+  offset?: number;
+  /**
+   * Filter for chats bound to a specific resource. The default (undefined)
+   * returns every thread the user owns. `{ type: "deck", id: "abc" }`
+   * returns only that resource's threads. `{ type: "deck", id: null }` is
+   * NOT supported — pass `unscopedOnly: true` to get only general chats.
+   */
+  scope?: { type: string; id: string };
+  /** When true, returns only threads with no scope (general chats). */
+  unscopedOnly?: boolean;
 }
 
 export async function listThreads(
   ownerEmail: string,
-  limit = 50,
-  offset = 0,
+  options: ListThreadsOptions | number = {},
+  legacyOffset?: number,
 ): Promise<ChatThreadSummary[]> {
   await ensureTable();
+  // Back-compat shim: previous signature was (owner, limit, offset).
+  const opts: ListThreadsOptions =
+    typeof options === "number"
+      ? { limit: options, offset: legacyOffset ?? 0 }
+      : options;
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
   const client = getDbExec();
+  const filters: string[] = [
+    `owner_email = ?`,
+    `(message_count > 0 OR thread_data LIKE '%"messages"%')`,
+  ];
+  const args: (string | number)[] = [ownerEmail];
+  if (opts.scope) {
+    filters.push(`scope_type = ? AND scope_id = ?`);
+    args.push(opts.scope.type, opts.scope.id);
+  } else if (opts.unscopedOnly) {
+    filters.push(`scope_type IS NULL`);
+  }
+  args.push(limit, offset);
   const { rows } = await client.execute({
-    sql: `SELECT id, title, preview, thread_data, message_count, created_at, updated_at FROM chat_threads WHERE owner_email = ? AND (message_count > 0 OR thread_data LIKE '%"messages"%') ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
-    args: [ownerEmail, limit, offset],
+    sql: `SELECT ${SUMMARY_COLUMNS} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+    args,
   });
   return rows
     .map((r) => rowToSummary(r))
@@ -227,17 +320,53 @@ export async function searchThreads(
   ownerEmail: string,
   query: string,
   limit = 50,
+  options: { scope?: { type: string; id: string } } = {},
 ): Promise<ChatThreadSummary[]> {
   await ensureTable();
   const client = getDbExec();
   const pattern = `%${escapeLike(query)}%`;
+  const filters: string[] = [
+    `owner_email = ?`,
+    `(message_count > 0 OR thread_data LIKE '%"messages"%')`,
+    `(title LIKE ? OR preview LIKE ? OR thread_data LIKE ?)`,
+  ];
+  const args: (string | number)[] = [ownerEmail, pattern, pattern, pattern];
+  if (options.scope) {
+    filters.push(`scope_type = ? AND scope_id = ?`);
+    args.push(options.scope.type, options.scope.id);
+  }
+  args.push(limit);
   const { rows } = await client.execute({
-    sql: `SELECT id, title, preview, thread_data, message_count, created_at, updated_at FROM chat_threads WHERE owner_email = ? AND (message_count > 0 OR thread_data LIKE '%"messages"%') AND (title LIKE ? OR preview LIKE ? OR thread_data LIKE ?) ORDER BY updated_at DESC LIMIT ?`,
-    args: [ownerEmail, pattern, pattern, pattern, limit],
+    sql: `SELECT ${SUMMARY_COLUMNS} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC LIMIT ?`,
+    args,
   });
   return rows
     .map((r) => rowToSummary(r))
     .filter((r): r is ChatThreadSummary => r !== null);
+}
+
+/**
+ * Detach or rebind a chat's scope. Used by the UI's "Detach from <resource>"
+ * action and by templates that need to retag a chat after a rename. Pass
+ * `null` to clear the scope (chat becomes general).
+ */
+export async function setThreadScope(
+  id: string,
+  scope: ChatThreadScope | null,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  await client.execute({
+    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ?`,
+    args: [
+      scope?.type ?? null,
+      scope?.id ?? null,
+      scope?.label ?? null,
+      Math.max(Date.now(), 1),
+      id,
+    ],
+  });
+  emitChatThreadChange(id);
 }
 
 export interface UpdateThreadDataOptions {

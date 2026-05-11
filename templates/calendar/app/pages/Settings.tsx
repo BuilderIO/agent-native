@@ -22,6 +22,11 @@ import { GoogleSetupWizard } from "@/components/calendar/GoogleSetupWizard";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import {
+  AppearancePicker,
+  agentNativePath,
+  type AppearancePresetId,
+} from "@agent-native/core/client";
+import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
   useDisconnectGoogle,
@@ -331,6 +336,35 @@ export default function Settings() {
           <Button onClick={handleSave} disabled={updateSettings.isPending}>
             {updateSettings.isPending ? "Saving..." : "Save Settings"}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Appearance */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Appearance</CardTitle>
+          <CardDescription>
+            Pick a color theme for your workspace. Or just ask the agent.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AppearancePicker
+            onChange={(preset: AppearancePresetId) => {
+              // Persist server-side so the choice survives reload and syncs
+              // across devices; the local UI has already updated optimistically.
+              fetch(
+                agentNativePath("/_agent-native/actions/change-appearance"),
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({ preset }),
+                },
+              ).catch(() => {
+                // Server write failed; the local DOM change still stands.
+              });
+            }}
+          />
         </CardContent>
       </Card>
     </div>

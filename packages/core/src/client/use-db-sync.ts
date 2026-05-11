@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { agentNativePath } from "./api-path.js";
+import { bumpChangeVersion } from "./use-change-version.js";
 
 interface QueryClient {
   invalidateQueries(opts?: { queryKey?: string[] }): void;
@@ -169,15 +170,35 @@ export function useDbSync(
         ? events.filter((e) => e.requestSource !== ignore)
         : events;
 
+      // Bump per-source change counters. Components that read these via
+      // `useChangeVersion(source)` and fold the value into a React Query
+      // queryKey get a targeted refetch — no whole-cache invalidate, no
+      // request storm. See `use-change-version.ts` for the contract.
+      for (const evt of relevant) {
+        const src = typeof evt.source === "string" ? evt.source : "";
+        const ver = typeof evt.version === "number" ? evt.version : 0;
+        if (src && ver > 0) bumpChangeVersion(src, ver);
+      }
+
       if (relevant.length > 0 && queryClient) {
-        // Invalidate every active query. The agent-native promise is that
-        // agent/server mutations show up in the UI without a manual refresh
-        // — relying on each template to enumerate its own queryKeys made
-        // that fragile (every new query key was a chance to silently miss
-        // an update). React Query refetches only active observers by
-        // default, dedupes concurrent invalidates, and respects each
-        // query's staleTime, so the cost is bounded.
-        queryClient.invalidateQueries();
+        // Framework-level invalidate: a small, fixed list of query-key
+        // prefixes the framework's own hooks/components use (action results,
+        // extension state, application-state, the agent's `set-url` channel,
+        // etc.). Templates' own data queries do NOT live here — they react
+        // through `useChangeVersion(source)` in their query keys instead, so
+        // a single change event doesn't fan out into "refetch everything".
+        queryClient.invalidateQueries({ queryKey: ["action"] });
+        queryClient.invalidateQueries({ queryKey: ["extension"] });
+        queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
+        queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
+        queryClient.invalidateQueries({ queryKey: ["slot-available"] });
+        queryClient.invalidateQueries({ queryKey: ["tool"] });
+        queryClient.invalidateQueries({ queryKey: ["tools"] });
+        queryClient.invalidateQueries({ queryKey: ["app-state"] });
+        queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
+        queryClient.invalidateQueries({ queryKey: ["show-questions"] });
+        queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
       }
 
       // Always forward all events to onEvent — templates can layer surgical

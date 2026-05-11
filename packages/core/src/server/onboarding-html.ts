@@ -480,6 +480,8 @@ ${
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>${hasMarketing ? esc(marketing!.appName) + " — Sign in" : "Welcome"}</title>
+<link rel="icon" type="image/svg+xml" href="${withAppBasePath("/favicon.svg")}">
+<link rel="apple-touch-icon" href="${withAppBasePath("/icon-180.svg")}">
 ${
   hasMarketing
     ? `<meta name="description" content="${esc(marketing!.tagline)}">
@@ -1040,10 +1042,20 @@ ${
       try {
         console.info('[agent-native][google-oauth]', { message: message, flow: __anFlowDebugId(flowId) || undefined });
       } catch(e) {}
+      // Only surface the debug overlay when explicitly opted in via #oauth-debug
+      // hash or ?oauth_debug=1 query — otherwise it leaks raw flow IDs and
+      // diagnostic strings into the user-facing sign-in screen.
+      var showDebugOverlay = false;
+      try {
+        var loc = window.location || {};
+        showDebugOverlay =
+          (typeof loc.hash === 'string' && loc.hash.indexOf('oauth-debug') !== -1) ||
+          (typeof loc.search === 'string' && loc.search.indexOf('oauth_debug=1') !== -1);
+      } catch(e) {}
       var debug = document.getElementById('google-debug');
       if (debug) {
         debug.textContent = text;
-        debug.classList.add('show');
+        if (showDebugOverlay) debug.classList.add('show');
       }
     }
     function __anShowOAuthError(err, btn, message) {
@@ -1713,6 +1725,8 @@ export function getResetPasswordHtml(): string {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Reset password</title>
+<link rel="icon" type="image/svg+xml" href="${withAppBasePath("/favicon.svg")}">
+<link rel="apple-touch-icon" href="${withAppBasePath("/icon-180.svg")}">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0a0a0a; color: #e5e5e5; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }

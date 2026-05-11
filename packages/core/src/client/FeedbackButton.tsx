@@ -25,7 +25,8 @@ interface FormSchema {
   fieldId: string;
 }
 
-const DEFAULT_PLACEHOLDER = "Tell us what's on your mind…";
+const DEFAULT_PLACEHOLDER =
+  'What\'s working, what\'s broken, or what would you change?\n\ne.g. "The Send button isn\'t obvious", "I wish I could change the theme", "Search is slow when…"';
 const DEFAULT_SUBMIT_TEXT = "Send feedback";
 const DEFAULT_SUCCESS_MESSAGE = "Thanks for the feedback!";
 

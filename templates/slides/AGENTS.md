@@ -319,17 +319,19 @@ When `generate-image` or `image-search` returns a transient URL you want to pres
 
 ### Design Systems
 
-| Action                      | Args                                                              | Purpose                            |
-| --------------------------- | ----------------------------------------------------------------- | ---------------------------------- |
-| `create-design-system`      | `--title "X" [--description "..."] --data '<json>'`               | Create a new design system         |
-| `update-design-system`      | `--id <id> [--title "X"] [--data '<json>']`                       | Update design system tokens        |
-| `get-design-system`         | `--id <id>`                                                       | Get design system with all tokens  |
-| `list-design-systems`       | `[--compact]`                                                     | List all accessible design systems |
-| `set-default-design-system` | `--id <id>`                                                       | Set one as the default             |
-| `apply-design-system`       | `--deckId <id> --designSystemId <id>`                             | Link a design system to a deck     |
-| `analyze-brand-assets`      | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."]` | Gather brand data for analysis     |
+| Action                      | Args                                                                             | Purpose                                                      |
+| --------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `create-design-system`      | `--title "X" [--description "..."] --data '<json>' [--customInstructions "..."]` | Create a new design system                                   |
+| `update-design-system`      | `--id <id> [--title "X"] [--data '<json>'] [--customInstructions "..."]`         | Update design system tokens or custom instructions           |
+| `get-design-system`         | `--id <id>`                                                                      | Get design system with all tokens (incl. customInstructions) |
+| `list-design-systems`       | `[--compact]`                                                                    | List all accessible design systems                           |
+| `set-default-design-system` | `--id <id>`                                                                      | Set one as the default                                       |
+| `apply-design-system`       | `--deckId <id> --designSystemId <id>`                                            | Link a design system to a deck                               |
+| `analyze-brand-assets`      | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."]`                | Gather brand data for analysis                               |
 
 When generating slides for a deck that has a design system, **always use the design system's colors, fonts, and styles** instead of the default values. Check the design system with `get-design-system --id <id>` first.
+
+If `get-design-system` returns a non-empty `customInstructions` string, treat it as user-authored guidance for this design system: follow it on every slide you generate while the deck is linked to that system, alongside the design tokens. Custom instructions override generic defaults but never override an explicit user request in the current turn.
 
 ### Import / Export
 

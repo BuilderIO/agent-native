@@ -29,7 +29,11 @@ import {
   IconDatabase,
 } from "@tabler/icons-react";
 import { Link, useNavigate } from "react-router";
-import { ShareButton, appApiPath } from "@agent-native/core/client";
+import {
+  ShareButton,
+  appApiPath,
+  useChangeVersion,
+} from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import Markdown from "@/components/Markdown";
@@ -89,11 +93,13 @@ export default function AnalysisDetail() {
   const queryClient = useQueryClient();
   const { send, isGenerating, codeRequiredDialog } = useSendToAgentChat();
 
+  const analysesSync = useChangeVersion("analyses");
   const { data: analysis, isLoading } = useQuery({
-    queryKey: ["analysis-detail", id],
+    queryKey: ["analysis-detail", id, analysesSync],
     queryFn: () => fetchAnalysis(id!),
     enabled: !!id,
     staleTime: 10_000,
+    placeholderData: (prev) => prev,
   });
 
   useEffect(() => {

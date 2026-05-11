@@ -82,6 +82,7 @@ import {
   appApiPath,
   appPath,
   useActionMutation,
+  useChangeVersion,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { NewDashboardDialog } from "./NewDashboardDialog";
@@ -1037,25 +1038,34 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     });
   }, []);
 
+  // Fold per-source counters into sidebar list query keys so agent-driven
+  // create/rename/archive/delete shows up without a manual refresh. See
+  // `use-change-version.ts` in @agent-native/core for the pattern.
+  const dashboardsSync = useChangeVersion("dashboards");
+  const analysesSync = useChangeVersion("analyses");
+
   const { data: sqlDashboards = [], isLoading: sqlDashboardsLoading } =
     useQuery({
-      queryKey: ["sql-dashboards-sidebar"],
+      queryKey: ["sql-dashboards-sidebar", dashboardsSync],
       queryFn: fetchSqlDashboards,
       staleTime: 30_000,
+      placeholderData: (prev) => prev,
     });
 
   const { data: archivedDashboards = [] } = useQuery({
-    queryKey: ["sql-dashboards-archived-sidebar"],
+    queryKey: ["sql-dashboards-archived-sidebar", dashboardsSync],
     queryFn: fetchArchivedSqlDashboards,
     staleTime: 30_000,
+    placeholderData: (prev) => prev,
   });
 
   const [archivedOpen, setArchivedOpen] = useState(false);
 
   const { data: analysesList = [], isLoading: analysesLoading } = useQuery({
-    queryKey: ["analyses-sidebar"],
+    queryKey: ["analyses-sidebar", analysesSync],
     queryFn: fetchSidebarAnalyses,
     staleTime: 30_000,
+    placeholderData: (prev) => prev,
   });
 
   const sortedAnalyses = useMemo(() => {

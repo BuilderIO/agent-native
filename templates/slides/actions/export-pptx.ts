@@ -380,8 +380,12 @@ export default defineAction({
 
     for (const slide of slides) {
       const pptxSlide = pptx.addSlide();
+      const slideContent =
+        slide && typeof slide === "object" && typeof slide.content === "string"
+          ? slide.content
+          : "";
       const { texts, images, bgColor } = parseSlideHtml(
-        slide.content || "",
+        slideContent,
         aspectRatio,
       );
 
@@ -424,19 +428,44 @@ export default defineAction({
       }
 
       // Add speaker notes
-      if (includeNotes && slide.notes) {
+      if (
+        includeNotes &&
+        slide &&
+        typeof slide.notes === "string" &&
+        slide.notes
+      ) {
         pptxSlide.addNotes(slide.notes);
       }
     }
 
-    // Write to buffer and save
-    const buffer = await pptx.write({ outputType: "nodebuffer" });
-    const exportDir = tenantExportDir(userEmail);
-    fs.mkdirSync(exportDir, { recursive: true });
+    const buffer = (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
     const filename = safeGeneratedFilename(row.title, ".pptx");
-    const filePath = path.join(exportDir, filename);
-    fs.writeFileSync(filePath, buffer as Buffer);
 
-    return { filePath, filename, slideCount: slides.length };
+    // Disk write is only useful when the same process can later serve the
+    // file. On serverless (Netlify / Vercel / Lambda), the function filesystem
+    // vanishes between invocations, so `/api/exports/:filename` requests land
+    // on a different container that doesn't have the file — the user sees
+    // "file doesn't exist on site". Skip the disk write entirely on those
+    // hosts; the route handler streams `buffer` directly. CLI and local-dev
+    // still get a real file path.
+    let filePath: string | undefined;
+    if (!isServerless()) {
+      const exportDir = tenantExportDir(userEmail);
+      fs.mkdirSync(exportDir, { recursive: true });
+      filePath = path.join(exportDir, filename);
+      fs.writeFileSync(filePath, buffer);
+    }
+
+    return { buffer, filePath, filename, slideCount: slides.length };
   },
 });
+
+function isServerless(): boolean {
+  return Boolean(
+    process.env.NETLIFY ||
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.cwd() === "/var/task" ||
+    process.cwd().startsWith("/var/task/"),
+  );
+}

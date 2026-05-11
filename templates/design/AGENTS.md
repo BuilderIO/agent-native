@@ -741,6 +741,8 @@ Before generating, check if the design has a design system:
 pnpm action get-design-system --id <designSystemId>
 ```
 
+The response includes a top-level `customInstructions` string. If it is non-empty, treat it as user-authored guidance for this design system: follow it on every design you generate while the design is linked to that system, alongside the design tokens. Custom instructions override generic defaults but never override an explicit user request in the current turn. Use `update-design-system --id <id> --customInstructions "..."` to update them; pass an empty string to clear.
+
 The returned `data` is a JSON string containing `DesignSystemData`:
 
 ```typescript

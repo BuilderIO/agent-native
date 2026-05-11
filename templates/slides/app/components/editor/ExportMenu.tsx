@@ -15,7 +15,7 @@ import {
   IconBrandGoogle,
 } from "@tabler/icons-react";
 import { toast } from "@/hooks/use-toast";
-import { agentNativePath, appBasePath } from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client";
 
 interface ExportMenuProps {
   deckId: string;
@@ -34,18 +34,6 @@ export function ExportMenu({
   onShareLink,
   onShareTeam,
 }: ExportMenuProps) {
-  // Programmatic anchor download — avoids the popup blocker that silently
-  // kills window.open() after an async fetch (no direct user gesture left).
-  const triggerDownload = (filename: string) => {
-    const a = document.createElement("a");
-    a.href = `${appBasePath()}/api/exports/${filename}`;
-    a.download = filename;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  };
-
   const triggerBlobDownload = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -58,10 +46,13 @@ export function ExportMenu({
     window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
-  const filenameFromDisposition = (value: string | null) => {
+  const filenameFromDisposition = (
+    value: string | null,
+    fallbackExt: string,
+  ) => {
     const match = value?.match(/filename="?([^"]+)"?/i);
     const fallback = deckTitle.replace(/[^a-zA-Z0-9_-]/g, "-") || "deck";
-    return match?.[1] ?? `${fallback}.pptx`;
+    return match?.[1] ?? `${fallback}${fallbackExt}`;
   };
 
   const readErrorMessage = async (res: Response, fallback: string) => {
@@ -86,7 +77,10 @@ export function ExportMenu({
     }
     return {
       blob: await res.blob(),
-      filename: filenameFromDisposition(res.headers.get("content-disposition")),
+      filename: filenameFromDisposition(
+        res.headers.get("content-disposition"),
+        ".pptx",
+      ),
     };
   };
 
@@ -143,29 +137,30 @@ export function ExportMenu({
 
   const handleExportHtml = async () => {
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/export-html"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deckId }),
-        },
-      );
-      const data = await res.json();
-      if (data.filename) {
-        triggerDownload(data.filename);
-      } else {
-        toast({
-          title: "Export failed",
-          description: data.error || "Could not generate HTML file.",
-          variant: "destructive",
-        });
+      const res = await fetch(`${appBasePath()}/api/exports/html`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deckId }),
+      });
+      if (!res.ok) {
+        throw new Error(
+          await readErrorMessage(res, "Could not generate HTML file."),
+        );
       }
+      const blob = await res.blob();
+      const filename = filenameFromDisposition(
+        res.headers.get("content-disposition"),
+        ".html",
+      );
+      triggerBlobDownload(blob, filename);
     } catch (err) {
       console.error("Export failed:", err);
       toast({
         title: "Export failed",
-        description: "Something went wrong exporting as HTML.",
+        description:
+          err instanceof Error
+            ? err.message
+            : "Something went wrong exporting as HTML.",
         variant: "destructive",
       });
     }

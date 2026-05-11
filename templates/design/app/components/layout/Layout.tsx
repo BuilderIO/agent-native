@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
 import { IconMenu2 } from "@tabler/icons-react";
 import { Sidebar } from "./Sidebar";
@@ -28,6 +28,18 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
+  // Bind chat to the currently-open design. Same pattern as slides — the
+  // route is `/design/:id` for the editor and `/present/:id` for preview
+  // (which we already short-circuit as BARE). Anywhere else (list,
+  // design-systems, settings, examples) leaves scope null so general
+  // chats keep working.
+  const designScope = useMemo(() => {
+    const match = location.pathname.match(/^\/design\/([^/]+)/);
+    const designId = match?.[1];
+    if (!designId) return null;
+    return { type: "design" as const, id: designId };
+  }, [location.pathname]);
+
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
@@ -51,6 +63,7 @@ export function Layout({ children }: LayoutProps) {
           "Make this match our brand",
           "Add a mobile version of this",
         ]}
+        scope={designScope}
       >
         <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
           {mobileSidebarOpen && (

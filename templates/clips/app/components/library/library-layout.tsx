@@ -79,6 +79,15 @@ function ClipsAgentToggleButton() {
 
 export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
+  // Bind chat to the currently-open recording (`/r/:id`). Library, spaces,
+  // meetings, dictate, and settings stay unscoped — those are list-y views
+  // where deck-style "this recording" framing doesn't apply.
+  const recordingScope = useMemo(() => {
+    const match = location.pathname.match(/^\/r\/([^/]+)/);
+    const recordingId = match?.[1];
+    if (!recordingId) return null;
+    return { type: "recording" as const, id: recordingId };
+  }, [location.pathname]);
   const isMobile = useIsMobile();
   const { folderId, spaceId } = useParams<{
     folderId?: string;
@@ -199,6 +208,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           "Find where I mentioned pricing",
           "Remove filler words from this clip",
         ]}
+        scope={recordingScope}
       >
         <RequireActiveOrg
           title="Create your organization"

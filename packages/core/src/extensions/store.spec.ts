@@ -175,4 +175,41 @@ describe("extensions/store", () => {
     expect(insertedRows).toHaveLength(1);
     expect(insertedRows[0]).toMatchObject({ visibility: "private" });
   });
+
+  it("refuses to flip an existing extension to public visibility", async () => {
+    // Defense in depth — the framework `set-resource-visibility` action
+    // already rejects 'public' for extensions, but `updateExtension` is also
+    // called directly from the HTTP `PUT /extensions/:id` handler, so the
+    // store helper must enforce the rule independently.
+    const client = {
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+    };
+    const db = {};
+
+    vi.doMock("../db/client.js", () => ({
+      getDbExec: () => client,
+      getDialect: () => "sqlite",
+      isPostgres: () => false,
+      retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+    }));
+    vi.doMock("../db/create-get-db.js", () => ({
+      createGetDb: () => () => db,
+    }));
+    vi.doMock("../sharing/registry.js", () => ({
+      registerShareableResource: vi.fn(),
+    }));
+    vi.doMock("../sharing/access.js", () => ({
+      accessFilter: vi.fn(() => null),
+      assertAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
+      resolveAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
+      ForbiddenError: class ForbiddenError extends Error {
+        statusCode = 403;
+      },
+    }));
+
+    const { updateExtension } = await import("./store.js");
+    await expect(
+      updateExtension("ext-1", { visibility: "public" }),
+    ).rejects.toThrow(/cannot be made public/i);
+  });
 });

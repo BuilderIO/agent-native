@@ -364,7 +364,8 @@ function UrlTab({ onClose }: { onClose: () => void }) {
             />
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Paste a webcal:// or https:// ICS feed URL
+            Paste a shareable calendar link from Google Calendar, iCloud,
+            Outlook, etc.
           </p>
         </div>
         <Button

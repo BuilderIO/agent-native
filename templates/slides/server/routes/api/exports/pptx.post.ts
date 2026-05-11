@@ -1,11 +1,10 @@
-import { createReadStream } from "fs";
 import path from "path";
+import { Readable } from "node:stream";
 import { defineEventHandler, setResponseStatus } from "h3";
 import {
   getSession,
   readBody,
   runWithRequestContext,
-  streamFile,
 } from "@agent-native/core/server";
 import exportPptxAction from "../../../../actions/export-pptx.js";
 
@@ -48,7 +47,13 @@ export default defineEventHandler(async (event) => {
       `attachment; filename="${path.basename(result.filename)}"`,
     );
 
-    return streamFile(createReadStream(result.filePath));
+    // Stream directly from the in-memory buffer. Going through disk used to
+    // break on serverless: the action wrote into a per-invocation /tmp that a
+    // separate download request couldn't reach. Skipping the disk hop also
+    // halves the I/O.
+    return Readable.toWeb(
+      Readable.from(result.buffer),
+    ) as unknown as ReadableStream;
   } catch (error) {
     const message =
       error instanceof Error

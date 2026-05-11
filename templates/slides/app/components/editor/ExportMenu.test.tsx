@@ -170,4 +170,44 @@ describe("<ExportMenu>", () => {
       }),
     );
   });
+
+  it("downloads HTML via the streamed POST endpoint, not the broken filename GET", async () => {
+    // Regression test for the bug Josh hit: the old flow POSTed to the
+    // action endpoint, got back a filename, then redirected to
+    // /api/exports/:filename — that GET returns 404 on serverless because
+    // the file was written to a different Lambda's /tmp.
+    globalThis.fetch = vi.fn(async () => {
+      return new Response(
+        new Blob(["<html><body>deck</body></html>"], { type: "text/html" }),
+        {
+          status: 200,
+          headers: {
+            "content-disposition": 'attachment; filename="quarterly.html"',
+            "content-type": "text/html; charset=utf-8",
+          },
+        },
+      );
+    }) as typeof fetch;
+
+    renderMenu();
+    const trigger = screen.getByRole("button", { name: /export/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByText("Download as HTML"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/slides/api/exports/html",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ deckId: "deck-1" }),
+      }),
+    );
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).not.toContain(
+      "/_agent-native/actions/export-html",
+    );
+    expect(URL.createObjectURL).toHaveBeenCalled();
+  });
 });

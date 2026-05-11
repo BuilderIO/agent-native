@@ -138,7 +138,17 @@ export const deckEvents = defineEventHandler(async (event) => {
 
 // GET /api/decks — list decks the caller can see (own + shared + visibility match)
 export const listDecks = defineEventHandler(async (event) => {
-  return withAuth(event, async () => {
+  return withAuth(event, async ({ email }) => {
+    // Without an authenticated email, `accessFilter` would short-circuit to
+    // `1=0` and return a 200/[] response — indistinguishable to the client
+    // from "this user genuinely has no decks." That fires the deck-list
+    // fallback poll's wipe-on-empty path and bounces the user out of the
+    // editor. Returning 401 lets the client preserve local state until the
+    // session is restored.
+    if (!email) {
+      setResponseStatus(event, 401);
+      return { error: "Unauthorized" };
+    }
     const db = getDb();
     const rows = await db
       .select()

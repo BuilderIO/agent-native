@@ -619,6 +619,14 @@ export default function SlideEditor({
   // Global keyboard handling while inline-editing
   useEffect(() => {
     if (!editingEl) return;
+    // Determine "multi-line capable" once at entry time. contentEditable's
+    // default Enter behavior inserts block-level children (e.g. <div><br></div>)
+    // after a couple of presses, which would otherwise flip isTextLeaf to false
+    // mid-edit and incorrectly commit the user out of the block. The user's
+    // intent (rich-block edit vs single-line commit) doesn't change while
+    // they're editing the same node, so latch it.
+    const isMultiLineLeaf =
+      isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -634,10 +642,6 @@ export default function SlideEditor({
         //  - Headings, inline leaves, and smart groups commit on Enter
         //    so the slide layout can never be broken by a stray new node.
         if (e.shiftKey) return;
-
-        const isSimpleLeaf = isTextLeaf(editingEl);
-        const isMultiLineLeaf =
-          isSimpleLeaf && RICH_BLOCK_TAGS.has(editingEl.tagName);
 
         if (!isMultiLineLeaf) {
           e.preventDefault();
@@ -1181,14 +1185,14 @@ export default function SlideEditor({
       <div className="flex-1 overflow-hidden">
         {activeTab === "visual" ? (
           slide.excalidrawData ? (
-            <div className="h-full bg-muted">
+            <div className="h-full bg-background">
               <ExcalidrawSlide
                 initialData={slide.excalidrawData}
                 onChange={(data) => onUpdateSlide({ excalidrawData: data })}
               />
             </div>
           ) : (
-            <div className="relative h-full bg-muted">
+            <div className="relative h-full bg-background">
               <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg backdrop-blur">
                 <Tooltip>
                   <TooltipTrigger asChild>

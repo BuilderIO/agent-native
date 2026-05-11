@@ -56,6 +56,7 @@ import {
   useSession,
   agentNativePath,
   appApiPath,
+  useChangeVersion,
   type CollabUser,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
@@ -174,14 +175,21 @@ export default function SqlDashboardPage() {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const viewedDashboardIdRef = useRef<string | null>(null);
 
+  // Refetch the dashboard whenever the `dashboards` source bumps — that
+  // covers writes from update-dashboard (agent), the editor's own save, and
+  // cross-tab edits. Folding the counter into the queryKey is the framework
+  // pattern for "agent writes show up without a manual refresh"; see
+  // `use-change-version.ts`.
+  const dashboardsSync = useChangeVersion("dashboards");
   const dashboardQuery = useQuery({
-    queryKey: ["data", "sql-dashboard", dashboardId],
+    queryKey: ["data", "sql-dashboard", dashboardId, dashboardsSync],
     enabled: !!dashboardId,
     queryFn: async () => {
       if (!dashboardId) return null;
       return fetchDashboard(dashboardId);
     },
     staleTime: 2_000,
+    placeholderData: (prev) => prev,
   });
 
   // Panel edit dialog state

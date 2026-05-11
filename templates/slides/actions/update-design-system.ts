@@ -20,8 +20,14 @@ export default defineAction({
       .string()
       .optional()
       .describe("Updated JSON string of DesignSystemAsset[]"),
+    customInstructions: z
+      .string()
+      .optional()
+      .describe(
+        "Updated free-form guidance the agent should follow when generating slides with this design system. Pass an empty string to clear.",
+      ),
   }),
-  run: async ({ id, title, description, data, assets }) => {
+  run: async ({ id, title, description, data, assets, customInstructions }) => {
     // Validate that data/assets are valid JSON when provided
     if (data !== undefined) {
       try {
@@ -48,6 +54,8 @@ export default defineAction({
     if (description !== undefined) updates.description = description;
     if (data !== undefined) updates.data = data;
     if (assets !== undefined) updates.assets = assets;
+    if (customInstructions !== undefined)
+      updates.customInstructions = customInstructions;
 
     await db
       .update(schema.designSystems)

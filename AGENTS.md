@@ -195,6 +195,7 @@ Use `appAction(name, params)` for template data/actions such as `list-events` or
 - `extensionFetch()` proxies API calls through `POST /_agent-native/extensions/proxy`, which injects encrypted secrets (`${keys.NAME}` pattern) and enforces SSRF protections.
 - Extensions inherit the main app's Tailwind v4 theme automatically.
 - Sharing uses the standard framework model (`ownableColumns()` + `createSharesTable()`): private by default, shareable with org or specific users. The shares table is `tool_shares` in SQL (Drizzle export `extensionShares`).
+- **Extensions cannot be public, and individual user shares must target an org member or pending invitee.** Extension HTML executes inside an iframe but calls actions / SQL / the secrets-injecting proxy as the _viewer_, so a public extension would let any signed-in user run arbitrary code with someone else's credentials, and a cross-org user share would do the same for outsiders. The extension registration sets `allowPublic: false` and `requireOrgMemberForUserShares: true` (see `packages/core/src/extensions/store.ts`); `set-resource-visibility('public')` and `share-resource` reject those calls, `updateExtension` rejects `visibility: "public"` directly, the share popover hides the "Public" option, and `scripts/guard-extension-no-public.mjs` (CI + `pnpm prep`) statically enforces both flags. Do not weaken either flag without replacing the trust model first.
 
 ### Agent actions for extensions
 

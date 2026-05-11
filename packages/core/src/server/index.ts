@@ -92,8 +92,11 @@ export {
   listThreads,
   updateThreadData,
   deleteThread,
+  setThreadScope,
   type ChatThread,
+  type ChatThreadScope,
   type ChatThreadSummary,
+  type ListThreadsOptions,
 } from "../chat-threads/store.js";
 export {
   createResourcesPlugin,

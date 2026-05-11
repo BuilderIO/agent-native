@@ -26,6 +26,7 @@ export const designSystems = table("design_systems", {
   description: text("description"),
   data: text("data").notNull(),
   assets: text("assets"),
+  customInstructions: text("custom_instructions").notNull().default(""),
   isDefault: integer("is_default", { mode: "boolean" })
     .notNull()
     .default(false),

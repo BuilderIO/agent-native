@@ -623,6 +623,13 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
               resourceId={extensionId}
               resourceTitle={extension.name}
               onOpenChange={onPopoverOpenChange}
+              accessNote={
+                <>
+                  Extensions can be shared inside your organization only — they
+                  run with the viewer's credentials, so cross-org access isn't
+                  supported.
+                </>
+              }
             />
             <ToolMoreMenu
               extensionId={extensionId}

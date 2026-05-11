@@ -39,6 +39,7 @@ import {
   type ContentPart,
   readSSEStreamRaw,
 } from "./sse-event-processor.js";
+import { captureError } from "./analytics.js";
 import { cn } from "./utils.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
@@ -3412,6 +3413,19 @@ const AssistantChatInner = forwardRef<
         }
 
         if (noProgressDuringReconnect && reconnectRunIdRef.current === runId) {
+          captureError(new Error("agent-chat:reconnect_no_progress"), {
+            tags: {
+              context: "agent-native-chat",
+              errorCode: "reconnect_no_progress",
+              reconnectTimedOut: String(reconnectTimedOut),
+            },
+            extra: {
+              runId,
+              threadId: threadId ?? null,
+              tabId: tabId ?? null,
+              contentLength: latestContent.length,
+            },
+          });
           try {
             await fetch(`${apiUrl}/runs/${encodeURIComponent(runId)}/abort`, {
               method: "POST",
@@ -3813,16 +3827,35 @@ const AssistantChatInner = forwardRef<
 
   useEffect(() => {
     if (!authError) return;
+    // Auto-recovery (`checkAuthSession`) runs immediately + at 250ms. If the
+    // card is still showing 3 seconds later, recovery failed and the user
+    // is about to hit "Refresh chat" — that's the "Reload UI required"
+    // symptom we want signal on.
+    const stuckCapture = window.setTimeout(() => {
+      captureError(new Error("agent-chat:auth_error_card_stuck"), {
+        tags: {
+          context: "agent-native-chat",
+          errorCode: "auth_error_card",
+          sessionAvailable: String(authSessionAvailable),
+          sessionExpired: String(!!authError.sessionExpired),
+        },
+        extra: {
+          threadId: threadId ?? null,
+          tabId: tabId ?? null,
+        },
+      });
+    }, 3000);
     const handler = () => void checkAuthSession();
     const timer = window.setTimeout(handler, 250);
     window.addEventListener("focus", handler);
     window.addEventListener("agent-engine:configured-changed", handler);
     return () => {
+      window.clearTimeout(stuckCapture);
       window.clearTimeout(timer);
       window.removeEventListener("focus", handler);
       window.removeEventListener("agent-engine:configured-changed", handler);
     };
-  }, [authError, checkAuthSession]);
+  }, [authError, authSessionAvailable, checkAuthSession, tabId, threadId]);
 
   // Listen for loop-limit events from the adapter
   useEffect(() => {
