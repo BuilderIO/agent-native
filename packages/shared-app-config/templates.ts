@@ -94,6 +94,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8086,
     prodUrl: "https://slides.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["pinpoint"],
     core: true,
   },
   {
@@ -106,6 +107,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8087,
     prodUrl: "https://videos.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["pinpoint"],
   },
   {
     name: "clips",
