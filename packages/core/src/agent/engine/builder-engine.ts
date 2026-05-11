@@ -520,6 +520,23 @@ async function* parseJsonlStream(
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
             );
+            // No-detail gateway errors are opaque to the chat client — the
+            // only way to debug them is from the gateway side. Capture rich
+            // tags here (model, gatewayOrigin, requestId) so the gateway
+            // team can search Sentry by requestId or filter by model. The
+            // downstream run-manager will also capture the EngineError once
+            // it's thrown, but without these tags.
+            if (!explicitErrMsg) {
+              captureBuilderGatewayNoDetailError({
+                requestId:
+                  typeof event.requestId === "string"
+                    ? event.requestId
+                    : undefined,
+                model,
+                gatewayUrl: captureContext.gatewayUrl,
+                rawEvent: event,
+              });
+            }
             yield {
               type: "stop",
               reason: "error",
@@ -784,6 +801,52 @@ function captureBuilderGatewayTransportError(
         timeoutMs: context.timeoutMs,
         timedOut: context.timedOut,
         elapsedMs: context.elapsedMs,
+      },
+    },
+  });
+}
+
+/**
+ * Capture a Builder-gateway no-detail stop event to Sentry with the request
+ * context the run-manager doesn't have. The gateway emits
+ * `{type:"stop",reason:"error",requestId:"..."}` with no diagnostic — the
+ * only way to debug it is from the gateway side, so we surface model,
+ * gatewayOrigin, and requestId as searchable tags.
+ */
+function captureBuilderGatewayNoDetailError(context: {
+  requestId?: string;
+  model: string;
+  gatewayUrl?: URL;
+  rawEvent: unknown;
+}): void {
+  const err = new Error(
+    context.requestId
+      ? `Builder gateway stop reason=error with no detail (requestId=${context.requestId})`
+      : "Builder gateway stop reason=error with no detail",
+  );
+  err.name = "BuilderGatewayNoDetailError";
+  captureError(err, {
+    route: "/_agent-native/agent-chat",
+    tags: {
+      source: "builder-engine",
+      phase: "stream",
+      model: context.model,
+      errorCode: "builder_gateway_error",
+      ...(context.requestId ? { gatewayRequestId: context.requestId } : {}),
+    },
+    extra: {
+      gatewayOrigin: context.gatewayUrl?.origin,
+      gatewayPath: context.gatewayUrl?.pathname,
+      rawEvent: context.rawEvent,
+    },
+    contexts: {
+      builderGateway: {
+        phase: "stream",
+        model: context.model,
+        gatewayOrigin: context.gatewayUrl?.origin,
+        gatewayPath: context.gatewayUrl?.pathname,
+        requestId: context.requestId,
+        errorCode: "builder_gateway_error",
       },
     },
   });
