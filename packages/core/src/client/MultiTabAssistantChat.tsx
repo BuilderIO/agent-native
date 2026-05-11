@@ -915,12 +915,20 @@ export function MultiTabAssistantChat({
   // Look up the active thread's actual scope from the list — when the
   // user opens a chat from history that was scoped to a different
   // resource, the badge should advertise that thread's binding, not
-  // necessarily the resource currently in the viewport.
+  // necessarily the resource currently in the viewport. When the thread
+  // and the live prop refer to the same resource, prefer the prop's
+  // label so a rename or a deferred deck-title load shows up in the UI
+  // without waiting on the next persistence cycle.
   const activeThreadScope = useMemo<ChatThreadScope | null>(() => {
     if (!activeThreadId) return null;
     const t = threads.find((x) => x.id === activeThreadId);
-    return t?.scope ?? null;
-  }, [threads, activeThreadId]);
+    const stored = t?.scope ?? null;
+    if (!stored) return null;
+    if (scope && stored.type === scope.type && stored.id === scope.id) {
+      return { ...stored, label: scope.label || stored.label };
+    }
+    return stored;
+  }, [threads, activeThreadId, scope?.type, scope?.id, scope?.label]);
 
   // Persist open tab IDs to localStorage (exclude sub-agent tabs — they're session-only)
   useEffect(() => {
