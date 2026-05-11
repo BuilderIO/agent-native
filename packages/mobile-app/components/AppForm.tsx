@@ -13,19 +13,6 @@ import { Feather } from "@expo/vector-icons";
 import type { AppConfig } from "@agent-native/shared-app-config";
 import { generateAppId } from "@agent-native/shared-app-config";
 
-const COLOR_PRESETS = [
-  "#3B82F6",
-  "#8B5CF6",
-  "#10B981",
-  "#F59E0B",
-  "#EC4899",
-  "#EF4444",
-  "#06B6D4",
-  "#F97316",
-  "#84CC16",
-  "#6366F1",
-];
-
 const ICON_PRESETS: { name: string; icon: keyof typeof Feather.glyphMap }[] = [
   { name: "Globe", icon: "globe" },
   { name: "Mail", icon: "mail" },
@@ -58,7 +45,6 @@ export default function AppForm({
   const [name, setName] = useState(editApp?.name ?? "");
   const [url, setUrl] = useState(editApp?.url ?? "");
   const [description, setDescription] = useState(editApp?.description ?? "");
-  const [color, setColor] = useState(editApp?.color ?? COLOR_PRESETS[0]);
   const [icon, setIcon] = useState(editApp?.icon ?? "Globe");
 
   const isEditing = !!editApp;
@@ -81,13 +67,6 @@ export default function AppForm({
       return;
     }
 
-    const hexToRgb = (hex: string) => {
-      const r = parseInt(hex.slice(1, 3), 16);
-      const g = parseInt(hex.slice(3, 5), 16);
-      const b = parseInt(hex.slice(5, 7), 16);
-      return `${r} ${g} ${b}`;
-    };
-
     const config: AppConfig = {
       id: editApp?.id ?? generateAppId(),
       name: name.trim(),
@@ -97,8 +76,6 @@ export default function AppForm({
       devPort: 0,
       devUrl: editApp?.devUrl,
       devCommand: editApp?.devCommand,
-      color,
-      colorRgb: hexToRgb(color),
       isBuiltIn: editApp?.isBuiltIn ?? false,
       enabled: editApp?.enabled ?? true,
     };
@@ -162,27 +139,12 @@ export default function AppForm({
                 key={iconName}
                 style={[
                   styles.iconChoice,
-                  icon === iconName && { borderColor: color, borderWidth: 2 },
+                  icon === iconName && styles.iconChoiceSelected,
                 ]}
                 onPress={() => setIcon(iconName)}
               >
                 <Feather name={featherIcon} size={22} color="#ffffff" />
               </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.label}>Color</Text>
-          <View style={styles.colorGrid}>
-            {COLOR_PRESETS.map((c) => (
-              <TouchableOpacity
-                key={c}
-                style={[
-                  styles.colorChoice,
-                  { backgroundColor: c },
-                  color === c && styles.colorSelected,
-                ]}
-                onPress={() => setColor(c)}
-              />
             ))}
           </View>
 
@@ -259,20 +221,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#333333",
   },
-  colorGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  colorChoice: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  colorSelected: {
+  iconChoiceSelected: {
     borderColor: "#ffffff",
-    transform: [{ scale: 1.15 }],
+    borderWidth: 2,
   },
 });

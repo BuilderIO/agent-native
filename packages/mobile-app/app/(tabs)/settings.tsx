@@ -78,7 +78,6 @@ export default function SettingsScreen() {
         {apps.map((app) => (
           <View key={app.id} style={styles.appRow}>
             <View style={styles.appInfo}>
-              <View style={[styles.dot, { backgroundColor: app.color }]} />
               <View style={styles.appText}>
                 <Text style={styles.appName}>{app.name}</Text>
                 <Text style={styles.appUrl} numberOfLines={1}>
@@ -179,12 +178,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     flex: 1,
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 12,
   },
   appText: {
     flex: 1,

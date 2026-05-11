@@ -29,26 +29,6 @@ interface AppSettingsProps {
   onAppsChanged: (apps: AppConfig[]) => void;
 }
 
-const COLOR_PRESETS = [
-  "#3B82F6",
-  "#8B5CF6",
-  "#10B981",
-  "#F59E0B",
-  "#EC4899",
-  "#EF4444",
-  "#06B6D4",
-  "#F97316",
-  "#84CC16",
-  "#6366F1",
-];
-
-function hexToRgb(hex: string): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `${r} ${g} ${b}`;
-}
-
 function inferPortFromUrl(url: string): number {
   try {
     const parsed = new URL(url);
@@ -288,10 +268,6 @@ export default function AppSettings({
                 <h3>Installed Apps</h3>
                 {apps.map((app) => (
                   <div key={app.id} className="settings-app-row">
-                    <div
-                      className="settings-app-dot"
-                      style={{ backgroundColor: app.color }}
-                    />
                     <div className="settings-app-info">
                       <span className="settings-app-name">{app.name}</span>
                       <span className="settings-app-url">{app.url}</span>
@@ -424,7 +400,6 @@ function AppEditForm({
   const [devUrl, setDevUrl] = useState(app?.devUrl ?? "");
   const [devCommand, setDevCommand] = useState(app?.devCommand ?? "");
   const [description, setDescription] = useState(app?.description ?? "");
-  const [color, setColor] = useState(app?.color ?? COLOR_PRESETS[0]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -441,8 +416,6 @@ function AppEditForm({
       devPort: app?.devPort || inferPortFromUrl(trimmedDevUrl),
       devUrl: trimmedDevUrl || undefined,
       devCommand: devCommand.trim() || undefined,
-      color,
-      colorRgb: hexToRgb(color),
       isBuiltIn: app?.isBuiltIn ?? false,
       enabled: app?.enabled ?? true,
       mode: app?.mode ?? (trimmedUrl ? "prod" : "dev"),
@@ -508,21 +481,6 @@ function AppEditForm({
             placeholder="What does this app do?"
           />
         </label>
-
-        <div className="settings-color-row">
-          <span>Color</span>
-          <div className="settings-colors">
-            {COLOR_PRESETS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={`settings-color-swatch${c === color ? " settings-color-swatch--active" : ""}`}
-                style={{ backgroundColor: c }}
-                onClick={() => setColor(c)}
-              />
-            ))}
-          </div>
-        </div>
 
         <div className="settings-form-actions">
           <button
@@ -592,10 +550,6 @@ function TemplatePicker({
                 }}
                 onClick={() => onPick(t)}
               >
-                <div
-                  className="settings-app-dot"
-                  style={{ backgroundColor: t.color }}
-                />
                 <div className="settings-app-info">
                   <span className="settings-app-name">{t.label}</span>
                   <span className="settings-app-url">{t.hint}</span>

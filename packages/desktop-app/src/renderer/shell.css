@@ -800,13 +800,6 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-.settings-app-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
 .settings-app-info {
   flex: 1;
   min-width: 0;
@@ -1110,44 +1103,6 @@ body {
   border-color: rgba(59, 130, 246, 0.5);
 }
 
-.settings-color-row {
-  margin-bottom: 16px;
-}
-
-.settings-color-row span {
-  font-size: 11px;
-  font-weight: 500;
-  color: #888;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-.settings-colors {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.settings-color-swatch {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition:
-    transform var(--ease),
-    border-color var(--ease);
-}
-
-.settings-color-swatch:hover {
-  transform: scale(1.1);
-}
-
-.settings-color-swatch--active {
-  border-color: #fff;
-  transform: scale(1.15);
-}
-
 .settings-form-actions {
   display: flex;
   gap: 8px;
@@ -1219,6 +1174,11 @@ body {
   border-radius: 12px;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
   -webkit-app-region: no-drag;
+  /* Promote to its own compositor layer + stacking context so it paints
+     reliably above Electron <webview> guest surfaces on macOS. Without this
+     the popover loses the composite race and gets covered by the webview. */
+  transform: translateZ(0);
+  isolation: isolate;
 }
 
 .update-prompt-body {

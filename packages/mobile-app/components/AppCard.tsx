@@ -35,10 +35,8 @@ export default function AppCard({ app, onPress, onLongPress }: AppCardProps) {
       onLongPress={onLongPress}
       activeOpacity={0.7}
     >
-      <View
-        style={[styles.iconContainer, { backgroundColor: app.color + "18" }]}
-      >
-        <Feather name={getFeatherIcon(app.icon)} size={28} color={app.color} />
+      <View style={styles.iconContainer}>
+        <Feather name={getFeatherIcon(app.icon)} size={28} color="#ffffff" />
       </View>
       <Text style={styles.name} numberOfLines={1}>
         {app.name}
@@ -67,6 +65,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 10,
+    backgroundColor: "#252525",
   },
   name: {
     color: "#FFFFFF",
