@@ -4,8 +4,11 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../server/db";
 import { useEffect, useState } from "react";
 import { IconMessageCircle } from "@tabler/icons-react";
-import { agentNativePath, appPath } from "@agent-native/core/client";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import { agentNativePath } from "@agent-native/core/client";
+import {
+  getConfiguredAppBasePath,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import { buildPublicDocumentDescription } from "@shared/og-description";
@@ -14,10 +17,17 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
 
+  // This is a server loader; use the server-side base-path helper
+  // (reads APP_BASE_PATH / VITE_APP_BASE_PATH at request time)
+  // instead of the client `appPath()` which relies on
+  // `import.meta.env` and is meant for browser code.
+  const basePath = getConfiguredAppBasePath();
+  const withBase = (path: string) => `${basePath}${path}`;
+
   const userEmail = getRequestUserEmail();
   if (userEmail) {
     const access = await resolveAccess("document", id);
-    if (access) throw redirect(`/page/${id}`);
+    if (access) throw redirect(withBase(`/page/${id}`));
   }
 
   const [doc] = await getDb()
@@ -40,13 +50,12 @@ export async function loader({ params }: LoaderFunctionArgs) {
   // sign-in so the access check above can route them to /page/<id>.
   if (!userEmail) {
     // Build both the outer sign-in URL and the inner return path
-    // through the basename helpers so mounted-app deployments
-    // (e.g. served under `/content`) land back on
-    // `/<base>/p/<id>` after authenticating, not on `/p/<id>` at
-    // the gateway root.
-    const returnPath = appPath(`/p/${id}`);
+    // with APP_BASE_PATH so mounted-app deployments (e.g. served
+    // under `/content`) land back on `/<base>/p/<id>` after
+    // authenticating, not on `/p/<id>` at the gateway root.
+    const returnPath = withBase(`/p/${id}`);
     throw redirect(
-      `${agentNativePath("/_agent-native/sign-in")}?return=${encodeURIComponent(returnPath)}`,
+      `${withBase("/_agent-native/sign-in")}?return=${encodeURIComponent(returnPath)}`,
     );
   }
 
