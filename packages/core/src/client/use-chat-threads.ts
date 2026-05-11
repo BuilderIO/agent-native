@@ -427,6 +427,7 @@ export function useChatThreads(
             messageCount: thread.messageCount,
             createdAt: thread.createdAt,
             updatedAt: thread.updatedAt,
+            scope: thread.scope ?? null,
           },
           ...prev,
         ]);
