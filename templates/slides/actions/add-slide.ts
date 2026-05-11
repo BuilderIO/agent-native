@@ -1,10 +1,18 @@
 import { defineAction } from "@agent-native/core";
+import {
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
 import { notifyClients } from "../server/handlers/decks.js";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import {
+  awaitLayoutFitCheck,
+  formatOverflowForTool,
+} from "./_await-fit-check.js";
 
 // In-process serialization per deckId. `add-slide` is intentionally advertised
 // as a sequential write, but the lock still protects against accidental
@@ -113,11 +121,48 @@ export default defineAction({
       // Broadcast to any open editors so the new slide appears immediately.
       notifyClients(deckId);
 
-      return {
+      // Nudge any open editor onto the new slide so the renderer measures
+      // IT (not whichever slide was previously selected). Only fires when an
+      // editor is open on this deck; navigation state is a no-op if nobody
+      // is watching.
+      const nav = (await readAppState("navigation").catch(() => null)) as {
+        view?: string;
+        deckId?: string;
+      } | null;
+      if (nav?.view === "editor" && nav.deckId === deckId) {
+        await writeAppState("navigate", {
+          deckId,
+          slideIndex: insertIndex,
+        }).catch(() => {});
+      }
+
+      // Wait briefly for the editor to render the new slide and report its
+      // measured fit. If we get an "overflows" signal, append the auto-fix
+      // hint so the agent can call update-slide right away and patch the
+      // slide HTML until it fits. Timeout = no editor measurement available
+      // (e.g. headless server) — return success without a fit hint.
+      const fitSince = Date.now();
+      const fit = await awaitLayoutFitCheck(newSlideId, fitSince, 5000);
+
+      const base = {
         deckId,
         slideId: newSlideId,
         position: insertIndex,
         slideCount: slides.length,
       };
+
+      if (fit.status === "overflows") {
+        return {
+          ...base,
+          layoutOverflow: {
+            verticalOverflow: fit.measurement.verticalOverflow,
+            contentHeight: fit.measurement.contentHeight,
+            viewportHeight: fit.measurement.viewportHeight,
+          },
+          message: formatOverflowForTool(deckId, fit.measurement),
+        };
+      }
+
+      return base;
     }),
 });

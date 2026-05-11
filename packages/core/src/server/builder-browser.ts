@@ -541,6 +541,29 @@ export function createBuilderBrowserCallbackPage(previewUrl: string): string {
       <a class="btn" href=${escapedUrl}>Open the workspace</a>
     </main>
     <script>
+      // Tell the opener tab the connect succeeded. The parent has two ways
+      // to learn this:
+      //   1. The popup-based connect flow (window.open + 2s polling on
+      //      /builder/status) — picks it up via the next poll within ~2s.
+      //   2. The link-based "Use Builder" flow (target="_blank" tab) — the
+      //      AgentPanel only fetches /builder/status once on mount, so it
+      //      stays stuck on "Use Builder" unless we explicitly signal.
+      // BroadcastChannel + postMessage cover both cases. Use the same channel
+      // name as the error path (createBuilderBrowserCallbackErrorPage) and
+      // mirror the parent-side listener in useBuilderStatus / useBuilderConnectUrl.
+      try {
+        var bc = new BroadcastChannel("builder-connect:" + window.location.host);
+        bc.postMessage({ type: "builder-connect-success" });
+        bc.close();
+      } catch (e) {}
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(
+            { type: "builder-connect-success" },
+            window.location.origin,
+          );
+        }
+      } catch (e) {}
       // If we're a popup opened by the app, close ourselves and let the
       // parent tab keep polling for connection status. If close() is
       // blocked (e.g. we're the top-level tab because popups were

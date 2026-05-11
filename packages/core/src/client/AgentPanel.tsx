@@ -248,23 +248,71 @@ export interface AgentPanelCodeAccess {
 
 function useBuilderConnectUrl() {
   const [connectUrl, setConnectUrl] = useState<string | null>(null);
+  const [configured, setConfigured] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(agentNativePath("/_agent-native/builder/status"))
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.connectUrl) {
-          setConnectUrl(data.connectUrl);
-        }
-      })
-      .catch(() => {});
+    const refresh = () => {
+      fetch(agentNativePath("/_agent-native/builder/status"))
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (cancelled || !data) return;
+          if (data.connectUrl) setConnectUrl(data.connectUrl);
+          setConfigured(!!data.configured);
+          // Tell other listeners (the agent panel's "Use Builder" CTA lives
+          // in a different React tree than the connect-flow popup poller, so
+          // a fresh status read here is the only thing that flips its UI).
+          if (data.configured) {
+            window.dispatchEvent(
+              new CustomEvent("agent-engine:configured-changed", {
+                detail: { source: "builder-status" },
+              }),
+            );
+          }
+        })
+        .catch(() => {});
+    };
+    refresh();
+    // The "Use Builder" CTA opens Builder in a `<a target="_blank">` tab
+    // (not a popup), so the previous one-shot fetch never noticed the
+    // connect succeeded when the user came back to the original tab.
+    const onFocus = () => refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const onConfigured = () => refresh();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("agent-engine:configured-changed", onConfigured);
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(
+        `builder-connect:${window.location.host}`,
+      );
+      channel.onmessage = (e: MessageEvent) => {
+        const data = e.data as { type?: string } | undefined;
+        if (data?.type === "builder-connect-success") refresh();
+      };
+    } catch {
+      // BroadcastChannel missing — focus/visibility refresh still covers it.
+    }
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      const data = e.data as { type?: string } | undefined;
+      if (data?.type === "builder-connect-success") refresh();
+    };
+    window.addEventListener("message", onMessage);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("agent-engine:configured-changed", onConfigured);
+      window.removeEventListener("message", onMessage);
+      channel?.close();
     };
   }, []);
 
-  return connectUrl;
+  return { connectUrl, configured };
 }
 
 export interface AgentPanelProps extends Omit<
@@ -314,7 +362,7 @@ function CodeAccessUnavailablePanel({
   secondaryCtaHref?: string;
   compact?: boolean;
 }) {
-  const builderConnectUrl = useBuilderConnectUrl();
+  const { connectUrl: builderConnectUrl } = useBuilderConnectUrl();
   const builderHref =
     secondaryCtaHref ?? builderConnectUrl ?? "https://builder.io";
 
