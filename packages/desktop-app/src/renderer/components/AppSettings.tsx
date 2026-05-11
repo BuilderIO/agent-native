@@ -482,21 +482,6 @@ function AppEditForm({
           />
         </label>
 
-        <div className="settings-color-row">
-          <span>Color</span>
-          <div className="settings-colors">
-            {COLOR_PRESETS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={`settings-color-swatch${c === color ? " settings-color-swatch--active" : ""}`}
-                style={{ backgroundColor: c }}
-                onClick={() => setColor(c)}
-              />
-            ))}
-          </div>
-        </div>
-
         <div className="settings-form-actions">
           <button
             type="button"
@@ -565,10 +550,6 @@ function TemplatePicker({
                 }}
                 onClick={() => onPick(t)}
               >
-                <div
-                  className="settings-app-dot"
-                  style={{ backgroundColor: t.color }}
-                />
                 <div className="settings-app-info">
                   <span className="settings-app-name">{t.label}</span>
                   <span className="settings-app-url">{t.hint}</span>

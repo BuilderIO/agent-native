@@ -13,19 +13,6 @@ import { Feather } from "@expo/vector-icons";
 import type { AppConfig } from "@agent-native/shared-app-config";
 import { generateAppId } from "@agent-native/shared-app-config";
 
-const COLOR_PRESETS = [
-  "#3B82F6",
-  "#8B5CF6",
-  "#10B981",
-  "#F59E0B",
-  "#EC4899",
-  "#EF4444",
-  "#06B6D4",
-  "#F97316",
-  "#84CC16",
-  "#6366F1",
-];
-
 const ICON_PRESETS: { name: string; icon: keyof typeof Feather.glyphMap }[] = [
   { name: "Globe", icon: "globe" },
   { name: "Mail", icon: "mail" },

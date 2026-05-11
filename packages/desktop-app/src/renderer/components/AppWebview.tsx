@@ -391,7 +391,7 @@ function LoadingScreen({
 }) {
   return (
     <div className="loading-overlay">
-      <div className="loading-spinner" style={{ borderTopColor: app.color }} />
+      <div className="loading-spinner" />
       <p className="loading-title">Loading {app.name}…</p>
       {slow && (
         <p className="loading-hint">
@@ -598,10 +598,7 @@ function CommandRow({
 function PlaceholderScreen({ app }: { app: AppDefinition }) {
   return (
     <div className="placeholder-overlay">
-      <div
-        className="placeholder-icon"
-        style={{ color: app.color, opacity: 0.3 }}
-      >
+      <div className="placeholder-icon">
         <svg
           width="48"
           height="48"
