@@ -286,9 +286,7 @@ function useBuilderConnectUrl() {
     window.addEventListener("agent-engine:configured-changed", onConfigured);
     let channel: BroadcastChannel | null = null;
     try {
-      channel = new BroadcastChannel(
-        `builder-connect:${window.location.host}`,
-      );
+      channel = new BroadcastChannel(`builder-connect:${window.location.host}`);
       channel.onmessage = (e: MessageEvent) => {
         const data = e.data as { type?: string } | undefined;
         if (data?.type === "builder-connect-success") refresh();
@@ -306,7 +304,10 @@ function useBuilderConnectUrl() {
       cancelled = true;
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("agent-engine:configured-changed", onConfigured);
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        onConfigured,
+      );
       window.removeEventListener("message", onMessage);
       channel?.close();
     };
