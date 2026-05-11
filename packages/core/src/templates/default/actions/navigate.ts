@@ -35,6 +35,9 @@ export async function run(args: Record<string, string>): Promise<string> {
   const nav: Record<string, string> = {};
   if (args.view) nav.view = args.view;
   if (args.path) nav.path = args.path;
+  // Unique-per-write token so the UI's `use-navigation-state` hook can dedup
+  // race-driven re-reads of the same command.
+  nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await writeAppState("navigate", nav);
   return `Navigating to ${args.view || args.path}`;
 }

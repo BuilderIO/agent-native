@@ -136,6 +136,9 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             view: "extensions",
             extensionId: extension.id,
             path: `/extensions/${extension.id}`,
+            // Unique-per-write token so the UI's `use-navigation-state` hook
+            // can dedup race-driven re-reads of the same command.
+            _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           });
         } catch {
           // Non-fatal — agent can still mention the path in its reply.
