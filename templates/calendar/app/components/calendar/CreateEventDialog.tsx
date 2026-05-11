@@ -17,6 +17,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useSettings } from "@/hooks/use-settings";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
@@ -467,7 +472,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 type="date"
                 value={date}
                 onChange={(e) => handleDateChange(e.target.value)}
-                className="h-8 pr-2 text-sm [&::-webkit-calendar-picker-indicator]:ml-1"
+                className="h-8 text-sm"
               />
             </div>
             <div className="space-y-1.5">
@@ -480,22 +485,47 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 min={date}
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value || date)}
-                className="h-8 pr-2 text-sm [&::-webkit-calendar-picker-indicator]:ml-1"
+                className="h-8 text-sm"
               />
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Switch
-              id="all-day"
-              checked={allDay && !timedOnlyStatus}
-              onCheckedChange={setAllDay}
-              disabled={timedOnlyStatus}
-            />
-            <Label htmlFor="all-day" className="text-xs">
-              All day
-            </Label>
-          </div>
+          {timedOnlyStatus ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex w-fit items-center gap-2">
+                  <Switch
+                    id="all-day"
+                    checked={false}
+                    onCheckedChange={setAllDay}
+                    disabled
+                  />
+                  <Label
+                    htmlFor="all-day"
+                    className="text-xs text-muted-foreground"
+                  >
+                    All day
+                  </Label>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                {eventType === "outOfOffice"
+                  ? "Out of office events must have a specific start and end time."
+                  : "Focus time events must have a specific start and end time."}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Switch
+                id="all-day"
+                checked={allDay}
+                onCheckedChange={setAllDay}
+              />
+              <Label htmlFor="all-day" className="text-xs">
+                All day
+              </Label>
+            </div>
+          )}
 
           {!allDay && (
             <div className="grid grid-cols-2 gap-3">

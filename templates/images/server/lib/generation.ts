@@ -61,7 +61,7 @@ async function getGeminiApiKey(): Promise<string> {
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "Image generation is not configured. Connect Builder.io, or add a Gemini API key in Settings as a manual fallback.",
+        "Image generation is not configured. Open Settings and either click Connect Builder.io, or expand the Image generation setup step and paste a Gemini API key as the manual fallback.",
     });
   }
   return key;
@@ -223,7 +223,7 @@ export async function generateWithManagedImageProvider(
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "Builder-managed image generation is disabled for this deployment. Add a Gemini API key in Settings, or enable Builder-managed generation.",
+        "Builder-managed image generation is disabled for this deployment. Open Settings, expand the Image generation setup step, and paste a Gemini API key — or re-enable Builder-managed generation.",
     });
   }
 
@@ -242,7 +242,7 @@ export async function generateWithManagedImageProvider(
         builderConnectUrl: "/_agent-native/builder/connect",
         byokDocsUrl: "https://aistudio.google.com/apikey",
         message:
-          "Image generation needs Builder.io connected, or a Gemini API key configured as the manual fallback.",
+          "Image generation needs Builder.io connected. Open Settings and click Connect Builder.io — or expand the Image generation setup step and paste a Gemini API key as the manual fallback.",
       });
     }
     throw err;

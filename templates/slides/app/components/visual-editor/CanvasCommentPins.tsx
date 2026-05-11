@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { IconMessage, IconSend, IconX } from "@tabler/icons-react";
-import { agentChat } from "@agent-native/core";
+import { sendToAgentChat } from "@agent-native/core";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -254,7 +254,17 @@ export function CanvasCommentPins({
     lines.push("");
     lines.push(text);
     try {
-      agentChat.submit(lines.join("\n"));
+      // Use `sendToAgentChat` (not the shared `agentChat.submit`) so the
+      // request routes correctly when slides is embedded in Builder/Frame
+      // (the Builder parent ignores `agentNative.submitChat` — the wrapped
+      // helper falls back to posting to self in that case) and so the agent
+      // sidebar is reliably opened via the `agent-panel:open` custom event
+      // even if the user has it collapsed.
+      sendToAgentChat({
+        message: lines.join("\n"),
+        submit: true,
+        openSidebar: true,
+      });
     } catch (err) {
       console.error("[CanvasCommentPins] failed to send to agent:", err);
     }
@@ -305,8 +315,13 @@ export function CanvasCommentPins({
             )}
             style={{ left, top }}
           >
-            {/* Pin marker */}
-            <Tooltip>
+            {/* Pin marker. The tooltip is suppressed while the composer is
+             * open: the textarea already shows the same draft text, and a
+             * shadcn TooltipContent (z-[250], no `pointer-events: none`) was
+             * intercepting Send-button clicks for pins near the top of the
+             * slide where Radix auto-flips the tooltip below the trigger and
+             * onto the composer. */}
+            <Tooltip open={isActive ? false : undefined}>
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setActivePinId(pin.id)}
@@ -318,14 +333,18 @@ export function CanvasCommentPins({
                   <IconMessage className="w-3.5 h-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{pin.draft || "Comment"}</TooltipContent>
+              <TooltipContent className="pointer-events-none">
+                {pin.draft || "Comment"}
+              </TooltipContent>
             </Tooltip>
 
-            {/* Inline composer */}
+            {/* Inline composer. z-[260] keeps it above the shadcn floating-UI
+             * tier (z-[250] — Tooltip, Popover, Dialog overlay, etc.) so a
+             * stray tooltip that pops over the pin can't swallow Send clicks. */}
             {isActive && !pin.submitted && (
               <div
                 data-pin-popover
-                className="absolute w-72 rounded-lg border border-border bg-popover shadow-xl p-2"
+                className="absolute z-[260] w-72 rounded-lg border border-border bg-popover shadow-xl p-2"
                 style={(() => {
                   const off = computePopoverOffset(left, top);
                   return { left: off.left, top: off.top };

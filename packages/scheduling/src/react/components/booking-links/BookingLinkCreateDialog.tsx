@@ -135,10 +135,15 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
                 className="rounded-l-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                 value={form.slug}
                 onChange={(e) => {
+                  // Capture before setForm — React nulls e.currentTarget once
+                  // the event finishes synchronous propagation, so reading it
+                  // inside the updater closure throws "Cannot read properties
+                  // of null (reading 'value')".
+                  const next = e.currentTarget.value;
                   setSlugEdited(true);
                   setForm((prev) => ({
                     ...prev,
-                    slug: slugify(e.currentTarget.value),
+                    slug: slugify(next),
                   }));
                 }}
               />
