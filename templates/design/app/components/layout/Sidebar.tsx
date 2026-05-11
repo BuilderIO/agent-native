@@ -78,7 +78,7 @@ export function Sidebar() {
             <span className="text-sm font-semibold tracking-tight">Design</span>
           </div>
         )}
-        <Tooltip>
+        <Tooltip delayDuration={0}>
           <TooltipTrigger asChild>
             <button
               onClick={() => setCollapsed((c) => !c)}
@@ -125,7 +125,7 @@ export function Sidebar() {
             );
             if (collapsed) {
               return (
-                <Tooltip key={item.href}>
+                <Tooltip key={item.href} delayDuration={0}>
                   <TooltipTrigger asChild>{link}</TooltipTrigger>
                   <TooltipContent side="right">{item.label}</TooltipContent>
                 </Tooltip>
