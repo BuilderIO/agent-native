@@ -54,8 +54,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("./_await-fit-check.js", () => ({
-  awaitLayoutFitCheck: async () =>
-    mockFitCheckResult ?? { status: "timeout" },
+  awaitLayoutFitCheck: async () => mockFitCheckResult ?? { status: "timeout" },
   formatOverflowForTool: (deckId: string, m: { verticalOverflow: number }) =>
     `MOCK_OVERFLOW_MESSAGE deck=${deckId} overflow=${m.verticalOverflow}`,
 }));

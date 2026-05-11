@@ -83,7 +83,9 @@ describe("awaitLayoutFitCheck", () => {
 
   it("returns timeout (not error) when readAppState throws (no auth context)", async () => {
     mockReadAppState.mockRejectedValue(
-      new Error("Application state access requires an authenticated request context"),
+      new Error(
+        "Application state access requires an authenticated request context",
+      ),
     );
 
     const result = await awaitLayoutFitCheck("slide-A", 1000, 500);
