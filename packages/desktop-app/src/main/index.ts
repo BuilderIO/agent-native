@@ -1084,6 +1084,42 @@ function openOAuthWindow(
 
   oauthWin.loadURL(url);
 
+  // Allow nested popups inside the OAuth window. Builder's /cli-auth uses
+  // Firebase, and Firebase signs the user into Google via `window.open()`.
+  // Electron's default is to silently block window.open, which manifests
+  // inside the popup as `FirebaseError: Firebase: Unable to establish a
+  // connection with the popup. It may have been blocked by the browser.
+  // (auth/popup-blocked)` — the user sees a brief blank screen, the popup
+  // closes, and the parent OAuth window never gets the auth result. By
+  // returning `action: "allow"` here we let Electron spawn a child window
+  // that shares the same session (so Firebase's postMessage handshake to
+  // window.opener still works) and inherits the OAuth window as parent.
+  oauthWin.webContents.setWindowOpenHandler(({ url: childUrl }) => {
+    try {
+      const parsed = new URL(childUrl);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        return { action: "deny" as const };
+      }
+    } catch {
+      return { action: "deny" as const };
+    }
+    return {
+      action: "allow" as const,
+      overrideBrowserWindowOptions: {
+        width: 500,
+        height: 700,
+        backgroundColor: "#111111",
+        parent: oauthWin,
+        modal: false,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          ...(sourceSession ? { session: sourceSession } : {}),
+        },
+      },
+    };
+  });
+
   // Close once we've reached the OAuth callback URL. Matching on path
   // fragment works for both Google (callback on localhost /api/google/*)
   // and Builder (callback on localhost /_agent-native/builder/callback).
