@@ -28,6 +28,28 @@ import {
  * Returns `null` if neither lookup matches, letting the route render its
  * "Page not found" pane.
  */
+/**
+ * Validate `app.url` is an absolute http(s) URL before we trust it as a
+ * redirect target. A bare hostname (`"forms.example.com"`) or a
+ * `javascript:` scheme would otherwise get returned verbatim from
+ * `resolveCatchAllTarget` and produce a broken redirect (or a phishing
+ * vector). Mirrors `normalizeWorkspaceAppUrl` in
+ * `packages/core/src/deploy/workspace-deploy.ts` — but inlined to avoid
+ * pulling the deploy CLI module into a runtime path.
+ */
+function validatedAbsoluteUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return undefined;
+    }
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
 export function resolveCatchAllTarget(appId: string): string | null {
   const apps = loadWorkspaceAppsManifest();
   if (apps) {
@@ -36,9 +58,12 @@ export function resolveCatchAllTarget(appId: string): string | null {
       // Explicit externally-hosted URL wins. Workspaces that point at a
       // remote deploy (e.g. a sibling app on Netlify) set `url` and we
       // should bounce the user there rather than mounting a local path
-      // that doesn't exist inside the gateway.
-      if (typeof app.url === "string" && app.url.trim()) {
-        return app.url.trim();
+      // that doesn't exist inside the gateway. Validate the URL first —
+      // a bare hostname or non-http(s) scheme would produce a broken
+      // redirect (and a `javascript:` value would be a phishing vector).
+      const url = validatedAbsoluteUrl(app.url);
+      if (url) {
+        return url;
       }
       // Fall back to the mounted path. Normalize to leading slash so an
       // entry whose path differs from its id (e.g. `id: "forms"`,

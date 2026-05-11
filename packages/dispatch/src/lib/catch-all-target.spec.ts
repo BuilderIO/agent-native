@@ -108,6 +108,55 @@ describe("resolveCatchAllTarget", () => {
     expect(resolveCatchAllTarget("forms")).toBe("https://forms.example.com");
   });
 
+  it("ignores app.url that isn't an absolute http(s) URL and falls back to path", () => {
+    // Bare hostname — `new URL("forms.example.com")` throws, so the value
+    // is rejected and we fall through to the (validated) path. Without
+    // this, the catch-all would `throw redirect("forms.example.com")`
+    // and the browser would treat the value as a relative path inside the
+    // gateway, producing a broken redirect.
+    loadWorkspaceAppsManifestMock.mockReturnValue([
+      {
+        id: "forms",
+        name: "Forms",
+        path: "/forms",
+        url: "forms.example.com",
+      },
+    ]);
+    getBuiltinAgentsMock.mockReturnValue([]);
+
+    expect(resolveCatchAllTarget("forms")).toBe("/forms");
+  });
+
+  it("rejects non-http(s) URL schemes (e.g. javascript:) and falls back to path", () => {
+    // Defense in depth — a hostile manifest entry can't produce a
+    // `javascript:` redirect target. Validation enforces http(s) only.
+    loadWorkspaceAppsManifestMock.mockReturnValue([
+      {
+        id: "forms",
+        name: "Forms",
+        path: "/forms",
+        url: "javascript:alert(1)",
+      },
+    ]);
+    getBuiltinAgentsMock.mockReturnValue([]);
+
+    expect(resolveCatchAllTarget("forms")).toBe("/forms");
+  });
+
+  it("strips a trailing slash from app.url", () => {
+    loadWorkspaceAppsManifestMock.mockReturnValue([
+      {
+        id: "forms",
+        name: "Forms",
+        path: "/forms",
+        url: "https://forms.example.com/",
+      },
+    ]);
+    getBuiltinAgentsMock.mockReturnValue([]);
+
+    expect(resolveCatchAllTarget("forms")).toBe("https://forms.example.com");
+  });
+
   it("ignores an empty/whitespace app.url and falls back to path", () => {
     loadWorkspaceAppsManifestMock.mockReturnValue([
       {
