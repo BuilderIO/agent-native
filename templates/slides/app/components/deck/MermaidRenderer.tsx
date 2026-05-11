@@ -40,6 +40,8 @@ export function MermaidRenderer({
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
 
+  console.log(`shomix - ${definition}`);
+
   useEffect(() => {
     if (!definition.trim()) return;
     initMermaid();
@@ -57,6 +59,14 @@ export function MermaidRenderer({
         // SVG-borne XSS (foreignObject scripts, javascript: hrefs, etc.).
         const sanitized = DOMPurify.sanitize(renderedSvg, {
           USE_PROFILES: { svg: true, svgFilters: true },
+          ADD_TAGS: ["foreignObject", "text", "tspan", "textPath"],
+          ADD_ATTR: [
+            "dominant-baseline",
+            "text-anchor",
+            "dy",
+            "font-family",
+            "font-size",
+          ],
         });
         setSvg(sanitized);
         setError("");

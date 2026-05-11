@@ -433,9 +433,22 @@ function BlankSlideContent({ content }: { content: string }) {
   // includes the per-block `contentEditable="true"` set by SlideEditor's
   // double-click-to-edit flow, which made inline text editing appear to do nothing.
   const { mermaidBlocks, htmlWithPlaceholders, dangerousHtml } = useMemo(() => {
+    // Extract mermaid blocks BEFORE sanitization. The sanitizer round-trips
+    // HTML through DOMParser + innerHTML, which HTML-escapes `>` in text
+    // nodes to `&gt;` — that mangles diagram arrows like `A --> B` into
+    // `A --&gt; B` and breaks the mermaid parser.
+    const blocks: string[] = [];
+    const contentWithPlaceholders = content.replace(
+      /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/gi,
+      (_, definition) => {
+        blocks.push(String(definition).trim());
+        return `<div data-mermaid-index="${blocks.length - 1}"></div>`;
+      },
+    );
+
     // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
     const processed = sanitizeSlideHtml(
-      content.replace(
+      contentWithPlaceholders.replace(
         /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
         (_match, before, close) => {
           if (before.includes('style="')) {
@@ -451,19 +464,9 @@ function BlankSlideContent({ content }: { content: string }) {
       ),
     );
 
-    // Extract mermaid blocks from HTML content for React-based rendering
-    const blocks: string[] = [];
-    const withPlaceholders = processed.replace(
-      /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/gi,
-      (_, definition) => {
-        blocks.push(definition.trim());
-        return `<div data-mermaid-index="${blocks.length - 1}"></div>`;
-      },
-    );
-
     return {
       mermaidBlocks: blocks,
-      htmlWithPlaceholders: withPlaceholders,
+      htmlWithPlaceholders: processed,
       dangerousHtml: { __html: processed },
     };
   }, [content]);
