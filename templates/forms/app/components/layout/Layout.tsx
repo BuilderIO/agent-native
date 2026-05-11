@@ -20,6 +20,16 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
 
+  // Bind chat to the currently-open form. The `/forms/:id` URL covers
+  // both the builder and the responses sub-page (`/forms/:id/responses`);
+  // either way we want both screens of the same form to share a chat.
+  const formScope = useMemo(() => {
+    const match = location.pathname.match(/^\/forms\/([^/]+)/);
+    const formId = match?.[1];
+    if (!formId) return null;
+    return { type: "form" as const, id: formId };
+  }, [location.pathname]);
+
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
@@ -44,6 +54,7 @@ export function Layout({ children }: LayoutProps) {
             "Summarize this week's responses",
             "Export responses to CSV",
           ]}
+          scope={formScope}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">
             {showHeader ? <Header /> : null}
