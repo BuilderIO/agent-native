@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../server/db";
 import { useEffect, useState } from "react";
 import { IconMessageCircle } from "@tabler/icons-react";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, appPath } from "@agent-native/core/client";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { VisualEditor } from "@/components/editor/VisualEditor";
@@ -39,8 +39,14 @@ export async function loader({ params }: LoaderFunctionArgs) {
   // arrived from a share-notification email — send them through
   // sign-in so the access check above can route them to /page/<id>.
   if (!userEmail) {
+    // Build both the outer sign-in URL and the inner return path
+    // through the basename helpers so mounted-app deployments
+    // (e.g. served under `/content`) land back on
+    // `/<base>/p/<id>` after authenticating, not on `/p/<id>` at
+    // the gateway root.
+    const returnPath = appPath(`/p/${id}`);
     throw redirect(
-      `/_agent-native/sign-in?return=${encodeURIComponent(`/p/${id}`)}`,
+      `${agentNativePath("/_agent-native/sign-in")}?return=${encodeURIComponent(returnPath)}`,
     );
   }
 
