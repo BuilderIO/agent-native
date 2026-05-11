@@ -133,34 +133,41 @@ describe("A2A continuation processor", () => {
     process.env = originalEnv;
   });
 
-  it("dispatches without aborting a long-running processor request", async () => {
-    vi.useFakeTimers();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => new Promise<Response>(() => {})),
-    );
-    const { dispatchA2AContinuation } =
-      await import("./a2a-continuation-processor.js");
+  // CI's slower transform/import phase pushes the import of the processor
+  // module into the per-test budget; bump to 15s so the 2s fake-timer
+  // advance + module load doesn't get clipped by the default 5s timeout.
+  it(
+    "dispatches without aborting a long-running processor request",
+    { timeout: 15000 },
+    async () => {
+      vi.useFakeTimers();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => new Promise<Response>(() => {})),
+      );
+      const { dispatchA2AContinuation } =
+        await import("./a2a-continuation-processor.js");
 
-    const dispatch = dispatchA2AContinuation(
-      "cont-long",
-      "https://dispatch.agent-native.test",
-    );
+      const dispatch = dispatchA2AContinuation(
+        "cont-long",
+        "https://dispatch.agent-native.test",
+      );
 
-    expect(fetch).toHaveBeenCalledWith(
-      "https://dispatch.agent-native.test/_agent-native/integrations/process-a2a-continuation",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ continuationId: "cont-long" }),
-      }),
-    );
-    expect((vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit).signal).toBe(
-      undefined,
-    );
+      expect(fetch).toHaveBeenCalledWith(
+        "https://dispatch.agent-native.test/_agent-native/integrations/process-a2a-continuation",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ continuationId: "cont-long" }),
+        }),
+      );
+      expect((vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit).signal).toBe(
+        undefined,
+      );
 
-    await vi.advanceTimersByTimeAsync(2_000);
-    await dispatch;
-  });
+      await vi.advanceTimersByTimeAsync(2_000);
+      await dispatch;
+    },
+  );
 
   it("logs when the continuation processor route rejects dispatch", async () => {
     const consoleError = vi

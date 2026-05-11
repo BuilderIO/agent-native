@@ -35,6 +35,7 @@ export default defineAction({
       status: row.status,
       visibility: row.visibility,
       ownerEmail: row.ownerEmail,
+      role: access.role,
       responseCount: count?.count ?? 0,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

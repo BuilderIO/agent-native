@@ -336,9 +336,9 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("monthly AI credits");
   });
 
-  it("deep-links upgradeUrl to the org billing page when BUILDER_ORG_NAME is set", async () => {
-    credentialState.builderOrgName = "acme-corp";
-    vi.stubEnv("BUILDER_ORG_NAME", "acme-corp");
+  it("routes upgradeUrl to the org-agnostic billing page (BUILDER_ORG_NAME is a display name, not a URL slug)", async () => {
+    credentialState.builderOrgName = "Acme Corp";
+    vi.stubEnv("BUILDER_ORG_NAME", "Acme Corp");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -353,9 +353,7 @@ describe("createBuilderEngine", () => {
     const events = await collectEvents(engine.stream(BASE_OPTS));
 
     const stop = events.find((e) => e.type === "stop");
-    expect(stop?.upgradeUrl).toBe(
-      "https://builder.io/app/organizations/acme-corp/billing",
-    );
+    expect(stop?.upgradeUrl).toBe("https://builder.io/account/billing");
   });
 
   it("maps 401 unauthorized to Builder auth stop-error", async () => {
@@ -439,7 +437,7 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
-    expect(stop?.upgradeUrl).toContain("acme");
+    expect(stop?.upgradeUrl).toBe("https://builder.io/account/billing");
   });
 
   it("maps 429 concurrency to a retryable error message", async () => {

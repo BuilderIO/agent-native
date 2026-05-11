@@ -104,6 +104,42 @@ export default defineAction({
         lines.push(currentSlide.content);
         lines.push("```");
       }
+
+      // ─── Layout-fit measurement ──────────────────────────────────────────
+      // The editor measures the rendered slide and reports vertical overflow
+      // here whenever the natural content height exceeds the canvas content
+      // area. If this block is present, the current slide's HTML is too tall
+      // and needs to be rewritten to fit the canvas.
+      const overflow = (await readAppState("slide-fit-check")) as {
+        slideId?: string;
+        verticalOverflow?: number;
+        contentHeight?: number;
+        viewportHeight?: number;
+      } | null;
+      if (
+        overflow &&
+        typeof overflow.verticalOverflow === "number" &&
+        overflow.verticalOverflow > 0 &&
+        overflow.slideId === currentSlide?.id
+      ) {
+        lines.push(``);
+        lines.push(`### ⚠ Layout overflows the canvas vertically`);
+        lines.push(
+          `This slide's natural rendered height is ${overflow.contentHeight}px, ` +
+            `but the canvas content area is only ${overflow.viewportHeight}px tall ` +
+            `(overflow: ${overflow.verticalOverflow}px). The renderer no longer ` +
+            `auto-shrinks overflowing slides — you must rewrite the slide HTML so ` +
+            `the rendered height is at most ${overflow.viewportHeight}px. Options, ` +
+            `in order of preference: (1) tighten copy — shorter headings/bullets, ` +
+            `drop low-value lines; (2) reduce vertical density — fewer stacked ` +
+            `cards, smaller gaps, slightly smaller body font (not below 16px); ` +
+            `(3) reduce slide padding (e.g. 40px top/bottom); (4) split the ` +
+            `content across two slides if it genuinely cannot be compressed. ` +
+            `Do not solve this with transform: scale, overflow: scroll, or ` +
+            `absolute positioning — only the HTML shape can fix it now.`,
+        );
+      }
+
       return lines.join("\n");
     }
 

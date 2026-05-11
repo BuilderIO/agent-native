@@ -31,10 +31,10 @@ describe("computeSlideFitTransform", () => {
         viewportWidth: 740,
         viewportHeight: 380,
       }),
-    ).toEqual({ scale: 1, x: 0, y: 0, fitted: false });
+    ).toEqual({ scale: 1, x: 0, y: 0, fitted: false, verticalOverflow: 0 });
   });
 
-  it("scales bottom overflow to the viewport height", () => {
+  it("does not scale for vertical overflow but reports it for the LLM to fix", () => {
     expect(
       computeSlideFitTransform({
         contentWidth: 700,
@@ -42,7 +42,13 @@ describe("computeSlideFitTransform", () => {
         viewportWidth: 740,
         viewportHeight: 380,
       }),
-    ).toEqual({ scale: 0.76, x: 0, y: 0, fitted: true });
+    ).toEqual({
+      scale: 1,
+      x: 0,
+      y: 0,
+      fitted: false,
+      verticalOverflow: 120,
+    });
   });
 
   it("scales horizontal overflow to the viewport width", () => {
@@ -53,10 +59,16 @@ describe("computeSlideFitTransform", () => {
         viewportWidth: 740,
         viewportHeight: 380,
       }),
-    ).toEqual({ scale: 0.74, x: 0, y: 0, fitted: true });
+    ).toEqual({
+      scale: 0.74,
+      x: 0,
+      y: 0,
+      fitted: true,
+      verticalOverflow: 0,
+    });
   });
 
-  it("uses the limiting axis for two-axis overflow", () => {
+  it("uses the horizontal axis only — vertical overflow is ignored visually but reported", () => {
     expect(
       computeSlideFitTransform({
         contentWidth: 1000,
@@ -64,7 +76,13 @@ describe("computeSlideFitTransform", () => {
         viewportWidth: 740,
         viewportHeight: 380,
       }),
-    ).toEqual({ scale: 0.65, x: 0, y: 0, fitted: true });
+    ).toEqual({
+      scale: 0.74,
+      x: 0,
+      y: 0,
+      fitted: true,
+      verticalOverflow: 380,
+    });
   });
 
   it("translates negative content back into view", () => {
@@ -77,7 +95,13 @@ describe("computeSlideFitTransform", () => {
         minX: -20,
         minY: -10,
       }),
-    ).toEqual({ scale: 1, x: 20, y: 10, fitted: false });
+    ).toEqual({
+      scale: 1,
+      x: 20,
+      y: 10,
+      fitted: false,
+      verticalOverflow: 0,
+    });
   });
 });
 
@@ -165,7 +189,7 @@ describe("SlideInner autofit", () => {
     vi.unstubAllGlobals();
   });
 
-  it("inserts an inner fit layer for raw fmd-slide HTML and scales it", async () => {
+  it("inserts an inner fit layer for raw fmd-slide HTML but no longer shrinks for vertical overflow", async () => {
     const slide: Slide = {
       id: "raw",
       layout: "blank",
@@ -174,19 +198,26 @@ describe("SlideInner autofit", () => {
         '<div class="fmd-slide" style="padding: 80px 110px;"><div>Dense content</div></div>',
     };
 
-    render(<SlideInner slide={slide} />);
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
 
     await waitFor(() => {
       const fitLayer = document.querySelector<HTMLElement>(
         "[data-fmd-autofit-content]",
       );
       expect(fitLayer).toBeTruthy();
-      expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.76");
-      expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBe("true");
+      // Vertical overflow no longer triggers a uniform scale-down — the slide
+      // renders at native size and the editor surfaces the overflow so the
+      // agent can rewrite the HTML to fit instead.
+      expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
+      expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBeNull();
+      expect(onOverflowChange).toHaveBeenCalledWith(
+        expect.objectContaining({ verticalOverflow: 120 }),
+      );
     });
   });
 
-  it("scales markdown slide content without needing raw HTML", async () => {
+  it("reports vertical overflow for markdown slides too", async () => {
     const slide: Slide = {
       id: "markdown",
       layout: "content",
@@ -194,14 +225,18 @@ describe("SlideInner autofit", () => {
       content: "## Dense slide\n\n" + Array(8).fill("- Bullet").join("\n"),
     };
 
-    render(<SlideInner slide={slide} />);
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
 
     await waitFor(() => {
       const fitRoot = document.querySelector<HTMLElement>(
         "[data-slide-autofit-root]",
       );
-      expect(fitRoot?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.76");
-      expect(fitRoot?.getAttribute("data-fmd-autofit-active")).toBe("true");
+      expect(fitRoot?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
+      expect(fitRoot?.getAttribute("data-fmd-autofit-active")).toBeNull();
+      expect(onOverflowChange).toHaveBeenCalledWith(
+        expect.objectContaining({ verticalOverflow: 120 }),
+      );
     });
   });
 });

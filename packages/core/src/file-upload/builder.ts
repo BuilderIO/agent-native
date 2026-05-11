@@ -55,19 +55,38 @@ export const builderFileUploadProvider: FileUploadProvider = {
         ? new Blob([bytes], { type: bareMimeType })
         : (bytes as unknown as BodyInit);
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${privateKey}`,
-        "Content-Type": bareMimeType,
-      },
-      body,
-    });
+    // Retry transient 5xx once with backoff. Builder.io's upload service
+    // occasionally returns a bodyless 500 ("Internal Error") on the first
+    // attempt — usually GCS write hiccups that succeed on retry. We bound
+    // it tight so a deterministic 500 surfaces quickly to the caller.
+    const RETRY_DELAYS_MS = [600, 1800];
+    let response: Response | null = null;
+    let lastErrorBody = "";
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${privateKey}`,
+          "Content-Type": bareMimeType,
+        },
+        body,
+      });
+      if (response.ok) break;
+      const isTransient = response.status >= 500 && response.status !== 501;
+      const isLastAttempt = attempt === RETRY_DELAYS_MS.length;
+      if (!isTransient || isLastAttempt) {
+        lastErrorBody = await response.text().catch(() => "");
+        break;
+      }
+      lastErrorBody = await response.text().catch(() => "");
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    }
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
+    if (!response || !response.ok) {
+      const status = response?.status ?? 0;
+      const statusText = response?.statusText ?? "no response";
       throw new Error(
-        `Builder.io upload failed (${response.status}): ${text || response.statusText}`,
+        `Builder.io upload failed (${status}): ${lastErrorBody || statusText}`,
       );
     }
 

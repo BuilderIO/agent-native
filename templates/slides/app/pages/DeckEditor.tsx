@@ -34,7 +34,9 @@ import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
 import ImageSearchPanel from "@/components/editor/ImageSearchPanel";
 import LogoSearchPanel from "@/components/editor/LogoSearchPanel";
 import HistoryPanel from "@/components/editor/HistoryPanel";
+import ImageDropPromptPopover from "@/components/editor/ImageDropPromptPopover";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
+import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import {
   useCollaborativeDoc,
@@ -58,10 +60,7 @@ import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
 } from "@/lib/generation-state";
-import {
-  insertImageIntoSlideHtml,
-  replaceImageTargetInSlideHtml,
-} from "@/lib/slide-image-replacement";
+import { replaceImageTargetInSlideHtml } from "@/lib/slide-image-replacement";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { nanoid } from "nanoid";
@@ -123,6 +122,19 @@ export default function DeckEditor() {
 
   // Hidden file input for direct upload
   const uploadInputRef = useRef<HTMLInputElement>(null);
+
+  // Drop-to-prompt popover state. Opens when a user drops an image somewhere
+  // other than an existing image/placeholder on the slide — so we ask "what
+  // should we do with this?" and hand the image off to the agent chat instead
+  // of guessing (or worse, letting the browser navigate to the file).
+  const [imageDropPopover, setImageDropPopover] = useState<{
+    open: boolean;
+    file: File | null;
+    position: { x: number; y: number } | null;
+  }>({ open: false, file: null, position: null });
+  const closeImageDropPopover = useCallback(() => {
+    setImageDropPopover({ open: false, file: null, position: null });
+  }, []);
 
   const deck = getDeck(id || "");
   const slideCount = deck?.slides.length ?? 0;
@@ -239,21 +251,34 @@ export default function DeckEditor() {
   );
 
   const uploadAndApplyImage = useCallback(
-    async (replaceSrc: string | null, file: File) => {
+    async (
+      replaceSrc: string | null,
+      file: File,
+      position?: { x: number; y: number },
+    ) => {
       if (!id || !currentSlideRef.current) return;
+      // When there's no concrete target (drop landed on slide whitespace, the
+      // canvas, or the editor chrome), defer to the user: open the popover so
+      // they can tell the agent what to do with the image. The agent can then
+      // decide which slide / placeholder / element to update, generate a
+      // matching layout, or add a new slide.
+      if (!replaceSrc) {
+        setImageDropPopover({
+          open: true,
+          file,
+          position: position ?? null,
+        });
+        return;
+      }
       const targetSlide = currentSlideRef.current;
       try {
         const newUrl = await uploadImageAsset(file);
-        const updatedContent = replaceSrc
-          ? replaceImageTargetInSlideHtml(
-              targetSlide.content,
-              replaceSrc,
-              newUrl,
-              { alt: file.name },
-            )
-          : insertImageIntoSlideHtml(targetSlide.content, newUrl, {
-              alt: file.name,
-            });
+        const updatedContent = replaceImageTargetInSlideHtml(
+          targetSlide.content,
+          replaceSrc,
+          newUrl,
+          { alt: file.name },
+        );
         if (updatedContent !== targetSlide.content) {
           updateSlide(id, targetSlide.id, { content: updatedContent });
         }
@@ -413,16 +438,36 @@ export default function DeckEditor() {
 
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
+  // Track the last URL ?slide param we processed so we can tell "the URL changed
+  // externally" (agent navigate command, browser back/forward, deep link) apart
+  // from "the URL is the same as last render, just other state moved". Without
+  // this, the resolver short-circuited on external URL changes and the agent's
+  // navigate --slideIndex was effectively ignored.
+  const lastUrlSlideParamRef = useRef<string | null>(null);
   useEffect(() => {
     if (!deck) return;
     if (deck.slides.length === 0) {
       if (activeSlideId) setActiveSlideId(null);
+      lastUrlSlideParamRef.current = null;
       return;
     }
+
+    const slideParam = searchParams.get("slide");
+    const urlChanged = slideParam !== lastUrlSlideParamRef.current;
+    lastUrlSlideParamRef.current = slideParam;
+
+    if (urlChanged && slideParam) {
+      const idx = parseInt(slideParam, 10) - 1;
+      if (idx >= 0 && idx < deck.slides.length) {
+        const targetId = deck.slides[idx].id;
+        if (activeSlideId !== targetId) setActiveSlideId(targetId);
+        return;
+      }
+    }
+
     if (activeSlideId && deck.slides.some((s) => s.id === activeSlideId)) {
       return;
     }
-    const slideParam = searchParams.get("slide");
     if (slideParam) {
       const idx = parseInt(slideParam, 10) - 1;
       if (idx >= 0 && idx < deck.slides.length) {
@@ -541,8 +586,39 @@ export default function DeckEditor() {
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
 
+  // Editor-wide drag-and-drop catch-all. SlideEditor's own drop handler runs
+  // first for drops landing on a slide (it calls stopPropagation), so this
+  // only fires for drops that landed in the surrounding chrome — sidebar,
+  // toolbar, deck thumbnails, or empty space. Without this, the browser's
+  // default kicks in and navigates to the dropped image file, which
+  // surprises users who expect drop-to-attach behavior everywhere.
+  const editorDragOver = (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  };
+  const editorDrop = (e: React.DragEvent) => {
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    const file = files.find(imageFileLooksSupported);
+    if (!file) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setImageDropPopover({
+      open: true,
+      file,
+      position: { x: e.clientX, y: e.clientY },
+    });
+  };
+  const contextHintForDrop = currentSlide
+    ? `Current slide: ${currentSlide.id} (index ${currentIndex >= 0 ? currentIndex : 0}). Deck: ${id}.`
+    : `Deck: ${id}.`;
+
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-background">
+    <div
+      className="flex-1 flex flex-col overflow-hidden bg-background"
+      onDragOver={editorDragOver}
+      onDrop={editorDrop}
+    >
       <EditorToolbar
         deck={deck}
         deckId={id}
@@ -705,6 +781,7 @@ export default function DeckEditor() {
           currentSlide && (
             <SlideEditor
               slide={currentSlide}
+              deckId={id}
               readOnly={!canEdit}
               onUpdateSlide={(updates) =>
                 updateSlide(id, currentSlide.id, updates)
@@ -875,6 +952,13 @@ export default function DeckEditor() {
         open={historyOpen}
         onOpenChange={setHistoryOpen}
         anchorRef={historyButtonRef}
+      />
+      <ImageDropPromptPopover
+        open={imageDropPopover.open}
+        file={imageDropPopover.file}
+        position={imageDropPopover.position}
+        contextHint={contextHintForDrop}
+        onClose={closeImageDropPopover}
       />
     </div>
   );

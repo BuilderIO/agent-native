@@ -1,17 +1,17 @@
 import { type ReactNode } from "react";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 /**
- * DispatchShell renders the per-page title (with optional description tooltip)
- * into the global header via the HeaderActions store. The actual chrome
- * (sidebar, AgentSidebar, header bar with AgentToggleButton) is provided by
- * `Layout` mounted in `root.tsx`.
+ * DispatchShell renders the per-page title (with an optional click-to-open
+ * description popover) into the global header via the HeaderActions store.
+ * The actual chrome (sidebar, AgentSidebar, header bar with AgentToggleButton)
+ * is provided by `Layout` mounted in `root.tsx`.
  */
 export function DispatchShell({
   title,
@@ -28,23 +28,24 @@ export function DispatchShell({
         {title}
       </h1>
       {description ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
+        <Popover>
+          <PopoverTrigger asChild>
             <button
               type="button"
-              className="text-muted-foreground/60 hover:text-foreground cursor-pointer"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground cursor-pointer"
               aria-label={`About ${title}`}
             >
               <IconInfoCircle className="h-3.5 w-3.5" />
             </button>
-          </TooltipTrigger>
-          <TooltipContent
+          </PopoverTrigger>
+          <PopoverContent
             side="bottom"
+            align="start"
             className="max-w-72 text-xs leading-relaxed"
           >
             {description}
-          </TooltipContent>
-        </Tooltip>
+          </PopoverContent>
+        </Popover>
       ) : null}
     </div>,
   );

@@ -45,6 +45,11 @@ export interface ShareButtonProps {
   shareUrlLabel?: string;
   /** Optional helper text for the primary copyable link section. */
   shareUrlDescription?: ReactNode;
+  /** Optional placeholder shown in the share-URL slot when `shareUrl` is
+   *  undefined. Use this to explain *why* there's no link yet (e.g. "Publish
+   *  this form to get a public response link") instead of leaving the slot
+   *  empty. */
+  shareUrlPlaceholder?: ReactNode;
   /** Optional secondary copyable link (e.g. a presentation / read-only
    *  surface for the same resource). Anyone with at least viewer access
    *  can open it — access is enforced on the resource itself, not the
@@ -697,6 +702,15 @@ function SharePanel(
           label={props.shareUrlLabel}
           description={props.shareUrlDescription}
         />
+      ) : props.shareUrlPlaceholder ? (
+        <div className="mb-4 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+          {props.shareUrlLabel ? (
+            <div className="mb-0.5 font-medium text-foreground">
+              {props.shareUrlLabel}
+            </div>
+          ) : null}
+          {props.shareUrlPlaceholder}
+        </div>
       ) : null}
 
       {props.secondaryShareUrl ? (

@@ -614,7 +614,7 @@ function readWorkspaceAppsFromFilesystem(
 
   const apps = fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
     .map((entry): WorkspaceAppSummary | null => {
       const appDir = path.join(appsDir, entry.name);
       const pkg = readJson(path.join(appDir, "package.json"));

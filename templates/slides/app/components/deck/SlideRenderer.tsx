@@ -28,6 +28,10 @@ interface SlideRendererProps {
   designSystem?: DesignSystemData;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+  /** Fires when the natural slide content overflows the canvas vertically.
+   * The renderer no longer shrinks slides for vertical overflow — instead the
+   * editor surfaces this so the agent can rewrite the slide to fit. */
+  onOverflowChange?: (info: SlideOverflowInfo) => void;
 }
 
 export const layoutClasses: Record<string, string> = {
@@ -125,6 +129,10 @@ export interface SlideFitTransform {
   x: number;
   y: number;
   fitted: boolean;
+  /** Vertical overflow in CSS px (0 if content fits). Reported to the agent so it can
+   * rewrite the slide HTML to fit, instead of being papered over with a uniform
+   * shrink that leaves ugly right/bottom margins. */
+  verticalOverflow: number;
 }
 
 export function computeSlideFitTransform({
@@ -144,20 +152,26 @@ export function computeSlideFitTransform({
   minY?: number;
   minScale?: number;
 }): SlideFitTransform {
+  // Only scale for horizontal overflow. For vertical overflow we surface a
+  // `verticalOverflow` measurement so the agent can rewrite the slide HTML —
+  // uniform scale-to-fit for vertical overflow shrinks both axes and leaves
+  // unbalanced right/bottom margins (with origin top-left), which looks worse
+  // than asking the LLM to redo the layout to fit the canvas properly.
   const safeContentWidth = Math.max(1, contentWidth);
-  const safeContentHeight = Math.max(1, contentHeight);
-  const rawScale = Math.min(
-    1,
-    Math.max(1, viewportWidth) / safeContentWidth,
-    Math.max(1, viewportHeight) / safeContentHeight,
-  );
+  const rawScale = Math.min(1, Math.max(1, viewportWidth) / safeContentWidth);
   const scale = Math.max(minScale, rawScale);
+
+  const verticalOverflow = Math.max(
+    0,
+    Math.round(contentHeight - viewportHeight),
+  );
 
   return {
     scale,
     x: minX < 0 ? -minX * scale : 0,
     y: minY < 0 ? -minY * scale : 0,
     fitted: rawScale < 0.999,
+    verticalOverflow,
   };
 }
 
@@ -225,18 +239,35 @@ function measureContentBounds(target: HTMLElement): {
   };
 }
 
+/** Reported by useSlideAutofit when content overflows the slide canvas vertically.
+ * Surfaced so the editor can prompt the agent to rewrite the slide instead of
+ * the renderer trying to paper over it with a uniform shrink. */
+export interface SlideOverflowInfo {
+  /** Vertical overflow in CSS px at native resolution (0 = fits). */
+  verticalOverflow: number;
+  /** Total natural content height in CSS px. */
+  contentHeight: number;
+  /** Available canvas height inside the slide padding. */
+  viewportHeight: number;
+}
+
 function useSlideAutofit(
   ref: React.RefObject<HTMLDivElement | null>,
   canvasWidth: number,
   canvasHeight: number,
   fitKey: string,
+  onOverflowChange?: (info: SlideOverflowInfo) => void,
 ) {
+  const overflowCallbackRef = useRef(onOverflowChange);
+  overflowCallbackRef.current = onOverflowChange;
+
   useIsomorphicLayoutEffect(() => {
     const root = ref.current;
     if (!root || typeof ResizeObserver === "undefined") return;
 
     let raf = 0;
     let disposed = false;
+    let lastReportedOverflow = -1;
 
     const resetTarget = (target: HTMLElement) => {
       target.style.setProperty("--fmd-fit-scale", "1");
@@ -254,6 +285,9 @@ function useSlideAutofit(
         rawTargets.length > 0
           ? rawTargets
           : [root].filter((target) => target.scrollHeight > 0);
+
+      let worstOverflow = 0;
+      let worstInfo: SlideOverflowInfo | null = null;
 
       for (const target of targets) {
         if (isEditing) {
@@ -277,6 +311,26 @@ function useSlideAutofit(
         if (transform.fitted) {
           target.setAttribute("data-fmd-autofit-active", "true");
         }
+
+        if (transform.verticalOverflow > worstOverflow) {
+          worstOverflow = transform.verticalOverflow;
+          worstInfo = {
+            verticalOverflow: transform.verticalOverflow,
+            contentHeight: Math.round(bounds.contentHeight),
+            viewportHeight: Math.round(viewportHeight),
+          };
+        }
+      }
+
+      if (!isEditing && lastReportedOverflow !== worstOverflow) {
+        lastReportedOverflow = worstOverflow;
+        overflowCallbackRef.current?.(
+          worstInfo ?? {
+            verticalOverflow: 0,
+            contentHeight: 0,
+            viewportHeight: 0,
+          },
+        );
       }
     };
 
@@ -318,15 +372,17 @@ function AutoFitContent({
   fitKey,
   className = "",
   children,
+  onOverflowChange,
 }: {
   canvasWidth: number;
   canvasHeight: number;
   fitKey: string;
   className?: string;
   children: ReactNode;
+  onOverflowChange?: (info: SlideOverflowInfo) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  useSlideAutofit(ref, canvasWidth, canvasHeight, fitKey);
+  useSlideAutofit(ref, canvasWidth, canvasHeight, fitKey, onOverflowChange);
 
   return (
     <div
@@ -440,10 +496,12 @@ export function SlideInner({
   slide,
   designSystem,
   aspectRatio,
+  onOverflowChange,
 }: {
   slide: Slide;
   designSystem?: DesignSystemData;
   aspectRatio?: AspectRatio;
+  onOverflowChange?: (info: SlideOverflowInfo) => void;
 }) {
   const dims = getAspectRatioDims(aspectRatio);
   const sizeStyle: React.CSSProperties = {
@@ -523,6 +581,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={left}
           className="slide-content text-white/90"
+          onOverflowChange={onOverflowChange}
         >
           <ReactMarkdown components={markdownComponents}>
             {left.trim()}
@@ -554,6 +613,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={content}
           className="h-full w-full"
+          onOverflowChange={onOverflowChange}
         >
           <BlankSlideContent content={content} />
         </AutoFitContent>
@@ -578,6 +638,7 @@ export function SlideInner({
         canvasHeight={dims.height}
         fitKey={content}
         className="slide-content text-white/90 w-full"
+        onOverflowChange={onOverflowChange}
       >
         <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
       </AutoFitContent>
@@ -591,6 +652,7 @@ export default function SlideRenderer({
   thumbnail = true,
   designSystem,
   aspectRatio,
+  onOverflowChange,
 }: SlideRendererProps) {
   const dims = getAspectRatioDims(aspectRatio);
 
@@ -610,6 +672,7 @@ export default function SlideRenderer({
             slide={slide}
             designSystem={designSystem}
             aspectRatio={aspectRatio}
+            onOverflowChange={onOverflowChange}
           />
         </div>
         <ScaleHelper
@@ -639,6 +702,7 @@ export default function SlideRenderer({
           slide={slide}
           designSystem={designSystem}
           aspectRatio={aspectRatio}
+          onOverflowChange={onOverflowChange}
         />
       </div>
       <ScaleHelper targetWidth={dims.width} />

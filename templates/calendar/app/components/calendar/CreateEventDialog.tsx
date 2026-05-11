@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
+import { useSettings } from "@/hooks/use-settings";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { setUndoAction } from "@/hooks/use-undo";
 import { sendToAgentChat } from "@agent-native/core/client";
@@ -73,6 +74,17 @@ function addDaysToDateString(date: string, days: number) {
   return format(next, "yyyy-MM-dd");
 }
 
+function addMinutesToTimeString(time: string, minutes: number) {
+  const [h, m] = time.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return time;
+  const total = (h * 60 + m + minutes + 24 * 60) % (24 * 60);
+  const hh = Math.floor(total / 60)
+    .toString()
+    .padStart(2, "0");
+  const mm = (total % 60).toString().padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 function uniqueAttendees(attendees: AttendeeRecipient[]) {
   const byEmail = new Map<string, AttendeeRecipient>();
   for (const attendee of attendees) {
@@ -106,13 +118,20 @@ export function CreateEventPopover({
 }: CreateEventPopoverProps) {
   const today = defaultDate || new Date();
   const defaultDateStr = format(today, "yyyy-MM-dd");
+  const { data: settings } = useSettings();
+  const defaultDurationMinutes = settings?.defaultEventDuration ?? 60;
+  const fallbackStart = "09:00";
+  const fallbackEnd = addMinutesToTimeString(
+    fallbackStart,
+    defaultDurationMinutes,
+  );
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(defaultDateStr);
   const [endDate, setEndDate] = useState(defaultDateStr);
-  const [startTime, setStartTime] = useState(defaultStart || "09:00");
-  const [endTime, setEndTime] = useState(defaultEnd || "10:00");
+  const [startTime, setStartTime] = useState(defaultStart || fallbackStart);
+  const [endTime, setEndTime] = useState(defaultEnd || fallbackEnd);
   const [location, setLocation] = useState("");
   const [allDay, setAllDay] = useState(false);
   const [eventType, setEventType] = useState<EventType>("default");
@@ -149,8 +168,8 @@ export function CreateEventPopover({
       const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
       setDate(nextDate);
       setEndDate(nextDate);
-      setStartTime(defaultStart || "09:00");
-      setEndTime(defaultEnd || "10:00");
+      setStartTime(defaultStart || fallbackStart);
+      setEndTime(defaultEnd || fallbackEnd);
       setLocation("");
       setAllDay(false);
       setEventType("default");
@@ -165,7 +184,7 @@ export function CreateEventPopover({
       setVideoProvider("none");
       setAttendees([]);
     }
-  }, [open, defaultDate, defaultStart, defaultEnd]);
+  }, [open, defaultDate, defaultStart, defaultEnd, fallbackStart, fallbackEnd]);
 
   function handleDateChange(nextDate: string) {
     setDate(nextDate);
@@ -339,7 +358,8 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="max-h-[calc(100vh-4rem)] w-[calc(100vw-2rem)] overflow-y-auto p-4 sm:w-80"
+        collisionPadding={16}
+        className="max-h-[var(--radix-popover-content-available-height)] w-[calc(100vw-2rem)] overflow-y-auto p-4 sm:w-80"
         onInteractOutside={(event) => {
           const target = event.target as HTMLElement;
           if (target.closest("[data-attendee-autocomplete]")) {
@@ -447,7 +467,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 type="date"
                 value={date}
                 onChange={(e) => handleDateChange(e.target.value)}
-                className="h-8 text-sm"
+                className="h-8 pr-2 text-sm [&::-webkit-calendar-picker-indicator]:ml-1"
               />
             </div>
             <div className="space-y-1.5">
@@ -460,7 +480,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 min={date}
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value || date)}
-                className="h-8 text-sm"
+                className="h-8 pr-2 text-sm [&::-webkit-calendar-picker-indicator]:ml-1"
               />
             </div>
           </div>

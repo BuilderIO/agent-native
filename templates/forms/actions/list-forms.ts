@@ -1,6 +1,11 @@
 import { defineAction } from "@agent-native/core";
-import { accessFilter } from "@agent-native/core/sharing";
-import { sql } from "drizzle-orm";
+import {
+  accessFilter,
+  currentAccess,
+  ROLE_RANK,
+  type ShareRole,
+} from "@agent-native/core/sharing";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type { FormField, FormSettings } from "../shared/types.js";
@@ -39,21 +44,78 @@ export default defineAction({
       .groupBy(schema.responses.formId);
     const countMap = new Map(counts.map((c) => [c.formId, c.count]));
 
-    let forms = rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      description: r.description ?? undefined,
-      slug: r.slug,
-      fields: JSON.parse(r.fields) as FormField[],
-      settings: JSON.parse(r.settings) as FormSettings,
-      status: r.status,
-      visibility: r.visibility,
-      ownerEmail: r.ownerEmail,
-      responseCount: countMap.get(r.id) ?? 0,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-      deletedAt: r.deletedAt ?? null,
-    }));
+    // Per-form effective role for the current user. Used by the UI to hide
+    // controls viewers shouldn't see (Delete, Duplicate, Publish, etc.).
+    const { userEmail, orgId } = currentAccess();
+    const formIds = rows.map((r) => r.id);
+    const shareRoleByForm = new Map<string, ShareRole>();
+    if (formIds.length > 0 && (userEmail || orgId)) {
+      const principalClauses = [];
+      if (userEmail) {
+        principalClauses.push(
+          and(
+            eq(schema.formShares.principalType, "user"),
+            eq(schema.formShares.principalId, userEmail),
+          ),
+        );
+      }
+      if (orgId) {
+        principalClauses.push(
+          and(
+            eq(schema.formShares.principalType, "org"),
+            eq(schema.formShares.principalId, orgId),
+          ),
+        );
+      }
+      const shareRows = await db
+        .select({
+          resourceId: schema.formShares.resourceId,
+          role: schema.formShares.role,
+        })
+        .from(schema.formShares)
+        .where(
+          and(
+            inArray(schema.formShares.resourceId, formIds),
+            or(...principalClauses),
+          ),
+        );
+      for (const s of shareRows as Array<{
+        resourceId: string;
+        role: ShareRole;
+      }>) {
+        const existing = shareRoleByForm.get(s.resourceId);
+        if (!existing || ROLE_RANK[s.role] > ROLE_RANK[existing]) {
+          shareRoleByForm.set(s.resourceId, s.role);
+        }
+      }
+    }
+
+    let forms = rows.map((r) => {
+      let role: "owner" | ShareRole = "viewer";
+      if (userEmail && r.ownerEmail === userEmail) {
+        role = "owner";
+      } else {
+        const shareRole = shareRoleByForm.get(r.id);
+        if (shareRole) role = shareRole;
+        // otherwise visible via org/public visibility — viewer is correct
+      }
+      return {
+        id: r.id,
+        title: r.title,
+        description: r.description ?? undefined,
+        slug: r.slug,
+        fields: JSON.parse(r.fields) as FormField[],
+        settings: JSON.parse(r.settings) as FormSettings,
+        status: r.status,
+        visibility: r.visibility,
+        ownerEmail: r.ownerEmail,
+        role,
+        responseCount: countMap.get(r.id) ?? 0,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+        deletedAt: r.deletedAt ?? null,
+      };
+    });
 
     forms = args.archived
       ? forms.filter((f) => f.deletedAt !== null)

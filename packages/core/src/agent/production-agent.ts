@@ -63,6 +63,7 @@ import {
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import { isAgentActionStopError } from "../action.js";
+import { preUploadImageAttachments } from "../file-upload/pre-upload-attachments.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -1811,6 +1812,33 @@ export function createProductionAgentHandler(
       }
       if (Array.isArray(preparedRequest.attachments)) {
         requestAttachments = preparedRequest.attachments;
+      }
+    }
+
+    // Pre-upload chat image attachments through the framework file-upload
+    // provider (Builder.io by default). The model still sees the base64
+    // multimodal content for vision; we only ADD the hosted URL so the agent
+    // can embed the image in slides / docs / outbound messages.
+    //
+    // When no provider is configured, leave attachments untouched and inject a
+    // hint recommending Builder.io connect — the model can still see the
+    // image, it just can't reference it as a URL until upload is set up.
+    if (hasAttachments && requestAttachments.some((a) => a.type === "image")) {
+      try {
+        const preUpload = await preUploadImageAttachments({
+          attachments: requestAttachments,
+          ownerEmail,
+        });
+        if (preUpload.injectedText) {
+          requestMessage = requestMessage
+            ? `${requestMessage}\n\n${preUpload.injectedText}`
+            : preUpload.injectedText;
+        }
+      } catch (err) {
+        console.warn(
+          "[agent-native] preUploadImageAttachments failed:",
+          err instanceof Error ? err.message : String(err),
+        );
       }
     }
 

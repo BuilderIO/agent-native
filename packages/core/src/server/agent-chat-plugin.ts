@@ -3740,7 +3740,10 @@ When the user asks for ANY of the following — add a feature, edit a component,
 
 1. Do NOT call \`connect-builder\`, \`scaffold-workspace-app\`, \`start-workspace-app-creation\`, or any other tool that creates or edits source.
 2. Do NOT write code, list files, propose patches, or describe what you would change.
-3. Reply with one short message saying chat-in-browser on localhost can't edit code (page reloads kill the session) and offer these alternatives, in this order:
+3. Reply with one short message saying chat-in-browser on localhost can't edit code (page reloads kill the session). If — and only if — the request is specifically to **add or scaffold a new workspace app**, lead with the CLI option since it runs in the same terminal the user is already using:
+   - **Agent Native CLI** — \`npx @agent-native/core add-app\` in this workspace directory (best for template apps like Mail/Calendar/Slides; the workspace gateway picks them up automatically)
+
+   Then offer these alternatives for general source-editing work, in this order:
    - **Agent Native Desktop** — https://www.agent-native.com/download (recommended; same chat, no reload risk)
    - **Claude Code** — \`claude\` in the project directory
    - **Codex** — \`codex\` in the project directory
@@ -5013,6 +5016,11 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
           const owner = ownerContext.owner;
 
           // Resolve org ID: explicit callback > session.orgId from Better Auth
+          // > implicit org membership. Better Auth leaves session.orgId null
+          // until the user explicitly switches orgs, so a fresh signup with
+          // implicit membership (e.g. domain-matched org) would otherwise see
+          // no org-scoped credentials. getOrgContext() does the same DB lookup
+          // the /builder/status endpoint uses to decide "Connected".
           let resolvedOrgId: string | undefined;
           if (options?.resolveOrgId) {
             resolvedOrgId = (await options.resolveOrgId(event)) ?? undefined;
@@ -5022,6 +5030,15 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
               resolvedOrgId = session?.orgId ?? undefined;
             } catch {
               // Session not available
+            }
+            if (!resolvedOrgId) {
+              try {
+                const { getOrgContext } = await import("../org/context.js");
+                const ctx = await getOrgContext(event);
+                resolvedOrgId = ctx.orgId ?? undefined;
+              } catch {
+                // org_members table may not exist yet on first boot
+              }
             }
           }
 

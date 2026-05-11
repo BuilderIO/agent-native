@@ -710,11 +710,6 @@ export default function DesignEditor() {
     });
   }, []);
 
-  // Track whether we auto-collapsed the agent sidebar on entering Edit mode
-  // so we can restore it on exit. We only restore when we were the ones who
-  // closed it — if the user had it closed already, leave it closed.
-  const sidebarCollapsedByEditModeRef = useRef(false);
-
   const handleModeChange = useCallback(
     (next: EditorMode) => {
       if (next === "draw" && (!activeFile || viewMode === "overview")) return;
@@ -731,24 +726,6 @@ export default function DesignEditor() {
       } else {
         setDrawMode(false);
         if (next === "edit") setPinMode(false);
-      }
-
-      // Auto-collapse the agent sidebar when entering Edit so the EditPanel
-      // and canvas have the screen to themselves. Restore it on the way out
-      // — but only if we collapsed it. Read localStorage to check current
-      // state at entry; AgentPanel writes it synchronously on every toggle.
-      if (next === "edit") {
-        let isOpen = false;
-        try {
-          isOpen = localStorage.getItem("agent-native-sidebar-open") === "true";
-        } catch {}
-        if (isOpen) {
-          window.dispatchEvent(new Event("agent-panel:close"));
-          sidebarCollapsedByEditModeRef.current = true;
-        }
-      } else if (sidebarCollapsedByEditModeRef.current) {
-        window.dispatchEvent(new Event("agent-panel:open"));
-        sidebarCollapsedByEditModeRef.current = false;
       }
     },
     [activeFile, viewMode],

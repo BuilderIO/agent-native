@@ -451,9 +451,9 @@ export async function autoDiscoverActions(
     // workspace-core discovery unavailable (e.g. edge runtime) — skip.
   }
 
-  // 3. Framework-level sharing actions — always available to any template
-  //    that registers a shareable resource. Merged with skipExisting so
-  //    templates can override by providing a same-named file.
+  // 3. Framework-level sharing + file-upload actions — always available to any
+  //    template. Merged with skipExisting so templates can override by
+  //    providing a same-named file.
   try {
     await mergeCoreSharingActions(registry);
   } catch {
@@ -480,6 +480,7 @@ export async function mergeCoreSharingActions(
       "set-resource-visibility",
       () => import("../sharing/actions/set-resource-visibility.js"),
     ],
+    ["upload-image", () => import("../file-upload/actions/upload-image.js")],
   ];
   for (const [name, loader] of entries) {
     if (registry[name]) continue;

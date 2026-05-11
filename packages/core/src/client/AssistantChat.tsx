@@ -14,6 +14,7 @@ import {
   useThread,
   useAui,
   useComposer,
+  useComposerRuntime,
   useMessageRuntime,
   ThreadPrimitive,
   ComposerPrimitive,
@@ -26,12 +27,9 @@ import type {
   ToolCallMessagePartProps,
   Attachment,
 } from "@assistant-ui/react";
-import {
-  SimpleImageAttachmentAdapter,
-  CompositeAttachmentAdapter,
-} from "@assistant-ui/react";
+import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -63,7 +61,10 @@ import {
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
-import { BUILDER_SPACE_SETTINGS_URL } from "./error-format.js";
+import {
+  BUILDER_SPACE_SETTINGS_URL,
+  NEW_CHAT_ACTION_HREF,
+} from "./error-format.js";
 import { ThumbsFeedback } from "./observability/ThumbsFeedback.js";
 import {
   TiptapComposer,
@@ -110,7 +111,42 @@ import {
   IconSearch,
   IconArrowsMaximize,
   IconArrowsMinimize,
+  IconPlus,
 } from "@tabler/icons-react";
+
+class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
+  public accept = "image/*";
+
+  public async add(state: { file: File }): Promise<PendingAttachment> {
+    return {
+      id: state.file.name,
+      type: "image",
+      name: state.file.name,
+      contentType: state.file.type,
+      file: state.file,
+      status: { type: "requires-action", reason: "composer-send" },
+    };
+  }
+
+  public async send(
+    attachment: PendingAttachment,
+  ): Promise<CompleteAttachment> {
+    return {
+      ...attachment,
+      status: { type: "complete" },
+      content: [
+        {
+          type: "image",
+          image: await getImageFileDataURL(attachment.file),
+        },
+      ],
+    };
+  }
+
+  public async remove() {
+    // noop
+  }
+}
 
 class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
   public accept = "application/pdf,.pdf";
@@ -154,13 +190,64 @@ function inferDocumentContentType(file: File): string {
   return "application/octet-stream";
 }
 
-function getFileDataURL(file: File): Promise<string> {
+function getFileDataURL(file: File | Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = (error) => reject(error);
     reader.readAsDataURL(file);
   });
+}
+
+// Anthropic / OpenAI vision inputs choke on multi-megabyte images, and
+// base64-encoding a raw screenshot eats enough heap to crash the composer
+// (PayloadTooLarge / "Maximum call stack" in serializers). Downscale large
+// images on the client before we ever serialize them.
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION = 2048;
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to decode pasted image"));
+    img.src = url;
+  });
+}
+
+async function getImageFileDataURL(file: File): Promise<string> {
+  if (file.size <= MAX_IMAGE_BYTES) {
+    return getFileDataURL(file);
+  }
+  if (typeof document === "undefined" || typeof Image === "undefined") {
+    return getFileDataURL(file);
+  }
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(objectUrl);
+    const ratio = Math.min(
+      MAX_IMAGE_DIMENSION / img.naturalWidth,
+      MAX_IMAGE_DIMENSION / img.naturalHeight,
+      1,
+    );
+    const width = Math.max(1, Math.round(img.naturalWidth * ratio));
+    const height = Math.max(1, Math.round(img.naturalHeight * ratio));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return getFileDataURL(file);
+    }
+    ctx.drawImage(img, 0, 0, width, height);
+    const useJpeg =
+      file.type !== "image/png" || file.size > MAX_IMAGE_BYTES * 2;
+    return canvas.toDataURL(useJpeg ? "image/jpeg" : "image/png", 0.85);
+  } catch {
+    return getFileDataURL(file);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 type QueuedAttachment = CompleteAttachment;
@@ -258,7 +345,7 @@ async function serializeQueuedAttachments(
           name,
           contentType: file.type,
           status: { type: "complete" },
-          content: [{ type: "image", image: await getFileDataURL(file) }],
+          content: [{ type: "image", image: await getImageFileDataURL(file) }],
         });
       } else if (isTextLikeFile(file)) {
         queued.push({
@@ -773,6 +860,9 @@ function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
   );
 }
 
+const CTA_BUTTON_CLASSES =
+  "agent-markdown-cta mt-1 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background no-underline shadow-sm transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background cursor-pointer";
+
 const markdownComponents = {
   a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
     const {
@@ -783,6 +873,23 @@ const markdownComponents = {
       target: _target,
       ...rest
     } = props;
+    if (href === NEW_CHAT_ACTION_HREF) {
+      // In-app action: dispatch a CustomEvent that MultiTabAssistantChat
+      // listens for and opens a new chat tab. Not an external navigation.
+      return (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
+          }}
+          className={cn(CTA_BUTTON_CLASSES, className)}
+        >
+          <IconPlus size={13} strokeWidth={2} aria-hidden="true" />
+          <span>{children}</span>
+        </button>
+      );
+    }
     const isBuilderCta = isBuilderErrorCtaHref(href);
     if (!isBuilderCta) {
       return (
@@ -796,10 +903,7 @@ const markdownComponents = {
         href={href}
         target="_blank"
         rel="noreferrer"
-        className={cn(
-          "agent-markdown-cta mt-1 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background no-underline shadow-sm transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-          className,
-        )}
+        className={cn(CTA_BUTTON_CLASSES, className)}
         {...rest}
       >
         <span>{children}</span>
@@ -849,6 +953,15 @@ function isBuilderErrorCtaHref(href: string | undefined): boolean {
   }
 }
 
+// react-markdown's defaultUrlTransform strips href values whose protocol
+// isn't on its safe list (https, mailto, etc.). Our in-app pseudo-href
+// `agent-native:new-chat` would be blanked out by that, so let it through
+// while delegating every other URL to the default transform for sanitization.
+function markdownUrlTransform(value: string): string {
+  if (value === NEW_CHAT_ACTION_HREF) return value;
+  return defaultUrlTransform(value);
+}
+
 function MarkdownText() {
   useEffect(() => {
     injectMarkdownStyles();
@@ -859,6 +972,7 @@ function MarkdownText() {
       className="agent-markdown break-words"
       remarkPlugins={[remarkGfm]}
       components={markdownComponents}
+      urlTransform={markdownUrlTransform}
     />
   );
 }
@@ -1469,6 +1583,7 @@ function ToolCallDisplay({
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={markdownComponents}
+            urlTransform={markdownUrlTransform}
           >
             {agentStreamText}
           </ReactMarkdown>
@@ -1534,6 +1649,7 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={markdownComponents}
+                  urlTransform={markdownUrlTransform}
                 >
                   {part.text}
                 </ReactMarkdown>
@@ -2971,8 +3087,58 @@ const AssistantChatInner = forwardRef<
   const scrollRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const threadRuntime = useThreadRuntime();
+  const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
+
+  // Chat-wide drag-and-drop: users expect to drop a file anywhere on the agent
+  // sidebar (thread, header, composer) and have it attach — same as ChatGPT,
+  // Claude.ai, Linear, Slack, etc. Tiptap's own `handleDrop` only fires inside
+  // the contenteditable; drops on the message thread or the composer
+  // attachment strip otherwise navigate to the file (browser default), which
+  // is why "upload does nothing" — the chat refreshes to the dropped image.
+  const [dropActive, setDropActive] = useState(false);
+  const dropDepthRef = useRef(0);
+  const handleChatDragEnter = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    e.preventDefault();
+    dropDepthRef.current += 1;
+    setDropActive(true);
+  }, []);
+  const handleChatDragOver = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  }, []);
+  const handleChatDragLeave = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    dropDepthRef.current = Math.max(0, dropDepthRef.current - 1);
+    if (dropDepthRef.current === 0) setDropActive(false);
+  }, []);
+  const handleChatDrop = useCallback(
+    (e: React.DragEvent) => {
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (files.length === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dropDepthRef.current = 0;
+      setDropActive(false);
+      // Mirror TiptapComposer's paste/drop name-uniqueness so consecutive
+      // screenshots (all named `image.png`) don't collide on the
+      // SimpleImageAttachmentAdapter id.
+      const attachments = files.map((file) => {
+        if (!file.type.startsWith("image/")) return file;
+        const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
+        return new File([file], uniqueName, { type: file.type });
+      });
+      void Promise.all(
+        attachments.map((file) => composerRuntime.addAttachment(file)),
+      ).catch((error) => {
+        console.error("Error adding dropped chat attachment:", error);
+      });
+    },
+    [composerRuntime],
+  );
 
   // Patch the underlying assistant-ui MessageRepository so addOrUpdateMessage
   // can't throw "Parent message not found" mid-run. assistant-ui calls
@@ -3836,6 +4002,13 @@ const AssistantChatInner = forwardRef<
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
+      // Sending a message is an explicit user action — always anchor to the
+      // bottom so the new message and any reply land in view, even if the
+      // user had scrolled up to read history. The sticky-bottom override
+      // exists to stop streaming from yanking the viewport, not to swallow
+      // direct sends.
+      isNearBottomRef.current = true;
+      setShowScrollToBottom(false);
       const queuedAttachments = await serializeQueuedAttachments(attachments);
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
@@ -4072,10 +4245,24 @@ const AssistantChatInner = forwardRef<
         <ChatRunningContext.Provider value={isRunning}>
           <div
             className={cn(
-              "flex flex-1 flex-col h-full min-h-0 text-foreground",
+              "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
               className,
             )}
+            onDragEnter={handleChatDragEnter}
+            onDragOver={handleChatDragOver}
+            onDragLeave={handleChatDragLeave}
+            onDrop={handleChatDrop}
           >
+            {dropActive && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-md border-2 border-dashed border-primary/70 bg-primary/5 backdrop-blur-[1px]"
+              >
+                <span className="rounded-md bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
+                  Drop to attach
+                </span>
+              </div>
+            )}
             {showHeader && (
               <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
                 <span className="text-[13px] font-medium text-muted-foreground">
@@ -4518,7 +4705,7 @@ export const AssistantChat = forwardRef<
   const attachmentAdapter = useMemo(
     () =>
       new CompositeAttachmentAdapter([
-        new SimpleImageAttachmentAdapter(),
+        new DownscalingImageAttachmentAdapter(),
         new BinaryDocumentAttachmentAdapter(),
         new TextAttachmentAdapter(),
       ]),

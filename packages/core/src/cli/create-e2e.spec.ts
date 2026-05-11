@@ -179,9 +179,13 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
   });
 
   it("backs first-party workspace deps with scaffolded packages", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["calendar", "design"]);
+    // Includes every template that declares an @agent-native/* workspace:*
+    // dep so a missing `requiredPackages` entry surfaces here instead of as
+    // ERR_PNPM_WORKSPACE_PKG_NOT_FOUND on the user's machine.
+    const apps = ["calendar", "design", "slides", "videos"];
+    const wsDir = await scaffoldWorkspace("my-ws", apps);
 
-    for (const appName of ["calendar", "design"]) {
+    for (const appName of apps) {
       const pkg = readPkg(path.join(wsDir, "apps", appName));
       for (const [depName, version] of Object.entries(allDeps(pkg))) {
         if (
@@ -305,6 +309,24 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     const rootPkg = readPkg(wsDir);
     expect(rootPkg.dependencies["@agent-native/core"]).toBe(
       _getCoreDependencyVersion(),
+    );
+  });
+
+  it("always scaffolds dispatch when creating a workspace, even if not in --template", async () => {
+    // Dispatch is the workspace control plane (shared secrets, messaging,
+    // approvals, A2A routing). A workspace without it has nowhere to live
+    // those responsibilities, so the CLI forces it in even when the caller
+    // only asked for other apps.
+    await createApp("test-ws", { template: "starter,forms" });
+
+    expect(
+      fs.existsSync(path.join(tmpDir, "test-ws", "apps", "dispatch")),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, "test-ws", "apps", "starter"))).toBe(
+      true,
+    );
+    expect(fs.existsSync(path.join(tmpDir, "test-ws", "apps", "forms"))).toBe(
+      true,
     );
   });
 });

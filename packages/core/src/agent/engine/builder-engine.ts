@@ -87,14 +87,17 @@ function mapReasoningEffort(budgetTokens: number): ReasoningEffort {
 
 /**
  * Build the URL the chat UI should link to when a user hits a quota error.
- * Deep-links to the connected org's billing page when BUILDER_ORG_NAME is
- * known, else falls back to the generic account billing page.
+ *
+ * We can't deep-link to a per-org billing page from `BUILDER_ORG_NAME` because
+ * that field is the org's display name (e.g. "Nicholas kipchumba Space"), not
+ * a URL-safe slug or id. URL-encoding the display name produces segments like
+ * `/app/organizations/Nicholas%20kipchumba%20Space/billing` which Builder's
+ * router treats as unknown and silently bounces to `/app/projects`. The
+ * Builder CLI-auth callback doesn't expose the org slug/id today, so we route
+ * to the org-agnostic billing page — Builder resolves the active org from
+ * session there and users with multiple orgs can switch from that screen.
  */
 async function buildUpgradeUrl(): Promise<string> {
-  const orgName = await resolveBuilderCredential("BUILDER_ORG_NAME");
-  if (orgName) {
-    return `https://builder.io/app/organizations/${encodeURIComponent(orgName)}/billing`;
-  }
   return "https://builder.io/account/billing";
 }
 

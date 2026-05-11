@@ -449,23 +449,34 @@ export function MessagingSetupPanel() {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <a
-                    href={platform.docsUrl}
-                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground"
                   >
-                    Docs
-                  </a>
-                  {platform.externalUrl ? (
-                    <a
-                      href={platform.externalUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      {platform.externalLabel ?? "Open"}
-                      <IconExternalLink className="h-3.5 w-3.5" />
+                    <a href={platform.docsUrl} target="_blank" rel="noreferrer">
+                      Docs
+                      <IconExternalLink className="ml-1 h-3 w-3" />
                     </a>
+                  </Button>
+                  {platform.externalUrl ? (
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-muted-foreground"
+                    >
+                      <a
+                        href={platform.externalUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {platform.externalLabel ?? "Open"}
+                        <IconExternalLink className="ml-1 h-3 w-3" />
+                      </a>
+                    </Button>
                   ) : null}
                 </div>
               </div>
@@ -609,7 +620,7 @@ export function MessagingSetupPanel() {
                 </div>
               ) : null}
 
-              <div className="mt-5 flex flex-wrap gap-2">
+              <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
                 {platform.id === "telegram" && configured ? (
                   <Button
                     variant="outline"
@@ -626,31 +637,35 @@ export function MessagingSetupPanel() {
                     )}
                   </Button>
                 ) : null}
-                <Button
-                  onClick={() => togglePlatform(platform, enabled)}
-                  disabled={
-                    togglingPlatform === platform.id || (!enabled && !canEnable)
-                  }
-                >
-                  {togglingPlatform === platform.id ? (
-                    <>
-                      <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : enabled ? (
-                    "Disable"
-                  ) : (
-                    "Enable"
-                  )}
-                </Button>
+                {!configured && !enabled ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span tabIndex={0}>
+                        <Button disabled>Enable</Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Save the required credentials first.
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Button
+                    onClick={() => togglePlatform(platform, enabled)}
+                    disabled={togglingPlatform === platform.id}
+                  >
+                    {togglingPlatform === platform.id ? (
+                      <>
+                        <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : enabled ? (
+                      "Disable"
+                    ) : (
+                      "Enable"
+                    )}
+                  </Button>
+                )}
               </div>
-
-              {!configured ? (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Save the required credentials before enabling {platform.label}
-                  .
-                </p>
-              ) : null}
             </section>
           );
         })}

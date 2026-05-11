@@ -240,11 +240,15 @@ export function DocumentSidebar({
 
   const handleDelete = useCallback(
     async (id: string) => {
+      // Navigate away first so the editor doesn't sit on a now-deleted page
+      // while the mutation is in flight. Otherwise the page disappears from
+      // the sidebar but the editor remains open and editable until the
+      // delete-document round-trip resolves.
+      if (activeDocumentId === id) {
+        navigate("/");
+      }
       try {
         await deleteDocument.mutateAsync({ id });
-        if (activeDocumentId === id) {
-          navigate("/");
-        }
       } catch {
         toast.error("Failed to delete page");
       }

@@ -132,21 +132,6 @@ async function createWorkspaceInteractive(
 
   name = await promptNameIfMissing(name, clack, "workspace", "my-platform");
   const preselected = parseTemplateList(opts?.template);
-  const dispatchRecommendation =
-    preselected.length === 0
-      ? [
-          "Dispatch is preselected because it is the recommended workspace",
-          "control plane for secrets, messaging, approvals, and cross-app routing.",
-        ]
-      : preselected.includes("dispatch")
-        ? [
-            "Dispatch is included, so the workspace will have a central",
-            "control plane for secrets, messaging, approvals, and cross-app routing.",
-          ]
-        : [
-            "Dispatch is recommended for most workspaces. You can add it later",
-            "with `npx @agent-native/core add-app --template=dispatch` if you skip it now.",
-          ];
 
   clack.note(
     [
@@ -156,25 +141,25 @@ async function createWorkspaceInteractive(
       "same workspace share auth, database, and the agent chat. Add more apps",
       "later with `npx @agent-native/core add-app`. Starter is a minimal scaffold —",
       "useful as a blank app to build from scratch alongside the others.",
-      ...dispatchRecommendation,
+      "Dispatch is always included as the workspace control plane —",
+      "it owns shared secrets, messaging, approvals, and cross-app routing.",
     ].join("\n"),
     "About workspaces",
   );
 
-  // If templates were explicitly passed via --template, use them directly.
-  // Otherwise show the multi-select picker.
-  const templates =
+  // Dispatch is the workspace control plane (shared secrets, messaging,
+  // approvals, cross-app routing) and is always scaffolded — the picker
+  // only shows the optional apps. If the user explicitly passed
+  // `--template=...`, those entries get unioned with dispatch.
+  const optionalPicks =
     preselected.length > 0
-      ? preselected
+      ? preselected.filter((t) => t !== "dispatch")
       : await promptTemplatePicker(preselected, clack, {
-          defaultTemplates: ["dispatch", "starter"],
-          preferredFirst: ["dispatch", "starter"],
-          recommendedNames: ["dispatch"],
+          defaultTemplates: ["starter"],
+          preferredFirst: ["starter"],
+          excludeNames: ["dispatch"],
         });
-  if (templates.length === 0) {
-    clack.cancel("No apps selected. Cancelled.");
-    process.exit(0);
-  }
+  const templates = ["dispatch", ...optionalPicks];
 
   const targetDir = path.resolve(process.cwd(), name);
   if (fs.existsSync(targetDir)) {
@@ -183,9 +168,7 @@ async function createWorkspaceInteractive(
   }
 
   const s = clack.spinner();
-  s.start(
-    `Working... no action needed. Scaffolding workspace with ${templates.length} app(s).`,
-  );
+  s.start(`Scaffolding workspace "${name}"...`);
 
   const firstApp = templates[0];
 
@@ -193,9 +176,25 @@ async function createWorkspaceInteractive(
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/shared`;
 
-    for (const t of templates) {
+    for (let i = 0; i < templates.length; i++) {
+      const t = templates[i];
+      // Distinguish download vs local copy in the spinner so a multi-second
+      // GitHub fetch doesn't look like a frozen "Scaffolding..." message.
+      // Mirrors the local-vs-remote decision inside scaffoldAppTemplate.
+      const willDownload =
+        t !== "blank" && t.startsWith("github:")
+          ? true
+          : !findLocalTemplate(t === "video" ? "videos" : t);
+      s.message(
+        willDownload
+          ? `Downloading ${titleCase(t)} template (${i + 1}/${templates.length})...`
+          : `Scaffolding ${titleCase(t)} (${i + 1}/${templates.length})...`,
+      );
       const appDir = path.join(targetDir, "apps", t);
       await scaffoldAppTemplate(appDir, t);
+      s.message(
+        `Configuring ${titleCase(t)} (${i + 1}/${templates.length})...`,
+      );
       replacePlaceholders(appDir, t, titleCase(t), name);
       rewriteTrackingAppId(appDir, t, t);
       workspacifyApp({
@@ -213,11 +212,17 @@ async function createWorkspaceInteractive(
       setupAgentSymlinks(appDir);
     }
 
+    s.message("Adding shared packages...");
     await scaffoldRequiredPackages(templates, targetDir);
 
-    s.stop("Workspace scaffolded.");
+    s.stop(
+      `Workspace scaffolded with ${templates.length} app${templates.length === 1 ? "" : "s"}.`,
+    );
   } catch (err: any) {
     s.stop("Failed to scaffold workspace.");
+    // Remove the partially-scaffolded workspace so a retry of `agent-native
+    // create <name>` doesn't trip the "Directory already exists" guard.
+    cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
@@ -236,14 +241,22 @@ async function createWorkspaceInteractive(
         `   ← app`,
     ),
   ];
-  const dispatchNextStep = templates.includes("dispatch")
+  const dispatchNextStep = [
+    `Once running, open Dispatch — you'll see "Workspace: ${titleCase(name)}"`,
+    `at the top, with all your apps listed under it.`,
+  ];
+
+  const installSteps = hasPnpm()
     ? [
-        `Once running, open Dispatch — you'll see "Workspace: ${titleCase(name)}"`,
-        `at the top, with all your apps listed under it.`,
+        `  pnpm install`,
+        `  pnpm dev          # starts Dispatch on http://localhost:8092`,
       ]
     : [
-        `This workspace does not include Dispatch. We generally recommend it`,
-        `for workspace secrets, messaging, approvals, and cross-app routing.`,
+        `  # pnpm is required but wasn't found on your PATH. Install it first:`,
+        `  npm install -g pnpm`,
+        ``,
+        `  pnpm install`,
+        `  pnpm dev          # starts Dispatch on http://localhost:8092`,
       ];
 
   clack.outro(
@@ -255,8 +268,7 @@ async function createWorkspaceInteractive(
       `Next steps:`,
       ``,
       `  cd ${name}`,
-      `  pnpm install`,
-      `  pnpm dev          # starts Dispatch; other apps start on first visit`,
+      ...installSteps,
       ``,
       ...dispatchNextStep,
       ``,
@@ -264,6 +276,21 @@ async function createWorkspaceInteractive(
       `Deploy the whole workspace:   pnpm exec agent-native deploy`,
     ].join("\n"),
   );
+}
+
+/**
+ * Detect whether pnpm is on PATH. End-user machines often have npm/yarn but
+ * not pnpm; the workspace scaffold uses pnpm workspaces, so we surface a
+ * specific install hint in the outro when it's missing rather than letting
+ * the user hit `zsh: command not found: pnpm`.
+ */
+function hasPnpm(): boolean {
+  try {
+    execFileSync("pnpm", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function scaffoldWorkspaceRoot(
@@ -416,6 +443,7 @@ async function scaffoldOneAppIntoWorkspace(
     s.stop(`Scaffolded apps/${appName}.`);
   } catch (err: any) {
     s.stop(`Failed to scaffold apps/${appName}.`);
+    cleanupOnFailure(appDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
@@ -478,13 +506,15 @@ async function createStandaloneApp(
   }
 
   const s = clack.spinner();
-  s.start("Working... no action needed. Scaffolding your app.");
+  s.start(`Downloading the ${template} template from GitHub…`);
   try {
     await scaffoldAppTemplate(targetDir, template);
+    s.message(`Setting up ${name}…`);
     postProcessStandalone(name, targetDir, template);
     s.stop("App created!");
   } catch (err: any) {
     s.stop("Failed to create app.");
+    cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
@@ -492,6 +522,22 @@ async function createStandaloneApp(
   tryGitInit(targetDir);
 
   clack.outro(`Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`);
+}
+
+/**
+ * Remove a partially-scaffolded target directory after a scaffold failure so a
+ * retry doesn't hit the "Directory already exists" guard. Best-effort — the
+ * underlying failure is what we want surfaced, so we swallow rm errors and
+ * skip if the directory is somehow already gone.
+ */
+function cleanupOnFailure(targetDir: string): void {
+  try {
+    if (fs.existsSync(targetDir)) {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+  } catch {
+    // Ignore — original error is more useful than a cleanup failure.
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

@@ -48,6 +48,7 @@
     "./extensions/url-safety": "./dist/extensions/url-safety.js",
     "./tools/url-safety": "./dist/extensions/url-safety.js",
     "./file-upload": "./dist/file-upload/index.js",
+    "./file-upload/actions/upload-image": "./dist/file-upload/actions/upload-image.js",
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",
     "./resources/metadata": "./dist/resources/metadata.js",

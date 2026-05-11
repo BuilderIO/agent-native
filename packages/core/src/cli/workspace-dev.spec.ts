@@ -29,7 +29,7 @@ describe("workspace dev startup", () => {
   it("starts only Dispatch by default and starts other apps on first visit", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter"]);
     const fake = fakeSpawn();
-    handle = runWorkspaceDev({
+    handle = await runWorkspaceDev({
       root: tmpDir,
       env: testEnv(),
       spawnProcess: fake.spawnProcess,
@@ -52,7 +52,7 @@ describe("workspace dev startup", () => {
   it("starts every app in eager mode", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter", "todo"]);
     const fake = fakeSpawn();
-    handle = runWorkspaceDev({
+    handle = await runWorkspaceDev({
       root: tmpDir,
       args: ["--eager"],
       env: testEnv(),
@@ -67,7 +67,7 @@ describe("workspace dev startup", () => {
   it("passes the public workspace OAuth origin separately from the local gateway", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
-    handle = runWorkspaceDev({
+    handle = await runWorkspaceDev({
       root: tmpDir,
       env: {
         ...testEnv(),
@@ -89,7 +89,7 @@ describe("workspace dev startup", () => {
   it("uses the root list as fallback when Dispatch is absent", async () => {
     tmpDir = makeWorkspace(["starter"]);
     const fake = fakeSpawn();
-    handle = runWorkspaceDev({
+    handle = await runWorkspaceDev({
       root: tmpDir,
       env: testEnv(),
       spawnProcess: fake.spawnProcess,
@@ -106,7 +106,7 @@ describe("workspace dev startup", () => {
   it("redirects root requests with query strings to Dispatch", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter"]);
     const fake = fakeSpawn();
-    handle = runWorkspaceDev({
+    handle = await runWorkspaceDev({
       root: tmpDir,
       env: testEnv(),
       spawnProcess: fake.spawnProcess,
@@ -125,7 +125,7 @@ describe("workspace dev startup", () => {
   it("refreshes the root fallback app list before rendering", async () => {
     tmpDir = makeWorkspace(["starter"]);
     const fake = fakeSpawn();
-    handle = runWorkspaceDev({
+    handle = await runWorkspaceDev({
       root: tmpDir,
       env: testEnv(),
       spawnProcess: fake.spawnProcess,
@@ -145,7 +145,7 @@ describe("workspace dev startup", () => {
   it("detects new apps without starting them until requested", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
-    handle = runWorkspaceDev({
+    handle = await runWorkspaceDev({
       root: tmpDir,
       env: testEnv(),
       spawnProcess: fake.spawnProcess,
@@ -171,7 +171,7 @@ describe("workspace dev startup", () => {
   it("marks a cold app ready while serving the loading page", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
-    handle = runWorkspaceDev({
+    handle = await runWorkspaceDev({
       root: tmpDir,
       env: { ...testEnv(), WORKSPACE_PROXY_READY_TIMEOUT_MS: "1000" },
       spawnProcess: fake.spawnProcess,
@@ -208,7 +208,7 @@ describe("workspace dev startup", () => {
   it("runs a workspace install before starting a newly generated app without installed bins", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
-    handle = runWorkspaceDev({
+    handle = await runWorkspaceDev({
       root: tmpDir,
       env: testEnv(),
       spawnProcess: fake.spawnProcess,

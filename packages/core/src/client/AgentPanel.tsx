@@ -248,23 +248,94 @@ export interface AgentPanelCodeAccess {
 
 function useBuilderConnectUrl() {
   const [connectUrl, setConnectUrl] = useState<string | null>(null);
+  const [configured, setConfigured] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(agentNativePath("/_agent-native/builder/status"))
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.connectUrl) {
-          setConnectUrl(data.connectUrl);
-        }
-      })
-      .catch(() => {});
+    // Track previous configured state so we only fanout the
+    // `agent-engine:configured-changed` event on a real false→true
+    // transition. Without this, every `/builder/status` response with
+    // `configured: true` dispatched the event, our own `onConfigured`
+    // listener caught it (because we both fire AND listen on the same
+    // global), refresh fired again, and we'd loop forever.
+    let lastConfigured = false;
+    const refresh = () => {
+      fetch(agentNativePath("/_agent-native/builder/status"))
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (cancelled || !data) return;
+          if (data.connectUrl) setConnectUrl(data.connectUrl);
+          const nextConfigured = !!data.configured;
+          setConfigured(nextConfigured);
+          if (nextConfigured && !lastConfigured) {
+            lastConfigured = true;
+            // Tell other listeners (the agent panel's "Use Builder" CTA
+            // lives in a different React tree than the connect-flow popup
+            // poller, so a fresh status read here is the only thing that
+            // flips its UI). Dispatch only on transition so listeners
+            // that share this hook don't bounce the event back here.
+            window.dispatchEvent(
+              new CustomEvent("agent-engine:configured-changed", {
+                detail: { source: "builder-status" },
+              }),
+            );
+          } else if (!nextConfigured) {
+            lastConfigured = false;
+          }
+        })
+        .catch(() => {});
+    };
+    refresh();
+    // The "Use Builder" CTA opens Builder in a `<a target="_blank">` tab
+    // (not a popup), so the previous one-shot fetch never noticed the
+    // connect succeeded when the user came back to the original tab.
+    const onFocus = () => refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const onConfigured = (e: Event) => {
+      // Ignore our own dispatch — refresh() already wrote the new state.
+      // Other dispatchers (the connect-flow popup poller, an external
+      // tab that completed connect, etc.) get the refresh they need.
+      const detail = (e as CustomEvent).detail as
+        | { source?: string }
+        | undefined;
+      if (detail?.source === "builder-status") return;
+      refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("agent-engine:configured-changed", onConfigured);
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(`builder-connect:${window.location.host}`);
+      channel.onmessage = (e: MessageEvent) => {
+        const data = e.data as { type?: string } | undefined;
+        if (data?.type === "builder-connect-success") refresh();
+      };
+    } catch {
+      // BroadcastChannel missing — focus/visibility refresh still covers it.
+    }
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      const data = e.data as { type?: string } | undefined;
+      if (data?.type === "builder-connect-success") refresh();
+    };
+    window.addEventListener("message", onMessage);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        onConfigured,
+      );
+      window.removeEventListener("message", onMessage);
+      channel?.close();
     };
   }, []);
 
-  return connectUrl;
+  return { connectUrl, configured };
 }
 
 export interface AgentPanelProps extends Omit<
@@ -314,7 +385,7 @@ function CodeAccessUnavailablePanel({
   secondaryCtaHref?: string;
   compact?: boolean;
 }) {
-  const builderConnectUrl = useBuilderConnectUrl();
+  const { connectUrl: builderConnectUrl } = useBuilderConnectUrl();
   const builderHref =
     secondaryCtaHref ?? builderConnectUrl ?? "https://builder.io";
 
@@ -527,9 +598,10 @@ function AgentPanelInner({
   // Tab close shortcuts. Avoid Cmd+W (browser/OS) and (on Windows) Ctrl+W.
   //   Mac:           Ctrl+W → close tab,  Ctrl+Alt+W → close all
   //   Windows/Linux: Alt+W  → close tab,  Ctrl+Alt+W → close all
+  // Use e.code (physical key) — on Mac, Alt+W inserts ∑ and e.key isn't "w".
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "w" || e.metaKey || e.shiftKey) return;
+      if (e.code !== "KeyW" || e.metaKey || e.shiftKey) return;
       const isCloseAll = e.ctrlKey && e.altKey;
       const isCloseOne = isMac
         ? e.ctrlKey && !e.altKey

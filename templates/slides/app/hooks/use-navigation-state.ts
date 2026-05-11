@@ -95,6 +95,15 @@ export function useNavigationState() {
       path = `/deck/${cmd.deckId}`;
       if (cmd.view === "present") {
         path += "/present";
+      } else if (
+        typeof cmd.slideIndex === "number" &&
+        Number.isFinite(cmd.slideIndex) &&
+        cmd.slideIndex >= 0
+      ) {
+        // Convert agent's 0-based slideIndex back to the 1-based ?slide=N
+        // URL param the editor reads. Without this the deck always opened
+        // at slide 1 even when the agent asked for a different slide.
+        path += `?slide=${cmd.slideIndex + 1}`;
       }
     } else if (cmd.view === "settings") {
       path = "/settings";

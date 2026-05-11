@@ -539,47 +539,79 @@ export function FormsListPage() {
                             </DropdownMenuItem>
                           </>
                         ) : (
-                          <>
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/forms/${form.id}/responses`);
-                              }}
-                            >
-                              <IconChartBar className="h-4 w-4 mr-2" />
-                              View Responses
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleTogglePublish(form);
-                              }}
-                            >
-                              <IconExternalLink className="h-4 w-4 mr-2" />
-                              {form.status === "published"
-                                ? "Unpublish"
-                                : "Publish"}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDuplicate(form);
-                              }}
-                            >
-                              <IconCopy className="h-4 w-4 mr-2" />
-                              Duplicate
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDelete(form.id);
-                              }}
-                            >
-                              <IconTrash className="h-4 w-4 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </>
+                          (() => {
+                            // Viewers see a form they were granted access to but
+                            // can't manage it: hide Delete, Publish/Unpublish, and
+                            // Duplicate. Viewing responses is also editor-only —
+                            // submissions are sensitive and view access on the
+                            // form structure shouldn't grant access to them.
+                            const formRole = (form as any).role as
+                              | "owner"
+                              | "viewer"
+                              | "editor"
+                              | "admin"
+                              | undefined;
+                            const formCanEdit =
+                              formRole === "owner" ||
+                              formRole === "editor" ||
+                              formRole === "admin";
+                            if (!formCanEdit) {
+                              return (
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`/forms/${form.id}`);
+                                  }}
+                                >
+                                  <IconExternalLink className="h-4 w-4 mr-2" />
+                                  Open
+                                </DropdownMenuItem>
+                              );
+                            }
+                            return (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`/forms/${form.id}/responses`);
+                                  }}
+                                >
+                                  <IconChartBar className="h-4 w-4 mr-2" />
+                                  View Responses
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleTogglePublish(form);
+                                  }}
+                                >
+                                  <IconExternalLink className="h-4 w-4 mr-2" />
+                                  {form.status === "published"
+                                    ? "Unpublish"
+                                    : "Publish"}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDuplicate(form);
+                                  }}
+                                >
+                                  <IconCopy className="h-4 w-4 mr-2" />
+                                  Duplicate
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDelete(form.id);
+                                  }}
+                                >
+                                  <IconTrash className="h-4 w-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </>
+                            );
+                          })()
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>

@@ -9,9 +9,12 @@ import {
   IconChevronDown,
   IconCopy,
   IconArrowUp,
+  IconArrowDown,
+  IconArrowsSort,
   IconMessage,
   IconGlobe,
   IconHash,
+  IconSearch,
   IconTrash,
   IconWebhook,
   IconDownload,
@@ -264,9 +267,18 @@ export function FormBuilderPage() {
   }
 
   if (error && !form) {
+    // `get-form` throws the same "not found" for both missing forms and forms
+    // the current user has no access to. Phrase the message so it works for
+    // both without leaking which case applies.
+    const errorMessage = error instanceof Error ? error.message : "";
+    const isAccessIssue = /not found|forbidden|no access/i.test(errorMessage);
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
-        <p className="text-sm text-muted-foreground">Failed to load form</p>
+        <p className="text-sm text-muted-foreground">
+          {isAccessIssue
+            ? "You don't have access to this form. Ask the owner to share it with you."
+            : "Failed to load form"}
+        </p>
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -275,9 +287,11 @@ export function FormBuilderPage() {
           >
             Back to Forms
           </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            Retry
-          </Button>
+          {!isAccessIssue && (
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              Retry
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -285,6 +299,15 @@ export function FormBuilderPage() {
 
   const fields = localFields;
   const selectedField = fields.find((f) => f.id === selectedFieldId);
+  // Viewers can see the form but not edit it or peek at responses / settings /
+  // integrations. The role is set by `get-form` based on ownership + shares.
+  const role = (form as any).role as
+    | "owner"
+    | "viewer"
+    | "editor"
+    | "admin"
+    | undefined;
+  const canEdit = role === "owner" || role === "editor" || role === "admin";
 
   function updateFields(newFields: FormField[]) {
     setLocalFields(newFields);
@@ -491,6 +514,7 @@ export function FormBuilderPage() {
                   shareUrl={publishedFormUrl}
                   shareUrlLabel="Public response link"
                   shareUrlDescription="Respondents use this link to submit the published form."
+                  shareUrlPlaceholder="Publish this form to get a public response link."
                   visibilityCopy={{
                     private: {
                       description:
@@ -526,38 +550,49 @@ export function FormBuilderPage() {
             <TooltipContent>Manage builder access</TooltipContent>
           </Tooltip>
 
-          <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
-            {form.status === "published" ? "Unpublish" : "Publish"}
-          </Button>
+          {canEdit && (
+            <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
+              {form.status === "published" ? "Unpublish" : "Publish"}
+            </Button>
+          )}
           <NotificationsBell />
           <AgentToggleButton />
         </div>
       </div>
 
-      {/* Tab row */}
+      {/* Tab row — viewers only see Edit (which is read-only for them). The
+          Results / Settings / Integrations tabs include responses and config
+          data viewers shouldn't see. */}
       <div className="border-b border-border px-2 sm:px-4 py-2 shrink-0 overflow-x-auto">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs
+          value={canEdit ? activeTab : "edit"}
+          onValueChange={canEdit ? setActiveTab : undefined}
+        >
           <TabsList className="w-max sm:w-auto">
             <TabsTrigger value="edit" className="text-xs">
-              Edit
+              {canEdit ? "Edit" : "Preview"}
             </TabsTrigger>
-            <TabsTrigger value="results" className="text-xs">
-              Results
-              {(form.responseCount ?? 0) > 0 && (
-                <Badge
-                  variant="secondary"
-                  className="ml-1.5 text-[9px] px-1 py-0 h-4 min-w-4"
-                >
-                  {form.responseCount}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="settings" className="text-xs">
-              Settings
-            </TabsTrigger>
-            <TabsTrigger value="integrations" className="text-xs">
-              Integrations
-            </TabsTrigger>
+            {canEdit && (
+              <>
+                <TabsTrigger value="results" className="text-xs">
+                  Results
+                  {(form.responseCount ?? 0) > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="ml-1.5 text-[9px] px-1 py-0 h-4 min-w-4"
+                    >
+                      {form.responseCount}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="settings" className="text-xs">
+                  Settings
+                </TabsTrigger>
+                <TabsTrigger value="integrations" className="text-xs">
+                  Integrations
+                </TabsTrigger>
+              </>
+            )}
           </TabsList>
         </Tabs>
       </div>
@@ -579,6 +614,7 @@ export function FormBuilderPage() {
           agentPrompt={agentPrompt}
           agentPromptRef={agentPromptRef}
           promptRun={promptRun}
+          canEdit={canEdit}
           onTitleChange={(v) => {
             setLocalTitle(v);
             save({ id: form.id, title: v });
@@ -664,6 +700,7 @@ function BuilderContent({
   agentPrompt,
   agentPromptRef,
   promptRun,
+  canEdit,
   onTitleChange,
   onDescriptionChange,
   onSelectField,
@@ -691,6 +728,7 @@ function BuilderContent({
   agentPrompt: string;
   agentPromptRef: React.RefObject<HTMLTextAreaElement | null>;
   promptRun: ReturnType<typeof useAgentPromptRun>;
+  canEdit: boolean;
   onTitleChange: (v: string) => void;
   onDescriptionChange: (v: string) => void;
   onSelectField: (id: string | null) => void;
@@ -716,6 +754,7 @@ function BuilderContent({
               onChange={(e) => onTitleChange(e.target.value)}
               onFocus={() => (titleFocused.current = true)}
               onBlur={() => (titleFocused.current = false)}
+              readOnly={!canEdit}
               className="text-2xl font-semibold border-none bg-transparent px-0 focus-visible:ring-0 h-auto"
               placeholder="Form Title"
             />
@@ -725,8 +764,9 @@ function BuilderContent({
               onChange={(e) => onDescriptionChange(e.target.value)}
               onFocus={() => (descriptionFocused.current = true)}
               onBlur={() => (descriptionFocused.current = false)}
+              readOnly={!canEdit}
               className="mt-1 w-full text-sm text-muted-foreground bg-transparent px-0 focus-visible:outline-none resize-none overflow-hidden"
-              placeholder="Add a description..."
+              placeholder={canEdit ? "Add a description..." : ""}
               rows={1}
               style={{ minHeight: "24px", maxHeight: "120px" }}
             />
@@ -734,154 +774,168 @@ function BuilderContent({
 
           {/* Fields */}
           <div className="space-y-3">
-            {fields.map((field, idx) => (
-              <Popover
-                key={field.id}
-                open={selectedFieldId === field.id}
-                onOpenChange={(open) => {
-                  if (!open) onSelectField(null);
-                }}
-              >
-                <PopoverTrigger asChild>
-                  <div
-                    draggable
-                    onDragStart={() => onDragStart(idx)}
-                    onDragOver={(e) => onDragOver(e, idx)}
-                    onDragEnd={onDragEnd}
-                    onClick={() =>
-                      onSelectField(
-                        selectedFieldId === field.id ? null : field.id,
-                      )
-                    }
-                    className={cn(
-                      "group relative rounded-lg border p-4 cursor-pointer",
-                      selectedFieldId === field.id
-                        ? "border-primary ring-1 ring-primary/20 bg-card"
-                        : "border-border bg-card hover:border-primary/30",
-                      dragIdx === idx && "opacity-50",
-                    )}
-                  >
-                    <div
-                      className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab hidden sm:block"
-                      aria-label="Drag to reorder"
-                    >
-                      <IconGripVertical className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <FieldRenderer field={field} preview />
-                  </div>
-                </PopoverTrigger>
-                <PopoverContent
-                  side="right"
-                  align="start"
-                  sideOffset={12}
-                  className="w-[calc(100vw-2rem)] sm:w-72 max-h-[70vh] sm:max-h-[520px] overflow-auto p-0"
-                  onOpenAutoFocus={(e) => e.preventDefault()}
-                  onInteractOutside={(e) => {
-                    // Don't close when interacting with dropdowns portaled to body
-                    const target = e.target as HTMLElement;
-                    if (
-                      target.closest("[data-radix-popper-content-wrapper]") ||
-                      target.closest("[role='listbox']") ||
-                      target.closest("[role='option']")
-                    ) {
-                      e.preventDefault();
-                    }
+            {fields.map((field, idx) =>
+              canEdit ? (
+                <Popover
+                  key={field.id}
+                  open={selectedFieldId === field.id}
+                  onOpenChange={(open) => {
+                    if (!open) onSelectField(null);
                   }}
                 >
-                  <FieldPropertiesPanel
-                    field={field}
-                    onChange={onUpdateField}
-                    onDelete={() => onDeleteField(field.id)}
-                  />
-                </PopoverContent>
-              </Popover>
-            ))}
-          </div>
-
-          {/* Add field */}
-          <div className="mt-4 flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                  <IconPlus className="h-4 w-4" />
-                  Add Field
-                  <IconChevronDown className="h-3 w-3" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                {Object.entries(fieldTypeLabels).map(([type, label]) => (
-                  <DropdownMenuItem
-                    key={type}
-                    onClick={() => onAddField(type as FormFieldType)}
-                  >
-                    {label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <Popover
-              open={agentPopoverOpen}
-              onOpenChange={onAgentPopoverChange}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Edit form with AI"
-                >
-                  <IconMessage className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="top"
-                align="end"
-                sideOffset={8}
-                className="w-[calc(100vw-2rem)] sm:w-80 p-0 rounded-xl"
-                onOpenAutoFocus={(e) => {
-                  e.preventDefault();
-                  agentPromptRef.current?.focus();
-                }}
-              >
-                <div className="p-4 pb-3">
-                  <p className="text-sm font-semibold">Edit form</p>
-                  <textarea
-                    ref={agentPromptRef}
-                    value={agentPrompt}
-                    onChange={(e) => onAgentPromptChange(e.target.value)}
-                    onKeyDown={(e) => {
-                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  <PopoverTrigger asChild>
+                    <div
+                      draggable
+                      onDragStart={() => onDragStart(idx)}
+                      onDragOver={(e) => onDragOver(e, idx)}
+                      onDragEnd={onDragEnd}
+                      onClick={() =>
+                        onSelectField(
+                          selectedFieldId === field.id ? null : field.id,
+                        )
+                      }
+                      className={cn(
+                        "group relative rounded-lg border p-4 cursor-pointer",
+                        selectedFieldId === field.id
+                          ? "border-primary ring-1 ring-primary/20 bg-card"
+                          : "border-border bg-card hover:border-primary/30",
+                        dragIdx === idx && "opacity-50",
+                      )}
+                    >
+                      <div
+                        className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab hidden sm:block"
+                        aria-label="Drag to reorder"
+                      >
+                        <IconGripVertical className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <FieldRenderer field={field} preview />
+                    </div>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="right"
+                    align="start"
+                    sideOffset={12}
+                    className="w-[calc(100vw-2rem)] sm:w-72 max-h-[70vh] sm:max-h-[520px] overflow-auto p-0"
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                    onInteractOutside={(e) => {
+                      // Don't close when interacting with dropdowns portaled to body
+                      const target = e.target as HTMLElement;
+                      if (
+                        target.closest("[data-radix-popper-content-wrapper]") ||
+                        target.closest("[role='listbox']") ||
+                        target.closest("[role='option']")
+                      ) {
                         e.preventDefault();
-                        onSubmitAgent();
                       }
                     }}
-                    placeholder="Add missing fields, change the layout..."
-                    rows={4}
-                    className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
-                  />
-                </div>
-                <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
-                  <span className="text-[11px] text-muted-foreground/70">
-                    {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                    +Enter to submit
-                  </span>
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={onSubmitAgent}
-                    disabled={
-                      !agentPrompt.trim() ||
-                      promptRun.isActivePrompt(agentPrompt)
-                    }
-                    aria-label="Send prompt"
                   >
-                    <IconArrowUp className="h-3.5 w-3.5" />
-                  </Button>
+                    <FieldPropertiesPanel
+                      field={field}
+                      onChange={onUpdateField}
+                      onDelete={() => onDeleteField(field.id)}
+                    />
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <div
+                  key={field.id}
+                  className="relative rounded-lg border border-border bg-card p-4"
+                >
+                  <FieldRenderer field={field} preview />
                 </div>
-              </PopoverContent>
-            </Popover>
+              ),
+            )}
           </div>
+
+          {/* Add field — only visible to editors. Viewers see a read-only
+              preview of the form structure. */}
+          {canEdit && (
+            <div className="mt-4 flex items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <IconPlus className="h-4 w-4" />
+                    Add Field
+                    <IconChevronDown className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48">
+                  {Object.entries(fieldTypeLabels).map(([type, label]) => (
+                    <DropdownMenuItem
+                      key={type}
+                      onClick={() => onAddField(type as FormFieldType)}
+                    >
+                      {label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Popover
+                open={agentPopoverOpen}
+                onOpenChange={onAgentPopoverChange}
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Edit form with AI"
+                  >
+                    <IconMessage className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="end"
+                  sideOffset={8}
+                  className="w-[calc(100vw-2rem)] sm:w-80 p-0 rounded-xl"
+                  onOpenAutoFocus={(e) => {
+                    e.preventDefault();
+                    agentPromptRef.current?.focus();
+                  }}
+                >
+                  <div className="p-4 pb-3">
+                    <p className="text-sm font-semibold">Edit form</p>
+                    <textarea
+                      ref={agentPromptRef}
+                      value={agentPrompt}
+                      onChange={(e) => onAgentPromptChange(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                          e.preventDefault();
+                          onSubmitAgent();
+                        }
+                      }}
+                      placeholder="Add missing fields, change the layout..."
+                      rows={4}
+                      className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
+                    <span className="text-[11px] text-muted-foreground/70">
+                      {/Mac|iPhone|iPad/.test(navigator.userAgent)
+                        ? "⌘"
+                        : "Ctrl"}
+                      +Enter to submit
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={onSubmitAgent}
+                      disabled={
+                        !agentPrompt.trim() ||
+                        promptRun.isActivePrompt(agentPrompt)
+                      }
+                      aria-label="Send prompt"
+                    >
+                      <IconArrowUp className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -894,10 +948,62 @@ function BuilderContent({
 
 function ResultsContent({ formId, form }: { formId: string; form: any }) {
   const { data, isLoading, error, refetch } = useFormResponses(formId);
+  const [search, setSearch] = useState("");
+  // `_submitted` is the synthetic Submitted column. Field columns sort by id.
+  const [sortKey, setSortKey] = useState<string>("_submitted");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  const responses = data?.responses || [];
+  function toggleSort(key: string) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  const allResponses = data?.responses || [];
   const fields: FormField[] = data?.fields || form?.fields || [];
   const total = data?.total ?? 0;
+
+  const filtered = search.trim()
+    ? allResponses.filter((r) => {
+        const needle = search.toLowerCase();
+        return fields.some((f) => {
+          const val = r.data[f.id];
+          if (val == null) return false;
+          const str = Array.isArray(val) ? val.join(" ") : String(val);
+          return str.toLowerCase().includes(needle);
+        });
+      })
+    : allResponses;
+
+  const responses = [...filtered].sort((a, b) => {
+    let av: string | number;
+    let bv: string | number;
+    if (sortKey === "_submitted") {
+      av = new Date(a.submittedAt).getTime();
+      bv = new Date(b.submittedAt).getTime();
+    } else {
+      const aVal = a.data[sortKey];
+      const bVal = b.data[sortKey];
+      av =
+        aVal == null
+          ? ""
+          : Array.isArray(aVal)
+            ? aVal.join(", ")
+            : String(aVal);
+      bv =
+        bVal == null
+          ? ""
+          : Array.isArray(bVal)
+            ? bVal.join(", ")
+            : String(bVal);
+    }
+    if (av < bv) return sortDir === "asc" ? -1 : 1;
+    if (av > bv) return sortDir === "asc" ? 1 : -1;
+    return 0;
+  });
 
   function exportCsv() {
     if (!fields.length || !responses.length) return;
@@ -986,19 +1092,38 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-border">
-        <Badge variant="secondary" className="text-xs">
-          {total} response{total !== 1 ? "s" : ""}
-        </Badge>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5 text-xs"
-          onClick={exportCsv}
-        >
-          <IconDownload className="h-3.5 w-3.5" />
-          Export CSV
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="text-xs">
+            {total} response{total !== 1 ? "s" : ""}
+          </Badge>
+          {search.trim() && filtered.length !== allResponses.length && (
+            <span className="text-xs text-muted-foreground">
+              {filtered.length} match{filtered.length !== 1 ? "es" : ""}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              type="search"
+              placeholder="Search responses…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-8 pl-7 text-xs w-44 sm:w-56"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs"
+            onClick={exportCsv}
+          >
+            <IconDownload className="h-3.5 w-3.5" />
+            Export CSV
+          </Button>
+        </div>
       </div>
       <div className="flex-1 min-w-0 overflow-auto overscroll-x-contain">
         <div className="w-max min-w-full">
@@ -1015,7 +1140,12 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                   scope="col"
                   className="min-w-36 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                 >
-                  Submitted
+                  <ResultsSortableHeader
+                    label="Submitted"
+                    active={sortKey === "_submitted"}
+                    dir={sortDir}
+                    onClick={() => toggleSort("_submitted")}
+                  />
                 </th>
                 {fields.map((f) => (
                   <th
@@ -1023,19 +1153,34 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                     scope="col"
                     className="min-w-40 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                   >
-                    {f.label}
+                    <ResultsSortableHeader
+                      label={f.label}
+                      active={sortKey === f.id}
+                      dir={sortDir}
+                      onClick={() => toggleSort(f.id)}
+                    />
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
+              {responses.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={2 + fields.length}
+                    className="px-4 py-8 text-center text-xs text-muted-foreground"
+                  >
+                    No responses match your search.
+                  </td>
+                </tr>
+              )}
               {responses.map((response, idx) => (
                 <tr
                   key={response.id}
                   className="border-b border-border hover:bg-muted/20"
                 >
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                    {total - idx}
+                    {responses.length - idx}
                   </td>
                   <td className="min-w-36 px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                     {format(new Date(response.submittedAt), "MMM d, h:mm a")}
@@ -1067,6 +1212,37 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function ResultsSortableHeader({
+  label,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  dir: "asc" | "desc";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
+    >
+      <span>{label}</span>
+      {active ? (
+        dir === "asc" ? (
+          <IconArrowUp className="h-3 w-3" />
+        ) : (
+          <IconArrowDown className="h-3 w-3" />
+        )
+      ) : (
+        <IconArrowsSort className="h-3 w-3 opacity-40" />
+      )}
+    </button>
   );
 }
 

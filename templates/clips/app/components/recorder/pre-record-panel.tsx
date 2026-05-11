@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
+  NO_CAMERA_DEVICE_ID,
   NO_MIC_DEVICE_ID,
   type DisplaySurface,
   type RecordingMode,
@@ -207,7 +208,10 @@ export function PreRecordPanel({
     };
   }, []);
 
-  const needsCamera = mode === "camera" || mode === "screen+camera";
+  const supportsCameraToggle = mode === "screen+camera";
+  const needsCamera =
+    mode === "camera" ||
+    (mode === "screen+camera" && cameraId !== NO_CAMERA_DEVICE_ID);
   const needsScreen = mode === "screen" || mode === "screen+camera";
   const audioEnabled = micId !== NO_MIC_DEVICE_ID;
 
@@ -239,8 +243,15 @@ export function PreRecordPanel({
   const deviceSummary = useMemo(() => {
     const parts = [audioEnabled ? selectedMicLabel : "No audio"];
     if (needsCamera && selectedCameraLabel) parts.push(selectedCameraLabel);
+    else if (supportsCameraToggle) parts.push("No camera");
     return parts.filter(Boolean).join(" • ");
-  }, [audioEnabled, needsCamera, selectedCameraLabel, selectedMicLabel]);
+  }, [
+    audioEnabled,
+    needsCamera,
+    selectedCameraLabel,
+    selectedMicLabel,
+    supportsCameraToggle,
+  ]);
 
   const handleMicStatusChange = useCallback(
     (status: MicrophoneTestStatus, detail?: { error?: string | null }) => {
@@ -359,7 +370,15 @@ export function PreRecordPanel({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => setMode(opt.value)}
+                    onClick={() => {
+                      setMode(opt.value);
+                      if (
+                        opt.value === "camera" &&
+                        cameraId === NO_CAMERA_DEVICE_ID
+                      ) {
+                        setCameraId("default");
+                      }
+                    }}
                     className={cn(
                       "flex h-11 min-w-0 items-center justify-center rounded-lg px-2 transition-colors",
                       active
@@ -528,6 +547,29 @@ export function PreRecordPanel({
               onSignalChange={handleMicSignalChange}
             />
 
+            {supportsCameraToggle && (
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-foreground">
+                    Include camera
+                  </div>
+                  <div className="text-xs leading-snug text-muted-foreground">
+                    {needsCamera
+                      ? "Camera bubble overlay records alongside your screen."
+                      : "Screen-only — your camera stays off."}
+                  </div>
+                </div>
+                <Switch
+                  checked={needsCamera}
+                  onCheckedChange={(checked) =>
+                    setCameraId(checked ? "default" : NO_CAMERA_DEVICE_ID)
+                  }
+                  disabled={busy}
+                  aria-label="Include camera in this recording"
+                />
+              </div>
+            )}
+
             {needsCamera && (
               <>
                 <div className="flex items-center gap-3">
@@ -582,7 +624,11 @@ export function PreRecordPanel({
             disabled={startDisabled}
             onClick={() =>
               onStart({
-                mode,
+                // If the user toggled off the camera inside screen+camera mode,
+                // downgrade to screen-only so the recorder engine doesn't try
+                // to acquire a webcam stream.
+                mode:
+                  mode === "screen+camera" && !needsCamera ? "screen" : mode,
                 displaySurface,
                 micDeviceId: micId === "default" ? null : micId,
                 cameraDeviceId:

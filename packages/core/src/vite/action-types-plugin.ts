@@ -53,6 +53,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "set-resource-visibility",
     specifier: "@agent-native/core/sharing/actions/set-resource-visibility",
   },
+  {
+    name: "upload-image",
+    specifier: "@agent-native/core/file-upload/actions/upload-image",
+  },
 ];
 
 function scanActionFiles(actionsDir: string): string[] {

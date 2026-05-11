@@ -11,6 +11,10 @@ import { notifyClients } from "../server/handlers/decks.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import {
+  awaitLayoutFitCheck,
+  formatOverflowForTool,
+} from "./_await-fit-check.js";
 
 async function findCollabOrigin(): Promise<string | null> {
   const tryOrigins = [
@@ -60,6 +64,7 @@ export default defineAction({
     if (!find && !fullContent) {
       throw new Error("Either --find or --fullContent is required");
     }
+    const fitSince = Date.now();
 
     await assertAccess("deck", deckId, "editor");
 
@@ -181,12 +186,31 @@ export default defineAction({
       `update-slide: deck=${deckId} slide=${slideId} ${find ? `find="${find.slice(0, 40)}"` : "fullContent"} yjs=${yjsAccepted} sql=${applied}`,
     );
 
-    return {
+    // Wait briefly for the editor to re-render and measure. If the patched
+    // slide still overflows, surface the new measurement so the agent can
+    // tighten further. Timeout = no editor open / nothing to measure.
+    const fit = await awaitLayoutFitCheck(slideId, fitSince, 4000);
+
+    const base = {
       ok: true,
       deckId,
       slideId,
       applied: applied || yjsAccepted,
       collabSynced: yjsAccepted,
     };
+
+    if (fit.status === "overflows") {
+      return {
+        ...base,
+        layoutOverflow: {
+          verticalOverflow: fit.measurement.verticalOverflow,
+          contentHeight: fit.measurement.contentHeight,
+          viewportHeight: fit.measurement.viewportHeight,
+        },
+        message: formatOverflowForTool(deckId, fit.measurement),
+      };
+    }
+
+    return base;
   },
 });

@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
 import { Link } from "react-router";
 import { trackEvent } from "@agent-native/core/client";
 
@@ -146,17 +146,8 @@ export const featuredTemplates = templates.filter(
   (template) => template.slug !== "video",
 );
 
-function CliPopover({
-  template,
-  buttonRef,
-  onClose,
-}: {
-  template: Template;
-  buttonRef: React.RefObject<HTMLButtonElement | null>;
-  onClose: () => void;
-}) {
+function CliPopoverContent({ template }: { template: Template }) {
   const [copied, setCopied] = useState(false);
-  const popoverRef = useRef<HTMLDivElement>(null);
 
   function handleCopy() {
     navigator.clipboard.writeText(template.cliCommand);
@@ -168,50 +159,8 @@ function CliPopover({
     setTimeout(() => setCopied(false), 2000);
   }
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(e.target as Node)
-      ) {
-        onClose();
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [onClose, buttonRef]);
-
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
-
-  useEffect(() => {
-    function update() {
-      if (!buttonRef.current) return;
-      const rect = buttonRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 6, left: rect.left, width: rect.width });
-    }
-    update();
-    window.addEventListener("scroll", update, true);
-    window.addEventListener("resize", update);
-    return () => {
-      window.removeEventListener("scroll", update, true);
-      window.removeEventListener("resize", update);
-    };
-  }, [buttonRef]);
-
-  return createPortal(
-    <div
-      ref={popoverRef}
-      className="fixed z-50 rounded-lg border border-[var(--code-border)] bg-[var(--bg)] shadow-lg"
-      style={{
-        top: pos.top,
-        left: pos.left,
-        minWidth: pos.width,
-        width: "max-content",
-        maxWidth: "calc(100vw - 32px)",
-      }}
-    >
+  return (
+    <>
       <div className="flex items-center gap-2 px-3 py-2">
         <code className="block whitespace-nowrap text-xs leading-relaxed text-[var(--fg)]">
           {template.cliCommand}
@@ -261,14 +210,12 @@ function CliPopover({
           New to the CLI?
         </Link>
       </div>
-    </div>,
-    document.body,
+    </>
   );
 }
 
 function TemplateLaunchButton({ template }: { template: Template }) {
   const [showCli, setShowCli] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
 
   return (
@@ -304,20 +251,33 @@ function TemplateLaunchButton({ template }: { template: Template }) {
         </a>
       )}
       <div className="flex gap-2">
-        <button
-          ref={buttonRef}
-          onClick={() => {
-            if (!showCli)
+        <Popover.Root
+          open={showCli}
+          onOpenChange={(open) => {
+            if (open)
               trackEvent("click run locally", {
                 template: template.slug,
                 location: "card",
               });
-            setShowCli(!showCli);
+            setShowCli(open);
           }}
-          className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
         >
-          Run Locally
-        </button>
+          <Popover.Trigger asChild>
+            <button className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]">
+              Run Locally
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              align="start"
+              sideOffset={6}
+              collisionPadding={16}
+              className="z-50 w-max max-w-[calc(100vw-32px)] rounded-lg border border-[var(--code-border)] bg-[var(--bg)] shadow-lg"
+            >
+              <CliPopoverContent template={template} />
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
         <Link
           prefetch="render"
           to={`/templates/${template.slug}`}
@@ -332,13 +292,6 @@ function TemplateLaunchButton({ template }: { template: Template }) {
           View Docs
         </Link>
       </div>
-      {showCli && (
-        <CliPopover
-          template={template}
-          buttonRef={buttonRef}
-          onClose={() => setShowCli(false)}
-        />
-      )}
     </div>
   );
 }

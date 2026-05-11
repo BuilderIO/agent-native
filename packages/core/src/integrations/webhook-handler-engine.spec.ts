@@ -184,112 +184,128 @@ describe("integration webhook handler engine resolution", () => {
     }
   });
 
-  it("uses the shared engine resolver instead of forcing Anthropic", async () => {
-    const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
-    const task: PendingTask = {
-      id: "task-qa",
-      platform: "fake",
-      externalEventKey: "fake:thread-1:1001",
-      externalThreadId: "thread-1",
-      payload: JSON.stringify({
-        incoming: {
-          platform: "fake",
-          externalThreadId: "thread-1",
-          text: "hello from slack",
-          senderName: "QA User",
-          platformContext: { channel: "C123" },
-          timestamp: 1001,
-        },
-      }),
-      ownerEmail: "dispatch+qa@integration.local",
-      orgId: "org-qa",
-      status: "processing",
-      attempts: 1,
-      errorMessage: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      completedAt: null,
-    };
+  // CI runs this suite with a much longer transform/import phase than local
+  // (~28s vs ~7s observed on 2026-05-11), which left the per-test 5s budget
+  // too tight for the full processIntegrationTask pipeline. Bumping these two
+  // mock-heavy run-loop tests to 15s avoids flake without masking real perf
+  // regressions: the test bodies still finish in well under a second locally.
+  it(
+    "uses the shared engine resolver instead of forcing Anthropic",
+    { timeout: 15000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn();
+      const task: PendingTask = {
+        id: "task-qa",
+        platform: "fake",
+        externalEventKey: "fake:thread-1:1001",
+        externalThreadId: "thread-1",
+        payload: JSON.stringify({
+          incoming: {
+            platform: "fake",
+            externalThreadId: "thread-1",
+            text: "hello from slack",
+            senderName: "QA User",
+            platformContext: { channel: "C123" },
+            timestamp: 1001,
+          },
+        }),
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        status: "processing",
+        attempts: 1,
+        errorMessage: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        completedAt: null,
+      };
 
-    await processIntegrationTask(task, {
-      adapter: createAdapter(sendResponse),
-      systemPrompt: "system",
-      actions: {},
-      model: "claude-sonnet-4-6",
-      apiKey: "",
-      ownerEmail: task.ownerEmail,
-    });
-
-    expect(getOwnerActiveApiKeyMock).toHaveBeenCalledWith(task.ownerEmail);
-    expect(resolveEngineMock).toHaveBeenCalledWith({
-      engineOption: undefined,
-      apiKey: undefined,
-      model: "claude-sonnet-4-6",
-    });
-    expect(runAgentLoopMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        engine: expect.objectContaining({ name: "builder" }),
+      await processIntegrationTask(task, {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
         model: "claude-sonnet-4-6",
-        systemPrompt: expect.stringContaining("<runtime-context>"),
-      }),
-    );
-    expect(sendResponse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: "resolved builder claude-sonnet-4-6",
-      }),
-      expect.objectContaining({ externalThreadId: "thread-1" }),
-      expect.objectContaining({ placeholderRef: undefined }),
-    );
-  });
+        apiKey: "",
+        ownerEmail: task.ownerEmail,
+      });
 
-  it("uses the explicit engine provider when resolving owner API keys", async () => {
-    const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
-    getOwnerApiKeyMock.mockResolvedValue("openai-user-key");
-    const task: PendingTask = {
-      id: "task-openai",
-      platform: "fake",
-      externalEventKey: "fake:thread-2:1002",
-      externalThreadId: "thread-2",
-      payload: JSON.stringify({
-        incoming: {
-          platform: "fake",
-          externalThreadId: "thread-2",
-          text: "hello from slack",
-          senderName: "QA User",
-          platformContext: { channel: "C123" },
-          timestamp: 1002,
-        },
-      }),
-      ownerEmail: "dispatch+qa@integration.local",
-      orgId: "org-qa",
-      status: "processing",
-      attempts: 1,
-      errorMessage: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      completedAt: null,
-    };
+      expect(getOwnerActiveApiKeyMock).toHaveBeenCalledWith(task.ownerEmail);
+      expect(resolveEngineMock).toHaveBeenCalledWith({
+        engineOption: undefined,
+        apiKey: undefined,
+        model: "claude-sonnet-4-6",
+      });
+      expect(runAgentLoopMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          engine: expect.objectContaining({ name: "builder" }),
+          model: "claude-sonnet-4-6",
+          systemPrompt: expect.stringContaining("<runtime-context>"),
+        }),
+      );
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: "resolved builder claude-sonnet-4-6",
+        }),
+        expect.objectContaining({ externalThreadId: "thread-1" }),
+        expect.objectContaining({ placeholderRef: undefined }),
+      );
+    },
+  );
 
-    await processIntegrationTask(task, {
-      adapter: createAdapter(sendResponse),
-      systemPrompt: "system",
-      actions: {},
-      model: "gpt-5.2",
-      apiKey: "deploy-anthropic-key",
-      engine: "ai-sdk:openai",
-      ownerEmail: task.ownerEmail,
-    });
+  it(
+    "uses the explicit engine provider when resolving owner API keys",
+    { timeout: 15000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn();
+      getOwnerApiKeyMock.mockResolvedValue("openai-user-key");
+      const task: PendingTask = {
+        id: "task-openai",
+        platform: "fake",
+        externalEventKey: "fake:thread-2:1002",
+        externalThreadId: "thread-2",
+        payload: JSON.stringify({
+          incoming: {
+            platform: "fake",
+            externalThreadId: "thread-2",
+            text: "hello from slack",
+            senderName: "QA User",
+            platformContext: { channel: "C123" },
+            timestamp: 1002,
+          },
+        }),
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        status: "processing",
+        attempts: 1,
+        errorMessage: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        completedAt: null,
+      };
 
-    expect(getOwnerApiKeyMock).toHaveBeenCalledWith("openai", task.ownerEmail);
-    expect(getOwnerActiveApiKeyMock).not.toHaveBeenCalled();
-    expect(resolveEngineMock).toHaveBeenCalledWith({
-      engineOption: "ai-sdk:openai",
-      apiKey: "openai-user-key",
-      model: "gpt-5.2",
-    });
-  });
+      await processIntegrationTask(task, {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "gpt-5.2",
+        apiKey: "deploy-anthropic-key",
+        engine: "ai-sdk:openai",
+        ownerEmail: task.ownerEmail,
+      });
+
+      expect(getOwnerApiKeyMock).toHaveBeenCalledWith(
+        "openai",
+        task.ownerEmail,
+      );
+      expect(getOwnerActiveApiKeyMock).not.toHaveBeenCalled();
+      expect(resolveEngineMock).toHaveBeenCalledWith({
+        engineOption: "ai-sdk:openai",
+        apiKey: "openai-user-key",
+        model: "gpt-5.2",
+      });
+    },
+  );
 
   it("sanitizes missing LLM credential text before sending platform replies", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");

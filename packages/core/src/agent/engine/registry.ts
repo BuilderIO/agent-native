@@ -133,14 +133,24 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
  */
 export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | null> {
   let email: string | undefined;
+  let orgId: string | null | undefined;
   try {
-    const { getRequestUserEmail } =
+    const { getRequestUserEmail, getRequestOrgId } =
       await import("../../server/request-context.js");
     email = getRequestUserEmail();
+    orgId = getRequestOrgId();
   } catch {
+    console.log(
+      `[engine-detect] result=null reason=no-request-context email=(unknown) orgId=(unknown)`,
+    );
     return null;
   }
-  if (!email) return null;
+  if (!email) {
+    console.log(
+      `[engine-detect] result=null reason=no-email email=(empty) orgId=${orgId ?? "(none)"}`,
+    );
+    return null;
+  }
 
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (entry.requiredEnvVars.length === 0) return false;
@@ -161,14 +171,27 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
   if (preferByo) {
     for (const entry of _registry.values()) {
       if (entry.name === "builder") continue;
-      if (await hasAllKeys(entry)) return entry;
+      if (await hasAllKeys(entry)) {
+        console.log(
+          `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"} byo=true`,
+        );
+        return entry;
+      }
     }
     // No BYO key matched — fall through to include Builder as fallback.
   }
 
   for (const entry of _registry.values()) {
-    if (await hasAllKeys(entry)) return entry;
+    if (await hasAllKeys(entry)) {
+      console.log(
+        `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"}`,
+      );
+      return entry;
+    }
   }
+  console.log(
+    `[engine-detect] result=null reason=no-engine-keys-found email=${email} orgId=${orgId ?? "(none)"}`,
+  );
   return null;
 }
 

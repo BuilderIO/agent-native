@@ -6,7 +6,11 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { agentChat } from "@agent-native/core";
-import { AgentPresenceChip, agentNativePath } from "@agent-native/core/client";
+import {
+  AgentPresenceChip,
+  agentNativePath,
+  sendToAgentChat,
+} from "@agent-native/core/client";
 import { createPortal } from "react-dom";
 import { enterSelectionMode } from "@/root";
 import type { Slide } from "@/context/DeckContext";
@@ -30,13 +34,19 @@ import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
 } from "@/lib/slide-image-replacement";
-import { IconMaximize, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconMaximize,
+  IconZoomIn,
+  IconZoomOut,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 
 let builderIdCounter = 0;
 const CANVAS_ZOOM_PRESETS = [50, 75, 100, 125, 150, 200] as const;
@@ -188,7 +198,11 @@ interface SlideEditorProps {
   onUploadImage: (replaceSrc: string) => void;
   onSearchImage: (replaceSrc: string) => void;
   onLogoSearch: (replaceSrc: string) => void;
-  onDropImage?: (replaceSrc: string | null, file: File) => void;
+  onDropImage?: (
+    replaceSrc: string | null,
+    file: File,
+    position?: { x: number; y: number },
+  ) => void;
   onToggleObjectFit: (imgSrc: string, newFit: string) => void;
   /** Yjs document for collaborative editing */
   ydoc?: Y.Doc | null;
@@ -220,6 +234,10 @@ interface SlideEditorProps {
   slideId?: string;
   /** Slide title for pin mode contextLabel */
   slideTitle?: string;
+  /** Owning deck id — surfaced in the slide-fit-check app-state payload so
+   *  `_await-fit-check` can build correct `update-slide --deckId=<id>`
+   *  agent retry commands. */
+  deckId?: string;
 }
 
 /** Selection outline rendered over a selected image */
@@ -330,6 +348,49 @@ function syncSelectionToAppState(
   }).catch(() => {});
 }
 
+/**
+ * Push the current slide's vertical-fit measurement to application_state
+ * under `slide-fit-check`. Always written, even when the slide fits — the
+ * `add-slide` / `update-slide` actions poll this key and use the
+ * `measuredAt` timestamp + matching `slideId` to confirm the slide they
+ * just wrote has actually been re-rendered and re-measured. If
+ * `verticalOverflow > 0`, the action returns an "overflow" message so the
+ * agent can patch the slide; if it's 0, the action knows the slide fits.
+ *
+ * `view-screen` and the editor badge also read this key so the agent can
+ * see fit status without browser access of its own.
+ */
+function syncOverflowToAppState(
+  payload: {
+    slideId: string;
+    deckId?: string;
+    contentHeight: number;
+    viewportHeight: number;
+    verticalOverflow: number;
+  } | null,
+) {
+  const url = agentNativePath(
+    "/_agent-native/application-state/slide-fit-check",
+  );
+  if (!payload) {
+    fetch(url, {
+      method: "DELETE",
+      keepalive: true,
+      headers: { "X-Request-Source": TAB_ID },
+    }).catch(() => {});
+    return;
+  }
+  fetch(url, {
+    method: "PUT",
+    keepalive: true,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Request-Source": TAB_ID,
+    },
+    body: JSON.stringify({ ...payload, measuredAt: Date.now() }),
+  }).catch(() => {});
+}
+
 export default function SlideEditor({
   slide,
   onUpdateSlide,
@@ -353,6 +414,7 @@ export default function SlideEditor({
   onExitPinMode,
   slideId,
   slideTitle,
+  deckId,
 }: SlideEditorProps) {
   const content = typeof slide.content === "string" ? slide.content : "";
   const isHtmlSlide =
@@ -388,6 +450,14 @@ export default function SlideEditor({
     w: number;
     h: number;
   } | null>(null);
+  /** Vertical overflow for the current slide (0 = fits). Reported by the
+   *  renderer so we can prompt the agent to rewrite the slide HTML instead of
+   *  silently scaling it down (which created unbalanced right/bottom margins
+   *  on slides whose content was too tall for the canvas). */
+  const [overflowInfo, setOverflowInfo] = useState<SlideOverflowInfo | null>(
+    null,
+  );
+  const [isAskingAgentToFix, setIsAskingAgentToFix] = useState(false);
   const dims = getAspectRatioDims(aspectRatio);
   const canvasWidth = Math.round(dims.width * (canvasZoom / 100));
   const canvasZoomIn = useCallback(() => {
@@ -400,6 +470,75 @@ export default function SlideEditor({
       .find((preset) => preset < canvasZoom);
     setCanvasZoom(previous ?? CANVAS_ZOOM_PRESETS[0]);
   }, [canvasZoom]);
+
+  // Reset overflow state whenever the slide changes — the renderer will
+  // report the next measurement (or stay null if the new slide fits).
+  useEffect(() => {
+    setOverflowInfo(null);
+    setIsAskingAgentToFix(false);
+    syncOverflowToAppState(null);
+  }, [slide.id, slide.content]);
+
+  // Clear the app-state overflow key when this editor unmounts, so a stale
+  // measurement never leaks into a different deck/slide context.
+  useEffect(() => {
+    return () => {
+      syncOverflowToAppState(null);
+    };
+  }, []);
+
+  const handleOverflowChange = useCallback(
+    (info: SlideOverflowInfo) => {
+      const overflowing = info.verticalOverflow > 0 ? info : null;
+      setOverflowInfo(overflowing);
+      // Always write the measurement (even when verticalOverflow=0) so the
+      // add-slide / update-slide actions can poll for confirmation that the
+      // slide they just wrote has been re-rendered and re-measured.
+      syncOverflowToAppState({
+        slideId: slide.id,
+        deckId,
+        contentHeight: info.contentHeight,
+        viewportHeight: info.viewportHeight,
+        verticalOverflow: info.verticalOverflow,
+      });
+    },
+    [slide.id, deckId],
+  );
+
+  const handleAskAgentToFixLayout = useCallback(() => {
+    if (!overflowInfo || overflowInfo.verticalOverflow <= 0) return;
+    const slideHeading = (() => {
+      if (typeof document === "undefined") return null;
+      const main = document.querySelector("[data-main-slide-canvas]");
+      const heading = main?.querySelector("h1, h2, h3, [class*='heading']");
+      return heading?.textContent?.trim()?.slice(0, 80) || null;
+    })();
+    const dimsW = dims.width;
+    const dimsH = dims.height;
+    setIsAskingAgentToFix(true);
+    sendToAgentChat({
+      message: [
+        `The current slide's content vertically overflows the canvas by ${overflowInfo.verticalOverflow}px and needs to be rewritten to fit.`,
+        ``,
+        `Slide id: \`${slide.id}\``,
+        slideHeading ? `Slide heading: "${slideHeading}"` : null,
+        `Canvas size: ${dimsW}x${dimsH}px (16:9 native render).`,
+        `Available content area inside the slide's padding: ${overflowInfo.viewportHeight}px tall.`,
+        `Natural rendered content height: ${overflowInfo.contentHeight}px → overflows by ${overflowInfo.verticalOverflow}px.`,
+        ``,
+        `Please use \`view-screen\` to read the current slide HTML, then \`update-slide --fullContent\` to rewrite the slide so its rendered height is at most ${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
+        `1. Tighten copy — shorten headings/body, drop low-value bullets, replace prose with terse phrases.`,
+        `2. Reduce vertical density — fewer stacked cards, smaller gaps, smaller body font (don't go below 16px), shorter labels.`,
+        `3. Reduce slide padding (e.g. 40px top/bottom instead of 60-80px) if the layout is genuinely tight.`,
+        `4. If the content really can't be compressed without losing meaning, split it across two slides.`,
+        ``,
+        `Do NOT solve this by adding \`transform: scale()\`, \`overflow: scroll\`, or absolute positioning — the renderer no longer auto-shrinks overflowing slides, so the HTML itself has to fit ${dimsW}x${dimsH}.`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      submit: true,
+    });
+  }, [overflowInfo, slide.id, dims.width, dims.height]);
   /** Marquee origin (viewport coords). Set on pointerdown. */
   const marqueeOriginRef = useRef<{ x: number; y: number } | null>(null);
   /**
@@ -898,7 +1037,10 @@ export default function SlideEditor({
       e.preventDefault();
       e.stopPropagation();
       if (!file) return;
-      onDropImage?.(getImageReplacementTarget(e.target as HTMLElement), file);
+      onDropImage?.(getImageReplacementTarget(e.target as HTMLElement), file, {
+        x: e.clientX,
+        y: e.clientY,
+      });
     },
     [getImageReplacementTarget, onDropImage],
   );
@@ -1119,6 +1261,7 @@ export default function SlideEditor({
                         className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
                         designSystem={designSystem}
                         aspectRatio={aspectRatio}
+                        onOverflowChange={handleOverflowChange}
                       />
                       {/* Double-click hint — only shown for HTML slides that support inline editing */}
                       {isHoveringText && !editingEl && isHtmlSlide && (
@@ -1129,6 +1272,27 @@ export default function SlideEditor({
                       {agentActive && (
                         <div className="absolute top-2 right-2 z-10 pointer-events-none">
                           <AgentPresenceChip active={agentActive} />
+                        </div>
+                      )}
+                      {overflowInfo && !readOnly && !agentActive && (
+                        <div className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 backdrop-blur px-2.5 py-1.5 text-xs text-amber-100 shadow-lg">
+                          <IconAlertTriangle
+                            className="h-3.5 w-3.5 flex-shrink-0"
+                            stroke={2}
+                          />
+                          <span className="leading-tight">
+                            Layout overflows by {overflowInfo.verticalOverflow}
+                            px
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="ml-1 h-6 cursor-pointer px-2 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 hover:text-white"
+                            onClick={handleAskAgentToFixLayout}
+                            disabled={isAskingAgentToFix}
+                          >
+                            {isAskingAgentToFix ? "Asking…" : "Fix with AI"}
+                          </Button>
                         </div>
                       )}
                     </div>

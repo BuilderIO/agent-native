@@ -323,9 +323,9 @@ function hasLocalBin(dir: string, command: string): boolean {
   );
 }
 
-export function runWorkspaceDev(
+export async function runWorkspaceDev(
   options: WorkspaceDevOptions = {},
-): WorkspaceDevHandle {
+): Promise<WorkspaceDevHandle> {
   const args = options.args ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const root = options.root ?? process.cwd();
@@ -352,6 +352,49 @@ export function runWorkspaceDev(
   const apps = discoverApps(appsDir, appPortStart);
   if (apps.length === 0) {
     throw new Error("[workspace] No apps found under ./apps");
+  }
+
+  // Probe each app's proposed port to see if something else on the host
+  // already owns it. Vite is spawned with `--strictPort` (so the gateway can
+  // route /<appId> to a known port), which fails hard on EADDRINUSE — without
+  // this probe a single conflicting process on 8100/8101/... kills the
+  // workspace before the dev server prints anything useful.
+  function probePortAvailable(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const probe = net.createServer();
+      probe.once("error", () => resolve(false));
+      probe.once("listening", () => {
+        probe.close(() => resolve(true));
+      });
+      probe.listen(port, gatewayHost);
+    });
+  }
+
+  async function reserveAppPort(
+    start: number,
+    excluded: Set<number>,
+  ): Promise<number> {
+    for (let port = start; port < start + 100; port++) {
+      if (excluded.has(port)) continue;
+      if (port === requestedPort) continue;
+      if (await probePortAvailable(port)) return port;
+    }
+    throw new Error(
+      `[workspace] No available port found between ${start} and ${start + 100}`,
+    );
+  }
+
+  const reservedAppPorts = new Set<number>();
+  for (const app of apps) {
+    const original = app.port;
+    const port = await reserveAppPort(original, reservedAppPorts);
+    if (port !== original) {
+      stdout.write(
+        `[workspace] Port ${original} unavailable for /${app.id}, using ${port}\n`,
+      );
+    }
+    app.port = port;
+    reservedAppPorts.add(port);
   }
 
   const appById = new Map(apps.map((app) => [app.id, app]));
@@ -383,7 +426,7 @@ export function runWorkspaceDev(
     );
   }
 
-  function syncApps(): void {
+  async function syncApps(): Promise<void> {
     const discovered = discoverApps(appsDir, appPortStart);
     for (const app of discovered) {
       const existing = appById.get(app.id);
@@ -393,8 +436,8 @@ export function runWorkspaceDev(
         continue;
       }
       const usedPorts = new Set(apps.map((existingApp) => existingApp.port));
-      let port = appPortStart;
-      while (usedPorts.has(port)) port++;
+      const port = await reserveAppPort(appPortStart, usedPorts);
+      reservedAppPorts.add(port);
       const next = { ...app, port };
       apps.push(next);
       apps.sort(compareApps);
@@ -405,7 +448,13 @@ export function runWorkspaceDev(
 
   function scheduleSync(): void {
     if (syncTimer) clearTimeout(syncTimer);
-    syncTimer = setTimeout(syncApps, 400);
+    syncTimer = setTimeout(() => {
+      void syncApps().catch((err) => {
+        stderr.write(
+          `[workspace] App sync failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      });
+    }, 400);
   }
 
   function appForRequest(req: http.IncomingMessage): WorkspaceApp | null {
@@ -729,7 +778,9 @@ export function runWorkspaceDev(
     } catch (err) {
       handleWatcherError(err as NodeJS.ErrnoException);
     }
-    setInterval(syncApps, 2_000).unref();
+    setInterval(() => {
+      void syncApps().catch(() => {});
+    }, 2_000).unref();
   }
 
   function openBrowser(url: string): void {
@@ -749,12 +800,12 @@ export function runWorkspaceDev(
     child.unref();
   }
 
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const parsedUrl = new URL(req.url || "/", "http://workspace.local");
     const pathname = parsedUrl.pathname;
 
     if (pathname === "/" || pathname === "/index.html") {
-      syncApps();
+      await syncApps().catch(() => {});
       const currentDefaultApp =
         explicitDefaultApp && appById.has(explicitDefaultApp)
           ? explicitDefaultApp
@@ -777,7 +828,7 @@ export function runWorkspaceDev(
     }
 
     if (pathname === "/_workspace/apps") {
-      syncApps();
+      await syncApps().catch(() => {});
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify(
@@ -795,7 +846,7 @@ export function runWorkspaceDev(
 
     let app = appForRequest(req);
     if (!app) {
-      syncApps();
+      await syncApps().catch(() => {});
       app = appForRequest(req);
     }
     if (!app) {
@@ -887,10 +938,8 @@ function isDirectRun(): boolean {
 }
 
 if (isDirectRun()) {
-  try {
-    runWorkspaceDev({ args: process.argv.slice(2) });
-  } catch (err) {
+  runWorkspaceDev({ args: process.argv.slice(2) }).catch((err) => {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
-  }
+  });
 }

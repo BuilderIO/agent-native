@@ -29,9 +29,10 @@ export interface OrgSwitcherProps {
   /** Keep the switcher's button height reserved while org state is loading. */
   reserveSpace?: boolean;
   /**
-   * Where the "Workspace settings" item navigates to. Defaults to `/team`,
-   * which every framework template mounts via the shared `TeamPage`.
-   * Templates that mount the settings page elsewhere can override.
+   * Optional path to navigate to when the user clicks "Workspace settings".
+   * Templates that mount a dedicated team page (e.g. Dispatch's `/team`) can
+   * pass it here. When unset, only the in-sidebar settings panel opens —
+   * suitable for templates without a dedicated team page.
    */
   settingsPath?: string;
 }
@@ -73,7 +74,7 @@ export function OrgSwitcher({
   className,
   hideWhenSingle,
   reserveSpace,
-  settingsPath = "/team",
+  settingsPath,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
   const switchOrg = useSwitchOrg();
@@ -310,7 +311,9 @@ export function OrgSwitcher({
                         detail: { section: "workspace-settings" },
                       }),
                     );
-                    navigate(workspaceSettingsPath(settingsPath));
+                    if (settingsPath) {
+                      navigate(workspaceSettingsPath(settingsPath));
+                    }
                   }}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
@@ -320,7 +323,13 @@ export function OrgSwitcher({
               )}
               <button
                 type="button"
-                onClick={() => setMode("create")}
+                onClick={() => {
+                  // Clear any leftover input from a prior session — otherwise
+                  // the create form re-opens prefilled with the just-created
+                  // org's name and looks like a create dialog for the new org.
+                  setNewName("");
+                  setMode("create");
+                }}
                 className={`${ITEM_CLASS} cursor-pointer`}
               >
                 <IconPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -329,7 +338,10 @@ export function OrgSwitcher({
               {canInvite && (
                 <button
                   type="button"
-                  onClick={() => setMode("invite")}
+                  onClick={() => {
+                    setInviteEmail("");
+                    setMode("invite");
+                  }}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
                   <IconUserPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -383,7 +395,7 @@ export function OrgSwitcher({
                 if (!name) return;
                 try {
                   await createOrg.mutateAsync(name);
-                  setOpen(false);
+                  handleOpenChange(false);
                 } catch {
                   /* error surfaced via createOrg.error */
                 }
@@ -418,10 +430,10 @@ export function OrgSwitcher({
                 <button
                   type="submit"
                   disabled={createOrg.isPending || !newName.trim()}
-                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                  className="flex flex-1 items-center justify-center rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
                 >
                   {createOrg.isPending ? (
-                    <IconLoader2 className="mx-auto h-3 w-3 animate-spin" />
+                    <IconLoader2 className="h-3 w-3 animate-spin" />
                   ) : (
                     "Create"
                   )}
@@ -475,10 +487,10 @@ export function OrgSwitcher({
                 <button
                   type="submit"
                   disabled={inviteMember.isPending || !inviteEmail.trim()}
-                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                  className="flex flex-1 items-center justify-center rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
                 >
                   {inviteMember.isPending ? (
-                    <IconLoader2 className="mx-auto h-3 w-3 animate-spin" />
+                    <IconLoader2 className="h-3 w-3 animate-spin" />
                   ) : (
                     "Send invite"
                   )}
