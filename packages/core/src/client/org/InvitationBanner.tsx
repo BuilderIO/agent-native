@@ -21,6 +21,9 @@ export function InvitationBanner({ className }: InvitationBannerProps) {
   const acceptInvitation = useAcceptInvitation();
   const joinByDomain = useJoinByDomain();
   const [joiningOrgId, setJoiningOrgId] = useState<string | null>(null);
+  const [acceptingInvitationId, setAcceptingInvitationId] = useState<
+    string | null
+  >(null);
 
   const pendingInvitations = org?.pendingInvitations ?? [];
   const domainMatches = org?.domainMatches ?? [];
@@ -30,6 +33,42 @@ export function InvitationBanner({ className }: InvitationBannerProps) {
   }
 
   const error = acceptInvitation.error || joinByDomain.error;
+
+  // While the join/accept request is in flight (and continuing until the
+  // refreshed org data unmounts this banner), surface a prominent in-place
+  // "Joining {orgName}…" state so the chat panel reflects the action instead
+  // of looking unchanged until the view abruptly swaps.
+  const joiningOrgName = (() => {
+    if (joiningOrgId) {
+      return (
+        domainMatches.find((m) => m.orgId === joiningOrgId)?.orgName ?? null
+      );
+    }
+    if (acceptingInvitationId) {
+      return (
+        pendingInvitations.find((i) => i.id === acceptingInvitationId)
+          ?.orgName ?? null
+      );
+    }
+    return null;
+  })();
+
+  if (joiningOrgName) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className={`border-b border-border bg-blue-50 dark:bg-blue-950/30 px-3 py-3 sm:px-4 ${className ?? ""}`}
+      >
+        <div className="flex items-center gap-3 text-sm text-foreground">
+          <IconLoader2 className="h-4 w-4 shrink-0 animate-spin text-blue-600 dark:text-blue-400" />
+          <span className="min-w-0 flex-1">
+            Joining <span className="font-medium">{joiningOrgName}</span>…
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -48,7 +87,10 @@ export function InvitationBanner({ className }: InvitationBannerProps) {
             <button
               type="button"
               onClick={() => {
-                acceptInvitation.mutate(inv.id);
+                setAcceptingInvitationId(inv.id);
+                acceptInvitation.mutate(inv.id, {
+                  onError: () => setAcceptingInvitationId(null),
+                });
               }}
               disabled={acceptInvitation.isPending}
               className="shrink-0 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 cursor-pointer"
@@ -80,7 +122,7 @@ export function InvitationBanner({ className }: InvitationBannerProps) {
               onClick={() => {
                 setJoiningOrgId(match.orgId);
                 joinByDomain.mutate(match.orgId, {
-                  onSettled: () => setJoiningOrgId(null),
+                  onError: () => setJoiningOrgId(null),
                 });
               }}
               disabled={joinByDomain.isPending}

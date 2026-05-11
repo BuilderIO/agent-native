@@ -48,16 +48,20 @@ export function useOrg() {
 }
 
 export function useOrgMembers() {
+  // Scope the cache by active orgId so switching or creating an org forces a
+  // fresh fetch rather than briefly showing the previous org's members.
+  const { data: org } = useOrg();
   return useQuery<{ members: OrgMember[] }>({
-    queryKey: ["org-members"],
+    queryKey: ["org-members", org?.orgId ?? null],
     queryFn: () => apiFetch(`${ORG_BASE}/members`),
     staleTime: 30_000,
   });
 }
 
 export function useOrgInvitations() {
+  const { data: org } = useOrg();
   return useQuery<{ invitations: OrgPendingInvitation[] }>({
-    queryKey: ["org-invitations"],
+    queryKey: ["org-invitations", org?.orgId ?? null],
     queryFn: () => apiFetch(`${ORG_BASE}/invitations`),
     staleTime: 30_000,
   });
@@ -89,10 +93,10 @@ export function useCreateOrg() {
         body: JSON.stringify({ name }),
       }),
     onSuccess: async () => {
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["org-me"] }),
-        qc.invalidateQueries({ queryKey: ["org-members"] }),
-      ]);
+      // Creating an org also switches the user into it server-side, so every
+      // org-scoped query (members, invitations, and template-level data) is
+      // now stale. Match the broad invalidation that useSwitchOrg already does.
+      await qc.invalidateQueries();
     },
   });
 }
