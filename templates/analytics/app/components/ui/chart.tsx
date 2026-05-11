@@ -2,6 +2,7 @@ import * as React from "react";
 import * as RechartsPrimitive from "recharts";
 
 import { cn } from "@/lib/utils";
+import { useChartTooltipFlip } from "@/hooks/use-chart-tooltip-flip";
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const;
@@ -135,6 +136,16 @@ const ChartTooltipContent = React.forwardRef<
     ref,
   ) => {
     const { config } = useChart();
+    const flipRef = useChartTooltipFlip<HTMLDivElement>();
+    const setRefs = React.useCallback(
+      (node: HTMLDivElement | null) => {
+        flipRef.current = node;
+        if (typeof ref === "function") ref(node);
+        else if (ref)
+          (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      },
+      [ref, flipRef],
+    );
 
     const tooltipLabel = React.useMemo(() => {
       if (hideLabel || !payload?.length) {
@@ -180,7 +191,7 @@ const ChartTooltipContent = React.forwardRef<
 
     return (
       <div
-        ref={ref}
+        ref={setRefs}
         className={cn(
           "grid min-w-[8rem] items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl",
           className,
