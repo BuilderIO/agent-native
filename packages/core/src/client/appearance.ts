@@ -1,4 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { agentNativePath } from "./api-path.js";
 
 export const APPEARANCE_PRESETS = [
   { id: "default", label: "Default", swatch: "hsl(220 10% 30%)" },
@@ -12,10 +14,19 @@ export const APPEARANCE_PRESETS = [
 export type AppearancePresetId = (typeof APPEARANCE_PRESETS)[number]["id"];
 
 const STORAGE_KEY = "appearance";
-const VALID_NON_DEFAULT = new Set(
+const VALID_NON_DEFAULT: Set<string> = new Set(
   APPEARANCE_PRESETS.filter((p) => p.id !== "default").map((p) => p.id),
 );
 const CHANGE_EVENT = "agent-native:appearance-change";
+
+function isValidPreset(
+  value: string | null | undefined,
+): value is AppearancePresetId {
+  return (
+    value === "default" ||
+    (typeof value === "string" && VALID_NON_DEFAULT.has(value))
+  );
+}
 
 function safeWindow(): Window | null {
   return typeof window === "undefined" ? null : window;
@@ -26,9 +37,7 @@ function readStoredAppearance(): AppearancePresetId {
   if (!w) return "default";
   try {
     const stored = w.localStorage.getItem(STORAGE_KEY);
-    if (stored && VALID_NON_DEFAULT.has(stored)) {
-      return stored as AppearancePresetId;
-    }
+    if (isValidPreset(stored) && stored !== "default") return stored;
   } catch {
     // localStorage unavailable
   }
@@ -86,22 +95,32 @@ export function useAppearance(): AppearancePresetId {
 }
 
 /**
- * Watches `application_state.appearance` (written by the `change-appearance`
- * agent action) and applies it on the client. Polling sync surfaces the
- * server-side write within a few seconds; this component bridges that into
- * the DOM `data-appearance` attribute + localStorage.
+ * Polls `application_state.appearance` and applies the server-side preset on
+ * the client. Use once near the root of the app (e.g. in your `AppLayout`).
+ *
+ * The agent's `change-appearance` action writes to `application_state.appearance`
+ * server-side; this hook surfaces that write into the DOM `data-appearance`
+ * attribute and localStorage so the user sees the change immediately and the
+ * choice persists across reloads.
  */
-export function AppearanceSync({
-  applicationState,
-}: {
-  applicationState: { appearance?: { preset?: string } } | undefined;
-}): null {
-  const serverPreset = applicationState?.appearance?.preset;
+export function useAppearanceSync(): void {
+  const { data } = useQuery({
+    queryKey: ["agent-native", "appearance"],
+    queryFn: async () => {
+      const res = await fetch(
+        agentNativePath("/_agent-native/application-state/appearance"),
+        { credentials: "include" },
+      );
+      if (!res.ok) return null;
+      return (await res.json()) as { preset?: string } | null;
+    },
+    refetchInterval: 4_000,
+    staleTime: 2_000,
+  });
+  const serverPreset = data?.preset;
   useEffect(() => {
-    if (!serverPreset) return;
-    if (serverPreset === "default" || VALID_NON_DEFAULT.has(serverPreset)) {
-      applyAppearance(serverPreset as AppearancePresetId);
-    }
+    if (!serverPreset || !isValidPreset(serverPreset)) return;
+    const current = readStoredAppearance();
+    if (current !== serverPreset) applyAppearance(serverPreset);
   }, [serverPreset]);
-  return null;
 }

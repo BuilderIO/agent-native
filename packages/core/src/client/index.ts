@@ -152,7 +152,7 @@ export {
   applyAppearance,
   getStoredAppearance,
   useAppearance,
-  AppearanceSync,
+  useAppearanceSync,
   type AppearancePresetId,
 } from "./appearance.js";
 export {

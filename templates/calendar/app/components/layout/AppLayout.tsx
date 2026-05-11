@@ -12,6 +12,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   NotificationsBell,
+  useAppearanceSync,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { Sidebar } from "./Sidebar";
@@ -113,6 +114,7 @@ export function useAppHeaderControls(controls: HeaderControls | null) {
 
 function NavigationSync() {
   useNavigationState();
+  useAppearanceSync();
   return null;
 }
 

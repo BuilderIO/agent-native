@@ -352,12 +352,15 @@ export default function Settings() {
             onChange={(preset: AppearancePresetId) => {
               // Persist server-side so the choice survives reload and syncs
               // across devices; the local UI has already updated optimistically.
-              fetch(agentNativePath("/_agent-native/actions/change-appearance"), {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ preset }),
-              }).catch(() => {
+              fetch(
+                agentNativePath("/_agent-native/actions/change-appearance"),
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({ preset }),
+                },
+              ).catch(() => {
                 // Server write failed; the local DOM change still stands.
               });
             }}

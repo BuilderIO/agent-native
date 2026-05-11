@@ -27,6 +27,7 @@ describe("getThemeInitScript", () => {
     window.localStorage.clear();
     document.documentElement.classList.remove("light", "dark");
     document.documentElement.removeAttribute("data-theme");
+    document.documentElement.removeAttribute("data-appearance");
     document.documentElement.style.colorScheme = "";
   });
 
@@ -101,6 +102,35 @@ describe("getThemeInitScript", () => {
     vi.stubEnv("NODE_ENV", "production");
 
     expect(getThemeInitScript()).not.toContain("__an_optimize_reload");
+  });
+
+  it("applies a stored appearance preset on init", () => {
+    setPrefersDark(false);
+    window.localStorage.setItem("appearance", "ocean");
+
+    runThemeScript(getThemeInitScript());
+
+    expect(document.documentElement.getAttribute("data-appearance")).toBe(
+      "ocean",
+    );
+  });
+
+  it("clears invalid appearance values from storage", () => {
+    setPrefersDark(false);
+    window.localStorage.setItem("appearance", "neon-pink");
+
+    runThemeScript(getThemeInitScript());
+
+    expect(document.documentElement.getAttribute("data-appearance")).toBe(null);
+    expect(window.localStorage.getItem("appearance")).toBe(null);
+  });
+
+  it("leaves data-appearance unset when none is stored", () => {
+    setPrefersDark(false);
+
+    runThemeScript(getThemeInitScript());
+
+    expect(document.documentElement.getAttribute("data-appearance")).toBe(null);
   });
 
   it("keeps Vite dev recovery deterministic in browsers without process", () => {
