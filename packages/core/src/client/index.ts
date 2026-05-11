@@ -126,6 +126,12 @@ export {
 } from "./AgentPanel.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export { SettingsPanel, type SettingsPanelProps } from "./settings/index.js";
+export { useBuilderStatus } from "./settings/useBuilderStatus.js";
+export {
+  useBuilderConnectFlow,
+  type BuilderConnectFlow,
+  type BuilderConnectFlowOptions,
+} from "./settings/useBuilderStatus.js";
 // Deprecated — use AgentSidebar + AgentToggleButton instead
 export {
   ProductionAgentPanel,
