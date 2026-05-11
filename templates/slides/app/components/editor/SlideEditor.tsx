@@ -418,6 +418,52 @@ export default function SlideEditor({
       .find((preset) => preset < canvasZoom);
     setCanvasZoom(previous ?? CANVAS_ZOOM_PRESETS[0]);
   }, [canvasZoom]);
+
+  // Reset overflow state whenever the slide changes — the renderer will
+  // report the next measurement (or stay null if the new slide fits).
+  useEffect(() => {
+    setOverflowInfo(null);
+    setIsAskingAgentToFix(false);
+  }, [slide.id, slide.content]);
+
+  const handleOverflowChange = useCallback((info: SlideOverflowInfo) => {
+    setOverflowInfo(info.verticalOverflow > 0 ? info : null);
+  }, []);
+
+  const handleAskAgentToFixLayout = useCallback(() => {
+    if (!overflowInfo || overflowInfo.verticalOverflow <= 0) return;
+    const slideHeading = (() => {
+      if (typeof document === "undefined") return null;
+      const main = document.querySelector("[data-main-slide-canvas]");
+      const heading = main?.querySelector("h1, h2, h3, [class*='heading']");
+      return heading?.textContent?.trim()?.slice(0, 80) || null;
+    })();
+    const dimsW = dims.width;
+    const dimsH = dims.height;
+    setIsAskingAgentToFix(true);
+    sendToAgentChat({
+      message: [
+        `The current slide's content vertically overflows the canvas by ${overflowInfo.verticalOverflow}px and needs to be rewritten to fit.`,
+        ``,
+        `Slide id: \`${slide.id}\``,
+        slideHeading ? `Slide heading: "${slideHeading}"` : null,
+        `Canvas size: ${dimsW}x${dimsH}px (16:9 native render).`,
+        `Available content area inside the slide's padding: ${overflowInfo.viewportHeight}px tall.`,
+        `Natural rendered content height: ${overflowInfo.contentHeight}px → overflows by ${overflowInfo.verticalOverflow}px.`,
+        ``,
+        `Please use \`view-screen\` to read the current slide HTML, then \`update-slide --fullContent\` to rewrite the slide so its rendered height is at most ${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
+        `1. Tighten copy — shorten headings/body, drop low-value bullets, replace prose with terse phrases.`,
+        `2. Reduce vertical density — fewer stacked cards, smaller gaps, smaller body font (don't go below 16px), shorter labels.`,
+        `3. Reduce slide padding (e.g. 40px top/bottom instead of 60-80px) if the layout is genuinely tight.`,
+        `4. If the content really can't be compressed without losing meaning, split it across two slides.`,
+        ``,
+        `Do NOT solve this by adding \`transform: scale()\`, \`overflow: scroll\`, or absolute positioning — the renderer no longer auto-shrinks overflowing slides, so the HTML itself has to fit ${dimsW}x${dimsH}.`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      submit: true,
+    });
+  }, [overflowInfo, slide.id, dims.width, dims.height]);
   /** Marquee origin (viewport coords). Set on pointerdown. */
   const marqueeOriginRef = useRef<{ x: number; y: number } | null>(null);
   /**
@@ -1137,6 +1183,7 @@ export default function SlideEditor({
                         className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
                         designSystem={designSystem}
                         aspectRatio={aspectRatio}
+                        onOverflowChange={handleOverflowChange}
                       />
                       {/* Double-click hint — only shown for HTML slides that support inline editing */}
                       {isHoveringText && !editingEl && isHtmlSlide && (
@@ -1147,6 +1194,27 @@ export default function SlideEditor({
                       {agentActive && (
                         <div className="absolute top-2 right-2 z-10 pointer-events-none">
                           <AgentPresenceChip active={agentActive} />
+                        </div>
+                      )}
+                      {overflowInfo && !readOnly && !agentActive && (
+                        <div className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 backdrop-blur px-2.5 py-1.5 text-xs text-amber-100 shadow-lg">
+                          <IconAlertTriangle
+                            className="h-3.5 w-3.5 flex-shrink-0"
+                            stroke={2}
+                          />
+                          <span className="leading-tight">
+                            Layout overflows by {overflowInfo.verticalOverflow}
+                            px
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="ml-1 h-6 cursor-pointer px-2 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 hover:text-white"
+                            onClick={handleAskAgentToFixLayout}
+                            disabled={isAskingAgentToFix}
+                          >
+                            {isAskingAgentToFix ? "Asking…" : "Fix with AI"}
+                          </Button>
                         </div>
                       )}
                     </div>
