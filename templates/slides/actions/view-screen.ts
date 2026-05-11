@@ -110,7 +110,7 @@ export default defineAction({
       // here whenever the natural content height exceeds the canvas content
       // area. If this block is present, the current slide's HTML is too tall
       // and needs to be rewritten to fit the canvas.
-      const overflow = (await readAppState("slide-overflow")) as {
+      const overflow = (await readAppState("slide-fit-check")) as {
         slideId?: string;
         verticalOverflow?: number;
         contentHeight?: number;
