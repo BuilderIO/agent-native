@@ -1079,16 +1079,21 @@ export function MultiTabAssistantChat({
     const handleCloseAll = () => {
       void closeAllTabs();
     };
+    const handleNewChat = () => {
+      void addTab();
+    };
     window.addEventListener("agent-chat:close-current-tab", handleCloseCurrent);
     window.addEventListener("agent-chat:close-all-tabs", handleCloseAll);
+    window.addEventListener("agent-chat:new-chat", handleNewChat);
     return () => {
       window.removeEventListener(
         "agent-chat:close-current-tab",
         handleCloseCurrent,
       );
       window.removeEventListener("agent-chat:close-all-tabs", handleCloseAll);
+      window.removeEventListener("agent-chat:new-chat", handleNewChat);
     };
-  }, [closeTab, closeAllTabs]);
+  }, [closeTab, closeAllTabs, addTab]);
 
   const clearActiveTab = useCallback(() => {
     addTab();
@@ -1384,8 +1389,8 @@ export function MultiTabAssistantChat({
                             className={cn(
                               "agent-tab relative flex items-center rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
                               isActive
-                                ? "bg-accent text-foreground"
-                                : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                                ? "bg-accent text-foreground ring-1 ring-inset ring-border/60 shadow-sm"
+                                : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
                             )}
                           >
                             <button

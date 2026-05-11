@@ -527,9 +527,10 @@ function AgentPanelInner({
   // Tab close shortcuts. Avoid Cmd+W (browser/OS) and (on Windows) Ctrl+W.
   //   Mac:           Ctrl+W → close tab,  Ctrl+Alt+W → close all
   //   Windows/Linux: Alt+W  → close tab,  Ctrl+Alt+W → close all
+  // Use e.code (physical key) — on Mac, Alt+W inserts ∑ and e.key isn't "w".
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "w" || e.metaKey || e.shiftKey) return;
+      if (e.code !== "KeyW" || e.metaKey || e.shiftKey) return;
       const isCloseAll = e.ctrlKey && e.altKey;
       const isCloseOne = isMac
         ? e.ctrlKey && !e.altKey

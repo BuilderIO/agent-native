@@ -8,10 +8,15 @@
  * into markdown, so we validate it's a plain https URL with no characters
  * that would escape the `[...](url)` link target. Only `)` and whitespace
  * terminate the link target — `(`, `<`, `>` are fine inside it — so the
- * regex stays narrow; `buildUpgradeUrl` emits org-name URLs that may
- * contain `(` (e.g. `Acme%20(staging)`) and we don't want to reject them.
+ * regex stays narrow; the gateway may emit URLs containing `(`
+ * (e.g. `?ref=Acme%20(staging)`) and we don't want to reject them.
  */
 export const BUILDER_SPACE_SETTINGS_URL = "https://builder.io/account/space";
+
+// Pseudo-href used to mark an in-app "Start new chat" CTA inside the markdown
+// error message. The chat renderer intercepts this href and renders a button
+// that dispatches the `agent-native:new-chat` CustomEvent instead of navigating.
+export const NEW_CHAT_ACTION_HREF = "agent-native:new-chat";
 
 function isSafeUpgradeUrl(url: string): boolean {
   try {
@@ -34,6 +39,9 @@ export function formatChatErrorText(
     /space has not enabled the LLM gateway/i.test(normalized.message)
   ) {
     return `Error: ${normalized.message}\n\n[Open Builder space settings](${BUILDER_SPACE_SETTINGS_URL})`;
+  }
+  if (errorCode === "builder_gateway_error") {
+    return `Error: ${normalized.message}\n\n[Start new chat](${NEW_CHAT_ACTION_HREF})`;
   }
   if (!upgradeUrl || !isSafeUpgradeUrl(upgradeUrl)) {
     return `Error: ${normalized.message}`;

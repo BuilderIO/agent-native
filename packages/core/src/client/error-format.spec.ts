@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BUILDER_SPACE_SETTINGS_URL,
+  NEW_CHAT_ACTION_HREF,
   formatChatErrorText,
   normalizeChatError,
 } from "./error-format.js";
@@ -36,6 +37,19 @@ describe("formatChatErrorText", () => {
     ).toBe(
       "Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](https://builder.io/account/billing)",
     );
+  });
+
+  it("adds a Start-new-chat CTA for no-detail builder gateway errors", () => {
+    const text = formatChatErrorText(
+      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+      undefined,
+      "builder_gateway_error",
+    );
+    expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
+    expect(text).toMatch(/^Error: /);
+    // The CTA is the only suffix — no Upgrade-at-Builder CTA on this error
+    // code, since it's not a quota/billing problem.
+    expect(text).not.toContain("[Upgrade at builder.io]");
   });
 
   it("keeps raw gateway events out of the primary user-facing message", () => {
