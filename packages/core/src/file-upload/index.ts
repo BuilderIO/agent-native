@@ -11,3 +11,8 @@ export {
   uploadFile,
 } from "./registry.js";
 export { builderFileUploadProvider } from "./builder.js";
+export {
+  preUploadImageAttachments,
+  type PreUploadAttachmentsResult,
+  type PreUploadedImageAttachment,
+} from "./pre-upload-attachments.js";
