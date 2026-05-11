@@ -1,11 +1,14 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../server/db";
 import { useEffect, useState } from "react";
 import { IconMessageCircle } from "@tabler/icons-react";
 import { agentNativePath } from "@agent-native/core/client";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getConfiguredAppBasePath,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import { buildPublicDocumentDescription } from "@shared/og-description";
@@ -14,9 +17,17 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
 
-  if (getRequestUserEmail()) {
+  // This is a server loader; use the server-side base-path helper
+  // (reads APP_BASE_PATH / VITE_APP_BASE_PATH at request time)
+  // instead of the client `appPath()` which relies on
+  // `import.meta.env` and is meant for browser code.
+  const basePath = getConfiguredAppBasePath();
+  const withBase = (path: string) => `${basePath}${path}`;
+
+  const userEmail = getRequestUserEmail();
+  if (userEmail) {
     const access = await resolveAccess("document", id);
-    if (access) throw redirect(`/page/${id}`);
+    if (access) throw redirect(withBase(`/page/${id}`));
   }
 
   const [doc] = await getDb()
@@ -25,18 +36,30 @@ export async function loader({ params }: LoaderFunctionArgs) {
       title: schema.documents.title,
       content: schema.documents.content,
       updatedAt: schema.documents.updatedAt,
+      visibility: schema.documents.visibility,
     })
     .from(schema.documents)
-    .where(
-      and(
-        eq(schema.documents.id, id),
-        eq(schema.documents.visibility, "public"),
-      ),
-    )
+    .where(eq(schema.documents.id, id))
     .limit(1);
 
   if (!doc) throw new Response("Not found", { status: 404 });
-  return { document: doc };
+  if (doc.visibility === "public") return { document: doc };
+
+  // Doc exists but isn't public. A signed-out visitor here likely
+  // arrived from a share-notification email — send them through
+  // sign-in so the access check above can route them to /page/<id>.
+  if (!userEmail) {
+    // Build both the outer sign-in URL and the inner return path
+    // with APP_BASE_PATH so mounted-app deployments (e.g. served
+    // under `/content`) land back on `/<base>/p/<id>` after
+    // authenticating, not on `/p/<id>` at the gateway root.
+    const returnPath = withBase(`/p/${id}`);
+    throw redirect(
+      `${withBase("/_agent-native/sign-in")}?return=${encodeURIComponent(returnPath)}`,
+    );
+  }
+
+  throw new Response("Not found", { status: 404 });
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
