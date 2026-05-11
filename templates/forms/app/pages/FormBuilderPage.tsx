@@ -514,6 +514,7 @@ export function FormBuilderPage() {
                   shareUrl={publishedFormUrl}
                   shareUrlLabel="Public response link"
                   shareUrlDescription="Respondents use this link to submit the published form."
+                  shareUrlPlaceholder="Publish this form to get a public response link."
                   visibilityCopy={{
                     private: {
                       description:

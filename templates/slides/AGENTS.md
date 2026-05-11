@@ -421,7 +421,7 @@ Per-block density limits for 16:9 slides:
 - Two- or three-column slide: each column max 4 lines, about 60 characters per line.
 - Image or `.fmd-img-placeholder`: one image up to 320px tall, or one Mermaid diagram with little or no body text alongside it.
 
-If the source material exceeds those limits, split it across additional slides instead of packing the slide tighter. The renderer auto-shrinks overfull slides as a safety net, but the result will look smaller than a purpose-fit slide.
+If the source material exceeds those limits, split it across additional slides instead of packing the slide tighter. The renderer **no longer auto-shrinks** overfull slides — vertical overflow used to be papered over with a uniform `transform: scale()` that left ugly right/bottom margins, so now the renderer keeps the slide at native size and the editor surfaces an "overflow" badge plus a "Fix with AI" button. When that button is clicked (or when the user asks to "fix the layout" on a slide), you'll receive a message that names the slide id, the available content area in px, the natural content height, and the overflow in px. Rewrite the slide HTML so its rendered height fits the available content area, preferring (in order): tightening copy, reducing vertical density (fewer stacked cards, smaller gaps, slightly smaller body font but no smaller than 16px), reducing slide padding (e.g. 40px top/bottom), or splitting the content across two slides if it genuinely cannot be compressed. Do **not** try to "fix" overflow by adding `transform: scale()`, `overflow: scroll`, or absolute-positioned layers — only the HTML content shape can fix it now.
 
 ### Outer wrapper (required for every slide)
 
