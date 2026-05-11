@@ -1,7 +1,14 @@
 import { useActionQuery } from "@agent-native/core/client";
-import { IconCloudUpload, IconKey, IconPhoto } from "@tabler/icons-react";
+import { OnboardingPanel } from "@agent-native/core/client/onboarding";
+import {
+  IconCloudUpload,
+  IconExternalLink,
+  IconKey,
+  IconPhoto,
+} from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 export default function SettingsPage() {
   const { data } = useActionQuery("list-libraries", { compact: true }) as any;
@@ -10,10 +17,13 @@ export default function SettingsPage() {
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">Settings</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Connect Builder-managed image generation and object storage from the
-          agent sidebar setup checklist.
+          Connect Builder-managed image generation and object storage to start
+          creating brand images.
         </p>
       </div>
+
+      <OnboardingPanel title="Setup" />
+
       <div className="grid gap-4 md:grid-cols-3">
         <InfoTile
           icon={<IconKey className="h-5 w-5" />}
@@ -31,6 +41,7 @@ export default function SettingsPage() {
           body={`${(data as any)?.count ?? 0} accessible libraries`}
         />
       </div>
+
       <div className="rounded-lg border border-border p-4">
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -42,6 +53,26 @@ export default function SettingsPage() {
             </p>
           </div>
           <Badge variant="secondary">A2A ready</Badge>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border p-4">
+        <h3 className="text-sm font-semibold">Manage credentials</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Update existing API keys, swap object storage providers, or reconnect
+          Builder.io from the agent sidebar setup panel.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm">
+            <a
+              href="/_agent-native/builder/connect?ref=images-settings"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Connect Builder.io
+              <IconExternalLink className="ml-1 h-3.5 w-3.5" />
+            </a>
+          </Button>
         </div>
       </div>
     </div>

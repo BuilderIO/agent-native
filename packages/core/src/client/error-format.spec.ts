@@ -39,15 +39,19 @@ describe("formatChatErrorText", () => {
   });
 
   it("keeps raw gateway events out of the primary user-facing message", () => {
-    expect(
-      normalizeChatError(
-        'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
-      ),
-    ).toEqual({
-      message:
-        "The model gateway stopped without a specific error. The chat will try to recover automatically; if it keeps happening, retry with another model.",
-      details:
-        'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
-    });
+    const normalized = normalizeChatError(
+      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+    );
+    expect(normalized.details).toBe(
+      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+    );
+    // Copy must not promise auto-recovery or suggest switching models — the
+    // server already retried once and the client skips auto-continuation
+    // for this code, and the error is almost always upstream so a different
+    // model lands on the same wall.
+    expect(normalized.message).not.toMatch(/recover automatically/i);
+    expect(normalized.message).not.toMatch(/another model/i);
+    expect(normalized.message).toMatch(/gateway/i);
+    expect(normalized.message).toMatch(/new chat|retry|wait/i);
   });
 });

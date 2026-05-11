@@ -52,9 +52,15 @@ export function normalizeChatError(errorMessage: string): NormalizedChatError {
   const text = looksHtml ? htmlToText(raw) : raw.trim();
 
   if (/^Gateway error \(no detail; raw event:/i.test(text)) {
+    // The previous copy promised auto-recovery and suggested switching models,
+    // but neither helps for this code: the server already retried once and
+    // the client deliberately skips auto-continuation
+    // (see `builder_gateway_error` in sse-event-processor.ts). The error is
+    // almost always upstream, so retrying the same conversation with a
+    // different model lands on the same wall.
     return {
       message:
-        "The model gateway stopped without a specific error. The chat will try to recover automatically; if it keeps happening, retry with another model.",
+        "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
       details: text,
     };
   }
