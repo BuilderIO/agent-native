@@ -297,13 +297,8 @@ export default function TabLayout() {
                       style={styles.row}
                       onPress={() => openOverflowApp(app)}
                     >
-                      <View
-                        style={[
-                          styles.iconWrap,
-                          { backgroundColor: `${app.color}33` },
-                        ]}
-                      >
-                        <Feather name={iconName} size={18} color={app.color} />
+                      <View style={styles.iconWrap}>
+                        <Feather name={iconName} size={18} color="#ffffff" />
                       </View>
                       <Text style={styles.rowText}>{app.name}</Text>
                       <Feather name="chevron-right" size={18} color="#555555" />
@@ -365,6 +360,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#252525",
   },
   rowText: {
     flex: 1,
