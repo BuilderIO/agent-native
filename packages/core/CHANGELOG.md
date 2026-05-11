@@ -1,5 +1,38 @@
 # @agent-native/core
 
+## 0.14.7
+
+### Patch Changes
+
+- 63e641a: Add rich Sentry tags (model, gatewayOrigin, gatewayRequestId) for no-detail Builder gateway errors and fix the user-facing copy to stop promising auto-recovery and model switching, which don't actually help for this error code.
+- 63e641a: Stop `Error: socket hang up` unhandled rejections from polluting Sentry on
+  AWS Lambda (Sentry AGENT-NATIVE-BROWSER-4 — 24k events / 199 users in 48h).
+  The MCP `StreamableHTTPClientTransport` opens long-lived sockets for SSE
+  long-polls; AWS reaps those sockets ~60s after a Lambda invocation returns
+  200, and the next thaw delivers a `Socket.socketOnEnd` whose Promise has
+  nobody left to await it. Two changes:
+  - `server/sentry.ts` `beforeSend` drops `socket hang up` events whose
+    mechanism is `onunhandledrejection` and whose stack includes
+    `Socket.socketOnEnd` / `node:_http_client`. Real socket-hang-up errors
+    with a different mechanism or non-HTTP-client stack still report.
+  - `mcp-client/manager.ts` attaches a no-op `transport.onerror` before
+    `client.connect()` so SDK fire-and-forget paths (initial SSE stream
+    open, scheduled reconnects) can't surface as unhandled rejections in
+    the window before Client wires its own handler. `Client.connect()`
+    chains its own onerror on top of ours, so post-connect errors still
+    flow through the existing `client.onerror` recorder.
+
+- 63e641a: Fix `MessageRepository(addOrUpdateMessage): Parent message not found` unhandled
+  rejection in the agent prompt composer (Sentry AGENT-NATIVE-BROWSER-18). The
+  assistant-ui local runtime can clear or relink its message map between the
+  `append` that adds the user message and the `performRoundtrip` call that
+  records the assistant placeholder (history-adapter load, branch reset, repeat
+  imports). When that race fires the runtime threw an internal-bug error that
+  masked the original error from chatModel.run() and surfaced as a Sentry
+  unhandled rejection on the user's first send. The fix patches the underlying
+  `MessageRepository.addOrUpdateMessage` to relink the message to the current
+  head (or root) when the requested parent is missing, instead of throwing.
+
 ## 0.14.6
 
 ### Patch Changes
