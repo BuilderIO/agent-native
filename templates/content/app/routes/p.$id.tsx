@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../server/db";
 import { useEffect, useState } from "react";
 import { IconMessageCircle } from "@tabler/icons-react";
@@ -14,7 +14,8 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
 
-  if (getRequestUserEmail()) {
+  const userEmail = getRequestUserEmail();
+  if (userEmail) {
     const access = await resolveAccess("document", id);
     if (access) throw redirect(`/page/${id}`);
   }
@@ -25,18 +26,25 @@ export async function loader({ params }: LoaderFunctionArgs) {
       title: schema.documents.title,
       content: schema.documents.content,
       updatedAt: schema.documents.updatedAt,
+      visibility: schema.documents.visibility,
     })
     .from(schema.documents)
-    .where(
-      and(
-        eq(schema.documents.id, id),
-        eq(schema.documents.visibility, "public"),
-      ),
-    )
+    .where(eq(schema.documents.id, id))
     .limit(1);
 
   if (!doc) throw new Response("Not found", { status: 404 });
-  return { document: doc };
+  if (doc.visibility === "public") return { document: doc };
+
+  // Doc exists but isn't public. A signed-out visitor here likely
+  // arrived from a share-notification email — send them through
+  // sign-in so the access check above can route them to /page/<id>.
+  if (!userEmail) {
+    throw redirect(
+      `/_agent-native/sign-in?return=${encodeURIComponent(`/p/${id}`)}`,
+    );
+  }
+
+  throw new Response("Not found", { status: 404 });
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
