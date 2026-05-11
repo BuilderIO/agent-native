@@ -158,10 +158,7 @@ export function computeSlideFitTransform({
   // unbalanced right/bottom margins (with origin top-left), which looks worse
   // than asking the LLM to redo the layout to fit the canvas properly.
   const safeContentWidth = Math.max(1, contentWidth);
-  const rawScale = Math.min(
-    1,
-    Math.max(1, viewportWidth) / safeContentWidth,
-  );
+  const rawScale = Math.min(1, Math.max(1, viewportWidth) / safeContentWidth);
   const scale = Math.max(minScale, rawScale);
 
   const verticalOverflow = Math.max(

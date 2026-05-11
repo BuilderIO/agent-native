@@ -846,7 +846,7 @@ export async function runWorkspaceDev(
 
     let app = appForRequest(req);
     if (!app) {
-      syncApps();
+      await syncApps().catch(() => {});
       app = appForRequest(req);
     }
     if (!app) {

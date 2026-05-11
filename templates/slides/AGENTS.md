@@ -295,13 +295,13 @@ If the request is for a standalone visual, hero image, diagram, one-pager, poste
 
 ### Image Generation & Uploads
 
-| Action             | Args                                                                                 | Purpose                                                      |
-| ------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| `generate-image`   | `--prompt "..." [--model gemini\|openai\|auto] [--count 3] [--deck-id] [--slide-id]` | Generate images                                              |
-| `image-search`     | `--query "..." [--count 5]`                                                          | Search Google Images                                         |
-| `logo-lookup`      | `--domain acme.com`                                                                  | Get company logo URL                                         |
-| `image-gen-status` |                                                                                      | Check configured providers                                   |
-| `upload-image`     | `--data <data-url>` OR `--url <remote-url>` `[--filename ...]`                       | Upload any image to the configured provider, return CDN URL  |
+| Action             | Args                                                                                 | Purpose                                                     |
+| ------------------ | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `generate-image`   | `--prompt "..." [--model gemini\|openai\|auto] [--count 3] [--deck-id] [--slide-id]` | Generate images                                             |
+| `image-search`     | `--query "..." [--count 5]`                                                          | Search Google Images                                        |
+| `logo-lookup`      | `--domain acme.com`                                                                  | Get company logo URL                                        |
+| `image-gen-status` |                                                                                      | Check configured providers                                  |
+| `upload-image`     | `--data <data-url>` OR `--url <remote-url>` `[--filename ...]`                       | Upload any image to the configured provider, return CDN URL |
 
 For image-generation prompts, create actual image assets with `generate-image`; do not substitute HTML/CSS placeholders, icon-only compositions, inline SVGs, or text-only mockups. Do not render visible text inside generated images unless the user explicitly asks for exact text. Style phrases like "make it look like Builder.io" are not brand-system setup requests; use a concise style interpretation and avoid browsing/searching/analyzing brand assets unless the user explicitly asks to set up, save, import, extract, or apply a design system.
 
