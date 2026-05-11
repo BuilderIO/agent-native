@@ -573,9 +573,7 @@ export function FormsListPage() {
                                 <DropdownMenuItem
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    navigate(
-                                      `/forms/${form.id}/responses`,
-                                    );
+                                    navigate(`/forms/${form.id}/responses`);
                                   }}
                                 >
                                   <IconChartBar className="h-4 w-4 mr-2" />

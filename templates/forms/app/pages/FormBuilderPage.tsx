@@ -850,88 +850,90 @@ function BuilderContent({
               preview of the form structure. */}
           {canEdit && (
             <div className="mt-4 flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                  <IconPlus className="h-4 w-4" />
-                  Add Field
-                  <IconChevronDown className="h-3 w-3" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                {Object.entries(fieldTypeLabels).map(([type, label]) => (
-                  <DropdownMenuItem
-                    key={type}
-                    onClick={() => onAddField(type as FormFieldType)}
-                  >
-                    {label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <Popover
-              open={agentPopoverOpen}
-              onOpenChange={onAgentPopoverChange}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Edit form with AI"
-                >
-                  <IconMessage className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="top"
-                align="end"
-                sideOffset={8}
-                className="w-[calc(100vw-2rem)] sm:w-80 p-0 rounded-xl"
-                onOpenAutoFocus={(e) => {
-                  e.preventDefault();
-                  agentPromptRef.current?.focus();
-                }}
-              >
-                <div className="p-4 pb-3">
-                  <p className="text-sm font-semibold">Edit form</p>
-                  <textarea
-                    ref={agentPromptRef}
-                    value={agentPrompt}
-                    onChange={(e) => onAgentPromptChange(e.target.value)}
-                    onKeyDown={(e) => {
-                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                        e.preventDefault();
-                        onSubmitAgent();
-                      }
-                    }}
-                    placeholder="Add missing fields, change the layout..."
-                    rows={4}
-                    className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
-                  />
-                </div>
-                <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
-                  <span className="text-[11px] text-muted-foreground/70">
-                    {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                    +Enter to submit
-                  </span>
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={onSubmitAgent}
-                    disabled={
-                      !agentPrompt.trim() ||
-                      promptRun.isActivePrompt(agentPrompt)
-                    }
-                    aria-label="Send prompt"
-                  >
-                    <IconArrowUp className="h-3.5 w-3.5" />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <IconPlus className="h-4 w-4" />
+                    Add Field
+                    <IconChevronDown className="h-3 w-3" />
                   </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48">
+                  {Object.entries(fieldTypeLabels).map(([type, label]) => (
+                    <DropdownMenuItem
+                      key={type}
+                      onClick={() => onAddField(type as FormFieldType)}
+                    >
+                      {label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Popover
+                open={agentPopoverOpen}
+                onOpenChange={onAgentPopoverChange}
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Edit form with AI"
+                  >
+                    <IconMessage className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="end"
+                  sideOffset={8}
+                  className="w-[calc(100vw-2rem)] sm:w-80 p-0 rounded-xl"
+                  onOpenAutoFocus={(e) => {
+                    e.preventDefault();
+                    agentPromptRef.current?.focus();
+                  }}
+                >
+                  <div className="p-4 pb-3">
+                    <p className="text-sm font-semibold">Edit form</p>
+                    <textarea
+                      ref={agentPromptRef}
+                      value={agentPrompt}
+                      onChange={(e) => onAgentPromptChange(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                          e.preventDefault();
+                          onSubmitAgent();
+                        }
+                      }}
+                      placeholder="Add missing fields, change the layout..."
+                      rows={4}
+                      className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
+                    <span className="text-[11px] text-muted-foreground/70">
+                      {/Mac|iPhone|iPad/.test(navigator.userAgent)
+                        ? "⌘"
+                        : "Ctrl"}
+                      +Enter to submit
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={onSubmitAgent}
+                      disabled={
+                        !agentPrompt.trim() ||
+                        promptRun.isActivePrompt(agentPrompt)
+                      }
+                      aria-label="Send prompt"
+                    >
+                      <IconArrowUp className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
           )}
         </div>
       </div>
@@ -984,8 +986,18 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
     } else {
       const aVal = a.data[sortKey];
       const bVal = b.data[sortKey];
-      av = aVal == null ? "" : Array.isArray(aVal) ? aVal.join(", ") : String(aVal);
-      bv = bVal == null ? "" : Array.isArray(bVal) ? bVal.join(", ") : String(bVal);
+      av =
+        aVal == null
+          ? ""
+          : Array.isArray(aVal)
+            ? aVal.join(", ")
+            : String(aVal);
+      bv =
+        bVal == null
+          ? ""
+          : Array.isArray(bVal)
+            ? bVal.join(", ")
+            : String(bVal);
     }
     if (av < bv) return sortDir === "asc" ? -1 : 1;
     if (av > bv) return sortDir === "asc" ? 1 : -1;
