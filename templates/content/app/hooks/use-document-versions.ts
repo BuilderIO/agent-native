@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { appApiPath } from "@agent-native/core/client";
+import { appApiPath, useChangeVersion } from "@agent-native/core/client";
 import type { Document, DocumentVersionListResponse } from "@shared/api";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -9,8 +9,14 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function useDocumentVersions(documentId: string | null) {
+  // Refetch the version list every time the agent runs a mutating action —
+  // `edit-document`, `update-document`, restore, etc. each create a new
+  // version row and emit `source: "action"` through the runner. Folding the
+  // counter into the queryKey is the framework pattern (see
+  // `use-change-version.ts` in @agent-native/core).
+  const sync = useChangeVersion("action");
   return useQuery({
-    queryKey: ["document-versions", documentId],
+    queryKey: ["document-versions", documentId, sync],
     queryFn: () =>
       fetchJson<DocumentVersionListResponse>(
         `/api/documents/${documentId}/versions`,
@@ -20,6 +26,7 @@ export function useDocumentVersions(documentId: string | null) {
       return Array.isArray(versions) ? versions : [];
     },
     enabled: !!documentId,
+    placeholderData: (prev) => prev,
   });
 }
 

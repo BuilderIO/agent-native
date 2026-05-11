@@ -20,7 +20,7 @@ import {
 import { useTheme } from "next-themes";
 import { dashboards } from "@/pages/adhoc/registry";
 import { getIdToken } from "@/lib/auth";
-import { appApiPath, useChangeVersion } from "@agent-native/core/client";
+import { appApiPath, useChangeVersions } from "@agent-native/core/client";
 
 interface SavedConfig {
   id: string;
@@ -98,7 +98,7 @@ export function CommandPalette() {
     enabled: open,
   });
 
-  const dashboardsSync = useChangeVersion("dashboards");
+  const dashboardsSync = useChangeVersions(["dashboards", "action"]);
 
   const { data: explorerDashboards = [] } = useQuery({
     queryKey: ["explorer-dashboards-palette", dashboardsSync],

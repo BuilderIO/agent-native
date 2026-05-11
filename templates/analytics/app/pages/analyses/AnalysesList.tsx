@@ -14,7 +14,7 @@ import { getIdToken } from "@/lib/auth";
 import {
   appApiPath,
   useSendToAgentChat,
-  useChangeVersion,
+  useChangeVersions,
 } from "@agent-native/core/client";
 
 interface AnalysisSummary {
@@ -53,7 +53,7 @@ function formatRelativeDate(iso: string): string {
 }
 
 export default function AnalysesList() {
-  const analysesSync = useChangeVersion("analyses");
+  const analysesSync = useChangeVersions(["analyses", "action"]);
   const { data: analyses, isLoading } = useQuery({
     queryKey: ["analyses-list", analysesSync],
     queryFn: fetchAnalyses,

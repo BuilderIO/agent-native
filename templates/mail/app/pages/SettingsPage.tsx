@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath, useChatModels } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  useChatModels,
+  useChangeVersions,
+} from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
 import {
   IconUsers,
@@ -858,14 +862,18 @@ function AutomationsSection() {
     );
   }, [availableModels]);
 
+  // Refetch on any settings write or agent action so agent-driven changes
+  // (e.g. update-automation-settings) show up without a manual refresh.
+  const settingsSync = useChangeVersions(["settings", "action"]);
   const { data: autoSettings } = useQuery({
-    queryKey: ["automation-settings"],
+    queryKey: ["automation-settings", settingsSync],
     queryFn: async () => {
       const res = await fetch(appApiPath("/api/automations/settings"));
       if (!res.ok) return { engine: "anthropic", model: defaultModel };
       return res.json();
     },
     staleTime: 30_000,
+    placeholderData: (prev) => prev,
   });
 
   const queryClient = useQueryClient();

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, useChangeVersions } from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
 
 // ─── Generic integration credentials (via application-state) ────────────────
@@ -7,8 +7,12 @@ import { appApiPath } from "@/lib/api-path";
 type Provider = "apollo" | "hubspot" | "gong" | "pylon";
 
 function useIntegrationStatus(provider: Provider) {
+  // Refetch on any app-state write or agent action — covers both the local
+  // connect/disconnect mutations and agent-driven changes to the provider's
+  // application-state row. See `use-change-version.ts` in @agent-native/core.
+  const sync = useChangeVersions(["app-state", "action"]);
   const { data } = useQuery<{ apiKey?: string } | null>({
-    queryKey: ["integration-status", provider],
+    queryKey: ["integration-status", provider, sync],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(`/_agent-native/application-state/${provider}`),
@@ -18,6 +22,7 @@ function useIntegrationStatus(provider: Provider) {
       return res.json();
     },
     staleTime: 30_000,
+    placeholderData: (prev) => prev,
   });
   return !!data?.apiKey;
 }

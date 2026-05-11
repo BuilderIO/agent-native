@@ -32,7 +32,7 @@ import { Link, useNavigate } from "react-router";
 import {
   ShareButton,
   appApiPath,
-  useChangeVersion,
+  useChangeVersions,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
 import { useSendToAgentChat } from "@agent-native/core/client";
@@ -93,7 +93,7 @@ export default function AnalysisDetail() {
   const queryClient = useQueryClient();
   const { send, isGenerating, codeRequiredDialog } = useSendToAgentChat();
 
-  const analysesSync = useChangeVersion("analyses");
+  const analysesSync = useChangeVersions(["analyses", "action"]);
   const { data: analysis, isLoading } = useQuery({
     queryKey: ["analysis-detail", id, analysesSync],
     queryFn: () => fetchAnalysis(id!),

@@ -299,6 +299,20 @@ const BUILDER_CREDENTIAL_KEYS = [
  * `scope: "user"` (the safe default that doesn't trample the org's shared
  * connection).
  *
+ * Stale-credential cleanup: before writing the new values we (1) clear ALL
+ * five BUILDER_* keys at the target scope, so optional fields the new
+ * connection doesn't carry (e.g. user picked a Builder space that returns
+ * no orgName) don't leave the previous connection's metadata behind, and
+ * (2) when writing at org scope, also clear the writer's own user-scope
+ * BUILDER_* rows so a stale personal override from an earlier connect
+ * doesn't shadow the new org write on resolution (user scope wins org
+ * scope by design — see `resolveScopedBuilderCredential`). The org-scope
+ * row is intentionally left alone when writing at user scope: that row is
+ * shared with the rest of the org and a single user's personal override
+ * shouldn't blow it away. (Victoria's "I signed in again with my Builder
+ * space and it still says no credits" report on 2026-05-11 was exactly
+ * this stale-shadow case.)
+ *
  * Returns the actual scope/scopeId used so the caller can show "Connected
  * for Builder.io" vs "Connected (personal)" in the UI.
  */
@@ -313,12 +327,31 @@ export async function writeBuilderCredentials(
   },
   options?: { orgId?: string | null; role?: string | null },
 ): Promise<{ scope: "user" | "org"; scopeId: string }> {
-  const { writeAppSecret } = await import("../secrets/storage.js");
+  const { writeAppSecret, deleteAppSecret } =
+    await import("../secrets/storage.js");
   const target = resolveCredentialWriteScope(
     email,
     options?.orgId ?? null,
     options?.role ?? null,
   );
+
+  // Clear stale rows before writing the new connection. See the function's
+  // doc comment for the two cases this handles.
+  const cleanups: Array<Promise<unknown>> = BUILDER_CREDENTIAL_KEYS.map((key) =>
+    deleteAppSecret({
+      key,
+      scope: target.scope,
+      scopeId: target.scopeId,
+    }).catch(() => {}),
+  );
+  if (target.scope === "org") {
+    for (const key of BUILDER_CREDENTIAL_KEYS) {
+      cleanups.push(
+        deleteAppSecret({ key, scope: "user", scopeId: email }).catch(() => {}),
+      );
+    }
+  }
+  await Promise.all(cleanups);
 
   const entries: Array<{ key: string; value: string }> = [
     { key: "BUILDER_PRIVATE_KEY", value: creds.privateKey },

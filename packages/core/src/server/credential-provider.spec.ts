@@ -143,6 +143,86 @@ describe("writeBuilderCredentials", () => {
       "BUILDER_USER_ID",
     ]);
   });
+
+  it("clears stale optional keys at target scope before writing the new connection", async () => {
+    // Reconnecting with a Builder space that doesn't carry orgName/orgKind
+    // must not leave the previous connection's metadata in place.
+    await writeBuilderCredentials(
+      "owner@b.com",
+      { privateKey: "pk2", publicKey: "pub2" },
+      { orgId: "builder_io", role: "owner" },
+    );
+    const deleteCalls = mockDeleteAppSecret.mock.calls.map((c) => c[0]);
+    const orgDeletes = deleteCalls.filter(
+      (c) => c.scope === "org" && c.scopeId === "builder_io",
+    );
+    expect(orgDeletes.map((c) => c.key).sort()).toEqual([
+      "BUILDER_ORG_KIND",
+      "BUILDER_ORG_NAME",
+      "BUILDER_PRIVATE_KEY",
+      "BUILDER_PUBLIC_KEY",
+      "BUILDER_USER_ID",
+    ]);
+  });
+
+  it("clears the writer's user-scope override when writing at org scope so the new connection wins resolution", async () => {
+    // Without this, a user who previously connected as a member (writing
+    // at user scope) and is now an admin/owner reconnecting (writing at
+    // org scope) would still see their stale personal credentials win on
+    // the next chat call — `resolveScopedBuilderCredential` checks user
+    // scope before org scope by design.
+    await writeBuilderCredentials(
+      "owner@b.com",
+      { privateKey: "pk-new", publicKey: "pub-new" },
+      { orgId: "builder_io", role: "owner" },
+    );
+    const userDeletes = mockDeleteAppSecret.mock.calls
+      .map((c) => c[0])
+      .filter((c) => c.scope === "user" && c.scopeId === "owner@b.com");
+    expect(userDeletes.map((c) => c.key).sort()).toEqual([
+      "BUILDER_ORG_KIND",
+      "BUILDER_ORG_NAME",
+      "BUILDER_PRIVATE_KEY",
+      "BUILDER_PUBLIC_KEY",
+      "BUILDER_USER_ID",
+    ]);
+  });
+
+  it("does NOT touch the org-scope row when writing at user scope (other org members still need it)", async () => {
+    await writeBuilderCredentials(
+      "member@b.com",
+      { privateKey: "pk", publicKey: "pub" },
+      { orgId: "builder_io", role: "member" },
+    );
+    const orgDeletes = mockDeleteAppSecret.mock.calls
+      .map((c) => c[0])
+      .filter((c) => c.scope === "org");
+    expect(orgDeletes).toEqual([]);
+  });
+
+  it("writes happen AFTER deletes (so the cleanup doesn't race the new values)", async () => {
+    // Capture call order across both mocks. We must see every delete
+    // before any write, otherwise the cleanup could clobber the fresh row.
+    const order: Array<"delete" | "write"> = [];
+    mockDeleteAppSecret.mockImplementation(async () => {
+      order.push("delete");
+      return true;
+    });
+    mockWriteAppSecret.mockImplementation(async () => {
+      order.push("write");
+      return "id";
+    });
+    await writeBuilderCredentials(
+      "owner@b.com",
+      { privateKey: "pk", publicKey: "pub" },
+      { orgId: "builder_io", role: "owner" },
+    );
+    const firstWrite = order.indexOf("write");
+    const lastDelete = order.lastIndexOf("delete");
+    expect(firstWrite).toBeGreaterThan(-1);
+    expect(lastDelete).toBeGreaterThan(-1);
+    expect(lastDelete).toBeLessThan(firstWrite);
+  });
 });
 
 describe("deleteBuilderCredentials", () => {

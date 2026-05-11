@@ -33,7 +33,6 @@ const TEMPLATES_DIR = path.join(ROOT, "templates");
 const CONFIG_PATH = path.join(ROOT, "packages/shared-app-config/templates.ts");
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";
 const DEFAULT_GATEWAY_PORT = 8080;
-const FRAME_PORT = 3334;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
@@ -63,7 +62,7 @@ Options:
   --apps <names>       Comma-separated templates to expose (default: core)
   --apps=<names>       Same as --apps <names>
   --all                Expose every template in packages/shared-app-config
-  --desktop            Also start the local frame and Electron desktop app
+  --desktop            Also start the clips-desktop tray (Tauri)
   --eager              Start every exposed template immediately
   --open               Open the gateway URL in the browser on ready
   --no-open            (legacy / no-op — auto-open is off by default)
@@ -187,9 +186,34 @@ function workspaceAppsJson(): string {
   );
 }
 
+// Strip ANSI SGR escapes so downstream regex matches work after FORCE_COLOR=1
+// makes children emit colored output (vite wraps the URL bullet in green, etc.).
+// eslint-disable-next-line no-control-regex
+const ANSI_REGEX = /\x1b\[[\d;]*[A-Za-z]/g;
+
+function stripAnsi(value: string): string {
+  return value.replace(ANSI_REGEX, "");
+}
+
+// Stable per-name prefix coloring so [tray]/[core]/[dispatch] are easy to scan
+// the same way concurrently colors prefixes in dev:all. Codes are SGR foreground
+// values; the palette skips black/white/red to avoid low contrast and "looks
+// like an error" false signals.
+const PREFIX_PALETTE = [33, 34, 35, 36, 32, 95, 94, 96, 92, 93];
+const prefixColors = new Map<string, number>();
+
+function colorPrefix(name: string): string {
+  let code = prefixColors.get(name);
+  if (code === undefined) {
+    code = PREFIX_PALETTE[prefixColors.size % PREFIX_PALETTE.length];
+    prefixColors.set(name, code);
+  }
+  return `\x1b[${code}m[${name}]\x1b[0m`;
+}
+
 function isChildDevServerUrlLine(line: string): boolean {
   return /^\s*->\s+(?:Local|Network):\s+https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):\d+(?:\/\S*)?\s*$/i.test(
-    line.replace(/\u279c/g, "->"),
+    stripAnsi(line).replace(/\u279c/g, "->"),
   );
 }
 
@@ -459,6 +483,10 @@ function startApp(app: TemplateApp): void {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
+        // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors
+        // skip colors by default. FORCE_COLOR=1 re-enables them — the parent's
+        // stdout is a TTY, so ANSI codes pass straight through to the user.
+        FORCE_COLOR: "1",
         APP_NAME: app.id,
         AGENT_NATIVE_WORKSPACE: "1",
         AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
@@ -472,7 +500,7 @@ function startApp(app: TemplateApp): void {
   );
 
   app.process = child;
-  const prefix = `[${app.id}]`;
+  const prefix = colorPrefix(app.id);
   const stableTimer = setTimeout(() => {
     app.restartAttempts = 0;
   }, 5_000);
@@ -711,20 +739,21 @@ function startBackgroundProcess(
   const child = spawn(command, args, {
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
-    env,
+    env: { ...env, FORCE_COLOR: "1" },
     shell: process.platform === "win32",
   });
   backgroundProcesses.push(child);
+  const prefix = colorPrefix(name);
   child.stdout?.on("data", (chunk) =>
-    pipeOutput(`[${name}]`, chunk, (value) => process.stdout.write(value)),
+    pipeOutput(prefix, chunk, (value) => process.stdout.write(value)),
   );
   child.stderr?.on("data", (chunk) =>
-    pipeOutput(`[${name}]`, chunk, (value) => process.stderr.write(value)),
+    pipeOutput(prefix, chunk, (value) => process.stderr.write(value)),
   );
   child.on("exit", (code) => {
     if (shuttingDown) return;
-    process.stderr.write(`[${name}] exited with code ${code ?? 0}\n`);
-    if (name === "electron") shutdown(0);
+    process.stderr.write(`${prefix} exited with code ${code ?? 0}\n`);
+    if (name === "tray") shutdown(0);
   });
   return child;
 }
@@ -762,18 +791,13 @@ if (dryRun) {
     console.log(`[dev-lazy] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
   }
   if (includeDesktop) {
-    console.log(`[dev-lazy] frame: http://localhost:${FRAME_PORT}`);
-    console.log("[dev-lazy] electron: @agent-native/desktop-app dev");
+    console.log("[dev-lazy] tray: clips-desktop dev (Tauri)");
   }
   process.exit(0);
 }
 
 if (shouldKill) {
-  const ports = [
-    requestedGatewayPort,
-    ...(includeDesktop ? [FRAME_PORT] : []),
-    ...apps.map((app) => app.port),
-  ];
+  const ports = [requestedGatewayPort, ...apps.map((app) => app.port)];
   for (const port of ports) killPort(port);
 }
 
@@ -821,23 +845,15 @@ function listen(port: number, attempts = 20): void {
     }
 
     if (includeDesktop) {
-      const env = {
-        ...process.env,
-        AGENT_NATIVE_TEMPLATE_GATEWAY_URL: gatewayUrl,
-        VITE_AGENT_NATIVE_TEMPLATE_GATEWAY_URL: gatewayUrl,
-      };
-      startBackgroundProcess(
-        "frame",
-        "pnpm",
-        ["--filter", "@agent-native/frame", "dev"],
-        env,
-      );
-      startBackgroundProcess(
-        "electron",
-        "pnpm",
-        ["--filter", "@agent-native/desktop-app", "dev"],
-        env,
-      );
+      // Matches dev:all:desktop: boot the Tauri clips tray only. The Electron
+      // desktop-app + its frame renderer are intentionally skipped here — they
+      // require a working `electron` binary in node_modules and aren't what
+      // anyone reaches for via dev:lazy:desktop.
+      startBackgroundProcess("tray", "pnpm", [
+        "--filter",
+        "clips-desktop",
+        "dev",
+      ]);
     }
 
     openBrowser(`${gatewayUrl}/${defaultApp}`);

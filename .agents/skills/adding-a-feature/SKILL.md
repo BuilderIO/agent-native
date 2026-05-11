@@ -23,6 +23,25 @@ When you add a new feature, work through these four areas in order:
 
 Build the user-facing interface — a page, component, dialog, or route. Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` to call actions for data fetching and mutations — you rarely need custom `/api/` routes.
 
+**Auto-refresh on agent writes is non-negotiable** — when the agent mutates data, the UI must reflect the change without a manual refresh. There are two paths, and you must pick the right one:
+
+- **`useActionQuery` / `useActionMutation`** — covered automatically. The framework's `useDbSync` invalidates `["action"]` on every change event, so every `useActionQuery` hook refetches on agent activity. No extra wiring required. **Prefer this path.**
+- **Raw `useQuery` with custom keys** — needs explicit wiring. Fold `useChangeVersions([<source>, "action"])` from `@agent-native/core/client` into the `queryKey` and set `placeholderData: (prev) => prev`. The `action` source is the reliable signal (the agent runner emits it after every successful tool call); the resource-specific source (`"dashboards"`, `"analyses"`, `"settings"`, etc.) is bonus when emitted. Without this wiring, agent writes will be invisible until manual refresh — that breaks the framework's #1 promise.
+
+  ```tsx
+  import { useChangeVersions } from "@agent-native/core/client";
+  import { useQuery } from "@tanstack/react-query";
+
+  const v = useChangeVersions(["dashboards", "action"]);
+  useQuery({
+    queryKey: ["dashboard", id, v],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev, // no flicker on refetch
+  });
+  ```
+
+  See the `real-time-sync` skill for the full pattern and source catalog.
+
 ### 2. Action
 
 Create an action in `actions/` using `defineAction`. This serves double duty: the agent calls it as a tool, and the framework auto-exposes it as an HTTP endpoint at `/_agent-native/actions/:name` for the UI to call. Set `http: { method: "GET" }` for read actions, leave default for writes, or set `http: false` for agent-only actions like `navigate` and `view-screen`.

@@ -352,15 +352,20 @@ function ScaleHelper({ targetWidth = 960 }: { targetWidth?: number }) {
       if (!parent) return;
 
       const updateScale = () => {
-        const w = parent.offsetWidth;
+        const w = parent.offsetWidth || parent.getBoundingClientRect().width;
+        if (!w) return;
         parent.style.setProperty("--slide-scale", String(w / targetWidth));
       };
       updateScale();
+      const raf = requestAnimationFrame(updateScale);
 
       const observer = new ResizeObserver(updateScale);
       observer.observe(parent);
-      (el as unknown as { __cleanup: () => void }).__cleanup = () =>
+
+      return () => {
+        cancelAnimationFrame(raf);
         observer.disconnect();
+      };
     },
     [targetWidth],
   );

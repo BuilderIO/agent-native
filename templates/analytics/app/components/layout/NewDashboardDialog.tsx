@@ -5,8 +5,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { IconPlus, IconLoader2 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { IconPlus } from "@tabler/icons-react";
 
 const DASHBOARD_CONTEXT =
   "The user wants to create a new analytics dashboard. " +
@@ -37,21 +36,9 @@ export function NewDashboardDialog() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          disabled={isGenerating}
-          className={cn(
-            "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition-all",
-            isGenerating
-              ? "text-primary cursor-wait"
-              : "text-muted-foreground/60 hover:text-primary hover:bg-sidebar-accent/50",
-          )}
-        >
-          {isGenerating ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <IconPlus className="h-3 w-3" />
-          )}
-          {isGenerating ? "Generating..." : "New Dashboard"}
+        <button className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:bg-sidebar-accent/50 hover:text-primary">
+          <IconPlus className="h-3 w-3" />
+          New Dashboard
         </button>
       </PopoverTrigger>
       <PopoverContent

@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useLayoutEffect,
+  useCallback,
   type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
@@ -215,6 +216,22 @@ function measureContentBounds(target: HTMLElement): {
   minY: number;
 } {
   const targetRect = target.getBoundingClientRect();
+  // `scrollWidth` / `clientWidth` return CSS pixels; `getBoundingClientRect`
+  // returns layout pixels after every ancestor transform. In presentation
+  // mode the outer canvas is scaled UP (--slide-scale > 1, e.g. 1.74), so
+  // child rects come back inflated relative to scrollWidth. Without
+  // normalization, `Math.max(scrollWidth, maxX - minX)` reads the inflated
+  // value as content overflow, computeSlideFitTransform clamps to
+  // MIN_AUTOFIT_SCALE (0.65), and every slide visibly shrinks. The editor
+  // didn't hit this because thumbnail mode scales DOWN, so scrollWidth
+  // always wins. Normalize child rects back to CSS-px space.
+  const cssWidth = target.clientWidth || target.scrollWidth || 0;
+  const cssHeight = target.clientHeight || target.scrollHeight || 0;
+  const invScaleX =
+    targetRect.width > 0 && cssWidth > 0 ? cssWidth / targetRect.width : 1;
+  const invScaleY =
+    targetRect.height > 0 && cssHeight > 0 ? cssHeight / targetRect.height : 1;
+
   let minX = 0;
   let minY = 0;
   let maxX = target.scrollWidth;
@@ -225,10 +242,15 @@ function measureContentBounds(target: HTMLElement): {
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) continue;
 
-    minX = Math.min(minX, rect.left - targetRect.left);
-    minY = Math.min(minY, rect.top - targetRect.top);
-    maxX = Math.max(maxX, rect.right - targetRect.left);
-    maxY = Math.max(maxY, rect.bottom - targetRect.top);
+    const left = (rect.left - targetRect.left) * invScaleX;
+    const top = (rect.top - targetRect.top) * invScaleY;
+    const right = (rect.right - targetRect.left) * invScaleX;
+    const bottom = (rect.bottom - targetRect.top) * invScaleY;
+
+    minX = Math.min(minX, left);
+    minY = Math.min(minY, top);
+    maxX = Math.max(maxX, right);
+    maxY = Math.max(maxY, bottom);
   }
 
   return {
@@ -726,33 +748,52 @@ function ScaleHelper({
   targetHeight?: number;
   mode?: "contain";
 }) {
+  // Stable ref callback so React doesn't churn the ResizeObserver on every
+  // render. Returns a cleanup so React 19 disconnects on unmount / identity
+  // change — the previous inline-arrow version stored cleanup on
+  // `el.__cleanup` and never invoked it, leaking an observer per render.
+  const refCallback = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el) return;
+      const parent = el.parentElement;
+      if (!parent) return;
+
+      const updateScale = () => {
+        // Prefer offset*, fall back to getBoundingClientRect, then to
+        // viewport. If everything still reads 0, bail rather than write
+        // `--slide-scale: 0` — that would scale the slide to nothing and
+        // the bad value would stick on the parent until the next
+        // observer tick.
+        const rect = parent.getBoundingClientRect();
+        const w = parent.offsetWidth || rect.width || window.innerWidth;
+        const h = parent.offsetHeight || rect.height || window.innerHeight;
+        if (!w || !h) return;
+        if (mode === "contain" && targetHeight) {
+          const scale = Math.min(w / targetWidth, h / targetHeight);
+          parent.style.setProperty("--slide-scale", String(scale));
+        } else {
+          parent.style.setProperty("--slide-scale", String(w / targetWidth));
+        }
+      };
+
+      // Try sync (layout may already be settled) and defer one frame
+      // (in case it isn't — first paint of /present can lag the swap
+      // out of the loading fallback).
+      updateScale();
+      const raf = requestAnimationFrame(updateScale);
+
+      const observer = new ResizeObserver(updateScale);
+      observer.observe(parent);
+
+      return () => {
+        cancelAnimationFrame(raf);
+        observer.disconnect();
+      };
+    },
+    [targetWidth, targetHeight, mode],
+  );
+
   return (
-    <div
-      className="absolute inset-0 pointer-events-none"
-      ref={(el) => {
-        if (!el) return;
-        const parent = el.parentElement;
-        if (!parent) return;
-
-        const updateScale = () => {
-          const w = parent.offsetWidth;
-          const h = parent.offsetHeight;
-          if (mode === "contain" && targetHeight) {
-            // Scale to contain both dimensions (no cropping)
-            const scale = Math.min(w / targetWidth, h / targetHeight);
-            parent.style.setProperty("--slide-scale", String(scale));
-          } else {
-            // Scale to fit width
-            parent.style.setProperty("--slide-scale", String(w / targetWidth));
-          }
-        };
-        updateScale();
-
-        const observer = new ResizeObserver(updateScale);
-        observer.observe(parent);
-
-        (el as any).__cleanup = () => observer.disconnect();
-      }}
-    />
+    <div className="absolute inset-0 pointer-events-none" ref={refCallback} />
   );
 }
