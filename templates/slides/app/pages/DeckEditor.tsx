@@ -586,8 +586,39 @@ export default function DeckEditor() {
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
 
+  // Editor-wide drag-and-drop catch-all. SlideEditor's own drop handler runs
+  // first for drops landing on a slide (it calls stopPropagation), so this
+  // only fires for drops that landed in the surrounding chrome — sidebar,
+  // toolbar, deck thumbnails, or empty space. Without this, the browser's
+  // default kicks in and navigates to the dropped image file, which
+  // surprises users who expect drop-to-attach behavior everywhere.
+  const editorDragOver = (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  };
+  const editorDrop = (e: React.DragEvent) => {
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    const file = files.find(imageFileLooksSupported);
+    if (!file) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setImageDropPopover({
+      open: true,
+      file,
+      position: { x: e.clientX, y: e.clientY },
+    });
+  };
+  const contextHintForDrop = currentSlide
+    ? `Current slide: ${currentSlide.id} (index ${currentIndex >= 0 ? currentIndex : 0}). Deck: ${id}.`
+    : `Deck: ${id}.`;
+
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-background">
+    <div
+      className="flex-1 flex flex-col overflow-hidden bg-background"
+      onDragOver={editorDragOver}
+      onDrop={editorDrop}
+    >
       <EditorToolbar
         deck={deck}
         deckId={id}
@@ -920,6 +951,13 @@ export default function DeckEditor() {
         open={historyOpen}
         onOpenChange={setHistoryOpen}
         anchorRef={historyButtonRef}
+      />
+      <ImageDropPromptPopover
+        open={imageDropPopover.open}
+        file={imageDropPopover.file}
+        position={imageDropPopover.position}
+        contextHint={contextHintForDrop}
+        onClose={closeImageDropPopover}
       />
     </div>
   );

@@ -223,7 +223,13 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     }
     .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
 
-    stop_native_recording(&mut session.backend)?;
+    // Try to finalize the ScreenCaptureKit stream, but don't early-return on
+    // failure: the underlying MP4 file is already on disk after stop_capture(),
+    // and ScreenCaptureKit's StreamError("invalid parameter") on
+    // remove_recording_output occasionally fires even though the file is
+    // playable. Persist the recovery metadata first so a finalize failure
+    // doesn't orphan the file — pending-uploads can then retry it.
+    let stop_outcome = stop_native_recording(&mut session.backend);
     let duration_ms = session.started_at.elapsed().as_millis();
     let mut saved = saved_recording_from_session(
         &session,
@@ -233,7 +239,15 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         has_audio,
         has_camera,
     )?;
+    if let Err(stop_err) = &stop_outcome {
+        saved.last_error = Some(stop_err.clone());
+    }
     write_saved_recording_metadata(&app, &saved)?;
+    if let Err(stop_err) = stop_outcome {
+        return Err(format!(
+            "{stop_err}. The clip was saved locally and can be retried from the Clips menu."
+        ));
+    }
 
     let result = upload_recording_file(
         &session,
@@ -742,9 +756,26 @@ fn stop_native_recording(backend: &mut NativeFullscreenBackend) -> Result<(), St
             let stop_result = stream
                 .stop_capture()
                 .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
+            // remove_recording_output() occasionally fails with
+            // StreamError("Failed due to an invalid parameter") when the audio
+            // tap or stream state hasn't fully drained yet. Retry once after a
+            // short pause before giving up — the underlying MP4 file is
+            // already on disk by this point, so the recovery path can still
+            // pick it up via write_saved_recording_metadata().
             let remove_result = stream
                 .remove_recording_output(recording)
                 .map_err(|e| format!("ScreenCaptureKit recording finalize failed: {e:?}"));
+            let remove_result = match remove_result {
+                Ok(v) => Ok(v),
+                Err(first_err) => {
+                    std::thread::sleep(Duration::from_millis(150));
+                    stream.remove_recording_output(recording).map_err(|e| {
+                        format!(
+                            "ScreenCaptureKit recording finalize failed (retry): {e:?}; first attempt: {first_err}"
+                        )
+                    })
+                }
+            };
             stop_result.and(remove_result)
         }
     }
