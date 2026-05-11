@@ -229,10 +229,16 @@ function dispatchNavLinkTarget(path: string): string {
   if (typeof window === "undefined") return path;
   const basePath = appBasePath();
   if (!basePath) return path;
-  const context = (
-    window as Window & { __reactRouterContext?: { basename?: string } }
-  ).__reactRouterContext;
-  return context?.basename === basePath ? path : appPath(path);
+  // Mirror the basename calculation entry.client.tsx uses to configure the
+  // router (basePath iff the current URL is under that mount, "" otherwise).
+  // Reading the live URL directly avoids races with the previous check on
+  // `__reactRouterContext.basename`, which could read undefined before the
+  // entry script set it — that race produced /dispatch/dispatch/<route>
+  // history entries that 404'd on back-button navigation.
+  const pathname = window.location.pathname;
+  const routerHasBasename =
+    pathname === basePath || pathname.startsWith(`${basePath}/`);
+  return routerHasBasename ? path : appPath(path);
 }
 
 export function NavContent({

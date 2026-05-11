@@ -34,7 +34,9 @@ import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
 import ImageSearchPanel from "@/components/editor/ImageSearchPanel";
 import LogoSearchPanel from "@/components/editor/LogoSearchPanel";
 import HistoryPanel from "@/components/editor/HistoryPanel";
+import ImageDropPromptPopover from "@/components/editor/ImageDropPromptPopover";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
+import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import {
   useCollaborativeDoc,
@@ -58,10 +60,7 @@ import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
 } from "@/lib/generation-state";
-import {
-  insertImageIntoSlideHtml,
-  replaceImageTargetInSlideHtml,
-} from "@/lib/slide-image-replacement";
+import { replaceImageTargetInSlideHtml } from "@/lib/slide-image-replacement";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { nanoid } from "nanoid";
@@ -123,6 +122,19 @@ export default function DeckEditor() {
 
   // Hidden file input for direct upload
   const uploadInputRef = useRef<HTMLInputElement>(null);
+
+  // Drop-to-prompt popover state. Opens when a user drops an image somewhere
+  // other than an existing image/placeholder on the slide — so we ask "what
+  // should we do with this?" and hand the image off to the agent chat instead
+  // of guessing (or worse, letting the browser navigate to the file).
+  const [imageDropPopover, setImageDropPopover] = useState<{
+    open: boolean;
+    file: File | null;
+    position: { x: number; y: number } | null;
+  }>({ open: false, file: null, position: null });
+  const closeImageDropPopover = useCallback(() => {
+    setImageDropPopover({ open: false, file: null, position: null });
+  }, []);
 
   const deck = getDeck(id || "");
   const slideCount = deck?.slides.length ?? 0;
@@ -239,21 +251,34 @@ export default function DeckEditor() {
   );
 
   const uploadAndApplyImage = useCallback(
-    async (replaceSrc: string | null, file: File) => {
+    async (
+      replaceSrc: string | null,
+      file: File,
+      position?: { x: number; y: number },
+    ) => {
       if (!id || !currentSlideRef.current) return;
+      // When there's no concrete target (drop landed on slide whitespace, the
+      // canvas, or the editor chrome), defer to the user: open the popover so
+      // they can tell the agent what to do with the image. The agent can then
+      // decide which slide / placeholder / element to update, generate a
+      // matching layout, or add a new slide.
+      if (!replaceSrc) {
+        setImageDropPopover({
+          open: true,
+          file,
+          position: position ?? null,
+        });
+        return;
+      }
       const targetSlide = currentSlideRef.current;
       try {
         const newUrl = await uploadImageAsset(file);
-        const updatedContent = replaceSrc
-          ? replaceImageTargetInSlideHtml(
-              targetSlide.content,
-              replaceSrc,
-              newUrl,
-              { alt: file.name },
-            )
-          : insertImageIntoSlideHtml(targetSlide.content, newUrl, {
-              alt: file.name,
-            });
+        const updatedContent = replaceImageTargetInSlideHtml(
+          targetSlide.content,
+          replaceSrc,
+          newUrl,
+          { alt: file.name },
+        );
         if (updatedContent !== targetSlide.content) {
           updateSlide(id, targetSlide.id, { content: updatedContent });
         }

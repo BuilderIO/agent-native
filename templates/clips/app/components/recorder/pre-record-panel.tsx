@@ -624,7 +624,11 @@ export function PreRecordPanel({
             disabled={startDisabled}
             onClick={() =>
               onStart({
-                mode,
+                // If the user toggled off the camera inside screen+camera mode,
+                // downgrade to screen-only so the recorder engine doesn't try
+                // to acquire a webcam stream.
+                mode:
+                  mode === "screen+camera" && !needsCamera ? "screen" : mode,
                 displaySurface,
                 micDeviceId: micId === "default" ? null : micId,
                 cameraDeviceId:

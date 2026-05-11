@@ -198,7 +198,11 @@ interface SlideEditorProps {
   onUploadImage: (replaceSrc: string) => void;
   onSearchImage: (replaceSrc: string) => void;
   onLogoSearch: (replaceSrc: string) => void;
-  onDropImage?: (replaceSrc: string | null, file: File) => void;
+  onDropImage?: (
+    replaceSrc: string | null,
+    file: File,
+    position?: { x: number; y: number },
+  ) => void;
   onToggleObjectFit: (imgSrc: string, newFit: string) => void;
   /** Yjs document for collaborative editing */
   ydoc?: Y.Doc | null;
@@ -1022,7 +1026,10 @@ export default function SlideEditor({
       e.preventDefault();
       e.stopPropagation();
       if (!file) return;
-      onDropImage?.(getImageReplacementTarget(e.target as HTMLElement), file);
+      onDropImage?.(getImageReplacementTarget(e.target as HTMLElement), file, {
+        x: e.clientX,
+        y: e.clientY,
+      });
     },
     [getImageReplacementTarget, onDropImage],
   );
