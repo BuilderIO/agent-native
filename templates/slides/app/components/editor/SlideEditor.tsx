@@ -1185,14 +1185,14 @@ export default function SlideEditor({
       <div className="flex-1 overflow-hidden">
         {activeTab === "visual" ? (
           slide.excalidrawData ? (
-            <div className="h-full bg-muted">
+            <div className="h-full bg-background">
               <ExcalidrawSlide
                 initialData={slide.excalidrawData}
                 onChange={(data) => onUpdateSlide({ excalidrawData: data })}
               />
             </div>
           ) : (
-            <div className="relative h-full bg-muted">
+            <div className="relative h-full bg-background">
               <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg backdrop-blur">
                 <Tooltip>
                   <TooltipTrigger asChild>

@@ -20,7 +20,7 @@ import {
 import { useTheme } from "next-themes";
 import { dashboards } from "@/pages/adhoc/registry";
 import { getIdToken } from "@/lib/auth";
-import { appApiPath } from "@agent-native/core/client";
+import { appApiPath, useChangeVersion } from "@agent-native/core/client";
 
 interface SavedConfig {
   id: string;
@@ -98,18 +98,22 @@ export function CommandPalette() {
     enabled: open,
   });
 
+  const dashboardsSync = useChangeVersion("dashboards");
+
   const { data: explorerDashboards = [] } = useQuery({
-    queryKey: ["explorer-dashboards-palette"],
+    queryKey: ["explorer-dashboards-palette", dashboardsSync],
     queryFn: fetchExplorerDashboards,
     staleTime: 30_000,
     enabled: open,
+    placeholderData: (prev) => prev,
   });
 
   const { data: sqlDashboards = [] } = useQuery({
-    queryKey: ["sql-dashboards-palette"],
+    queryKey: ["sql-dashboards-palette", dashboardsSync],
     queryFn: fetchSqlDashboards,
     staleTime: 30_000,
     enabled: open,
+    placeholderData: (prev) => prev,
   });
 
   useEffect(() => {

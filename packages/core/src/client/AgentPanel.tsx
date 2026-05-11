@@ -356,6 +356,14 @@ export interface AgentPanelProps extends Omit<
   devAppUrl?: string;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
+  /**
+   * Bind the chat to a specific resource (deck, design, dashboard, ...).
+   * When set, chats started inside the panel inherit this scope, the tab
+   * bar partitions per (storageKey, scope), and the user gets a "Working
+   * on {label}" badge with a Detach escape hatch. Templates compute this
+   * from the current route — see the `Layout` files for each template.
+   */
+  scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
   /** Capability gate for source edits, workspace files, and CLI access. */
@@ -451,6 +459,7 @@ function AgentPanelInner({
   onToggleFullscreen,
   devAppUrl,
   storageKey,
+  scope,
   chatNotice,
   codeAccess,
 }: AgentPanelProps) {
@@ -1320,6 +1329,7 @@ function AgentPanelInner({
             execMode={execMode}
             onExecModeChange={switchExecMode}
             storageKey={storageKey}
+            scope={scope}
           />
         )}
       </div>
@@ -1764,6 +1774,13 @@ export interface AgentSidebarProps {
   defaultOpen?: boolean;
   /** Animate the mobile overlay in a sheet-style slide transition. */
   animateMobile?: boolean;
+  /**
+   * Bind chats to a resource. When set, every chat started here is
+   * scoped to `{type, id}`, the tab bar/history partition by that scope,
+   * and a "Working on {label}" badge appears with a Detach option.
+   * Templates compute this from the active route (see template layouts).
+   */
+  scope?: import("./use-chat-threads.js").ChatThreadScope | null;
 }
 
 /**
@@ -1779,6 +1796,7 @@ export function AgentSidebar({
   position = "right",
   defaultOpen = false,
   animateMobile = false,
+  scope,
 }: AgentSidebarProps) {
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(() =>
@@ -2094,6 +2112,7 @@ export function AgentSidebar({
           onCollapse={() => setOpenPersisted(false)}
           isFullscreen={effectiveFullscreen}
           onToggleFullscreen={isMobile ? undefined : toggleFullscreen}
+          scope={scope}
         />
       </div>
       {showResizeHandle && isLeft && (

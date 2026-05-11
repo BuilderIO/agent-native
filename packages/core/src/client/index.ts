@@ -34,6 +34,12 @@ export {
   useFileWatcher,
   useScreenRefreshKey,
 } from "./use-db-sync.js";
+export {
+  useChangeVersion,
+  useChangeVersions,
+  getChangeVersion,
+  bumpChangeVersion,
+} from "./use-change-version.js";
 export { cn } from "./utils.js";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";
