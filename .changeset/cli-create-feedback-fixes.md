@@ -39,3 +39,22 @@ workspace:*`, but the templates-meta entries were missing
   proper hover background so it reads as clickable. Clicking the icon
   (the natural gesture, and the only available one on touch) did
   nothing before.
+- `create`: clean up the partially-scaffolded directory when scaffolding
+  fails (e.g. flaky network during the template download). Without this
+  the first failure left the workspace dir on disk, and the next
+  `agent-native create <name>` rejected the same name with "Directory
+  already exists" — forcing a manual `rm -rf` before retrying.
+- Dispatch apps list: filter dotfile directories (e.g.
+  `.agent-native-tmp-*` extraction sidecars) when reading the
+  workspace's `apps/` directory. The temp dir is a sibling of the
+  target so it appeared at the top of the apps grid mid-scaffold,
+  looking like a stray entry.
+- Dispatch onboarding: register a "Create your first app" step at order
+  5 so it sits above the Slack/Telegram secret-onboarding steps. A
+  brand-new workspace was leading with "Connect Slack" before the user
+  had even added an app, which felt confusing.
+- Agent system prompt (chat-in-browser-on-localdev): when a user asks to
+  scaffold a new workspace app from a localhost browser tab, point them
+  at \`npx @agent-native/core add-app\` first since they're already in
+  that terminal. The desktop / Claude Code / Codex / Builder.io
+  alternatives still follow for general source-editing work.

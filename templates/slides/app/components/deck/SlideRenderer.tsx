@@ -371,15 +371,17 @@ function AutoFitContent({
   fitKey,
   className = "",
   children,
+  onOverflowChange,
 }: {
   canvasWidth: number;
   canvasHeight: number;
   fitKey: string;
   className?: string;
   children: ReactNode;
+  onOverflowChange?: (info: SlideOverflowInfo) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  useSlideAutofit(ref, canvasWidth, canvasHeight, fitKey);
+  useSlideAutofit(ref, canvasWidth, canvasHeight, fitKey, onOverflowChange);
 
   return (
     <div
@@ -493,10 +495,12 @@ export function SlideInner({
   slide,
   designSystem,
   aspectRatio,
+  onOverflowChange,
 }: {
   slide: Slide;
   designSystem?: DesignSystemData;
   aspectRatio?: AspectRatio;
+  onOverflowChange?: (info: SlideOverflowInfo) => void;
 }) {
   const dims = getAspectRatioDims(aspectRatio);
   const sizeStyle: React.CSSProperties = {
