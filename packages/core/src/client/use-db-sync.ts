@@ -91,8 +91,11 @@ async function fetchPollJson<T>(
  * SSE is the fast path; polling is the safety net.
  *
  * @param options.queryClient - The react-query QueryClient instance
- * @param options.queryKeys - Array of query key prefixes to invalidate on change.
- *   Default: ["data"]
+ * @param options.queryKeys - **Deprecated and ignored.** The hook now
+ *   invalidates every active query on any non-own change event, so templates
+ *   no longer need to enumerate their keys. Kept in the type signature for
+ *   backward compatibility — existing call sites that still pass this option
+ *   keep working but the value has no effect.
  * @param options.pollUrl - Poll endpoint URL. Default: "/_agent-native/poll"
  * @param options.sseUrl - SSE endpoint URL. Default: "/_agent-native/events".
  *   Pass false to disable SSE and use polling only.
@@ -123,7 +126,6 @@ export function useDbSync(
 ): void {
   const {
     queryClient,
-    queryKeys = ["data"],
     pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),
     sseUrl = resolveSseUrl(options.sseUrl),
     interval = 2000,
@@ -136,9 +138,6 @@ export function useDbSync(
 
   const onEventRef = useRef(options.onEvent);
   onEventRef.current = options.onEvent;
-
-  const keysRef = useRef(queryKeys);
-  keysRef.current = queryKeys;
 
   const ignoreSourceRef = useRef(options.ignoreSource);
   ignoreSourceRef.current = options.ignoreSource;
@@ -171,29 +170,19 @@ export function useDbSync(
         : events;
 
       if (relevant.length > 0 && queryClient) {
-        for (const key of keysRef.current) {
-          queryClient.invalidateQueries({ queryKey: [key] });
-        }
-
-        // Framework-level invalidation: always invalidate framework query
-        // keys on any non-own change event so that mutating actions
-        // (agent or HTTP) auto-refresh the UI — regardless of how the
-        // template configured queryKeys / onEvent.
-        queryClient.invalidateQueries({ queryKey: ["action"] });
-        queryClient.invalidateQueries({ queryKey: ["extension"] });
-        queryClient.invalidateQueries({ queryKey: ["extensions"] });
-        queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
-        queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
-        queryClient.invalidateQueries({ queryKey: ["slot-available"] });
-        queryClient.invalidateQueries({ queryKey: ["tool"] });
-        queryClient.invalidateQueries({ queryKey: ["tools"] });
-        queryClient.invalidateQueries({ queryKey: ["app-state"] });
-        queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
-        queryClient.invalidateQueries({ queryKey: ["show-questions"] });
-        queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
+        // Invalidate every active query. The agent-native promise is that
+        // agent/server mutations show up in the UI without a manual refresh
+        // — relying on each template to enumerate its own queryKeys made
+        // that fragile (every new query key was a chance to silently miss
+        // an update). React Query refetches only active observers by
+        // default, dedupes concurrent invalidates, and respects each
+        // query's staleTime, so the cost is bounded.
+        queryClient.invalidateQueries();
       }
 
-      // Always forward all events to onEvent — templates can decide.
+      // Always forward all events to onEvent — templates can layer surgical
+      // logic on top (e.g. ignore their own writes via requestSource, or
+      // invalidate inactive queries for a specific source).
       for (const evt of events) {
         onEventRef.current?.(evt);
       }
