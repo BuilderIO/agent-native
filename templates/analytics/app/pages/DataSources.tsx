@@ -1236,7 +1236,7 @@ export default function DataSources() {
       {/* Filtered results */}
       {filteredSources !== null ? (
         filteredSources.length > 0 ? (
-          <div className="grid gap-3 items-start [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
             {filteredSources.map((source) => (
               <DataSourceCard
                 key={source.id}
@@ -1262,7 +1262,7 @@ export default function DataSources() {
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                 {categoryLabels[category]}
               </h3>
-              <div className="grid gap-3 items-start [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
                 {category === "analytics" && <FirstPartyAnalyticsCard />}
                 {sources.map((source) => (
                   <DataSourceCard
