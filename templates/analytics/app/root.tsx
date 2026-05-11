@@ -68,27 +68,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 function DbSyncBridge({ queryClient }: { queryClient: QueryClient }) {
   // Invalidate react-query caches on DB changes (agent edits, other tabs,
-  // cron jobs). Screen-refresh is handled automatically inside AgentSidebar.
-  useDbSync({
-    queryClient,
-    queryKeys: [
-      "data",
-      "sql-dashboards-sidebar",
-      "sql-dashboards-palette",
-      "sql-dashboard-exists",
-      "explorer-dashboards-sidebar",
-      "explorer-dashboards-palette",
-      "explorer-configs",
-      "explorer-configs-palette",
-      "explorer-config",
-      "analyses-list",
-      "analyses-sidebar",
-      "analysis-detail",
-      "env-status",
-      "dashboard-views",
-      "all-dashboard-views",
-    ],
-  });
+  // cron jobs). The hook invalidates every active query on any non-own
+  // change event, so we no longer need to enumerate dashboard / analysis
+  // / explorer keys here. Screen-refresh is handled automatically inside
+  // AgentSidebar.
+  useDbSync({ queryClient });
   return null;
 }
 

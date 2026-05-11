@@ -490,7 +490,16 @@ export default function SlideEditor({
   const handleOverflowChange = useCallback(
     (info: SlideOverflowInfo) => {
       const overflowing = info.verticalOverflow > 0 ? info : null;
-      setOverflowInfo(overflowing);
+      // Dedup the React state update — the renderer fires on every
+      // measurement (so the action can confirm freshness via the app-state
+      // `measuredAt` timestamp), but most measurements report the same
+      // value and shouldn't churn the badge UI.
+      setOverflowInfo((prev) => {
+        if (prev?.verticalOverflow === overflowing?.verticalOverflow) {
+          return prev;
+        }
+        return overflowing;
+      });
       // Always write the measurement (even when verticalOverflow=0) so the
       // add-slide / update-slide actions can poll for confirmation that the
       // slide they just wrote has been re-rendered and re-measured.

@@ -24,31 +24,30 @@ The agent modifies data in SQL, but the UI runs in the browser. Polling bridges 
 
    ```ts
    import { useDbSync } from "@agent-native/core";
-   useDbSync({ queryClient, queryKeys: ["items", "settings"] });
+   useDbSync({ queryClient });
    ```
 
-3. When the agent writes to the database, the version increments, polling detects it, and React Query refetches the affected queries.
+3. When the agent writes to the database, the version increments, polling detects it, and React Query refetches every active query. Templates no longer need to enumerate their query keys — the hook invalidates the whole cache on any non-own change event. The legacy `queryKeys` option is still accepted for backward compatibility but is ignored.
 
 ## Don't
 
 - Don't create manual polling loops — `useDbSync()` handles it (polls every 2 seconds by default)
 - Don't create your own fetch-based polling alongside `useDbSync` — use the `onEvent` callback for custom handling
 
-## Query Key Mapping
+## Tuning refetch behavior
 
-By default, `useDbSync` invalidates all listed query keys on every change. For apps with multiple data models, this causes unnecessary refetches. Use event-based filtering via the `onEvent` callback:
+`useDbSync` invalidates every active query on any non-own change event. The `onEvent` callback still fires with each change event, so templates can layer surgical extras on top — for example, invalidating an inactive query that wouldn't otherwise refetch:
 
 ```ts
 useDbSync({
   queryClient,
-  queryKeys: [], // don't auto-invalidate everything
   onEvent: (data) => {
     if (data.source === "settings") {
-      queryClient.invalidateQueries({ queryKey: ["settings"] });
-    } else if (data.source === "app-state") {
-      queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
-    } else {
-      queryClient.invalidateQueries({ queryKey: ["items"] });
+      // Force a refetch even when not actively observed
+      queryClient.invalidateQueries({
+        queryKey: ["settings"],
+        refetchType: "all",
+      });
     }
   },
 });
@@ -66,11 +65,11 @@ useQuery({
 
 ## Troubleshooting
 
-| Symptom                            | Check                                                                                                          |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| UI not updating after agent writes | Is `useDbSync` called with the correct `queryClient`? Are the `queryKeys` matching your `useQuery` keys?       |
-| Poll endpoint not responding       | Is `/_agent-native/poll` accessible? Is the server running?                                                    |
-| High CPU / event storms            | The agent is writing rapidly. Add `staleTime` to queries and use event-based filtering.                        |
+| Symptom                            | Check                                                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| UI not updating after agent writes | Is `useDbSync` called with the correct `queryClient`? Does the affected query have an active observer?  |
+| Poll endpoint not responding       | Is `/_agent-native/poll` accessible? Is the server running?                                              |
+| High CPU / event storms            | The agent is writing rapidly. Add `staleTime` to queries to debounce refetches.                          |
 
 ## Jitter Prevention
 
@@ -93,7 +92,6 @@ import { TAB_ID } from "@/lib/tab-id";
 
 useDbSync({
   queryClient,
-  queryKeys: ["app-state", "settings"],
   ignoreSource: TAB_ID,
 });
 ```

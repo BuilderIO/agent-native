@@ -77,7 +77,7 @@ pub fn set_capture_excluded(window: &WebviewWindow) {
     // screen-recording APIs by short-circuiting exclusion here. Off by
     // default, so the normal recording flow still keeps Clips chrome out
     // of the user's captured video.
-    if crate::config::show_in_screen_capture(&window.app_handle().clone()) {
+    if crate::config::show_in_screen_capture(window.app_handle()) {
         set_window_capture_excluded(window, false);
         return;
     }
@@ -115,8 +115,9 @@ pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
         let visible = crate::config::show_in_screen_capture(app);
-        for (label, window) in app.webview_windows().iter() {
-            if label == "popover" {
+        let windows = app.webview_windows();
+        for (label, window) in &windows {
+            if label.as_str() == "popover" {
                 continue;
             }
             set_window_capture_excluded(window, !visible);
