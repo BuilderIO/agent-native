@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.14.8
+
+### Patch Changes
+
+- db11073: Fix workspace scaffolds of `slides` and `videos` failing with `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` for `@agent-native/pinpoint`. Both templates depend on pinpoint but were not declaring it in `requiredPackages`, so it never got copied into `packages/pinpoint` and the `workspace:*` reference could not resolve.
+
 ## 0.14.7
 
 ### Patch Changes
