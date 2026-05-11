@@ -4,7 +4,6 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { customAlphabet } from "nanoid";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
@@ -85,45 +84,47 @@ export default defineAction({
     // re-checks at runtime as defense-in-depth.
     assertIntegrationUrlsAllowed(settings);
 
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
+    const orgId = getRequestOrgId();
+    const status = args.status || "draft";
+    const description = args.description || null;
+    const visibility = "private" as const;
+
     const db = getDb();
     await db.insert(schema.forms).values({
       id,
       title,
-      description: args.description || null,
+      description,
       slug,
       fields: JSON.stringify(fields),
       settings: JSON.stringify(settings),
-      status: args.status || "draft",
+      status,
       createdAt: now,
       updatedAt: now,
-      ownerEmail: (() => {
-        const e = getRequestUserEmail();
-        if (!e) throw new Error("no authenticated user");
-        return e;
-      })(),
-      orgId: getRequestOrgId(),
-      visibility: "private",
+      ownerEmail,
+      orgId,
+      visibility,
     });
 
-    const [row] = await db
-      .select()
-      .from(schema.forms)
-      .where(eq(schema.forms.id, id))
-      .limit(1);
-
+    // Return the values we just inserted rather than re-selecting. A
+    // post-insert SELECT can come back empty under connection-pool routing
+    // (Neon and similar pooled-Postgres setups occasionally route the read
+    // to a replica that hasn't replicated the write yet), which then throws
+    // a 500 even though the form was created successfully.
     return {
-      id: row!.id,
-      title: row!.title,
-      description: row!.description ?? undefined,
-      slug: row!.slug,
-      fields: JSON.parse(row!.fields) as FormField[],
-      settings: JSON.parse(row!.settings) as FormSettings,
-      status: row!.status,
-      visibility: row!.visibility,
-      ownerEmail: row!.ownerEmail,
+      id,
+      title,
+      description: description ?? undefined,
+      slug,
+      fields,
+      settings,
+      status,
+      visibility,
+      ownerEmail,
       responseCount: 0,
-      createdAt: row!.createdAt,
-      updatedAt: row!.updatedAt,
+      createdAt: now,
+      updatedAt: now,
     };
   },
 });

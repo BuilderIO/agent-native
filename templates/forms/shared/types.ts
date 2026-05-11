@@ -85,6 +85,8 @@ export interface Form {
   fields: FormField[];
   settings: FormSettings;
   status: "draft" | "published" | "closed";
+  /** Effective role of the current user on this form. */
+  role?: "owner" | "viewer" | "editor" | "admin";
   responseCount?: number;
   createdAt: string;
   updatedAt: string;

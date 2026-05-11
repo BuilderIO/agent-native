@@ -264,9 +264,18 @@ export function FormBuilderPage() {
   }
 
   if (error && !form) {
+    // `get-form` throws the same "not found" for both missing forms and forms
+    // the current user has no access to. Phrase the message so it works for
+    // both without leaking which case applies.
+    const errorMessage = error instanceof Error ? error.message : "";
+    const isAccessIssue = /not found|forbidden|no access/i.test(errorMessage);
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
-        <p className="text-sm text-muted-foreground">Failed to load form</p>
+        <p className="text-sm text-muted-foreground">
+          {isAccessIssue
+            ? "You don't have access to this form. Ask the owner to share it with you."
+            : "Failed to load form"}
+        </p>
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -275,9 +284,11 @@ export function FormBuilderPage() {
           >
             Back to Forms
           </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            Retry
-          </Button>
+          {!isAccessIssue && (
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              Retry
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -285,6 +296,15 @@ export function FormBuilderPage() {
 
   const fields = localFields;
   const selectedField = fields.find((f) => f.id === selectedFieldId);
+  // Viewers can see the form but not edit it or peek at responses / settings /
+  // integrations. The role is set by `get-form` based on ownership + shares.
+  const role = (form as any).role as
+    | "owner"
+    | "viewer"
+    | "editor"
+    | "admin"
+    | undefined;
+  const canEdit = role === "owner" || role === "editor" || role === "admin";
 
   function updateFields(newFields: FormField[]) {
     setLocalFields(newFields);
@@ -526,38 +546,49 @@ export function FormBuilderPage() {
             <TooltipContent>Manage builder access</TooltipContent>
           </Tooltip>
 
-          <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
-            {form.status === "published" ? "Unpublish" : "Publish"}
-          </Button>
+          {canEdit && (
+            <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
+              {form.status === "published" ? "Unpublish" : "Publish"}
+            </Button>
+          )}
           <NotificationsBell />
           <AgentToggleButton />
         </div>
       </div>
 
-      {/* Tab row */}
+      {/* Tab row — viewers only see Edit (which is read-only for them). The
+          Results / Settings / Integrations tabs include responses and config
+          data viewers shouldn't see. */}
       <div className="border-b border-border px-2 sm:px-4 py-2 shrink-0 overflow-x-auto">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs
+          value={canEdit ? activeTab : "edit"}
+          onValueChange={canEdit ? setActiveTab : undefined}
+        >
           <TabsList className="w-max sm:w-auto">
             <TabsTrigger value="edit" className="text-xs">
-              Edit
+              {canEdit ? "Edit" : "Preview"}
             </TabsTrigger>
-            <TabsTrigger value="results" className="text-xs">
-              Results
-              {(form.responseCount ?? 0) > 0 && (
-                <Badge
-                  variant="secondary"
-                  className="ml-1.5 text-[9px] px-1 py-0 h-4 min-w-4"
-                >
-                  {form.responseCount}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="settings" className="text-xs">
-              Settings
-            </TabsTrigger>
-            <TabsTrigger value="integrations" className="text-xs">
-              Integrations
-            </TabsTrigger>
+            {canEdit && (
+              <>
+                <TabsTrigger value="results" className="text-xs">
+                  Results
+                  {(form.responseCount ?? 0) > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="ml-1.5 text-[9px] px-1 py-0 h-4 min-w-4"
+                    >
+                      {form.responseCount}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="settings" className="text-xs">
+                  Settings
+                </TabsTrigger>
+                <TabsTrigger value="integrations" className="text-xs">
+                  Integrations
+                </TabsTrigger>
+              </>
+            )}
           </TabsList>
         </Tabs>
       </div>
@@ -579,6 +610,7 @@ export function FormBuilderPage() {
           agentPrompt={agentPrompt}
           agentPromptRef={agentPromptRef}
           promptRun={promptRun}
+          canEdit={canEdit}
           onTitleChange={(v) => {
             setLocalTitle(v);
             save({ id: form.id, title: v });
@@ -664,6 +696,7 @@ function BuilderContent({
   agentPrompt,
   agentPromptRef,
   promptRun,
+  canEdit,
   onTitleChange,
   onDescriptionChange,
   onSelectField,
@@ -691,6 +724,7 @@ function BuilderContent({
   agentPrompt: string;
   agentPromptRef: React.RefObject<HTMLTextAreaElement | null>;
   promptRun: ReturnType<typeof useAgentPromptRun>;
+  canEdit: boolean;
   onTitleChange: (v: string) => void;
   onDescriptionChange: (v: string) => void;
   onSelectField: (id: string | null) => void;
@@ -716,6 +750,7 @@ function BuilderContent({
               onChange={(e) => onTitleChange(e.target.value)}
               onFocus={() => (titleFocused.current = true)}
               onBlur={() => (titleFocused.current = false)}
+              readOnly={!canEdit}
               className="text-2xl font-semibold border-none bg-transparent px-0 focus-visible:ring-0 h-auto"
               placeholder="Form Title"
             />
@@ -725,8 +760,9 @@ function BuilderContent({
               onChange={(e) => onDescriptionChange(e.target.value)}
               onFocus={() => (descriptionFocused.current = true)}
               onBlur={() => (descriptionFocused.current = false)}
+              readOnly={!canEdit}
               className="mt-1 w-full text-sm text-muted-foreground bg-transparent px-0 focus-visible:outline-none resize-none overflow-hidden"
-              placeholder="Add a description..."
+              placeholder={canEdit ? "Add a description..." : ""}
               rows={1}
               style={{ minHeight: "24px", maxHeight: "120px" }}
             />
@@ -734,72 +770,83 @@ function BuilderContent({
 
           {/* Fields */}
           <div className="space-y-3">
-            {fields.map((field, idx) => (
-              <Popover
-                key={field.id}
-                open={selectedFieldId === field.id}
-                onOpenChange={(open) => {
-                  if (!open) onSelectField(null);
-                }}
-              >
-                <PopoverTrigger asChild>
-                  <div
-                    draggable
-                    onDragStart={() => onDragStart(idx)}
-                    onDragOver={(e) => onDragOver(e, idx)}
-                    onDragEnd={onDragEnd}
-                    onClick={() =>
-                      onSelectField(
-                        selectedFieldId === field.id ? null : field.id,
-                      )
-                    }
-                    className={cn(
-                      "group relative rounded-lg border p-4 cursor-pointer",
-                      selectedFieldId === field.id
-                        ? "border-primary ring-1 ring-primary/20 bg-card"
-                        : "border-border bg-card hover:border-primary/30",
-                      dragIdx === idx && "opacity-50",
-                    )}
-                  >
-                    <div
-                      className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab hidden sm:block"
-                      aria-label="Drag to reorder"
-                    >
-                      <IconGripVertical className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <FieldRenderer field={field} preview />
-                  </div>
-                </PopoverTrigger>
-                <PopoverContent
-                  side="right"
-                  align="start"
-                  sideOffset={12}
-                  className="w-[calc(100vw-2rem)] sm:w-72 max-h-[70vh] sm:max-h-[520px] overflow-auto p-0"
-                  onOpenAutoFocus={(e) => e.preventDefault()}
-                  onInteractOutside={(e) => {
-                    // Don't close when interacting with dropdowns portaled to body
-                    const target = e.target as HTMLElement;
-                    if (
-                      target.closest("[data-radix-popper-content-wrapper]") ||
-                      target.closest("[role='listbox']") ||
-                      target.closest("[role='option']")
-                    ) {
-                      e.preventDefault();
-                    }
+            {fields.map((field, idx) =>
+              canEdit ? (
+                <Popover
+                  key={field.id}
+                  open={selectedFieldId === field.id}
+                  onOpenChange={(open) => {
+                    if (!open) onSelectField(null);
                   }}
                 >
-                  <FieldPropertiesPanel
-                    field={field}
-                    onChange={onUpdateField}
-                    onDelete={() => onDeleteField(field.id)}
-                  />
-                </PopoverContent>
-              </Popover>
-            ))}
+                  <PopoverTrigger asChild>
+                    <div
+                      draggable
+                      onDragStart={() => onDragStart(idx)}
+                      onDragOver={(e) => onDragOver(e, idx)}
+                      onDragEnd={onDragEnd}
+                      onClick={() =>
+                        onSelectField(
+                          selectedFieldId === field.id ? null : field.id,
+                        )
+                      }
+                      className={cn(
+                        "group relative rounded-lg border p-4 cursor-pointer",
+                        selectedFieldId === field.id
+                          ? "border-primary ring-1 ring-primary/20 bg-card"
+                          : "border-border bg-card hover:border-primary/30",
+                        dragIdx === idx && "opacity-50",
+                      )}
+                    >
+                      <div
+                        className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab hidden sm:block"
+                        aria-label="Drag to reorder"
+                      >
+                        <IconGripVertical className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <FieldRenderer field={field} preview />
+                    </div>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="right"
+                    align="start"
+                    sideOffset={12}
+                    className="w-[calc(100vw-2rem)] sm:w-72 max-h-[70vh] sm:max-h-[520px] overflow-auto p-0"
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                    onInteractOutside={(e) => {
+                      // Don't close when interacting with dropdowns portaled to body
+                      const target = e.target as HTMLElement;
+                      if (
+                        target.closest("[data-radix-popper-content-wrapper]") ||
+                        target.closest("[role='listbox']") ||
+                        target.closest("[role='option']")
+                      ) {
+                        e.preventDefault();
+                      }
+                    }}
+                  >
+                    <FieldPropertiesPanel
+                      field={field}
+                      onChange={onUpdateField}
+                      onDelete={() => onDeleteField(field.id)}
+                    />
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <div
+                  key={field.id}
+                  className="relative rounded-lg border border-border bg-card p-4"
+                >
+                  <FieldRenderer field={field} preview />
+                </div>
+              ),
+            )}
           </div>
 
-          {/* Add field */}
-          <div className="mt-4 flex items-center gap-2">
+          {/* Add field — only visible to editors. Viewers see a read-only
+              preview of the form structure. */}
+          {canEdit && (
+            <div className="mt-4 flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="gap-2">
@@ -882,6 +929,7 @@ function BuilderContent({
               </PopoverContent>
             </Popover>
           </div>
+          )}
         </div>
       </div>
     </div>
