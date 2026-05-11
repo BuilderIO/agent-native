@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
+  NO_CAMERA_DEVICE_ID,
   NO_MIC_DEVICE_ID,
   type DisplaySurface,
   type RecordingMode,

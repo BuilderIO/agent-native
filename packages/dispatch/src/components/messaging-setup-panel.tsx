@@ -456,11 +456,7 @@ export function MessagingSetupPanel() {
                     size="sm"
                     className="h-7 px-2 text-xs text-muted-foreground"
                   >
-                    <a
-                      href={platform.docsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
+                    <a href={platform.docsUrl} target="_blank" rel="noreferrer">
                       Docs
                       <IconExternalLink className="ml-1 h-3 w-3" />
                     </a>

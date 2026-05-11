@@ -18,6 +18,7 @@ import {
 export type RecordingMode = "screen" | "camera" | "screen+camera";
 export type DisplaySurface = "monitor" | "window" | "browser";
 export const NO_MIC_DEVICE_ID = "__clips_no_microphone__";
+export const NO_CAMERA_DEVICE_ID = "__clips_no_camera__";
 
 type ExtendedDisplayMediaOptions = DisplayMediaStreamOptions & {
   video: MediaTrackConstraints & { displaySurface?: DisplaySurface };
