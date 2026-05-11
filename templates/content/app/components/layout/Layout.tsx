@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { useCreatePage } from "@/hooks/use-create-page";
@@ -39,6 +39,15 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const activeDocumentId =
     location.pathname.match(/^\/page\/([^/]+)/)?.[1] ?? null;
+  // Bind chat to the currently-open document. Everywhere else (list view,
+  // settings) leaves scope null so general chats stay available.
+  const documentScope = useMemo(
+    () =>
+      activeDocumentId
+        ? { type: "document" as const, id: activeDocumentId }
+        : null,
+    [activeDocumentId],
+  );
   const isMobile = useIsMobile();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -117,6 +126,7 @@ export function Layout({ children }: LayoutProps) {
             "Summarize this page in 5 bullets",
             "Pull this page from Notion",
           ]}
+          scope={documentScope}
         >
           <main className="relative flex min-w-0 min-h-0 flex-1 flex-col">
             {showHeader ? <Header /> : null}

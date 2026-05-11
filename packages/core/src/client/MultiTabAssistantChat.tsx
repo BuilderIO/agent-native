@@ -183,7 +183,13 @@ function ScopeBadge({
   onDetach: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const label = scope.label || scope.type;
+  // Templates that don't have the resource's display title at layout time
+  // pass `{ type, id }` without a label. Render "About this deck" as a
+  // graceful fallback instead of "About deck", which reads oddly.
+  const heading = scope.label
+    ? `About ${scope.label}`
+    : `About this ${scope.type}`;
+  const detailLabel = scope.label || `this ${scope.type}`;
   return (
     <div className="flex items-center justify-center py-1 px-3 text-[11px] text-muted-foreground border-b border-border/40 shrink-0">
       <Popover open={open} onOpenChange={setOpen}>
@@ -191,16 +197,16 @@ function ScopeBadge({
           <button
             type="button"
             className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 hover:bg-accent/50 hover:text-foreground cursor-pointer"
-            aria-label={`Chat is about ${label}`}
+            aria-label={heading}
           >
-            <span className="truncate max-w-[220px]">About {label}</span>
+            <span className="truncate max-w-[220px]">{heading}</span>
           </button>
         </PopoverTrigger>
         <PopoverContent align="center" side="bottom" className="w-60 p-2">
           <p className="px-2 py-1 text-[11px] text-muted-foreground">
             This chat is bound to{" "}
-            <span className="text-foreground">{label}</span>. New chats started
-            while you're here stay in this chat list; switch to another{" "}
+            <span className="text-foreground">{detailLabel}</span>. New chats
+            started while you're here stay in this chat list; switch to another{" "}
             {scope.type} to find its threads.
           </p>
           <button
