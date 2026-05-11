@@ -272,6 +272,34 @@ function SortableSlideThumb({
   );
 }
 
+function GeneratingSlideSkeleton({
+  index,
+  aspectRatio,
+}: {
+  index: number;
+  aspectRatio?: AspectRatio;
+}) {
+  const cssRatio = (aspectRatio ?? "16:9").replace(":", " / ");
+  return (
+    <div className="group relative" aria-label="Generating slide">
+      <div className="w-full flex items-start gap-2 p-2 rounded-lg bg-accent/30">
+        <div className="flex-shrink-0 mt-2 w-3.5 h-3.5" />
+        <span className="flex-shrink-0 w-5 mt-2 text-[10px] font-medium text-muted-foreground/70">
+          {index + 1}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div
+            className="w-full overflow-hidden rounded border border-white/[0.06] bg-muted/30 animate-pulse flex items-center justify-center"
+            style={{ aspectRatio: cssRatio }}
+          >
+            <IconLoader2 className="w-4 h-4 text-muted-foreground/50 animate-spin" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AddSlidePopover({
   open,
   onOpenChange,
@@ -282,6 +310,7 @@ function AddSlidePopover({
   slideCount,
   activeSlideIndex,
   agentSubmit,
+  onDuplicateCurrent,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -293,6 +322,7 @@ function AddSlidePopover({
   activeSlideIndex: number;
   generating: boolean;
   agentSubmit: (message: string, context: string) => void;
+  onDuplicateCurrent?: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
@@ -422,6 +452,25 @@ function AddSlidePopover({
       <p className="px-1 pb-2 text-sm font-medium text-foreground/90">
         Add slides
       </p>
+      {onDuplicateCurrent && slideCount > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              onDuplicateCurrent();
+              onOpenChange(false);
+            }}
+            className="w-full mb-2 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
+          >
+            <IconCopy className="w-4 h-4 text-muted-foreground" />
+            <span>Duplicate current slide</span>
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              no AI
+            </span>
+          </button>
+          <div className="-mx-3 mb-2 h-px bg-border" />
+        </>
+      )}
       <PromptComposer
         autoFocus
         placeholder="Describe the slides you want..."
@@ -544,6 +593,12 @@ export default function EditorSidebar({
             />
           ))}
         </SortableContext>
+        {addSlideGenerating && (
+          <GeneratingSlideSkeleton
+            index={slides.length}
+            aspectRatio={aspectRatio}
+          />
+        )}
       </div>
 
       <AddSlidePopover
@@ -560,6 +615,9 @@ export default function EditorSidebar({
           setAddSlideGenerating(true);
           agentSubmit(msg, ctx);
         }}
+        onDuplicateCurrent={
+          activeSlideId ? () => onDuplicateSlide(activeSlideId) : undefined
+        }
       />
     </div>
   );

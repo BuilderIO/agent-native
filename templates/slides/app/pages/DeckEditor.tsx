@@ -413,16 +413,36 @@ export default function DeckEditor() {
 
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
+  // Track the last URL ?slide param we processed so we can tell "the URL changed
+  // externally" (agent navigate command, browser back/forward, deep link) apart
+  // from "the URL is the same as last render, just other state moved". Without
+  // this, the resolver short-circuited on external URL changes and the agent's
+  // navigate --slideIndex was effectively ignored.
+  const lastUrlSlideParamRef = useRef<string | null>(null);
   useEffect(() => {
     if (!deck) return;
     if (deck.slides.length === 0) {
       if (activeSlideId) setActiveSlideId(null);
+      lastUrlSlideParamRef.current = null;
       return;
     }
+
+    const slideParam = searchParams.get("slide");
+    const urlChanged = slideParam !== lastUrlSlideParamRef.current;
+    lastUrlSlideParamRef.current = slideParam;
+
+    if (urlChanged && slideParam) {
+      const idx = parseInt(slideParam, 10) - 1;
+      if (idx >= 0 && idx < deck.slides.length) {
+        const targetId = deck.slides[idx].id;
+        if (activeSlideId !== targetId) setActiveSlideId(targetId);
+        return;
+      }
+    }
+
     if (activeSlideId && deck.slides.some((s) => s.id === activeSlideId)) {
       return;
     }
-    const slideParam = searchParams.get("slide");
     if (slideParam) {
       const idx = parseInt(slideParam, 10) - 1;
       if (idx >= 0 && idx < deck.slides.length) {

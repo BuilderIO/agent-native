@@ -417,6 +417,15 @@ export default function EditorToolbar({
         </Tooltip>
       )}
 
+      {/* Save-state indicator — placed on the left side, just before the
+          flex-1 spacer, so any width changes between "Saving…" / "Saved" /
+          "Offline" are absorbed by the spacer and don't shift the toolbar's
+          right-side controls. */}
+      <SaveStatusIndicator
+        saving={saveState.saving}
+        className="flex-shrink-0"
+      />
+
       {/* Spacer */}
       <div className="flex-1 min-w-2" />
 
@@ -897,13 +906,6 @@ graph TD
           <TooltipContent>Comments</TooltipContent>
         </Tooltip>
       )}
-
-      {/* Save-state indicator (icon-only — text label was wrapping at narrow
-          widths inside the toolbar's flex layout) */}
-      <SaveStatusIndicator
-        saving={saveState.saving}
-        className="flex-shrink-0"
-      />
 
       {/* Export / Share menu (export, duplicate, share) */}
       <div className="flex-shrink-0">
