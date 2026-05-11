@@ -373,6 +373,16 @@ export class McpClientManager {
     const restoreClientClose = guardClose(client, recordConnectionError);
     const restoreTransportClose = guardClose(transport, recordConnectionError);
     client.onerror = recordConnectionError;
+    // Attach a transport-level error handler before connect() so the SDK's
+    // internal fire-and-forget paths (initial SSE stream open, scheduled
+    // reconnects, message-handler-triggered reconnects — see processStream()
+    // in @modelcontextprotocol/sdk/client/streamableHttp.js) cannot leak as
+    // unhandled promise rejections. On AWS Lambda the long-lived socket
+    // gets reaped ~60s after the function returns; without this handler the
+    // resulting `socket hang up` surfaces as an unhandledRejection and
+    // pollutes Sentry. Client.connect() chains its own onerror on top of
+    // ours (see protocol.js: const _onerror = transport.onerror; ...).
+    transport.onerror = recordConnectionError;
 
     // If connect or listTools throws, we still need to release the child
     // process (stdio) or pending HTTP session — otherwise repeated failures
