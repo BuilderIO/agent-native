@@ -267,7 +267,6 @@ function useSlideAutofit(
 
     let raf = 0;
     let disposed = false;
-    let lastReportedOverflow = -1;
 
     const resetTarget = (target: HTMLElement) => {
       target.style.setProperty("--fmd-fit-scale", "1");
@@ -322,8 +321,15 @@ function useSlideAutofit(
         }
       }
 
-      if (!isEditing && lastReportedOverflow !== worstOverflow) {
-        lastReportedOverflow = worstOverflow;
+      // Fire the callback on EVERY measurement (not just when the overflow
+      // value changes). The editor uses this to refresh its
+      // `application_state.slide-fit-check` record with a new `measuredAt`
+      // timestamp so the add-slide / update-slide actions can confirm the
+      // slide has been re-measured AFTER their write — even when an agent
+      // patch keeps the overflow at the same value (e.g. dropped one bullet
+      // and added another). The editor dedups React state changes on its
+      // own end if needed.
+      if (!isEditing) {
         overflowCallbackRef.current?.(
           worstInfo ?? {
             verticalOverflow: 0,
