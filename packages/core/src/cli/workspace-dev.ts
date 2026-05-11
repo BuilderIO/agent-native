@@ -778,7 +778,9 @@ export async function runWorkspaceDev(
     } catch (err) {
       handleWatcherError(err as NodeJS.ErrnoException);
     }
-    setInterval(syncApps, 2_000).unref();
+    setInterval(() => {
+      void syncApps().catch(() => {});
+    }, 2_000).unref();
   }
 
   function openBrowser(url: string): void {
@@ -803,7 +805,7 @@ export async function runWorkspaceDev(
     const pathname = parsedUrl.pathname;
 
     if (pathname === "/" || pathname === "/index.html") {
-      syncApps();
+      void syncApps().catch(() => {});
       const currentDefaultApp =
         explicitDefaultApp && appById.has(explicitDefaultApp)
           ? explicitDefaultApp
@@ -826,7 +828,7 @@ export async function runWorkspaceDev(
     }
 
     if (pathname === "/_workspace/apps") {
-      syncApps();
+      void syncApps().catch(() => {});
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify(

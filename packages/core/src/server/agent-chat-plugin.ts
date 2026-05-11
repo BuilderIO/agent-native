@@ -3740,7 +3740,10 @@ When the user asks for ANY of the following — add a feature, edit a component,
 
 1. Do NOT call \`connect-builder\`, \`scaffold-workspace-app\`, \`start-workspace-app-creation\`, or any other tool that creates or edits source.
 2. Do NOT write code, list files, propose patches, or describe what you would change.
-3. Reply with one short message saying chat-in-browser on localhost can't edit code (page reloads kill the session) and offer these alternatives, in this order:
+3. Reply with one short message saying chat-in-browser on localhost can't edit code (page reloads kill the session). If — and only if — the request is specifically to **add or scaffold a new workspace app**, lead with the CLI option since it runs in the same terminal the user is already using:
+   - **Agent Native CLI** — \`npx @agent-native/core add-app\` in this workspace directory (best for template apps like Mail/Calendar/Slides; the workspace gateway picks them up automatically)
+
+   Then offer these alternatives for general source-editing work, in this order:
    - **Agent Native Desktop** — https://www.agent-native.com/download (recommended; same chat, no reload risk)
    - **Claude Code** — \`claude\` in the project directory
    - **Codex** — \`codex\` in the project directory

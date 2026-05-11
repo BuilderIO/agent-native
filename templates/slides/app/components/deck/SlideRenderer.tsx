@@ -238,18 +238,35 @@ function measureContentBounds(target: HTMLElement): {
   };
 }
 
+/** Reported by useSlideAutofit when content overflows the slide canvas vertically.
+ * Surfaced so the editor can prompt the agent to rewrite the slide instead of
+ * the renderer trying to paper over it with a uniform shrink. */
+export interface SlideOverflowInfo {
+  /** Vertical overflow in CSS px at native resolution (0 = fits). */
+  verticalOverflow: number;
+  /** Total natural content height in CSS px. */
+  contentHeight: number;
+  /** Available canvas height inside the slide padding. */
+  viewportHeight: number;
+}
+
 function useSlideAutofit(
   ref: React.RefObject<HTMLDivElement | null>,
   canvasWidth: number,
   canvasHeight: number,
   fitKey: string,
+  onOverflowChange?: (info: SlideOverflowInfo) => void,
 ) {
+  const overflowCallbackRef = useRef(onOverflowChange);
+  overflowCallbackRef.current = onOverflowChange;
+
   useIsomorphicLayoutEffect(() => {
     const root = ref.current;
     if (!root || typeof ResizeObserver === "undefined") return;
 
     let raf = 0;
     let disposed = false;
+    let lastReportedOverflow = -1;
 
     const resetTarget = (target: HTMLElement) => {
       target.style.setProperty("--fmd-fit-scale", "1");
@@ -267,6 +284,9 @@ function useSlideAutofit(
         rawTargets.length > 0
           ? rawTargets
           : [root].filter((target) => target.scrollHeight > 0);
+
+      let worstOverflow = 0;
+      let worstInfo: SlideOverflowInfo | null = null;
 
       for (const target of targets) {
         if (isEditing) {
@@ -290,6 +310,26 @@ function useSlideAutofit(
         if (transform.fitted) {
           target.setAttribute("data-fmd-autofit-active", "true");
         }
+
+        if (transform.verticalOverflow > worstOverflow) {
+          worstOverflow = transform.verticalOverflow;
+          worstInfo = {
+            verticalOverflow: transform.verticalOverflow,
+            contentHeight: Math.round(bounds.contentHeight),
+            viewportHeight: Math.round(viewportHeight),
+          };
+        }
+      }
+
+      if (!isEditing && lastReportedOverflow !== worstOverflow) {
+        lastReportedOverflow = worstOverflow;
+        overflowCallbackRef.current?.(
+          worstInfo ?? {
+            verticalOverflow: 0,
+            contentHeight: 0,
+            viewportHeight: 0,
+          },
+        );
       }
     };
 
