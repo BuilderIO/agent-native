@@ -87,8 +87,7 @@ async function fetchRemote(url: string): Promise<{
 function uploadNotConfiguredError(): string {
   return [
     "Image uploads are not configured for this app.",
-    "Recommended: connect Builder.io for free image hosting — open Settings → File uploads and click 'Connect Builder.io'.",
-    "Or set BUILDER_PRIVATE_KEY in your environment, or register a custom file-upload provider.",
+    "Configure a file upload provider — connect Builder.io in Settings → File uploads (free credits), set BUILDER_PRIVATE_KEY, or register a custom provider (S3, R2, GCS, etc.) via registerFileUploadProvider().",
   ].join(" ");
 }
 

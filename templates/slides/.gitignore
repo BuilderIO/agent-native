@@ -29,8 +29,16 @@ dist-ssr
 .env
 .output/
 
-# User uploads for prompt context
+# User uploads for prompt context (non-image reference files: PPTX, DOCX, PDF).
+# Images go through the framework's uploadFile() provider (Builder.io / S3 /
+# etc.) and never land on disk.
 data/uploads/
+
+# Defensive: nothing should write user-uploaded assets into public/, but an
+# older code path used to. Keep this so accidental regressions don't end up
+# in commits.
+public/uploads/
+public/__test-*.json
 
 # Firestore-synced data (synced at runtime, not checked in)
 data/decks/

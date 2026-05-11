@@ -1,19 +1,13 @@
 import {
   defineEventHandler,
-  getRouterParam,
   setResponseStatus,
   readMultipartFormData,
 } from "h3";
 import path from "path";
-import fs from "fs";
-import crypto from "crypto";
-import { nanoid } from "nanoid";
-import { getAppBasePath, getSession } from "@agent-native/core/server";
+import { getSession } from "@agent-native/core/server";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { uploadedAssetUrlForBasePath } from "./assets-url.js";
 
-const UPLOADS_ROOT = path.join(process.cwd(), "public", "uploads");
 export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 export interface UploadedAsset {
@@ -21,10 +15,7 @@ export interface UploadedAsset {
   filename: string;
   type: string;
   size: number;
-}
-
-export function uploadedAssetUrl(filename: string): string {
-  return uploadedAssetUrlForBasePath(filename, getAppBasePath());
+  provider?: string;
 }
 
 async function requireSession(event: Parameters<typeof getSession>[0]) {
@@ -34,28 +25,6 @@ async function requireSession(event: Parameters<typeof getSession>[0]) {
     return null;
   }
   return session;
-}
-
-function tenantAssetKey(email: string): string {
-  return crypto
-    .createHash("sha256")
-    .update(email.trim().toLowerCase())
-    .digest("hex")
-    .slice(0, 24);
-}
-
-function tenantAssetDir(email: string): string {
-  return path.join(UPLOADS_ROOT, tenantAssetKey(email));
-}
-
-function safeAssetFilename(originalName: string): string | null {
-  const ext = path.extname(originalName).toLowerCase();
-  if (!isRasterAssetExtension(ext)) return null;
-  // Filename uniqueness comes from nanoid, not `Date.now()` — second-resolution
-  // timestamps are guessable. The per-tenant subdirectory already namespaces
-  // assets by user; the leaf must also be unguessable so a peer can't probe
-  // their upload window. (audit 10 medium / audit 01 medium).
-  return `${nanoid()}${ext}`;
 }
 
 function isRasterAssetExtension(ext: string): boolean {
@@ -117,7 +86,18 @@ export function canSaveAsUploadedAsset(args: {
   );
 }
 
-export async function saveUploadedAsset(args: {
+/**
+ * Upload an image asset through the framework's `uploadFile()` provider chain.
+ *
+ * All uploads go to the configured remote provider — Builder.io by default,
+ * or any provider registered via `registerFileUploadProvider()` (S3, R2, etc.).
+ * There is intentionally NO local-disk fallback: writing into the source tree
+ * (`public/uploads/`) pollutes git, doesn't persist on serverless deploys,
+ * and isn't reachable across nodes. If no provider is configured, the request
+ * fails with a clear 503 instructing the caller to configure one — connect
+ * Builder.io or register a custom provider.
+ */
+export async function uploadImageAsset(args: {
   email: string;
   originalName: string;
   data: Uint8Array;
@@ -127,43 +107,48 @@ export async function saveUploadedAsset(args: {
     throw new Error("File too large (max 10 MB)");
   }
 
-  const filename = safeAssetFilename(args.originalName);
+  const ext = path.extname(args.originalName).toLowerCase();
   // SVG is excluded — it can embed <script> tags and execute when served
   // as image/svg+xml from the same origin.
-  if (!filename) {
+  if (!isRasterAssetExtension(ext)) {
     throw new Error(
       "Only raster image files are allowed (jpg, png, gif, webp, avif, ico)",
     );
   }
-
-  const ext = path.extname(filename).toLowerCase();
   if (!hasExpectedImageSignature(ext, args.data)) {
     throw new Error("Uploaded image bytes do not match file extension");
   }
 
-  const assetKey = tenantAssetKey(args.email);
-  const uploadDir = tenantAssetDir(args.email);
-  await fs.promises.mkdir(uploadDir, { recursive: true });
-  const destPath = path.join(uploadDir, filename);
+  const result = await runWithRequestContext({ userEmail: args.email }, () =>
+    uploadFile({
+      data: args.data,
+      filename: args.originalName,
+      mimeType: args.type,
+      ownerEmail: args.email,
+    }),
+  );
 
-  await fs.promises.writeFile(destPath, args.data);
+  if (!result) {
+    const err: Error & { statusCode?: number } = new Error(
+      "No file upload provider is configured. Connect Builder.io in Settings → File uploads, set BUILDER_PRIVATE_KEY, or register a custom provider via registerFileUploadProvider().",
+    );
+    err.statusCode = 503;
+    throw err;
+  }
 
   return {
-    url: uploadedAssetUrl(`${assetKey}/${filename}`),
-    filename,
+    url: result.url,
+    filename: args.originalName,
     type: args.type || "application/octet-stream",
     size: args.data.length,
+    provider: result.provider,
   };
 }
 
-// Upload an asset.
-//
-// Routes through the framework's `uploadFile()` provider chain first so the
-// same Builder.io credential that powers chat-attachment uploads also works
-// for drag-and-drop onto a slide. Falls back to the local public/uploads/
-// store only when no provider is configured (dev mode). On serverless hosts
-// the local-fs path doesn't survive the request, so we surface a clear
-// "connect Builder.io" error instead of silently dropping the upload.
+/**
+ * POST /api/assets/upload — receive a single image file, route it through the
+ * framework provider chain, return its hosted URL.
+ */
 export const uploadAsset = defineEventHandler(async (event) => {
   const session = await requireSession(event);
   if (!session) {
@@ -182,122 +167,54 @@ export const uploadAsset = defineEventHandler(async (event) => {
     return { error: "File too large (max 10 MB)" };
   }
 
-  // 1. Try the framework file-upload provider (Builder.io, S3, etc.). This
-  //    works in every environment, including serverless.
   try {
-    const providerResult = await runWithRequestContext(
-      { userEmail: session.email },
-      () =>
-        uploadFile({
-          data: filePart.data,
-          filename: filePart.filename,
-          mimeType: filePart.type,
-          ownerEmail: session.email,
-        }),
-    );
-    if (providerResult) {
-      return {
-        url: providerResult.url,
-        filename: filePart.filename || providerResult.id || "upload",
-        type: filePart.type || "application/octet-stream",
-        size: filePart.data.length,
-        provider: providerResult.provider,
-      };
-    }
-  } catch (error) {
-    // Real upload error (network, API). Surface it — don't silently fall back
-    // to local disk because the user expects the image they dropped to be
-    // available to other tabs / agents / share links.
-    setResponseStatus(event, 502);
-    return {
-      error:
-        error instanceof Error
-          ? `Image upload failed: ${error.message}`
-          : "Image upload failed",
-    };
-  }
-
-  // 2. No provider — fall back to the local store. This only works in single-
-  //    server dev runs; on serverless the file vanishes after the request.
-  //    We still try it so dev keeps working without Builder configured.
-  if (process.env.NETLIFY || process.env.VERCEL || process.env.CF_PAGES) {
-    setResponseStatus(event, 503);
-    return {
-      error:
-        "Image uploads aren't configured. Connect Builder.io in Settings → File uploads for free image hosting, or set BUILDER_PRIVATE_KEY.",
-    };
-  }
-
-  try {
-    return await saveUploadedAsset({
+    return await uploadImageAsset({
       email: session.email,
       originalName: filePart.filename || "upload",
       data: filePart.data,
       type: filePart.type,
     });
   } catch (error) {
-    setResponseStatus(event, 400);
+    const status = (error as { statusCode?: number })?.statusCode ?? 400;
+    setResponseStatus(event, status);
     return {
-      error: error instanceof Error ? error.message : "Invalid image upload",
+      error: error instanceof Error ? error.message : "Image upload failed",
     };
   }
 });
 
-// List all assets
+/**
+ * GET /api/assets — list previously-uploaded assets.
+ *
+ * Asset history used to come from scanning `public/uploads/<tenant>/` on disk.
+ * That source is gone now (see `uploadImageAsset` for the reasoning). Until
+ * we plumb a SQL-backed asset index that records each upload (so we can list
+ * across providers), this endpoint returns an empty list. The AssetLibraryPanel
+ * still works for uploading new images and selecting them for the current
+ * editing session.
+ */
 export const listAssets = defineEventHandler(async (event) => {
   const session = await requireSession(event);
   if (!session) {
     return { error: "Unauthorized" };
   }
-
-  try {
-    const assetKey = tenantAssetKey(session.email);
-    const uploadDir = tenantAssetDir(session.email);
-    const files = fs.existsSync(uploadDir) ? fs.readdirSync(uploadDir) : [];
-    const assets = files
-      .filter((f) => !/^\./.test(f))
-      .map((filename) => {
-        const filePath = path.join(uploadDir, filename);
-        const stat = fs.statSync(filePath);
-        return {
-          url: uploadedAssetUrl(`${assetKey}/${filename}`),
-          filename,
-          size: stat.size,
-          createdAt: stat.birthtime.toISOString(),
-        };
-      })
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
-    return assets;
-  } catch {
-    return [];
-  }
+  return [];
 });
 
-// Delete an asset
+/**
+ * DELETE /api/assets/:filename — used to delete from `public/uploads/`. With
+ * uploads routed through Builder.io / S3 / etc., deletion has to happen via
+ * the active provider's API. Returning 501 keeps the endpoint reachable so
+ * the frontend doesn't error, and signals that this isn't wired yet.
+ */
 export const deleteAsset = defineEventHandler(async (event) => {
   const session = await requireSession(event);
   if (!session) {
     return { error: "Unauthorized" };
   }
-
-  const filenameParam = getRouterParam(event, "filename");
-  if (!filenameParam) {
-    setResponseStatus(event, 400);
-    return { error: "Filename is required" };
-  }
-  if (filenameParam.includes("/") || filenameParam.includes("..")) {
-    setResponseStatus(event, 400);
-    return { error: "Invalid filename" };
-  }
-  const filename = path.basename(filenameParam);
-  const filePath = path.join(tenantAssetDir(session.email), filename);
-  if (!fs.existsSync(filePath)) {
-    setResponseStatus(event, 404);
-    return { error: "File not found" };
-  }
-  fs.unlinkSync(filePath);
-  return { success: true };
+  setResponseStatus(event, 501);
+  return {
+    error:
+      "Asset deletion via this endpoint is not implemented — uploads now live in the configured file-upload provider (Builder.io, S3, etc.). Delete them through the provider's dashboard.",
+  };
 });
