@@ -269,6 +269,60 @@ function ScopeBadge({
 }
 
 /**
+ * Empty-state addon shown when the user starts a fresh chat inside a
+ * scoped surface that already has other threads. Surfaces those threads
+ * inline so chats don't feel "lost" after the user navigates away and
+ * back — the chip popover lists them too, but this nudge is visible
+ * without any extra clicks.
+ */
+function PreviousScopedChatsHint({
+  scope,
+  threads,
+  onSelectThread,
+}: {
+  scope: ChatThreadScope;
+  threads: ChatThreadSummary[];
+  onSelectThread: (id: string) => void;
+}) {
+  const MAX_INLINE = 3;
+  const shown = threads.slice(0, MAX_INLINE);
+  const remaining = threads.length - shown.length;
+  const scopeLabel = scope.label || `this ${scope.type}`;
+  return (
+    <div className="flex w-full max-w-[280px] flex-col gap-1.5">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 text-center">
+        Continue a previous chat
+        <span className="ml-1 normal-case text-muted-foreground/70">
+          for {scopeLabel}
+        </span>
+      </div>
+      <div className="flex flex-col gap-1">
+        {shown.map((thread) => (
+          <button
+            key={thread.id}
+            type="button"
+            onClick={() => onSelectThread(thread.id)}
+            className="flex items-baseline justify-between gap-2 rounded-md border border-border px-2.5 py-1.5 text-left hover:bg-accent cursor-pointer"
+          >
+            <span className="truncate text-[12px] text-foreground">
+              {thread.title || thread.preview || "Chat"}
+            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {formatThreadTime(thread.updatedAt)}
+            </span>
+          </button>
+        ))}
+      </div>
+      {remaining > 0 && (
+        <div className="text-[10px] text-muted-foreground/70 text-center">
+          +{remaining} more in the chip above
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Thin confirmation banner shown briefly after detach. The chip itself
  * unmounts the moment scope clears on the active thread, so this banner
  * holds the visual feedback long enough for the user to register what
