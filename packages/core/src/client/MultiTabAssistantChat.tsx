@@ -10,6 +10,7 @@ import {
   IconPlus,
   IconHistory,
   IconSearch,
+  IconLink,
   IconLinkOff,
 } from "@tabler/icons-react";
 import {
@@ -168,12 +169,11 @@ function ChatSkeleton({
 // ─── Scope Badge ─────────────────────────────────────────────────────────────
 
 /**
- * Thin "Working on {Deck Title}" badge that appears at the top of a scoped
- * chat. Click → popover with the Detach button. Steve called for "minimal
- * UX, friendly nudge OK" so the badge is text-only and unobtrusive when
- * the user doesn't need it. It is the only escape hatch for taking a
- * deck-scoped chat back to a general one, so it stays visible the whole
- * time a chat is scoped — not just on the empty state.
+ * Thin "Linked to {Deck Title}" chip at the top of a scoped chat. Click →
+ * popover with the Detach button. The chip is text + link icon and stays
+ * unobtrusive when the user doesn't need it. It is the only escape hatch
+ * for taking a scoped chat back to a general one, so it stays visible the
+ * whole time a chat is scoped — not just on the empty state.
  */
 function ScopeBadge({
   scope,
@@ -184,11 +184,11 @@ function ScopeBadge({
 }) {
   const [open, setOpen] = useState(false);
   // Templates that don't have the resource's display title at layout time
-  // pass `{ type, id }` without a label. Render "About this deck" as a
-  // graceful fallback instead of "About deck", which reads oddly.
+  // pass `{ type, id }` without a label. Fall back to "this {type}" so the
+  // chip still reads naturally.
   const heading = scope.label
-    ? `About ${scope.label}`
-    : `About this ${scope.type}`;
+    ? `Linked to ${scope.label}`
+    : `Linked to this ${scope.type}`;
   const detailLabel = scope.label || `this ${scope.type}`;
   return (
     <div className="flex items-center justify-center py-1 px-3 text-[11px] text-muted-foreground border-b border-border/40 shrink-0">
@@ -199,14 +199,15 @@ function ScopeBadge({
             className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 hover:bg-accent/50 hover:text-foreground cursor-pointer"
             aria-label={heading}
           >
+            <IconLink size={11} className="shrink-0 opacity-70" />
             <span className="truncate max-w-[220px]">{heading}</span>
           </button>
         </PopoverTrigger>
         <PopoverContent align="center" side="bottom" className="w-60 p-2">
           <p className="px-2 py-1 text-[11px] text-muted-foreground">
-            This chat is bound to{" "}
+            This chat is linked to{" "}
             <span className="text-foreground">{detailLabel}</span>. New chats
-            started while you're here stay in this chat list; switch to another{" "}
+            started here stay with this {scope.type}; switch to another{" "}
             {scope.type} to find its threads.
           </p>
           <button
@@ -1762,11 +1763,15 @@ export function MultiTabAssistantChat({
         {renderOverlay ? renderOverlay(headerProps) : null}
 
         {/* Scope badge — only visible when the active chat is bound to a
-            resource. Click for the detach popover. The scope used here
-            comes from the THREAD (not the component prop) so a chat
+            resource AND the chat content itself is visible. The scope used
+            here comes from the THREAD (not the component prop) so a chat
             opened from history accurately advertises its own binding,
-            not whichever resource the user happens to be viewing. */}
-        {activeThreadScope && activeThreadId && (
+            not whichever resource the user happens to be viewing.
+            Gated on `!contentHidden` because the wrapping AgentPanel keeps
+            the chat mounted (to preserve state) while Workspace/Settings
+            tabs are active — without this gate the badge leaks into those
+            tabs even though the chat itself is `display: none`. */}
+        {!contentHidden && activeThreadScope && activeThreadId && (
           <ScopeBadge
             scope={activeThreadScope}
             onDetach={() => detachThread(activeThreadId)}
