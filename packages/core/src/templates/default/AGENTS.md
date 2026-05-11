@@ -9,7 +9,7 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 1. **Shared SQL database** -- All app state lives in SQL (SQLite locally, cloud DB via `DATABASE_URL` in production). Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
 2. **All AI through agent chat** -- No inline LLM calls. UI delegates to the AI via `sendToAgentChat()` / `agentChat.submit()`.
 3. **Actions for agent operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`.
-4. **Polling for real-time sync** -- Database writes trigger version counter increments that the UI polls to stay in sync.
+4. **Polling for real-time sync** -- Database writes trigger version counter increments that the UI polls to stay in sync. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` (auto-covered) or fold `useChangeVersions([<source>, "action"])` into raw `useQuery` keys. See the `real-time-sync` and `adding-a-feature` skills.
 5. **Agent can update code** -- The agent can modify this app's source code directly.
 
 ### Authentication
@@ -90,28 +90,30 @@ You do NOT get auto-injected screen state. **Call `pnpm action view-screen` at t
 
 Skills in `.agents/skills/` provide detailed guidance for each architectural rule. Read them before making changes.
 
-| Skill                 | When to read                                                    |
-| --------------------- | --------------------------------------------------------------- |
-| `storing-data`        | Before storing or reading any app state                         |
-| `delegate-to-agent`   | Before adding LLM calls or AI delegation                        |
-| `actions`             | Before creating or modifying actions                            |
-| `real-time-sync`      | Before wiring up real-time UI sync                              |
-| `self-modifying-code` | Before editing source, components, or styles                    |
-| `capture-learnings`   | Before recording user preferences or corrections                |
-| `frontend-design`     | Before building or restyling any UI component, page, or layout  |
-| `agent-engines`       | Before switching LLM providers or registering a custom engine   |
-| `notifications`       | Before surfacing alerts/progress to the user or adding channels |
-| `progress`            | Before running any task that takes more than a few seconds      |
+| Skill                 | When to read                                                                      |
+| --------------------- | --------------------------------------------------------------------------------- |
+| `adding-a-feature`    | **Read first when adding ANY new feature** — the four-area parity checklist       |
+| `real-time-sync`      | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |
+| `storing-data`        | Before storing or reading any app state                                           |
+| `delegate-to-agent`   | Before adding LLM calls or AI delegation                                          |
+| `actions`             | Before creating or modifying actions                                              |
+| `self-modifying-code` | Before editing source, components, or styles                                      |
+| `capture-learnings`   | Before recording user preferences or corrections                                  |
+| `frontend-design`     | Before building or restyling any UI component, page, or layout                    |
+| `agent-engines`       | Before switching LLM providers or registering a custom engine                     |
+| `notifications`       | Before surfacing alerts/progress to the user or adding channels                   |
+| `progress`            | Before running any task that takes more than a few seconds                        |
 
 ## When Adding Features
 
-As you build out this app, follow this checklist for each new feature:
+**Read the `adding-a-feature` skill first** — it has the full four-area checklist (UI / Action / Skills / App-State). Quick summary:
 
-1. **Add navigation state entries** -- extend `app/hooks/use-navigation-state.ts` to track new routes
-2. **Enhance view-screen** -- make the view-screen script return relevant context for the new view
-3. **Create domain actions** -- add scripts for CRUD operations on new data models
-4. **Create domain skills** -- add `.agents/skills/<feature>/SKILL.md` documenting the data model, storage patterns, and agent operations
-5. **Update this AGENTS.md** -- add the new actions, state keys, and common tasks
+1. **Add navigation state entries** — extend `app/hooks/use-navigation-state.ts` to track new routes
+2. **Enhance view-screen** — make the view-screen script return relevant context for the new view
+3. **Create domain actions** — add actions in `actions/` for CRUD operations on new data models
+4. **Wire UI for auto-refresh** — use `useActionQuery` (auto-covered) OR fold `useChangeVersions([<source>, "action"])` into raw `useQuery` keys with `placeholderData`. When the agent mutates this data, the UI must reflect the change without a manual refresh. See `real-time-sync` skill.
+5. **Create domain skills** — add `.agents/skills/<feature>/SKILL.md` documenting the data model, storage patterns, and agent operations
+6. **Update this AGENTS.md** — add the new actions, state keys, and common tasks
 
 ---
 
