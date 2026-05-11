@@ -421,6 +421,12 @@ export default function DeckEditor() {
       const target = e.target as Element | null;
       if (isInsideSafeZone(target)) return;
       if (isInsideSafeZone(document.activeElement)) return;
+      // Belt-and-suspenders: if a pin composer is mounted anywhere, the user
+      // is in mid-comment. The textarea has autoFocus but autoFocus isn't
+      // instantaneous, so the first keystroke can land on the canvas before
+      // focus moves — without this check, Backspace would delete the slide
+      // the user is trying to comment on.
+      if (document.querySelector("[data-pin-popover]")) return;
       // Skip if the SlideEditor reports an element is selected (image, text
       // block, or builder-id selector). Slide-level delete is reserved for
       // when the canvas itself has focus.
