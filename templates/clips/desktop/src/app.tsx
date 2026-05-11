@@ -3392,6 +3392,7 @@ function Setup({
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
   const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
   const autoHidePopoverEnabled = featureConfig?.autoHidePopoverEnabled === true;
+  const showInScreenCapture = featureConfig?.showInScreenCapture === true;
   const meetingTranscriptionMode: MeetingTranscriptionMode =
     featureConfig?.meetingTranscriptionMode ?? "ask";
   const showMeetingWidgetEnabled =
@@ -3437,6 +3438,15 @@ function Setup({
     if (!featureConfig) return;
     invoke("set_feature_config", {
       config: { ...featureConfig, autoHidePopoverEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function setShowInScreenCapture(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, showInScreenCapture: enabled },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
@@ -3703,6 +3713,20 @@ function Setup({
             on={autoHidePopoverEnabled}
             onChange={setAutoHidePopoverEnabled}
             label="Hide Clips when focus leaves"
+          />
+        </div>
+      </div>
+
+      <div className="setup-section">
+        <div className="setup-toggle-row">
+          <SettingLabel
+            label="Show Clips in screen captures"
+            hint="By default the Clips window and recording overlays are hidden from screenshots and screen recordings so they never leak into your captured video. Turn on for debugging or demos."
+          />
+          <Switch
+            on={showInScreenCapture}
+            onChange={setShowInScreenCapture}
+            label="Show Clips in screen captures"
           />
         </div>
       </div>

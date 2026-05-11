@@ -10,6 +10,7 @@ interface FeatureConfig {
   autoHidePopoverEnabled: boolean;
   meetingTranscriptionMode: "manual" | "ask" | "auto";
   showMeetingWidgetEnabled: boolean;
+  showInScreenCapture: boolean;
   onboardingComplete: boolean;
 }
 
