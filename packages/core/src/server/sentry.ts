@@ -118,6 +118,31 @@ export function initServerSentry(): boolean {
       ) {
         return null;
       }
+      // Drop "socket hang up" unhandled promise rejections that fire from
+      // Lambda freeze cycles. AWS Lambda recycles long-lived sockets (e.g.
+      // MCP Streamable HTTP long-polls, keep-alive HTTP agents) ~60s after
+      // a function returns 200; the next thaw delivers a socket-end event
+      // whose Promise has nobody left to await it. The function itself
+      // already returned correctly, so there's no user impact — just
+      // ~10k events/day of noise. The narrow shape (unhandled rejection
+      // from `Socket.socketOnEnd` in `node:_http_client`) keeps real
+      // application-thrown socket errors from being silenced.
+      const exceptionValue = event.exception?.values?.[0]?.value ?? "";
+      const exceptionMechanism = event.exception?.values?.[0]?.mechanism?.type;
+      if (
+        exceptionValue === "socket hang up" &&
+        exceptionMechanism === "onunhandledrejection"
+      ) {
+        const frames = event.exception?.values?.[0]?.stacktrace?.frames ?? [];
+        const fromHttpClient = frames.some(
+          (f) =>
+            f?.function === "Socket.socketOnEnd" ||
+            f?.filename === "node:_http_client",
+        );
+        if (fromHttpClient) {
+          return null;
+        }
+      }
       // h3's `createError({ statusCode: 4xx, ... })` produces an
       // `HTTPError` (h3 v2) / `H3Error` (h3 v1). 4xx HTTPErrors are
       // handler-controlled "expected failure" responses (404 not found,

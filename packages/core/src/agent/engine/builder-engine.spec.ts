@@ -4,6 +4,7 @@ import {
   BUILDER_DEFAULT_MODEL,
   createBuilderEngine,
 } from "./builder-engine.js";
+import * as captureErrorModule from "../../server/capture-error.js";
 import type { EngineStreamOptions } from "./types.js";
 
 const credentialState = vi.hoisted(() => ({
@@ -599,6 +600,69 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_error");
     expect(stop?.error).toContain("Gateway error (no detail");
+  });
+
+  it("captures no-detail gateway stop errors to Sentry with model + requestId tags", async () => {
+    const captureSpy = vi
+      .spyOn(captureErrorModule, "captureError")
+      .mockReturnValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            requestId: "req_no_detail",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(captureSpy).toHaveBeenCalledTimes(1);
+    const [capturedErr, capturedCtx] = captureSpy.mock.calls[0];
+    expect((capturedErr as Error).name).toBe("BuilderGatewayNoDetailError");
+    expect((capturedErr as Error).message).toContain("req_no_detail");
+    expect(capturedCtx?.tags?.errorCode).toBe("builder_gateway_error");
+    expect(capturedCtx?.tags?.model).toBe(BASE_OPTS.model);
+    expect(capturedCtx?.tags?.gatewayRequestId).toBe("req_no_detail");
+    expect(capturedCtx?.tags?.source).toBe("builder-engine");
+    expect(capturedCtx?.extra?.gatewayOrigin).toBe("https://test.example");
+    expect(capturedCtx?.contexts?.builderGateway?.requestId).toBe(
+      "req_no_detail",
+    );
+  });
+
+  it("does not capture to Sentry when the gateway provides an explicit error detail", async () => {
+    const captureSpy = vi
+      .spyOn(captureErrorModule, "captureError")
+      .mockReturnValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            requestId: "req_with_detail",
+            error: "upstream provider rejected the model",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toContain("upstream provider rejected the model");
+    // Errors with explicit detail are handled by the existing run-manager
+    // capture; no need to also capture from builder-engine.
+    expect(captureSpy).not.toHaveBeenCalled();
   });
 
   it("processes a final event without a trailing newline", async () => {

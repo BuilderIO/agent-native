@@ -273,6 +273,47 @@ describe("McpClientManager", () => {
     }
   });
 
+  it("attaches transport.onerror before connect so SDK transport errors don't leak as unhandled rejections", async () => {
+    // The MCP SDK's StreamableHTTPClientTransport has fire-and-forget code
+    // paths (initial SSE stream open, scheduled reconnects) that route
+    // errors through `this.onerror?.(...)`. On AWS Lambda the long-lived
+    // socket gets reaped ~60s after the function returns, surfacing as a
+    // `socket hang up` unhandled rejection — see `processStream()` in
+    // @modelcontextprotocol/sdk/client/streamableHttp.js. The manager must
+    // attach a transport.onerror handler BEFORE client.connect() so those
+    // errors are captured even when Client's wiring hasn't run yet.
+    const seenOnError: Array<((error: unknown) => void) | undefined> = [];
+    const origConnect = FakeClient.prototype.connect;
+    FakeClient.prototype.connect = async function (transport: FakeTransport) {
+      seenOnError.push((transport as FakeHttp).onerror);
+      return origConnect.call(this, transport);
+    };
+
+    try {
+      serverFixtures["http https://example.com/mcp"] = {
+        tools: [{ name: "ping" }],
+        callImpl: () => ({ content: [] }),
+      };
+      const mgr = new McpClientManager({
+        servers: {
+          remote: { type: "http", url: "https://example.com/mcp" },
+        },
+      });
+      await mgr.start();
+
+      expect(seenOnError).toHaveLength(1);
+      expect(typeof seenOnError[0]).toBe("function");
+
+      // Calling the handler with a synthetic socket error must not throw —
+      // the no-op recorder swallows transport errors during connect so the
+      // SDK's `this.onerror?.(error); throw error;` pattern can't fire an
+      // unhandled rejection before Client.connect() wires its own handler.
+      expect(() => seenOnError[0]?.(new Error("socket hang up"))).not.toThrow();
+    } finally {
+      FakeClient.prototype.connect = origConnect;
+    }
+  });
+
   it("contains SDK close rejections after failed handshakes", async () => {
     const origConnect = FakeClient.prototype.connect;
     const origClose = FakeClient.prototype.close;

@@ -196,6 +196,87 @@ describe("server/sentry", () => {
       expect(result.user).toBeUndefined();
     });
 
+    it("drops socket hang up unhandled rejections from node:_http_client", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      initServerSentry();
+
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "socket hang up",
+              mechanism: { type: "onunhandledrejection" },
+              stacktrace: {
+                frames: [
+                  {
+                    function: "Socket.socketOnEnd",
+                    filename: "node:_http_client",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      } as never);
+      expect(result).toBeNull();
+    });
+
+    it("keeps socket hang up errors that aren't unhandled rejections", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      initServerSentry();
+
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const event = {
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "socket hang up",
+              mechanism: { type: "generic" },
+              stacktrace: {
+                frames: [
+                  {
+                    function: "Socket.socketOnEnd",
+                    filename: "node:_http_client",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+      const result = beforeSend(event as never);
+      expect(result).not.toBeNull();
+    });
+
+    it("keeps socket hang up rejections without an _http_client frame", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      initServerSentry();
+
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const event = {
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "socket hang up",
+              mechanism: { type: "onunhandledrejection" },
+              stacktrace: {
+                frames: [{ function: "userCode", filename: "/app/server.js" }],
+              },
+            },
+          ],
+        },
+      };
+      const result = beforeSend(event as never);
+      expect(result).not.toBeNull();
+    });
+
     it("strips runtime_env from contexts", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
