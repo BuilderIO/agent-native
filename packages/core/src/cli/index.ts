@@ -204,6 +204,31 @@ process.on("unhandledRejection", (reason: any) => {
   Sentry.flush(2000).finally(() => process.exit(1));
 });
 
+// Surface a self-heal hint when an interrupted `npx @agent-native/core ...`
+// leaves a half-extracted package in the npx cache and a follow-up run fails
+// to load one of our own sub-modules.
+function handleScaffoldImportError(err: any): never {
+  const msg = err?.message ?? String(err);
+  const looksLikeCorruptCache =
+    err?.code === "ERR_MODULE_NOT_FOUND" ||
+    err?.code === "MODULE_NOT_FOUND" ||
+    err?.code === "ENOENT" ||
+    /Cannot find module|tarball|integrity|EINTEGRITY|corrupt|truncated/i.test(
+      msg,
+    );
+  if (looksLikeCorruptCache) {
+    console.error(
+      `\n  Failed to load the scaffolder. This usually means an earlier\n  \`npx\` run was interrupted and left a corrupt cache.\n\n  Clear the npx cache and try again:\n    rm -rf ~/.npm/_npx\n    npx @agent-native/core@latest create\n\n  Original error: ${msg}\n`,
+    );
+  } else {
+    console.error(`\n  Failed to load the scaffolder: ${msg}\n`);
+  }
+  trackCli("cli.scaffold.import_error", { error: msg });
+  Sentry.captureException(err);
+  Sentry.flush(2000).finally(() => process.exit(1));
+  throw err;
+}
+
 function findViteBin(): string {
   // Look for vite in node_modules/.bin
   const localVite = path.resolve("node_modules/.bin/vite");
@@ -537,30 +562,36 @@ switch (command) {
     //   --template foo,bar         Pre-select multiple templates in the picker
     //   --standalone               Scaffold a single standalone app
     const parsed = parseScaffoldArgs(args);
-    import("./create.js").then((m) =>
-      m.createApp(parsed.name, {
-        template: parsed.template,
-        standalone: parsed.standalone,
-      }),
-    );
+    import("./create.js")
+      .then((m) =>
+        m.createApp(parsed.name, {
+          template: parsed.template,
+          standalone: parsed.standalone,
+        }),
+      )
+      .catch(handleScaffoldImportError);
     break;
   }
 
   case "create-workspace": {
     // Deprecated alias for `create` (since workspace is now the default).
     const parsed = parseScaffoldArgs(args);
-    import("./create-workspace.js").then((m) =>
-      m.createWorkspace({ name: parsed.name, template: parsed.template }),
-    );
+    import("./create-workspace.js")
+      .then((m) =>
+        m.createWorkspace({ name: parsed.name, template: parsed.template }),
+      )
+      .catch(handleScaffoldImportError);
     break;
   }
 
   case "add-app": {
     // Add one or more apps to the current workspace.
     const parsed = parseScaffoldArgs(args);
-    import("./create.js").then((m) =>
-      m.addAppToWorkspace(parsed.name, { template: parsed.template }),
-    );
+    import("./create.js")
+      .then((m) =>
+        m.addAppToWorkspace(parsed.name, { template: parsed.template }),
+      )
+      .catch(handleScaffoldImportError);
     break;
   }
 

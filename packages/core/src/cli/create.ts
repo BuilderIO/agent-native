@@ -132,21 +132,6 @@ async function createWorkspaceInteractive(
 
   name = await promptNameIfMissing(name, clack, "workspace", "my-platform");
   const preselected = parseTemplateList(opts?.template);
-  const dispatchRecommendation =
-    preselected.length === 0
-      ? [
-          "Dispatch is preselected because it is the recommended workspace",
-          "control plane for secrets, messaging, approvals, and cross-app routing.",
-        ]
-      : preselected.includes("dispatch")
-        ? [
-            "Dispatch is included, so the workspace will have a central",
-            "control plane for secrets, messaging, approvals, and cross-app routing.",
-          ]
-        : [
-            "Dispatch is recommended for most workspaces. You can add it later",
-            "with `npx @agent-native/core add-app --template=dispatch` if you skip it now.",
-          ];
 
   clack.note(
     [
@@ -156,25 +141,25 @@ async function createWorkspaceInteractive(
       "same workspace share auth, database, and the agent chat. Add more apps",
       "later with `npx @agent-native/core add-app`. Starter is a minimal scaffold —",
       "useful as a blank app to build from scratch alongside the others.",
-      ...dispatchRecommendation,
+      "Dispatch is always included as the workspace control plane —",
+      "it owns shared secrets, messaging, approvals, and cross-app routing.",
     ].join("\n"),
     "About workspaces",
   );
 
-  // If templates were explicitly passed via --template, use them directly.
-  // Otherwise show the multi-select picker.
-  const templates =
+  // Dispatch is the workspace control plane (shared secrets, messaging,
+  // approvals, cross-app routing) and is always scaffolded — the picker
+  // only shows the optional apps. If the user explicitly passed
+  // `--template=...`, those entries get unioned with dispatch.
+  const optionalPicks =
     preselected.length > 0
-      ? preselected
+      ? preselected.filter((t) => t !== "dispatch")
       : await promptTemplatePicker(preselected, clack, {
-          defaultTemplates: ["dispatch", "starter"],
-          preferredFirst: ["dispatch", "starter"],
-          recommendedNames: ["dispatch"],
+          defaultTemplates: ["starter"],
+          preferredFirst: ["starter"],
+          excludeNames: ["dispatch"],
         });
-  if (templates.length === 0) {
-    clack.cancel("No apps selected. Cancelled.");
-    process.exit(0);
-  }
+  const templates = ["dispatch", ...optionalPicks];
 
   const targetDir = path.resolve(process.cwd(), name);
   if (fs.existsSync(targetDir)) {
@@ -183,9 +168,7 @@ async function createWorkspaceInteractive(
   }
 
   const s = clack.spinner();
-  s.start(
-    `Working... no action needed. Scaffolding workspace with ${templates.length} app(s).`,
-  );
+  s.start(`Scaffolding workspace "${name}"...`);
 
   const firstApp = templates[0];
 
@@ -193,7 +176,11 @@ async function createWorkspaceInteractive(
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/shared`;
 
-    for (const t of templates) {
+    for (let i = 0; i < templates.length; i++) {
+      const t = templates[i];
+      s.message(
+        `Scaffolding ${titleCase(t)} (${i + 1}/${templates.length})...`,
+      );
       const appDir = path.join(targetDir, "apps", t);
       await scaffoldAppTemplate(appDir, t);
       replacePlaceholders(appDir, t, titleCase(t), name);
@@ -213,9 +200,12 @@ async function createWorkspaceInteractive(
       setupAgentSymlinks(appDir);
     }
 
+    s.message("Adding shared packages...");
     await scaffoldRequiredPackages(templates, targetDir);
 
-    s.stop("Workspace scaffolded.");
+    s.stop(
+      `Workspace scaffolded with ${templates.length} app${templates.length === 1 ? "" : "s"}.`,
+    );
   } catch (err: any) {
     s.stop("Failed to scaffold workspace.");
     clack.cancel(err?.message ?? String(err));
@@ -236,14 +226,22 @@ async function createWorkspaceInteractive(
         `   ← app`,
     ),
   ];
-  const dispatchNextStep = templates.includes("dispatch")
+  const dispatchNextStep = [
+    `Once running, open Dispatch — you'll see "Workspace: ${titleCase(name)}"`,
+    `at the top, with all your apps listed under it.`,
+  ];
+
+  const installSteps = hasPnpm()
     ? [
-        `Once running, open Dispatch — you'll see "Workspace: ${titleCase(name)}"`,
-        `at the top, with all your apps listed under it.`,
+        `  pnpm install`,
+        `  pnpm dev          # starts Dispatch on http://localhost:8092`,
       ]
     : [
-        `This workspace does not include Dispatch. We generally recommend it`,
-        `for workspace secrets, messaging, approvals, and cross-app routing.`,
+        `  # pnpm is required but wasn't found on your PATH. Install it first:`,
+        `  npm install -g pnpm`,
+        ``,
+        `  pnpm install`,
+        `  pnpm dev          # starts Dispatch on http://localhost:8092`,
       ];
 
   clack.outro(
@@ -255,8 +253,7 @@ async function createWorkspaceInteractive(
       `Next steps:`,
       ``,
       `  cd ${name}`,
-      `  pnpm install`,
-      `  pnpm dev          # starts Dispatch; other apps start on first visit`,
+      ...installSteps,
       ``,
       ...dispatchNextStep,
       ``,
@@ -264,6 +261,21 @@ async function createWorkspaceInteractive(
       `Deploy the whole workspace:   pnpm exec agent-native deploy`,
     ].join("\n"),
   );
+}
+
+/**
+ * Detect whether pnpm is on PATH. End-user machines often have npm/yarn but
+ * not pnpm; the workspace scaffold uses pnpm workspaces, so we surface a
+ * specific install hint in the outro when it's missing rather than letting
+ * the user hit `zsh: command not found: pnpm`.
+ */
+function hasPnpm(): boolean {
+  try {
+    execFileSync("pnpm", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function scaffoldWorkspaceRoot(
