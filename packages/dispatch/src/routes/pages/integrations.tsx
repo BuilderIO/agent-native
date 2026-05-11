@@ -28,6 +28,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function meta() {
   return [{ title: "Connections — Dispatch" }];
@@ -251,10 +256,15 @@ function ConnectorCard({ service }: { service: Service }) {
             </Badge>
           )}
         </div>
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-foreground truncate">
-            {service.label}
-          </div>
+        <div className="w-full min-w-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="text-sm font-semibold text-foreground truncate">
+                {service.label}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>{service.label}</TooltipContent>
+          </Tooltip>
           <div className="font-mono text-xs text-muted-foreground/80 truncate">
             {service.key}
           </div>

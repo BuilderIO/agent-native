@@ -9,6 +9,8 @@ import fs from "fs";
 import crypto from "crypto";
 import { nanoid } from "nanoid";
 import { getAppBasePath, getSession } from "@agent-native/core/server";
+import { uploadFile } from "@agent-native/core/file-upload";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { uploadedAssetUrlForBasePath } from "./assets-url.js";
 
 const UPLOADS_ROOT = path.join(process.cwd(), "public", "uploads");
@@ -154,7 +156,14 @@ export async function saveUploadedAsset(args: {
   };
 }
 
-// Upload an asset
+// Upload an asset.
+//
+// Routes through the framework's `uploadFile()` provider chain first so the
+// same Builder.io credential that powers chat-attachment uploads also works
+// for drag-and-drop onto a slide. Falls back to the local public/uploads/
+// store only when no provider is configured (dev mode). On serverless hosts
+// the local-fs path doesn't survive the request, so we surface a clear
+// "connect Builder.io" error instead of silently dropping the upload.
 export const uploadAsset = defineEventHandler(async (event) => {
   const session = await requireSession(event);
   if (!session) {
@@ -171,6 +180,52 @@ export const uploadAsset = defineEventHandler(async (event) => {
   if (filePart.data.length > MAX_ASSET_FILE_SIZE) {
     setResponseStatus(event, 413);
     return { error: "File too large (max 10 MB)" };
+  }
+
+  // 1. Try the framework file-upload provider (Builder.io, S3, etc.). This
+  //    works in every environment, including serverless.
+  try {
+    const providerResult = await runWithRequestContext(
+      { userEmail: session.email },
+      () =>
+        uploadFile({
+          data: filePart.data,
+          filename: filePart.filename,
+          mimeType: filePart.type,
+          ownerEmail: session.email,
+        }),
+    );
+    if (providerResult) {
+      return {
+        url: providerResult.url,
+        filename: filePart.filename || providerResult.id || "upload",
+        type: filePart.type || "application/octet-stream",
+        size: filePart.data.length,
+        provider: providerResult.provider,
+      };
+    }
+  } catch (error) {
+    // Real upload error (network, API). Surface it — don't silently fall back
+    // to local disk because the user expects the image they dropped to be
+    // available to other tabs / agents / share links.
+    setResponseStatus(event, 502);
+    return {
+      error:
+        error instanceof Error
+          ? `Image upload failed: ${error.message}`
+          : "Image upload failed",
+    };
+  }
+
+  // 2. No provider — fall back to the local store. This only works in single-
+  //    server dev runs; on serverless the file vanishes after the request.
+  //    We still try it so dev keeps working without Builder configured.
+  if (process.env.NETLIFY || process.env.VERCEL || process.env.CF_PAGES) {
+    setResponseStatus(event, 503);
+    return {
+      error:
+        "Image uploads aren't configured. Connect Builder.io in Settings → File uploads for free image hosting, or set BUILDER_PRIVATE_KEY.",
+    };
   }
 
   try {
