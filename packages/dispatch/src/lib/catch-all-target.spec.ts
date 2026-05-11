@@ -171,6 +171,21 @@ describe("resolveCatchAllTarget", () => {
     expect(resolveCatchAllTarget("forms")).toBe("/forms");
   });
 
+  it("collapses leading double slashes in app.path so `//evil.example` can't redirect off-origin", () => {
+    // The manifest parser only checks `startsWith("/")`, so a path of
+    // `//evil.example` slips through. Browsers treat that as a network-
+    // path reference and `throw redirect("//evil.example")` would redirect
+    // to `https://evil.example` — the same phishing vector the `app.url`
+    // validator closes. Collapse the leading slashes so the redirect
+    // stays on the gateway.
+    loadWorkspaceAppsManifestMock.mockReturnValue([
+      { id: "forms", name: "Forms", path: "//evil.example" },
+    ]);
+    getBuiltinAgentsMock.mockReturnValue([]);
+
+    expect(resolveCatchAllTarget("forms")).toBe("/evil.example");
+  });
+
   it("falls back to /${appId} when the manifest entry has neither path nor url", () => {
     loadWorkspaceAppsManifestMock.mockReturnValue([
       { id: "forms", name: "Forms", path: "" },

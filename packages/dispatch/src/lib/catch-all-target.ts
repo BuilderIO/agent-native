@@ -69,8 +69,16 @@ export function resolveCatchAllTarget(appId: string): string | null {
       // entry whose path differs from its id (e.g. `id: "forms"`,
       // `path: "my-forms"`) still lands on the correct gateway mount —
       // not on `/${appId}`, which would silently route to the wrong app.
+      //
+      // Reject scheme-relative paths (`//evil.example`). The manifest
+      // parser only checks `startsWith("/")`, so `//evil.example` passes
+      // — but browsers treat it as a network-path reference and the
+      // catch-all's `throw redirect("//evil.example")` becomes an
+      // off-origin redirect, the same phishing vector that the
+      // `validatedAbsoluteUrl` check closes for `app.url`. Strip the
+      // leading slashes down to one to keep the redirect on the gateway.
       if (typeof app.path === "string" && app.path.trim()) {
-        const normalized = app.path.trim();
+        const normalized = app.path.trim().replace(/^\/+/, "/");
         return normalized.startsWith("/") ? normalized : `/${normalized}`;
       }
       return `/${appId}`;
