@@ -322,9 +322,9 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(
       fs.existsSync(path.join(tmpDir, "test-ws", "apps", "dispatch")),
     ).toBe(true);
-    expect(
-      fs.existsSync(path.join(tmpDir, "test-ws", "apps", "starter")),
-    ).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, "test-ws", "apps", "starter"))).toBe(
+      true,
+    );
     expect(fs.existsSync(path.join(tmpDir, "test-ws", "apps", "forms"))).toBe(
       true,
     );

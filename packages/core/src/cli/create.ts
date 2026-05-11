@@ -501,6 +501,7 @@ async function createStandaloneApp(
     s.stop("App created!");
   } catch (err: any) {
     s.stop("Failed to create app.");
+    cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
@@ -508,6 +509,22 @@ async function createStandaloneApp(
   tryGitInit(targetDir);
 
   clack.outro(`Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`);
+}
+
+/**
+ * Remove a partially-scaffolded target directory after a scaffold failure so a
+ * retry doesn't hit the "Directory already exists" guard. Best-effort — the
+ * underlying failure is what we want surfaced, so we swallow rm errors and
+ * skip if the directory is somehow already gone.
+ */
+function cleanupOnFailure(targetDir: string): void {
+  try {
+    if (fs.existsSync(targetDir)) {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+  } catch {
+    // Ignore — original error is more useful than a cleanup failure.
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
