@@ -112,6 +112,7 @@ export {
 } from "./guided-questions.js";
 export {
   useChatThreads,
+  type ChatThreadScope,
   type ChatThreadSummary,
   type ChatThreadData,
 } from "./use-chat-threads.js";
