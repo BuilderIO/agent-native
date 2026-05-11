@@ -86,4 +86,97 @@ describe("update-slide", () => {
     expect(rowUpdatedAt).toBe(deck.updatedAt);
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
+
+  it("returns layoutOverflow + auto-fix message when the patched slide still overflows", async () => {
+    mockFitCheckResult = {
+      status: "overflows",
+      measurement: {
+        slideId: "slide-1",
+        contentHeight: 645,
+        viewportHeight: 420,
+        verticalOverflow: 225,
+        measuredAt: Date.now(),
+      },
+    };
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: "<div>Tightened but still tall</div>",
+    })) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      ok: true,
+      deckId: "deck-1",
+      slideId: "slide-1",
+      layoutOverflow: {
+        verticalOverflow: 225,
+        contentHeight: 645,
+        viewportHeight: 420,
+      },
+    });
+    expect(result.message).toMatch(/MOCK_OVERFLOW_MESSAGE/);
+  });
+
+  it("omits layoutOverflow when the patched slide fits", async () => {
+    mockFitCheckResult = {
+      status: "fits",
+      measurement: {
+        slideId: "slide-1",
+        contentHeight: 380,
+        viewportHeight: 420,
+        verticalOverflow: 0,
+        measuredAt: Date.now(),
+      },
+    };
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: "<div>Now fits</div>",
+    })) as Record<string, unknown>;
+
+    expect(result.ok).toBe(true);
+    expect(result.layoutOverflow).toBeUndefined();
+    expect(result.message).toBeUndefined();
+  });
+
+  it("omits layoutOverflow on fit-check timeout (no open editor)", async () => {
+    mockFitCheckResult = { status: "timeout" };
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: "<div>Headless</div>",
+    })) as Record<string, unknown>;
+
+    expect(result.ok).toBe(true);
+    expect(result.layoutOverflow).toBeUndefined();
+    expect(result.message).toBeUndefined();
+  });
+
+  it("does not consult fit-check when text-to-find is not present (early bail)", async () => {
+    mockFitCheckResult = {
+      status: "overflows",
+      measurement: {
+        slideId: "slide-1",
+        contentHeight: 645,
+        viewportHeight: 420,
+        verticalOverflow: 225,
+        measuredAt: Date.now(),
+      },
+    };
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      find: "this text does not exist in the slide",
+      replace: "x",
+    })) as Record<string, unknown>;
+
+    // When find is not found in either Yjs or SQL, the action returns
+    // ok: false BEFORE doing the fit-check. layoutOverflow must NOT appear.
+    expect(result.ok).toBe(false);
+    expect(result.layoutOverflow).toBeUndefined();
+  });
 });
