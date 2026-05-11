@@ -9,9 +9,12 @@ import {
   IconChevronDown,
   IconCopy,
   IconArrowUp,
+  IconArrowDown,
+  IconArrowsSort,
   IconMessage,
   IconGlobe,
   IconHash,
+  IconSearch,
   IconTrash,
   IconWebhook,
   IconDownload,
@@ -942,10 +945,52 @@ function BuilderContent({
 
 function ResultsContent({ formId, form }: { formId: string; form: any }) {
   const { data, isLoading, error, refetch } = useFormResponses(formId);
+  const [search, setSearch] = useState("");
+  // `_submitted` is the synthetic Submitted column. Field columns sort by id.
+  const [sortKey, setSortKey] = useState<string>("_submitted");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  const responses = data?.responses || [];
+  function toggleSort(key: string) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  const allResponses = data?.responses || [];
   const fields: FormField[] = data?.fields || form?.fields || [];
   const total = data?.total ?? 0;
+
+  const filtered = search.trim()
+    ? allResponses.filter((r) => {
+        const needle = search.toLowerCase();
+        return fields.some((f) => {
+          const val = r.data[f.id];
+          if (val == null) return false;
+          const str = Array.isArray(val) ? val.join(" ") : String(val);
+          return str.toLowerCase().includes(needle);
+        });
+      })
+    : allResponses;
+
+  const responses = [...filtered].sort((a, b) => {
+    let av: string | number;
+    let bv: string | number;
+    if (sortKey === "_submitted") {
+      av = new Date(a.submittedAt).getTime();
+      bv = new Date(b.submittedAt).getTime();
+    } else {
+      const aVal = a.data[sortKey];
+      const bVal = b.data[sortKey];
+      av = aVal == null ? "" : Array.isArray(aVal) ? aVal.join(", ") : String(aVal);
+      bv = bVal == null ? "" : Array.isArray(bVal) ? bVal.join(", ") : String(bVal);
+    }
+    if (av < bv) return sortDir === "asc" ? -1 : 1;
+    if (av > bv) return sortDir === "asc" ? 1 : -1;
+    return 0;
+  });
 
   function exportCsv() {
     if (!fields.length || !responses.length) return;
@@ -1034,19 +1079,38 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-border">
-        <Badge variant="secondary" className="text-xs">
-          {total} response{total !== 1 ? "s" : ""}
-        </Badge>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5 text-xs"
-          onClick={exportCsv}
-        >
-          <IconDownload className="h-3.5 w-3.5" />
-          Export CSV
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="text-xs">
+            {total} response{total !== 1 ? "s" : ""}
+          </Badge>
+          {search.trim() && filtered.length !== allResponses.length && (
+            <span className="text-xs text-muted-foreground">
+              {filtered.length} match{filtered.length !== 1 ? "es" : ""}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              type="search"
+              placeholder="Search responses…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-8 pl-7 text-xs w-44 sm:w-56"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs"
+            onClick={exportCsv}
+          >
+            <IconDownload className="h-3.5 w-3.5" />
+            Export CSV
+          </Button>
+        </div>
       </div>
       <div className="flex-1 min-w-0 overflow-auto overscroll-x-contain">
         <div className="w-max min-w-full">
@@ -1063,7 +1127,12 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                   scope="col"
                   className="min-w-36 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                 >
-                  Submitted
+                  <ResultsSortableHeader
+                    label="Submitted"
+                    active={sortKey === "_submitted"}
+                    dir={sortDir}
+                    onClick={() => toggleSort("_submitted")}
+                  />
                 </th>
                 {fields.map((f) => (
                   <th
@@ -1071,19 +1140,34 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                     scope="col"
                     className="min-w-40 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                   >
-                    {f.label}
+                    <ResultsSortableHeader
+                      label={f.label}
+                      active={sortKey === f.id}
+                      dir={sortDir}
+                      onClick={() => toggleSort(f.id)}
+                    />
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
+              {responses.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={2 + fields.length}
+                    className="px-4 py-8 text-center text-xs text-muted-foreground"
+                  >
+                    No responses match your search.
+                  </td>
+                </tr>
+              )}
               {responses.map((response, idx) => (
                 <tr
                   key={response.id}
                   className="border-b border-border hover:bg-muted/20"
                 >
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                    {total - idx}
+                    {responses.length - idx}
                   </td>
                   <td className="min-w-36 px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                     {format(new Date(response.submittedAt), "MMM d, h:mm a")}
@@ -1115,6 +1199,37 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function ResultsSortableHeader({
+  label,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  dir: "asc" | "desc";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
+    >
+      <span>{label}</span>
+      {active ? (
+        dir === "asc" ? (
+          <IconArrowUp className="h-3 w-3" />
+        ) : (
+          <IconArrowDown className="h-3 w-3" />
+        )
+      ) : (
+        <IconArrowsSort className="h-3 w-3 opacity-40" />
+      )}
+    </button>
   );
 }
 

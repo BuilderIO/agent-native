@@ -31,10 +31,10 @@ describe("computeSlideFitTransform", () => {
         viewportWidth: 740,
         viewportHeight: 380,
       }),
-    ).toEqual({ scale: 1, x: 0, y: 0, fitted: false });
+    ).toEqual({ scale: 1, x: 0, y: 0, fitted: false, verticalOverflow: 0 });
   });
 
-  it("does not scale for vertical overflow (clipped by overflow:hidden instead)", () => {
+  it("does not scale for vertical overflow but reports it for the LLM to fix", () => {
     expect(
       computeSlideFitTransform({
         contentWidth: 700,
@@ -42,7 +42,13 @@ describe("computeSlideFitTransform", () => {
         viewportWidth: 740,
         viewportHeight: 380,
       }),
-    ).toEqual({ scale: 1, x: 0, y: 0, fitted: false });
+    ).toEqual({
+      scale: 1,
+      x: 0,
+      y: 0,
+      fitted: false,
+      verticalOverflow: 120,
+    });
   });
 
   it("scales horizontal overflow to the viewport width", () => {
@@ -53,10 +59,16 @@ describe("computeSlideFitTransform", () => {
         viewportWidth: 740,
         viewportHeight: 380,
       }),
-    ).toEqual({ scale: 0.74, x: 0, y: 0, fitted: true });
+    ).toEqual({
+      scale: 0.74,
+      x: 0,
+      y: 0,
+      fitted: true,
+      verticalOverflow: 0,
+    });
   });
 
-  it("uses the horizontal axis only — vertical overflow is ignored", () => {
+  it("uses the horizontal axis only — vertical overflow is ignored visually but reported", () => {
     expect(
       computeSlideFitTransform({
         contentWidth: 1000,
@@ -64,7 +76,13 @@ describe("computeSlideFitTransform", () => {
         viewportWidth: 740,
         viewportHeight: 380,
       }),
-    ).toEqual({ scale: 0.74, x: 0, y: 0, fitted: true });
+    ).toEqual({
+      scale: 0.74,
+      x: 0,
+      y: 0,
+      fitted: true,
+      verticalOverflow: 380,
+    });
   });
 
   it("translates negative content back into view", () => {
@@ -77,7 +95,13 @@ describe("computeSlideFitTransform", () => {
         minX: -20,
         minY: -10,
       }),
-    ).toEqual({ scale: 1, x: 20, y: 10, fitted: false });
+    ).toEqual({
+      scale: 1,
+      x: 20,
+      y: 10,
+      fitted: false,
+      verticalOverflow: 0,
+    });
   });
 });
 

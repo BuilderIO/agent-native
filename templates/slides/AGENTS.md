@@ -293,18 +293,29 @@ If the request is for a standalone visual, hero image, diagram, one-pager, poste
 | `navigate` | `--deckId <id> [--slideIndex <n>]` | Navigate to a deck/slide |
 | `navigate` | `--view list`                      | Navigate to deck list    |
 
-### Image Generation
+### Image Generation & Uploads
 
-| Action             | Args                                                                                 | Purpose                    |
-| ------------------ | ------------------------------------------------------------------------------------ | -------------------------- |
-| `generate-image`   | `--prompt "..." [--model gemini\|openai\|auto] [--count 3] [--deck-id] [--slide-id]` | Generate images            |
-| `image-search`     | `--query "..." [--count 5]`                                                          | Search Google Images       |
-| `logo-lookup`      | `--domain acme.com`                                                                  | Get company logo URL       |
-| `image-gen-status` |                                                                                      | Check configured providers |
+| Action             | Args                                                                                 | Purpose                                                      |
+| ------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| `generate-image`   | `--prompt "..." [--model gemini\|openai\|auto] [--count 3] [--deck-id] [--slide-id]` | Generate images                                              |
+| `image-search`     | `--query "..." [--count 5]`                                                          | Search Google Images                                         |
+| `logo-lookup`      | `--domain acme.com`                                                                  | Get company logo URL                                         |
+| `image-gen-status` |                                                                                      | Check configured providers                                   |
+| `upload-image`     | `--data <data-url>` OR `--url <remote-url>` `[--filename ...]`                       | Upload any image to the configured provider, return CDN URL  |
 
 For image-generation prompts, create actual image assets with `generate-image`; do not substitute HTML/CSS placeholders, icon-only compositions, inline SVGs, or text-only mockups. Do not render visible text inside generated images unless the user explicitly asks for exact text. Style phrases like "make it look like Builder.io" are not brand-system setup requests; use a concise style interpretation and avoid browsing/searching/analyzing brand assets unless the user explicitly asks to set up, save, import, extract, or apply a design system.
 
 When `IMAGES_A2A_URL` is configured, `generate-image` delegates to the Images app over A2A before falling back to the direct Gemini/OpenAI provider path. Use this path for brand/library-based slide imagery; keep the returned `assetId`, `runId`, `previewUrl`, `downloadUrl`, and `embedPath` with the slide so follow-up feedback can call the Images agent's `refine-image` flow by asset ID. See `.agents/skills/image-generation-via-a2a/SKILL.md`.
+
+#### Chat-attached images (drag, paste, or attach into the agent composer)
+
+When the user attaches an image to the chat, the framework pre-uploads it through the configured file-upload provider (Builder.io by default) BEFORE you see the message. The hosted URL is injected into your user message as a `<chat-image-attachment url="..." name="..." />` block at the bottom. **Use that `url` directly in `<img src="...">` when embedding the image on a slide — do not re-upload, do not refuse.** You still receive the image visually for vision/analysis.
+
+If the user attaches an image and you instead see `<chat-image-attachment-upload-error>`, image uploads are not configured. Suggest the user connect Builder.io for free image hosting (call `connect-builder` to render the one-click Connect card) or set `BUILDER_PRIVATE_KEY`. Until uploads are configured you can still see the image, but you cannot embed it on a slide as a URL.
+
+#### Re-hosting other images (generated images, search results, remote URLs)
+
+When `generate-image` or `image-search` returns a transient URL you want to preserve, or when you have an image as a base64 data URL from another tool, call `upload-image` to re-host it on Builder.io. Use `--url` for remote URLs (`upload-image --url "https://..."`) and `--data` for inline data URLs.
 
 ### Design Systems
 

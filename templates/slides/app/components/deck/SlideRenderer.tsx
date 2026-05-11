@@ -125,27 +125,34 @@ export interface SlideFitTransform {
   x: number;
   y: number;
   fitted: boolean;
+  /** Vertical overflow in CSS px (0 if content fits). Reported to the agent so it can
+   * rewrite the slide HTML to fit, instead of being papered over with a uniform
+   * shrink that leaves ugly right/bottom margins. */
+  verticalOverflow: number;
 }
 
 export function computeSlideFitTransform({
   contentWidth,
+  contentHeight,
   viewportWidth,
+  viewportHeight,
   minX = 0,
   minY = 0,
   minScale = MIN_AUTOFIT_SCALE,
 }: {
   contentWidth: number;
-  contentHeight?: number;
+  contentHeight: number;
   viewportWidth: number;
-  viewportHeight?: number;
+  viewportHeight: number;
   minX?: number;
   minY?: number;
   minScale?: number;
 }): SlideFitTransform {
-  // Only scale for horizontal overflow. Vertical overflow is clipped by
-  // .fmd-slide { overflow: hidden } — uniform-scaling for vertical overflow
-  // shrinks both axes and leaves ugly right/bottom margins (with origin top-left),
-  // which looks much worse than a clean clip at the slide boundary.
+  // Only scale for horizontal overflow. For vertical overflow we surface a
+  // `verticalOverflow` measurement so the agent can rewrite the slide HTML —
+  // uniform scale-to-fit for vertical overflow shrinks both axes and leaves
+  // unbalanced right/bottom margins (with origin top-left), which looks worse
+  // than asking the LLM to redo the layout to fit the canvas properly.
   const safeContentWidth = Math.max(1, contentWidth);
   const rawScale = Math.min(
     1,
@@ -153,11 +160,17 @@ export function computeSlideFitTransform({
   );
   const scale = Math.max(minScale, rawScale);
 
+  const verticalOverflow = Math.max(
+    0,
+    Math.round(contentHeight - viewportHeight),
+  );
+
   return {
     scale,
     x: minX < 0 ? -minX * scale : 0,
     y: minY < 0 ? -minY * scale : 0,
     fitted: rawScale < 0.999,
+    verticalOverflow,
   };
 }
 
