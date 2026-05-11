@@ -48,7 +48,15 @@ export async function awaitLayoutFitCheck(
 ): Promise<SlideFitResult> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const raw = await readAppState("slide-fit-check");
+    // Reads can fail when there's no authenticated request context
+    // (e.g. headless tests, server-only runs) — treat that as "no editor
+    // is reporting, so we can't fit-check" and exit with timeout.
+    let raw: unknown = null;
+    try {
+      raw = await readAppState("slide-fit-check");
+    } catch {
+      return { status: "timeout" };
+    }
     const m = raw as SlideFitMeasurement | null;
     if (
       m &&
