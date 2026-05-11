@@ -17,6 +17,7 @@ import { InvitationBanner } from "@agent-native/core/client/org";
 import { Sidebar } from "./Sidebar";
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
+import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useHiddenCalendars } from "@/hooks/use-hidden-calendars";
@@ -145,6 +146,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [headerControls, setHeaderControls] = useState<HeaderControls | null>(
     null,
   );
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
   // Load preference from localStorage
   useEffect(() => {
@@ -152,6 +154,34 @@ export function AppLayout({ children }: AppLayoutProps) {
       const saved = localStorage.getItem(EVENT_DETAIL_MODE_KEY);
       if (saved === "sidebar") setEventDetailSidebarState(true);
     } catch {}
+  }, []);
+
+  // Global keyboard-shortcuts help: opens via `?` (or shift+/) or the sidebar
+  // button on any page, not just the calendar view. Calendar-specific shortcuts
+  // (j/k/c/etc.) still live in CalendarView.
+  useEffect(() => {
+    const openShortcuts = () => setShortcutsHelpOpen(true);
+    window.addEventListener("calendar:open-shortcuts", openShortcuts);
+    function handleKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+        e.preventDefault();
+        setShortcutsHelpOpen(true);
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("calendar:open-shortcuts", openShortcuts);
+      window.removeEventListener("keydown", handleKey);
+    };
   }, []);
 
   // Render chromeless for embed/preview routes — all hooks must be called above
@@ -198,6 +228,10 @@ export function AppLayout({ children }: AppLayoutProps) {
         open={addCalendarOpen}
         onOpenChange={setAddCalendarOpen}
         defaultTab={addCalendarDefaultTab}
+      />
+      <KeyboardShortcutsHelp
+        open={shortcutsHelpOpen}
+        onClose={() => setShortcutsHelpOpen(false)}
       />
       <div className="flex h-screen overflow-hidden bg-background">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />

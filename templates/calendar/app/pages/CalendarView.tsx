@@ -43,7 +43,6 @@ import { WeekView } from "@/components/calendar/WeekView";
 import { DayView } from "@/components/calendar/DayView";
 import { CreateEventPopover } from "@/components/calendar/CreateEventDialog";
 import { CommandPalette } from "@/components/calendar/CommandPalette";
-import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
 import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
@@ -107,7 +106,6 @@ export default function CalendarView() {
     Record<string, string>
   >({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
 
@@ -499,13 +497,6 @@ export default function CalendarView() {
   }, []);
 
   useEffect(() => {
-    const openShortcuts = () => setShortcutsHelpOpen(true);
-    window.addEventListener("calendar:open-shortcuts", openShortcuts);
-    return () =>
-      window.removeEventListener("calendar:open-shortcuts", openShortcuts);
-  }, []);
-
-  useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       // Cmd+K / Ctrl+K — always open command palette
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -516,7 +507,7 @@ export default function CalendarView() {
 
       // Skip all other shortcuts when typing or when a dialog is open
       if (isTypingInInput(e)) return;
-      if (createDialogOpen || shortcutsHelpOpen || deleteDialogEvent) return;
+      if (createDialogOpen || deleteDialogEvent) return;
 
       // Delete/Backspace — delete the selected event
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -530,12 +521,8 @@ export default function CalendarView() {
       // Don't intercept keyboard shortcuts with modifier keys (Cmd+C, Ctrl+V, etc.)
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-      if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
-        e.preventDefault();
-        e.stopPropagation();
-        setShortcutsHelpOpen(true);
-        return;
-      }
+      // `?` / shift+/ opens the keyboard shortcuts help — that listener now
+      // lives in AppLayout so it works on every tab. Don't double-handle here.
 
       switch (e.key) {
         case "z":
@@ -583,7 +570,6 @@ export default function CalendarView() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     createDialogOpen,
-    shortcutsHelpOpen,
     deleteDialogEvent,
     isTypingInInput,
     viewMode,
@@ -856,10 +842,6 @@ export default function CalendarView() {
             setAddCalendarDefaultTab("url");
             setAddCalendarOpen(true);
           }}
-        />
-        <KeyboardShortcutsHelp
-          open={shortcutsHelpOpen}
-          onClose={() => setShortcutsHelpOpen(false)}
         />
         <PeopleSearchDialog
           open={peopleSearchOpen}
