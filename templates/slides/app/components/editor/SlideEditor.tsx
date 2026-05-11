@@ -360,7 +360,9 @@ function syncOverflowToAppState(
     verticalOverflow: number;
   } | null,
 ) {
-  const url = agentNativePath("/_agent-native/application-state/slide-overflow");
+  const url = agentNativePath(
+    "/_agent-native/application-state/slide-overflow",
+  );
   if (!payload || payload.verticalOverflow <= 0) {
     fetch(url, {
       method: "DELETE",

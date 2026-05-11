@@ -68,10 +68,7 @@ export default function ImageDropPromptPopover({
   useEffect(() => {
     if (!open) return;
     const onClickOutside = (e: MouseEvent) => {
-      if (
-        panelRef.current &&
-        !panelRef.current.contains(e.target as Node)
-      ) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
@@ -98,8 +95,7 @@ export default function ImageDropPromptPopover({
     let left = position.x - width / 2;
     let top = position.y + POPOVER_MARGIN;
     if (left < POPOVER_MARGIN) left = POPOVER_MARGIN;
-    if (left + width > vw - POPOVER_MARGIN)
-      left = vw - width - POPOVER_MARGIN;
+    if (left + width > vw - POPOVER_MARGIN) left = vw - width - POPOVER_MARGIN;
     if (top + height > vh - POPOVER_MARGIN) {
       // Flip above the drop point if there isn't room below.
       top = Math.max(POPOVER_MARGIN, position.y - height - POPOVER_MARGIN);
@@ -131,9 +127,10 @@ export default function ImageDropPromptPopover({
       }
 
       const userIntent = prompt.trim();
-      const intentLine = userIntent.length > 0
-        ? userIntent
-        : "Use this image on the current slide.";
+      const intentLine =
+        userIntent.length > 0
+          ? userIntent
+          : "Use this image on the current slide.";
       const lines = [intentLine];
       if (contextHint && contextHint.trim().length > 0) {
         lines.push(contextHint.trim());
@@ -211,8 +208,10 @@ export default function ImageDropPromptPopover({
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
-            if ((e.key === "Enter" && (e.metaKey || e.ctrlKey)) ||
-                (e.key === "Enter" && !e.shiftKey)) {
+            if (
+              (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ||
+              (e.key === "Enter" && !e.shiftKey)
+            ) {
               e.preventDefault();
               if (!uploading) void handleSubmit();
             }
