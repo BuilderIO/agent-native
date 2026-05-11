@@ -111,7 +111,10 @@ export default function ImageDropPromptPopover({
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`${appBasePath()}/_agent-native/file-upload`, {
+      // Use the slides assets endpoint (which routes through the framework's
+      // uploadFile() provider chain first, then falls back to local disk in
+      // dev). Goes via Builder.io when configured; works without it in dev.
+      const res = await fetch(`${appBasePath()}/api/assets/upload`, {
         method: "POST",
         body: form,
       });
