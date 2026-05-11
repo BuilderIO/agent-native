@@ -1181,11 +1181,108 @@ function createAuthGuardFn(): (
       return { error: "Unauthorized" };
     }
 
+    // Local-dev convenience: on the first page GET of a freshly-scaffolded
+    // app, transparently create + sign in `dev@local` instead of showing the
+    // sign-up form. Gated on NODE_ENV=development AND no real users in the
+    // DB, so production and any app that has ever had a real signup are
+    // unaffected. See maybeAutoCreateDevSession for full conditions.
+    if (getMethod(event) === "GET") {
+      const autoSession = await maybeAutoCreateDevSession(event, url);
+      if (autoSession) return autoSession;
+    }
+
     return new Response(loginHtml, {
       status: 200,
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   };
+}
+
+const AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
+const AUTO_DEV_ACCOUNT_PASSWORD = "local-dev-account";
+
+/**
+ * Local-dev convenience: skip the sign-up wall on first run.
+ *
+ * When NODE_ENV=development AND the `user` table has no rows for any
+ * email other than `dev@local`, transparently sign up (or sign back in
+ * to) the auto-managed dev account and return a 302 to the original URL
+ * with a session cookie set. A developer who just ran `pnpm dev` lands
+ * in the app immediately instead of being asked to fill in name + email
+ * + password to try the framework.
+ *
+ * Once a real user signs up via the regular form, the email-filter
+ * short-circuit fires and this helper returns null on every subsequent
+ * request, so the normal login flow takes over. Set
+ * `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out (useful for tests
+ * that exercise the unauthenticated branch).
+ *
+ * The fixed password is intentional: it means a developer who signs out
+ * of the dev account can sign back in with `dev@local` / `local-dev-account`
+ * without having to delete the row from SQL. This is local-only — the
+ * helper is gated on NODE_ENV.
+ */
+async function maybeAutoCreateDevSession(
+  event: H3Event,
+  redirectTo: string,
+): Promise<Response | null> {
+  if (!isDevEnvironment()) return null;
+  if (process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT === "1") return null;
+
+  try {
+    const db = getDbExec();
+    const { rows: realUsers } = await db.execute({
+      sql: 'SELECT 1 FROM "user" WHERE email != ? LIMIT 1',
+      args: [AUTO_DEV_ACCOUNT_EMAIL],
+    });
+    if (realUsers.length > 0) return null;
+
+    const auth = await getBetterAuth();
+    if (!auth) return null;
+
+    // Idempotent sign-up: succeeds on first run, throws an "already exists"
+    // failure on subsequent runs (which we swallow before falling through
+    // to the sign-in path below).
+    try {
+      await auth.api.signUpEmail({
+        body: {
+          email: AUTO_DEV_ACCOUNT_EMAIL,
+          password: AUTO_DEV_ACCOUNT_PASSWORD,
+          name: "Dev",
+        },
+      });
+    } catch (e) {
+      if (!isExpectedAuthFailure(e)) throw e;
+    }
+
+    const result = await auth.api.signInEmail({
+      body: {
+        email: AUTO_DEV_ACCOUNT_EMAIL,
+        password: AUTO_DEV_ACCOUNT_PASSWORD,
+      },
+    });
+    if (!result?.token) return null;
+
+    setCookie(event, COOKIE_NAME, result.token, {
+      httpOnly: true,
+      ...crossSiteCookieAttrs(event),
+      ...cookieDomainAttrs(),
+      path: "/",
+      maxAge: sessionMaxAge,
+    });
+    await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
+
+    return new Response("", {
+      status: 302,
+      headers: { Location: redirectTo },
+    });
+  } catch (e) {
+    // Local-dev only — log to console for debugging, but don't surface
+    // through Sentry. Falling back to the regular login form is the
+    // correct user-facing behavior when this path fails.
+    console.warn("[agent-native] auto dev account skipped:", e);
+    return null;
+  }
 }
 
 /**
