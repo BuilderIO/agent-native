@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getIdToken } from "@/lib/auth";
 import { dashboardComponents } from "./registry";
@@ -10,22 +11,24 @@ import { incrementItemView } from "@/lib/item-popularity";
 
 const SqlDashboardPage = lazy(() => import("./sql-dashboard"));
 
+// Single shared loading placeholder used across hydration → exists-check →
+// Suspense → dashboard config load. Matches the real SqlChartCard shape (Card
+// chrome + title row + chart-body skeleton) so the user sees one continuous
+// skeleton state rather than four different ones morphing into each other.
 function DashboardSkeleton() {
   return (
-    <div className="space-y-6">
-      <div>
-        <Skeleton className="h-8 w-64 mb-2" />
-        <Skeleton className="h-4 w-96" />
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-24 w-full rounded-xl" />
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {[0, 1].map((i) => (
+          <Card key={i} className="flex flex-col overflow-visible">
+            <CardHeader className="pb-2 shrink-0">
+              <Skeleton className="h-4 w-32" />
+            </CardHeader>
+            <CardContent className="flex flex-1 flex-col pt-0">
+              <Skeleton className="w-full flex-1 min-h-[250px]" />
+            </CardContent>
+          </Card>
         ))}
-      </div>
-      <Skeleton className="h-[300px] w-full rounded-xl" />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Skeleton className="h-[250px] w-full rounded-xl" />
-        <Skeleton className="h-[250px] w-full rounded-xl" />
       </div>
     </div>
   );

@@ -228,6 +228,7 @@ interface DesignCanvasProps {
 export function DesignCanvas({
   content,
   zoom,
+  onZoomChange,
   deviceFrame,
   editMode,
   onElementSelect,
@@ -241,6 +242,17 @@ export function DesignCanvas({
   designTitle,
 }: DesignCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  usePinchZoom({
+    containerRef: scrollContainerRef,
+    zoom,
+    setZoom: onZoomChange ?? (() => {}),
+    min: 10,
+    max: 500,
+    zoomToCursor: deviceFrame === "none",
+    enabled: Boolean(onZoomChange),
+  });
 
   // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
   // outside Edit mode. The edit bridge (click/hover overlays) is gated.
@@ -389,7 +401,10 @@ export function DesignCanvas({
     );
 
   return (
-    <div className="relative flex-1 h-full overflow-auto">
+    <div
+      ref={scrollContainerRef}
+      className="relative flex-1 h-full overflow-auto"
+    >
       {/* Dot grid background */}
       <div
         className="absolute inset-0"
