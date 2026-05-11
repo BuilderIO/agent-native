@@ -1,10 +1,10 @@
 import { useEffect } from "react";
 import {
   isRouteErrorResponse,
-  Link,
   useInRouterContext,
   useRouteError,
 } from "react-router";
+import { appPath } from "./api-path.js";
 
 const homeLinkClassName =
   "mt-6 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer";
@@ -27,13 +27,7 @@ function useApplyThemeClass() {
   }, []);
 }
 
-function ErrorScreen({
-  error,
-  canUseRouterLink,
-}: {
-  error: unknown;
-  canUseRouterLink: boolean;
-}) {
+function ErrorScreen({ error }: { error: unknown }) {
   let status: number | null = null;
   let title = "Something went wrong";
   let details = "An unexpected error occurred.";
@@ -43,9 +37,7 @@ function ErrorScreen({
     status = error.status;
     if (error.status === 404) {
       title = "Page not found";
-      const path =
-        typeof window !== "undefined" ? window.location.pathname : "this path";
-      details = `The app does not define a route for ${path}. If this should be a workspace app, make sure it is added and enabled in Dispatch; if it is a new screen, it may need to be shipped first.`;
+      details = "We couldn't find this page.";
     } else {
       title = `${error.status} Error`;
       details = error.statusText || details;
@@ -84,15 +76,9 @@ function ErrorScreen({
         )}
         <h1 className="mt-3 text-2xl font-semibold">{title}</h1>
         <p className="mt-2 text-muted-foreground text-sm">{details}</p>
-        {canUseRouterLink ? (
-          <Link to="/" className={homeLinkClassName}>
-            Go home
-          </Link>
-        ) : (
-          <a href="/" className={homeLinkClassName}>
-            Go home
-          </a>
-        )}
+        <a href={appPath("/")} className={homeLinkClassName}>
+          Go home
+        </a>
         <button
           type="button"
           onClick={() => window.location.reload()}
@@ -111,16 +97,11 @@ function ErrorScreen({
 }
 
 function RoutedErrorScreen() {
-  return <ErrorScreen error={useRouteError()} canUseRouterLink />;
+  return <ErrorScreen error={useRouteError()} />;
 }
 
 export function ErrorBoundary() {
   useApplyThemeClass();
-  const inRouterContext = useInRouterContext();
-
-  if (!inRouterContext) {
-    return <ErrorScreen error={undefined} canUseRouterLink={false} />;
-  }
-
+  if (!useInRouterContext()) return <ErrorScreen error={undefined} />;
   return <RoutedErrorScreen />;
 }
