@@ -219,7 +219,7 @@ function ScopeBadge({
                 className="ml-0.5 rounded-full bg-muted px-1.5 py-px text-[10px] leading-none text-muted-foreground"
                 aria-label={`${otherCount} other chats for this ${scope.type}`}
               >
-                {otherCount + 1}
+                +{otherCount}
               </span>
             )}
           </button>
