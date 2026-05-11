@@ -77,19 +77,6 @@ export function DatePicker({
     return false;
   }
 
-  // Today is disabled despite being a working day — usually because the
-  // remaining slots are inside the booking-notice window or already taken.
-  // Surface a quick explanation so the cell doesn't just sit there dim.
-  const todayKey = format(today, "yyyy-MM-dd");
-  const todayWeekday = DAY_MAP[getDay(today)];
-  const todayInView = isSameMonth(today, viewMonth);
-  const todayWorkingDay = !!availability.weeklySchedule[todayWeekday]?.enabled;
-  const todayHasNoSlots =
-    !availabilityLoading && !availableDateSet.has(todayKey);
-  const showTodayUnavailableHint =
-    todayInView && todayWorkingDay && todayHasNoSlots;
-  const noticeHours = Math.max(0, availability.minNoticeHours);
-
   return (
     <div className="w-full max-w-sm">
       {/* Month navigation */}
@@ -124,14 +111,6 @@ export function DatePicker({
           </div>
         ))}
       </div>
-
-      {showTodayUnavailableHint && (
-        <p className="mb-2 text-xs text-muted-foreground">
-          {noticeHours > 0
-            ? `Today is unavailable — remaining slots are within the ${noticeHours}-hour booking notice. Try another day.`
-            : "Today has no remaining slots. Try another day."}
-        </p>
-      )}
 
       {/* Days */}
       <div className="grid grid-cols-7 gap-1" aria-busy={availabilityLoading}>

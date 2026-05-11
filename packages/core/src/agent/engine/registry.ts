@@ -135,9 +135,8 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
   let email: string | undefined;
   let orgId: string | null | undefined;
   try {
-    const { getRequestUserEmail, getRequestOrgId } = await import(
-      "../../server/request-context.js"
-    );
+    const { getRequestUserEmail, getRequestOrgId } =
+      await import("../../server/request-context.js");
     email = getRequestUserEmail();
     orgId = getRequestOrgId();
   } catch {

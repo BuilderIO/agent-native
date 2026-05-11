@@ -313,6 +313,28 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
           .map((e) => (e.stack ? `${e.message}\n${e.stack}` : e.message))
           .join("\n\n");
 
+        // Force a fresh read from the server. toolRef.current is bound to the
+        // React Query cache, which is the same state the agent's previous
+        // (broken) turn just wrote — without this, Fix-in-same-chat ends up
+        // patching the agent's prior attempt from chat history instead of the
+        // current DB row, which is why users had to open a new chat to
+        // recover. Cache-bust so we never read a stale fetch.
+        let freshContent: string | undefined;
+        try {
+          const res = await fetch(
+            agentNativePath(`/_agent-native/extensions/${t.id}`),
+            { cache: "no-store" },
+          );
+          if (res.ok) {
+            const fresh = (await res.json()) as Extension;
+            freshContent =
+              typeof fresh?.content === "string" ? fresh.content : undefined;
+          }
+        } catch {
+          // Fall through with the cached value — agent can still re-read via
+          // its get-extension tool.
+        }
+
         const contextParts = [
           `The user is viewing extension "${t.name}" (id: ${t.id}) and there are runtime errors that need fixing.`,
           `\nFull error details:\n${detailedTrace}`,
@@ -335,8 +357,14 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
           contextParts.push(`\nRecent network requests:\n${netStr}`);
         }
 
+        if (freshContent) {
+          contextParts.push(
+            `\nCurrent extension content (just re-read from the database — this is the authoritative source, not anything you may have written in a previous turn):\n\`\`\`html\n${freshContent}\n\`\`\``,
+          );
+        }
+
         sendToAgentChat({
-          message: `Fix runtime errors in this extension:\n${errors.join("\n")}`,
+          message: `Fix runtime errors in this extension. The content snapshot below was just re-read from the database — treat it as authoritative and ignore any prior version you may have generated in this chat. If in doubt, call get-extension first.\n\nErrors:\n${errors.join("\n")}`,
           context: contextParts.join("\n"),
           submit: true,
           openSidebar: true,
