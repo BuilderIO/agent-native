@@ -189,7 +189,7 @@ describe("SlideInner autofit", () => {
     vi.unstubAllGlobals();
   });
 
-  it("inserts an inner fit layer for raw fmd-slide HTML and scales it", async () => {
+  it("inserts an inner fit layer for raw fmd-slide HTML but no longer shrinks for vertical overflow", async () => {
     const slide: Slide = {
       id: "raw",
       layout: "blank",
@@ -198,19 +198,26 @@ describe("SlideInner autofit", () => {
         '<div class="fmd-slide" style="padding: 80px 110px;"><div>Dense content</div></div>',
     };
 
-    render(<SlideInner slide={slide} />);
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
 
     await waitFor(() => {
       const fitLayer = document.querySelector<HTMLElement>(
         "[data-fmd-autofit-content]",
       );
       expect(fitLayer).toBeTruthy();
-      expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.76");
-      expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBe("true");
+      // Vertical overflow no longer triggers a uniform scale-down — the slide
+      // renders at native size and the editor surfaces the overflow so the
+      // agent can rewrite the HTML to fit instead.
+      expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
+      expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBeNull();
+      expect(onOverflowChange).toHaveBeenCalledWith(
+        expect.objectContaining({ verticalOverflow: 120 }),
+      );
     });
   });
 
-  it("scales markdown slide content without needing raw HTML", async () => {
+  it("reports vertical overflow for markdown slides too", async () => {
     const slide: Slide = {
       id: "markdown",
       layout: "content",
@@ -218,14 +225,18 @@ describe("SlideInner autofit", () => {
       content: "## Dense slide\n\n" + Array(8).fill("- Bullet").join("\n"),
     };
 
-    render(<SlideInner slide={slide} />);
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
 
     await waitFor(() => {
       const fitRoot = document.querySelector<HTMLElement>(
         "[data-slide-autofit-root]",
       );
-      expect(fitRoot?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.76");
-      expect(fitRoot?.getAttribute("data-fmd-autofit-active")).toBe("true");
+      expect(fitRoot?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
+      expect(fitRoot?.getAttribute("data-fmd-autofit-active")).toBeNull();
+      expect(onOverflowChange).toHaveBeenCalledWith(
+        expect.objectContaining({ verticalOverflow: 120 }),
+      );
     });
   });
 });
