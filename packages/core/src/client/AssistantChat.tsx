@@ -2938,6 +2938,10 @@ export interface AssistantChatProps {
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
   suggestions?: string[];
+  /** Optional content rendered in the empty state, above the suggestion buttons.
+   *  Used by MultiTabAssistantChat to surface "previous chats for this design"
+   *  when the current thread is empty but the scope has other threads. */
+  emptyStateAddon?: React.ReactNode;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
   /** CSS class for the outer container */
@@ -3056,6 +3060,7 @@ const AssistantChatInner = forwardRef<
   {
     emptyStateText,
     suggestions,
+    emptyStateAddon,
     showHeader = true,
     onSwitchToCli,
     className,
@@ -4423,6 +4428,7 @@ const AssistantChatInner = forwardRef<
                   <p className="text-sm text-muted-foreground text-center max-w-[240px]">
                     {emptyStateText ?? "How can I help you?"}
                   </p>
+                  {emptyStateAddon}
                   {suggestions && suggestions.length > 0 && (
                     <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
                       {suggestions.map((suggestion) => (

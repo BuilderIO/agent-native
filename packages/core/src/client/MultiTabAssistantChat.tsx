@@ -12,6 +12,7 @@ import {
   IconSearch,
   IconLink,
   IconLinkOff,
+  IconCheck,
 } from "@tabler/icons-react";
 import {
   AssistantChat,
