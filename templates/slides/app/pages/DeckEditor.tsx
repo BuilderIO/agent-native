@@ -991,8 +991,10 @@ export default function DeckEditor() {
         }
       />
       <HistoryPanel
+        deckId={id}
         open={historyOpen}
         onOpenChange={setHistoryOpen}
+        canRestore={canEdit}
         anchorRef={historyButtonRef}
       />
       <ImageDropPromptPopover
