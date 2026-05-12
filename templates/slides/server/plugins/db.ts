@@ -148,6 +148,19 @@ export default runMigrations(
       version: 17,
       sql: `ALTER TABLE design_systems ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT ''`,
     },
+    {
+      version: 18,
+      sql: `CREATE TABLE IF NOT EXISTS deck_versions (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    deck_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    data TEXT NOT NULL,
+    change_label TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS deck_versions_deck_owner_created_idx ON deck_versions (deck_id, owner_email, created_at)`,
+    },
   ],
   { table: "slides_migrations" },
 );

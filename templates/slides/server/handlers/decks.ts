@@ -4,7 +4,7 @@ import {
   setResponseStatus,
   createEventStream,
 } from "h3";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { readBody } from "@agent-native/core/server";
 import {
@@ -18,6 +18,7 @@ import {
   resolveSlidesRequestAuthContext,
   withSlidesRequestContext,
 } from "./request-auth-context.js";
+import { createDeckVersionSnapshot } from "../lib/deck-versions.js";
 
 // --- SSE for change notifications ---
 type SSEPush = (data: string) => void;
@@ -287,6 +288,15 @@ export const updateDeck = defineEventHandler(async (event) => {
       }
       // Caller has editor+ access — perform the update. The access check
       // above already confirmed the row exists and the caller can write.
+      await createDeckVersionSnapshot(
+        {
+          id: access.resource.id,
+          title: access.resource.title,
+          data: access.resource.data,
+          ownerEmail: access.resource.ownerEmail as string,
+        },
+        { label: "Before editor save" },
+      );
       await db
         .update(schema.decks)
         .set({
@@ -380,8 +390,19 @@ export const deleteDeck = defineEventHandler(async (event) => {
       // role on this resource — it must run BEFORE the delete (and in
       // the same scope) so we don't leak existence to callers who lack
       // access.
-      await assertAccess("deck", id, "admin");
+      const access = await assertAccess("deck", id, "admin");
       const db = getDb();
+      await db
+        .delete(schema.deckVersions)
+        .where(
+          and(
+            eq(schema.deckVersions.deckId, id),
+            eq(
+              schema.deckVersions.ownerEmail,
+              access.resource.ownerEmail as string,
+            ),
+          ),
+        );
       const result = await db
         .delete(schema.decks)
         .where(eq(schema.decks.id, id))
