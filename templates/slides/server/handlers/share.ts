@@ -8,6 +8,7 @@ import {
   resolveSlidesRequestAuthContext,
   withSlidesRequestContext,
 } from "./request-auth-context.js";
+import { toSharedDeckSlide } from "@shared/api";
 import type {
   ShareDeckRequest,
   ShareDeckResponse,
@@ -71,13 +72,9 @@ async function createShareLink(event: any, deckId: string) {
   const token = crypto.randomBytes(12).toString("base64url");
   const now = new Date().toISOString();
 
-  const slides = storedDeck.slides.map((s: any) => ({
-    id: s.id,
-    content: s.content,
-    notes: "", // never share speaker notes
-    layout: s.layout,
-    background: s.background,
-  }));
+  const slides = storedDeck.slides.map((slide: unknown, index: number) =>
+    toSharedDeckSlide(slide, index),
+  );
 
   await db.insert(schema.deckShareLinks).values({
     token,

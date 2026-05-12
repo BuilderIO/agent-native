@@ -461,6 +461,41 @@ describe("workspace scaffold defaults", () => {
     }
   });
 
+  it("seeds shared workspace skills and exposes them at the workspace root", async () => {
+    const wsDir = path.join(tmpDir, "my-ws");
+    await _scaffoldWorkspaceRoot(wsDir, "my-ws");
+
+    const sharedSkillsDir = path.join(
+      wsDir,
+      "packages",
+      "shared",
+      ".agents",
+      "skills",
+    );
+    const rootSkillsDir = path.join(wsDir, ".agents", "skills");
+
+    expect(
+      fs.existsSync(
+        path.join(sharedSkillsDir, "context-awareness", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(sharedSkillsDir, "portability", "SKILL.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(sharedSkillsDir, "sharing", "SKILL.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(rootSkillsDir, "context-awareness", "SKILL.md")),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(wsDir, ".claude", "skills"))).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(wsDir, "packages", "shared", ".claude", "skills"),
+      ),
+    ).toBe(true);
+  });
+
   it("keeps the generic workspace scaffold free of company-specific example identities", async () => {
     const wsDir = path.join(tmpDir, "my-ws");
     await _scaffoldWorkspaceRoot(wsDir, "my-ws");

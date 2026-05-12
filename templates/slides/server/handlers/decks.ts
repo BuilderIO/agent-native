@@ -175,6 +175,7 @@ export const listDecks = defineEventHandler(async (event) => {
         id: row.id,
         title: row.title,
         visibility: row.visibility,
+        createdByMe: row.ownerEmail === email,
         designSystemId: row.designSystemId ?? deck.designSystemId ?? null,
         updatedAt: row.updatedAt,
         slides: deck.slides || [],
@@ -191,7 +192,7 @@ export const getDeck = defineEventHandler(async (event) => {
     return { error: "Deck id is required" };
   }
 
-  return withSlidesRequestContext(event, async () => {
+  return withSlidesRequestContext(event, async ({ email }) => {
     try {
       const access = await assertAccess("deck", id, "viewer");
       const row = access.resource;
@@ -201,6 +202,7 @@ export const getDeck = defineEventHandler(async (event) => {
         id: row.id,
         title: row.title,
         visibility: row.visibility,
+        createdByMe: row.ownerEmail === email,
         designSystemId: row.designSystemId ?? deck.designSystemId ?? null,
         updatedAt: row.updatedAt,
       };

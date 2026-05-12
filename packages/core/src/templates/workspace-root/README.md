@@ -33,6 +33,9 @@ Apps don't need any configuration to opt in. Discovery happens via the
 `agent-native.workspaceCore` field in this root `package.json`, which names
 the shared package (`@{{APP_NAME}}/shared`).
 
+The workspace root also links `.agents/skills` to the shared package so coding
+agents launched from the root can discover the same workspace-wide skills.
+
 ## Getting started
 
 ```bash

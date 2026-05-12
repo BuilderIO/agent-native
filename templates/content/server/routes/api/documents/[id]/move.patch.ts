@@ -10,6 +10,48 @@ import {
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 
+async function assertParentIsNotDescendant({
+  db,
+  ownerEmail,
+  id,
+  parentId,
+}: {
+  db: ReturnType<typeof getDb>;
+  ownerEmail: string;
+  id: string;
+  parentId: string | null | undefined;
+}) {
+  if (!parentId) return;
+  const queue = [id];
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    if (visited.has(currentId)) continue;
+    visited.add(currentId);
+
+    const children = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.ownerEmail, ownerEmail),
+          eq(schema.documents.parentId, currentId),
+        ),
+      );
+
+    for (const child of children) {
+      if (child.id === parentId) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: "A document cannot be moved under one of its children",
+        });
+      }
+      queue.push(child.id);
+    }
+  }
+}
+
 export default defineEventHandler(async (event) => {
   const id = event.context.params!.id;
   const body = await readBody(event);
@@ -51,6 +93,12 @@ export default defineEventHandler(async (event) => {
               statusMessage: "Parent document must belong to the same owner",
             });
           }
+          await assertParentIsNotDescendant({
+            db,
+            ownerEmail,
+            id,
+            parentId: body.parentId,
+          });
         }
         updates.parentId = body.parentId;
       }

@@ -19,6 +19,8 @@ import {
   IconPin,
   IconDownload,
   IconCode,
+  IconArchive,
+  IconPhoto,
   IconRefresh,
 } from "@tabler/icons-react";
 import {
@@ -384,6 +386,8 @@ export default function DesignEditor() {
   const createCodingHandoffMutation = useActionMutation(
     "export-coding-handoff",
   );
+  const exportHtmlMutation = useActionMutation("export-html");
+  const exportZipMutation = useActionMutation("export-zip");
   const pendingFileSaveRef = useRef<{ id: string; content: string } | null>(
     null,
   );
@@ -859,6 +863,136 @@ export default function DesignEditor() {
     );
   }, [createCodingHandoffMutation, id]);
 
+  const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }, []);
+
+  const fallbackExportName = useCallback(
+    (extension: string) => {
+      const safeTitle =
+        design?.title?.replace(/[^a-zA-Z0-9_-]/g, "-") || "design";
+      return `${safeTitle}.${extension}`;
+    },
+    [design?.title],
+  );
+
+  const handleDownloadHtml = useCallback(() => {
+    if (!id) return;
+    exportHtmlMutation.mutate({ id } as any, {
+      onSuccess: (result: any) => {
+        if (typeof result?.html !== "string") {
+          toast.error("Could not create HTML download");
+          return;
+        }
+        triggerBlobDownload(
+          new Blob([result.html], { type: "text/html;charset=utf-8" }),
+          result.filename || fallbackExportName("html"),
+        );
+        toast.success("HTML downloaded");
+      },
+      onError: (error) => {
+        toast.error(error.message || "Could not export HTML");
+      },
+    });
+  }, [exportHtmlMutation, fallbackExportName, id, triggerBlobDownload]);
+
+  const handleDownloadZip = useCallback(() => {
+    if (!id) return;
+    exportZipMutation.mutate({ id } as any, {
+      onSuccess: (result: any) => {
+        if (typeof result?.zipBase64 !== "string") {
+          toast.error("Could not create ZIP download");
+          return;
+        }
+        const binary = window.atob(result.zipBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        triggerBlobDownload(
+          new Blob([bytes], { type: "application/zip" }),
+          result.filename || fallbackExportName("zip"),
+        );
+        toast.success("ZIP downloaded");
+      },
+      onError: (error) => {
+        toast.error(error.message || "Could not export ZIP");
+      },
+    });
+  }, [exportZipMutation, fallbackExportName, id, triggerBlobDownload]);
+
+  const handleDownloadPng = useCallback(async () => {
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      'iframe[title="Design Preview"]',
+    );
+    const doc = iframe?.contentDocument;
+    if (!doc?.documentElement) {
+      toast.error("Open a screen before exporting PNG");
+      return;
+    }
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const width = Math.max(
+        doc.documentElement.scrollWidth,
+        doc.body?.scrollWidth ?? 0,
+        iframe?.clientWidth ?? 0,
+      );
+      const height = Math.max(
+        doc.documentElement.scrollHeight,
+        doc.body?.scrollHeight ?? 0,
+        iframe?.clientHeight ?? 0,
+      );
+      const canvas = await html2canvas(doc.documentElement, {
+        width,
+        height,
+        windowWidth: width,
+        windowHeight: height,
+        scale: Math.min(2, window.devicePixelRatio || 1),
+        useCORS: true,
+        backgroundColor: null,
+      });
+      canvas.toBlob((blob) => {
+        try {
+          if (!blob) {
+            toast.error("Could not create PNG download");
+            return;
+          }
+          triggerBlobDownload(blob, fallbackExportName("png"));
+          toast.success("PNG downloaded");
+        } catch (callbackError) {
+          // `triggerBlobDownload` does DOM mutation + `URL.createObjectURL`,
+          // either of which can throw inside this async callback — outside
+          // the outer try/catch. Surface the failure instead of silently
+          // dropping it.
+          console.error("PNG export failed during download:", callbackError);
+          toast.error(
+            callbackError instanceof Error
+              ? callbackError.message
+              : "Could not save PNG",
+          );
+        }
+      }, "image/png");
+    } catch (error) {
+      console.error("PNG export failed:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Could not export PNG",
+      );
+    }
+  }, [fallbackExportName, triggerBlobDownload]);
+
+  const exportPending =
+    exportHtmlMutation.isPending ||
+    exportZipMutation.isPending ||
+    createCodingHandoffMutation.isPending;
+
   if (!id) {
     navigate("/");
     return null;
@@ -1157,9 +1291,7 @@ export default function DesignEditor() {
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 cursor-pointer"
-                    disabled={
-                      !activeFile || createCodingHandoffMutation.isPending
-                    }
+                    disabled={!activeFile || exportPending}
                   >
                     <IconDownload className="w-3.5 h-3.5" />
                   </Button>
@@ -1168,6 +1300,27 @@ export default function DesignEditor() {
               <TooltipContent>Export</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem
+                onClick={handleDownloadHtml}
+                disabled={!activeFile || exportHtmlMutation.isPending}
+              >
+                <IconCode className="mr-2 h-4 w-4" />
+                Download HTML
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleDownloadPng}
+                disabled={!activeFile}
+              >
+                <IconPhoto className="mr-2 h-4 w-4" />
+                Download PNG
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleDownloadZip}
+                disabled={!activeFile || exportZipMutation.isPending}
+              >
+                <IconArchive className="mr-2 h-4 w-4" />
+                Download ZIP
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleCopyCodingHandoff}
                 disabled={!activeFile || createCodingHandoffMutation.isPending}

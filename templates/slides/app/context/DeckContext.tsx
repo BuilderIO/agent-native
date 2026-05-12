@@ -65,6 +65,8 @@ export interface Deck {
   shareToken?: string;
   /** Framework sharing visibility — private (default), org, or public. */
   visibility?: "private" | "org" | "public";
+  /** True when the current user owns this deck. */
+  createdByMe?: boolean;
   /** ID of the design system applied to this deck */
   designSystemId?: string;
   /** Per-deck tweak overrides (accent color, title case, etc.) */
@@ -686,6 +688,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         title: title || "Untitled Deck",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        createdByMe: true,
         designSystemId: options?.designSystemId ?? undefined,
         slides: options?.noDefaultSlides
           ? []
@@ -743,6 +746,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         // Visibility/share state doesn't carry over to a fresh copy — server
         // creates the new row owned by the current user, private by default.
         visibility: "private",
+        createdByMe: true,
         shareToken: undefined,
       };
       optimistic.slides = optimistic.slides.map((s) => ({

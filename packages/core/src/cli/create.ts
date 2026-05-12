@@ -330,12 +330,57 @@ async function scaffoldWorkspaceRoot(
   copyDir(coreTemplate, corePackageDir);
   replacePlaceholders(corePackageDir, name, titleCase(name));
   rewriteCoreDependencyVersions(corePackageDir);
+  setupAgentSymlinks(corePackageDir);
 
   // Ensure apps/ exists (even if empty).
   fs.mkdirSync(path.join(targetDir, "apps"), { recursive: true });
 
   // Root-level agent instructions apply before an agent descends into an app.
+  linkWorkspaceRootSkills(targetDir);
   setupAgentSymlinks(targetDir);
+}
+
+function linkWorkspaceRootSkills(targetDir: string): void {
+  const sharedSkillsDir = path.join(
+    targetDir,
+    "packages",
+    "shared",
+    ".agents",
+    "skills",
+  );
+  if (!fs.existsSync(sharedSkillsDir)) return;
+
+  const agentsDir = path.join(targetDir, ".agents");
+  const linkPath = path.join(agentsDir, "skills");
+  const target = "../packages/shared/.agents/skills";
+
+  fs.mkdirSync(agentsDir, { recursive: true });
+
+  try {
+    const stat = fs.lstatSync(linkPath);
+    if (stat.isSymbolicLink()) {
+      if (fs.readlinkSync(linkPath) === target) return;
+      fs.unlinkSync(linkPath);
+    } else {
+      return;
+    }
+  } catch {
+    // Missing link; create below.
+  }
+
+  try {
+    fs.symlinkSync(
+      target,
+      linkPath,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+  } catch {
+    try {
+      copyDir(sharedSkillsDir, linkPath);
+    } catch {
+      // Best-effort fallback for environments that disallow symlinks.
+    }
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

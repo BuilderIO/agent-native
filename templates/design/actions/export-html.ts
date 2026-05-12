@@ -48,19 +48,62 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
 
-    // Separate files by type
-    const htmlFiles = files.filter(
-      (f) => f.fileType === "html" || f.fileType === "jsx",
-    );
     const cssFiles = files.filter((f) => f.fileType === "css");
-
-    // Combine CSS
+    const htmlFiles = files.filter((f) => f.fileType === "html");
+    const jsxFiles = files.filter((f) => f.fileType === "jsx");
+    const indexHtml =
+      files.find((f) => f.filename === "index.html") ?? htmlFiles[0];
     const combinedCss = cssFiles.map((f) => f.content).join("\n\n");
 
-    // Combine HTML body content
-    const combinedBody = htmlFiles.map((f) => f.content).join("\n\n");
+    let html: string;
+    if (
+      indexHtml?.content &&
+      /<!doctype html|<html[\s>]/i.test(indexHtml.content)
+    ) {
+      html = indexHtml.content;
+      // Merge non-index HTML/JSX files into the body of the standalone
+      // document so multi-file designs (components.html, page-*.html, etc.)
+      // still ship in one bundle. Drop the file we already used as the
+      // shell so we don't double-include it.
+      const extraBody = [...htmlFiles, ...jsxFiles]
+        .filter((f) => f !== indexHtml)
+        .map((f) => f.content)
+        .join("\n\n");
+      if (extraBody.trim()) {
+        // Find the last closing body tag. Inline JS / template literals
+        // can contain `</body>` strings, so a naive replace can mishit —
+        // use lastIndexOf which favors the real document boundary.
+        const closeBody = html.lastIndexOf("</body>");
+        if (closeBody !== -1) {
+          html = `${html.slice(0, closeBody)}${extraBody}\n${html.slice(closeBody)}`;
+        } else {
+          html = `${html}\n${extraBody}`;
+        }
+      }
+      // Idempotency: if a prior export already injected this CSS block,
+      // skip re-injection so repeated exports don't duplicate the style
+      // tag. The `data-agent-native-export` marker is our sentinel.
+      if (
+        combinedCss.trim() &&
+        !/<style[^>]*data-agent-native-export\b/i.test(html)
+      ) {
+        const styleBlock = `<style data-agent-native-export>\n${combinedCss}\n</style>`;
+        // Match the LAST `</head>` (not the first appearance inside an
+        // inline script / comment) to avoid injecting before content
+        // that depends on the document's own styles.
+        const closeHead = html.lastIndexOf("</head>");
+        if (closeHead !== -1) {
+          html = `${html.slice(0, closeHead)}${styleBlock}\n${html.slice(closeHead)}`;
+        } else {
+          html = `${styleBlock}\n${html}`;
+        }
+      }
+    } else {
+      const combinedBody = [...htmlFiles, ...jsxFiles]
+        .map((f) => f.content)
+        .join("\n\n");
 
-    const html = `<!DOCTYPE html>
+      html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -76,6 +119,7 @@ export default defineAction({
   ${combinedBody}
 </body>
 </html>`;
+    }
 
     // Save to exports directory
     const fs = await import("fs");

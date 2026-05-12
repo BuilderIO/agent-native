@@ -7,6 +7,7 @@ import { TAB_ID } from "@/lib/tab-id";
 export interface NavigationState {
   view: string;
   deckId?: string;
+  deckFilter?: "all" | "created-by-me";
   /** User-visible slide number. 1-based and matches the editor UI. */
   slideNumber?: number;
   /** Internal zero-based slide index kept for backwards compatibility. */
@@ -53,6 +54,10 @@ export function useNavigationState() {
       state.view = "settings";
     } else if (path.startsWith("/share/")) {
       state.view = "share";
+    } else {
+      const params = new URLSearchParams(location.search);
+      state.deckFilter =
+        params.get("createdBy") === "me" ? "created-by-me" : "all";
     }
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {

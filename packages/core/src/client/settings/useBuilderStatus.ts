@@ -276,12 +276,15 @@ export function useBuilderConnectFlow(
       const opened = window.open(url, "_blank", "noopener,noreferrer");
       if (!opened) {
         if (/AgentNativeDesktop/i.test(navigator.userAgent || "")) {
-          window.location.href = url;
-          return;
+          // The desktop main process handles this window.open from the
+          // webview and returns Electron's `deny` action after opening the
+          // OAuth window itself. Chromium reports that as `null`; keep the
+          // current app mounted and let the status poll observe completion.
+        } else {
+          setError(
+            "Popup blocked. Allow popups, then click Connect Builder again.",
+          );
         }
-        setError(
-          "Popup blocked. Allow popups, then click Connect Builder again.",
-        );
       }
     } catch {
       setError("Couldn't open Builder. Allow popups and try again.");

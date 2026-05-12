@@ -1264,13 +1264,25 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
   if (webviewOAuthNavigationHandlers.has(contents)) return;
   webviewOAuthNavigationHandlers.add(contents);
 
-  contents.on("will-frame-navigate", (event) => {
-    if (handleDesktopProtocolUrl(event.url)) {
+  const handleNavigation = (event: Electron.Event, url: string) => {
+    if (handleDesktopProtocolUrl(url)) {
       event.preventDefault();
       return;
     }
-    if (!openOAuthFromWebviewNavigation(event.url, contents)) return;
+    if (!openOAuthFromWebviewNavigation(url, contents)) return;
     event.preventDefault();
+  };
+
+  contents.on("will-frame-navigate", (event) => {
+    if (event.isMainFrame) return;
+    handleNavigation(event, event.url);
+  });
+
+  // Belt-and-suspenders for existing deployed app bundles that may still
+  // fall back to assigning window.location when Electron reports a manually
+  // handled popup as null. Keep Builder/Google OAuth out of the app webview.
+  contents.on("will-navigate", (event) => {
+    handleNavigation(event, event.url);
   });
 }
 

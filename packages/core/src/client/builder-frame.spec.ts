@@ -1,6 +1,30 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it } from "vitest";
-import { isBuildAppOrAgentRequest, isInBuilderFrame } from "./builder-frame.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  isBuildAppOrAgentRequest,
+  isInBuilderFrame,
+  sendToBuilderChat,
+} from "./builder-frame.js";
+
+function setParentWindow(value: unknown) {
+  Object.defineProperty(window, "parent", {
+    configurable: true,
+    value,
+  });
+}
+
+function setAncestorOrigin(origin: string | null) {
+  Object.defineProperty(window.location, "ancestorOrigins", {
+    configurable: true,
+    value: origin
+      ? {
+          0: origin,
+          length: 1,
+          item: (index: number) => (index === 0 ? origin : null),
+        }
+      : undefined,
+  });
+}
 
 describe("isInBuilderFrame", () => {
   beforeEach(() => {
@@ -15,6 +39,75 @@ describe("isInBuilderFrame", () => {
     window.history.replaceState({}, "", "/?builder.preview=interact");
 
     expect(isInBuilderFrame()).toBe(true);
+  });
+});
+
+describe("sendToBuilderChat", () => {
+  beforeEach(() => {
+    window.history.replaceState({}, "", "/");
+    setParentWindow(window);
+    setAncestorOrigin(null);
+  });
+
+  afterEach(() => {
+    setParentWindow(window);
+    setAncestorOrigin(null);
+    vi.restoreAllMocks();
+  });
+
+  it("posts once to a Builder parent frame without using the console relay", () => {
+    const parentPostMessage = vi.fn();
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+    setParentWindow({ postMessage: parentPostMessage });
+    setAncestorOrigin("https://builder.io");
+
+    const sent = sendToBuilderChat({
+      message: "build a dispatch helper app",
+      submit: true,
+    });
+
+    expect(sent).toBe(true);
+    expect(parentPostMessage).toHaveBeenCalledOnce();
+    expect(parentPostMessage).toHaveBeenCalledWith(
+      {
+        type: "builder.submitChat",
+        data: {
+          message: "build a dispatch helper app",
+          context: undefined,
+          submit: true,
+        },
+      },
+      "https://builder.io",
+    );
+    expect(consoleLog).not.toHaveBeenCalled();
+  });
+
+  it("keeps the console relay for top-level Builder webviews", () => {
+    const windowPostMessage = vi.spyOn(window, "postMessage");
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const sent = sendToBuilderChat({
+      message: "build a dispatch helper app",
+      submit: true,
+    });
+
+    expect(sent).toBe(true);
+    expect(windowPostMessage).not.toHaveBeenCalled();
+    expect(consoleLog).toHaveBeenCalledOnce();
+
+    const logged = consoleLog.mock.calls[0][0];
+    expect(logged).toMatch(/^BUILDER_PARENT_MESSAGE:/);
+    const relay = JSON.parse(logged.replace("BUILDER_PARENT_MESSAGE:", ""));
+    expect(relay).toEqual({
+      message: {
+        type: "builder.submitChat",
+        data: {
+          message: "build a dispatch helper app",
+          submit: true,
+        },
+      },
+      targetOrigin: "*",
+    });
   });
 });
 

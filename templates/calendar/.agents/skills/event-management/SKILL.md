@@ -86,6 +86,40 @@ pnpm action create-event \
 Required: `--title`, `--start`, `--end` (all ISO datetime format).
 Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`.
 
+Native Google Calendar status events are supported:
+
+```bash
+# Out of office
+pnpm action create-event \
+  --title "OOO" \
+  --start 2026-04-03T09:00:00 \
+  --end 2026-04-03T17:00:00 \
+  --eventType outOfOffice
+
+# Focus time
+pnpm action create-event \
+  --title "Focus time" \
+  --start 2026-04-03T09:00:00 \
+  --end 2026-04-03T11:00:00 \
+  --eventType focusTime
+
+# Working location
+pnpm action create-event \
+  --title "Working from home" \
+  --start 2026-04-03T09:00:00 \
+  --end 2026-04-03T17:00:00 \
+  --eventType workingLocation \
+  --workingLocationType homeOffice
+```
+
+Do not use `eventType` for Tasks or appointment schedules. Google Calendar
+Tasks are a separate product/API surface, and appointment schedules should use
+booking links or availability workflows instead.
+
+Use `--transparency opaque` for Busy and `--transparency transparent` for Free.
+Use `--visibility public` or `--visibility private` when the user asks for
+public/private visibility.
+
 Use only one generated video provider per event: `--addGoogleMeet=true` or `--addZoom=true`, not both. Zoom requires the user to connect Zoom in Settings first; check with `pnpm action get-zoom-status` when unsure.
 
 `--attendees` accepts a comma- or space-separated list of email addresses. When attendees are provided, Google sends email invitations automatically (`sendUpdates=all`). Use `--sendUpdates=none` to suppress emails.
