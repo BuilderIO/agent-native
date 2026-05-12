@@ -115,18 +115,21 @@ export default function DesignSystems() {
     setSelectedSystemIds(new Set());
   }, []);
 
-  const toggleSystemSelection = useCallback((id: string) => {
-    if (!designSystems.find((ds) => ds.id === id)?.canManage) return;
-    setSelectedSystemIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }, [designSystems]);
+  const toggleSystemSelection = useCallback(
+    (id: string) => {
+      if (!designSystems.find((ds) => ds.id === id)?.canManage) return;
+      setSelectedSystemIds((current) => {
+        const next = new Set(current);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        return next;
+      });
+    },
+    [designSystems],
+  );
 
   const toggleAllSystems = useCallback(() => {
     setSelectedSystemIds((current) => {
