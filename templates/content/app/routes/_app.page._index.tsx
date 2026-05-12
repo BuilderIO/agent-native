@@ -1,5 +1,5 @@
-import { Navigate } from "react-router";
+import { EmptyState } from "@/components/EmptyState";
 
-export default function PageIndexRedirect() {
-  return <Navigate to="/" replace />;
+export default function PageIndexRoute() {
+  return <EmptyState />;
 }
