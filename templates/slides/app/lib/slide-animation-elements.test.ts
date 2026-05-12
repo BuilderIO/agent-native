@@ -80,4 +80,22 @@ describe("slide animation element parsing", () => {
       }),
     ).toBe("1.0");
   });
+
+  it("includes empty styled shapes without exposing styled layout wrappers", () => {
+    const elements = parseSlideAnimationElements(`<div class="fmd-slide">
+      <div style="display: flex; gap: 20px; width: 100%;">
+        <div style="width: 60px; height: 4px; background: #00E5FF;"></div>
+        <p>Quote text</p>
+      </div>
+    </div>`);
+
+    expect(elements.map((element) => element.preview)).toEqual([
+      "Element 1",
+      "Quote text",
+    ]);
+    expect(elements.map((element) => element.path)).toEqual([
+      [0, 0],
+      [0, 1],
+    ]);
+  });
 });

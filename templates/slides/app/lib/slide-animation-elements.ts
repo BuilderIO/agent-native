@@ -39,10 +39,18 @@ function hasOwnText(element: Element): boolean {
   );
 }
 
+function hasVisualStyle(element: Element): boolean {
+  const style = element.getAttribute("style") ?? "";
+  return /(?:^|;)\s*(background(?:-color)?|border|box-shadow|width|height|min-width|min-height)\s*:/i.test(
+    style,
+  );
+}
+
 function hasMeaningfulContent(element: Element): boolean {
   if (SKIPPED_TAGS.has(element.tagName.toLowerCase())) return false;
   return (
     normalizeText(element.textContent).length > 0 ||
+    hasVisualStyle(element) ||
     element.matches("img,svg,video,canvas,table,.fmd-img-placeholder") ||
     !!element.querySelector("img,svg,video,canvas,table,.fmd-img-placeholder")
   );

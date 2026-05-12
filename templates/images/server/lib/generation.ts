@@ -243,15 +243,6 @@ export async function generateWithManagedImageProvider(
     if (shouldFallback && err instanceof BuilderImageGenerationError) {
       throw createBuilderImageGenerationFallbackError(err);
     }
-    if (shouldFallback) {
-      throw new FeatureNotConfiguredError({
-        requiredCredential: "BUILDER_PRIVATE_KEY",
-        builderConnectUrl: "/_agent-native/builder/connect",
-        byokDocsUrl: "https://aistudio.google.com/apikey",
-        message:
-          "Image generation needs Builder.io connected. Open Settings and click Connect Builder.io — or expand the Image generation setup step and paste a Gemini API key as the manual fallback.",
-      });
-    }
     throw err;
   }
 }
