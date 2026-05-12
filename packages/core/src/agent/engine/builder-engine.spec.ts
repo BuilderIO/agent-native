@@ -577,6 +577,40 @@ describe("createBuilderEngine", () => {
     expect(stop?.error?.toLowerCase()).toContain("rate_limit");
   });
 
+  it("maps invalid_request stops into a non-retryable error stop preserving the gateway message and code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_bad_history",
+            error:
+              "messages.87: `tool_use` ids were found without `tool_result` blocks immediately after: history_tc_80.",
+            errorCode: "tool_message_shape_invalid",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("tool_message_shape_invalid");
+    // The Anthropic diagnostic — including the offending block id — must
+    // survive end-to-end so callers can identify what to repair.
+    expect(stop?.error).toContain("history_tc_80");
+    // `tool_message_shape_invalid` contains none of production-agent's
+    // retry-trigger keywords (see isRetryableError), so the run-loop will
+    // not loop on the same malformed history. Lock that in.
+    expect(stop?.error?.toLowerCase()).not.toMatch(
+      /rate_limit|overloaded|503|504|gateway error|socket hang up|connection reset|too many requests|timeout/,
+    );
+  });
+
   it("marks no-detail gateway stop errors as retryable gateway errors", async () => {
     vi.stubGlobal(
       "fetch",
