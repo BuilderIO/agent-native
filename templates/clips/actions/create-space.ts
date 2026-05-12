@@ -23,11 +23,11 @@ export default defineAction({
     color: z
       .string()
       .regex(/^#[0-9a-fA-F]{3,8}$/)
-      .optional()
+      .nullish()
       .describe("Hex color for the space chip"),
     iconEmoji: z
       .string()
-      .optional()
+      .nullish()
       .describe("Emoji glyph rendered next to the space name"),
   }),
   run: async (args) => {

@@ -10,7 +10,6 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { organization } from "better-auth/plugins/organization";
 import { jwt } from "better-auth/plugins/jwt";
 import { bearer } from "better-auth/plugins/bearer";
 import { sendEmail, isEmailConfigured } from "./email.js";
@@ -196,7 +195,6 @@ export interface BetterAuthInstance {
         id: string;
         token: string;
         expiresAt: Date;
-        activeOrganizationId?: string;
       };
     } | null>;
     signInEmail: (opts: {
@@ -211,7 +209,6 @@ export interface BetterAuthInstance {
       };
     }) => Promise<any>;
     signOut: (opts: { headers: Headers }) => Promise<any>;
-    listOrganizations: (opts: { headers: Headers }) => Promise<any[] | null>;
   };
 }
 
@@ -817,8 +814,6 @@ async function createBetterAuthInstance(
         : {}),
     },
     plugins: [
-      // Organizations: many:many user:org, roles, invitations
-      organization(),
       // JWT: issue tokens for A2A calls, JWKS endpoint for verification
       jwt({
         jwt: {

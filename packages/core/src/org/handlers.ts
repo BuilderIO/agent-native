@@ -43,7 +43,7 @@ import { getDbExec } from "../db/client.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { getAppProductionUrl } from "../server/app-url.js";
-import { getOrgContext } from "./context.js";
+import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import type { OrgRole } from "./types.js";
 
@@ -180,27 +180,8 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  const orgId = nanoid();
-  const now = Date.now();
-  const e = await exec();
-
-  // Auto-generate a per-org A2A secret for cross-app delegation
-  const { randomBytes } = await import("node:crypto");
-  const a2aSecret = randomBytes(32).toString("base64url");
-
-  await e.execute({
-    sql: `INSERT INTO organizations (id, name, created_by, created_at, a2a_secret) VALUES (?, ?, ?, ?, ?)`,
-    args: [orgId, name, email, now, a2aSecret],
-  });
-
-  await e.execute({
-    sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
-    args: [nanoid(), orgId, email, "owner", now],
-  });
-
-  await putUserSetting(email, "active-org-id", { orgId });
-
-  return { id: orgId, name, role: "owner" };
+  const { id, name: createdName, role } = await createOrganization(name, email);
+  return { id, name: createdName, role };
 });
 
 /** GET /_agent-native/org/members — list org members */

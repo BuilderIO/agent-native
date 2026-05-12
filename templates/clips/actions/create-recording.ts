@@ -58,9 +58,11 @@ export default defineAction({
       .describe("Captured window or browser tab title, when known"),
     folderId: z.string().nullish().describe("Optional folder ID"),
     spaceIds: z
-      .array(z.string())
-      .optional()
-      .describe("Optional space IDs to attach to the recording"),
+      .array(z.string().min(1))
+      .nullable()
+      .describe(
+        "Space IDs the recording should belong to (used when recording from a space)",
+      ),
     organizationId: z
       .string()
       .optional()
@@ -102,12 +104,16 @@ export default defineAction({
       args.organizationId,
     );
 
+    const spaceIds = (args.spaceIds ?? []).filter(
+      (value, index, arr) => value && arr.indexOf(value) === index,
+    );
+
     await db.insert(schema.recordings).values({
       id,
       organizationId,
       orgId: organizationId,
       folderId: args.folderId ?? null,
-      spaceIds: stringifySpaceIds(args.spaceIds),
+      spaceIds: stringifySpaceIds(spaceIds),
       title,
       titleSource,
       sourceAppName: args.sourceAppName?.trim() || null,

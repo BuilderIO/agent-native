@@ -72,7 +72,7 @@ export default function HistoryPanel({
       <div className="px-3 py-2.5 border-b border-border flex items-center gap-2">
         <IconHistory className="w-4 h-4 text-[#609FF8]" />
         <span className="text-xs font-medium text-foreground/90">
-          Edit IconHistory
+          Edit History
         </span>
         <span className="text-[10px] text-muted-foreground ml-auto">
           {shortcutLabel("cmd+z")} / {shortcutLabel("cmd+shift+z")}

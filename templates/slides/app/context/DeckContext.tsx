@@ -105,7 +105,11 @@ interface DeckContextType {
     updates: Partial<Omit<Deck, "id" | "createdAt">>,
   ) => void;
   getDeck: (id: string) => Deck | undefined;
-  addSlide: (deckId: string, layout?: SlideLayout, afterIndex?: number) => void;
+  addSlide: (
+    deckId: string,
+    layout?: SlideLayout,
+    afterIndex?: number,
+  ) => string;
   updateSlide: (
     deckId: string,
     slideId: string,
@@ -247,7 +251,7 @@ async function createDeckOnAPI(deck: Deck): Promise<void> {
   }
 }
 
-const defaultSlideContent: Record<SlideLayout, string> = {
+export const defaultSlideContent: Record<SlideLayout, string> = {
   title: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: space-between;">
   <div>
     <div style="font-size: 16px; font-weight: 800; color: #fff; letter-spacing: 0; font-family: 'Poppins', sans-serif;">Deck</div>
@@ -293,7 +297,9 @@ const defaultSlideContent: Record<SlideLayout, string> = {
   "full-image": `<div class="fmd-slide" style="padding: 0; align-items: center; justify-content: center;">
   <div class="fmd-img-placeholder" style="width: 100%; height: 100%;">Full-bleed image or screenshot</div>
 </div>`,
-  blank: "",
+  blank: `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
+  <div style="font-size: 28px; font-weight: 600; color: rgba(255,255,255,0.4); line-height: 1.3; font-family: 'Poppins', sans-serif;">Double-click to edit</div>
+</div>`,
 };
 
 export function DeckProvider({ children }: { children: ReactNode }) {
@@ -786,6 +792,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           return { ...d, slides, updatedAt: new Date().toISOString() };
         }),
       );
+      return newSlide.id;
     },
     [setDecksWithHistory],
   );

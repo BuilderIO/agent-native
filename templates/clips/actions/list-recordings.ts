@@ -61,18 +61,18 @@ export default defineAction({
       accessFilter(schema.recordings, schema.recordingShares),
     ];
 
-    // `accessFilter` already scopes org-visible rows to the active org and
-    // never includes public rows in list views. Keep owner rows visible across
-    // org switches so joining a new organization does not hide older personal
-    // recordings.
     const orgId = await getActiveOrganizationId();
 
-    // Library = "Your personal recordings" — further scope to the current
-    // user's own clips so org-visible recordings from teammates don't appear.
+    // Library = "Your personal recordings in the active org". `accessFilter`
+    // admits all owner rows regardless of org, so library must add both the
+    // owner-email and current-org predicates to scope correctly.
     if (args.view === "library") {
       const email = getRequestUserEmail();
       if (email) {
         whereClauses.push(eq(schema.recordings.ownerEmail, email));
+      }
+      if (orgId) {
+        whereClauses.push(eq(schema.recordings.organizationId, orgId));
       }
     }
 

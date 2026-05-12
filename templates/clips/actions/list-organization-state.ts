@@ -12,7 +12,7 @@ import { defineAction } from "@agent-native/core";
 import { and, asc, eq, isNotNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import {
   getCurrentOwnerEmail,
   requireOrganizationAccess,
@@ -21,10 +21,7 @@ import {
 interface OrgRow {
   id: string;
   name: string;
-  slug: string | null;
-  logo?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+  created_at: number | string | null;
 }
 
 interface SettingsRow {
@@ -39,7 +36,7 @@ interface MemberRow {
   id: string;
   email: string | null;
   role: string | null;
-  created_at?: string | null;
+  joined_at: number | string | null;
 }
 
 interface InvitationRow {
@@ -47,8 +44,7 @@ interface InvitationRow {
   email: string | null;
   role: string | null;
   status: string | null;
-  expires_at: string | null;
-  created_at: string | null;
+  created_at: number | string | null;
 }
 
 export default defineAction({
@@ -59,25 +55,21 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Override the active organization. If omitted, resolves from the session's active_organization_id / member lookup.",
+        "Override the active organization. If omitted, resolves from the caller's active-org-id user-setting / org_members lookup.",
       ),
   }),
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
     const exec = getDbExec();
-    const pg = isPostgres();
     const ownerEmail = getCurrentOwnerEmail();
 
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
 
-    // Organization row
     const orgRes = await exec.execute({
-      sql: pg
-        ? `SELECT id, name, slug, logo, created_at, updated_at FROM organization WHERE id = $1 LIMIT 1`
-        : `SELECT id, name, slug, logo, created_at, updated_at FROM organization WHERE id = ? LIMIT 1`,
+      sql: `SELECT id, name, created_at FROM organizations WHERE id = ? LIMIT 1`,
       args: [organizationId],
     });
     const org = (orgRes.rows as OrgRow[])[0];
@@ -92,43 +84,25 @@ export default defineAction({
       };
     }
 
-    // Settings sidecar
     const settingsRes = await exec.execute({
-      sql: pg
-        ? `SELECT brand_color, brand_logo_url, default_visibility, created_at, updated_at FROM organization_settings WHERE organization_id = $1 LIMIT 1`
-        : `SELECT brand_color, brand_logo_url, default_visibility, created_at, updated_at FROM organization_settings WHERE organization_id = ? LIMIT 1`,
+      sql: `SELECT brand_color, brand_logo_url, default_visibility, created_at, updated_at FROM organization_settings WHERE organization_id = ? LIMIT 1`,
       args: [organizationId],
     });
     const settings = (settingsRes.rows as SettingsRow[])[0] ?? null;
 
-    // Members + emails — join to the user table.
-    const userTable = pg ? `"user"` : `user`;
     const memberRes = await exec.execute({
-      sql: pg
-        ? `SELECT m.id AS id, u.email AS email, m.role AS role, m.created_at AS created_at
-             FROM member m
-             LEFT JOIN ${userTable} u ON u.id = m.user_id
-             WHERE m.organization_id = $1
-             ORDER BY m.created_at ASC`
-        : `SELECT m.id AS id, u.email AS email, m.role AS role, m.created_at AS created_at
-             FROM member m
-             LEFT JOIN ${userTable} u ON u.id = m.user_id
-             WHERE m.organization_id = ?
-             ORDER BY m.created_at ASC`,
+      sql: `SELECT id, email, role, joined_at FROM org_members WHERE org_id = ? ORDER BY joined_at ASC`,
       args: [organizationId],
     });
     const members = (memberRes.rows as MemberRow[]).map((m) => ({
       id: String(m.id),
       email: m.email ?? "",
       role: m.role ?? "member",
-      joinedAt: m.created_at ?? null,
+      joinedAt: m.joined_at !== null ? Number(m.joined_at) : null,
     }));
 
-    // Pending invitations
     const inviteRes = await exec.execute({
-      sql: pg
-        ? `SELECT id, email, role, status, expires_at, created_at FROM invitation WHERE organization_id = $1 AND status = 'pending' ORDER BY created_at DESC`
-        : `SELECT id, email, role, status, expires_at, created_at FROM invitation WHERE organization_id = ? AND status = 'pending' ORDER BY created_at DESC`,
+      sql: `SELECT id, email, role, status, created_at FROM org_invitations WHERE org_id = ? AND status = 'pending' ORDER BY created_at DESC`,
       args: [organizationId],
     });
     const invitations = (inviteRes.rows as InvitationRow[]).map((i) => ({
@@ -136,11 +110,9 @@ export default defineAction({
       email: i.email ?? "",
       role: i.role ?? "member",
       status: i.status ?? "pending",
-      expiresAt: i.expires_at ?? null,
-      createdAt: i.created_at ?? null,
+      createdAt: i.created_at !== null ? Number(i.created_at) : null,
     }));
 
-    // Spaces + folders via Drizzle
     const [spaces, folders] = await Promise.all([
       db
         .select()
@@ -167,12 +139,10 @@ export default defineAction({
       organization: {
         id: org.id,
         name: org.name,
-        slug: org.slug ?? null,
         brandColor: settings?.brand_color ?? "#18181B",
-        brandLogoUrl: settings?.brand_logo_url ?? org.logo ?? null,
+        brandLogoUrl: settings?.brand_logo_url ?? null,
         defaultVisibility: settings?.default_visibility ?? "private",
-        createdAt: org.created_at ?? null,
-        updatedAt: org.updated_at ?? null,
+        createdAt: org.created_at !== null ? Number(org.created_at) : null,
       },
       members,
       spaces: spaces.map((s) => ({

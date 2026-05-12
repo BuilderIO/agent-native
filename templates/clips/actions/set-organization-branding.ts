@@ -1,7 +1,7 @@
 /**
  * Update organization branding — brand color, brand logo URL, default
  * visibility — by upserting the Clips-specific `organization_settings`
- * sidecar row. Does NOT change the core better-auth `organization` row.
+ * sidecar row. Does NOT change the framework `organizations` row.
  *
  * Usage:
  *   pnpm action set-organization-branding --brandColor="#18181B" --brandLogoUrl=/api/media/abc.png

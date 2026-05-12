@@ -82,6 +82,7 @@ export default function DeckEditor() {
     deleteSlide,
     duplicateSlide,
     duplicateDeck,
+    addSlide,
     reorderSlides,
     undo,
     redo,
@@ -764,6 +765,17 @@ export default function DeckEditor() {
                     if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
                   onDuplicateSlide={(slideId) => duplicateSlide(id, slideId)}
+                  onAddEmptySlide={() => {
+                    const activeIdx = deck.slides.findIndex(
+                      (s) => s.id === activeSlideId,
+                    );
+                    const newId = addSlide(
+                      id,
+                      "blank",
+                      activeIdx >= 0 ? activeIdx : undefined,
+                    );
+                    setActiveSlideId(newId);
+                  }}
                   onDeleteSlide={(slideId) => {
                     const idx = deck.slides.findIndex((s) => s.id === slideId);
                     const nextSlide =

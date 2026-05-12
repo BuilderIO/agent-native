@@ -17,6 +17,7 @@ export {
   getA2ASecretByDomain,
   resolveOrgByDomain,
   resolveOrgIdForEmail,
+  createOrganization,
 } from "./context.js";
 
 export { acceptPendingInvitationsForEmail } from "./accept-pending.js";

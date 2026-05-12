@@ -13,6 +13,7 @@ import {
   IconTrash,
   IconLoader2,
   IconX,
+  IconSquarePlus,
 } from "@tabler/icons-react";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
@@ -42,6 +43,7 @@ interface EditorSidebarProps {
   onSelectSlide: (id: string) => void;
   onDuplicateSlide: (id: string) => void;
   onDeleteSlide: (id: string) => void;
+  onAddEmptySlide: () => void;
   /** Presence map: slideId → list of users currently viewing that slide */
   slidePresence?: Map<string, CollabUser[]>;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
@@ -311,6 +313,7 @@ function AddSlidePopover({
   activeSlideIndex,
   agentSubmit,
   onDuplicateCurrent,
+  onAddEmpty,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -323,6 +326,7 @@ function AddSlidePopover({
   generating: boolean;
   agentSubmit: (message: string, context: string) => void;
   onDuplicateCurrent?: () => void;
+  onAddEmpty?: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
@@ -452,22 +456,40 @@ function AddSlidePopover({
       <p className="px-1 pb-2 text-sm font-medium text-foreground/90">
         Add slides
       </p>
-      {onDuplicateCurrent && slideCount > 0 && (
+      {(onAddEmpty || (onDuplicateCurrent && slideCount > 0)) && (
         <>
-          <button
-            type="button"
-            onClick={() => {
-              onDuplicateCurrent();
-              onOpenChange(false);
-            }}
-            className="w-full mb-2 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
-          >
-            <IconCopy className="w-4 h-4 text-muted-foreground" />
-            <span>Duplicate current slide</span>
-            <span className="ml-auto text-[11px] text-muted-foreground">
-              no AI
-            </span>
-          </button>
+          {onAddEmpty && (
+            <button
+              type="button"
+              onClick={() => {
+                onAddEmpty();
+                onOpenChange(false);
+              }}
+              className="w-full mb-1 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
+            >
+              <IconSquarePlus className="w-4 h-4 text-muted-foreground" />
+              <span>Add empty slide</span>
+              <span className="ml-auto text-[11px] text-muted-foreground">
+                no AI
+              </span>
+            </button>
+          )}
+          {onDuplicateCurrent && slideCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                onDuplicateCurrent();
+                onOpenChange(false);
+              }}
+              className="w-full mb-2 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
+            >
+              <IconCopy className="w-4 h-4 text-muted-foreground" />
+              <span>Duplicate current slide</span>
+              <span className="ml-auto text-[11px] text-muted-foreground">
+                no AI
+              </span>
+            </button>
+          )}
           <div className="-mx-3 mb-2 h-px bg-border" />
         </>
       )}
@@ -504,6 +526,7 @@ export default function EditorSidebar({
   onSelectSlide,
   onDuplicateSlide,
   onDeleteSlide,
+  onAddEmptySlide,
   slidePresence,
   aspectRatio,
 }: EditorSidebarProps) {
@@ -618,6 +641,7 @@ export default function EditorSidebar({
         onDuplicateCurrent={
           activeSlideId ? () => onDuplicateSlide(activeSlideId) : undefined
         }
+        onAddEmpty={onAddEmptySlide}
       />
     </div>
   );
