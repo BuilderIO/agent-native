@@ -24,7 +24,7 @@ interface SlackMessage {
   ts: string;
   thread_ts?: string;
   reply_count?: number;
-  channel?: { id: string; name: string };
+  channel?: { id: string; name: string } | string;
   permalink?: string;
 }
 
@@ -269,12 +269,26 @@ export function SlackMentionsPanel({ issue }: SlackMentionsPanelProps) {
           </div>
         </div>
       ) : (
-        <div className="space-y-3 max-h-56 overflow-y-auto">
+        <div className="space-y-1 max-h-56 overflow-y-auto">
           {messages.map((msg) => {
             const name = resolveUsername(msg, users);
             const text = stripSlackFormatting(msg.text);
+            const channelName =
+              typeof msg.channel === "string" ? msg.channel : msg.channel?.name;
+            const Row = msg.permalink ? "a" : "div";
+            const rowProps = msg.permalink
+              ? {
+                  href: msg.permalink,
+                  target: "_blank" as const,
+                  rel: "noopener noreferrer",
+                }
+              : {};
             return (
-              <div key={msg.ts} className="flex gap-2 group">
+              <Row
+                key={msg.ts}
+                {...rowProps}
+                className="flex gap-2 group px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors cursor-pointer -mx-2"
+              >
                 <div className="h-6 w-6 rounded-full bg-muted/60 shrink-0 flex items-center justify-center text-[10px] font-bold text-muted-foreground uppercase mt-0.5">
                   {name[0] ?? "?"}
                 </div>
@@ -284,9 +298,9 @@ export function SlackMentionsPanel({ issue }: SlackMentionsPanelProps) {
                     <span className="text-[10px] text-muted-foreground">
                       {tsToDate(msg.ts)}
                     </span>
-                    {msg.channel && (
+                    {channelName && (
                       <span className="text-[10px] text-muted-foreground">
-                        #{msg.channel.name}
+                        #{channelName}
                       </span>
                     )}
                     {msg.reply_count ? (
@@ -301,16 +315,9 @@ export function SlackMentionsPanel({ issue }: SlackMentionsPanelProps) {
                   </p>
                 </div>
                 {msg.permalink && (
-                  <a
-                    href={msg.permalink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity mt-0.5"
-                  >
-                    <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                  </a>
+                  <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
                 )}
-              </div>
+              </Row>
             );
           })}
         </div>

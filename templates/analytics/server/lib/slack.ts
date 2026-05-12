@@ -102,7 +102,8 @@ export interface SlackMessage {
   reactions?: { name: string; count: number }[];
   files?: { name: string; mimetype: string; url_private: string }[];
   icons?: { image_48?: string; image_72?: string };
-  channel?: string;
+  channel?: { id: string; name: string } | string;
+  permalink?: string;
 }
 
 export interface SlackBotInfo {
@@ -353,6 +354,19 @@ export async function searchMessages(
   const oldest = String(
     Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000),
   );
+
+  // Fetch team domain so we can build message permalinks
+  let teamDomain = "";
+  try {
+    const teamData = await slackApi<{ team: { domain: string } }>(
+      workspace,
+      "team.info",
+    );
+    teamDomain = teamData.team?.domain ?? "";
+  } catch {
+    // non-fatal
+  }
+
   const matches: SlackMessage[] = [];
 
   await Promise.all(
@@ -376,9 +390,16 @@ export async function searchMessages(
             console.log(
               `[slack-search]   MATCH in #${ch.name}: "${msg.text?.slice(0, 80)}"`,
             );
-            matches.push({ ...msg, channel: ch.id } as SlackMessage & {
-              channel: string;
-            });
+            // Build a Slack deep-link permalink for bot-scanned messages
+            const tsSlug = msg.ts.replace(".", "");
+            const permalink = teamDomain
+              ? `https://${teamDomain}.slack.com/archives/${ch.id}/p${tsSlug}`
+              : undefined;
+            matches.push({
+              ...msg,
+              channel: { id: ch.id, name: ch.name },
+              permalink,
+            } as SlackMessage);
           }
         }
       } catch (err) {
