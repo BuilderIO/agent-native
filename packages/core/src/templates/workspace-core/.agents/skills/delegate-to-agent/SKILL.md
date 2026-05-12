@@ -2,8 +2,9 @@
 name: delegate-to-agent
 description: >-
   How to delegate all AI work to the agent chat. Use when delegating AI work
-  from UI or scripts to the agent, when tempted to add inline LLM calls, or
-  when sending messages to the agent from application code.
+  from UI or scripts to the agent, when a user asks for agent behavior or
+  LLM-powered features, when tempted to add inline LLM calls, or when sending
+  messages to the agent from application code.
 ---
 
 # Delegate All AI to the Agent

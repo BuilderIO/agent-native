@@ -11,6 +11,11 @@ agent should know.
 
 ## Shared Conventions
 
+- All AI/LLM behavior goes through the app's agent chat. UI and server code
+  must not call model providers, AI SDK `generateText()` / `streamText()`, or
+  other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
+  work, and read `.agents/skills/delegate-to-agent/SKILL.md` before building
+  agent-driven UI or "AI" features.
 - Put shared code in `packages/shared` only when multiple apps need it.
 - Keep app-specific screens, actions, state, and skills inside `apps/<app>`.
 - Store shared runtime configuration in the workspace root `.env`; use

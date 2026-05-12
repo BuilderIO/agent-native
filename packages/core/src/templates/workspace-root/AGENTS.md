@@ -6,6 +6,14 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 The root `.agents/skills` path points at the shared package's skills so local
 coding agents can discover the same workspace-wide guidance from the root.
 
+## Core Agent Rule
+
+- All AI/LLM behavior goes through the app's agent chat. UI and server code
+  must not call model providers, AI SDK `generateText()` / `streamText()`, or
+  other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
+  work, and read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md`
+  before building agent-driven UI or "AI" features.
+
 ## Workspace Scope
 
 - Keep root changes focused on workspace orchestration, shared configuration,
