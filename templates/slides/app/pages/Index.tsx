@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
-import { useNavigate } from "react-router";
-import { IconPlus, IconStack2 } from "@tabler/icons-react";
+import { useNavigate, useSearchParams } from "react-router";
+import { IconPlus, IconStack2, IconUserCircle } from "@tabler/icons-react";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
@@ -37,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "@/hooks/use-toast";
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
@@ -108,6 +109,7 @@ export default function Index() {
   const { designSystems, defaultSystem } = useDesignSystems();
   const { session } = useSession();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState("");
@@ -122,6 +124,30 @@ export default function Index() {
   const designSystemTitleById = useMemo(
     () => new Map(designSystems.map((ds) => [ds.id, ds.title])),
     [designSystems],
+  );
+  const deckFilter = searchParams.get("createdBy") === "me" ? "mine" : "all";
+  const visibleDecks = useMemo(
+    () =>
+      deckFilter === "mine" ? decks.filter((deck) => deck.createdByMe) : decks,
+    [deckFilter, decks],
+  );
+  const setDeckFilter = useCallback(
+    (value: string) => {
+      const nextFilter = value === "mine" ? "mine" : "all";
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (nextFilter === "mine") {
+            next.set("createdBy", "me");
+          } else {
+            next.delete("createdBy");
+          }
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
   );
 
   const openNewDeck = useCallback(
@@ -389,9 +415,40 @@ export default function Index() {
         <EmptyState onCreateDeck={openNewDeck} />
       ) : (
         <>
-          <div className="flex items-center justify-end mb-4">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <ToggleGroup
+              type="single"
+              value={deckFilter}
+              onValueChange={(value) => value && setDeckFilter(value)}
+              className="w-fit rounded-lg border border-border bg-card p-0.5"
+              size="sm"
+            >
+              <ToggleGroupItem
+                value="all"
+                aria-label="Show all decks"
+                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
+              >
+                <IconStack2 className="mr-1.5 h-3.5 w-3.5" />
+                All
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="mine"
+                aria-label="Show decks created by me"
+                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
+              >
+                <IconUserCircle className="mr-1.5 h-3.5 w-3.5" />
+                Mine
+              </ToggleGroupItem>
+            </ToggleGroup>
             <span className="text-xs text-muted-foreground/70">
-              {decks.length} deck{decks.length !== 1 ? "s" : ""}
+              {deckFilter === "mine"
+                ? `${visibleDecks.length} of ${decks.length}`
+                : decks.length}{" "}
+              deck
+              {(deckFilter === "mine" ? visibleDecks.length : decks.length) !==
+              1
+                ? "s"
+                : ""}
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -415,7 +472,7 @@ export default function Index() {
               </div>
             </button>
 
-            {[...decks].reverse().map((deck) => (
+            {[...visibleDecks].reverse().map((deck) => (
               <DeckCard
                 key={deck.id}
                 deck={deck}
@@ -430,6 +487,11 @@ export default function Index() {
                 }
               />
             ))}
+            {visibleDecks.length === 0 && (
+              <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
+                No decks created by you yet.
+              </div>
+            )}
           </div>
         </>
       )}

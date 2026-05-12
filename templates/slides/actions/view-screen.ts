@@ -4,6 +4,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 export default defineAction({
   description:
@@ -14,6 +15,7 @@ export default defineAction({
     const navigation = (await readAppState("navigation")) as {
       view?: string;
       deckId?: string;
+      deckFilter?: "all" | "created-by-me";
       slideIndex?: number;
     } | null;
     const db = getDb();
@@ -157,17 +159,35 @@ export default defineAction({
       .where(accessFilter(schema.decks, schema.deckShares))
       .orderBy(desc(schema.decks.updatedAt));
 
+    const userEmail = getRequestUserEmail();
+    const filteredRows =
+      navigation?.deckFilter === "created-by-me"
+        ? userEmail
+          ? rows.filter((row) => row.ownerEmail === userEmail)
+          : []
+        : rows;
     const lines: string[] = [];
     lines.push(`## Current Screen`);
     lines.push(``);
     lines.push(`view: ${navigation?.view ?? "list"}`);
     lines.push(`No deck currently open. User is on the deck list.`);
+    lines.push(
+      `deckFilter: ${
+        navigation?.deckFilter === "created-by-me"
+          ? "created by me"
+          : "all accessible decks"
+      }`,
+    );
     lines.push(``);
-    lines.push(`### All decks (${rows.length})`);
-    if (rows.length === 0) {
+    lines.push(
+      navigation?.deckFilter === "created-by-me"
+        ? `### Decks created by current user (${filteredRows.length} of ${rows.length})`
+        : `### All decks (${rows.length})`,
+    );
+    if (filteredRows.length === 0) {
       lines.push(`(no decks — use create-deck to make one)`);
     } else {
-      for (const row of rows) {
+      for (const row of filteredRows) {
         const data = JSON.parse(row.data);
         const slideCount = Array.isArray(data?.slides) ? data.slides.length : 0;
         lines.push(
