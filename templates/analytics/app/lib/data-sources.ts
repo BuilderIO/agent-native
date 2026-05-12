@@ -677,11 +677,12 @@ export const dataSources: DataSource[] = [
       {
         title: "Add a User Token for search (optional)",
         description:
-          'Slack\'s search API requires a user token. Under "OAuth & Permissions", copy the User OAuth Token (starts with "xoxp-"). Required for the Slack search feature in Sentry Error Intelligence.',
+          "Optional. Enables the Slack search.messages API for richer search results. Without it, the bot scans channels it's been invited to.",
         inputKey: "SLACK_USER_TOKEN",
         inputLabel: "User Token (for search)",
         inputPlaceholder: "xoxp-...",
         inputType: "password",
+        optional: true,
       },
     ],
   },

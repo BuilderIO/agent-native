@@ -535,10 +535,14 @@ function ConnectedView({
                       Configured
                     </span>
                   ) : optional ? (
-                    <span className="flex items-center gap-1 whitespace-nowrap text-muted-foreground">
-                      <IconCircle className="h-3 w-3" />
-                      Optional
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setEditing(true)}
+                      className="flex items-center gap-1 whitespace-nowrap text-muted-foreground hover:text-primary text-xs cursor-pointer"
+                    >
+                      <IconPlus className="h-3 w-3" />
+                      Add
+                    </button>
                   ) : (
                     <span className="flex items-center gap-1 whitespace-nowrap text-rose-400">
                       <IconAlertCircle className="h-3 w-3" />
