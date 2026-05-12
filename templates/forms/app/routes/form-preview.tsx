@@ -1,5 +1,6 @@
 import { useSearchParams } from "react-router";
 import { useForm } from "@/hooks/use-forms";
+import { normalizeFields } from "@/lib/normalize-fields";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -106,7 +107,7 @@ export default function FormPreviewRoute() {
     );
   }
 
-  const fields = form.fields ?? [];
+  const fields = normalizeFields(form.fields);
   const inEmbed = isInAgentEmbed();
 
   return (
