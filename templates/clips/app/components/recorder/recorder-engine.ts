@@ -1243,6 +1243,7 @@ export class RecorderEngine {
 
   private readDimensions(): { width: number; height: number } {
     const videoTrack =
+      this.combinedStream?.getVideoTracks()[0] ||
       this.previewStream?.getVideoTracks()[0] ||
       this.displayStream?.getVideoTracks()[0] ||
       this.cameraStream?.getVideoTracks()[0];
