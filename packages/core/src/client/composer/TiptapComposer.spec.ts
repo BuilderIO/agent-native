@@ -5,6 +5,7 @@ import { Editor } from "@tiptap/core";
 import {
   canSubmitComposerContent,
   createTiptapComposerExtensions,
+  displayableComposerModeMessage,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
@@ -56,5 +57,15 @@ describe("createTiptapComposerExtensions", () => {
         disabled: true,
       }),
     ).toBe(false);
+  });
+
+  it("uses a visible fallback for attachment-only composer mode prompts", () => {
+    expect(
+      displayableComposerModeMessage({
+        messagePrefix: "Create an extension: ",
+        trimmedText: "",
+        attachmentCount: 1,
+      }),
+    ).toBe("Create an extension: Use the attached context.");
   });
 });

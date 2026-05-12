@@ -80,6 +80,17 @@ export function canSubmitComposerContent(options: {
   );
 }
 
+export function displayableComposerModeMessage(options: {
+  messagePrefix: string;
+  trimmedText: string;
+  attachmentCount: number;
+}): string {
+  const modePrompt =
+    options.trimmedText ||
+    (options.attachmentCount > 0 ? "Use the attached context." : "");
+  return `${options.messagePrefix}${modePrompt}`;
+}
+
 const BUILT_IN_COMMANDS: SlashCommand[] = [
   { name: "clear", description: "Start a new chat", icon: "clear" },
   { name: "new", description: "Start a new chat", icon: "new" },
@@ -1352,17 +1363,21 @@ export function TiptapComposer({
     if (composerMode) {
       const config = COMPOSER_MODE_CONFIGS[composerMode];
       config.beforeSend?.();
+      const message = displayableComposerModeMessage({
+        messagePrefix: config.messagePrefix,
+        trimmedText: trimmed,
+        attachmentCount: attachments.length,
+      });
       const modePrompt =
-        trimmed ||
-        (attachments.length > 0 ? "Use the attached context." : "");
+        trimmed || (attachments.length > 0 ? "Use the attached context." : "");
       if (attachments.length > 0) {
         composerRuntime.setText(
-          `${config.messagePrefix}${modePrompt}\n\n<context>\n${config.getContext(modePrompt)}\n</context>`,
+          `${message}\n\n<context>\n${config.getContext(modePrompt)}\n</context>`,
         );
         composerRuntime.send();
       } else {
         sendToAgentChat({
-          message: `${config.messagePrefix}${modePrompt}`,
+          message,
           context: config.getContext(modePrompt),
           submit: true,
         });

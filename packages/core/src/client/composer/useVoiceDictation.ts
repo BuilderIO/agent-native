@@ -919,7 +919,11 @@ export function useVoiceDictation(
   }, [state, teardown]);
 
   const cancel = useCallback(() => {
-    if (state !== "recording" && state !== "starting" && state !== "transcribing")
+    if (
+      state !== "recording" &&
+      state !== "starting" &&
+      state !== "transcribing"
+    )
       return;
     cancelledRef.current = true;
     if (

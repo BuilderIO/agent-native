@@ -966,7 +966,7 @@ function markdownUrlTransform(value: string): string {
 function MarkdownText() {
   useEffect(() => {
     injectMarkdownStyles();
-  }, []);
+  }, [hasDisplayableText]);
   return (
     <MarkdownTextPrimitive
       smooth
@@ -1877,7 +1877,9 @@ function UserMessage() {
               const selection = window.getSelection();
               if (!selection || selection.rangeCount === 0) return;
               const fragment = selection.getRangeAt(0).cloneContents();
-              const mentions = fragment.querySelectorAll("[data-mention-label]");
+              const mentions = fragment.querySelectorAll(
+                "[data-mention-label]",
+              );
               if (mentions.length === 0) return;
               e.preventDefault();
               mentions.forEach((el) => {
