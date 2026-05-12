@@ -600,12 +600,8 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("tool_message_shape_invalid");
-    // The Anthropic diagnostic — including the offending block id — must
-    // survive end-to-end so callers can identify what to repair.
     expect(stop?.error).toContain("history_tc_80");
-    // `tool_message_shape_invalid` contains none of production-agent's
-    // retry-trigger keywords (see isRetryableError), so the run-loop will
-    // not loop on the same malformed history. Lock that in.
+    // No retry-trigger keywords (see production-agent's isRetryableError).
     expect(stop?.error?.toLowerCase()).not.toMatch(
       /rate_limit|overloaded|503|504|gateway error|socket hang up|connection reset|too many requests|timeout/,
     );

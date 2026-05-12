@@ -507,10 +507,8 @@ async function* parseJsonlStream(
               errorCode: "rate_limited",
             };
           } else if (reason === "invalid_request") {
-            // Caller-input failure surfaced by the gateway (e.g.
-            // tool_use/tool_result mismatch). errorCode is a stable
-            // classifier and contains no retry-trigger keywords, so
-            // isRetryableError won't loop on the same broken history.
+            // errorCode has no retry-trigger keywords, so isRetryableError
+            // won't loop on broken history.
             const errMsg =
               event.error ||
               event.message ||
