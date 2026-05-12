@@ -63,7 +63,17 @@ export interface DashboardMeta {
 
 // Add new dashboards here. Each entry needs a matching file in this directory.
 // REQUIRED FIELDS: id, name, author, lastUpdated
-export const dashboards: DashboardMeta[] = [];
+export const dashboards: DashboardMeta[] = [
+  {
+    id: "sentry-errors",
+    name: "Sentry Error Intelligence",
+    description:
+      "Top 10 errors, escalating issues, related error groups, and project breakdown",
+    author: "Liam DeBeasi",
+    lastUpdated: "2025-05-12",
+    dateCreated: "2025-05-12",
+  },
+];
 
 const HIDDEN_KEY = "hidden-dashboards";
 
@@ -143,6 +153,7 @@ export const dashboardComponents: Record<
 > = {
   explorer: lazy(() => import("./explorer")),
   "explorer-dashboard": lazy(() => import("./explorer-dashboard")),
+  "sentry-errors": lazy(() => import("./sentry-errors")),
 };
 
 // Validate all dashboards at module load time
