@@ -1322,6 +1322,15 @@ export function TiptapComposer({
     const attachments = composerRuntime.getState().attachments;
     if (!text.trim() && references.length === 0 && attachments.length === 0)
       return;
+    const cancelActiveVoice = () => {
+      if (
+        voice.state === "recording" ||
+        voice.state === "starting" ||
+        voice.state === "transcribing"
+      ) {
+        voice.cancel();
+      }
+    };
 
     // Intercept slash commands typed directly (e.g. "/clear" + Enter)
     const trimmed = text.trim();
@@ -1343,11 +1352,22 @@ export function TiptapComposer({
     if (composerMode) {
       const config = COMPOSER_MODE_CONFIGS[composerMode];
       config.beforeSend?.();
-      sendToAgentChat({
-        message: `${config.messagePrefix}${trimmed}`,
-        context: config.getContext(trimmed),
-        submit: true,
-      });
+      const modePrompt =
+        trimmed ||
+        (attachments.length > 0 ? "Use the attached context." : "");
+      if (attachments.length > 0) {
+        composerRuntime.setText(
+          `${config.messagePrefix}${modePrompt}\n\n<context>\n${config.getContext(modePrompt)}\n</context>`,
+        );
+        composerRuntime.send();
+      } else {
+        sendToAgentChat({
+          message: `${config.messagePrefix}${modePrompt}`,
+          context: config.getContext(modePrompt),
+          submit: true,
+        });
+      }
+      cancelActiveVoice();
       ed.commands.clearContent();
       setEditorHasText(false);
       setComposerMode(null);
@@ -1369,6 +1389,7 @@ export function TiptapComposer({
       interceptBuildRequestsForBuilder &&
       tryDelegateBuildRequestToBuilder(trimmed)
     ) {
+      cancelActiveVoice();
       ed.commands.clearContent();
       setEditorHasText(false);
       try {
@@ -1389,6 +1410,7 @@ export function TiptapComposer({
     } else {
       composerRuntime.send();
     }
+    cancelActiveVoice();
     ed.commands.clearContent();
     setEditorHasText(false);
     try {
@@ -1404,6 +1426,7 @@ export function TiptapComposer({
     clearOnSubmit,
     onSubmit,
     syncComposerState,
+    voice,
   ]);
 
   // Helper functions that operate on the editor view directly

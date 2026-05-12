@@ -147,6 +147,81 @@ function formatInlineTextFile(name: string, text: string): string {
     .join("\n");
 }
 
+function readFileDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Could not read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatInlineImageFile(
+  name: string,
+  contentType: string,
+  dataUrl: string,
+): string {
+  return [
+    `<uploaded-image name="${name}" contentType="${contentType}">`,
+    dataUrl,
+    "</uploaded-image>",
+  ].join("\n");
+}
+
+export async function buildPromptComposerSubmission(options: {
+  text: string;
+  attachments?: ReadonlyArray<unknown>;
+}): Promise<{ text: string; files: File[] }> {
+  const files: File[] = [];
+  const pastedTextBlocks: string[] = [];
+  const rawText = options.text;
+
+  for (const att of options.attachments ?? []) {
+    const a = att as Attachment;
+    if ("file" in a && a.file instanceof File) {
+      const file = a.file;
+      if (isPastedTextAttachmentName(file.name)) {
+        try {
+          pastedTextBlocks.push(await file.text());
+        } catch {
+          files.push(file);
+        }
+      } else {
+        if (isInlineableTextFile(file)) {
+          try {
+            pastedTextBlocks.push(
+              formatInlineTextFile(file.name, await file.text()),
+            );
+          } catch {
+            // Keep the upload path fallback below.
+          }
+        } else if (file.type.startsWith("image/") && !rawText.trim()) {
+          try {
+            pastedTextBlocks.push(
+              formatInlineImageFile(
+                file.name,
+                file.type,
+                await readFileDataUrl(file),
+              ),
+            );
+          } catch {
+            // Keep the upload path fallback below.
+          }
+        }
+        files.push(file);
+      }
+    }
+  }
+
+  return {
+    text: pastedTextBlocks.length
+      ? [rawText.trim(), ...pastedTextBlocks].filter(Boolean).join("\n\n")
+      : rawText,
+    files,
+  };
+}
+
 function getImageSrc(attachment: Attachment): string | null {
   if (attachment.type !== "image") return null;
   if ("file" in attachment && attachment.file) {
@@ -352,37 +427,10 @@ function PromptComposerInner({
       // into a "Pasted text" chip, which would otherwise disappear into an
       // unprocessed File. Inline the chip body back into the prompt text so
       // newlines and full content survive the round-trip.
-      const files: File[] = [];
-      const pastedTextBlocks: string[] = [];
-      for (const att of attachments ?? []) {
-        const a = att as Attachment;
-        if ("file" in a && a.file instanceof File) {
-          const file = a.file;
-          if (isPastedTextAttachmentName(file.name)) {
-            try {
-              pastedTextBlocks.push(await file.text());
-            } catch {
-              // If we can't read it, fall back to surfacing it as a regular
-              // attachment file rather than silently losing it.
-              files.push(file);
-            }
-          } else {
-            if (isInlineableTextFile(file)) {
-              try {
-                pastedTextBlocks.push(
-                  formatInlineTextFile(file.name, await file.text()),
-                );
-              } catch {
-                // Keep the upload path fallback below.
-              }
-            }
-            files.push(file);
-          }
-        }
-      }
-      const finalText = pastedTextBlocks.length
-        ? [text.trim(), ...pastedTextBlocks].filter(Boolean).join("\n\n")
-        : text;
+      const { text: finalText, files } = await buildPromptComposerSubmission({
+        text,
+        attachments,
+      });
       onSubmit(finalText, files, references, {
         model: showModelSelector ? models.selectedModel : undefined,
         engine: showModelSelector ? models.selectedEngine : undefined,
