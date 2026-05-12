@@ -2,7 +2,15 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { desc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { accessFilter } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  resolveAccess,
+  type ShareRole,
+} from "@agent-native/core/sharing";
+
+function canManageRole(role: "owner" | ShareRole) {
+  return role === "owner" || role === "admin";
+}
 
 export default defineAction({
   description:
@@ -28,12 +36,30 @@ export default defineAction({
       return { count: 0, designSystems: [] };
     }
 
+    const accessById = new Map<
+      string,
+      { role: "owner" | ShareRole; canManage: boolean }
+    >();
+    await Promise.all(
+      rows.map(async (row) => {
+        const access = await resolveAccess("design-system", row.id);
+        const role = access?.role ?? "viewer";
+        accessById.set(row.id, { role, canManage: canManageRole(role) });
+      }),
+    );
+
     const items = rows.map((row) => {
+      const access = accessById.get(row.id) ?? {
+        role: "viewer" as const,
+        canManage: false,
+      };
       if (args.compact === "true") {
         return {
           id: row.id,
           title: row.title,
           isDefault: row.isDefault,
+          accessRole: access.role,
+          canManage: access.canManage,
         };
       }
       return {
@@ -44,6 +70,8 @@ export default defineAction({
         customInstructions: row.customInstructions ?? "",
         isDefault: row.isDefault,
         visibility: row.visibility,
+        accessRole: access.role,
+        canManage: access.canManage,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
