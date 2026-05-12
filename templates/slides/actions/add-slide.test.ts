@@ -44,6 +44,10 @@ vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
 
+vi.mock("../server/lib/deck-versions.js", () => ({
+  createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: (col: unknown, val: unknown) => ({ col, val }),
 }));
@@ -89,6 +93,7 @@ describe("add-slide", () => {
     expect(result).toMatchObject({
       deckId: "deck-1",
       slideId: "slide-new",
+      slideNumber: 2,
       position: 1,
       slideCount: 3,
     });

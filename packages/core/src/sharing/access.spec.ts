@@ -193,10 +193,10 @@ describe("shareable resource access helpers", () => {
     // — public means "anyone with the link," not "appears in everyone's list."
     await expect(
       listVisible({ userEmail: ownerEmail, orgId }),
-    ).resolves.toEqual(["owned", "same-org", "shared-org"]);
+    ).resolves.toEqual(["owned", "owned-solo", "same-org", "shared-org"]);
     await expect(
       listVisible({ userEmail: ownerEmail, orgId: otherOrgId }),
-    ).resolves.toEqual(["other-org", "owned-other-org"]);
+    ).resolves.toEqual(["other-org", "owned-other-org", "owned-solo"]);
     await expect(listVisible({ userEmail: ownerEmail })).resolves.toEqual([
       "owned-solo",
     ]);
@@ -252,9 +252,9 @@ describe("shareable resource access helpers", () => {
       await expect(
         resolveAccess(resourceType, "doc-owned-other-org"),
       ).resolves.toBe(null);
-      await expect(resolveAccess(resourceType, "doc-owned-solo")).resolves.toBe(
-        null,
-      );
+      await expect(
+        assertAccess(resourceType, "doc-owned-solo", "owner"),
+      ).resolves.toMatchObject({ role: "owner" });
     });
 
     await runWithRequestContext(
@@ -404,5 +404,36 @@ describe("shareable resource access helpers", () => {
       principalId: viewerEmail,
       role: "admin",
     });
+  });
+
+  it("attaches legacy unscoped owner resources to the active org when making them org-visible", async () => {
+    await insertDoc({ id: "doc-legacy-solo", orgId: null });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        listResourceShares.run({
+          resourceType,
+          resourceId: "doc-legacy-solo",
+        }),
+      ).resolves.toMatchObject({
+        role: "owner",
+        orgId: null,
+        visibility: "private",
+      });
+
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-legacy-solo",
+          visibility: "org",
+        }),
+      ).resolves.toEqual({ ok: true, visibility: "org" });
+    });
+
+    const [row] = await db
+      .select()
+      .from(docs)
+      .where(eq(docs.id, "doc-legacy-solo"));
+    expect(row).toMatchObject({ orgId, visibility: "org" });
   });
 });

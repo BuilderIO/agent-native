@@ -8,7 +8,9 @@ const mockAssertAccess = vi.fn();
 const mockWriteAppState = vi.fn();
 const mockNotifyClients = vi.fn();
 
-let mockDeckRow: { id: string; data: string } | undefined = undefined;
+let mockDeckRow:
+  | { id: string; title: string; data: string; ownerEmail: string }
+  | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
 
 const limitFn = vi.fn(async () => (mockDeckRow ? [mockDeckRow] : []));
@@ -42,6 +44,10 @@ vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
 
+vi.mock("../server/lib/deck-versions.js", () => ({
+  createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: (col: unknown, val: unknown) => ({ col, val }),
 }));
@@ -53,6 +59,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockDeckRow = {
     id: "deck-1",
+    title: "T",
+    ownerEmail: "owner@example.com",
     data: JSON.stringify({
       title: "T",
       slides: [{ id: "s1" }],

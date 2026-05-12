@@ -19,6 +19,16 @@ export const decks = table("decks", {
 
 export const deckShares = createSharesTable("deck_shares");
 
+export const deckVersions = table("deck_versions", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  deckId: text("deck_id").notNull(),
+  title: text("title").notNull(),
+  data: text("data").notNull(),
+  changeLabel: text("change_label"),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
 export const designSystems = table("design_systems", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),

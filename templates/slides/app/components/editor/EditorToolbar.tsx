@@ -955,8 +955,7 @@ graph TD
         className="hidden"
       />
 
-      {/* Overflow — Import / History / Theme tucked away to clean the bar.
-          The historyButtonRef anchors the History popup below this trigger. */}
+      {/* Overflow — Import / History / Theme tucked away to clean the bar. */}
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -986,7 +985,7 @@ graph TD
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onShowHistory}>
             <IconHistory className="w-4 h-4 mr-2" />
-            Edit history
+            Saved versions
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => setTheme(isDark ? "light" : "dark")}>

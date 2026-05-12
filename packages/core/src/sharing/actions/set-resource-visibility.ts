@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { defineAction } from "../../action.js";
+import { getRequestOrgId } from "../../server/request-context.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
 
@@ -22,11 +23,20 @@ export default defineAction({
         `${reg.displayName} cannot be made public — share with specific people or your organization instead.`,
       );
     }
-    await assertAccess(args.resourceType, args.resourceId, "admin");
+    const access = await assertAccess(
+      args.resourceType,
+      args.resourceId,
+      "admin",
+    );
     const db = reg.getDb() as any;
+    const update: Record<string, unknown> = { visibility: args.visibility };
+    const currentOrgId = getRequestOrgId();
+    if (args.visibility === "org" && currentOrgId && !access.resource?.orgId) {
+      update.orgId = currentOrgId;
+    }
     await db
       .update(reg.resourceTable)
-      .set({ visibility: args.visibility })
+      .set(update)
       .where(eq(reg.resourceTable.id, args.resourceId));
     return { ok: true, visibility: args.visibility };
   },

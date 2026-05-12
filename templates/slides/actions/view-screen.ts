@@ -47,6 +47,7 @@ export default defineAction({
         content?: string;
       }> = Array.isArray(deck?.slides) ? deck.slides : [];
       const slideIndex = navigation.slideIndex ?? 0;
+      const slideNumber = slideIndex + 1;
       const currentSlide = slides[slideIndex] ?? null;
 
       // Emit a compact, scannable format with IDs at the top. The agent
@@ -62,7 +63,13 @@ export default defineAction({
       lines.push(`deckTitle: ${rows[0].title ?? deck?.title ?? "(untitled)"}`);
       lines.push(`slideCount: ${slides.length}`);
       lines.push(
-        `currentSlideIndex: ${slideIndex}   (0-based; the user's UI shows this as "slide ${slideIndex + 1} of ${slides.length}" — use the 1-based number when talking to them)`,
+        `slideNumbering: User-visible slide numbers are 1-based and match the UI. "Slide 1" means the first slide, not internal index 1. Use slideId for edits.`,
+      );
+      lines.push(
+        `currentSlideNumber: ${slideNumber} of ${slides.length}   (1-based; matches the UI)`,
+      );
+      lines.push(
+        `currentSlideIndex: ${slideIndex}   (0-based internal value only; do not use this to interpret "slide N" from the user)`,
       );
       if (currentSlide) {
         lines.push(
@@ -71,7 +78,7 @@ export default defineAction({
         lines.push(`currentSlideLayout: ${currentSlide.layout ?? "(none)"}`);
       } else {
         lines.push(
-          `currentSlideId: (no slide at index ${slideIndex} — deck may be empty)`,
+          `currentSlideId: (no slide for slide number ${slideNumber} / internal index ${slideIndex} — deck may be empty)`,
         );
       }
       lines.push(``);
@@ -91,14 +98,14 @@ export default defineAction({
                   .slice(0, 60)
               : "";
           lines.push(
-            `${String(i).padStart(2, " ")}. id=${s.id}  layout=${s.layout ?? "-"}  "${contentPreview}"${marker}`,
+            `Slide ${i + 1}. id=${s.id}  internalIndex=${i}  layout=${s.layout ?? "-"}  "${contentPreview}"${marker}`,
           );
         }
       }
       if (currentSlide?.content) {
         lines.push(``);
         lines.push(
-          `### Current slide HTML (index ${slideIndex}, id ${currentSlide.id})`,
+          `### Current slide HTML (slide ${slideNumber}, internal index ${slideIndex}, id ${currentSlide.id})`,
         );
         lines.push("```html");
         lines.push(currentSlide.content);

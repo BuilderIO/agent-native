@@ -12,6 +12,7 @@ import { notifyClients } from "../server/handlers/decks.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { getDeckUrl } from "./_app-url.js";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
@@ -94,6 +95,18 @@ export default defineAction({
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId))
         .limit(1);
+      if (!existing[0]) {
+        throw new Error(`Deck not found: ${deckId}`);
+      }
+      await createDeckVersionSnapshot(
+        {
+          id: existing[0].id,
+          title: existing[0].title,
+          data: existing[0].data,
+          ownerEmail: existing[0].ownerEmail,
+        },
+        { force: true, label: "Before bulk replace" },
+      );
       const prevData = existing[0] ? JSON.parse(existing[0].data) : {};
       const data = {
         title,

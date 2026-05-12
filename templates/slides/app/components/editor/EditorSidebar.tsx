@@ -157,6 +157,7 @@ function SortableSlideThumb({
   onSelect,
   onDuplicate,
   onDelete,
+  registerButtonRef,
   presenceUsers = [],
   aspectRatio,
 }: {
@@ -166,6 +167,7 @@ function SortableSlideThumb({
   onSelect: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  registerButtonRef: (slideId: string, node: HTMLButtonElement | null) => void;
   presenceUsers?: CollabUser[];
   aspectRatio?: AspectRatio;
 }) {
@@ -189,10 +191,15 @@ function SortableSlideThumb({
   return (
     <div ref={setNodeRef} style={style} className="group relative">
       <button
+        ref={(node) => registerButtonRef(slide.id, node)}
         onClick={onSelect}
+        onFocus={onSelect}
+        aria-label={`Select slide ${index + 1}`}
+        aria-current={isActive ? "true" : undefined}
+        data-slide-thumbnail-id={slide.id}
         className={`w-full text-left flex items-start gap-2 p-2 rounded-lg transition-all duration-150 ${
           isActive ? "bg-accent ring-1 ring-[#609FF8]/50" : "hover:bg-accent"
-        }`}
+        } focus:outline-none`}
       >
         {/* Drag handle */}
         <div
@@ -534,7 +541,19 @@ export default function EditorSidebar({
   const [addOpen, setAddOpen] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   const headerAddRef = useRef<HTMLButtonElement>(null);
+  const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const { generating, submit: agentSubmit } = useAgentGenerating();
+
+  const registerSlideButton = useCallback(
+    (slideId: string, node: HTMLButtonElement | null) => {
+      if (node) {
+        slideButtonRefs.current.set(slideId, node);
+      } else {
+        slideButtonRefs.current.delete(slideId);
+      }
+    },
+    [],
+  );
 
   // Reset addSlideGenerating when global generating stops
   useEffect(() => {
@@ -564,7 +583,13 @@ export default function EditorSidebar({
           : Math.min(slides.length - 1, currentIndex + 1);
 
       if (nextIndex !== currentIndex) {
-        onSelectSlide(slides[nextIndex].id);
+        const nextSlideId = slides[nextIndex].id;
+        onSelectSlide(nextSlideId);
+        requestAnimationFrame(() => {
+          slideButtonRefs.current.get(nextSlideId)?.focus({
+            preventScroll: true,
+          });
+        });
       }
     };
 
@@ -611,6 +636,7 @@ export default function EditorSidebar({
               onSelect={() => onSelectSlide(slide.id)}
               onDuplicate={() => onDuplicateSlide(slide.id)}
               onDelete={() => onDeleteSlide(slide.id)}
+              registerButtonRef={registerSlideButton}
               presenceUsers={slidePresence?.get(slide.id) ?? []}
               aspectRatio={aspectRatio}
             />

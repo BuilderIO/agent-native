@@ -9,6 +9,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
 import { notifyClients } from "../server/handlers/decks.js";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import {
   awaitLayoutFitCheck,
   formatOverflowForTool,
@@ -36,7 +37,7 @@ export default defineAction({
     "Add a single slide to an existing deck. Use this to build decks slide-by-slide — " +
     "call it once per slide in slide order and wait for each result before adding the next slide. " +
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
-    "Returns the new slide ID and updated slide count.",
+    "Returns the new slide ID, 1-based slideNumber, and updated slide count.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
     content: z.string().describe("Full HTML content of the new slide"),
@@ -87,6 +88,15 @@ export default defineAction({
       }
 
       const row = rows[0];
+      await createDeckVersionSnapshot(
+        {
+          id: row.id,
+          title: row.title,
+          data: row.data,
+          ownerEmail: row.ownerEmail,
+        },
+        { label: "Before adding slide" },
+      );
       const deck = JSON.parse(row.data);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
@@ -153,6 +163,7 @@ export default defineAction({
       const base = {
         deckId,
         slideId: newSlideId,
+        slideNumber: insertIndex + 1,
         position: insertIndex,
         slideCount: slides.length,
       };
