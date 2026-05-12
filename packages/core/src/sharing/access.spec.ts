@@ -51,7 +51,7 @@ async function insertDoc(values: {
     id: values.id,
     title: values.id,
     ownerEmail: values.ownerEmail ?? ownerEmail,
-    orgId: values.orgId ?? orgId,
+    orgId: values.orgId === undefined ? orgId : values.orgId,
     visibility: values.visibility ?? "private",
   });
 }
@@ -196,7 +196,7 @@ describe("shareable resource access helpers", () => {
     ).resolves.toEqual(["owned", "same-org", "shared-org"]);
     await expect(
       listVisible({ userEmail: ownerEmail, orgId: otherOrgId }),
-    ).resolves.toEqual(["owned-other-org", "other-org"]);
+    ).resolves.toEqual(["other-org", "owned-other-org"]);
     await expect(listVisible({ userEmail: ownerEmail })).resolves.toEqual([
       "owned-solo",
     ]);
@@ -249,9 +249,9 @@ describe("shareable resource access helpers", () => {
       await expect(
         assertAccess(resourceType, "doc-private", "owner"),
       ).resolves.toMatchObject({ role: "owner" });
-      await expect(resolveAccess(resourceType, "doc-owned-other-org")).resolves.toBe(
-        null,
-      );
+      await expect(
+        resolveAccess(resourceType, "doc-owned-other-org"),
+      ).resolves.toBe(null);
       await expect(resolveAccess(resourceType, "doc-owned-solo")).resolves.toBe(
         null,
       );
