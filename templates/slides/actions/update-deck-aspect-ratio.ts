@@ -6,6 +6,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { writeAppState } from "@agent-native/core/application-state";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 
 export default defineAction({
   description:
@@ -24,6 +25,15 @@ export default defineAction({
       .where(eq(schema.decks.id, deckId))
       .limit(1);
     if (!rows.length) throw new Error(`Deck not found: ${deckId}`);
+    await createDeckVersionSnapshot(
+      {
+        id: rows[0].id,
+        title: rows[0].title,
+        data: rows[0].data,
+        ownerEmail: rows[0].ownerEmail,
+      },
+      { label: "Before aspect ratio change" },
+    );
     const data = JSON.parse(rows[0].data);
     data.aspectRatio = aspectRatio;
     const now = new Date().toISOString();

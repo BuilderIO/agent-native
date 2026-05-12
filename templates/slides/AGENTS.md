@@ -30,7 +30,7 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 
 | State Key          | Purpose                                                                                    | Direction                  |
 | ------------------ | ------------------------------------------------------------------------------------------ | -------------------------- |
-| `navigation`       | Current view, deck ID, slide index                                                         | UI -> Agent (read-only)    |
+| `navigation`       | Current view, deck ID, slide number (1-based, UI-facing) and internal slide index          | UI -> Agent (read-only)    |
 | `navigate`         | Navigate command (one-shot, auto-deleted)                                                  | Agent -> UI (auto-deleted) |
 | `show-questions`   | Trigger question flow overlay in the UI                                                    | Agent -> UI                |
 | `sidebarCollapsed` | Whether the left sidebar is collapsed (icon rail). Value: `{ "collapsed": true \| false }` | UI <-> Agent (both write)  |
@@ -43,11 +43,14 @@ The UI writes `navigation` whenever the user navigates:
 {
   "view": "editor",
   "deckId": "abc123",
+  "slideNumber": 3,
   "slideIndex": 2
 }
 ```
 
 Views: `"list"` (deck list), `"editor"` (editing a deck), `"present"` (presentation mode), `"settings"`.
+
+**Slide numbers are 1-indexed everywhere users see or say them.** If the user asks for "slide 1", they mean `slideNumber: 1`, the first slide in the UI, and internal `slideIndex: 0`. Prefer `slideNumber` and slide IDs in all agent-facing reasoning. Treat `slideIndex` as an internal zero-based compatibility field only.
 
 **Do NOT write to `navigation`** -- it is overwritten by the UI. Use `navigate` to move the user.
 
@@ -288,10 +291,10 @@ If the request is for a standalone visual, hero image, diagram, one-pager, poste
 
 ### Navigation
 
-| Action     | Args                               | Purpose                  |
-| ---------- | ---------------------------------- | ------------------------ |
-| `navigate` | `--deckId <id> [--slideIndex <n>]` | Navigate to a deck/slide |
-| `navigate` | `--view list`                      | Navigate to deck list    |
+| Action     | Args                                | Purpose                                                      |
+| ---------- | ----------------------------------- | ------------------------------------------------------------ |
+| `navigate` | `--deckId <id> [--slideNumber <n>]` | Navigate to a deck/slide using the UI's 1-based slide number |
+| `navigate` | `--view list`                       | Navigate to deck list                                        |
 
 ### Image Generation & Uploads
 
@@ -735,14 +738,15 @@ The agent can embed a single slide directly inside a chat message using the fram
 
 ````
 ```embed
-src: /slide?deckId=<id>&slideIndex=<n>
+src: /slide?deckId=<id>&slideNumber=<n>
 aspect: 16/9
 title: <slide title or description>
 ```
 ````
 
 - `deckId` — the deck's `id` field (required).
-- `slideIndex` — zero-based index of the slide to show (default: `0`).
+- `slideNumber` — 1-based slide number to show, matching the UI (default: `1`).
+- `slideIndex` — legacy zero-based index; avoid it unless maintaining an old embed URL.
 - `aspect: 16/9` — always use 16/9 for slides.
 - `title` — a short human-readable label shown above the iframe in chat.
 
@@ -752,7 +756,7 @@ The preview route (`app/routes/slide.tsx`) fetches the deck via `/api/decks/:id`
 
 ````
 ```embed
-src: /slide?deckId=abc123&slideIndex=1
+src: /slide?deckId=abc123&slideNumber=2
 aspect: 16/9
 title: Slide 2 — Key Metrics
 ```

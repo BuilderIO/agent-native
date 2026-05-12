@@ -34,6 +34,7 @@ function SlideError({ message }: { message: string }) {
 export default function SlideRoute() {
   const [params] = useSearchParams();
   const deckId = params.get("deckId");
+  const slideNumberParam = params.get("slideNumber");
   const slideIndexParam = params.get("slideIndex");
 
   const [slide, setSlide] = useState<Slide | null>(null);
@@ -43,13 +44,27 @@ export default function SlideRoute() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const slideNumber =
+    slideNumberParam !== null ? parseInt(slideNumberParam, 10) : null;
   const slideIndex =
-    slideIndexParam !== null ? parseInt(slideIndexParam, 10) : 0;
+    slideNumber !== null
+      ? slideNumber - 1
+      : slideIndexParam !== null
+        ? parseInt(slideIndexParam, 10)
+        : 0;
   const inEmbed = isInAgentEmbed();
 
   useEffect(() => {
     if (!deckId) {
       setError("Missing deckId parameter.");
+      setLoading(false);
+      return;
+    }
+    if (
+      slideNumberParam !== null &&
+      (slideNumber === null || isNaN(slideNumber) || slideNumber < 1)
+    ) {
+      setError("slideNumber must be a positive 1-based number.");
       setLoading(false);
       return;
     }
@@ -81,7 +96,7 @@ export default function SlideRoute() {
         setError(err instanceof Error ? err.message : "Could not load slide.");
         setLoading(false);
       });
-  }, [deckId, slideIndex, slideIndexParam]);
+  }, [deckId, slideIndex, slideIndexParam, slideNumber, slideNumberParam]);
 
   if (loading) {
     return <div className="h-screen w-screen bg-black" />;

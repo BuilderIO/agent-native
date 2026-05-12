@@ -449,7 +449,7 @@ export default function DeckEditor() {
   // externally" (agent navigate command, browser back/forward, deep link) apart
   // from "the URL is the same as last render, just other state moved". Without
   // this, the resolver short-circuited on external URL changes and the agent's
-  // navigate --slideIndex was effectively ignored.
+  // navigate --slideNumber / --slideIndex commands were effectively ignored.
   const lastUrlSlideParamRef = useRef<string | null>(null);
   const pendingUrlSlideIdRef = useRef<string | null>(null);
   useEffect(() => {

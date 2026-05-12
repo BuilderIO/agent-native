@@ -11,6 +11,7 @@ import { notifyClients } from "../server/handlers/decks.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import {
   awaitLayoutFitCheck,
   formatOverflowForTool,
@@ -74,14 +75,25 @@ export default defineAction({
     // Read SQL deck for the slide-existence check and the local fallback
     // computation that keeps decks.data in sync.
     const existing = await client.execute({
-      sql: "SELECT data FROM decks WHERE id = ?",
+      sql: "SELECT id, title, data, owner_email, design_system_id FROM decks WHERE id = ?",
       args: [deckId],
     });
     if (!existing.rows?.length) {
       throw new Error(`Deck ${deckId} not found`);
     }
 
-    const deck = JSON.parse(existing.rows[0].data as string);
+    const row = existing.rows[0] as Record<string, unknown>;
+    await createDeckVersionSnapshot(
+      {
+        id: String(row.id ?? deckId),
+        title: String(row.title ?? "Untitled"),
+        data: String(row.data ?? ""),
+        ownerEmail: String(row.owner_email ?? ""),
+      },
+      { label: "Before slide edit" },
+    );
+
+    const deck = JSON.parse(row.data as string);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const slide = deck.slides?.find((s: any) => s.id === slideId);
     if (!slide) {

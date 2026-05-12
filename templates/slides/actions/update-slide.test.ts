@@ -27,6 +27,10 @@ vi.mock("../server/handlers/decks.js", () => ({
 
 vi.mock("../server/db/index.js", () => ({}));
 
+vi.mock("../server/lib/deck-versions.js", () => ({
+  createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+}));
+
 vi.mock("./_await-fit-check.js", () => ({
   awaitLayoutFitCheck: async () => mockFitCheckResult ?? { status: "timeout" },
   formatOverflowForTool: (deckId: string, m: { verticalOverflow: number }) =>
@@ -38,10 +42,13 @@ import action from "./update-slide";
 beforeEach(() => {
   vi.clearAllMocks();
   mockExecute.mockImplementation(async (query: { sql: string }) => {
-    if (query.sql.startsWith("SELECT data FROM decks")) {
+    if (query.sql.startsWith("SELECT id, title, data")) {
       return {
         rows: [
           {
+            id: "deck-1",
+            title: "Deck",
+            owner_email: "owner@example.com",
             data: JSON.stringify({
               title: "Deck",
               updatedAt: "2026-01-01T00:00:00.000Z",

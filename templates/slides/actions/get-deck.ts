@@ -15,7 +15,7 @@ function stripHtml(html: string): string {
 
 export default defineAction({
   description:
-    "Get a specific deck with all slides. Returns full deck JSON including slide content.",
+    "Get a specific deck with all slides. Returns full deck JSON including slide content. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
   schema: z.object({
     id: z.string().optional().describe("Deck ID (required)"),
     compact: z
@@ -45,8 +45,11 @@ export default defineAction({
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,
         slideCount: slides.length,
+        slideNumbering:
+          'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
         slides: slides.map((s: any, i: number) => ({
-          index: i,
+          slideNumber: i + 1,
+          zeroBasedIndex: i,
           id: s.id,
           layout: s.layout ?? null,
           textPreview: stripHtml(s.content || "").slice(0, 120),
@@ -60,10 +63,13 @@ export default defineAction({
       visibility: row.visibility,
       designSystemId: row.designSystemId ?? null,
       slideCount: slides.length,
+      slideNumbering:
+        'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       slides: slides.map((s: any, i: number) => ({
-        index: i,
+        slideNumber: i + 1,
+        zeroBasedIndex: i,
         id: s.id,
         layout: s.layout ?? null,
         content: s.content,

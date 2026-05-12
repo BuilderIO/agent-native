@@ -7,6 +7,9 @@ import { TAB_ID } from "@/lib/tab-id";
 export interface NavigationState {
   view: string;
   deckId?: string;
+  /** User-visible slide number. 1-based and matches the editor UI. */
+  slideNumber?: number;
+  /** Internal zero-based slide index kept for backwards compatibility. */
   slideIndex?: number;
   /** Optional unique-per-write token. When present, the UI uses it to detect
    * legitimate repeat writes (same payload, different `_writeId`) vs. the
@@ -34,14 +37,15 @@ export function useNavigationState() {
         state.view = "present";
       }
       // The deck editor stores the active slide as a 1-based ?slide=N URL
-      // param. Convert to a 0-based index for the agent so view-screen can
-      // pick the correct slide; without this, the agent always thought the
-      // user was on slide 1 (off-by-one vs. the toolbar's "6 of 10").
+      // param. Write both the UI-facing slideNumber and the legacy
+      // zero-based slideIndex so agent context can be explicit without
+      // breaking older callers.
       const params = new URLSearchParams(location.search);
       const slideParam = params.get("slide");
       if (slideParam) {
         const oneBased = parseInt(slideParam, 10);
         if (Number.isFinite(oneBased) && oneBased >= 1) {
+          state.slideNumber = oneBased;
           state.slideIndex = oneBased - 1;
         }
       }
@@ -107,6 +111,7 @@ export function useNavigationState() {
       JSON.stringify({
         view: cmd.view,
         deckId: cmd.deckId,
+        slideNumber: cmd.slideNumber,
         slideIndex: cmd.slideIndex,
       });
     if (lastProcessedDedupKeyRef.current === dedupKey) {
@@ -133,15 +138,22 @@ export function useNavigationState() {
       path = `/deck/${cmd.deckId}`;
       if (cmd.view === "present") {
         path += "/present";
-      } else if (
-        typeof cmd.slideIndex === "number" &&
-        Number.isFinite(cmd.slideIndex) &&
-        cmd.slideIndex >= 0
-      ) {
-        // Convert agent's 0-based slideIndex back to the 1-based ?slide=N
-        // URL param the editor reads. Without this the deck always opened
-        // at slide 1 even when the agent asked for a different slide.
-        path += `?slide=${cmd.slideIndex + 1}`;
+      } else {
+        const internalSlideIndex =
+          typeof cmd.slideNumber === "number" &&
+          Number.isFinite(cmd.slideNumber) &&
+          cmd.slideNumber >= 1
+            ? cmd.slideNumber - 1
+            : cmd.slideIndex;
+        if (
+          typeof internalSlideIndex === "number" &&
+          Number.isFinite(internalSlideIndex) &&
+          internalSlideIndex >= 0
+        ) {
+          // Convert the internal zero-based value back to the 1-based
+          // ?slide=N URL param the editor reads.
+          path += `?slide=${internalSlideIndex + 1}`;
+        }
       }
     } else if (cmd.view === "settings") {
       path = "/settings";
