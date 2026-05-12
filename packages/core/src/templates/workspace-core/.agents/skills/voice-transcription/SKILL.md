@@ -37,7 +37,7 @@ Settings must keep these as separate choices:
 
 - **Live transcription source**: `mac-native`, `google-realtime`, or `batch`.
 - **AI cleanup**: independent off/on toggle. Cleanup uses Builder Gemini first
-  when Builder.io Connect is configured, then BYOK Gemini (`GEMINI_API_KEY`).
+  when hosted Gemini is configured, then BYOK Gemini (`GEMINI_API_KEY`).
   Gemini cleanup/title/summary generation is not a live STT source.
 
 `application_state["voice-transcription-prefs"]` stores
@@ -50,7 +50,7 @@ is still written for old clients and batch provider preferences:
 | `google-realtime` | Dedicated WebSocket → Google Speech-to-Text gRPC `StreamingRecognize` path | `GOOGLE_APPLICATION_CREDENTIALS` |
 | `batch`           | Upload audio after stop through the existing batch route       | Builder/Gemini/Groq/OpenAI depending on fallback |
 | `auto` provider   | Existing batch fallback chain                                  | Any configured batch provider |
-| `builder-gemini`  | Builder Gemini Flash-Lite batch/cleanup preference             | Builder.io account connected |
+| `builder-gemini`  | Builder Gemini Flash-Lite batch/cleanup preference             | hosted Gemini provider connected |
 | `gemini`          | Direct Google Gemini BYOK batch/cleanup preference             | `GEMINI_API_KEY`             |
 | `groq`            | Groq Whisper batch preference                                  | `GROQ_API_KEY`               |
 | `openai`          | OpenAI Whisper batch preference                                | `OPENAI_API_KEY`             |

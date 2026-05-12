@@ -74,17 +74,40 @@ export function buildDocumentTree(
 ): DocumentTreeNode[] {
   if (!Array.isArray(documents)) return [];
   const map = new Map<string, DocumentTreeNode>();
+  const orderedDocuments: Document[] = [];
   const roots: DocumentTreeNode[] = [];
 
   // Create nodes
   for (const doc of documents) {
+    if (map.has(doc.id)) continue;
     map.set(doc.id, { ...doc, children: [] });
+    orderedDocuments.push(doc);
+  }
+
+  const parentById = new Map(
+    orderedDocuments.map((doc) => [doc.id, doc.parentId]),
+  );
+
+  function hasParentCycle(doc: Document) {
+    const seen = new Set([doc.id]);
+    let parentId = doc.parentId;
+    while (parentId && map.has(parentId)) {
+      if (seen.has(parentId)) return true;
+      seen.add(parentId);
+      parentId = parentById.get(parentId) ?? null;
+    }
+    return false;
   }
 
   // Build tree
-  for (const doc of documents) {
+  for (const doc of orderedDocuments) {
     const node = map.get(doc.id)!;
-    if (doc.parentId && map.has(doc.parentId)) {
+    if (
+      doc.parentId &&
+      map.has(doc.parentId) &&
+      doc.parentId !== doc.id &&
+      !hasParentCycle(doc)
+    ) {
       map.get(doc.parentId)!.children.push(node);
     } else {
       roots.push(node);

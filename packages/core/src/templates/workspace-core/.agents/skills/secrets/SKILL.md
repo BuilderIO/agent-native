@@ -208,7 +208,7 @@ import {
 const { resolved, usedKeys } = await resolveKeyReferences(
   "Bearer ${keys.API_TOKEN}",
   "user",
-  "steve@builder.io",
+  "owner@example.com",
 );
 
 // Validate a URL against a key's allowlist

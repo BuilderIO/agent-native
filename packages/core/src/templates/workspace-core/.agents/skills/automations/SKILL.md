@@ -39,10 +39,10 @@ schedule: "0 9 * * 1-5"
 enabled: true
 triggerType: event
 event: calendar.booking.created
-condition: "attendee email ends with @builder.io"
+condition: "attendee email ends with @example.com"
 mode: agentic
 domain: calendar
-createdBy: steve@builder.io
+createdBy: owner@example.com
 runAs: creator
 ---
 
@@ -109,7 +109,7 @@ emit("calendar.booking.created", {
   bookingId: "abc",
   attendeeEmail: "jane@co.com",
   startTime: "2025-01-15T10:00:00Z",
-}, { owner: "steve@builder.io" });
+}, { owner: "owner@example.com" });
 ```
 
 ### Built-in Events
@@ -156,7 +156,7 @@ Automations appear in the settings panel under an "Automations" section. Users c
 
 ## Example
 
-User: "When someone books a meeting with a @builder.io email, message me in Slack."
+User: "When someone books a meeting with a @example.com email, message me in Slack."
 
 Agent flow:
 
@@ -166,7 +166,7 @@ Agent flow:
    - `name`: `slack-on-builder-booking`
    - `trigger_type`: `event`
    - `event`: `calendar.booking.created`
-   - `condition`: `attendee email ends with @builder.io`
+   - `condition`: `attendee email ends with @example.com`
    - `mode`: `agentic`
    - `domain`: `calendar`
    - `body`: `Send a Slack message to #sales with the booking details. Use the web-request tool to POST to ${keys.SLACK_WEBHOOK}.`
