@@ -50,6 +50,8 @@ export interface SlideAnimation {
   id: string;
   /** Index of the child element within the content container */
   elementIndex: number;
+  /** Preferred target: child-index path from the outer `.fmd-slide` wrapper. */
+  elementPath?: number[];
   type: AnimationType;
 }
 

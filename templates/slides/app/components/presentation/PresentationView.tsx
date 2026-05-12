@@ -13,6 +13,10 @@ import type {
 } from "@/context/DeckContext";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+import {
+  findLegacyAnimationContainer,
+  resolveSlideAnimationElement,
+} from "@/lib/slide-animation-elements";
 
 interface PresentationViewProps {
   slides: Slide[];
@@ -22,15 +26,6 @@ interface PresentationViewProps {
 }
 
 // ─── Element animation helpers ────────────────────────────────────────────────
-
-/** Find the content container inside .fmd-slide that has multiple children. */
-function findContentContainer(root: Element): Element | null {
-  const children = Array.from(root.children);
-  for (let i = children.length - 1; i >= 0; i--) {
-    if (children[i].children.length >= 2) return children[i];
-  }
-  return null;
-}
 
 /**
  * Get the effective animation steps for a slide.
@@ -43,7 +38,7 @@ function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
     const doc = new DOMParser().parseFromString(slide.content, "text/html");
     const root = doc.querySelector(".fmd-slide");
     if (!root) return null;
-    const container = findContentContainer(root);
+    const container = findLegacyAnimationContainer(root);
     if (!container) return null;
     return Array.from(container.children).map((_, i) => ({
       id: `auto-${i}`,
@@ -82,14 +77,10 @@ function annotateStepsForPresentation(
   const doc = new DOMParser().parseFromString(html, "text/html");
   const root = doc.querySelector(".fmd-slide");
   if (!root) return html;
-  const container = findContentContainer(root);
-  if (!container) return html;
-
-  const containerChildren = Array.from(container.children);
 
   // Annotate each step element with data-pstep
   steps.forEach((anim, stepIdx) => {
-    const el = containerChildren[anim.elementIndex];
+    const el = resolveSlideAnimationElement(root, anim);
     if (el) el.setAttribute("data-pstep", String(stepIdx));
   });
 

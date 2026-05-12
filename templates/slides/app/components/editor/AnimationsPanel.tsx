@@ -33,35 +33,13 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-
-// ─── HTML parsing helpers ─────────────────────────────────────────────────────
-
-function findContentContainer(root: Element): Element | null {
-  const children = Array.from(root.children);
-  for (let i = children.length - 1; i >= 0; i--) {
-    if (children[i].children.length >= 2) return children[i];
-  }
-  return null;
-}
-
-interface ParsedElement {
-  index: number;
-  preview: string;
-}
-
-function parseSlideElements(html: string): ParsedElement[] {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const root = doc.querySelector(".fmd-slide");
-  if (!root) return [];
-  const container = findContentContainer(root);
-  if (!container) return [];
-  return Array.from(container.children).map((child, i) => ({
-    index: i,
-    preview:
-      child.textContent?.replace(/\s+/g, " ").trim().slice(0, 50) ||
-      `Element ${i + 1}`,
-  }));
-}
+import {
+  animationElementKey,
+  getSlideAnimationTargetKey,
+  getSlideAnimationTargetPreview,
+  parseSlideAnimationElements,
+  type ParsedAnimationElement,
+} from "@/lib/slide-animation-elements";
 
 // ─── Animation type options ───────────────────────────────────────────────────
 
@@ -178,20 +156,26 @@ export function AnimationsPanel({
 
   const animations = slide.animations ?? [];
   const availableElements = useMemo(
-    () => parseSlideElements(slide.content),
+    () => parseSlideAnimationElements(slide.content),
     [slide.content],
   );
 
-  // Map elementIndex → preview text for quick lookup
-  const previewByIndex = useMemo(() => {
-    const m: Record<number, string> = {};
-    availableElements.forEach((el) => {
-      m[el.index] = el.preview;
+  const previewByAnimationId = useMemo(() => {
+    const previews: Record<string, string> = {};
+    animations.forEach((anim) => {
+      previews[anim.id] = getSlideAnimationTargetPreview(slide.content, anim);
     });
-    return m;
-  }, [availableElements]);
+    return previews;
+  }, [animations, slide.content]);
 
-  const usedIndices = new Set(animations.map((a) => a.elementIndex));
+  const usedTargetKeys = useMemo(() => {
+    const keys = new Set<string>();
+    animations.forEach((anim) => {
+      const key = getSlideAnimationTargetKey(slide.content, anim);
+      if (key) keys.add(key);
+    });
+    return keys;
+  }, [animations, slide.content]);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -206,10 +190,11 @@ export function AnimationsPanel({
   );
 
   const addAnimation = useCallback(
-    (elementIndex: number) => {
+    (element: ParsedAnimationElement) => {
       const newAnim: SlideAnimation = {
         id: nanoid(6),
-        elementIndex,
+        elementIndex: element.index,
+        elementPath: element.path,
         type: "slide-up",
       };
       onUpdateSlide({ animations: [...animations, newAnim] });
@@ -235,21 +220,22 @@ export function AnimationsPanel({
 
   const autoFill = useCallback(() => {
     const newAnims: SlideAnimation[] = availableElements
-      .filter((el) => !usedIndices.has(el.index))
+      .filter((el) => !usedTargetKeys.has(animationElementKey(el.path)))
       .map((el) => ({
         id: nanoid(6),
         elementIndex: el.index,
+        elementPath: el.path,
         type: "slide-up" as AnimationType,
       }));
     onUpdateSlide({ animations: [...animations, ...newAnims] });
-  }, [availableElements, usedIndices, animations, onUpdateSlide]);
+  }, [availableElements, usedTargetKeys, animations, onUpdateSlide]);
 
   const clearAll = useCallback(() => {
     onUpdateSlide({ animations: [] });
   }, [onUpdateSlide]);
 
   const unaddedElements = availableElements.filter(
-    (el) => !usedIndices.has(el.index),
+    (el) => !usedTargetKeys.has(animationElementKey(el.path)),
   );
 
   return (
@@ -292,7 +278,7 @@ export function AnimationsPanel({
                     key={anim.id}
                     anim={anim}
                     stepNumber={i + 1}
-                    preview={previewByIndex[anim.elementIndex] ?? ""}
+                    preview={previewByAnimationId[anim.id] ?? ""}
                     onRemove={removeAnimation}
                     onChangeType={changeType}
                   />
@@ -327,11 +313,11 @@ export function AnimationsPanel({
               )}
             </div>
             {availableElements.map((el) => {
-              const added = usedIndices.has(el.index);
+              const added = usedTargetKeys.has(animationElementKey(el.path));
               return (
                 <button
                   key={el.index}
-                  onClick={() => !added && addAnimation(el.index)}
+                  onClick={() => !added && addAnimation(el)}
                   disabled={added}
                   className={`flex items-center gap-1.5 w-full px-1.5 py-1 rounded text-[11px] text-left ${
                     added
