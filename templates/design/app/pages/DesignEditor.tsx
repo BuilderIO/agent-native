@@ -960,12 +960,25 @@ export default function DesignEditor() {
         backgroundColor: null,
       });
       canvas.toBlob((blob) => {
-        if (!blob) {
-          toast.error("Could not create PNG download");
-          return;
+        try {
+          if (!blob) {
+            toast.error("Could not create PNG download");
+            return;
+          }
+          triggerBlobDownload(blob, fallbackExportName("png"));
+          toast.success("PNG downloaded");
+        } catch (callbackError) {
+          // `triggerBlobDownload` does DOM mutation + `URL.createObjectURL`,
+          // either of which can throw inside this async callback — outside
+          // the outer try/catch. Surface the failure instead of silently
+          // dropping it.
+          console.error("PNG export failed during download:", callbackError);
+          toast.error(
+            callbackError instanceof Error
+              ? callbackError.message
+              : "Could not save PNG",
+          );
         }
-        triggerBlobDownload(blob, fallbackExportName("png"));
-        toast.success("PNG downloaded");
       }, "image/png");
     } catch (error) {
       console.error("PNG export failed:", error);

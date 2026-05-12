@@ -160,9 +160,21 @@ function normalizeSlideAnimation(
     ? (rawType as SharedAnimationType)
     : "slide-up";
 
+  // When an explicit `elementIndex` is present, trust it. Otherwise derive
+  // from the last segment of `elementPath` — keeps the index correlated
+  // with the path's actual leaf so consumers that fall back to
+  // `elementIndex` target the right element instead of silently defaulting
+  // to slide-element 0 (which created an ambiguity between 'animation
+  // explicitly targets element 0' and 'animation only had elementPath').
+  // At least one of the two must be present (guarded above by the
+  // `!hasElementIndex && !elementPath` early return).
+  const resolvedElementIndex = hasElementIndex
+    ? rawElementIndex
+    : (elementPath![elementPath!.length - 1] ?? 0);
+
   return {
     id: normalizeString(value.id, `animation-${index + 1}`),
-    elementIndex: hasElementIndex ? rawElementIndex : 0,
+    elementIndex: resolvedElementIndex,
     ...(elementPath ? { elementPath } : {}),
     type,
   };

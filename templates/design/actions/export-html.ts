@@ -61,11 +61,42 @@ export default defineAction({
       /<!doctype html|<html[\s>]/i.test(indexHtml.content)
     ) {
       html = indexHtml.content;
-      if (combinedCss.trim()) {
+      // Merge non-index HTML/JSX files into the body of the standalone
+      // document so multi-file designs (components.html, page-*.html, etc.)
+      // still ship in one bundle. Drop the file we already used as the
+      // shell so we don't double-include it.
+      const extraBody = [...htmlFiles, ...jsxFiles]
+        .filter((f) => f !== indexHtml)
+        .map((f) => f.content)
+        .join("\n\n");
+      if (extraBody.trim()) {
+        // Find the last closing body tag. Inline JS / template literals
+        // can contain `</body>` strings, so a naive replace can mishit —
+        // use lastIndexOf which favors the real document boundary.
+        const closeBody = html.lastIndexOf("</body>");
+        if (closeBody !== -1) {
+          html = `${html.slice(0, closeBody)}${extraBody}\n${html.slice(closeBody)}`;
+        } else {
+          html = `${html}\n${extraBody}`;
+        }
+      }
+      // Idempotency: if a prior export already injected this CSS block,
+      // skip re-injection so repeated exports don't duplicate the style
+      // tag. The `data-agent-native-export` marker is our sentinel.
+      if (
+        combinedCss.trim() &&
+        !/<style[^>]*data-agent-native-export\b/i.test(html)
+      ) {
         const styleBlock = `<style data-agent-native-export>\n${combinedCss}\n</style>`;
-        html = html.includes("</head>")
-          ? html.replace("</head>", `${styleBlock}\n</head>`)
-          : `${styleBlock}\n${html}`;
+        // Match the LAST `</head>` (not the first appearance inside an
+        // inline script / comment) to avoid injecting before content
+        // that depends on the document's own styles.
+        const closeHead = html.lastIndexOf("</head>");
+        if (closeHead !== -1) {
+          html = `${html.slice(0, closeHead)}${styleBlock}\n${html.slice(closeHead)}`;
+        } else {
+          html = `${styleBlock}\n${html}`;
+        }
       }
     } else {
       const combinedBody = [...htmlFiles, ...jsxFiles]
