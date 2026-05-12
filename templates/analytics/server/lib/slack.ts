@@ -316,6 +316,21 @@ export async function searchMessages(
     .split(/\s+/)
     .filter((t) => t.length > 2);
 
+  function fuzzyMatch(text: string, term: string): boolean {
+    if (text.includes(term)) return true;
+    // URLs must match exactly (trailing slash variations are already normalised)
+    if (term.startsWith("http")) return false;
+    // For Sentry short IDs like BRIDGE-TM-1234, also try just the numeric suffix
+    const numericSuffix = term.match(/\d{4,}$/)?.[0];
+    if (numericSuffix && text.includes(numericSuffix)) return true;
+    // Prefix fuzzy: if the term is 6+ chars, match on the first 70% of it
+    if (term.length >= 6) {
+      const prefix = term.slice(0, Math.floor(term.length * 0.7));
+      if (text.includes(prefix)) return true;
+    }
+    return false;
+  }
+
   const channelsData = await slackApi<{
     channels: { id: string; name: string }[];
   }>(workspace, "conversations.list", {
@@ -341,7 +356,7 @@ export async function searchMessages(
         );
         for (const msg of histData.messages ?? []) {
           const text = msg.text?.toLowerCase() ?? "";
-          if (terms.length === 0 || terms.some((t) => text.includes(t))) {
+          if (terms.length === 0 || terms.some((t) => fuzzyMatch(text, t))) {
             matches.push({ ...msg, channel: ch.id } as SlackMessage & {
               channel: string;
             });

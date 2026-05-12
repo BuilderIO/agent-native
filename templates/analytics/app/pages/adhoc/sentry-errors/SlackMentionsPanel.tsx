@@ -87,7 +87,7 @@ function buildSearchQuery(issue: SentryIssue): string {
   // Issue short ID (e.g. "AIR-LAYOUT-1176") is the most specific search term
   if (issue.shortId) parts.push(issue.shortId);
   // Permalink — matches messages where someone pasted the Sentry issue URL
-  if (issue.permalink) parts.push(issue.permalink.replace(/\/$/, ""));
+  if (issue.permalink) parts.push(issue.permalink);
   // Error type is meaningful (e.g. "McpError", "TypeError")
   if (issue.metadata.type) parts.push(issue.metadata.type);
   // Truncated error value gives context
