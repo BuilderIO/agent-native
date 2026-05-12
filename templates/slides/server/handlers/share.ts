@@ -29,14 +29,20 @@ export const shareDeck = defineEventHandler(async (event) => {
     return { error: "Deck id is required" };
   }
 
+  // Pre-resolve so we can 401 before opening the request-context scope,
+  // and pass the resolved context into `withSlidesRequestContext` so it
+  // doesn't re-resolve session + org on the same request (which would
+  // double the session/getOrgContext I/O per share).
   const session = await resolveSlidesRequestAuthContext(event);
   if (!session.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
 
-  return withSlidesRequestContext(event, async () =>
-    createShareLink(event, deck.id),
+  return withSlidesRequestContext(
+    event,
+    async () => createShareLink(event, deck.id),
+    session,
   );
 });
 
