@@ -1570,7 +1570,7 @@ Do NOT add this offer for one-shot work: lookups (find Alice, what's the schema,
 
   builder: `### Connecting Builder.io
 
-When the user asks to connect Builder.io or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a one-click Connect card inline — do NOT write out multi-step setup instructions yourself.`,
+When the user asks to connect Builder.io or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a one-click Connect card inline — do NOT write out multi-step setup instructions yourself. If Builder Cloud Agents are not available for this workspace, never send the user to Builder org settings or beta settings; use the card's waitlist/local-dev fallback.`,
 
   browser: `### Browser Automation
 
@@ -1774,7 +1774,7 @@ Skip this offer for one-shot work — single lookups (find X, who is Y), one-off
 
 ### Connecting Builder.io
 
-When the user asks to connect Builder.io, needs Builder for LLM access / browser automation, or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a one-click Connect card inline in the chat — do NOT write out multi-step setup instructions yourself (no "Option 1 / Option 2", no terminal commands). Just call the tool and let the card handle the rest.
+When the user asks to connect Builder.io, needs Builder for LLM access / browser automation, or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a one-click Connect card inline in the chat — do NOT write out multi-step setup instructions yourself (no "Option 1 / Option 2", no terminal commands). If Builder Cloud Agents are not available for this workspace, never send the user to Builder org settings or beta settings; use the card's waitlist/local-dev fallback. Just call the tool and let the card handle the rest.
 
 ### Browser Automation
 
