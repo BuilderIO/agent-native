@@ -387,8 +387,10 @@ function ColorPickerPopover({
 
 function GoogleAccountsSection({
   accounts,
+  onClose,
 }: {
   accounts: Array<{ email: string }>;
+  onClose: () => void;
 }) {
   const { toggleHiddenCalendar, isHiddenCalendar } = useCalendarContext();
   const {
@@ -425,6 +427,7 @@ function GoogleAccountsSection({
             <TooltipTrigger asChild>
               <Link
                 to="/settings"
+                onClick={onClose}
                 className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
               >
                 <IconSettings className="h-3.5 w-3.5" />
@@ -670,7 +673,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           )}
 
           {isConnected && googleStatus.data?.accounts?.length > 0 && (
-            <GoogleAccountsSection accounts={googleStatus.data.accounts} />
+            <GoogleAccountsSection
+              accounts={googleStatus.data.accounts}
+              onClose={onClose}
+            />
           )}
 
           {/* Other Calendars — people overlays + external ICS feeds combined */}
