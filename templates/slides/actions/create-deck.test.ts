@@ -73,6 +73,10 @@ vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
 
+vi.mock("../server/lib/deck-versions.js", () => ({
+  createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+}));
+
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mockGetUserEmail(),
   getRequestOrgId: () => mockGetOrgId(),

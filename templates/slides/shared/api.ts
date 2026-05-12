@@ -89,6 +89,44 @@ export interface SharedDeckResponse {
   aspectRatio?: import("./aspect-ratios").AspectRatio;
 }
 
+// --- Deck Version History ---
+
+export interface DeckVersionSlidePreview {
+  slideNumber: number;
+  id: string | null;
+  layout: string | null;
+  textPreview: string;
+}
+
+export interface DeckVersionSummary {
+  id: string;
+  deckId: string;
+  title: string;
+  label: string | null;
+  createdAt: string;
+  slideCount: number;
+  aspectRatio: import("./aspect-ratios").AspectRatio | null;
+  designSystemId: string | null;
+  slidePreviews: DeckVersionSlidePreview[];
+}
+
+export interface DeckVersionListResponse {
+  deckId: string;
+  count: number;
+  versions: DeckVersionSummary[];
+}
+
+export interface DeckVersion extends DeckVersionSummary {
+  data: Record<string, unknown>;
+  slides: Array<{
+    id: string;
+    content: string;
+    notes?: string;
+    layout?: string;
+    background?: string;
+  }>;
+}
+
 // --- Design Systems ---
 
 export interface DesignSystemData {
