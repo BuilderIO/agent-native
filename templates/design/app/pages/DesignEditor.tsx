@@ -264,7 +264,7 @@ export default function DesignEditor() {
       staleToastShownRef.current = true;
       toast.info("Generation may have stopped before creating files.");
     }
-  }, [clearGenerationCompleteTimer, id]);
+  }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry]);
   const handleGenerationComplete = useCallback(() => {
     clearGenerationCompleteTimer();
     generationCompleteTimerRef.current = window.setTimeout(() => {
