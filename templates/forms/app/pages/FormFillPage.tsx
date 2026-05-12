@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
 import { Turnstile, PoweredByBadge } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
+import { normalizeFields } from "@/lib/normalize-fields";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePublicForm, useSubmitForm } from "@/hooks/use-forms";
 import { toast } from "sonner";
@@ -52,7 +53,10 @@ export function FormFillPage() {
     }
   }, []);
 
-  const fields: FormField[] = form?.fields || [];
+  const fields: FormField[] = useMemo(
+    () => normalizeFields(form?.fields),
+    [form?.fields],
+  );
   const settings: FormSettings = form?.settings || {};
 
   // Evaluate conditional visibility

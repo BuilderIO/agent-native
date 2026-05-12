@@ -61,7 +61,8 @@ import {
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { normalizeFields } from "@/lib/normalize-fields";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
 import type {
   FormField,
@@ -104,54 +105,6 @@ const fieldTypeLabels: Record<FormFieldType, string> = {
   rating: "Rating",
   scale: "Scale",
 };
-
-const knownFieldTypes = Object.keys(fieldTypeLabels) as FormFieldType[];
-
-function normalizeFields(fields: FormField[] | undefined): FormField[] {
-  if (!Array.isArray(fields)) return [];
-  return fields.map((field) => {
-    // Preserve the stored type when it's a recognized string; only fall back
-    // to `text` when the value is missing or the wrong shape (object, number),
-    // so we don't silently drop user data.
-    const type: FormFieldType =
-      typeof field?.type === "string" && knownFieldTypes.includes(field.type)
-        ? field.type
-        : "text";
-    const out: FormField = { ...field, type };
-    // Coerce when `options` is present in any shape — Array.isArray alone
-    // would let non-array values (e.g. `{ label: "A" }`) leak through and
-    // crash downstream `.map()` / `for…of` consumers.
-    if (field?.options !== undefined) {
-      const rawList = Array.isArray(field.options) ? field.options : [];
-      const seen = new Set<string>();
-      const cleaned: string[] = [];
-      for (const raw of rawList) {
-        let str: string;
-        if (typeof raw === "string") {
-          str = raw;
-        } else if (raw && typeof raw === "object") {
-          const v = raw as { label?: unknown; value?: unknown };
-          str =
-            typeof v.label === "string"
-              ? v.label
-              : typeof v.value === "string"
-                ? v.value
-                : "";
-        } else if (raw == null) {
-          continue;
-        } else {
-          str = String(raw);
-        }
-        const trimmed = str.trim();
-        if (!trimmed || seen.has(trimmed)) continue;
-        seen.add(trimmed);
-        cleaned.push(trimmed);
-      }
-      out.options = cleaned;
-    }
-    return out;
-  });
-}
 
 export function FormBuilderPage() {
   const { id } = useParams<{ id: string }>();

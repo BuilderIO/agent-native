@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
+import { assertValidFields } from "../server/lib/validate-fields.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
 function slugify(text: string): string {
@@ -64,16 +65,18 @@ export default defineAction({
     if (args.description !== undefined) updates.description = args.description;
     if (args.slug !== undefined) updates.slug = args.slug;
     if (args.fields !== undefined) {
+      let parsedFields: unknown;
       if (typeof args.fields === "string") {
         try {
-          JSON.parse(args.fields);
-          updates.fields = args.fields;
+          parsedFields = JSON.parse(args.fields);
         } catch {
           throw new Error("--fields must be valid JSON");
         }
       } else {
-        updates.fields = JSON.stringify(args.fields);
+        parsedFields = args.fields;
       }
+      assertValidFields(parsedFields);
+      updates.fields = JSON.stringify(parsedFields);
     }
     if (args.settings !== undefined) {
       let parsedSettings: FormSettings;
