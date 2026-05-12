@@ -506,6 +506,28 @@ async function* parseJsonlStream(
               error: `rate_limit exceeded: ${event.error ?? "upstream provider rate limited"}`,
               errorCode: "rate_limited",
             };
+          } else if (reason === "invalid_request") {
+            // errorCode has no retry-trigger keywords, so isRetryableError
+            // won't loop on broken history.
+            const errMsg =
+              event.error ||
+              event.message ||
+              "Builder gateway rejected the request as malformed.";
+            const errCode =
+              typeof event.errorCode === "string"
+                ? event.errorCode
+                : typeof event.code === "string"
+                  ? event.code
+                  : "invalid_request";
+            console.warn(
+              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} error=${errMsg}`,
+            );
+            yield {
+              type: "stop",
+              reason: "error",
+              error: errMsg,
+              errorCode: errCode,
+            };
           } else if (reason === "error") {
             // Surface every diagnostic the gateway gave us so the user (and
             // our logs) get more than a bare "Gateway error". The gateway

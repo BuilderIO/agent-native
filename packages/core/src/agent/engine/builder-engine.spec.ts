@@ -577,6 +577,36 @@ describe("createBuilderEngine", () => {
     expect(stop?.error?.toLowerCase()).toContain("rate_limit");
   });
 
+  it("maps invalid_request stops into a non-retryable error stop preserving the gateway message and code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_bad_history",
+            error:
+              "messages.87: `tool_use` ids were found without `tool_result` blocks immediately after: history_tc_80.",
+            errorCode: "tool_message_shape_invalid",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("tool_message_shape_invalid");
+    expect(stop?.error).toContain("history_tc_80");
+    // No retry-trigger keywords (see production-agent's isRetryableError).
+    expect(stop?.error?.toLowerCase()).not.toMatch(
+      /rate_limit|overloaded|503|504|gateway error|socket hang up|connection reset|too many requests|timeout/,
+    );
+  });
+
   it("marks no-detail gateway stop errors as retryable gateway errors", async () => {
     vi.stubGlobal(
       "fetch",
