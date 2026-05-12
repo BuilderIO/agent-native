@@ -7,7 +7,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 function nanoid(size = 12): string {
@@ -48,16 +48,34 @@ export default defineAction({
 
     const parentId = args.parentId || null;
     const icon = args.icon || null;
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
-    const orgId = getRequestOrgId() ?? null;
+    const currentUserEmail = getRequestUserEmail();
+    if (!currentUserEmail) throw new Error("no authenticated user");
+    let ownerEmail = currentUserEmail;
+    let orgId = getRequestOrgId() ?? null;
+    let visibility: "private" | "org" | "public" = "private";
     const db = getDb();
+    let inheritedRole: "owner" | ShareRole = "owner";
+    let inheritedShares: Array<{
+      principalType: "user" | "org";
+      principalId: string;
+      role: ShareRole;
+    }> = [];
 
     if (parentId) {
       const parentAccess = await assertAccess("document", parentId, "editor");
-      if (parentAccess.resource.ownerEmail !== ownerEmail) {
-        throw new Error("Parent document not found");
-      }
+      const parent = parentAccess.resource;
+      ownerEmail = parent.ownerEmail as string;
+      orgId = (parent.orgId as string | null) ?? null;
+      visibility = parent.visibility ?? "private";
+      inheritedRole = parentAccess.role;
+      inheritedShares = await db
+        .select({
+          principalType: schema.documentShares.principalType,
+          principalId: schema.documentShares.principalId,
+          role: schema.documentShares.role,
+        })
+        .from(schema.documentShares)
+        .where(eq(schema.documentShares.resourceId, parentId));
     }
 
     // Get max position among siblings
@@ -90,10 +108,24 @@ export default defineAction({
       icon,
       position,
       isFavorite: 0,
+      visibility,
       createdAt: now,
       updatedAt: now,
-      // visibility defaults to 'private' via schema default
     });
+
+    if (inheritedShares.length > 0) {
+      await db.insert(schema.documentShares).values(
+        inheritedShares.map((share) => ({
+          id: nanoid(),
+          resourceId: id,
+          principalType: share.principalType,
+          principalId: share.principalId,
+          role: share.role,
+          createdBy: currentUserEmail,
+          createdAt: now,
+        })),
+      );
+    }
 
     const [doc] = await db
       .select()
@@ -120,6 +152,9 @@ export default defineAction({
       position: doc.position,
       isFavorite: parseDocumentFavorite(doc.isFavorite),
       visibility: doc.visibility,
+      accessRole: inheritedRole,
+      canEdit: true,
+      canManage: inheritedRole === "owner" || inheritedRole === "admin",
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     };
