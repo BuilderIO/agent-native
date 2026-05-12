@@ -1705,16 +1705,19 @@ export default function RecordRoute() {
       )}
 
       {/* Preview (camera-only mode renders camera full-screen; screen modes
-          rely on the browser's "currently sharing" native pill). */}
-      {recordingMode === "camera" && showRecordingUi && (
-        <video
-          ref={previewVideoRef}
-          autoPlay
-          muted
-          playsInline
-          className="fixed inset-0 h-full w-full object-cover [transform:scaleX(-1)]"
-        />
-      )}
+          rely on the browser's "currently sharing" native pill). Also visible
+          during the countdown so users can frame themselves before recording
+          begins. */}
+      {recordingMode === "camera" &&
+        (showRecordingUi || uiState === "countdown") && (
+          <video
+            ref={previewVideoRef}
+            autoPlay
+            muted
+            playsInline
+            className="fixed inset-0 h-full w-full object-cover [transform:scaleX(-1)]"
+          />
+        )}
 
       {recordingMode !== "camera" && showRecordingUi && (
         <div className="pointer-events-none fixed inset-0 bg-gradient-to-br from-[#1a1a2e] via-[#16213e] to-[#0f0f1a] opacity-95">
@@ -1734,16 +1737,16 @@ export default function RecordRoute() {
         </div>
       )}
 
-      {/* Camera bubble — only visible while actively recording. During
-          uploading/compressing the overlay is semi-transparent (bg-black/70),
-          so a still-visible bubble in the corner makes it look like recording
-          is ongoing. */}
+      {/* Camera bubble — visible during the countdown so the user can frame
+          themselves, and while actively recording. During uploading/compressing
+          the overlay is semi-transparent (bg-black/70), so a still-visible
+          bubble in the corner makes it look like recording is ongoing. */}
       {showCameraBubble && (
         <CameraBubble
           stream={cameraStream}
           size={cameraSize}
           onSizeChange={setCameraSize}
-          hidden={uiState !== "recording"}
+          hidden={uiState !== "recording" && uiState !== "countdown"}
         />
       )}
 
