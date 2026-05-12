@@ -1,4 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/server", () => ({
+  getRequestUserEmail: () => "test@example.com",
+}));
+
+vi.mock("../server/lib/google-calendar.js", () => ({}));
+
 import { buildStatusEventFields } from "./event-action-helpers";
 
 describe("buildStatusEventFields", () => {
