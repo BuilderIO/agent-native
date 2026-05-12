@@ -654,6 +654,7 @@ function CommandButton({
 }) {
   return (
     <button
+      onMouseDown={(event) => event.preventDefault()}
       onClick={onExecute}
       onMouseEnter={onHover}
       className={cn(
