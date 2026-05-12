@@ -10,8 +10,15 @@ description: How to create a new deck with slides from scratch. Read this before
 ## Workflow
 
 1. Plan the slides (title, section dividers, content slides)
-2. Call `create-deck` action with all slides in one shot
+2. Call `create-deck --title "..." --slides '[]'` to create an empty deck
 3. Navigate to the new deck
+4. Call `add-slide` once per slide in slide order, waiting for each result
+   before adding the next slide
+
+Do not create multiple slides in parallel for the same deck. Do not spawn
+sub-agents to write into the same deck at the same time. Sub-agents may research
+or draft slide copy, but one writer should call `add-slide` sequentially so the
+editor stays stable and the user can watch progress.
 
 If the user provides a Google Docs URL as source material, call
 `import-google-doc --url <url>` first and build from the returned text. If the
@@ -21,15 +28,19 @@ account. Relay the action's exact access instructions instead of generating from
 the URL alone.
 
 ```bash
-pnpm action create-deck --title "My Deck" --slides '[
-  { "id": "slide-1", "layout": "title", "content": "..." },
-  { "id": "slide-2", "layout": "content", "content": "..." }
-]'
+pnpm action create-deck --title "My Deck" --slides '[]'
 ```
 
 Then navigate:
 ```bash
 pnpm action navigate --deckId=<id from create-deck output>
+```
+
+Then add slides one by one:
+
+```bash
+pnpm action add-slide --deckId=<id> --layout title --content "..."
+pnpm action add-slide --deckId=<id> --layout content --content "..."
 ```
 
 ## Slide Wrapper
@@ -191,9 +202,13 @@ For definition-style bullets:
 </div>
 ```
 
-## Complete Example
+## Bulk Replacement Only
 
-A 4-slide deck, ready to run:
+Use a non-empty `create-deck --slides '[...]'` payload only for imports or an
+intentional atomic bulk replacement. For normal AI-generated decks, use the
+empty-deck plus sequential `add-slide` workflow above.
+
+A bulk payload looks like this:
 
 ```bash
 pnpm action create-deck --title "Product Vision 2025" --slides '[

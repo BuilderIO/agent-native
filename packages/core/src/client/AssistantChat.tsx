@@ -1781,6 +1781,103 @@ export function displayableUserMessageText(text: string): string {
   return text.replace(/<context>[\s\S]*?<\/context>\n?/g, "").trim();
 }
 
+export function isAssistantUiStaleIndexError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /^tapClientLookup: Index \d+ out of bounds \(length: \d+\)$/.test(
+    message,
+  );
+}
+
+type AssistantMessageListErrorBoundaryProps = {
+  resetKey: string;
+  children: React.ReactNode;
+};
+
+type AssistantMessageListErrorBoundaryState = {
+  error: Error | null;
+  retryToken: number;
+};
+
+export class AssistantMessageListErrorBoundary extends React.Component<
+  AssistantMessageListErrorBoundaryProps,
+  AssistantMessageListErrorBoundaryState
+> {
+  state: AssistantMessageListErrorBoundaryState = {
+    error: null,
+    retryToken: 0,
+  };
+
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  static getDerivedStateFromError(
+    error: unknown,
+  ): Partial<AssistantMessageListErrorBoundaryState> {
+    return {
+      error: error instanceof Error ? error : new Error(String(error ?? "")),
+    };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo) {
+    if (!isAssistantUiStaleIndexError(error)) return;
+
+    captureError(error, {
+      tags: {
+        component: "AssistantChat",
+        recoverable: "assistant-ui-stale-message-index",
+      },
+      extra: {
+        resetKey: this.props.resetKey,
+        componentStack: info.componentStack,
+      },
+    });
+
+    if (this.retryTimer) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.setState((state) => {
+        if (!state.error || !isAssistantUiStaleIndexError(state.error)) {
+          return null;
+        }
+        return { error: null, retryToken: state.retryToken + 1 };
+      });
+    }, 0);
+  }
+
+  componentDidUpdate(prevProps: AssistantMessageListErrorBoundaryProps) {
+    if (
+      this.state.error &&
+      isAssistantUiStaleIndexError(this.state.error) &&
+      prevProps.resetKey !== this.props.resetKey
+    ) {
+      this.setState((state) => ({
+        error: null,
+        retryToken: state.retryToken + 1,
+      }));
+    }
+  }
+
+  componentWillUnmount() {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      if (!isAssistantUiStaleIndexError(this.state.error)) {
+        throw this.state.error;
+      }
+      return null;
+    }
+
+    return (
+      <React.Fragment key={`${this.props.resetKey}:${this.state.retryToken}`}>
+        {this.props.children}
+      </React.Fragment>
+    );
+  }
+}
+
 function UserMessageAttachments() {
   const messageRuntime = useMessageRuntime();
   const msg = messageRuntime.getState();
@@ -3110,6 +3207,10 @@ const AssistantChatInner = forwardRef<
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
+  const messageListResetKey = useMemo(
+    () => messages.map((message) => message.id).join("|"),
+    [messages],
+  );
 
   // Chat-wide drag-and-drop: users expect to drop a file anywhere on the agent
   // sidebar (thread, header, composer) and have it attach — same as ChatGPT,
@@ -4464,12 +4565,16 @@ const AssistantChatInner = forwardRef<
                 </div>
               ) : (
                 <div className="agent-thread-content flex flex-col gap-4 px-4 py-4">
-                  <ThreadPrimitive.Messages
-                    components={{
-                      UserMessage,
-                      AssistantMessage,
-                    }}
-                  />
+                  <AssistantMessageListErrorBoundary
+                    resetKey={messageListResetKey}
+                  >
+                    <ThreadPrimitive.Messages
+                      components={{
+                        UserMessage,
+                        AssistantMessage,
+                      }}
+                    />
+                  </AssistantMessageListErrorBoundary>
                   {missingApiKey && (
                     <BuilderSetupCard
                       onConnected={handleBuilderConnected}
