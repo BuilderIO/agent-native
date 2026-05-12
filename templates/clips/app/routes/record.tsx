@@ -784,6 +784,7 @@ export default function RecordRoute() {
           displaySurface: opts.displaySurface,
           micDeviceId: opts.micDeviceId,
           cameraDeviceId: opts.cameraDeviceId,
+          cameraBubbleSize: cameraSize,
           uploadUrl: "",
           abortUrl: "",
           onError: (err) => {
