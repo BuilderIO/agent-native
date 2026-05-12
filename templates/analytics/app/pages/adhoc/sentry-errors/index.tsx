@@ -31,6 +31,7 @@ import {
 import { IssueSparkline } from "./IssueSparkline";
 import { ErrorGroupsPanel } from "./ErrorGroupsPanel";
 import { SlackMentionsPanel } from "./SlackMentionsPanel";
+import { GitHubBlamePanel } from "./GitHubBlamePanel";
 import {
   classifyIssue,
   classificationLabel,
@@ -308,6 +309,7 @@ function IssueDetail({ issue }: { issue: SentryIssue }) {
         </span>
       </div>
 
+      <GitHubBlamePanel issue={issue} />
       <SlackMentionsPanel issue={issue} />
     </div>
   );

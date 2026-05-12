@@ -199,3 +199,37 @@ export async function getOrganizationStats(
     `/organizations/${org}/stats_v2/?${params.toString()}`,
   );
 }
+
+export interface SentryCodeMapping {
+  id: string;
+  projectSlug: string;
+  repoName: string; // "owner/repo"
+  sourceRoot: string;
+  stackRoot: string;
+  defaultBranch: string;
+}
+
+export async function getCodeMappings(
+  orgSlug?: string,
+): Promise<SentryCodeMapping[]> {
+  const org = await getOrgSlug(orgSlug);
+  const raw = await apiGet<
+    {
+      id: string;
+      project: { slug: string };
+      repoName?: string;
+      repository?: { name: string };
+      sourceRoot: string;
+      stackRoot: string;
+      defaultBranch: string;
+    }[]
+  >(`/organizations/${org}/code-mappings/`);
+  return raw.map((m) => ({
+    id: m.id,
+    projectSlug: m.project?.slug ?? "",
+    repoName: m.repoName ?? m.repository?.name ?? "",
+    sourceRoot: m.sourceRoot ?? "",
+    stackRoot: m.stackRoot ?? "",
+    defaultBranch: m.defaultBranch ?? "main",
+  }));
+}

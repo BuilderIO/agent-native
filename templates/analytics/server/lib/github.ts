@@ -420,3 +420,119 @@ export async function searchOrgPRs(opts: {
 
   return searchPRs({ query: q, type: "pr", limit });
 }
+
+// ─── File blame (last commit per line range) ──────────────────────────────────
+
+export interface BlameRange {
+  startingLine: number;
+  endingLine: number;
+  age: number; // days since last commit
+  commit: {
+    oid: string;
+    abbreviatedOid: string;
+    message: string;
+    committedDate: string;
+    url: string;
+    author: {
+      name: string;
+      email: string;
+      avatarUrl?: string;
+    };
+    associatedPullRequests?: {
+      nodes: { number: number; title: string; url: string }[];
+    };
+  };
+}
+
+export interface FileBlameResult {
+  owner: string;
+  repo: string;
+  path: string;
+  ref: string;
+  ranges: BlameRange[];
+  /** The single most recent commit touching this file */
+  latestCommit: BlameRange["commit"] | null;
+  /** The most recent blame range (covers the most recently touched lines) */
+  hotRange: BlameRange | null;
+}
+
+export async function getFileBlame(
+  owner: string,
+  repo: string,
+  path: string,
+  ref = "HEAD",
+): Promise<FileBlameResult> {
+  const query = `
+    query FileBlame($owner: String!, $repo: String!, $path: String!, $ref: String!) {
+      repository(owner: $owner, name: $repo) {
+        object(expression: $ref) {
+          ... on Commit {
+            blame(path: $path) {
+              ranges {
+                startingLine
+                endingLine
+                commit {
+                  oid
+                  abbreviatedOid
+                  message
+                  committedDate
+                  url
+                  author {
+                    name
+                    email
+                    avatarUrl
+                  }
+                  associatedPullRequests(first: 1) {
+                    nodes {
+                      number
+                      title
+                      url
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await graphql<{
+    repository: {
+      object: {
+        blame: {
+          ranges: {
+            startingLine: number;
+            endingLine: number;
+            commit: BlameRange["commit"];
+          }[];
+        };
+      } | null;
+    } | null;
+  }>(query, { owner, repo, path, ref });
+
+  const rawRanges = data?.repository?.object?.blame?.ranges ?? [];
+
+  const ranges: BlameRange[] = rawRanges.map((r) => ({
+    ...r,
+    age: Math.floor(
+      (Date.now() - new Date(r.commit.committedDate).getTime()) /
+        (1000 * 60 * 60 * 24),
+    ),
+  }));
+
+  // Most recently committed range
+  const hotRange =
+    ranges.length > 0
+      ? ranges.reduce((a, b) =>
+          new Date(a.commit.committedDate) > new Date(b.commit.committedDate)
+            ? a
+            : b,
+        )
+      : null;
+
+  const latestCommit = hotRange?.commit ?? null;
+
+  return { owner, repo, path, ref, ranges, latestCommit, hotRange };
+}

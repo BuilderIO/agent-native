@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   getIssueEvents,
   getOrganizationStats,
+  getCodeMappings,
   listOrganizations,
   listIssues,
   listProjects,
@@ -17,7 +18,14 @@ export default defineAction({
     "Query Sentry projects, frequent issues, issue events, and organization error stats. Use this for Sentry error questions; pass statsPeriod like 7d, 30d, or 1y.",
   schema: z.object({
     mode: z
-      .enum(["organizations", "projects", "issues", "issue-events", "stats"])
+      .enum([
+        "organizations",
+        "projects",
+        "issues",
+        "issue-events",
+        "stats",
+        "code-mappings",
+      ])
       .default("issues")
       .describe("What to query from Sentry"),
     orgSlug: z
@@ -53,6 +61,11 @@ export default defineAction({
     if (credentials.ok === false) return credentials.response;
 
     try {
+      if (args.mode === "code-mappings") {
+        const mappings = await getCodeMappings(args.orgSlug);
+        return { mappings };
+      }
+
       if (args.mode === "organizations") {
         const organizations = await listOrganizations();
         return { organizations, total: organizations.length };
