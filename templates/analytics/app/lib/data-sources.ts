@@ -548,7 +548,7 @@ export const dataSources: DataSource[] = [
     description: "Error tracking and performance monitoring",
     category: "engineering",
     icon: IconBug,
-    envKeys: ["SENTRY_AUTH_TOKEN"],
+    envKeys: ["SENTRY_AUTH_TOKEN", "SENTRY_ORG_SLUG"],
     docsUrl: "https://docs.sentry.io/api/",
     walkthroughSteps: [
       {
@@ -565,6 +565,14 @@ export const dataSources: DataSource[] = [
         inputLabel: "Auth Token",
         inputPlaceholder: "sntrys_...",
         inputType: "password",
+      },
+      {
+        title: "Enter your Organization Slug",
+        description:
+          "Your Sentry organization slug (e.g. my-company). Find it in your Sentry URL: sentry.io/organizations/<slug>/",
+        inputKey: "SENTRY_ORG_SLUG",
+        inputLabel: "Organization Slug",
+        inputPlaceholder: "my-company",
       },
     ],
   },
