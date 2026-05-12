@@ -243,6 +243,16 @@ In the built-in agent chat, use the framework `manage-progress` tool for long-ru
 | `list-decks`  | `[--compact]`   | List all decks with metadata   |
 | `get-deck`    | `--id <deckId>` | Get a deck with all slides     |
 
+### Version History
+
+Slides keeps SQL-backed deck snapshots before meaningful edits, so accidental overwrites can be rolled back after reloads. Restoring a version snapshots the current deck first, making restore reversible.
+
+| Action                 | Args                                    | Purpose                                     |
+| ---------------------- | --------------------------------------- | ------------------------------------------- |
+| `list-deck-versions`   | `--deckId <id> [--limit 50]`            | List saved history snapshots for a deck     |
+| `get-deck-version`     | `--deckId <id> --versionId <versionId>` | Inspect one saved snapshot before restoring |
+| `restore-deck-version` | `--deckId <id> --versionId <versionId>` | Restore the deck to that saved snapshot     |
+
 ### Comments
 
 | Action                | Args                                                                 | Purpose                     |
