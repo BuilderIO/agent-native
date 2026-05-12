@@ -61,14 +61,16 @@ describe("AssistantMessageListErrorBoundary", () => {
       if (renders === 1) {
         throw new Error("tapClientLookup: Index 79 out of bounds (length: 78)");
       }
-      return <div>Recovered messages</div>;
+      return React.createElement("div", null, "Recovered messages");
     }
 
     act(() => {
       root.render(
-        <AssistantMessageListErrorBoundary resetKey="messages">
-          <FlakyMessageList />
-        </AssistantMessageListErrorBoundary>,
+        React.createElement(
+          AssistantMessageListErrorBoundary,
+          { resetKey: "messages" },
+          React.createElement(FlakyMessageList),
+        ),
       );
     });
 

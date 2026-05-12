@@ -44,8 +44,7 @@ async function assertParentIsNotDescendant({
       if (child.id === parentId) {
         throw createError({
           statusCode: 400,
-          statusMessage:
-            "A document cannot be moved under one of its children",
+          statusMessage: "A document cannot be moved under one of its children",
         });
       }
       queue.push(child.id);
