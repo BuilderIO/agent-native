@@ -58,6 +58,7 @@ import {
   createAttachmentDraft,
   createReminderDraft,
   dateTimeInTimezoneToIso,
+  getEventEndValidationMessage,
   getLocalTimezone,
   type AttachmentDraft,
   type ReminderDraft,
@@ -264,7 +265,15 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
       : dateTimeInTimezoneToIso(endDate, endTime, timezone);
 
     if (new Date(endISO).getTime() <= new Date(startISO).getTime()) {
-      toast.error("End must be after start");
+      toast.error(
+        getEventEndValidationMessage({
+          allDay: effectiveAllDay,
+          startDate: date,
+          endDate,
+          startTime,
+          endTime,
+        }),
+      );
       return;
     }
     const attachmentResult = validateAttachmentDrafts(attachments);

@@ -451,11 +451,13 @@ export default function DeckEditor() {
   // this, the resolver short-circuited on external URL changes and the agent's
   // navigate --slideIndex was effectively ignored.
   const lastUrlSlideParamRef = useRef<string | null>(null);
+  const pendingUrlSlideIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!deck) return;
     if (deck.slides.length === 0) {
       if (activeSlideId) setActiveSlideId(null);
       lastUrlSlideParamRef.current = null;
+      pendingUrlSlideIdRef.current = null;
       return;
     }
 
@@ -467,9 +469,21 @@ export default function DeckEditor() {
       const idx = parseInt(slideParam, 10) - 1;
       if (idx >= 0 && idx < deck.slides.length) {
         const targetId = deck.slides[idx].id;
-        if (activeSlideId !== targetId) setActiveSlideId(targetId);
+        if (activeSlideId !== targetId) {
+          pendingUrlSlideIdRef.current = targetId;
+          setActiveSlideId(targetId);
+        } else if (pendingUrlSlideIdRef.current === targetId) {
+          pendingUrlSlideIdRef.current = null;
+        }
         return;
       }
+    }
+
+    if (
+      pendingUrlSlideIdRef.current &&
+      !deck.slides.some((s) => s.id === pendingUrlSlideIdRef.current)
+    ) {
+      pendingUrlSlideIdRef.current = null;
     }
 
     if (activeSlideId && deck.slides.some((s) => s.id === activeSlideId)) {
@@ -488,6 +502,16 @@ export default function DeckEditor() {
   // Sync active slide index to URL
   useEffect(() => {
     if (!deck || !activeSlideId) return;
+    const pendingUrlSlideId = pendingUrlSlideIdRef.current;
+    if (pendingUrlSlideId) {
+      if (!deck.slides.some((s) => s.id === pendingUrlSlideId)) {
+        pendingUrlSlideIdRef.current = null;
+      } else if (activeSlideId !== pendingUrlSlideId) {
+        return;
+      } else {
+        pendingUrlSlideIdRef.current = null;
+      }
+    }
     const idx = deck.slides.findIndex((s) => s.id === activeSlideId);
     if (idx >= 0) {
       const current = searchParams.get("slide");

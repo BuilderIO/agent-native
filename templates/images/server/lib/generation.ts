@@ -88,11 +88,13 @@ function isRetryableProviderError(err: unknown): boolean {
 
 class BuilderImageGenerationError extends Error {
   readonly status?: number;
+  readonly detail?: string;
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, detail?: string) {
     super(message);
     this.name = "BuilderImageGenerationError";
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -171,9 +173,11 @@ export async function generateWithBuilderImageApi(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
+    const detail = extractBuilderErrorDetail(text);
     throw new BuilderImageGenerationError(
-      `Builder-managed image generation failed (${response.status}): ${text.slice(0, 300)}`,
+      `Builder-managed image generation failed (${response.status})${detail ? `: ${detail}` : "."}`,
       response.status,
+      detail,
     );
   }
 
@@ -236,17 +240,74 @@ export async function generateWithManagedImageProvider(
     if (shouldFallback && (await isGeminiImageGenerationConfigured())) {
       return generateWithGemini(input);
     }
-    if (shouldFallback) {
-      throw new FeatureNotConfiguredError({
-        requiredCredential: "BUILDER_PRIVATE_KEY",
-        builderConnectUrl: "/_agent-native/builder/connect",
-        byokDocsUrl: "https://aistudio.google.com/apikey",
-        message:
-          "Image generation needs Builder.io connected. Open Settings and click Connect Builder.io — or expand the Image generation setup step and paste a Gemini API key as the manual fallback.",
-      });
+    if (shouldFallback && err instanceof BuilderImageGenerationError) {
+      throw createBuilderImageGenerationFallbackError(err);
     }
     throw err;
   }
+}
+
+function createBuilderImageGenerationFallbackError(
+  err: BuilderImageGenerationError,
+): Error {
+  const message = builderImageGenerationFallbackMessage(err);
+  if ([401, 402, 403].includes(err.status ?? 0)) {
+    return new FeatureNotConfiguredError({
+      requiredCredential:
+        err.status === 401 ? "BUILDER_PRIVATE_KEY" : "GEMINI_API_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message,
+    });
+  }
+  return new BuilderImageGenerationError(message, err.status, err.detail);
+}
+
+function builderImageGenerationFallbackMessage(
+  err: BuilderImageGenerationError,
+): string {
+  const detail = err.detail ? `: ${err.detail}` : ".";
+  switch (err.status) {
+    case 401:
+      return "Image generation needs Builder.io connected or reconnected. Open Settings and click Connect Builder.io, or expand the Image generation setup step and paste a Gemini API key as the manual fallback.";
+    case 402:
+      return `Builder.io is connected, but this Builder space cannot use managed image generation credits${detail} Open Builder space settings or reconnect to a space with image-generation credits, or add a Gemini API key as the manual fallback.`;
+    case 403:
+      return `Builder.io is connected, but this Builder space does not have access to managed image generation${detail} Ask a space admin to enable access, reconnect to a different Builder space, or add a Gemini API key as the manual fallback.`;
+    case 429:
+      return `Builder-managed image generation is rate limited right now${detail} Retry shortly, or add a Gemini API key as the manual fallback.`;
+    case 503:
+    case 504:
+      return `Builder-managed image generation is temporarily unavailable${detail} Retry shortly, or add a Gemini API key as the manual fallback.`;
+    default:
+      return `Builder-managed image generation failed${detail} Add a Gemini API key as the manual fallback if the Builder-managed provider keeps failing.`;
+  }
+}
+
+function extractBuilderErrorDetail(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const detail = readProviderErrorDetail(parsed);
+    if (detail) return detail.slice(0, 300);
+  } catch {
+    // Fall back to the raw response text below.
+  }
+  return trimmed.slice(0, 300);
+}
+
+function readProviderErrorDetail(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ["message", "error", "detail"]) {
+    const candidate = record[key];
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+    const nested = readProviderErrorDetail(candidate);
+    if (nested) return nested;
+  }
+  return null;
 }
 
 export async function generateWithGemini(

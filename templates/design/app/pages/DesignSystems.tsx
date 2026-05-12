@@ -45,6 +45,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { toast } from "sonner";
 
 interface DesignSystem {
   id: string;
@@ -53,6 +54,8 @@ interface DesignSystem {
   data: string;
   isDefault: boolean;
   visibility?: "private" | "org" | "public" | null;
+  accessRole?: "owner" | "viewer" | "editor" | "admin";
+  canManage?: boolean;
   createdAt: string;
 }
 
@@ -87,10 +90,11 @@ export default function DesignSystems() {
   const deleteMutation = useActionMutation("delete-design-system");
 
   const designSystems = data?.designSystems ?? [];
+  const manageableDesignSystems = designSystems.filter((ds) => ds.canManage);
   const selectedSystemCount = selectedSystemIds.size;
   const allSystemsSelected =
-    designSystems.length > 0 &&
-    designSystems.every((ds) => selectedSystemIds.has(ds.id));
+    manageableDesignSystems.length > 0 &&
+    manageableDesignSystems.every((ds) => selectedSystemIds.has(ds.id));
 
   const openSetupFromDesignSystem = useCallback(
     (id: string) => {
@@ -111,26 +115,30 @@ export default function DesignSystems() {
     setSelectedSystemIds(new Set());
   }, []);
 
-  const toggleSystemSelection = useCallback((id: string) => {
-    setSelectedSystemIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }, []);
+  const toggleSystemSelection = useCallback(
+    (id: string) => {
+      if (!designSystems.find((ds) => ds.id === id)?.canManage) return;
+      setSelectedSystemIds((current) => {
+        const next = new Set(current);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        return next;
+      });
+    },
+    [designSystems],
+  );
 
   const toggleAllSystems = useCallback(() => {
     setSelectedSystemIds((current) => {
       const next = new Set(current);
       const shouldClear =
-        designSystems.length > 0 &&
-        designSystems.every((ds) => next.has(ds.id));
+        manageableDesignSystems.length > 0 &&
+        manageableDesignSystems.every((ds) => next.has(ds.id));
 
-      designSystems.forEach((ds) => {
+      manageableDesignSystems.forEach((ds) => {
         if (shouldClear) {
           next.delete(ds.id);
         } else {
@@ -140,7 +148,7 @@ export default function DesignSystems() {
 
       return next;
     });
-  }, [designSystems]);
+  }, [manageableDesignSystems]);
 
   const clearSelection = useCallback(() => {
     setSelectedSystemIds(new Set());
@@ -192,9 +200,13 @@ export default function DesignSystems() {
     setDeleteId(null);
 
     deleteMutation.mutate({ id } as any, {
-      onError: () => {
+      onError: (error) => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
+        });
+        toast.error("Could not delete design system", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
         });
       },
     });
@@ -225,9 +237,13 @@ export default function DesignSystems() {
 
     void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
       .then(() => undefined)
-      .catch(() => {
+      .catch((error) => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
+        });
+        toast.error("Could not delete selected design systems", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
         });
       });
   }, [selectedSystemIds, queryClient, exitSelectionMode, deleteMutation]);
@@ -244,7 +260,7 @@ export default function DesignSystems() {
 
   useSetHeaderActions(
     <div className="flex items-center gap-2">
-      {designSystems.length > 0 ? (
+      {manageableDesignSystems.length > 0 ? (
         <Button
           variant={isSelectionMode ? "secondary" : "ghost"}
           size="sm"
@@ -365,11 +381,13 @@ export default function DesignSystems() {
                       }`}
                     >
                       <button
-                        onClick={() =>
-                          isSelectionMode
-                            ? toggleSystemSelection(ds.id)
-                            : openSetupFromDesignSystem(ds.id)
-                        }
+                        onClick={() => {
+                          if (isSelectionMode) {
+                            if (ds.canManage) toggleSystemSelection(ds.id);
+                            return;
+                          }
+                          openSetupFromDesignSystem(ds.id);
+                        }}
                         aria-pressed={isSelectionMode ? isSelected : undefined}
                         className="block w-full text-left cursor-pointer"
                       >
@@ -428,7 +446,7 @@ export default function DesignSystems() {
                           resourceTitle={ds.title}
                         />
                       </div>
-                      {isSelectionMode ? (
+                      {isSelectionMode && ds.canManage ? (
                         <div className="absolute top-2 left-2 z-10">
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -448,48 +466,58 @@ export default function DesignSystems() {
                       ) : (
                         <>
                           {/* Star button */}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={() => handleSetDefault(ds.id)}
-                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
-                              >
-                                {ds.isDefault ? (
-                                  <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
-                                ) : (
-                                  <IconStar className="w-3.5 h-3.5 text-muted-foreground" />
-                                )}
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {ds.isDefault
-                                ? "Currently default"
-                                : "Set as default"}
-                            </TooltipContent>
-                          </Tooltip>
-                          <div className="absolute top-2 right-10 z-10 opacity-0 group-hover:opacity-100">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
-                                  aria-label={`More actions for ${ds.title}`}
+                          {ds.accessRole === "owner" && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => handleSetDefault(ds.id)}
+                                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
                                 >
-                                  <IconDots className="w-3.5 h-3.5 text-foreground/70" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() => setDeleteId(ds.id)}
-                                  className="text-red-400 focus:text-red-400 cursor-pointer"
-                                >
-                                  <IconTrash className="w-3.5 h-3.5 mr-2" />
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
+                                  {ds.isDefault ? (
+                                    <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
+                                  ) : (
+                                    <IconStar className="w-3.5 h-3.5 text-muted-foreground" />
+                                  )}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {ds.isDefault
+                                  ? "Currently default"
+                                  : "Set as default"}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          {ds.canManage && (
+                            <div
+                              className={`absolute top-2 z-10 opacity-0 group-hover:opacity-100 ${
+                                ds.accessRole === "owner"
+                                  ? "right-10"
+                                  : "right-2"
+                              }`}
+                            >
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
+                                    aria-label={`More actions for ${ds.title}`}
+                                  >
+                                    <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={() => setDeleteId(ds.id)}
+                                    className="text-red-400 focus:text-red-400 cursor-pointer"
+                                  >
+                                    <IconTrash className="w-3.5 h-3.5 mr-2" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          )}
                         </>
                       )}
                     </div>

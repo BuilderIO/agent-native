@@ -14,6 +14,10 @@ import {
   formatMb,
   type CompressionResult,
 } from "@/lib/compress";
+import {
+  createCameraCompositeStream,
+  type CameraCompositeHandle,
+} from "@/lib/camera-composite";
 
 export type RecordingMode = "screen" | "camera" | "screen+camera";
 export type DisplaySurface = "monitor" | "window" | "browser";
@@ -51,6 +55,8 @@ export interface RecorderEngineOptions {
   micDeviceId?: string | null;
   /** Selected camera deviceId (optional — default used when omitted). */
   cameraDeviceId?: string | null;
+  /** Camera bubble size selected in the pre-record UI. */
+  cameraBubbleSize?: "sm" | "md" | "lg";
   /** Chunk size in ms (MediaRecorder timeslice). Default 2000. */
   chunkIntervalMs?: number;
   /** Base URL for the chunk upload endpoint. Default `/api/uploads/:id/chunk`. */
@@ -236,6 +242,7 @@ export class RecorderEngine {
   private micStream: MediaStream | null = null;
   private combinedStream: MediaStream | null = null;
   private previewStream: MediaStream | null = null;
+  private cameraComposite: CameraCompositeHandle | null = null;
   private recorder: MediaRecorder | null = null;
   private mimeType: string = "video/webm";
 
@@ -1062,19 +1069,35 @@ export class RecorderEngine {
       return combined;
     }
 
-    // Screen + camera: we record the display track and trust the UI to
-    // overlay the bubble visually via a canvas capture in a future pass.
-    // For MVP we just attach both track sets to the same MediaStream; the
-    // camera bubble is rendered on top during playback via canvas when the
-    // browser supports it. Here we include the display video track and any
-    // available audio tracks.
+    // Screen + camera: selected-window capture does not include our separate
+    // DOM bubble, so the saved recording must composite the camera feed into
+    // the video stream before MediaRecorder sees it.
+    this.cameraComposite?.cleanup();
+    this.cameraComposite = createCameraCompositeStream({
+      displayStream: this.displayStream!,
+      cameraStream: this.cameraStream!,
+      bubbleSizeRatio: this.cameraBubbleSizeRatio(),
+    });
     const combined = new MediaStream();
-    for (const t of this.displayStream!.getVideoTracks()) combined.addTrack(t);
+    for (const t of this.cameraComposite.stream.getVideoTracks())
+      combined.addTrack(t);
     for (const t of this.displayStream!.getAudioTracks()) combined.addTrack(t);
     if (this.micStream) {
       for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
     }
     return combined;
+  }
+
+  private cameraBubbleSizeRatio(): number {
+    switch (this.opts.cameraBubbleSize) {
+      case "sm":
+        return 0.17;
+      case "lg":
+        return 0.3;
+      case "md":
+      default:
+        return 0.22;
+    }
   }
 
   private queueChunk(blob: Blob, index: number, isFinal: boolean): void {
@@ -1220,6 +1243,7 @@ export class RecorderEngine {
 
   private readDimensions(): { width: number; height: number } {
     const videoTrack =
+      this.combinedStream?.getVideoTracks()[0] ||
       this.previewStream?.getVideoTracks()[0] ||
       this.displayStream?.getVideoTracks()[0] ||
       this.cameraStream?.getVideoTracks()[0];
@@ -1239,6 +1263,8 @@ export class RecorderEngine {
   }
 
   private cleanupTracks(): void {
+    this.cameraComposite?.cleanup();
+    this.cameraComposite = null;
     for (const s of [
       this.displayStream,
       this.cameraStream,

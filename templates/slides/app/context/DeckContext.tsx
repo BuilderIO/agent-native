@@ -50,6 +50,8 @@ export interface SlideAnimation {
   id: string;
   /** Index of the child element within the content container */
   elementIndex: number;
+  /** Preferred target: child-index path from the outer `.fmd-slide` wrapper. */
+  elementPath?: number[];
   type: AnimationType;
 }
 
@@ -223,6 +225,40 @@ async function fetchDecksFromAPI(): Promise<Deck[] | null> {
   }
 }
 
+async function fetchDeckFromAPI(id: string): Promise<Deck | null> {
+  try {
+    const res = await fetch(`${appBasePath()}/api/decks/${id}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error(`Failed to fetch deck ${id}:`, err);
+    return null;
+  }
+}
+
+export function deckIdFromPathname(pathname: string): string | null {
+  const match = pathname.match(/\/deck\/([^/?#]+)/);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+export async function includeOpenDeckIfMissing(
+  decks: Deck[],
+  openDeckId: string | null,
+  fetchById: (id: string) => Promise<Deck | null> = fetchDeckFromAPI,
+): Promise<Deck[]> {
+  if (!openDeckId || decks.some((deck) => deck.id === openDeckId)) {
+    return decks;
+  }
+
+  const directDeck = await fetchById(openDeckId);
+  return directDeck ? [...decks, directDeck] : decks;
+}
+
 async function deleteDeckFromAPI(id: string): Promise<void> {
   try {
     await fetch(`${appBasePath()}/api/decks/${id}`, { method: "DELETE" });
@@ -322,11 +358,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   // Load decks from API on mount
   useEffect(() => {
-    fetchDecksFromAPI().then((loaded) => {
+    fetchDecksFromAPI().then(async (loaded) => {
       // Initial fetch failed — start empty so the UI can render. The fallback
       // poll will retry shortly; until then `decks` stays empty without
       // triggering the save effect (lastExternalUpdateRef is bumped).
-      const initial = loaded ?? [];
+      const currentOpenDeckId =
+        typeof window === "undefined"
+          ? null
+          : deckIdFromPathname(window.location.pathname);
+      const initial = await includeOpenDeckIfMissing(
+        loaded ?? [],
+        currentOpenDeckId,
+      );
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
       setDecks(initial);
       setHistory([
@@ -352,8 +395,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
     const readOpenDeckId = (): string | null => {
       if (typeof window === "undefined") return null;
-      const m = window.location.pathname.match(/\/deck\/([^/?#]+)/);
-      return m ? m[1] : null;
+      return deckIdFromPathname(window.location.pathname);
     };
 
     const isHidden = () =>

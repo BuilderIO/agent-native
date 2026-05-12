@@ -40,6 +40,12 @@ interface CommandItem {
   action: (editor: Editor) => void;
 }
 
+export function parseInlineGeneratePrompt(textBeforeCursor: string) {
+  const match = textBeforeCursor.match(/^\/generate\s+([\s\S]+)$/i);
+  const prompt = match?.[1]?.trim();
+  return prompt || null;
+}
+
 const commands: CommandItem[] = [
   {
     title: "Text",
@@ -281,6 +287,39 @@ export function SlashCommandMenu({
   } | null>(null);
   const generateTextareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const submitGeneratePrompt = useCallback(
+    (prompt: string) => {
+      const trimmed = prompt.trim();
+      if (!trimmed) return;
+      if (!documentId) {
+        toast.error("No document selected");
+        return;
+      }
+      setGenerateOpen(false);
+      const content = (editor.storage as any).markdown.getMarkdown();
+      send({
+        message: trimmed,
+        context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL - use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
+      });
+    },
+    [documentId, editor, send],
+  );
+
+  const readInlineGenerateCommand = useCallback(() => {
+    const { state } = editor;
+    if (!state.selection.empty) return null;
+    const from = state.selection.from;
+    const $from = state.doc.resolve(from);
+    if (!$from.parent.isTextblock) return null;
+
+    const blockStart = $from.start();
+    const textBeforeCursor = state.doc.textBetween(blockStart, from, "\n");
+    const prompt = parseInlineGeneratePrompt(textBeforeCursor);
+    if (!prompt) return null;
+
+    return { from: blockStart, to: from, prompt };
+  }, [editor]);
+
   const generateCommand: CommandItem = {
     title: "Generate",
     description: "Generate content with AI",
@@ -315,17 +354,7 @@ export function SlashCommandMenu({
   );
 
   function handleGenerateSubmit() {
-    if (!generatePrompt.trim()) return;
-    if (!documentId) {
-      toast.error("No document selected");
-      return;
-    }
-    setGenerateOpen(false);
-    const content = (editor.storage as any).markdown.getMarkdown();
-    send({
-      message: generatePrompt.trim(),
-      context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL — use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
-    });
+    submitGeneratePrompt(generatePrompt);
   }
 
   async function handleImageFilePicked(
@@ -387,7 +416,30 @@ export function SlashCommandMenu({
     if (!editor) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) return;
+      if (!isOpen) {
+        if (
+          e.key === "Enter" &&
+          !e.shiftKey &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey
+        ) {
+          const inlineGenerate = readInlineGenerateCommand();
+          if (inlineGenerate) {
+            e.preventDefault();
+            editor
+              .chain()
+              .focus()
+              .deleteRange({
+                from: inlineGenerate.from,
+                to: inlineGenerate.to,
+              })
+              .run();
+            submitGeneratePrompt(inlineGenerate.prompt);
+          }
+        }
+        return;
+      }
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -412,7 +464,15 @@ export function SlashCommandMenu({
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [isOpen, selectedIndex, filteredCommands, executeCommand, editor]);
+  }, [
+    isOpen,
+    selectedIndex,
+    filteredCommands,
+    executeCommand,
+    editor,
+    readInlineGenerateCommand,
+    submitGeneratePrompt,
+  ]);
 
   useEffect(() => {
     if (!editor) return;
@@ -594,6 +654,7 @@ function CommandButton({
 }) {
   return (
     <button
+      onMouseDown={(event) => event.preventDefault()}
       onClick={onExecute}
       onMouseEnter={onHover}
       className={cn(

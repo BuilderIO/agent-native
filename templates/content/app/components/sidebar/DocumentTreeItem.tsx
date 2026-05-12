@@ -65,18 +65,25 @@ export function DocumentTreeItem({
   const hasChildren = node.children.length > 0;
   const isActive = node.id === activeId;
   const movement = moveAvailability.get(node.id) ?? { up: false, down: false };
+  const canEdit = node.canEdit !== false;
+  const canManage =
+    node.canManage === true ||
+    node.accessRole === "owner" ||
+    node.accessRole === "admin";
+  const hasMenuActions = canEdit || canManage;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const indent = depth * 12 + 12;
 
   return (
     <div>
       <div
         className={cn(
-          "group relative flex items-center gap-1.5 pr-2 py-[5px] rounded-md cursor-pointer text-sm",
+          "group relative flex min-w-56 items-center gap-1.5 rounded-md py-[5px] pr-2 text-sm cursor-pointer",
           isActive
             ? "bg-accent text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
         )}
-        style={{ paddingLeft: `${depth * 16 + 12}px` }}
+        style={{ paddingLeft: `${indent}px` }}
         onClick={() => onSelect(node.id)}
       >
         <span className="relative flex-shrink-0 w-5 h-5">
@@ -111,86 +118,102 @@ export function DocumentTreeItem({
         </span>
 
         <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 bg-inherit">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="w-6 h-6 flex items-center justify-center rounded hover:bg-accent"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <IconDots size={14} />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCreateChild(node.id);
-                }}
-              >
-                <IconPlus size={14} className="mr-2" />
-                Add sub-page
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={!movement.up}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMove(node.id, "up");
-                }}
-              >
-                <IconArrowUp size={14} className="mr-2" />
-                Move up
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!movement.down}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMove(node.id, "down");
-                }}
-              >
-                <IconArrowDown size={14} className="mr-2" />
-                Move down
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleFavorite(node.id, !node.isFavorite);
-                }}
-              >
-                <IconStar
-                  size={14}
-                  className={cn("mr-2", node.isFavorite && "fill-current")}
-                />
-                {node.isFavorite ? "Remove from favorites" : "Add to favorites"}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteDialogOpen(true);
-                }}
-              >
-                <IconTrash size={14} className="mr-2" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {hasMenuActions && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="w-6 h-6 flex items-center justify-center rounded hover:bg-accent"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <IconDots size={14} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                {canEdit && (
+                  <>
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCreateChild(node.id);
+                      }}
+                    >
+                      <IconPlus size={14} className="mr-2" />
+                      Add sub-page
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      disabled={!movement.up}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMove(node.id, "up");
+                      }}
+                    >
+                      <IconArrowUp size={14} className="mr-2" />
+                      Move up
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={!movement.down}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMove(node.id, "down");
+                      }}
+                    >
+                      <IconArrowDown size={14} className="mr-2" />
+                      Move down
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleFavorite(node.id, !node.isFavorite);
+                      }}
+                    >
+                      <IconStar
+                        size={14}
+                        className={cn(
+                          "mr-2",
+                          node.isFavorite && "fill-current",
+                        )}
+                      />
+                      {node.isFavorite
+                        ? "Remove from favorites"
+                        : "Add to favorites"}
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {canEdit && canManage && <DropdownMenuSeparator />}
+                {canManage && (
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteDialogOpen(true);
+                    }}
+                  >
+                    <IconTrash size={14} className="mr-2" />
+                    Delete
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCreateChild(node.id);
-                }}
-              >
-                <IconPlus size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Add sub-page</TooltipContent>
-          </Tooltip>
+          {canEdit && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateChild(node.id);
+                  }}
+                >
+                  <IconPlus size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Add sub-page</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </div>
 

@@ -851,12 +851,13 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 26px;
+  min-height: 32px;
   border: none;
   background: transparent;
+  border-radius: var(--radius-sm);
   color: var(--fg);
   cursor: pointer;
-  padding: 0 2px;
+  padding: 6px 10px;
   text-align: left;
   transition: background 120ms;
 }
@@ -872,6 +873,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .readiness-open .readiness-summary {
   min-height: 38px;
+  border-radius: 0;
   padding: 8px 10px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -1361,16 +1363,18 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .setup-permission-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 8px;
 }
 
 .setup-permission-button {
-  min-height: 34px;
-  padding: 7px 9px;
+  min-height: 38px;
+  padding: 7px 10px;
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.15;
   text-align: center;
+  white-space: normal;
 }
 
 .setup-hint {

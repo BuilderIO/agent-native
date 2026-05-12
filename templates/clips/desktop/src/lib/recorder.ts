@@ -37,8 +37,8 @@
  * effect in `app.tsx` calls `getUserMedia`, invokes `show_bubble`, and runs
  * the relay (see `bubble-pump.ts`). When the user clicks Start Recording, the
  * live `MediaStream` is handed to `startNativeRecording` via
- * `preAcquiredCameraStream` so the recorder reuses it for MediaRecorder
- * instead of calling `getUserMedia` a second time.
+ * `preAcquiredCameraStream` so the recorder can composite it into the
+ * captured video instead of calling `getUserMedia` a second time.
  *
  * Native full-screen capture is different: Rust records the screen directly,
  * not through WebKit `getDisplayMedia`, so the bubble overlay can own its own
@@ -50,6 +50,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { createCameraCompositeStream } from "./camera-composite";
 import { loadVocabulary } from "./personal-vocabulary";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 
@@ -491,6 +492,7 @@ async function createRecording(
       body: JSON.stringify({
         hasCamera,
         hasAudio,
+        spaceIds: [],
         visibility: "public",
         ...(titleContext
           ? {
@@ -1453,6 +1455,10 @@ const noopRecordingStartCue: RecordingStartCue = {
   cleanup() {},
 };
 
+function bubbleSizeRatioForName(size: string | null | undefined): number {
+  return size === "medium" ? 0.24 : 0.18;
+}
+
 function createRecordingStartCue(): RecordingStartCue {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -1770,12 +1776,29 @@ async function startNativeRecordingInner(
   });
   let nativeTranscriptCapture: NativeTranscriptCapture | null = null;
 
+  const recordedScreenCameraStream =
+    params.mode === "screen-camera" && displayStream && bubbleCameraStream
+      ? createCameraCompositeStream({
+          displayStream,
+          cameraStream: bubbleCameraStream,
+          bubbleSizeRatio: bubbleSizeRatioForName(
+            await invoke<string>("load_bubble_size").catch(() => "small"),
+          ),
+        })
+      : null;
+  if (recordedScreenCameraStream) {
+    streamCleanups.push(recordedScreenCameraStream.cleanup);
+    console.log("[clips-recorder] compositing camera into recorded video");
+  }
+
   // Choose the primary video track for MediaRecorder:
   //   - screen mode             → display
-  //   - screen-camera mode      → display (camera is bubble overlay only)
+  //   - screen-camera mode      → composited display + camera
   //   - camera mode             → camera
   const primaryVideo =
-    displayStream ?? (params.mode === "camera" ? bubbleCameraStream : null);
+    recordedScreenCameraStream?.stream ??
+    displayStream ??
+    (params.mode === "camera" ? bubbleCameraStream : null);
   if (!primaryVideo) throw new Error("No video stream available");
 
   const combined = new MediaStream();
@@ -2013,8 +2036,8 @@ async function startNativeRecordingInner(
   // 6. Bubble + toolbar visibility are owned by the popover's session
   // effect (see app.tsx + bubble-pump.ts) — not the recorder. Both open
   // as soon as the user opens the popover in screen-camera / camera mode
-  // with cameraOn. The recorder just borrows the video track for
-  // MediaRecorder and flips the toolbar from disabled → enabled above.
+  // with cameraOn. The recorder reuses that camera stream for the saved
+  // video composite and flips the toolbar from disabled → enabled above.
 
   const handle: RecorderHandle = {
     async stop() {
@@ -2084,14 +2107,23 @@ async function startNativeRecordingInner(
       await thumbnailUploadPromise;
 
       const videoSettings = primaryVideo.getVideoTracks()[0]?.getSettings();
+      const displaySettings = displayStream?.getVideoTracks()[0]?.getSettings();
       const durationMs = Math.max(
         0,
         Math.round(Date.now() - startedAt - accumulatedPauseMs),
       );
       const width =
-        typeof videoSettings?.width === "number" ? videoSettings.width : null;
+        typeof videoSettings?.width === "number"
+          ? videoSettings.width
+          : typeof displaySettings?.width === "number"
+            ? displaySettings.width
+            : null;
       const height =
-        typeof videoSettings?.height === "number" ? videoSettings.height : null;
+        typeof videoSettings?.height === "number"
+          ? videoSettings.height
+          : typeof displaySettings?.height === "number"
+            ? displaySettings.height
+            : null;
       const finalMimeType = mimeType || backupMeta.mimeType || "video/webm";
       await persistBackupMeta({
         durationMs,

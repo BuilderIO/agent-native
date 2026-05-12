@@ -34,6 +34,13 @@ describe("poll handler", () => {
     let settingsTs = 900;
     let refreshTs = 500;
     let refreshValue = JSON.stringify({ scope: "initial" });
+    let appStateRows = [
+      {
+        session_id: "test@example.com",
+        key: "__screen_refresh__",
+        updated_at: appStateTs,
+      },
+    ];
 
     mockExecute.mockImplementation(async (query: any) => {
       const sql = typeof query === "string" ? query : query.sql;
@@ -45,6 +52,15 @@ describe("poll handler", () => {
       }
       if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
         return { rows: [{ max_ts: settingsTs }] };
+      }
+      if (
+        sql.includes("SELECT session_id, key, updated_at") &&
+        sql.includes("application_state")
+      ) {
+        const since = Number(query.args?.[0]) || 0;
+        return {
+          rows: appStateRows.filter((row) => row.updated_at > since),
+        };
       }
       if (sql.includes("WHERE key = ?")) {
         return { rows: [{ updated_at: refreshTs, value: refreshValue }] };
@@ -63,12 +79,25 @@ describe("poll handler", () => {
     settingsTs = 900;
     refreshTs = 2_000;
     refreshValue = JSON.stringify({ scope: "documents" });
+    appStateRows = [
+      {
+        session_id: "test@example.com",
+        key: "__screen_refresh__",
+        updated_at: appStateTs,
+      },
+    ];
 
     const next = await handler({ query: { since: String(baseline.version) } });
 
     expect(next.version).toBeGreaterThan(baseline.version);
     expect(next.events).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          source: "app-state",
+          type: "change",
+          key: "__screen_refresh__",
+          owner: "test@example.com",
+        }),
         expect.objectContaining({
           source: "screen-refresh",
           type: "change",

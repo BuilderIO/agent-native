@@ -1304,7 +1304,7 @@ export function App() {
   //   - User clicks Start Recording → popover hides, recording begins.
   //     `isRecording` becomes true, so this effect's deps still say
   //     "active" — the stream + bubble + pump keep running. The recorder
-  //     just borrows the video track for MediaRecorder (see
+  //     reuses the camera stream for the saved video composite (see
   //     `preAcquiredCameraStream` in recorder.ts). Explicit native full-screen
   //     mode leaves the bubble's local camera stream alone.
   //   - Recording stops → `isRecording` flips back to false, popover
@@ -3848,14 +3848,14 @@ function Setup({
               className="setup-permission-button"
               onClick={() => openMacosPrivacySettings("screen")}
             >
-              Screen
+              Screen Recording
             </button>
             <button
               type="button"
               className="setup-permission-button"
               onClick={() => openMacosPrivacySettings("speech")}
             >
-              Speech
+              Speech Recognition
             </button>
             <button
               type="button"

@@ -1713,9 +1713,7 @@ const plainMentionPattern = /((?:^|(?<=\s))@(\w+))/g;
 
 function UserMessageText({ text }: { text: string }) {
   // Strip injected <context>...</context> blocks before display
-  const displayText = text
-    .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
-    .trim();
+  const displayText = displayableUserMessageText(text);
 
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -1779,6 +1777,10 @@ function UserMessageText({ text }: { text: string }) {
   return <>{parts.length > 0 ? parts : displayText}</>;
 }
 
+export function displayableUserMessageText(text: string): string {
+  return text.replace(/<context>[\s\S]*?<\/context>\n?/g, "").trim();
+}
+
 function UserMessageAttachments() {
   const messageRuntime = useMessageRuntime();
   const msg = messageRuntime.getState();
@@ -1837,11 +1839,19 @@ function UserMessage() {
   const [isExpandable, setIsExpandable] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const messageRuntime = useMessageRuntime();
-  const timestamp = formatMessageTimestamp(messageRuntime.getState().createdAt);
+  const message = messageRuntime.getState();
+  const timestamp = formatMessageTimestamp(message.createdAt);
+  const hasDisplayableText =
+    message.content
+      ?.filter((part): part is { type: "text"; text: string } => {
+        return part.type === "text" && typeof part.text === "string";
+      })
+      .some((part) => displayableUserMessageText(part.text).length > 0) ??
+    false;
 
   useEffect(() => {
     const el = contentRef.current;
-    if (!el) return;
+    if (!el || !hasDisplayableText) return;
 
     const measure = () => {
       setIsExpandable(el.scrollHeight > 200);
@@ -1851,7 +1861,7 @@ function UserMessage() {
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [hasDisplayableText]);
 
   return (
     <div
@@ -1860,41 +1870,45 @@ function UserMessage() {
     >
       <div className="max-w-[85%]">
         <UserMessageAttachments />
-        <div
-          className="relative rounded-lg bg-accent px-3 py-2 text-sm leading-relaxed text-foreground"
-          onCopy={(e) => {
-            const selection = window.getSelection();
-            if (!selection || selection.rangeCount === 0) return;
-            const fragment = selection.getRangeAt(0).cloneContents();
-            const mentions = fragment.querySelectorAll("[data-mention-label]");
-            if (mentions.length === 0) return;
-            e.preventDefault();
-            mentions.forEach((el) => {
-              el.textContent = `@${el.getAttribute("data-mention-label")}`;
-            });
-            const div = document.createElement("div");
-            div.appendChild(fragment);
-            e.clipboardData.setData("text/plain", div.textContent || "");
-          }}
-        >
+        {hasDisplayableText && (
           <div
-            ref={contentRef}
-            className={cn(
-              "whitespace-pre-wrap break-words",
-              !expanded && isExpandable && "max-h-[200px] overflow-hidden",
-            )}
+            className="relative rounded-lg bg-accent px-3 py-2 text-sm leading-relaxed text-foreground"
+            onCopy={(e) => {
+              const selection = window.getSelection();
+              if (!selection || selection.rangeCount === 0) return;
+              const fragment = selection.getRangeAt(0).cloneContents();
+              const mentions = fragment.querySelectorAll(
+                "[data-mention-label]",
+              );
+              if (mentions.length === 0) return;
+              e.preventDefault();
+              mentions.forEach((el) => {
+                el.textContent = `@${el.getAttribute("data-mention-label")}`;
+              });
+              const div = document.createElement("div");
+              div.appendChild(fragment);
+              e.clipboardData.setData("text/plain", div.textContent || "");
+            }}
           >
-            <MessagePrimitive.Parts
-              components={{
-                Text: UserMessageText,
-              }}
-            />
+            <div
+              ref={contentRef}
+              className={cn(
+                "whitespace-pre-wrap break-words",
+                !expanded && isExpandable && "max-h-[200px] overflow-hidden",
+              )}
+            >
+              <MessagePrimitive.Parts
+                components={{
+                  Text: UserMessageText,
+                }}
+              />
+            </div>
+            {!expanded && isExpandable && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 rounded-b-lg bg-gradient-to-t from-accent via-accent/90 to-transparent" />
+            )}
           </div>
-          {!expanded && isExpandable && (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 rounded-b-lg bg-gradient-to-t from-accent via-accent/90 to-transparent" />
-          )}
-        </div>
-        {isExpandable && (
+        )}
+        {hasDisplayableText && isExpandable && (
           <button
             type="button"
             onClick={() => setExpanded((prev) => !prev)}

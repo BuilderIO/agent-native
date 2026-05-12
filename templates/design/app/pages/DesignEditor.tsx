@@ -129,6 +129,15 @@ function formatUploadedFileContext(files: UploadedFile[]): string {
   return lines.join("\n");
 }
 
+function designGenerationDirectives(designId: string): string[] {
+  return [
+    `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
+    "Do not call show-questions or write design-variants for this UI-started generation unless the user explicitly asks for options or questions.",
+    "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
+    "After generate-design succeeds, stop and summarize what was created.",
+  ];
+}
+
 function applyInlineStyleToHtml(
   content: string,
   selector: string,
@@ -226,11 +235,7 @@ export default function DesignEditor() {
     }
   }, []);
   const staleToastShownRef = useRef(false);
-  const markGenerationStale = useCallback(() => {
-    clearGenerationCompleteTimer();
-    // Capture the original prompt before clearing so the user can retry without
-    // re-typing it. The full pending payload (model/engine/effort) is preserved
-    // so the retry runs with identical settings.
+  const rememberPendingGenerationForRetry = useCallback(() => {
     const pending = readPendingGeneration(id);
     if (pending?.prompt) {
       setRetryablePrompt({
@@ -240,7 +245,16 @@ export default function DesignEditor() {
         engine: pending.engine,
         effort: pending.effort,
       });
+      return true;
     }
+    return false;
+  }, [id]);
+  const markGenerationStale = useCallback(() => {
+    clearGenerationCompleteTimer();
+    // Capture the original prompt before clearing so the user can retry without
+    // re-typing it. The full pending payload (model/engine/effort) is preserved
+    // so the retry runs with identical settings.
+    rememberPendingGenerationForRetry();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
     setGenerationIssue(
@@ -250,21 +264,27 @@ export default function DesignEditor() {
       staleToastShownRef.current = true;
       toast.info("Generation may have stopped before creating files.");
     }
-  }, [clearGenerationCompleteTimer, id]);
+  }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry]);
   const handleGenerationComplete = useCallback(() => {
     clearGenerationCompleteTimer();
     generationCompleteTimerRef.current = window.setTimeout(() => {
       generationCompleteTimerRef.current = null;
+      const hasOutput = generationOutputReadyRef.current;
+      const preservedForRetry = hasOutput
+        ? false
+        : rememberPendingGenerationForRetry();
       clearPendingGeneration(id);
       setHasPendingGeneration(false);
       staleToastShownRef.current = false;
       setGenerationIssue(
-        generationOutputReadyRef.current
+        hasOutput
           ? null
-          : "Generation stopped before creating files. Check the agent message or try again.",
+          : preservedForRetry
+            ? "Generation stopped before creating files. Try again to continue from the same prompt."
+            : "Generation stopped before creating files. Check the agent message or try again.",
       );
     }, 4000);
-  }, [clearGenerationCompleteTimer, id]);
+  }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry]);
   const {
     generating,
     submit: agentSubmit,
@@ -442,6 +462,7 @@ export default function DesignEditor() {
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
     setGenerationIssue(null);
+    setRetryablePrompt(null);
     staleToastShownRef.current = false;
   }, [clearGenerationCompleteTimer, id, files.length]);
 
@@ -481,8 +502,7 @@ export default function DesignEditor() {
       `User request: "${prompt}"`,
       fileContext,
       "",
-      `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
-      "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
+      ...designGenerationDirectives(id),
     ].join("\n");
 
     clearGenerationCompleteTimer();
@@ -778,8 +798,7 @@ export default function DesignEditor() {
       fileContext,
       "",
       "(Retrying — the previous attempt did not complete.)",
-      `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
-      "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
+      ...designGenerationDirectives(id),
     ].join("\n");
     clearGenerationCompleteTimer();
     setGenerationIssue(null);
@@ -1396,7 +1415,10 @@ export default function DesignEditor() {
           setGenerationIssue(null);
           const runTabId = agentSubmit(
             `Generate the initial design files for the "${design.title}" project.`,
-            `The user has design "${id}" open and wants to fill it with files. Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). DO NOT call create-design (the design already exists).`,
+            [
+              `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
+              ...designGenerationDirectives(id),
+            ].join("\n"),
           );
           patchPendingGeneration(id, {
             prompt: `Create an initial design for ${design.title}.`,
@@ -1419,8 +1441,7 @@ export default function DesignEditor() {
             `User request: "${prompt}"`,
             fileContext,
             "",
-            `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
-            "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
+            ...designGenerationDirectives(id),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);

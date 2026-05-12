@@ -58,6 +58,13 @@ function eventVersion(event: SyncEvent): number {
   return typeof event.version === "number" ? event.version : 0;
 }
 
+function hasAppStateEvent(events: SyncEvent[], key: string): boolean {
+  return events.some(
+    (event) =>
+      event.source === "app-state" && (event.key === key || event.key === "*"),
+  );
+}
+
 async function fetchPollJson<T>(
   pollUrl: string,
   since: number,
@@ -196,9 +203,15 @@ export function useDbSync(
         queryClient.invalidateQueries({ queryKey: ["tool"] });
         queryClient.invalidateQueries({ queryKey: ["tools"] });
         queryClient.invalidateQueries({ queryKey: ["app-state"] });
-        queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
-        queryClient.invalidateQueries({ queryKey: ["show-questions"] });
-        queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
+        if (hasAppStateEvent(relevant, "navigate")) {
+          queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
+        }
+        if (hasAppStateEvent(relevant, "show-questions")) {
+          queryClient.invalidateQueries({ queryKey: ["show-questions"] });
+        }
+        if (hasAppStateEvent(relevant, "__set_url__")) {
+          queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
+        }
       }
 
       // Always forward all events to onEvent — templates can layer surgical

@@ -51,7 +51,7 @@ async function insertDoc(values: {
     id: values.id,
     title: values.id,
     ownerEmail: values.ownerEmail ?? ownerEmail,
-    orgId: values.orgId ?? orgId,
+    orgId: values.orgId === undefined ? orgId : values.orgId,
     visibility: values.visibility ?? "private",
   });
 }
@@ -146,6 +146,8 @@ describe("shareable resource access helpers", () => {
 
   it("filters list access across owner, private, org, public, user share, org share, and anonymous contexts", async () => {
     await insertDoc({ id: "owned" });
+    await insertDoc({ id: "owned-other-org", orgId: otherOrgId });
+    await insertDoc({ id: "owned-solo", orgId: null });
     await insertDoc({ id: "private-other", ownerEmail: outsiderEmail });
     await insertDoc({
       id: "same-org",
@@ -193,6 +195,12 @@ describe("shareable resource access helpers", () => {
       listVisible({ userEmail: ownerEmail, orgId }),
     ).resolves.toEqual(["owned", "same-org", "shared-org"]);
     await expect(
+      listVisible({ userEmail: ownerEmail, orgId: otherOrgId }),
+    ).resolves.toEqual(["other-org", "owned-other-org"]);
+    await expect(listVisible({ userEmail: ownerEmail })).resolves.toEqual([
+      "owned-solo",
+    ]);
+    await expect(
       listVisible({ userEmail: viewerEmail, orgId }),
     ).resolves.toEqual(["same-org", "shared-org", "shared-user"]);
     await expect(listVisible({ userEmail: viewerEmail })).resolves.toEqual([
@@ -214,6 +222,8 @@ describe("shareable resource access helpers", () => {
 
   it("resolves read and write roles without letting visibility imply edit access", async () => {
     await insertDoc({ id: "doc-private" });
+    await insertDoc({ id: "doc-owned-other-org", orgId: otherOrgId });
+    await insertDoc({ id: "doc-owned-solo", orgId: null });
     await insertDoc({
       id: "doc-org",
       ownerEmail: outsiderEmail,
@@ -239,6 +249,33 @@ describe("shareable resource access helpers", () => {
       await expect(
         assertAccess(resourceType, "doc-private", "owner"),
       ).resolves.toMatchObject({ role: "owner" });
+      await expect(
+        resolveAccess(resourceType, "doc-owned-other-org"),
+      ).resolves.toBe(null);
+      await expect(resolveAccess(resourceType, "doc-owned-solo")).resolves.toBe(
+        null,
+      );
+    });
+
+    await runWithRequestContext(
+      { userEmail: ownerEmail, orgId: otherOrgId },
+      async () => {
+        await expect(
+          assertAccess(resourceType, "doc-owned-other-org", "owner"),
+        ).resolves.toMatchObject({ role: "owner" });
+        await expect(resolveAccess(resourceType, "doc-private")).resolves.toBe(
+          null,
+        );
+      },
+    );
+
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      await expect(
+        assertAccess(resourceType, "doc-owned-solo", "owner"),
+      ).resolves.toMatchObject({ role: "owner" });
+      await expect(resolveAccess(resourceType, "doc-private")).resolves.toBe(
+        null,
+      );
     });
 
     await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {

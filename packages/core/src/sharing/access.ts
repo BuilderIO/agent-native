@@ -99,7 +99,12 @@ export function accessFilter(
   const clauses: SQL[] = [];
 
   if (userEmail) {
-    clauses.push(eq(resourceTable.ownerEmail, userEmail));
+    clauses.push(
+      and(
+        eq(resourceTable.ownerEmail, userEmail),
+        ownerScopeFilter(resourceTable, ctx),
+      )!,
+    );
   }
   if (minRole === "viewer") {
     if (includePublic) {
@@ -134,6 +139,16 @@ export function accessFilter(
   }
 
   return or(...clauses) ?? sql`1=0`;
+}
+
+function ownerScopeFilter(resourceTable: any, ctx: AccessContext): SQL {
+  if (ctx.orgId) return eq(resourceTable.orgId, ctx.orgId);
+  return sql`${resourceTable.orgId} IS NULL`;
+}
+
+function ownerMatchesActiveScope(resource: any, ctx: AccessContext): boolean {
+  const resourceOrgId = resource?.orgId ?? null;
+  return ctx.orgId ? resourceOrgId === ctx.orgId : !resourceOrgId;
 }
 
 function minRoleSql(minRole: ShareRole): SQL {
@@ -174,7 +189,11 @@ export async function resolveAccess(
 
   const { userEmail, orgId } = ctx;
 
-  if (userEmail && resource.ownerEmail === userEmail) {
+  if (
+    userEmail &&
+    resource.ownerEmail === userEmail &&
+    ownerMatchesActiveScope(resource, ctx)
+  ) {
     return { role: "owner", resource };
   }
   if (resource.visibility === "public" && reg.allowPublic !== false) {

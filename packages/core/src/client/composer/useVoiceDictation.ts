@@ -467,6 +467,11 @@ export function useVoiceDictation(
               body.error || `Transcription failed (${res.status})`,
             );
           }
+          if (cancelledRef.current) {
+            cancelledRef.current = false;
+            setState("idle");
+            return;
+          }
           const data = (await res.json()) as { text?: string };
           const text = (data.text ?? "").trim();
           if (text) {
@@ -476,6 +481,11 @@ export function useVoiceDictation(
           }
           setState("idle");
         } catch (err) {
+          if (cancelledRef.current) {
+            cancelledRef.current = false;
+            setState("idle");
+            return;
+          }
           if (liveSnapshot) {
             onTranscriptRef.current?.(liveSnapshot.trim());
             setState("idle");
@@ -909,7 +919,12 @@ export function useVoiceDictation(
   }, [state, teardown]);
 
   const cancel = useCallback(() => {
-    if (state !== "recording" && state !== "starting") return;
+    if (
+      state !== "recording" &&
+      state !== "starting" &&
+      state !== "transcribing"
+    )
+      return;
     cancelledRef.current = true;
     if (
       (activeProviderRef.current === "openai" ||
