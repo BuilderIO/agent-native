@@ -1051,6 +1051,52 @@ describe("server/auth", () => {
       expect(event.res.headers.get("set-cookie")).toContain("mobile-token-abc");
     });
 
+    it("checks duplicate framework cookies until it finds a live session", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockImplementation((query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        const args = typeof query === "string" ? undefined : query.args;
+        if (
+          typeof sql === "string" &&
+          sql.includes("SELECT") &&
+          args?.[0] === "fresh-token"
+        ) {
+          return {
+            rows: [{ email: "user@gmail.com", created_at: Date.now() }],
+          };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          cookie: "an_session=stale-token; an_session=fresh-token",
+        },
+      });
+
+      expect(await getSession(event)).toEqual({
+        email: "user@gmail.com",
+        token: "fresh-token",
+      });
+      const selectedTokens = mockExecute.mock.calls
+        .map(([query]) =>
+          typeof query === "string" ? undefined : query.args?.[0],
+        )
+        .filter(Boolean);
+      expect(selectedTokens).toEqual(["stale-token", "fresh-token"]);
+    });
+
     it("marks promoted cross-site session cookies secure on forwarded HTTPS requests", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.APP_URL;
@@ -1641,6 +1687,40 @@ describe("server/auth", () => {
       expect(setCookie).toContain(result.sessionToken);
       expect(setCookie).toContain("SameSite=None");
       expect(setCookie).toContain("Secure");
+    });
+
+    it("clears stale host-only cookies before setting a domain shared session", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("COOKIE_DOMAIN", ".agent-native.com");
+      vi.stubEnv("APP_NAME", "slides");
+
+      const mockExecute = vi.fn(async () => ({ rows: [] }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { createOAuthSession } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: {
+          "x-forwarded-proto": "https",
+          host: "slides.agent-native.com",
+        },
+      });
+
+      const result = await createOAuthSession(event, "user@gmail.com", {
+        hasProductionSession: false,
+      });
+
+      const setCookie = event.res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("an_session=");
+      expect(setCookie).toContain("Max-Age=0");
+      expect(setCookie).toContain("Domain=.agent-native.com");
+      expect(setCookie).toContain(result.sessionToken);
+      expect(setCookie).toContain("an_session_slides=");
     });
   });
 

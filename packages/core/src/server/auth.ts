@@ -280,6 +280,76 @@ export function cookieDomainAttrs(): { domain?: string } {
   const domain = getCookieDomain();
   return domain ? { domain } : {};
 }
+
+function getCookieValues(event: H3Event, name: string): string[] {
+  const values: string[] = [];
+  const raw = getHeader(event, "cookie");
+
+  if (raw) {
+    for (const part of String(raw).split(";")) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq <= 0) continue;
+      if (trimmed.slice(0, eq).trim() !== name) continue;
+
+      let value = trimmed.slice(eq + 1).trim();
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1);
+      }
+      try {
+        value = decodeURIComponent(value);
+      } catch {
+        // Keep the raw cookie value if it was not percent-encoded.
+      }
+      if (value && !values.includes(value)) values.push(value);
+    }
+  }
+
+  // H3's cookie parser keeps only the first duplicate name. Preserve it as a
+  // fallback for mock/runtime shapes that do not expose the raw Cookie header.
+  const parsed = getCookie(event, name);
+  if (parsed && !values.includes(parsed)) values.push(parsed);
+
+  return values;
+}
+
+function getFrameworkSessionCookieValues(event: H3Event): string[] {
+  return getCookieValues(event, COOKIE_NAME);
+}
+
+function frameworkSessionCookieNamesToClear(): string[] {
+  const names = new Set([COOKIE_NAME]);
+  if (APP_NAME_SLUG) names.add(`an_session_${APP_NAME_SLUG}`);
+  return [...names];
+}
+
+function deleteCookieFromEveryScope(event: H3Event, name: string): void {
+  // Clear host-only cookies first. When COOKIE_DOMAIN was introduced, stale
+  // host-only `an_session` cookies could shadow the new domain cookie because
+  // browsers send older same-path duplicates first.
+  deleteCookie(event, name, { path: "/" });
+  const domainAttrs = cookieDomainAttrs();
+  if (domainAttrs.domain) {
+    deleteCookie(event, name, { path: "/", ...domainAttrs });
+  }
+}
+
+function clearFrameworkSessionCookies(event: H3Event): void {
+  for (const name of frameworkSessionCookieNamesToClear()) {
+    deleteCookieFromEveryScope(event, name);
+  }
+}
+
+async function getLegacyCookieSession(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  for (const cookie of getFrameworkSessionCookieValues(event)) {
+    const email = await getSessionEmail(cookie);
+    if (email) return { email, token: cookie };
+  }
+  return null;
+}
 function getOAuthStateAppId(): string | undefined {
   const raw = process.env.APP_NAME || process.env.npm_package_name;
   if (!raw) return undefined;
@@ -1279,13 +1349,7 @@ async function maybeAutoCreateDevSession(
     });
     if (!result?.token) return null;
 
-    setCookie(event, COOKIE_NAME, result.token, {
-      httpOnly: true,
-      ...crossSiteCookieAttrs(event),
-      ...cookieDomainAttrs(),
-      path: "/",
-      maxAge: sessionMaxAge,
-    });
+    setFrameworkSessionCookie(event, result.token);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
 
     return new Response("", {
@@ -1338,11 +1402,8 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   // 1. ACCESS_TOKEN check (programmatic/agent access)
   const accessTokens = getAccessTokens();
   if (accessTokens.length > 0) {
-    const cookie = getCookie(event, COOKIE_NAME);
-    if (cookie) {
-      const email = await getSessionEmail(cookie);
-      if (email) return { email, token: cookie };
-    }
+    const cookieSession = await getLegacyCookieSession(event);
+    if (cookieSession) return cookieSession;
   }
 
   // 2. BYOA custom getSession
@@ -1383,13 +1444,8 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     }
 
     // 5. Legacy cookie fallback (for sessions created before migration)
-    const cookie = getCookie(event, COOKIE_NAME);
-    if (cookie) {
-      const email = await getSessionEmail(cookie);
-      if (email) {
-        return { email, token: cookie };
-      }
-    }
+    const cookieSession = await getLegacyCookieSession(event);
+    if (cookieSession) return cookieSession;
 
     // 6. Desktop SSO broker fallback.
     // Each template in the Electron desktop app has its own database, so
@@ -1454,6 +1510,7 @@ function crossSiteCookieAttrs(event: H3Event): {
 }
 
 export function setFrameworkSessionCookie(event: H3Event, token: string): void {
+  clearFrameworkSessionCookies(event);
   setCookie(event, COOKIE_NAME, token, {
     httpOnly: true,
     ...crossSiteCookieAttrs(event),
@@ -2333,13 +2390,7 @@ async function mountBetterAuthRoutes(
         }
         const sessionToken = crypto.randomBytes(32).toString("hex");
         await addSession(sessionToken, "user");
-        setCookie(event, COOKIE_NAME, sessionToken, {
-          httpOnly: true,
-          ...crossSiteCookieAttrs(event),
-          ...cookieDomainAttrs(),
-          path: "/",
-          maxAge: sessionMaxAge,
-        });
+        setFrameworkSessionCookie(event, sessionToken);
         return authLoginResponse(event, sessionToken, "user");
       }
 
@@ -2357,13 +2408,7 @@ async function mountBetterAuthRoutes(
           body: { email, password },
         });
         if (result?.token) {
-          setCookie(event, COOKIE_NAME, result.token, {
-            httpOnly: true,
-            ...crossSiteCookieAttrs(event),
-            ...cookieDomainAttrs(),
-            path: "/",
-            maxAge: sessionMaxAge,
-          });
+          setFrameworkSessionCookie(event, result.token);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {
             await writeDesktopSso({
@@ -2437,11 +2482,12 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/logout",
     defineEventHandler(async (event) => {
-      const cookie = getCookie(event, COOKIE_NAME);
-      if (cookie) await removeSession(cookie);
+      for (const cookie of getFrameworkSessionCookieValues(event)) {
+        await removeSession(cookie);
+      }
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
-      deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
+      clearFrameworkSessionCookies(event);
 
       try {
         await auth.api.signOut({ headers: event.headers });
@@ -2508,7 +2554,7 @@ async function mountBetterAuthRoutes(
 
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).
-        deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
+        clearFrameworkSessionCookies(event);
         try {
           await auth.api.signOut({ headers: event.headers });
         } catch {
@@ -2597,13 +2643,7 @@ function mountTokenOnlyRoutes(
       }
       const sessionToken = crypto.randomBytes(32).toString("hex");
       await addSession(sessionToken, "user");
-      setCookie(event, COOKIE_NAME, sessionToken, {
-        httpOnly: true,
-        ...crossSiteCookieAttrs(event),
-        ...cookieDomainAttrs(),
-        path: "/",
-        maxAge: sessionMaxAge,
-      });
+      setFrameworkSessionCookie(event, sessionToken);
       return authLoginResponse(event, sessionToken, "user");
     }),
   );
@@ -2611,11 +2651,12 @@ function mountTokenOnlyRoutes(
   app.use(
     "/_agent-native/auth/logout",
     defineEventHandler(async (event) => {
-      const cookie = getCookie(event, COOKIE_NAME);
-      if (cookie) await removeSession(cookie);
+      for (const cookie of getFrameworkSessionCookieValues(event)) {
+        await removeSession(cookie);
+      }
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
-      deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
+      clearFrameworkSessionCookies(event);
       if (isElectronRequest(event)) await clearDesktopSso();
       return { ok: true };
     }),
@@ -2672,13 +2713,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
           body: { email, password },
         });
         if (result?.token) {
-          setCookie(event, COOKIE_NAME, result.token, {
-            httpOnly: true,
-            ...crossSiteCookieAttrs(event),
-            ...cookieDomainAttrs(),
-            path: "/",
-            maxAge: sessionMaxAge,
-          });
+          setFrameworkSessionCookie(event, result.token);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {
             await writeDesktopSso({
@@ -2744,11 +2779,12 @@ function mountAuthFallbackRoutes(app: H3App): void {
   app.use(
     "/_agent-native/auth/logout",
     defineEventHandler(async (event) => {
-      const cookie = getCookie(event, COOKIE_NAME);
-      if (cookie) await removeSession(cookie);
+      for (const cookie of getFrameworkSessionCookieValues(event)) {
+        await removeSession(cookie);
+      }
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
-      deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
+      clearFrameworkSessionCookies(event);
 
       try {
         const auth = await getBetterAuth();
@@ -2892,11 +2928,12 @@ export async function autoMountAuth(
     app.use(
       "/_agent-native/auth/logout",
       defineEventHandler(async (event) => {
-        const cookie = getCookie(event, COOKIE_NAME);
-        if (cookie) await removeSession(cookie);
+        for (const cookie of getFrameworkSessionCookieValues(event)) {
+          await removeSession(cookie);
+        }
         const bearerToken = getBearerSessionToken(event);
         if (bearerToken) await removeSession(bearerToken);
-        deleteCookie(event, COOKIE_NAME, { path: "/", ...cookieDomainAttrs() });
+        clearFrameworkSessionCookies(event);
         if (isElectronRequest(event)) await clearDesktopSso();
         return { ok: true };
       }),
