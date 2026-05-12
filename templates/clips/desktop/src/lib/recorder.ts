@@ -492,6 +492,7 @@ async function createRecording(
       body: JSON.stringify({
         hasCamera,
         hasAudio,
+        spaceIds: [],
         visibility: "public",
         ...(titleContext
           ? {

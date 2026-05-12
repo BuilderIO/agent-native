@@ -16,6 +16,7 @@ import {
   getCurrentOwnerEmail,
   nanoid,
   requireOrganizationAccess,
+  stringifySpaceIds,
 } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
@@ -56,6 +57,10 @@ export default defineAction({
       .nullish()
       .describe("Captured window or browser tab title, when known"),
     folderId: z.string().nullish().describe("Optional folder ID"),
+    spaceIds: z
+      .array(z.string())
+      .optional()
+      .describe("Optional space IDs to attach to the recording"),
     organizationId: z
       .string()
       .optional()
@@ -102,6 +107,7 @@ export default defineAction({
       organizationId,
       orgId: organizationId,
       folderId: args.folderId ?? null,
+      spaceIds: stringifySpaceIds(args.spaceIds),
       title,
       titleSource,
       sourceAppName: args.sourceAppName?.trim() || null,
