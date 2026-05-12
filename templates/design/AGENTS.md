@@ -1845,6 +1845,8 @@ For multi-page prototypes, establish the visual language on the home page first,
 
 `export-html --id <id>` bundles all files into a single standalone HTML file with Tailwind CDN and Alpine.js included. The output works when double-clicked in a browser.
 
+When a user asks to download a design, export a design, or get the generated HTML, use `export-html --id <id>` or tell them to use the editor's Download menu. Do not send them to external HTML screenshot services. The editor Download menu supports direct HTML, PNG, ZIP, and coding-handoff downloads.
+
 ### ZIP Export
 
 `export-zip --id <id>` creates a ZIP containing:

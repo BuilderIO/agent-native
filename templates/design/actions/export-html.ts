@@ -48,19 +48,31 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
 
-    // Separate files by type
-    const htmlFiles = files.filter(
-      (f) => f.fileType === "html" || f.fileType === "jsx",
-    );
     const cssFiles = files.filter((f) => f.fileType === "css");
-
-    // Combine CSS
+    const htmlFiles = files.filter((f) => f.fileType === "html");
+    const jsxFiles = files.filter((f) => f.fileType === "jsx");
+    const indexHtml =
+      files.find((f) => f.filename === "index.html") ?? htmlFiles[0];
     const combinedCss = cssFiles.map((f) => f.content).join("\n\n");
 
-    // Combine HTML body content
-    const combinedBody = htmlFiles.map((f) => f.content).join("\n\n");
+    let html: string;
+    if (
+      indexHtml?.content &&
+      /<!doctype html|<html[\s>]/i.test(indexHtml.content)
+    ) {
+      html = indexHtml.content;
+      if (combinedCss.trim()) {
+        const styleBlock = `<style data-agent-native-export>\n${combinedCss}\n</style>`;
+        html = html.includes("</head>")
+          ? html.replace("</head>", `${styleBlock}\n</head>`)
+          : `${styleBlock}\n${html}`;
+      }
+    } else {
+      const combinedBody = [...htmlFiles, ...jsxFiles]
+        .map((f) => f.content)
+        .join("\n\n");
 
-    const html = `<!DOCTYPE html>
+      html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -76,6 +88,7 @@ export default defineAction({
   ${combinedBody}
 </body>
 </html>`;
+    }
 
     // Save to exports directory
     const fs = await import("fs");
