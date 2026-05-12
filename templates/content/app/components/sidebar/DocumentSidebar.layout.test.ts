@@ -16,4 +16,13 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain("min-w-56");
     expect(scrollArea).toContain('<ScrollBar orientation="horizontal" />');
   });
+
+  it("gates page tree actions by document capabilities", () => {
+    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
+
+    expect(treeItem).toContain("const canEdit = node.canEdit !== false");
+    expect(treeItem).toContain("const canManage =");
+    expect(treeItem).toContain("{canEdit && (");
+    expect(treeItem).toContain("{canManage && (");
+  });
 });
