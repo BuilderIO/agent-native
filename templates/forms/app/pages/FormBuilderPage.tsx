@@ -19,6 +19,7 @@ import {
   IconWebhook,
   IconDownload,
   IconRefresh,
+  IconLoader2,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,6 +105,54 @@ const fieldTypeLabels: Record<FormFieldType, string> = {
   scale: "Scale",
 };
 
+const knownFieldTypes = Object.keys(fieldTypeLabels) as FormFieldType[];
+
+function normalizeFields(fields: FormField[] | undefined): FormField[] {
+  if (!Array.isArray(fields)) return [];
+  return fields.map((field) => {
+    // Preserve the stored type when it's a recognized string; only fall back
+    // to `text` when the value is missing or the wrong shape (object, number),
+    // so we don't silently drop user data.
+    const type: FormFieldType =
+      typeof field?.type === "string" && knownFieldTypes.includes(field.type)
+        ? field.type
+        : "text";
+    const out: FormField = { ...field, type };
+    // Coerce when `options` is present in any shape — Array.isArray alone
+    // would let non-array values (e.g. `{ label: "A" }`) leak through and
+    // crash downstream `.map()` / `for…of` consumers.
+    if (field?.options !== undefined) {
+      const rawList = Array.isArray(field.options) ? field.options : [];
+      const seen = new Set<string>();
+      const cleaned: string[] = [];
+      for (const raw of rawList) {
+        let str: string;
+        if (typeof raw === "string") {
+          str = raw;
+        } else if (raw && typeof raw === "object") {
+          const v = raw as { label?: unknown; value?: unknown };
+          str =
+            typeof v.label === "string"
+              ? v.label
+              : typeof v.value === "string"
+                ? v.value
+                : "";
+        } else if (raw == null) {
+          continue;
+        } else {
+          str = String(raw);
+        }
+        const trimmed = str.trim();
+        if (!trimmed || seen.has(trimmed)) continue;
+        seen.add(trimmed);
+        cleaned.push(trimmed);
+      }
+      out.options = cleaned;
+    }
+    return out;
+  });
+}
+
 export function FormBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -114,6 +163,11 @@ export function FormBuilderPage() {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState("edit");
   const [copied, setCopied] = useState(false);
+  // Target status while a publish/unpublish is in flight (and until the cache
+  // refetch catches up). `null` once the displayed form.status matches it.
+  const [pendingStatus, setPendingStatus] = useState<
+    "published" | "draft" | null
+  >(null);
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const publishedFormUrl =
@@ -141,7 +195,7 @@ export function FormBuilderPage() {
     form?.description ?? "",
   );
   const [localFields, setLocalFields] = useState<FormField[]>(
-    form?.fields || [],
+    normalizeFields(form?.fields),
   );
   const titleFocused = useRef(false);
   const titleMeasureRef = useRef<HTMLSpanElement>(null);
@@ -176,8 +230,17 @@ export function FormBuilderPage() {
       setLocalDescription(form.description || "");
   }, [form?.description]);
   useEffect(() => {
-    if (form && !fieldsDirty.current) setLocalFields(form.fields || []);
+    if (form && !fieldsDirty.current)
+      setLocalFields(normalizeFields(form.fields));
   }, [form?.fields]);
+
+  // Clear pending publish state once the refetched form reflects the new
+  // status — otherwise the spinner stops before the badge/label updates.
+  useEffect(() => {
+    if (pendingStatus && form?.status === pendingStatus) {
+      setPendingStatus(null);
+    }
+  }, [form?.status, pendingStatus]);
 
   // Auto-grow description textarea
   useEffect(() => {
@@ -383,6 +446,7 @@ export function FormBuilderPage() {
       setShowCloudUpgrade(true);
       return;
     }
+    setPendingStatus(newStatus);
     updateForm.mutate(
       { id: form.id, status: newStatus },
       {
@@ -392,6 +456,7 @@ export function FormBuilderPage() {
           ),
         // Errors (including publish-validation failures) are surfaced by
         // useUpdateForm's onError, which echoes the server's actual message.
+        onError: () => setPendingStatus(null),
       },
     );
   }
@@ -551,8 +616,22 @@ export function FormBuilderPage() {
           </Tooltip>
 
           {canEdit && (
-            <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
-              {form.status === "published" ? "Unpublish" : "Publish"}
+            <Button
+              size="sm"
+              className="text-xs"
+              onClick={handleTogglePublish}
+              disabled={pendingStatus !== null}
+            >
+              {pendingStatus !== null && (
+                <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              )}
+              {pendingStatus === "published"
+                ? "Publishing…"
+                : pendingStatus === "draft"
+                  ? "Unpublishing…"
+                  : form.status === "published"
+                    ? "Unpublish"
+                    : "Publish"}
             </Button>
           )}
           <NotificationsBell />

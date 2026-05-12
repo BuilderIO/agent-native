@@ -53,13 +53,42 @@ async function getFormBySlugOrId(slugOrId: string) {
 // Field rendering helpers
 // ---------------------------------------------------------------------------
 
-function escapeHtml(str: string): string {
-  return str
+// Canonical type is string, but the agent occasionally writes objects like
+// `{ label, value }` or numbers. Coerce everything to a string here so the
+// renderer never crashes on bad data.
+function toSafeString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  if (typeof value === "object") {
+    const v = value as { label?: unknown; value?: unknown };
+    if (typeof v.label === "string") return v.label;
+    if (typeof v.value === "string") return v.value;
+    return "";
+  }
+  return String(value);
+}
+
+function escapeHtml(value: unknown): string {
+  return toSafeString(value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// Mirror app/components/builder/FieldRenderer.tsx#dedupeRenderableOptions.
+function normalizeOptions(options: unknown): string[] {
+  if (!Array.isArray(options)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of options) {
+    const trimmed = toSafeString(raw).trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 /**
@@ -121,16 +150,32 @@ function renderField(field: FormField): string {
       input = `<input type="date" name="${field.id}" class="fi"${req}>`;
       break;
     case "select":
-      input = `<select name="${field.id}" class="fi"${req}><option value="">${field.placeholder || "Select..."}</option>${(field.options || []).map((o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("")}</select>`;
+      input = `<select name="${field.id}" class="fi"${req}><option value="">${escapeHtml(field.placeholder) || "Select..."}</option>${normalizeOptions(
+        field.options,
+      )
+        .map(
+          (o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`,
+        )
+        .join("")}</select>`;
       break;
     case "multiselect":
-      input = `<div class="ms-group">${(field.options || []).map((o) => `<label class="cb-label"><input type="checkbox" name="${field.id}" value="${escapeHtml(o)}" class="cb"><span>${escapeHtml(o)}</span></label>`).join("")}</div>`;
+      input = `<div class="ms-group">${normalizeOptions(field.options)
+        .map(
+          (o) =>
+            `<label class="cb-label"><input type="checkbox" name="${field.id}" value="${escapeHtml(o)}" class="cb"><span>${escapeHtml(o)}</span></label>`,
+        )
+        .join("")}</div>`;
       break;
     case "checkbox":
       input = `<label class="cb-label"><input type="checkbox" name="${field.id}" class="cb"><span>${escapeHtml(field.placeholder || field.label)}</span></label>`;
       break;
     case "radio":
-      input = `<div class="radio-group">${(field.options || []).map((o) => `<label class="cb-label"><input type="radio" name="${field.id}" value="${escapeHtml(o)}" class="radio"><span>${escapeHtml(o)}</span></label>`).join("")}</div>`;
+      input = `<div class="radio-group">${normalizeOptions(field.options)
+        .map(
+          (o) =>
+            `<label class="cb-label"><input type="radio" name="${field.id}" value="${escapeHtml(o)}" class="radio"><span>${escapeHtml(o)}</span></label>`,
+        )
+        .join("")}</div>`;
       break;
     case "rating":
       input = `<div class="rating-group" data-name="${field.id}">${[1, 2, 3, 4, 5].map((s) => `<button type="button" class="star-btn" data-value="${s}" aria-label="${s} star${s > 1 ? "s" : ""}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>`).join("")}</div><input type="hidden" name="${field.id}">`;
@@ -141,6 +186,13 @@ function renderField(field: FormField): string {
       input = `<div class="scale-group"><input type="range" name="${field.id}" class="slider" min="${min}" max="${max}" value="${min}" step="1"><div class="scale-labels"><span>${min}</span><span class="scale-val">${min}</span><span>${max}</span></div></div>`;
       break;
     }
+    default:
+      // Mirror the builder's normalizeFields fallback: an unrecognized stored
+      // type (e.g. agent wrote "dropdown" instead of "select", or stored an
+      // object) renders a plain text input rather than nothing — without this
+      // a required field would have no <input>, leaving the form unsubmittable.
+      input = `<input type="text" name="${field.id}" class="fi"${ph}${req}>`;
+      break;
   }
 
   return `<div class="field${widthClass}" data-field-id="${field.id}"${cond}>
