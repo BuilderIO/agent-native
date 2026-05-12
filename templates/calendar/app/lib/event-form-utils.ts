@@ -145,6 +145,28 @@ export function validateAttachmentDrafts(drafts: AttachmentDraft[]): {
   return { attachments };
 }
 
+export function getEventEndValidationMessage({
+  allDay,
+  startDate,
+  endDate,
+  startTime,
+  endTime,
+}: {
+  allDay: boolean;
+  startDate: string;
+  endDate: string;
+  startTime?: string;
+  endTime?: string;
+}) {
+  if (allDay) return "End date must be on or after the start date.";
+  if (startDate === endDate && startTime && endTime) {
+    return endTime <= startTime
+      ? "End time must be later than start time."
+      : "End date and time must be after start date and time.";
+  }
+  return "End date and time must be after start date and time.";
+}
+
 export function getLocalTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
