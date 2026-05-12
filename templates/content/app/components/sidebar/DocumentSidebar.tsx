@@ -74,6 +74,20 @@ function compareDocumentsByPosition(a: Document, b: Document) {
   );
 }
 
+function collectDocumentSubtreeIds(documents: Document[], rootId: string) {
+  const deletedIds = new Set<string>();
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (deletedIds.has(id)) continue;
+    deletedIds.add(id);
+    for (const doc of documents) {
+      if (doc.parentId === id) queue.push(doc.id);
+    }
+  }
+  return deletedIds;
+}
+
 export function DocumentSidebar({
   activeDocumentId,
   collapsed,
@@ -147,9 +161,11 @@ export function DocumentSidebar({
     for (const siblings of siblingsByParent.values()) {
       const ordered = [...siblings].sort(compareDocumentsByPosition);
       ordered.forEach((doc, index) => {
+        const previous = ordered[index - 1];
+        const next = ordered[index + 1];
         availability.set(doc.id, {
-          up: index > 0,
-          down: index < ordered.length - 1,
+          up: Boolean(doc.canEdit && previous?.canEdit),
+          down: Boolean(doc.canEdit && next?.canEdit),
         });
       });
     }
@@ -240,20 +256,62 @@ export function DocumentSidebar({
 
   const handleDelete = useCallback(
     async (id: string) => {
-      // Navigate away first so the editor doesn't sit on a now-deleted page
-      // while the mutation is in flight. Otherwise the page disappears from
-      // the sidebar but the editor remains open and editable until the
-      // delete-document round-trip resolves.
-      if (activeDocumentId === id) {
-        navigate("/");
+      const deletedIds = collectDocumentSubtreeIds(documents, id);
+      const activeDeleted = activeDocumentId
+        ? deletedIds.has(activeDocumentId)
+        : false;
+      const survivingDocuments = documents.filter(
+        (doc) => !deletedIds.has(doc.id),
+      );
+      const nextDocument =
+        survivingDocuments.find((doc) => doc.isFavorite) ??
+        [...survivingDocuments].sort(compareDocumentsByPosition)[0] ??
+        null;
+
+      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
+        const cachedDocs: Document[] =
+          (old as { documents?: Document[] })?.documents ??
+          (Array.isArray(old) ? old : documents);
+        return withDocumentsCacheShape(
+          old,
+          cachedDocs.filter((doc) => !deletedIds.has(doc.id)),
+        );
+      });
+      for (const deletedId of deletedIds) {
+        queryClient.removeQueries({
+          queryKey: ["action", "get-document", { id: deletedId }],
+        });
       }
+
+      if (activeDeleted) {
+        navigate(nextDocument ? `/page/${nextDocument.id}` : "/", {
+          replace: true,
+          flushSync: true,
+        });
+      }
+
       try {
         await deleteDocument.mutateAsync({ id });
-      } catch {
-        toast.error("Failed to delete page");
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      } catch (err) {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        if (activeDeleted && activeDocumentId) {
+          navigate(`/page/${activeDocumentId}`, {
+            replace: true,
+            flushSync: true,
+          });
+        }
+        toast.error("Failed to delete page", {
+          description:
+            err instanceof Error ? err.message : "Something went wrong",
+        });
       }
     },
-    [deleteDocument, activeDocumentId, navigate],
+    [activeDocumentId, deleteDocument, documents, navigate, queryClient],
   );
 
   const handleMovePage = useCallback(
