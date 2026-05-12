@@ -894,7 +894,6 @@ export default function RecordRoute() {
               titleSource: captureTitle.titleSource,
               sourceAppName: captureTitle.sourceAppName,
               sourceWindowTitle: captureTitle.sourceWindowTitle,
-              spaceIds: [],
               hasCamera: opts.mode !== "screen",
               hasAudio: wantsMic,
               visibility: "public",
@@ -1161,7 +1160,6 @@ export default function RecordRoute() {
               title:
                 file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle(),
               titleSource: "upload",
-              spaceIds: [],
               hasCamera: false,
               hasAudio: true,
               width: meta.width,
