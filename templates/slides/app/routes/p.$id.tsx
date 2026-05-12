@@ -1,6 +1,6 @@
 import SharedPresentation from "@/pages/SharedPresentation";
 import { Spinner } from "@/components/ui/spinner";
-import type { SharedDeckResponse } from "@shared/api";
+import { toSharedDeckSlide, type SharedDeckResponse } from "@shared/api";
 import { and, eq, or } from "drizzle-orm";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
@@ -14,13 +14,7 @@ type LoaderData =
 
 type DeckData = {
   title?: string;
-  slides?: Array<{
-    id?: string;
-    content?: string;
-    notes?: string;
-    layout?: string;
-    background?: string;
-  }>;
+  slides?: unknown[];
   aspectRatio?: SharedDeckResponse["aspectRatio"];
 };
 
@@ -32,13 +26,7 @@ function toSharedDeck(row: {
   return {
     title: row.title || data.title || "Untitled",
     slides: Array.isArray(data.slides)
-      ? data.slides.map((slide, index) => ({
-          id: slide.id || `slide-${index + 1}`,
-          content: slide.content || "",
-          notes: "",
-          layout: slide.layout || "content",
-          background: slide.background,
-        }))
+      ? data.slides.map((slide, index) => toSharedDeckSlide(slide, index))
       : [],
     aspectRatio: data.aspectRatio,
   };

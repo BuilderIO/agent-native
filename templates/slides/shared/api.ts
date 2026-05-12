@@ -63,13 +63,7 @@ export interface ShareDeckRequest {
   deck: {
     id: string;
     title: string;
-    slides: Array<{
-      id: string;
-      content: string;
-      notes: string;
-      layout: string;
-      background?: string;
-    }>;
+    slides: SharedDeckSlide[];
   };
 }
 
@@ -79,14 +73,137 @@ export interface ShareDeckResponse {
 
 export interface SharedDeckResponse {
   title: string;
-  slides: Array<{
-    id: string;
-    content: string;
-    notes: string;
-    layout: string;
-    background?: string;
-  }>;
+  slides: SharedDeckSlide[];
   aspectRatio?: import("./aspect-ratios").AspectRatio;
+}
+
+export type SharedSlideTransition =
+  | "instant"
+  | "none"
+  | "fade"
+  | "slide"
+  | "zoom";
+
+export type SharedAnimationType = "appear" | "fade" | "slide-up" | "zoom";
+
+export interface SharedSlideAnimation {
+  id: string;
+  elementIndex: number;
+  elementPath?: number[];
+  type: SharedAnimationType;
+}
+
+export interface SharedDeckSlide {
+  id: string;
+  content: string;
+  notes: string;
+  layout: string;
+  background?: string;
+  transition?: SharedSlideTransition;
+  animations?: SharedSlideAnimation[];
+  splitByParagraph?: boolean;
+}
+
+const SHARED_SLIDE_TRANSITIONS = new Set<SharedSlideTransition>([
+  "instant",
+  "none",
+  "fade",
+  "slide",
+  "zoom",
+]);
+
+const SHARED_ANIMATION_TYPES = new Set<SharedAnimationType>([
+  "appear",
+  "fade",
+  "slide-up",
+  "zoom",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeString(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function normalizeElementPath(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const path = value.filter(
+    (part): part is number =>
+      typeof part === "number" &&
+      Number.isInteger(part) &&
+      Number.isFinite(part) &&
+      part >= 0,
+  );
+  return path.length === value.length ? path : undefined;
+}
+
+function normalizeSlideAnimation(
+  value: unknown,
+  index: number,
+): SharedSlideAnimation | null {
+  if (!isRecord(value)) return null;
+
+  const elementPath = normalizeElementPath(value.elementPath);
+  const rawElementIndex = value.elementIndex;
+  const hasElementIndex =
+    typeof rawElementIndex === "number" &&
+    Number.isInteger(rawElementIndex) &&
+    Number.isFinite(rawElementIndex) &&
+    rawElementIndex >= 0;
+
+  if (!hasElementIndex && !elementPath) return null;
+
+  const rawType = value.type;
+  const type = SHARED_ANIMATION_TYPES.has(rawType as SharedAnimationType)
+    ? (rawType as SharedAnimationType)
+    : "slide-up";
+
+  return {
+    id: normalizeString(value.id, `animation-${index + 1}`),
+    elementIndex: hasElementIndex ? rawElementIndex : 0,
+    ...(elementPath ? { elementPath } : {}),
+    type,
+  };
+}
+
+export function toSharedDeckSlide(
+  value: unknown,
+  index: number,
+): SharedDeckSlide {
+  const slide = isRecord(value) ? value : {};
+  const shared: SharedDeckSlide = {
+    id: normalizeString(slide.id, `slide-${index + 1}`),
+    content: normalizeString(slide.content, ""),
+    notes: "",
+    layout: normalizeString(slide.layout, "content"),
+  };
+
+  if (typeof slide.background === "string") {
+    shared.background = slide.background;
+  }
+
+  if (SHARED_SLIDE_TRANSITIONS.has(slide.transition as SharedSlideTransition)) {
+    shared.transition = slide.transition as SharedSlideTransition;
+  }
+
+  if (typeof slide.splitByParagraph === "boolean") {
+    shared.splitByParagraph = slide.splitByParagraph;
+  }
+
+  if (Array.isArray(slide.animations)) {
+    const animations = slide.animations
+      .map((animation, animationIndex) =>
+        normalizeSlideAnimation(animation, animationIndex),
+      )
+      .filter((animation): animation is SharedSlideAnimation => !!animation);
+    if (animations.length > 0) {
+      shared.animations = animations;
+    }
+  }
+
+  return shared;
 }
 
 // --- Deck Version History ---

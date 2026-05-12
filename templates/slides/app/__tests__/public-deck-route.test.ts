@@ -72,6 +72,16 @@ describe("public deck route", () => {
         notes: "",
         layout: "title",
         background: "#111",
+        transition: "fade",
+        splitByParagraph: true,
+        animations: [
+          {
+            id: "anim-1",
+            elementIndex: 0,
+            elementPath: [1, 0],
+            type: "slide-up",
+          },
+        ],
       },
     ]);
     // Anonymous viewers only see decks with visibility = "public".
@@ -127,6 +137,16 @@ function publicDeckRows() {
             notes: "internal talking points",
             layout: "title",
             background: "#111",
+            transition: "fade",
+            splitByParagraph: true,
+            animations: [
+              {
+                id: "anim-1",
+                elementIndex: 0,
+                elementPath: [1, 0],
+                type: "slide-up",
+              },
+            ],
           },
         ],
       }),
