@@ -163,9 +163,10 @@ export function DocumentSidebar({
       ordered.forEach((doc, index) => {
         const previous = ordered[index - 1];
         const next = ordered[index + 1];
+        const canEdit = doc.canEdit !== false;
         availability.set(doc.id, {
-          up: Boolean(doc.canEdit && previous?.canEdit),
-          down: Boolean(doc.canEdit && next?.canEdit),
+          up: Boolean(canEdit && previous && previous.canEdit !== false),
+          down: Boolean(canEdit && next && next.canEdit !== false),
         });
       });
     }
@@ -207,6 +208,9 @@ export function DocumentSidebar({
         position: 9999,
         isFavorite: false,
         visibility: "private",
+        accessRole: "owner",
+        canEdit: true,
+        canManage: true,
         createdAt: now,
         updatedAt: now,
       };
