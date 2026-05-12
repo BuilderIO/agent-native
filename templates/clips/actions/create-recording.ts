@@ -59,7 +59,7 @@ export default defineAction({
     folderId: z.string().nullish().describe("Optional folder ID"),
     spaceIds: z
       .array(z.string().min(1))
-      .nullable()
+      .nullish()
       .describe(
         "Space IDs the recording should belong to (used when recording from a space)",
       ),
