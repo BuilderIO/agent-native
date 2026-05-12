@@ -29,10 +29,7 @@ function canManageRole(role: EffectiveRole) {
   return role === "owner" || role === "admin";
 }
 
-function strongerRole(
-  current: ShareRole | null,
-  next: ShareRole,
-): ShareRole {
+function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
   if (!current || ROLE_RANK[next] > ROLE_RANK[current]) return next;
   return current;
 }

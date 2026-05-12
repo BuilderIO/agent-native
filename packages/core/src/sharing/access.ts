@@ -100,7 +100,10 @@ export function accessFilter(
 
   if (userEmail) {
     clauses.push(
-      and(eq(resourceTable.ownerEmail, userEmail), ownerScopeFilter(resourceTable, ctx))!,
+      and(
+        eq(resourceTable.ownerEmail, userEmail),
+        ownerScopeFilter(resourceTable, ctx),
+      )!,
     );
   }
   if (minRole === "viewer") {
