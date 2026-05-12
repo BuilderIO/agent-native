@@ -87,6 +87,11 @@ export const credentialKeys: CredentialKeyConfig[] = [
     label: "Slack Bot Token (secondary)",
     required: false,
   },
+  {
+    key: "SLACK_USER_TOKEN",
+    label: "Slack User Token",
+    required: false,
+  },
   // Notion
   { key: "NOTION_API_KEY", label: "Notion", required: false },
   // Twitter/X
@@ -240,7 +245,7 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
     provider: "slack",
     label: "Slack",
     requiredKeys: ["SLACK_BOT_TOKEN"],
-    optionalKeys: ["SLACK_BOT_TOKEN_2"],
+    optionalKeys: ["SLACK_BOT_TOKEN_2", "SLACK_USER_TOKEN"],
   },
   {
     provider: "notion",
@@ -294,7 +299,7 @@ const credentialAliases: Record<string, string[]> = {
   posthog: ["POSTHOG_API_KEY", "POSTHOG_PROJECT_ID"],
   pylon: ["PYLON_API_KEY"],
   sentry: ["SENTRY_AUTH_TOKEN", "SENTRY_ORG_SLUG", "SENTRY_SERVER_TOKEN"],
-  slack: ["SLACK_BOT_TOKEN", "SLACK_BOT_TOKEN_2"],
+  slack: ["SLACK_BOT_TOKEN", "SLACK_BOT_TOKEN_2", "SLACK_USER_TOKEN"],
   stripe: ["STRIPE_SECRET_KEY"],
   twitter: ["TWITTER_BEARER_TOKEN"],
   x: ["TWITTER_BEARER_TOKEN"],
