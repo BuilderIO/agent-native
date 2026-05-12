@@ -119,6 +119,11 @@ export function safeRedirectUrl(value: unknown): string {
 }
 
 function renderField(field: FormField): string {
+  // field.id is also gated to /^[A-Za-z0-9_-]+$/ at write time by
+  // assertValidFields (server/lib/validate-fields.ts), so escapeHtml here is
+  // defense-in-depth — if a malformed row ever slips into the DB through
+  // another path, the renderer still won't break out of the attribute.
+  const id = escapeHtml(field.id);
   const req = field.required ? " required" : "";
   const ph = field.placeholder
     ? ` placeholder="${escapeHtml(field.placeholder)}"`
@@ -135,22 +140,22 @@ function renderField(field: FormField): string {
 
   switch (field.type) {
     case "text":
-      input = `<input type="text" name="${field.id}" class="fi"${ph}${req}>`;
+      input = `<input type="text" name="${id}" class="fi"${ph}${req}>`;
       break;
     case "email":
-      input = `<input type="email" name="${field.id}" class="fi"${ph || ' placeholder="you@example.com"'}${req}>`;
+      input = `<input type="email" name="${id}" class="fi"${ph || ' placeholder="you@example.com"'}${req}>`;
       break;
     case "number":
-      input = `<input type="number" name="${field.id}" class="fi"${ph}${req}${field.validation?.min != null ? ` min="${field.validation.min}"` : ""}${field.validation?.max != null ? ` max="${field.validation.max}"` : ""}>`;
+      input = `<input type="number" name="${id}" class="fi"${ph}${req}${field.validation?.min != null ? ` min="${Number(field.validation.min)}"` : ""}${field.validation?.max != null ? ` max="${Number(field.validation.max)}"` : ""}>`;
       break;
     case "textarea":
-      input = `<textarea name="${field.id}" class="fi fi-ta" rows="4"${ph || ' placeholder="Type your answer..."'}${req}></textarea>`;
+      input = `<textarea name="${id}" class="fi fi-ta" rows="4"${ph || ' placeholder="Type your answer..."'}${req}></textarea>`;
       break;
     case "date":
-      input = `<input type="date" name="${field.id}" class="fi"${req}>`;
+      input = `<input type="date" name="${id}" class="fi"${req}>`;
       break;
     case "select":
-      input = `<select name="${field.id}" class="fi"${req}><option value="">${escapeHtml(field.placeholder) || "Select..."}</option>${normalizeOptions(
+      input = `<select name="${id}" class="fi"${req}><option value="">${escapeHtml(field.placeholder) || "Select..."}</option>${normalizeOptions(
         field.options,
       )
         .map(
@@ -162,28 +167,28 @@ function renderField(field: FormField): string {
       input = `<div class="ms-group">${normalizeOptions(field.options)
         .map(
           (o) =>
-            `<label class="cb-label"><input type="checkbox" name="${field.id}" value="${escapeHtml(o)}" class="cb"><span>${escapeHtml(o)}</span></label>`,
+            `<label class="cb-label"><input type="checkbox" name="${id}" value="${escapeHtml(o)}" class="cb"><span>${escapeHtml(o)}</span></label>`,
         )
         .join("")}</div>`;
       break;
     case "checkbox":
-      input = `<label class="cb-label"><input type="checkbox" name="${field.id}" class="cb"><span>${escapeHtml(field.placeholder || field.label)}</span></label>`;
+      input = `<label class="cb-label"><input type="checkbox" name="${id}" class="cb"><span>${escapeHtml(field.placeholder || field.label)}</span></label>`;
       break;
     case "radio":
       input = `<div class="radio-group">${normalizeOptions(field.options)
         .map(
           (o) =>
-            `<label class="cb-label"><input type="radio" name="${field.id}" value="${escapeHtml(o)}" class="radio"><span>${escapeHtml(o)}</span></label>`,
+            `<label class="cb-label"><input type="radio" name="${id}" value="${escapeHtml(o)}" class="radio"><span>${escapeHtml(o)}</span></label>`,
         )
         .join("")}</div>`;
       break;
     case "rating":
-      input = `<div class="rating-group" data-name="${field.id}">${[1, 2, 3, 4, 5].map((s) => `<button type="button" class="star-btn" data-value="${s}" aria-label="${s} star${s > 1 ? "s" : ""}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>`).join("")}</div><input type="hidden" name="${field.id}">`;
+      input = `<div class="rating-group" data-name="${id}">${[1, 2, 3, 4, 5].map((s) => `<button type="button" class="star-btn" data-value="${s}" aria-label="${s} star${s > 1 ? "s" : ""}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>`).join("")}</div><input type="hidden" name="${id}">`;
       break;
     case "scale": {
-      const min = field.validation?.min ?? 1;
-      const max = field.validation?.max ?? 10;
-      input = `<div class="scale-group"><input type="range" name="${field.id}" class="slider" min="${min}" max="${max}" value="${min}" step="1"><div class="scale-labels"><span>${min}</span><span class="scale-val">${min}</span><span>${max}</span></div></div>`;
+      const min = Number(field.validation?.min ?? 1);
+      const max = Number(field.validation?.max ?? 10);
+      input = `<div class="scale-group"><input type="range" name="${id}" class="slider" min="${min}" max="${max}" value="${min}" step="1"><div class="scale-labels"><span>${min}</span><span class="scale-val">${min}</span><span>${max}</span></div></div>`;
       break;
     }
     default:
@@ -191,11 +196,11 @@ function renderField(field: FormField): string {
       // type (e.g. agent wrote "dropdown" instead of "select", or stored an
       // object) renders a plain text input rather than nothing — without this
       // a required field would have no <input>, leaving the form unsubmittable.
-      input = `<input type="text" name="${field.id}" class="fi"${ph}${req}>`;
+      input = `<input type="text" name="${id}" class="fi"${ph}${req}>`;
       break;
   }
 
-  return `<div class="field${widthClass}" data-field-id="${field.id}"${cond}>
+  return `<div class="field${widthClass}" data-field-id="${id}"${cond}>
     <label class="field-label">${escapeHtml(field.label)}${field.required ? '<span class="req">*</span>' : ""}</label>
     ${desc}${input}</div>`;
 }

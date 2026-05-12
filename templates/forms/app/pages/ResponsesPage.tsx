@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { normalizeFields } from "@/lib/normalize-fields";
 import { useForm } from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
 import type { FormField } from "@shared/types";
@@ -52,7 +53,10 @@ export function ResponsesPage() {
   const { data, isLoading, error, refetch } = useFormResponses(id!);
 
   const responses = data?.responses || [];
-  const fields: FormField[] = data?.fields || form?.fields || [];
+  const fields: FormField[] = useMemo(
+    () => normalizeFields(data?.fields || form?.fields),
+    [data?.fields, form?.fields],
+  );
   const total = data?.total ?? 0;
 
   const [search, setSearch] = useState("");

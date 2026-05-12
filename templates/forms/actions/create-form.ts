@@ -7,6 +7,7 @@ import { customAlphabet } from "nanoid";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
+import { assertValidFields } from "../server/lib/validate-fields.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
 const nanoid = customAlphabet(
@@ -61,6 +62,7 @@ export default defineAction({
         fields = args.fields as unknown as FormField[];
       }
     }
+    assertValidFields(fields);
 
     const defaultSettings: FormSettings = {
       submitText: "Submit",
