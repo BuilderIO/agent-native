@@ -1274,6 +1274,7 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
   };
 
   contents.on("will-frame-navigate", (event) => {
+    if (event.isMainFrame) return;
     handleNavigation(event, event.url);
   });
 
