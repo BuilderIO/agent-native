@@ -2106,14 +2106,23 @@ async function startNativeRecordingInner(
       await thumbnailUploadPromise;
 
       const videoSettings = primaryVideo.getVideoTracks()[0]?.getSettings();
+      const displaySettings = displayStream?.getVideoTracks()[0]?.getSettings();
       const durationMs = Math.max(
         0,
         Math.round(Date.now() - startedAt - accumulatedPauseMs),
       );
       const width =
-        typeof videoSettings?.width === "number" ? videoSettings.width : null;
+        typeof videoSettings?.width === "number"
+          ? videoSettings.width
+          : typeof displaySettings?.width === "number"
+            ? displaySettings.width
+            : null;
       const height =
-        typeof videoSettings?.height === "number" ? videoSettings.height : null;
+        typeof videoSettings?.height === "number"
+          ? videoSettings.height
+          : typeof displaySettings?.height === "number"
+            ? displaySettings.height
+            : null;
       const finalMimeType = mimeType || backupMeta.mimeType || "video/webm";
       await persistBackupMeta({
         durationMs,

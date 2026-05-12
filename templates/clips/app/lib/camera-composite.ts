@@ -30,11 +30,16 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function streamDimensions(stream: MediaStream): { width: number; height: number } {
+function streamDimensions(stream: MediaStream): {
+  width: number;
+  height: number;
+} {
   const settings = stream.getVideoTracks()[0]?.getSettings();
   return {
     width: positiveNumber(settings?.width) ? Math.round(settings.width) : 1280,
-    height: positiveNumber(settings?.height) ? Math.round(settings.height) : 720,
+    height: positiveNumber(settings?.height)
+      ? Math.round(settings.height)
+      : 720,
   };
 }
 
@@ -161,9 +166,7 @@ function drawCameraBubble(
     clamp(minDimension * options.bubbleMarginRatio, 24, 80),
   );
   const x =
-    options.anchor === "bottom-right"
-      ? canvas.width - size - margin
-      : margin;
+    options.anchor === "bottom-right" ? canvas.width - size - margin : margin;
   const y = canvas.height - size - margin;
   const radius = size / 2;
   const centerX = x + radius;
@@ -213,18 +216,18 @@ export function createCameraCompositeStream(
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { alpha: false });
   if (!ctx || typeof canvas.captureStream !== "function") {
-    throw new Error("This browser cannot composite camera video into screen recordings.");
+    throw new Error(
+      "This browser cannot composite camera video into screen recordings.",
+    );
   }
 
   const display = attachVideo(options.displayStream);
   const camera = attachVideo(options.cameraStream);
   const drawOptions = {
-    bubbleSizeRatio:
-      options.bubbleSizeRatio ?? DEFAULT_BUBBLE_SIZE_RATIO,
+    bubbleSizeRatio: options.bubbleSizeRatio ?? DEFAULT_BUBBLE_SIZE_RATIO,
     bubbleMinPx: options.bubbleMinPx ?? DEFAULT_BUBBLE_MIN_PX,
     bubbleMaxPx: options.bubbleMaxPx ?? DEFAULT_BUBBLE_MAX_PX,
-    bubbleMarginRatio:
-      options.bubbleMarginRatio ?? DEFAULT_BUBBLE_MARGIN_RATIO,
+    bubbleMarginRatio: options.bubbleMarginRatio ?? DEFAULT_BUBBLE_MARGIN_RATIO,
     anchor: options.anchor ?? "bottom-left",
   };
 
