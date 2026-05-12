@@ -369,7 +369,11 @@ function linkWorkspaceRootSkills(targetDir: string): void {
   }
 
   try {
-    fs.symlinkSync(target, linkPath, process.platform === "win32" ? "junction" : "dir");
+    fs.symlinkSync(
+      target,
+      linkPath,
+      process.platform === "win32" ? "junction" : "dir",
+    );
   } catch {
     try {
       copyDir(sharedSkillsDir, linkPath);

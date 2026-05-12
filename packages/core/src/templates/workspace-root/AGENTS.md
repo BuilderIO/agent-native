@@ -3,6 +3,8 @@
 These instructions apply at the workspace root. App-specific behavior belongs
 in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 `packages/shared/AGENTS.md` or `packages/shared/.agents/skills/`.
+The root `.agents/skills` path points at the shared package's skills so local
+coding agents can discover the same workspace-wide guidance from the root.
 
 ## Workspace Scope
 
