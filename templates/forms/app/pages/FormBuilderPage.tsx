@@ -118,10 +118,14 @@ function normalizeFields(fields: FormField[] | undefined): FormField[] {
         ? field.type
         : "text";
     const out: FormField = { ...field, type };
-    if (Array.isArray(field?.options)) {
+    // Coerce when `options` is present in any shape — Array.isArray alone
+    // would let non-array values (e.g. `{ label: "A" }`) leak through and
+    // crash downstream `.map()` / `for…of` consumers.
+    if (field?.options !== undefined) {
+      const rawList = Array.isArray(field.options) ? field.options : [];
       const seen = new Set<string>();
       const cleaned: string[] = [];
-      for (const raw of field.options) {
+      for (const raw of rawList) {
         let str: string;
         if (typeof raw === "string") {
           str = raw;

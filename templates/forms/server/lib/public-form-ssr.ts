@@ -186,6 +186,13 @@ function renderField(field: FormField): string {
       input = `<div class="scale-group"><input type="range" name="${field.id}" class="slider" min="${min}" max="${max}" value="${min}" step="1"><div class="scale-labels"><span>${min}</span><span class="scale-val">${min}</span><span>${max}</span></div></div>`;
       break;
     }
+    default:
+      // Mirror the builder's normalizeFields fallback: an unrecognized stored
+      // type (e.g. agent wrote "dropdown" instead of "select", or stored an
+      // object) renders a plain text input rather than nothing — without this
+      // a required field would have no <input>, leaving the form unsubmittable.
+      input = `<input type="text" name="${field.id}" class="fi"${ph}${req}>`;
+      break;
   }
 
   return `<div class="field${widthClass}" data-field-id="${field.id}"${cond}>
