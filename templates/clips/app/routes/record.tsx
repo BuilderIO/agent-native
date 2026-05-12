@@ -1737,10 +1737,10 @@ export default function RecordRoute() {
         </div>
       )}
 
-      {/* Camera bubble — visible during the countdown so the user can frame
-          themselves, and while actively recording. During uploading/compressing
-          the overlay is semi-transparent (bg-black/70), so a still-visible
-          bubble in the corner makes it look like recording is ongoing. */}
+      {/* Camera bubble — visible during countdown (so the user can frame
+          themselves) and while actively recording. Hidden during
+          uploading/compressing so the save overlay isn't confused with an
+          ongoing recording. */}
       {showCameraBubble && (
         <CameraBubble
           stream={cameraStream}
