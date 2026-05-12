@@ -16,6 +16,7 @@ import {
   getCurrentOwnerEmail,
   nanoid,
   requireOrganizationAccess,
+  stringifySpaceIds,
 } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
@@ -56,6 +57,12 @@ export default defineAction({
       .nullish()
       .describe("Captured window or browser tab title, when known"),
     folderId: z.string().nullish().describe("Optional folder ID"),
+    spaceIds: z
+      .array(z.string().min(1))
+      .nullable()
+      .describe(
+        "Space IDs the recording should belong to (used when recording from a space)",
+      ),
     organizationId: z
       .string()
       .optional()
@@ -97,11 +104,16 @@ export default defineAction({
       args.organizationId,
     );
 
+    const spaceIds = (args.spaceIds ?? []).filter(
+      (value, index, arr) => value && arr.indexOf(value) === index,
+    );
+
     await db.insert(schema.recordings).values({
       id,
       organizationId,
       orgId: organizationId,
       folderId: args.folderId ?? null,
+      spaceIds: stringifySpaceIds(spaceIds),
       title,
       titleSource,
       sourceAppName: args.sourceAppName?.trim() || null,

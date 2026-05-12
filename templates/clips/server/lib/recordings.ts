@@ -7,7 +7,6 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { readAppState } from "@agent-native/core/application-state";
-import { isPostgres } from "@agent-native/core/db";
 
 export function getCurrentOwnerEmail(): string {
   const email = getRequestUserEmail();
@@ -64,53 +63,25 @@ function organizationRoleAllowed(
   return ORG_ROLE_RANK[actual] >= required;
 }
 
-function highestOrganizationRole(
-  roles: Array<OrganizationAccessRole | null>,
-): OrganizationAccessRole | null {
-  return roles.reduce<OrganizationAccessRole | null>((best, role) => {
-    if (!role) return best;
-    if (!best || ORG_ROLE_RANK[role] > ORG_ROLE_RANK[best]) return role;
-    return best;
-  }, null);
-}
-
 export async function getOrganizationRoleForEmail(
   organizationId: string,
   email: string,
 ): Promise<OrganizationAccessRole | null> {
   const exec = getDbExec();
-  const pg = isPostgres();
   const lowerEmail = email.toLowerCase();
-  const roles: Array<OrganizationAccessRole | null> = [];
 
   try {
     const res = await exec.execute({
-      sql: pg
-        ? `SELECT role FROM org_members WHERE org_id = $1 AND LOWER(email) = $2 LIMIT 1`
-        : `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
       args: [organizationId, lowerEmail],
     });
     const row = (res.rows as Array<{ role?: string }>)[0];
-    if (row?.role) roles.push(normalizeOrganizationRole(row.role));
+    if (row?.role) return normalizeOrganizationRole(row.role);
   } catch {
-    // Older DBs may not have the framework org_members table yet. Fall back
-    // to better-auth's member table below.
+    // org_members table may not exist yet on first boot before migrations finish.
   }
 
-  try {
-    const res = await exec.execute({
-      sql: pg
-        ? `SELECT m.role FROM member m JOIN "user" u ON u.id = m.user_id WHERE m.organization_id = $1 AND LOWER(u.email) = $2 LIMIT 1`
-        : `SELECT m.role FROM member m JOIN user u ON u.id = m.user_id WHERE m.organization_id = ? AND LOWER(u.email) = ? LIMIT 1`,
-      args: [organizationId, lowerEmail],
-    });
-    const row = (res.rows as Array<{ role?: string }>)[0];
-    if (row?.role) roles.push(normalizeOrganizationRole(row.role));
-  } catch {
-    // No better-auth membership table yet.
-  }
-
-  return highestOrganizationRole(roles);
+  return null;
 }
 
 export async function requireOrganizationAccess(
@@ -169,26 +140,16 @@ export async function getActiveOrganizationId(
 
   if (email) {
     try {
-      const ph = isPostgres() ? "$1" : "?";
-      const res = await exec.execute({
-        sql: `SELECT org_id AS id FROM org_members WHERE LOWER(email) = ${ph} ORDER BY joined_at DESC LIMIT 1`,
-        args: [email.toLowerCase()],
-      });
-      const row = (res.rows as Array<{ id?: string }>)[0];
-      if (row?.id) return row.id;
+      // Honors the user's `active-org-id` setting with a fall back to the
+      // first membership — the same logic getOrgContext uses for HTTP paths.
+      // Don't reach into org_members directly: an ORDER BY here picks the
+      // wrong org when the user belongs to more than one.
+      const { resolveOrgIdForEmail } = await import("@agent-native/core/org");
+      const orgId = await resolveOrgIdForEmail(email);
+      if (orgId) return orgId;
     } catch {
       // fall through
     }
-  }
-
-  try {
-    const res = await exec.execute(
-      `SELECT id FROM organizations ORDER BY created_at DESC LIMIT 1`,
-    );
-    const row = (res.rows as Array<{ id?: string }>)[0];
-    if (row?.id) return row.id;
-  } catch {
-    // fall through
   }
 
   // Legacy fallback: old workspace UI's `current-workspace` app-state key,

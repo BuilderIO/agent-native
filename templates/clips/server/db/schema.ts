@@ -9,21 +9,23 @@ import {
 } from "@agent-native/core/db/schema";
 
 // -----------------------------------------------------------------------------
-// Organizations (new canonical "team" primitive, powered by better-auth).
+// Organizations.
 //
-// Team / member / invitation rows live in better-auth's own tables:
-//   `organization`, `member`, `invitation` — managed by the framework.
+// Team / member / invitation rows live in the framework's own tables:
+//   `organizations`, `org_members`, `org_invitations` — owned by
+//   `packages/core/src/org/`.
 //
 // `organization_settings` is the Clips-specific sidecar: brand color, logo,
-// default visibility — one row per organization, keyed by `organization.id`.
+// default visibility — one row per organization, keyed by `organizations.id`.
 //
 // -----------------------------------------------------------------------------
 // Workspaces & members (DEPRECATED — kept only for the in-place migration
-// from the old Clips workspace model to better-auth orgs. Every new Clips
-// deploy auto-backfills an `organization` + `organization_settings` row for
-// every workspace row at startup (see `server/plugins/db.ts`), keeping the
-// same id across both. Actions and UI will migrate off these tables in a
-// follow-up; at that point these table definitions can be deleted.)
+// from the old Clips workspace model to the framework org primitive. Every
+// Clips deploy auto-backfills an `organizations` + `organization_settings`
+// row plus `org_members` entries for every workspace row at startup (see
+// `server/plugins/db.ts`), keeping the same id across both. Actions and UI
+// have migrated off these tables; the table definitions remain only so the
+// startup backfill has a source to read from on existing deployments.)
 // -----------------------------------------------------------------------------
 
 export const organizationSettings = table("organization_settings", {

@@ -127,6 +127,46 @@ export async function resolveOrgIdForEmail(
   }
 }
 
+/**
+ * Create a new organization and add the caller as a member with the given
+ * role. Generates a per-org A2A secret for cross-app delegation and writes
+ * the caller's `active-org-id` user-setting so the new org is immediately
+ * active.
+ *
+ */
+export async function createOrganization(
+  name: string,
+  email: string,
+  role: OrgRole = "owner",
+): Promise<{
+  id: string;
+  name: string;
+  role: OrgRole;
+  a2aSecret: string;
+  createdAt: number;
+}> {
+  const trimmedName = name.trim();
+  const exec = getDbExec();
+  const id = nanoid();
+  const createdAt = Date.now();
+  const { randomBytes } = await import("node:crypto");
+  const a2aSecret = randomBytes(32).toString("base64url");
+
+  await exec.execute({
+    sql: `INSERT INTO organizations (id, name, created_by, created_at, a2a_secret) VALUES (?, ?, ?, ?, ?)`,
+    args: [id, trimmedName, email, createdAt, a2aSecret],
+  });
+
+  await exec.execute({
+    sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+    args: [nanoid(), id, email, role, createdAt],
+  });
+
+  await putUserSetting(email, "active-org-id", { orgId: id });
+
+  return { id, name: trimmedName, role, a2aSecret, createdAt };
+}
+
 function defaultOrgName(
   email: string,
   session: { name?: string } | null,

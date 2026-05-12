@@ -305,11 +305,12 @@ const migrations = runMigrations(
     )`,
     },
     // ---------------------------------------------------------------------------
-    // Organization settings — Clips-specific sidecar to better-auth `organization`
+    // Organization settings — Clips-specific sidecar to the framework
+    // `organizations` table.
     //
     // One row per organization. Brand color + logo + default visibility live
-    // here; membership and invitations live in better-auth's tables. This
-    // replaces `workspaces.brand_color` / `.brand_logo_url` / `.default_visibility`
+    // here; membership and invitations live in `org_members` / `org_invitations`.
+    // This replaces `workspaces.brand_color` / `.brand_logo_url` / `.default_visibility`
     // once callsites migrate.
     // ---------------------------------------------------------------------------
     {
@@ -644,12 +645,10 @@ const migrations = runMigrations(
  * seeded — an admin `org_members` row. Invites are copied into
  * `org_invitations`.
  *
- * The framework ships two parallel org systems — the simpler email-based
- * one (`organizations` / `org_members` / `org_invitations`, which `/_agent-native/org/*`
- * endpoints + `useOrg` read) and better-auth's own `organization` / `member` /
- * `invitation` tables. Clips rides on the simpler system because the
- * framework client hooks and the `share-resource` action both resolve
- * membership there.
+ * Clips uses the framework's email-based org system (`organizations` /
+ * `org_members` / `org_invitations`), which the `/_agent-native/org/*`
+ * endpoints + `useOrg` client hook + `share-resource` action all resolve
+ * membership through.
  *
  * Runs on every startup after the schema migrations. Safe to re-run: all
  * inserts are guarded with WHERE-NOT-EXISTS so it only writes rows that
@@ -746,7 +745,7 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
     );
   }
 
-  // 3a) Seed each workspace owner as an admin `org_members` row. Owners
+  // 3a) Seed each workspace owner as an owner `org_members` row. Owners
   //     were implicitly members in the old Clips workspace model — this is
   //     the step that lands the current user inside their new org.
   try {

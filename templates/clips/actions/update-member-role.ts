@@ -1,8 +1,9 @@
 /**
  * Update an organization member's role.
  *
- * Admin-only. Clips role mapping collapses to better-auth's two-tier model:
+ * Admin-only. Clips role mapping collapses to two invitable roles:
  *   admin → admin, anything else → member.
+ * Refuses to change the owner's role.
  *
  * Usage:
  *   pnpm action update-member-role --email=alice@example.com --role=admin
@@ -10,7 +11,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import { z } from "zod";
 import { requireOrganizationAccess } from "../server/lib/recordings.js";
 
@@ -28,7 +29,7 @@ function mapRole(role: z.infer<typeof ClipsRoleEnum>): "admin" | "member" {
 
 export default defineAction({
   description:
-    "Change an organization member's role. Admin-only. Clips role 'admin' maps to better-auth admin; all other roles collapse to 'member'.",
+    "Change an organization member's role. Admin-only. Clips role 'admin' maps to admin; all other roles collapse to 'member'. Cannot change the owner's role.",
   schema: z.object({
     organizationId: z
       .string()
@@ -39,73 +40,40 @@ export default defineAction({
   }),
   run: async (args) => {
     const exec = getDbExec();
-    const pg = isPostgres();
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
       ["admin"],
     );
-    const betterAuthRole = mapRole(args.role);
+    const role = mapRole(args.role);
+    const targetEmailLower = args.email.toLowerCase();
 
-    // Verify the target member exists.
     const existsRes = await exec.execute({
-      sql: pg
-        ? `SELECT m.id FROM member m JOIN "user" u ON u.id = m.user_id WHERE m.organization_id = $1 AND u.email = $2 LIMIT 1`
-        : `SELECT m.id FROM member m JOIN user u ON u.id = m.user_id WHERE m.organization_id = ? AND u.email = ? LIMIT 1`,
-      args: [organizationId, args.email],
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [organizationId, targetEmailLower],
     });
-    if (!(existsRes.rows as any[]).length) {
+    const existing = (existsRes.rows as Array<{ role?: string }>)[0];
+    if (!existing) {
       throw new Error(`Member not found: ${args.email}`);
     }
-
-    // Last-admin guard — refuse to demote the only admin.
-    if (betterAuthRole !== "admin") {
-      const adminsRes = await exec.execute({
-        sql: pg
-          ? `SELECT COUNT(*) AS count FROM member WHERE organization_id = $1 AND role = 'admin'`
-          : `SELECT COUNT(*) AS count FROM member WHERE organization_id = ? AND role = 'admin'`,
-        args: [organizationId],
-      });
-      const adminCount = Number((adminsRes.rows as any[])[0]?.count ?? 0);
-      // Check whether THIS user is currently admin — if yes and they're the
-      // only admin, refuse.
-      const targetRoleRes = await exec.execute({
-        sql: pg
-          ? `SELECT m.role FROM member m JOIN "user" u ON u.id = m.user_id WHERE m.organization_id = $1 AND u.email = $2 LIMIT 1`
-          : `SELECT m.role FROM member m JOIN user u ON u.id = m.user_id WHERE m.organization_id = ? AND u.email = ? LIMIT 1`,
-        args: [organizationId, args.email],
-      });
-      const currentRole = (targetRoleRes.rows as Array<{ role?: string }>)[0]
-        ?.role;
-      if (currentRole === "admin" && adminCount <= 1) {
-        throw new Error(
-          "Cannot demote the last admin. Promote another member to admin first.",
-        );
-      }
+    if (existing.role === "owner") {
+      throw new Error("Cannot change the organization owner's role.");
     }
 
-    const nowMs = Date.now();
-    if (pg) {
-      await exec.execute({
-        sql: `UPDATE member SET role = $1, updated_at = NOW() WHERE organization_id = $2 AND user_id = (SELECT id FROM "user" WHERE email = $3)`,
-        args: [betterAuthRole, organizationId, args.email],
-      });
-    } else {
-      await exec.execute({
-        sql: `UPDATE member SET role = ?, updated_at = ? WHERE organization_id = ? AND user_id = (SELECT id FROM user WHERE email = ?)`,
-        args: [betterAuthRole, nowMs, organizationId, args.email],
-      });
-    }
+    await exec.execute({
+      sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
+      args: [role, organizationId, targetEmailLower],
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(
-      `Updated role for ${args.email} in organization ${organizationId} to ${betterAuthRole}`,
+      `Updated role for ${args.email} in organization ${organizationId} to ${role}`,
     );
 
     return {
       organizationId,
       email: args.email,
-      role: betterAuthRole,
+      role,
     };
   },
 });

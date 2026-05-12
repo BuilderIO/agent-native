@@ -58,10 +58,11 @@ const COPY: Record<EmptyKind, { title: string; body: string; cta?: string }> = {
 
 interface EmptyStateProps {
   kind: EmptyKind;
+  spaceId?: string | null;
   onCtaClick?: () => void;
 }
 
-export function EmptyState({ kind, onCtaClick }: EmptyStateProps) {
+export function EmptyState({ kind, spaceId, onCtaClick }: EmptyStateProps) {
   const navigate = useNavigate();
   const Icon = ICONS[kind];
   const copy = COPY[kind];
@@ -70,7 +71,9 @@ export function EmptyState({ kind, onCtaClick }: EmptyStateProps) {
     if (onCtaClick) {
       onCtaClick();
     } else {
-      navigate("/record");
+      navigate(
+        spaceId ? `/record?spaceId=${encodeURIComponent(spaceId)}` : "/record",
+      );
     }
   };
 
