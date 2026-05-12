@@ -69,6 +69,7 @@ import {
   dateTimeInTimezoneToIso,
   formatReminderText,
   formatTimezoneLabel,
+  getEventEndValidationMessage,
   getLocalTimezone,
   remindersToDraftState,
   type AttachmentDraft,
@@ -625,7 +626,15 @@ Write a short, useful meeting description. If I ask you to apply it, update this
       ? allDayEnd.toISOString()
       : dateTimeInTimezoneToIso(editEndDate, editEndTime, editTimezone);
     if (new Date(newEnd).getTime() <= new Date(newStart).getTime()) {
-      toast.error("End must be after start");
+      toast.error(
+        getEventEndValidationMessage({
+          allDay: event.allDay ?? false,
+          startDate: editDate,
+          endDate: editEndDate,
+          startTime: editStartTime,
+          endTime: editEndTime,
+        }),
+      );
       return;
     }
     if (newStart !== event.start || newEnd !== event.end) {
