@@ -1,13 +1,13 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import crypto from "crypto";
 import { eq, lt } from "drizzle-orm";
-import {
-  getSession,
-  readBody,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { readBody } from "@agent-native/core/server";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { getDb, schema } from "../db";
+import {
+  resolveSlidesRequestAuthContext,
+  withSlidesRequestContext,
+} from "./request-auth-context.js";
 import type {
   ShareDeckRequest,
   ShareDeckResponse,
@@ -29,15 +29,14 @@ export const shareDeck = defineEventHandler(async (event) => {
     return { error: "Deck id is required" };
   }
 
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const session = await resolveSlidesRequestAuthContext(event);
+  if (!session.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
 
-  return runWithRequestContext(
-    { userEmail: session.email, orgId: session.orgId },
-    async () => createShareLink(event, deck.id),
+  return withSlidesRequestContext(event, async () =>
+    createShareLink(event, deck.id),
   );
 });
 

@@ -1,17 +1,14 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import { eq, desc } from "drizzle-orm";
 import { getDb, schema } from "../db";
-import {
-  readBody,
-  getSession,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { readBody } from "@agent-native/core/server";
 import {
   accessFilter,
   resolveAccess,
   assertAccess,
   ForbiddenError,
 } from "@agent-native/core/sharing";
+import { withSlidesRequestContext } from "./request-auth-context.js";
 
 /**
  * Resolve the caller's auth context from the request and run `fn` inside a
@@ -20,20 +17,6 @@ import {
  * through this — querying ownable tables without a request context is how
  * data leaks across users (see #SLI-2026-04-28).
  */
-async function withAuth<T>(
-  event: any,
-  fn: (session: { email?: string; orgId?: string }) => Promise<T>,
-): Promise<T> {
-  const session = await getSession(event).catch(() => null);
-  const ctx = {
-    userEmail: session?.email,
-    orgId: session?.orgId,
-  };
-  return runWithRequestContext(ctx, () =>
-    fn({ email: ctx.userEmail, orgId: ctx.orgId }),
-  );
-}
-
 function handleForbidden(event: any, err: unknown): { error: string } {
   if (err instanceof ForbiddenError) {
     setResponseStatus(event, err.statusCode);
@@ -45,7 +28,7 @@ function handleForbidden(event: any, err: unknown): { error: string } {
 // GET /api/design-systems — list design systems the caller can see
 // (own + shared + visibility match)
 export const listDesignSystems = defineEventHandler(async (event) => {
-  return withAuth(event, async () => {
+  return withSlidesRequestContext(event, async () => {
     const db = getDb();
     const rows = await db
       .select()
@@ -74,7 +57,7 @@ export const getDesignSystem = defineEventHandler(async (event) => {
     return { error: "Design system id is required" };
   }
 
-  return withAuth(event, async () => {
+  return withSlidesRequestContext(event, async () => {
     const access = await resolveAccess("design-system", id);
     if (!access) {
       // Return 404 (not 403) so we don't leak existence of design
@@ -106,7 +89,7 @@ export const createDesignSystem = defineEventHandler(async (event) => {
     return { error: "Design system must have an id" };
   }
 
-  return withAuth(event, async ({ email, orgId }) => {
+  return withSlidesRequestContext(event, async ({ email, orgId }) => {
     if (!email) {
       return handleForbidden(
         event,
@@ -155,7 +138,7 @@ export const updateDesignSystem = defineEventHandler(async (event) => {
     return { error: "Invalid design system data" };
   }
 
-  return withAuth(event, async () => {
+  return withSlidesRequestContext(event, async () => {
     try {
       // assertAccess loads the row and verifies the caller has editor+
       // role on this resource — it must run BEFORE the update (and in
@@ -207,7 +190,7 @@ export const deleteDesignSystem = defineEventHandler(async (event) => {
     return { error: "Design system id is required" };
   }
 
-  return withAuth(event, async () => {
+  return withSlidesRequestContext(event, async () => {
     try {
       // assertAccess loads the row and verifies the caller has admin
       // role on this resource — it must run BEFORE the delete (and in

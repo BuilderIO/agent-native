@@ -6,11 +6,7 @@ import {
 } from "h3";
 import { eq, desc } from "drizzle-orm";
 import { getDb, schema } from "../db";
-import {
-  readBody,
-  getSession,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { readBody } from "@agent-native/core/server";
 import {
   accessFilter,
   resolveAccess,
@@ -18,6 +14,10 @@ import {
   ForbiddenError,
 } from "@agent-native/core/sharing";
 import { ASPECT_RATIO_VALUES } from "../../shared/aspect-ratios.js";
+import {
+  resolveSlidesRequestAuthContext,
+  withSlidesRequestContext,
+} from "./request-auth-context.js";
 
 // --- SSE for change notifications ---
 type SSEPush = (data: string) => void;
@@ -71,20 +71,6 @@ export function notifyClients(deckId: string, type = "deck-changed") {
  * this — querying ownable tables without a request context is how data
  * leaks across users (see #SLI-2026-04-28).
  */
-async function withAuth<T>(
-  event: any,
-  fn: (session: { email?: string; orgId?: string }) => Promise<T>,
-): Promise<T> {
-  const session = await getSession(event).catch(() => null);
-  const ctx = {
-    userEmail: session?.email,
-    orgId: session?.orgId,
-  };
-  return runWithRequestContext(ctx, () =>
-    fn({ email: ctx.userEmail, orgId: ctx.orgId }),
-  );
-}
-
 function handleForbidden(event: any, err: unknown): { error: string } {
   if (err instanceof ForbiddenError) {
     setResponseStatus(event, err.statusCode);
@@ -113,8 +99,8 @@ function validateDeckAspectRatio(
 // callers can't tail the stream. (The agent path runs server-side and is
 // not affected.)
 export const deckEvents = defineEventHandler(async (event) => {
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const session = await resolveSlidesRequestAuthContext(event);
+  if (!session.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
@@ -138,7 +124,7 @@ export const deckEvents = defineEventHandler(async (event) => {
 
 // GET /api/decks — list decks the caller can see (own + shared + visibility match)
 export const listDecks = defineEventHandler(async (event) => {
-  return withAuth(event, async ({ email }) => {
+  return withSlidesRequestContext(event, async ({ email }) => {
     // Without an authenticated email, `accessFilter` would short-circuit to
     // `1=0` and return a 200/[] response — indistinguishable to the client
     // from "this user genuinely has no decks." That fires the deck-list
@@ -182,7 +168,7 @@ export const getDeck = defineEventHandler(async (event) => {
     return { error: "Deck id is required" };
   }
 
-  return withAuth(event, async () => {
+  return withSlidesRequestContext(event, async () => {
     try {
       const access = await assertAccess("deck", id, "viewer");
       const row = access.resource;
@@ -224,7 +210,7 @@ export const updateDeck = defineEventHandler(async (event) => {
     return { error: "Invalid aspect ratio" };
   }
 
-  return withAuth(event, async ({ email, orgId }) => {
+  return withSlidesRequestContext(event, async ({ email, orgId }) => {
     const db = getDb();
     const now = new Date().toISOString();
 
@@ -334,7 +320,7 @@ export const createDeck = defineEventHandler(async (event) => {
     return { error: "Invalid aspect ratio" };
   }
 
-  return withAuth(event, async ({ email, orgId }) => {
+  return withSlidesRequestContext(event, async ({ email, orgId }) => {
     if (!email) {
       return handleForbidden(
         event,
@@ -388,7 +374,7 @@ export const deleteDeck = defineEventHandler(async (event) => {
     return { error: "Deck id is required" };
   }
 
-  return withAuth(event, async () => {
+  return withSlidesRequestContext(event, async () => {
     try {
       // assertAccess loads the row and verifies the caller has admin
       // role on this resource — it must run BEFORE the delete (and in
