@@ -120,7 +120,7 @@ export function safeRedirectUrl(value: unknown): string {
 
 function renderField(field: FormField): string {
   // field.id is also gated to /^[A-Za-z0-9_-]+$/ at write time by
-  // assertValidFieldIds (server/lib/validate-fields.ts), so escapeHtml here is
+  // assertValidFields (server/lib/validate-fields.ts), so escapeHtml here is
   // defense-in-depth — if a malformed row ever slips into the DB through
   // another path, the renderer still won't break out of the attribute.
   const id = escapeHtml(field.id);
@@ -146,7 +146,7 @@ function renderField(field: FormField): string {
       input = `<input type="email" name="${id}" class="fi"${ph || ' placeholder="you@example.com"'}${req}>`;
       break;
     case "number":
-      input = `<input type="number" name="${id}" class="fi"${ph}${req}${field.validation?.min != null ? ` min="${field.validation.min}"` : ""}${field.validation?.max != null ? ` max="${field.validation.max}"` : ""}>`;
+      input = `<input type="number" name="${id}" class="fi"${ph}${req}${field.validation?.min != null ? ` min="${Number(field.validation.min)}"` : ""}${field.validation?.max != null ? ` max="${Number(field.validation.max)}"` : ""}>`;
       break;
     case "textarea":
       input = `<textarea name="${id}" class="fi fi-ta" rows="4"${ph || ' placeholder="Type your answer..."'}${req}></textarea>`;
@@ -186,8 +186,8 @@ function renderField(field: FormField): string {
       input = `<div class="rating-group" data-name="${id}">${[1, 2, 3, 4, 5].map((s) => `<button type="button" class="star-btn" data-value="${s}" aria-label="${s} star${s > 1 ? "s" : ""}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>`).join("")}</div><input type="hidden" name="${id}">`;
       break;
     case "scale": {
-      const min = field.validation?.min ?? 1;
-      const max = field.validation?.max ?? 10;
+      const min = Number(field.validation?.min ?? 1);
+      const max = Number(field.validation?.max ?? 10);
       input = `<div class="scale-group"><input type="range" name="${id}" class="slider" min="${min}" max="${max}" value="${min}" step="1"><div class="scale-labels"><span>${min}</span><span class="scale-val">${min}</span><span>${max}</span></div></div>`;
       break;
     }

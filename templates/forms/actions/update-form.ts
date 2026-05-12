@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
-import { assertValidFieldIds } from "../server/lib/validate-fields.js";
+import { assertValidFields } from "../server/lib/validate-fields.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
 function slugify(text: string): string {
@@ -75,7 +75,7 @@ export default defineAction({
       } else {
         parsedFields = args.fields;
       }
-      assertValidFieldIds(parsedFields);
+      assertValidFields(parsedFields);
       updates.fields = JSON.stringify(parsedFields);
     }
     if (args.settings !== undefined) {
