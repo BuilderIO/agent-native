@@ -113,7 +113,7 @@ export interface BuilderChatMessage {
 
 export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
   if (typeof window === "undefined" || !opts.message?.trim()) return false;
-  const target = window.parent !== window ? window.parent : window;
+  const hasParentFrame = window.parent !== window;
   const targetOrigin = getBuilderParentOrigin() ?? "*";
   const payload = {
     type: "builder.submitChat",
@@ -123,17 +123,19 @@ export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
       submit: opts.submit,
     },
   };
-  target.postMessage(payload, targetOrigin);
 
-  // Builder's Electron/webview relay watches console output because webviews
-  // cannot always post directly to the app frame. Keep the payload small and
-  // never include credential values in callers' context.
-  try {
-    console.log(
-      "BUILDER_PARENT_MESSAGE:" +
-        JSON.stringify({ message: payload, targetOrigin }),
-    );
-  } catch {}
+  if (hasParentFrame) {
+    window.parent.postMessage(payload, targetOrigin);
+  } else {
+    // Builder's Electron/webview relay watches console output for top-level
+    // previews that have no parent frame to receive postMessage.
+    try {
+      console.log(
+        "BUILDER_PARENT_MESSAGE:" +
+          JSON.stringify({ message: payload, targetOrigin }),
+      );
+    } catch {}
+  }
 
   return true;
 }
