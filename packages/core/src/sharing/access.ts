@@ -142,13 +142,22 @@ export function accessFilter(
 }
 
 function ownerScopeFilter(resourceTable: any, ctx: AccessContext): SQL {
-  if (ctx.orgId) return eq(resourceTable.orgId, ctx.orgId);
+  if (ctx.orgId) {
+    // Rows created before org-scoping, or in solo mode, have no org_id. Keep
+    // them manageable by their owner after the owner joins or switches into an
+    // organization, while still keeping rows from other orgs out of scope.
+    return or(
+      eq(resourceTable.orgId, ctx.orgId),
+      sql`${resourceTable.orgId} IS NULL`,
+    )!;
+  }
   return sql`${resourceTable.orgId} IS NULL`;
 }
 
 function ownerMatchesActiveScope(resource: any, ctx: AccessContext): boolean {
   const resourceOrgId = resource?.orgId ?? null;
-  return ctx.orgId ? resourceOrgId === ctx.orgId : !resourceOrgId;
+  if (!resourceOrgId) return true;
+  return ctx.orgId === resourceOrgId;
 }
 
 function minRoleSql(minRole: ShareRole): SQL {
