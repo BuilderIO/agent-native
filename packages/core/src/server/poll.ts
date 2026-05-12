@@ -212,14 +212,31 @@ async function checkExternalDbChanges(): Promise<void> {
   try {
     const db = getDbExec();
 
-    // Check application_state for external writes
-    const appResult = await db.execute(
-      "SELECT MAX(updated_at) as max_ts FROM application_state",
-    );
-    const appTs = Number(appResult.rows[0]?.max_ts) || 0;
-    if (appTs > _lastAppStateTs) {
+    // Check application_state for external writes. Preserve the changed key so
+    // clients can invalidate one-shot command queries (`navigate`, `__set_url__`)
+    // only when those command rows actually change; noisy keys such as
+    // `slide-fit-check` should not wake navigation readers.
+    const appResult = await db.execute({
+      sql: "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ? ORDER BY updated_at ASC",
+      args: [_lastAppStateTs],
+    });
+    if (appResult.rows.length > 0) {
+      const appTs = appResult.rows.reduce(
+        (max, row) => Math.max(max, Number(row.updated_at) || 0),
+        _lastAppStateTs,
+      );
       if (_lastAppStateTs > 0) {
-        recordChange({ source: "app-state", type: "change", key: "*" });
+        for (const row of appResult.rows) {
+          const key = typeof row.key === "string" ? row.key : "*";
+          const owner =
+            typeof row.session_id === "string" ? row.session_id : undefined;
+          recordChange({
+            source: "app-state",
+            type: "change",
+            key,
+            ...(owner ? { owner } : {}),
+          });
+        }
       }
       _lastAppStateTs = appTs;
     }
