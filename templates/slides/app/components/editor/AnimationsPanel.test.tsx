@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import type { Slide } from "@/context/DeckContext";
 
@@ -20,6 +20,10 @@ const slide: Slide = {
 };
 
 describe("AnimationsPanel", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it("lists all animatable slide elements instead of only one legacy container", () => {
     render(
       <AnimationsPanel
