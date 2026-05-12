@@ -3848,14 +3848,14 @@ function Setup({
               className="setup-permission-button"
               onClick={() => openMacosPrivacySettings("screen")}
             >
-              Screen
+              Screen Recording
             </button>
             <button
               type="button"
               className="setup-permission-button"
               onClick={() => openMacosPrivacySettings("speech")}
             >
-              Speech
+              Speech Recognition
             </button>
             <button
               type="button"
