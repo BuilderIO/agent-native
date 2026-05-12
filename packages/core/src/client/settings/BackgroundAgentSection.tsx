@@ -89,7 +89,8 @@ export function BackgroundAgentSection() {
           </div>
           <p className="text-[10px] text-muted-foreground">
             You don't have access to Builder Cloud Agents for this workspace
-            yet. Use the desktop app or your local clone for code changes.
+            yet; they are not enabled from Builder org settings. Use the desktop
+            app or your local clone for code changes.
           </p>
           <a
             href="https://www.agent-native.com/download"
