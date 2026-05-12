@@ -70,6 +70,7 @@ Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant s
 
 | Skill                  | When to use                                                   |
 | ---------------------- | ------------------------------------------------------------- |
+| `address-feedback`     | Triage feedback docs into bugs to fix and UX proposals        |
 | `adding-a-feature`     | Adding any new feature (the four-area checklist)              |
 | `actions`              | Creating or running agent actions                             |
 | `storing-data`         | Adding data models, reading/writing config or state           |
