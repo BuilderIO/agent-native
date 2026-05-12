@@ -3,7 +3,7 @@ import { redirect, useLoaderData } from "react-router";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../server/db";
 import { useEffect, useState } from "react";
-import { IconMessageCircle } from "@tabler/icons-react";
+import { IconLock, IconMessageCircle } from "@tabler/icons-react";
 import { agentNativePath } from "@agent-native/core/client";
 import {
   getConfiguredAppBasePath,
@@ -59,7 +59,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
     );
   }
 
-  throw new Response("Not found", { status: 404 });
+  return { document: null, unavailable: { reason: "private" as const } };
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
@@ -178,8 +178,31 @@ function ReadOnlyMarkdownContent({ content }: { content: string }) {
   );
 }
 
+function PrivateDocumentNotice() {
+  return (
+    <main className="min-h-screen bg-background text-foreground">
+      <section className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
+        <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground">
+          <IconLock size={22} />
+        </div>
+        <h1 className="text-2xl font-semibold tracking-normal">
+          This document is private
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          Ask the owner to share it with your account or workspace before
+          opening this link.
+        </p>
+      </section>
+    </main>
+  );
+}
+
 export default function PublicDocumentPage() {
   const { document } = useLoaderData<typeof loader>();
+
+  if (!document) {
+    return <PrivateDocumentNotice />;
+  }
 
   return (
     <main className="min-h-screen bg-background text-foreground">
