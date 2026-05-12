@@ -242,6 +242,40 @@ describe("workspace dev startup", () => {
 
     expect(fake.startedApps()).toEqual(["dispatch", "todo"]);
   });
+
+  it("shows the last child-process error while waiting to retry", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+
+    await fetch(`${url}/dispatch`, {
+      headers: { accept: "text/html" },
+    });
+    const appCall = fake.calls().at(-1);
+    expect(appCall).toBeDefined();
+
+    appCall?.child.stderr?.emit(
+      "data",
+      "Error: Cannot find module '@agent-native/example'\n",
+    );
+    appCall?.child.emit("exit", 1, null);
+
+    const res = await fetch(`${url}/dispatch`, {
+      headers: { accept: "text/html" },
+    });
+    const html = await res.text();
+
+    expect(html).toContain("App failed to start: Dispatch");
+    expect(html).toContain("Cannot find module");
+    expect(html).toContain("@agent-native/example");
+    expect(fake.startedApps()).toEqual(["dispatch"]);
+  });
 });
 
 describe("workspace dev helpers", () => {

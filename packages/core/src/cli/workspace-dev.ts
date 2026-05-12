@@ -17,6 +17,15 @@ export interface WorkspaceApp {
   process?: ChildProcess;
   restartTimer?: NodeJS.Timeout;
   restartAttempts?: number;
+  lastFailure?: {
+    code: number | null;
+    signal: NodeJS.Signals | null;
+    at: number;
+    installing: boolean;
+    output: string;
+    nextRetryAt: number;
+  };
+  outputTail?: string;
   installing?: boolean;
   installAttempted?: boolean;
   /**
@@ -52,6 +61,7 @@ const DEFAULT_GATEWAY_PORT = 8080;
 const DEFAULT_APP_PORT_START = 8100;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
+const APP_OUTPUT_TAIL_BYTES = 8_000;
 
 function normalizeOrigin(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -162,17 +172,37 @@ function isChildDevServerUrlLine(line: string): boolean {
   );
 }
 
-function pipeAppOutput(
-  prefix: string,
-  chunk: unknown,
-  write: (value: string) => void,
-): void {
+function formatAppOutput(chunk: unknown): string {
   const lines = String(chunk)
     .split(/\r?\n/)
     .filter(Boolean)
     .filter((line) => !isChildDevServerUrlLine(line));
-  if (lines.length === 0) return;
-  write(lines.map((line) => `${prefix} ${line}`).join("\n") + "\n");
+  return lines.length === 0 ? "" : lines.join("\n") + "\n";
+}
+
+function appendAppOutputTail(app: WorkspaceApp, output: string): void {
+  if (!output) return;
+  const next = `${app.outputTail ?? ""}${output}`;
+  app.outputTail =
+    next.length > APP_OUTPUT_TAIL_BYTES
+      ? next.slice(-APP_OUTPUT_TAIL_BYTES)
+      : next;
+}
+
+function pipeAppOutput(
+  prefix: string,
+  chunk: unknown,
+  write: (value: string) => void,
+): string {
+  const output = formatAppOutput(chunk);
+  if (!output) return "";
+  const prefixed = output
+    .trimEnd()
+    .split(/\n/)
+    .map((line) => `${prefix} ${line}`)
+    .join("\n");
+  write(`${prefixed}\n`);
+  return output;
 }
 
 function firstPathSegment(url: string | undefined): string | null {
@@ -228,34 +258,54 @@ function wantsHtml(req: http.IncomingMessage): boolean {
 
 function renderStartingApp(app: WorkspaceApp): string {
   const escapedName = escapeHtml(app.name || app.id);
-  const message = app.installing
-    ? "The workspace gateway is installing this app's dependencies before starting it."
-    : "The workspace gateway is waking this app's dev server.";
+  const failure = app.lastFailure;
+  const retryDelayMs = failure
+    ? Math.max(1_000, failure.nextRetryAt - Date.now() + 250)
+    : 900;
+  const refreshSeconds = failure
+    ? Math.max(1, Math.ceil(retryDelayMs / 1_000))
+    : 1;
+  const refreshScriptDelay = failure ? retryDelayMs : 900;
+  const title = failure
+    ? `${failure.installing ? "Install failed" : "App failed to start"}: ${escapedName}`
+    : `Starting ${escapedName}`;
+  const message = failure
+    ? `The workspace gateway will retry in ${Math.max(
+        1,
+        Math.ceil((failure.nextRetryAt - Date.now()) / 1_000),
+      )}s. Fix the error below or stop the server with Ctrl+C.`
+    : app.installing
+      ? "The workspace gateway is installing this app's dependencies before starting it."
+      : "The workspace gateway is waking this app's dev server.";
+  const failureOutput = failure?.output.trim();
   return `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="refresh" content="1" />
-    <title>Starting ${escapedName}</title>
+    <meta http-equiv="refresh" content="${refreshSeconds}" />
+    <title>${title}</title>
     <meta name="color-scheme" content="light dark" />
     <style>
-      :root { --bg: #fafafa; --fg: #171717; --muted: #737373; --bar-bg: #e5e5e5; --bar-fill: #171717; }
-      @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --fg: #fafafa; --muted: #a3a3a3; --bar-bg: #262626; --bar-fill: #fafafa; } }
+      :root { --bg: #fafafa; --fg: #171717; --muted: #737373; --bar-bg: #e5e5e5; --bar-fill: #171717; --danger: #dc2626; --code-bg: #171717; --code-fg: #fafafa; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --fg: #fafafa; --muted: #a3a3a3; --bar-bg: #262626; --bar-fill: #fafafa; --danger: #f87171; --code-bg: #171717; --code-fg: #f5f5f5; } }
       body { min-height: 100vh; margin: 0; display: grid; place-items: center; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
-      main { width: min(420px, calc(100vw - 48px)); }
+      main { width: min(680px, calc(100vw - 48px)); }
       .bar { height: 3px; overflow: hidden; border-radius: 999px; background: var(--bar-bg); }
       .bar::before { content: ""; display: block; height: 100%; width: 42%; border-radius: inherit; background: var(--bar-fill); animation: load 1s ease-in-out infinite; }
+      main.failed .bar::before { width: 100%; background: var(--danger); animation: none; }
       p { color: var(--muted); }
+      pre { max-height: min(46vh, 360px); overflow: auto; margin-top: 20px; padding: 14px 16px; border-radius: 8px; background: var(--code-bg); color: var(--code-fg); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; white-space: pre-wrap; word-break: break-word; }
       @keyframes load { 0% { transform: translateX(-105%); } 100% { transform: translateX(245%); } }
     </style>
-    <script>setTimeout(() => window.location.reload(), 900);</script>
+    <script>setTimeout(() => window.location.reload(), ${JSON.stringify(refreshScriptDelay)});</script>
   </head>
   <body>
-    <main>
+    <main class="${failure ? "failed" : ""}">
       <div class="bar"></div>
-      <h1>Starting ${escapedName}</h1>
+      <h1>${title}</h1>
       <p>${escapeHtml(message)}</p>
+      ${failureOutput ? `<pre>${escapeHtml(failureOutput)}</pre>` : ""}
     </main>
   </body>
 </html>`;
@@ -481,10 +531,9 @@ export async function runWorkspaceDev(
 
   function startApp(app: WorkspaceApp): void {
     if (app.process && !app.process.killed) return;
-    if (app.restartTimer) {
-      clearTimeout(app.restartTimer);
-      app.restartTimer = undefined;
-    }
+    if (app.restartTimer) return;
+    app.lastFailure = undefined;
+    app.outputTail = undefined;
 
     const basePath = `/${app.id}`;
     const shouldInstall =
@@ -537,12 +586,18 @@ export async function runWorkspaceDev(
     stableTimer.unref();
 
     child.stdout?.on("data", (chunk) => {
-      pipeAppOutput(prefix, chunk, (value) => stdout.write(value));
+      appendAppOutputTail(
+        app,
+        pipeAppOutput(prefix, chunk, (value) => stdout.write(value)),
+      );
     });
     child.stderr?.on("data", (chunk) => {
-      pipeAppOutput(prefix, chunk, (value) => stderr.write(value));
+      appendAppOutputTail(
+        app,
+        pipeAppOutput(prefix, chunk, (value) => stderr.write(value)),
+      );
     });
-    child.on("exit", (code) => {
+    child.on("exit", (code, signal) => {
       clearTimeout(stableTimer);
       const wasInstalling = app.installing;
       app.process = undefined;
@@ -559,6 +614,15 @@ export async function runWorkspaceDev(
       if (wasInstalling) app.installAttempted = false;
       app.restartAttempts = (app.restartAttempts ?? 0) + 1;
       const delay = appRestartDelay(app.restartAttempts);
+      const nextRetryAt = Date.now() + delay;
+      app.lastFailure = {
+        code,
+        signal,
+        at: Date.now(),
+        installing: wasInstalling,
+        output: app.outputTail ?? "",
+        nextRetryAt,
+      };
       stderr.write(
         `${prefix} exited with code ${code}; retrying in ${Math.round(
           delay / 1000,
