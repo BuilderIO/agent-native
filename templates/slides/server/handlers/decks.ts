@@ -94,6 +94,28 @@ function validateDeckAspectRatio(
   return true;
 }
 
+function comparableDeckData(raw: unknown): string {
+  try {
+    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+    const clone = JSON.parse(JSON.stringify(data ?? {}));
+    delete clone.updatedAt;
+    return JSON.stringify(clone);
+  } catch {
+    return String(raw ?? "");
+  }
+}
+
+function shouldSnapshotDeckWrite(
+  current: { title?: string | null; data?: string | null },
+  nextTitle: string,
+  nextDeck: Record<string, unknown>,
+): boolean {
+  return (
+    (current.title ?? "Untitled") !== nextTitle ||
+    comparableDeckData(current.data ?? "") !== comparableDeckData(nextDeck)
+  );
+}
+
 // SSE endpoint — client subscribes for real-time change notifications.
 // Per-deckId notifications carry only the id, no row contents, so we don't
 // gate this — but we do require an authenticated session so anonymous
@@ -288,15 +310,17 @@ export const updateDeck = defineEventHandler(async (event) => {
       }
       // Caller has editor+ access — perform the update. The access check
       // above already confirmed the row exists and the caller can write.
-      await createDeckVersionSnapshot(
-        {
-          id: access.resource.id,
-          title: access.resource.title,
-          data: access.resource.data,
-          ownerEmail: access.resource.ownerEmail as string,
-        },
-        { label: "Before editor save" },
-      );
+      if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
+        await createDeckVersionSnapshot(
+          {
+            id: access.resource.id,
+            title: access.resource.title,
+            data: access.resource.data,
+            ownerEmail: access.resource.ownerEmail as string,
+          },
+          { label: "Before editor save" },
+        );
+      }
       await db
         .update(schema.decks)
         .set({

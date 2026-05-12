@@ -71,10 +71,7 @@ export default function HistoryPanel({
     null,
   );
   const versionsQuery = useDeckVersions(open ? deckId : null);
-  const versionQuery = useDeckVersion(
-    open ? deckId : null,
-    selectedVersionId,
-  );
+  const versionQuery = useDeckVersion(open ? deckId : null, selectedVersionId);
   const restoreVersion = useRestoreDeckVersion();
 
   const versions = versionsQuery.data?.versions ?? [];
@@ -97,7 +94,10 @@ export default function HistoryPanel({
   const handleRestore = async () => {
     if (!selectedVersionId) return;
     try {
-      await restoreVersion.mutateAsync({ deckId, versionId: selectedVersionId });
+      await restoreVersion.mutateAsync({
+        deckId,
+        versionId: selectedVersionId,
+      });
       toast({
         title: "Version restored",
         description: "The deck was rolled back to the selected snapshot.",
