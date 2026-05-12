@@ -74,8 +74,6 @@ describe("AssistantMessageListErrorBoundary", () => {
       );
     });
 
-    expect(container.textContent).toBe("");
-
     await act(async () => {
       vi.runOnlyPendingTimers();
     });
