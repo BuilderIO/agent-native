@@ -966,7 +966,7 @@ function markdownUrlTransform(value: string): string {
 function MarkdownText() {
   useEffect(() => {
     injectMarkdownStyles();
-  }, [hasDisplayableText]);
+  }, []);
   return (
     <MarkdownTextPrimitive
       smooth
@@ -1861,7 +1861,7 @@ function UserMessage() {
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [hasDisplayableText]);
 
   return (
     <div
