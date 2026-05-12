@@ -10,6 +10,7 @@ import DOMPurify from "dompurify";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const Excalidraw = lazy(async () => {
+  await import("@excalidraw/excalidraw/index.css");
   const mod = await import("@excalidraw/excalidraw");
   return { default: mod.Excalidraw };
 });

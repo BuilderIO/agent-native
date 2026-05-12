@@ -30,7 +30,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
-import { useSaveState } from "@/context/DeckContext";
+import { useSaveState, defaultSlideContent } from "@/context/DeckContext";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import {
   ASPECT_RATIO_VALUES,
@@ -272,6 +272,14 @@ export default function EditorToolbar({
   const saveState = useSaveState();
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
+
+  const handleLayoutSelect = (layout: SlideLayout) => {
+    if (!currentSlide || !onUpdateSlide) return;
+    if (currentSlide.layout !== layout) {
+      onUpdateSlide({ layout, content: defaultSlideContent[layout] });
+    }
+    setLayoutOpen(false);
+  };
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -473,9 +481,7 @@ export default function EditorToolbar({
               {slideLayoutOptions.map((opt) => (
                 <button
                   key={opt.value}
-                  onClick={() => {
-                    onUpdateSlide({ layout: opt.value });
-                  }}
+                  onClick={() => handleLayoutSelect(opt.value)}
                   className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
                     currentSlide.layout === opt.value
                       ? "text-[#609FF8] bg-accent/50"
