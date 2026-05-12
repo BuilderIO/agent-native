@@ -45,6 +45,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { toast } from "sonner";
 
 interface DesignSystem {
   id: string;
@@ -196,9 +197,13 @@ export default function DesignSystems() {
     setDeleteId(null);
 
     deleteMutation.mutate({ id } as any, {
-      onError: () => {
+      onError: (error) => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
+        });
+        toast.error("Could not delete design system", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
         });
       },
     });
@@ -229,9 +234,13 @@ export default function DesignSystems() {
 
     void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
       .then(() => undefined)
-      .catch(() => {
+      .catch((error) => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
+        });
+        toast.error("Could not delete selected design systems", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
         });
       });
   }, [selectedSystemIds, queryClient, exitSelectionMode, deleteMutation]);
