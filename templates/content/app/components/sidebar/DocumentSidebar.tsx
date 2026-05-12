@@ -465,7 +465,7 @@ export function DocumentSidebar({
       )}
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="py-2">
+        <div className="min-w-full w-max py-2 pr-2">
           {/* IconSearch results */}
           {filteredDocuments ? (
             <>

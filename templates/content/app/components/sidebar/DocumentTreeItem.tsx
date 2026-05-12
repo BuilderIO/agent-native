@@ -66,17 +66,18 @@ export function DocumentTreeItem({
   const isActive = node.id === activeId;
   const movement = moveAvailability.get(node.id) ?? { up: false, down: false };
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const indent = depth * 12 + 12;
 
   return (
     <div>
       <div
         className={cn(
-          "group relative flex items-center gap-1.5 pr-2 py-[5px] rounded-md cursor-pointer text-sm",
+          "group relative flex min-w-56 items-center gap-1.5 rounded-md py-[5px] pr-2 text-sm cursor-pointer",
           isActive
             ? "bg-accent text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
         )}
-        style={{ paddingLeft: `${depth * 16 + 12}px` }}
+        style={{ paddingLeft: `${indent}px` }}
         onClick={() => onSelect(node.id)}
       >
         <span className="relative flex-shrink-0 w-5 h-5">
