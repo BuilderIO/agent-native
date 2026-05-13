@@ -3,6 +3,7 @@ import {
   IconArrowBackUp,
   IconChevronDown,
   IconCut,
+  IconGauge,
   IconZoomIn,
   IconZoomOut,
   IconPlayerPlay,
@@ -17,6 +18,7 @@ import {
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,6 +48,7 @@ import {
   LONG_EXPORT_THRESHOLD_MS,
   type ExportProgress,
 } from "@/lib/ffmpeg-export";
+import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
 import {
   effectiveDuration,
   formatMs,
@@ -63,6 +66,8 @@ export interface EditorToolbarProps {
   durationMs: number;
   playing: boolean;
   onPlayPause: () => void;
+  playbackSpeed: number;
+  onPlaybackSpeedChange: (speed: number) => void;
   zoom: number;
   onZoomChange: (zoom: number) => void;
   edits: EditsJson;
@@ -85,6 +90,8 @@ export function EditorToolbar({
   durationMs,
   playing,
   onPlayPause,
+  playbackSpeed,
+  onPlaybackSpeedChange,
   zoom,
   onZoomChange,
   edits,
@@ -290,6 +297,41 @@ export function EditorToolbar({
         )}
       </div>
 
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 shrink-0 gap-1.5 px-2 font-mono text-xs tabular-nums"
+                aria-label="Preview speed"
+              >
+                <IconGauge className="h-4 w-4" />
+                {formatSpeedLabel(playbackSpeed)}
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Preview speed while trimming</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="start" className="min-w-[120px]">
+          <DropdownMenuLabel>Preview speed</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {PLAYBACK_SPEED_OPTIONS.map((rate) => (
+            <DropdownMenuItem
+              key={rate}
+              onSelect={() => onPlaybackSpeedChange(rate)}
+              className={cn(
+                "font-mono tabular-nums",
+                rate === playbackSpeed && "bg-accent font-semibold",
+              )}
+            >
+              {formatSpeedLabel(rate)}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       {selectionRange ? (
         <>
           <Separator orientation="vertical" className="mx-1 h-6" />
@@ -474,4 +516,8 @@ export function EditorToolbar({
       </AlertDialog>
     </div>
   );
+}
+
+function formatSpeedLabel(rate: number): string {
+  return `${Number.isInteger(rate) ? rate : rate.toFixed(1)}x`;
 }

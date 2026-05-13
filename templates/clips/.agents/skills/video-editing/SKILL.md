@@ -27,7 +27,7 @@ Reach for this skill any time you modify how recordings are edited: new edit ope
   ```
 
 - **`recordings.chapters_json`** — JSON array of `{ startMs, title }`.
-- **`application_state.editor-draft`** — in-progress edits the user is previewing but hasn't saved. Writing to `edits_json` only happens when the user hits Save.
+- **`application_state.editor-draft`** — in-progress editor state the user is previewing (recording id, playhead, preview playback speed, zoom, and edits JSON). Persisted edit operations still write directly to `edits_json` through actions.
 
 ## Rules
 
@@ -254,5 +254,5 @@ app/components/editor/
   thumbnail-picker.tsx    stitch-manager.tsx    split-button.tsx
 ```
 
-When the recording route enters edit mode, render `<EditorLayout recordingId={id} />` — it wires the toolbar, video preview, transcript editor, waveform, trim handles, timeline, and chapters sidebar. The dialogs for thumbnail picking and stitching are mounted inside the layout and toggled by the toolbar.
+When the recording route enters edit mode, render `<EditorLayout recordingId={id} />` — it wires the toolbar, video preview, transcript editor, waveform, trim handles, timeline, and chapters sidebar. The toolbar includes a Loom-style preview-speed dropdown next to the playhead time; it changes `video.playbackRate` for trimming/review only and writes `playbackSpeed` into `editor-draft` so the agent can see how the user is previewing. The dialogs for thumbnail picking and stitching are mounted inside the layout and toggled by the toolbar.
 
