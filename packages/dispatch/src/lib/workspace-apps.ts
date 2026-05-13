@@ -9,6 +9,12 @@ export interface WorkspaceAppSummary {
   statusLabel?: string;
   builderUrl?: string | null;
   branchName?: string | null;
+  createdAt?: string | null;
+  agentCardUrl?: string | null;
+  agentCardReachable?: boolean;
+  a2aEndpointUrl?: string | null;
+  agentName?: string | null;
+  agentSkillsCount?: number | null;
   archived?: boolean;
 }
 

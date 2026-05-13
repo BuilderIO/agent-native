@@ -1,8 +1,10 @@
+import { useEffect, useState, type FormEvent } from "react";
 import { useActionMutation } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
   IconClockHour4,
   IconDots,
+  IconEdit,
   IconEye,
   IconEyeOff,
   IconTrash,
@@ -10,12 +12,23 @@ import {
 import { toast } from "sonner";
 import { AppKeysPopover } from "@/components/app-keys-popover";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   isPendingBuilderHref,
@@ -34,6 +47,17 @@ export function WorkspaceAppCard({
   const openInNewTab = isPendingBuilderHref(app);
   const isPending = app.status === "pending";
   const isArchived = !!app.archived;
+  const [editOpen, setEditOpen] = useState(false);
+  const [draftName, setDraftName] = useState(app.name);
+  const [draftDescription, setDraftDescription] = useState(
+    app.description || "",
+  );
+
+  useEffect(() => {
+    if (editOpen) return;
+    setDraftName(app.name);
+    setDraftDescription(app.description || "");
+  }, [app.description, app.name, editOpen]);
 
   const archive = useActionMutation("archive-workspace-app", {
     onError: (err) =>
@@ -47,6 +71,14 @@ export function WorkspaceAppCard({
     onError: (err) =>
       toast.error(`Could not remove ${app.name}: ${stringifyError(err)}`),
   });
+  const updateMetadata = useActionMutation("update-workspace-app-metadata", {
+    onSuccess: () => {
+      toast.success(`Updated ${draftName.trim() || app.name}`);
+      setEditOpen(false);
+    },
+    onError: (err) =>
+      toast.error(`Could not update ${app.name}: ${stringifyError(err)}`),
+  });
 
   const handleArchive = () => {
     archive.mutate({ appId: app.id });
@@ -59,6 +91,19 @@ export function WorkspaceAppCard({
   const handleRemovePending = () => {
     removePending.mutate({ appId: app.id });
     toast.success(`Removed pending ${app.name}`);
+  };
+  const handleMetadataSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = draftName.trim();
+    if (!name) {
+      toast.error("App name is required.");
+      return;
+    }
+    updateMetadata.mutate({
+      appId: app.id,
+      name,
+      description: draftDescription.trim(),
+    });
   };
 
   return (
@@ -135,6 +180,15 @@ export function WorkspaceAppCard({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setEditOpen(true);
+                  }}
+                >
+                  <IconEdit size={14} className="mr-2" />
+                  Edit details
+                </DropdownMenuItem>
                 {isPending ? (
                   <DropdownMenuItem
                     onSelect={handleRemovePending}
@@ -165,6 +219,46 @@ export function WorkspaceAppCard({
           ) : null}
         </div>
       </div>
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit app details</DialogTitle>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={handleMetadataSubmit}>
+            <div className="space-y-2">
+              <Label htmlFor={`app-name-${app.id}`}>Name</Label>
+              <Input
+                id={`app-name-${app.id}`}
+                value={draftName}
+                maxLength={120}
+                onChange={(event) => setDraftName(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`app-description-${app.id}`}>Description</Label>
+              <Textarea
+                id={`app-description-${app.id}`}
+                value={draftDescription}
+                maxLength={500}
+                rows={4}
+                onChange={(event) => setDraftDescription(event.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={updateMetadata.isPending}>
+                {updateMetadata.isPending ? "Saving..." : "Save"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
