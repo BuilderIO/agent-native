@@ -11,11 +11,6 @@ import {
   resolveBuilderCredentials,
   runBuilderAgent,
 } from "@agent-native/core/server";
-import {
-  applyWorkspaceAppMetadataOverride,
-  readWorkspaceAppMetadataSettings,
-  writeWorkspaceAppMetadataOverride,
-} from "@agent-native/core/server/agent-discovery";
 import { getDbExec } from "@agent-native/core/db";
 import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
 import {
@@ -33,6 +28,7 @@ import {
 } from "./workspace-resources-store.js";
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
+const WORKSPACE_APP_METADATA_SETTINGS_KEY = "workspace-app-metadata";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
@@ -112,6 +108,19 @@ interface PendingWorkspaceApp {
   updatedAt: string;
 }
 
+interface WorkspaceAppMetadataOverride {
+  name?: string;
+  description?: string;
+  generated?: boolean;
+  sourcePrompt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+interface WorkspaceAppMetadataSettings {
+  apps: Record<string, WorkspaceAppMetadataOverride>;
+}
+
 function readJson(file: string): any {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -186,11 +195,125 @@ function scopedSettingsKey(): string {
   return `${SETTINGS_KEY}:user:${currentOwnerEmail()}`;
 }
 
+function workspaceAppMetadataSettingsKey(): string {
+  const orgId = currentOrgId();
+  if (orgId) return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:org:${orgId}`;
+  return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:user:${currentOwnerEmail()}`;
+}
+
 async function readSettingsRecord(): Promise<Record<string, any>> {
   const raw = await getSetting(scopedSettingsKey()).catch(() => null);
   return raw && typeof raw === "object" && !Array.isArray(raw)
     ? (raw as Record<string, any>)
     : {};
+}
+
+function cleanOptionalText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function parseWorkspaceAppMetadataSettings(
+  raw: unknown,
+): WorkspaceAppMetadataSettings {
+  const record =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const rawApps =
+    record.apps &&
+    typeof record.apps === "object" &&
+    !Array.isArray(record.apps)
+      ? (record.apps as Record<string, unknown>)
+      : {};
+  const apps: Record<string, WorkspaceAppMetadataOverride> = {};
+
+  for (const [id, value] of Object.entries(rawApps)) {
+    if (!id.trim() || !value || typeof value !== "object") continue;
+    const item = value as Record<string, unknown>;
+    const override: WorkspaceAppMetadataOverride = {};
+    const name = cleanOptionalText(item.name);
+    const description = cleanOptionalText(item.description);
+    const sourcePrompt = cleanOptionalText(item.sourcePrompt);
+    const updatedAt = cleanOptionalText(item.updatedAt);
+    const updatedBy = cleanOptionalText(item.updatedBy);
+
+    if (name) override.name = name;
+    if (description) override.description = description;
+    if (item.generated === true) override.generated = true;
+    if (sourcePrompt) override.sourcePrompt = sourcePrompt;
+    if (updatedAt) override.updatedAt = updatedAt;
+    if (updatedBy) override.updatedBy = updatedBy;
+
+    if (Object.keys(override).length > 0) apps[id.trim()] = override;
+  }
+
+  return { apps };
+}
+
+async function readWorkspaceAppMetadataSettings(): Promise<WorkspaceAppMetadataSettings> {
+  const raw = await getSetting(workspaceAppMetadataSettingsKey()).catch(
+    () => null,
+  );
+  return parseWorkspaceAppMetadataSettings(raw);
+}
+
+async function writeWorkspaceAppMetadataOverride(input: {
+  appId: string;
+  name?: string | null;
+  description?: string | null;
+  generated?: boolean;
+  sourcePrompt?: string | null;
+  updatedBy?: string | null;
+}): Promise<WorkspaceAppMetadataSettings> {
+  const key = workspaceAppMetadataSettingsKey();
+  const current = parseWorkspaceAppMetadataSettings(
+    await getSetting(key).catch(() => null),
+  );
+  const appId = input.appId.trim();
+  const existing = current.apps[appId] ?? {};
+  const next: WorkspaceAppMetadataOverride = {
+    ...existing,
+    updatedAt: new Date().toISOString(),
+  };
+  const name = cleanOptionalText(input.name);
+  const description = cleanOptionalText(input.description);
+  const sourcePrompt = cleanOptionalText(input.sourcePrompt);
+  const updatedBy = cleanOptionalText(input.updatedBy);
+
+  if (name) next.name = name;
+  else delete next.name;
+  if (description) next.description = description;
+  else delete next.description;
+  if (input.generated === true) next.generated = true;
+  else if (input.generated === false) delete next.generated;
+  if (sourcePrompt) next.sourcePrompt = sourcePrompt;
+  if (updatedBy) next.updatedBy = updatedBy;
+
+  current.apps[appId] = next;
+  await putSetting(key, { apps: current.apps });
+  return current;
+}
+
+function applyWorkspaceAppMetadataOverride(
+  app: WorkspaceAppSummary,
+  settings: WorkspaceAppMetadataSettings,
+): WorkspaceAppSummary {
+  const override = settings.apps[app.id];
+  if (!override) return app;
+
+  const name = cleanOptionalText(override.name);
+  const description = cleanOptionalText(override.description);
+  const generated = override.generated === true;
+  const shouldApplyName = !!name && !generated;
+  const shouldApplyDescription =
+    !!description && (!generated || !cleanOptionalText(app.description));
+  if (!shouldApplyName && !shouldApplyDescription) return app;
+
+  return {
+    ...app,
+    ...(shouldApplyName ? { name } : {}),
+    ...(shouldApplyDescription ? { description } : {}),
+  };
 }
 
 function workspaceAppUrl(appPath: string): string | null {
