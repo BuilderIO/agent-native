@@ -285,10 +285,7 @@ function createRefreshScreenEntry(): Record<string, ActionEntry> {
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
-function appStateKeyForBrowserTab(
-  key: string,
-  browserTabId: unknown,
-): string {
+function appStateKeyForBrowserTab(key: string, browserTabId: unknown): string {
   if (typeof browserTabId !== "string") return key;
   const trimmed = browserTabId.trim();
   return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? `${key}:${trimmed}` : key;
@@ -352,14 +349,14 @@ function createUrlTools(): Record<string, ActionEntry> {
             getRequestRunContext()?.browserTabId,
           ),
           {
-          searchParams: params,
-          mergeSearchParams: merge,
-          // Unique-per-write token. The client's URLSync hook dedups by this
-          // so a fire-and-forget DELETE that loses its race against the next
-          // polling refetch can't cause the same URL command to be applied
-          // repeatedly (which caused the editor to bounce between slides
-          // when an agent turn errored partway through).
-          _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            searchParams: params,
+            mergeSearchParams: merge,
+            // Unique-per-write token. The client's URLSync hook dedups by this
+            // so a fire-and-forget DELETE that loses its race against the next
+            // polling refetch can't cause the same URL command to be applied
+            // repeatedly (which caused the editor to bounce between slides
+            // when an agent turn errored partway through).
+            _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           },
         );
         const keys = Object.keys(params);
@@ -413,13 +410,13 @@ function createUrlTools(): Record<string, ActionEntry> {
             getRequestRunContext()?.browserTabId,
           ),
           {
-          pathname,
-          searchParams: params,
-          mergeSearchParams: merge,
-          // See note in set-search-params: unique-per-write dedup token so a
-          // race between GET and consume-DELETE in URLSync can't re-apply
-          // this command.
-          _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            pathname,
+            searchParams: params,
+            mergeSearchParams: merge,
+            // See note in set-search-params: unique-per-write dedup token so a
+            // race between GET and consume-DELETE in URLSync can't re-apply
+            // this command.
+            _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           },
         );
         return `set-url-path: ${pathname}`;
