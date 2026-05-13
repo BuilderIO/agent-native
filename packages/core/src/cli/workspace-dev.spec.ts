@@ -10,6 +10,7 @@ import {
   isWorkspaceWatcherLimitError,
   runWorkspaceDev,
   shouldEagerStartWorkspaceApps,
+  shouldUsePollingFileWatcher,
   type WorkspaceDevHandle,
 } from "./workspace-dev.js";
 
@@ -87,6 +88,27 @@ describe("workspace dev startup", () => {
     expect(env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
       "https://workspace.example.test",
     );
+  });
+
+  it("uses polling watchers in Builder-style remote dev environments", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: {
+        ...testEnv(),
+        BUILDER_PROJECT_ID: "builder-project",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const env = fake.calls()[0]?.options?.env;
+    expect(env?.CHOKIDAR_USEPOLLING).toBe("1");
+    expect(env?.CHOKIDAR_INTERVAL).toBe("1000");
+    expect(env?.TSC_WATCHFILE).toBe("DynamicPriorityPolling");
+    expect(env?.TSC_WATCHDIRECTORY).toBe("DynamicPriorityPolling");
   });
 
   it("uses the root list as fallback when Dispatch is absent", async () => {
@@ -306,6 +328,21 @@ describe("workspace dev helpers", () => {
     expect(isWorkspaceWatcherLimitError({ code: "ENOSPC" })).toBe(true);
     expect(isWorkspaceWatcherLimitError({ code: "EMFILE" })).toBe(true);
     expect(isWorkspaceWatcherLimitError({ code: "EACCES" })).toBe(false);
+  });
+
+  it("enables polling watchers for managed remote dev unless explicitly disabled", () => {
+    expect(shouldUsePollingFileWatcher({ BUILDER_PROJECT_ID: "1" })).toBe(true);
+    expect(
+      shouldUsePollingFileWatcher({
+        BUILDER_PROJECT_ID: "1",
+        AGENT_NATIVE_DEV_USE_POLLING: "false",
+      }),
+    ).toBe(false);
+    expect(
+      shouldUsePollingFileWatcher({
+        CHOKIDAR_USEPOLLING: "1",
+      }),
+    ).toBe(true);
   });
 });
 
