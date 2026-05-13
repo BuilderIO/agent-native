@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.15.2
+
+### Patch Changes
+
+- 73dbe40: Allow signed Builder connect flows to complete through workspace gateway origins without requiring the iframe host's session cookie.
+
 ## 0.15.1
 
 ### Patch Changes
