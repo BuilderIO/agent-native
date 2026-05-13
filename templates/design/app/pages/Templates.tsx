@@ -156,7 +156,7 @@ export default function Templates() {
                 key={template.id}
                 className="group overflow-hidden rounded-lg border border-border bg-card"
               >
-                <div className="relative aspect-video overflow-hidden border-b border-border bg-muted">
+                <div className="relative aspect-[4/3] overflow-hidden border-b border-border bg-muted">
                   <TemplatePreview
                     title={template.title}
                     html={previewHtmlById.get(template.id) ?? template.html}

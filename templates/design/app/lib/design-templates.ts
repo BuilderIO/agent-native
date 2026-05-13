@@ -219,7 +219,7 @@ const oneSheetHtml = `<!DOCTYPE html>
         margin: 0;
         display: grid;
         place-items: center;
-        padding: clamp(18px, 4vw, 44px);
+        padding: clamp(8px, 4vw, 44px);
         background:
           radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--brand-accent) 20%, transparent), transparent 28%),
           linear-gradient(135deg, color-mix(in srgb, var(--brand-bg) 90%, white), color-mix(in srgb, var(--brand-secondary) 70%, white));
@@ -227,7 +227,7 @@ const oneSheetHtml = `<!DOCTYPE html>
         font-family: var(--brand-body-font);
       }
       .sheet {
-        width: min(100%, 816px);
+        width: min(100%, 816px, calc((100vh - 24px) * 0.7727));
         aspect-ratio: 8.5 / 11;
         display: grid;
         grid-template-rows: auto 1fr auto;
@@ -255,7 +255,7 @@ const oneSheetHtml = `<!DOCTYPE html>
         max-width: 620px;
         margin: 34px 0 0;
         font-family: var(--brand-heading-font);
-        font-size: clamp(38px, 8vw, 86px);
+        font-size: clamp(26px, 8vw, 86px);
         line-height: 0.9;
       }
       .issue {
@@ -278,7 +278,7 @@ const oneSheetHtml = `<!DOCTYPE html>
       .lede {
         margin: 0 0 30px;
         color: var(--brand-muted);
-        font-size: clamp(17px, 2.4vw, 24px);
+        font-size: clamp(12px, 2.4vw, 24px);
         line-height: 1.28;
       }
       .proof { display: grid; gap: 14px; }
@@ -426,14 +426,14 @@ const socialAdsHtml = `<!DOCTYPE html>
         margin: 0;
         display: grid;
         place-items: center;
-        padding: clamp(18px, 4vw, 44px);
+        padding: clamp(8px, 4vw, 44px);
         background:
           linear-gradient(120deg, color-mix(in srgb, var(--brand-primary) 92%, black), #1f2a25 52%, color-mix(in srgb, var(--brand-accent) 28%, var(--brand-bg)));
         color: var(--brand-text);
         font-family: var(--brand-body-font);
       }
       .board {
-        width: min(1180px, 100%);
+        width: min(1180px, 100%, calc((100vh - 24px) * 1.55));
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(220px, 0.7fr);
         gap: clamp(18px, 4vw, 34px);
@@ -478,10 +478,10 @@ const socialAdsHtml = `<!DOCTYPE html>
         margin: 0;
         color: color-mix(in srgb, var(--brand-primary) 94%, black);
         font-family: var(--brand-heading-font);
-        font-size: clamp(44px, 8vw, 124px);
+        font-size: clamp(28px, 8vw, 124px);
         line-height: 0.86;
       }
-      .portrait h1 { font-size: clamp(34px, 6vw, 76px); }
+      .portrait h1 { font-size: clamp(24px, 6vw, 76px); }
       .offer {
         display: grid;
         gap: 12px;
@@ -490,7 +490,7 @@ const socialAdsHtml = `<!DOCTYPE html>
       .offer p {
         margin: 0;
         color: var(--brand-muted);
-        font-size: clamp(17px, 2vw, 25px);
+        font-size: clamp(12px, 2vw, 25px);
         line-height: 1.22;
       }
       .cta {
@@ -624,7 +624,7 @@ const launchPageHtml = `<!DOCTYPE html>
       h1 {
         margin: 20px 0 18px;
         font-family: var(--brand-heading-font);
-        font-size: clamp(48px, 8vw, 98px);
+        font-size: clamp(32px, 8vw, 98px);
         line-height: 0.92;
       }
       .hero p {
@@ -779,13 +779,13 @@ const eventInviteHtml = `<!DOCTYPE html>
         margin: 0;
         display: grid;
         place-items: center;
-        padding: clamp(18px, 4vw, 44px);
+        padding: clamp(8px, 4vw, 44px);
         background: color-mix(in srgb, var(--brand-primary) 88%, black);
         color: var(--brand-text);
         font-family: var(--brand-body-font);
       }
       .kit {
-        width: min(1180px, 100%);
+        width: min(1180px, 100%, calc((100vh - 24px) * 1.55));
         display: grid;
         grid-template-columns: 1.1fr 0.72fr;
         gap: clamp(18px, 4vw, 34px);
@@ -841,7 +841,7 @@ const eventInviteHtml = `<!DOCTYPE html>
         margin: 0;
         color: color-mix(in srgb, var(--brand-primary) 90%, black);
         font-family: var(--brand-heading-font);
-        font-size: clamp(44px, 7vw, 100px);
+        font-size: clamp(28px, 7vw, 100px);
         line-height: 0.9;
       }
       .details {
@@ -945,13 +945,13 @@ const salesDeckHtml = `<!DOCTYPE html>
         margin: 0;
         display: grid;
         place-items: center;
-        padding: clamp(18px, 4vw, 44px);
+        padding: clamp(8px, 4vw, 44px);
         background: color-mix(in srgb, var(--brand-bg) 70%, #111);
         color: var(--brand-text);
         font-family: var(--brand-body-font);
       }
       .slide {
-        width: min(1180px, 100%);
+        width: min(1180px, 100%, calc((100vh - 24px) * 1.777));
         aspect-ratio: 16 / 9;
         display: grid;
         grid-template-columns: minmax(0, 1fr) 320px;
@@ -981,7 +981,7 @@ const salesDeckHtml = `<!DOCTYPE html>
         max-width: 760px;
         margin: 0;
         font-family: var(--brand-heading-font);
-        font-size: clamp(42px, 8vw, 104px);
+        font-size: clamp(28px, 8vw, 104px);
         line-height: 0.9;
       }
       .subtitle {
@@ -1089,13 +1089,13 @@ const caseStudyHtml = `<!DOCTYPE html>
         margin: 0;
         display: grid;
         place-items: center;
-        padding: clamp(18px, 4vw, 44px);
+        padding: clamp(8px, 4vw, 44px);
         background: linear-gradient(135deg, var(--brand-bg), color-mix(in srgb, var(--brand-secondary) 70%, white));
         color: var(--brand-text);
         font-family: var(--brand-body-font);
       }
       .sheet {
-        width: min(100%, 816px);
+        width: min(100%, 816px, calc((100vh - 24px) * 0.7727));
         aspect-ratio: 8.5 / 11;
         display: grid;
         grid-template-rows: auto 1fr auto;
@@ -1122,7 +1122,7 @@ const caseStudyHtml = `<!DOCTYPE html>
         max-width: 640px;
         margin: 46px 0 0;
         font-family: var(--brand-heading-font);
-        font-size: clamp(42px, 7vw, 82px);
+        font-size: clamp(26px, 7vw, 82px);
         line-height: 0.92;
       }
       .body {
