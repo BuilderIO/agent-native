@@ -76,6 +76,19 @@ function ContactPanel({
   );
 }
 
+function formatSidebarSender(thread: ThreadSummary): string {
+  if (thread.messageCount <= 1) {
+    return thread.latestMessage.from.name || thread.latestMessage.from.email;
+  }
+
+  if (thread.participants.length <= 1) return thread.participants[0] || "";
+  const firstNames = thread.participants.map(
+    (participant) => participant.split(" ")[0],
+  );
+  if (firstNames.length <= 2) return firstNames.join(", ");
+  return `${firstNames[0]} .. ${firstNames[firstNames.length - 1]}`;
+}
+
 function ThreadListSidebar({
   emails,
   activeThreadId,
@@ -117,6 +130,7 @@ function ThreadListSidebar({
           const threadKey = email.threadId || email.id;
           const isActive = threadKey === activeThreadId;
           const isMultiSelected = selectedIds.has(threadKey);
+          const senderName = formatSidebarSender(thread);
           return (
             <button
               key={email.id}
@@ -143,17 +157,29 @@ function ThreadListSidebar({
                     : "hover:bg-accent dark:hover:bg-[hsl(220,5%,13%)]",
               )}
             >
-              <div className="flex items-center gap-2 min-w-0 w-full">
+              <div className="flex items-center gap-1.5 min-w-0 w-full">
                 {thread.hasUnread && (
                   <div className="h-[7px] w-[7px] rounded-full bg-primary shrink-0" />
                 )}
                 <span
                   className={cn(
-                    "text-[13px] truncate",
+                    "max-w-[46%] shrink-0 truncate text-[13px]",
                     thread.hasUnread
                       ? "font-semibold text-foreground"
                       : "text-foreground/90",
                   )}
+                  title={senderName}
+                >
+                  {senderName}
+                </span>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-[13px]",
+                    thread.hasUnread
+                      ? "font-medium text-foreground"
+                      : "text-muted-foreground/90",
+                  )}
+                  title={email.subject}
                 >
                   {email.subject}
                 </span>

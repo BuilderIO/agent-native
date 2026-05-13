@@ -7,6 +7,9 @@ import { NewWorkspaceAppFlow } from "./NewWorkspaceAppFlow.js";
 const sendToAgentChatMock = vi.hoisted(() => vi.fn());
 const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
 const devState = vi.hoisted(() => ({ isDevMode: false }));
+const vaultState = vi.hoisted<{ mode: "all-apps" | "manual" }>(() => ({
+  mode: "manual",
+}));
 
 vi.mock("./agent-chat.js", () => ({
   sendToAgentChat: sendToAgentChatMock,
@@ -114,9 +117,13 @@ describe("NewWorkspaceAppFlow", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     frameState.inBuilderFrame = false;
     devState.isDevMode = false;
+    vaultState.mode = "manual";
     sendToAgentChatMock.mockReset();
     fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes("get-vault-access-settings")) {
+        return jsonResponse({ mode: vaultState.mode });
+      }
       if (url.includes("list-vault-secret-options")) {
         return jsonResponse(vaultSecrets);
       }
@@ -284,5 +291,62 @@ describe("NewWorkspaceAppFlow", () => {
         String(url).includes("grant-vault-secrets-to-app"),
       ),
     ).toBe(false);
+  });
+
+  it("uses the all-apps vault policy without per-app key grants", async () => {
+    vaultState.mode = "all-apps";
+    await act(async () => {
+      root.render(
+        React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
+      );
+    });
+
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain("All keys included"),
+      );
+    });
+
+    changeValue(
+      container.querySelector('textarea[aria-label="Prompt"]')!,
+      "Build a quality dashboard",
+    );
+    await submitForm();
+
+    const startCall = fetchSpy.mock.calls.find(([url]) =>
+      String(url).includes("start-workspace-app-creation"),
+    );
+    expect(startCall).toBeTruthy();
+    const body = JSON.parse((startCall?.[1] as RequestInit).body as string);
+    expect(body.secretIds).toEqual([]);
+
+    frameState.inBuilderFrame = true;
+    sendToAgentChatMock.mockReset();
+    await act(async () => {
+      root.unmount();
+      root = createRoot(container);
+      root.render(
+        React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
+      );
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain("All keys included"),
+      );
+    });
+    changeValue(
+      container.querySelector('textarea[aria-label="Prompt"]')!,
+      "Build a support cockpit",
+    );
+    await submitForm();
+
+    const payload = sendToAgentChatMock.mock.calls[0][0];
+    expect(payload.message).toContain(
+      "all saved vault keys are available to every workspace app by default",
+    );
+    expect(payload.message).toContain("No per-app vault grants are needed");
+    expect(payload.message).not.toContain(
+      "Requested Dispatch vault key grants for this app: OPENAI_API_KEY",
+    );
   });
 });

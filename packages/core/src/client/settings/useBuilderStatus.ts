@@ -1,6 +1,7 @@
 import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getCallbackOrigin } from "../frame.js";
+import { trackEvent } from "../analytics.js";
 
 export interface BuilderStatus {
   configured: boolean;
@@ -99,6 +100,8 @@ export function useBuilderStatus() {
 export interface BuilderConnectFlowOptions {
   /** URL to synchronously open on start(). Defaults to the 302 shortcut. */
   popupUrl?: string;
+  /** Low-cardinality label for the UI surface that opened Builder connect. */
+  trackingSource?: string;
   /** Invoked after the status poll first sees `configured: true`. */
   onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
 }
@@ -145,10 +148,60 @@ function notifyAgentEngineConfiguredChanged(source: string) {
   );
 }
 
+export interface OpenBuilderConnectPopupOptions {
+  url?: string;
+  source?: string;
+  features?: string;
+}
+
+export function openBuilderConnectPopup({
+  url,
+  source = "builder_connect",
+  features = "noopener,noreferrer",
+}: OpenBuilderConnectPopupOptions = {}): Window | null {
+  if (typeof window === "undefined") return null;
+  const origin = getCallbackOrigin() || window.location.origin;
+  const href =
+    url ??
+    new URL(agentNativePath("/_agent-native/builder/connect"), origin).href;
+  const connectUrlKind = url ? "provided" : "default";
+  trackEvent("builder connect clicked", {
+    feature: "builder",
+    stage: "client",
+    source,
+    connect_url_kind: connectUrlKind,
+  });
+  try {
+    const opened = window.open(href, "_blank", features);
+    if (!opened && !/AgentNativeDesktop/i.test(navigator.userAgent || "")) {
+      trackEvent("builder connect popup blocked", {
+        feature: "builder",
+        stage: "client",
+        source,
+        connect_url_kind: connectUrlKind,
+      });
+    }
+    return opened;
+  } catch {
+    trackEvent("builder connect failed", {
+      feature: "builder",
+      stage: "client",
+      reason: "popup_open_exception",
+      source,
+      connect_url_kind: connectUrlKind,
+    });
+    return null;
+  }
+}
+
 export function useBuilderConnectFlow(
   opts: BuilderConnectFlowOptions = {},
 ): BuilderConnectFlow {
-  const { popupUrl, onConnected } = opts;
+  const {
+    popupUrl,
+    trackingSource = "builder_connect_flow",
+    onConnected,
+  } = opts;
   const [configured, setConfigured] = useState(false);
   const [envManaged, setEnvManaged] = useState(false);
   const [builderEnabled, setBuilderEnabled] = useState(false);
@@ -272,21 +325,11 @@ export function useBuilderConnectFlow(
       (cachedFresh ? statusConnectUrl : null) ??
       popupUrl ??
       new URL(agentNativePath("/_agent-native/builder/connect"), origin).href;
-    try {
-      const opened = window.open(url, "_blank", "noopener,noreferrer");
-      if (!opened) {
-        if (/AgentNativeDesktop/i.test(navigator.userAgent || "")) {
-          // The desktop main process handles this window.open from the
-          // webview and returns Electron's `deny` action after opening the
-          // OAuth window itself. Chromium reports that as `null`; keep the
-          // current app mounted and let the status poll observe completion.
-        } else {
-          setError(
-            "Popup blocked. Allow popups, then click Connect Builder again.",
-          );
-        }
-      }
-    } catch {
+    const opened = openBuilderConnectPopup({
+      url,
+      source: trackingSource,
+    });
+    if (!opened && !/AgentNativeDesktop/i.test(navigator.userAgent || "")) {
       setError("Couldn't open Builder. Allow popups and try again.");
     }
 
@@ -326,12 +369,18 @@ export function useBuilderConnectFlow(
       } else if (Date.now() - started > POLL_TIMEOUT_MS) {
         stopPoll();
         setConnecting(false);
+        trackEvent("builder connect failed", {
+          feature: "builder",
+          stage: "client",
+          reason: "timeout",
+          source: trackingSource,
+        });
         setError(
           "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
         );
       }
     }, POLL_INTERVAL_MS);
-  }, [fetchStatus, popupUrl, statusConnectUrl, stopPoll]);
+  }, [fetchStatus, popupUrl, statusConnectUrl, stopPoll, trackingSource]);
 
   // Popup-side fast path: the error page broadcasts a message so we stop
   // polling immediately rather than waiting for the next 2s tick.

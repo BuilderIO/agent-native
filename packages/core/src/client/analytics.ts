@@ -1,5 +1,10 @@
 import * as amplitude from "@amplitude/analytics-browser";
 import * as Sentry from "@sentry/browser";
+import { agentNativePath } from "./api-path.js";
+import {
+  llmConnectionTrackingProperties,
+  type LlmConnectionStatus,
+} from "../shared/llm-connection.js";
 
 declare global {
   interface Window {
@@ -30,6 +35,9 @@ type SentryUser = {
 let _getDefaultProps: GetDefaultProps | null = null;
 let _amplitudeInitialized = false;
 let _sentryInitialized = false;
+let _llmConnectionStatus: LlmConnectionStatus | null = null;
+let _llmConnectionRefresh: Promise<void> | null = null;
+let _llmConnectionRefreshInstalled = false;
 // Buffer for setSentryUser calls made before Sentry has initialized.
 // `undefined` means "no pending update"; `null` means "pending clear".
 let _pendingSentryUser: SentryUser | null | undefined = undefined;
@@ -44,6 +52,8 @@ const PAGEVIEW_TRACKING_STATE_KEY = Symbol.for(
 const ANONYMOUS_ID_STORAGE_KEY = "agent-native.anonymous_id";
 const SESSION_ID_STORAGE_KEY = "agent-native.session_id";
 const SESSION_LAST_ACTIVITY_STORAGE_KEY = "agent-native.session_last_activity";
+const LLM_CONNECTION_STORAGE_KEY = "agent-native.llm_connection_status";
+const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
 // 30-minute idle timeout matches GA4 / Mixpanel defaults — a tab left open
 // overnight starts a new session in the morning rather than stretching one
 // session over multiple visits.
@@ -81,6 +91,95 @@ function safeStorageSet(key: string, value: string): void {
   } catch {
     // private browsing / storage disabled — best-effort
   }
+}
+
+function readCachedLlmConnectionStatus(): LlmConnectionStatus | null {
+  if (typeof window === "undefined") return null;
+  const raw = safeStorageGet(LLM_CONNECTION_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as LlmConnectionStatus & {
+      cachedAt?: number;
+    };
+    if (
+      typeof parsed.cachedAt !== "number" ||
+      Date.now() - parsed.cachedAt > LLM_CONNECTION_CACHE_TTL_MS
+    ) {
+      return null;
+    }
+    return {
+      configured: parsed.configured,
+      engine: parsed.engine,
+      model: parsed.model,
+      source: parsed.source,
+      envVar: parsed.envVar,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function cacheLlmConnectionStatus(status: LlmConnectionStatus): void {
+  if (typeof window === "undefined") return;
+  safeStorageSet(
+    LLM_CONNECTION_STORAGE_KEY,
+    JSON.stringify({ ...status, cachedAt: Date.now() }),
+  );
+}
+
+function normalizeAgentEngineStatus(data: unknown): LlmConnectionStatus {
+  const value = data as Record<string, unknown> | null;
+  if (!value || value.configured !== true) {
+    return { configured: false };
+  }
+  return {
+    configured: true,
+    engine: typeof value.engine === "string" ? value.engine : null,
+    model: typeof value.model === "string" ? value.model : null,
+    source: typeof value.source === "string" ? value.source : null,
+    envVar: typeof value.envVar === "string" ? value.envVar : null,
+  };
+}
+
+function refreshLlmConnectionStatus(): Promise<void> {
+  if (typeof window === "undefined" || typeof fetch !== "function") {
+    return Promise.resolve();
+  }
+  if (_llmConnectionRefresh) return _llmConnectionRefresh;
+  let request: Promise<Response>;
+  try {
+    request = fetch(agentNativePath("/_agent-native/agent-engine/status"));
+  } catch {
+    return Promise.resolve();
+  }
+  _llmConnectionRefresh = request
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      _llmConnectionStatus = normalizeAgentEngineStatus(data);
+      cacheLlmConnectionStatus(_llmConnectionStatus);
+    })
+    .catch(() => {
+      if (!_llmConnectionStatus) {
+        _llmConnectionStatus = readCachedLlmConnectionStatus();
+      }
+    })
+    .finally(() => {
+      _llmConnectionRefresh = null;
+    });
+  return _llmConnectionRefresh;
+}
+
+function installLlmConnectionRefresh(): void {
+  if (typeof window === "undefined" || _llmConnectionRefreshInstalled) return;
+  _llmConnectionRefreshInstalled = true;
+  _llmConnectionStatus = readCachedLlmConnectionStatus();
+  void refreshLlmConnectionStatus();
+  window.addEventListener("focus", () => {
+    void refreshLlmConnectionStatus();
+  });
+  window.addEventListener("agent-engine:configured-changed", () => {
+    void refreshLlmConnectionStatus();
+  });
 }
 
 function getOrCreateAnonymousId(): string | undefined {
@@ -389,6 +488,7 @@ export function configureTracking(options: {
   if (typeof window !== "undefined") {
     ensureSentry();
     ensureAmplitude();
+    installLlmConnectionRefresh();
     installPageviewTracking();
   }
 }
@@ -419,13 +519,19 @@ function resolveProps(
     ...params,
   };
   const props = _getDefaultProps ? _getDefaultProps(name, base) : base;
-  if (props.template === undefined) {
+  let withTemplate = props;
+  if (withTemplate.template === undefined) {
     const template = inferTemplateName(props);
     if (template) {
-      return { ...props, template };
+      withTemplate = { ...props, template };
     }
   }
-  return props;
+  const llmProps = llmConnectionTrackingProperties(_llmConnectionStatus);
+  const enriched = { ...withTemplate };
+  for (const [key, value] of Object.entries(llmProps)) {
+    if (enriched[key] === undefined) enriched[key] = value;
+  }
+  return enriched;
 }
 
 function pageviewKey(): string {
@@ -464,6 +570,13 @@ function emitPageview(reason: string): void {
 
 function schedulePageview(reason: string): void {
   const run = () => emitPageview(reason);
+  if (_llmConnectionRefresh && !_llmConnectionStatus) {
+    const timeout = new Promise<void>((resolve) =>
+      window.setTimeout(resolve, 250),
+    );
+    Promise.race([_llmConnectionRefresh, timeout]).finally(run);
+    return;
+  }
   if (typeof queueMicrotask === "function") {
     queueMicrotask(run);
     return;

@@ -32,6 +32,8 @@ export interface WorkspaceResourceOption {
   updatedAt?: number;
 }
 
+type VaultAccessMode = "all-apps" | "manual";
+
 export interface NewWorkspaceAppFlowProps {
   sourceApp?: string;
   className?: string;
@@ -85,11 +87,15 @@ function buildNewWorkspaceAppPrompt(input: {
   prompt: string;
   selectedKeys: string[];
   selectedResources: WorkspaceResourceOption[];
+  vaultAccessMode: VaultAccessMode;
 }): string {
   const keyList = input.selectedKeys.join(", ");
-  const grantRequest = keyList
-    ? `Requested Dispatch vault key grants for this app: ${keyList}`
-    : `Requested Dispatch vault key grants for this app: none`;
+  const grantRequest =
+    input.vaultAccessMode === "all-apps"
+      ? `Dispatch vault access: all saved vault keys are available to every workspace app by default. No per-app vault grants are needed.`
+      : keyList
+        ? `Requested Dispatch vault key grants for this app: ${keyList}`
+        : `Requested Dispatch vault key grants for this app: none`;
   const resourceList = input.selectedResources.length
     ? input.selectedResources
         .map(
@@ -105,6 +111,7 @@ function buildNewWorkspaceAppPrompt(input: {
     ``,
     `Suggested app name: ${input.appId} (you may adjust the slug if it conflicts)`,
     `User prompt: ${input.prompt.trim()}`,
+    `Generate a concise one-sentence app description from the user prompt before coding; save it in apps/${input.appId}/package.json "description" so Dispatch and A2A can describe the app.`,
     `If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.`,
     grantRequest,
     `Requested Dispatch workspace resources for this app:\n${resourceList}`,
@@ -118,17 +125,19 @@ function buildNewWorkspaceAppPrompt(input: {
     `Use relative workspace links like /${input.appId}. Do not hardcode localhost, 127.0.0.1, 8080, 8100, or any dev port; the active workspace gateway/browser origin owns the port.`,
     `Use the framework/template UI stack: shadcn/ui components and @tabler/icons-react. Do not add lucide-react or another icon library for standard UI.`,
     `Ensure the React Router client entry preserves APP_BASE_PATH/VITE_APP_BASE_PATH via appBasePath().`,
-    keyList
-      ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
-      : `Do not grant any Dispatch vault keys unless the user asks later.`,
+    input.vaultAccessMode === "all-apps"
+      ? `Do not create per-app Dispatch vault grants unless the workspace switches vault access to manual or the user explicitly asks for manual grants.`
+      : keyList
+        ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
+        : `Do not grant any Dispatch vault keys unless the user asks later.`,
     input.selectedResources.length
       ? `After the app exists, grant the selected Dispatch workspace resources to appId "${input.appId}" and sync them once the app server is available. Add a short note to apps/${input.appId}/AGENTS.md telling the app agent to read relevant shared resources under context/ or the selected resource paths before doing GTM/domain work.`
       : `Do not grant any Dispatch workspace resources unless the user asks later.`,
     ``,
     `App readiness requirements before handing off:`,
-    `- Ensure apps/${input.appId}/package.json exists with displayName/name metadata so Dispatch and the workspace gateway discover it from the filesystem. There is no separate workspace app registry to edit.`,
+    `- Ensure apps/${input.appId}/package.json exists with displayName/name and a concise description so Dispatch and the workspace gateway discover it from the filesystem. There is no separate workspace app registry to edit.`,
     `- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model; do not leave the app relying only on local discovery.`,
-    `- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment.`,
+    `- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment. Every sibling workspace app is available over A2A by default through call-agent, with names and descriptions from the workspace app registry.`,
     `- Include a final verification note covering filesystem discovery, manifest/deploy metadata, relative same-origin routing, and agent-card readiness.`,
     `When it is ready, start or update the workspace dev server and navigate the user to /${input.appId}.`,
   ].join("\n");
@@ -143,6 +152,8 @@ export function NewWorkspaceAppFlow({
   const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
   const [secrets, setSecrets] = useState<VaultSecretOption[]>([]);
   const [resources, setResources] = useState<WorkspaceResourceOption[]>([]);
+  const [vaultAccessMode, setVaultAccessMode] =
+    useState<VaultAccessMode>("all-apps");
   const [secretsError, setSecretsError] = useState<string | null>(null);
   const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -161,6 +172,10 @@ export function NewWorkspaceAppFlow({
       effectiveDispatchBasePath,
       "list-vault-secret-options",
     );
+    const vaultAccessUrl = actionUrl(
+      effectiveDispatchBasePath,
+      "get-vault-access-settings",
+    );
     const resourcesUrl = actionUrl(
       effectiveDispatchBasePath,
       "list-workspace-resource-options",
@@ -176,6 +191,16 @@ export function NewWorkspaceAppFlow({
         if (cancelled) return;
         setSecrets([]);
         setSecretsError(err?.message || "Could not load Dispatch keys");
+      });
+
+    fetchJson(vaultAccessUrl)
+      .then((data) => {
+        if (cancelled) return;
+        setVaultAccessMode(data?.mode === "manual" ? "manual" : "all-apps");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setVaultAccessMode("manual");
       });
 
     fetchJson(resourcesUrl)
@@ -205,9 +230,11 @@ export function NewWorkspaceAppFlow({
     [resources, selectedResourceIds],
   );
   const selectedSecretLabel =
-    selectedSecretIds.length === 0
-      ? "No keys selected"
-      : `${selectedSecretIds.length} key${selectedSecretIds.length === 1 ? "" : "s"} selected`;
+    vaultAccessMode === "all-apps"
+      ? "All keys included"
+      : selectedSecretIds.length === 0
+        ? "No keys selected"
+        : `${selectedSecretIds.length} key${selectedSecretIds.length === 1 ? "" : "s"} selected`;
   const selectedResourceLabel =
     selectedResourceIds.length === 0
       ? "No resources selected"
@@ -226,8 +253,12 @@ export function NewWorkspaceAppFlow({
     const message = buildNewWorkspaceAppPrompt({
       appId,
       prompt,
-      selectedKeys: selectedSecrets.map((s) => s.credentialKey),
+      selectedKeys:
+        vaultAccessMode === "manual"
+          ? selectedSecrets.map((s) => s.credentialKey)
+          : [],
       selectedResources,
+      vaultAccessMode,
     });
     setIsSubmitting(true);
     setStatusMessage(null);
@@ -249,7 +280,7 @@ export function NewWorkspaceAppFlow({
             body: JSON.stringify({
               prompt,
               appId,
-              secretIds: selectedSecretIds,
+              secretIds: vaultAccessMode === "manual" ? selectedSecretIds : [],
               resourceIds: selectedResourceIds,
             }),
           },
@@ -332,7 +363,11 @@ export function NewWorkspaceAppFlow({
             </div>
           </div>
           <div className="max-h-[220px] space-y-2 overflow-y-auto p-3">
-            {secretsError ? (
+            {vaultAccessMode === "all-apps" ? (
+              <p className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
+                Every saved Dispatch vault key is available to new apps.
+              </p>
+            ) : secretsError ? (
               <p className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
                 {secretsError}
               </p>

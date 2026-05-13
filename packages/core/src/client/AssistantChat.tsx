@@ -33,13 +33,14 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type { ChatThreadScope } from "./use-chat-threads.js";
 import { getActiveRun } from "./active-run-state.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
   readSSEStreamRaw,
 } from "./sse-event-processor.js";
-import { captureError } from "./analytics.js";
+import { captureError, trackEvent } from "./analytics.js";
 import { cn } from "./utils.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
@@ -2394,6 +2395,7 @@ function BuilderConnectCta({
 }) {
   const { configured, orgName, connecting, error, start } =
     useBuilderConnectFlow({
+      trackingSource: "assistant_chat_builder_cta",
       onConnected,
     });
 
@@ -2745,6 +2747,14 @@ function RunErrorRecoveryCard({
             href={agentNativePath("/_agent-native/builder/connect")}
             target="_blank"
             rel="noreferrer"
+            onClick={() => {
+              trackEvent("builder connect clicked", {
+                feature: "builder",
+                stage: "client",
+                source: "assistant_chat_reconnect_error",
+                connect_url_kind: "default",
+              });
+            }}
             className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
           >
             <IconExternalLink size={13} />
@@ -3043,8 +3053,12 @@ export interface AssistantChatProps {
   apiUrl?: string;
   /** Stable tab identifier passed to the adapter for event correlation */
   tabId?: string;
+  /** Stable browser tab id used for tab-scoped app-state context. */
+  browserTabId?: string;
   /** Thread ID for SQL-backed persistence. When set, messages are loaded from and saved to the server. */
   threadId?: string;
+  /** Resource scope to include with chat requests for server-side context. */
+  contextScope?: ChatThreadScope | null;
   /** Placeholder text for empty state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
@@ -4833,7 +4847,9 @@ export const AssistantChat = forwardRef<
   {
     apiUrl = agentNativePath("/_agent-native/agent-chat"),
     tabId,
+    browserTabId,
     threadId,
+    contextScope,
     ...props
   },
   ref,
@@ -4846,6 +4862,8 @@ export const AssistantChat = forwardRef<
   effortRef.current = props.selectedEffort;
   const execModeRef = useRef<"build" | "plan" | undefined>(props.execMode);
   execModeRef.current = props.execMode;
+  const scopeRef = useRef<ChatThreadScope | null | undefined>(contextScope);
+  scopeRef.current = contextScope;
 
   const adapter = useMemo(
     () =>
@@ -4857,8 +4875,10 @@ export const AssistantChat = forwardRef<
         engineRef,
         effortRef,
         execModeRef,
+        browserTabId,
+        scopeRef,
       }),
-    [apiUrl, tabId, threadId],
+    [apiUrl, tabId, threadId, browserTabId],
   );
   const attachmentAdapter = useMemo(
     () =>

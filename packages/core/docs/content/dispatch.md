@@ -17,7 +17,7 @@ Reach for Dispatch when any of these are true:
 
 - You're running a [multi-app workspace](/docs/multi-app-workspace) — mail, calendar, analytics, content, recruiting — and you don't want one Slack bot per app.
 - You want **one inbox for "the agent"** so users DM a single bot and the right specialist app picks up the work behind the scenes.
-- You have **workspace-wide secrets** (Stripe key, OpenAI key, third-party API tokens) that several apps need but you'd rather grant per-app than copy into every `.env`.
+- You have **workspace-wide secrets** (Stripe key, OpenAI key, third-party API tokens) that several apps need and you want one vault instead of copying values into every `.env`.
 - You want a **runtime approval flow** in front of sensitive changes (saved destinations, policy edits) so non-admins can request and admins can sign off without a code deploy.
 - You want **shared skills, instructions, and agent profiles** that every app in the workspace inherits — change once, reach all.
 
@@ -35,7 +35,7 @@ See [Messaging](/docs/messaging) for the credentials and webhook URLs for each p
 
 ### Secret vault
 
-Store credentials once in Dispatch's vault and grant them to the apps that need them. Non-admins can **request** a secret for an app; admins **approve**, which creates the secret + grant in one step. Every read, grant, sync, and rotation is captured in an audit log. `sync-vault-to-app` pushes granted secrets into the target app's env so you don't have to redeploy or re-paste anything.
+Store credentials once in Dispatch's vault. By default, vault access is **all apps**: every saved key is available to every workspace app, and `sync-vault-to-app` pushes the full vault to the target app. Workspaces that need stricter separation can switch the vault to **manual** mode, where explicit per-app grants are required before sync. Non-admins can **request** a secret for an app; admins **approve**, which creates the secret and, in manual workflows, the grant. Every read, grant, sync, and rotation is captured in an audit log.
 
 This is what makes "rotate the OpenAI key" a one-click operation across ten apps instead of ten PRs.
 
@@ -83,7 +83,7 @@ Three short steps:
 2. **Connect messaging.** Open **Settings → Messaging** in Dispatch and click connect for Slack, Email, Telegram, or WhatsApp. The form fields match the env vars in the [Messaging](/docs/messaging) doc — refer there for what each platform needs.
 3. **Add other apps.** Run `npx @agent-native/core add-app` from the workspace root for each domain app. They auto-appear as A2A peers in Dispatch's `list-workspace-apps` — no manual registration, no agent-card editing. Dispatch will start delegating to them as soon as their agent cards are reachable.
 
-Then add credentials to the vault, grant them to the apps that need them, and (optionally) author workspace skills under **Resources** and sync them out.
+Then add credentials to the vault, sync them to apps, and (optionally) author workspace skills under **Resources** and sync them out. If you need per-app secret isolation, switch the vault access setting to manual before granting individual apps.
 
 ## See also {#see-also}
 

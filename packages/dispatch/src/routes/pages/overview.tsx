@@ -617,7 +617,7 @@ export default function OverviewRoute() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Vault secrets"
-            help="Credentials stored in the workspace vault. Grant them to apps from the Vault page."
+            help="Credentials stored in the workspace vault."
             value={data?.vault?.secretCount || 0}
             icon={IconKey}
             cta={
@@ -629,8 +629,16 @@ export default function OverviewRoute() {
             }
           />
           <StatCard
-            label="Active grants"
-            help="Secrets currently granted to apps. Sync them to push credentials."
+            label={
+              data?.vault?.accessMode === "manual"
+                ? "Active grants"
+                : "Accessible keys"
+            }
+            help={
+              data?.vault?.accessMode === "manual"
+                ? "Secrets currently granted to apps. Sync them to push credentials."
+                : "Vault keys available to every workspace app."
+            }
             value={data?.vault?.activeGrantCount || 0}
             icon={IconShieldCheck}
           />

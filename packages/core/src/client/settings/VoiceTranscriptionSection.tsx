@@ -22,7 +22,10 @@ import {
   IconLockOpen,
   IconMicrophone,
 } from "@tabler/icons-react";
-import { useBuilderStatus } from "./useBuilderStatus.js";
+import {
+  openBuilderConnectPopup,
+  useBuilderStatus,
+} from "./useBuilderStatus.js";
 
 type TranscriptionMode = "mac-native" | "google-realtime" | "batch";
 
@@ -333,12 +336,10 @@ export function VoiceTranscriptionSection() {
   };
 
   const openBuilderConnect = () => {
-    if (typeof window === "undefined") return;
-    const url = new URL(
-      agentNativePath("/_agent-native/builder/connect"),
-      window.location.origin,
-    ).href;
-    window.open(url, "_blank", "noopener,noreferrer,width=600,height=700");
+    openBuilderConnectPopup({
+      source: "voice_transcription_settings",
+      features: "noopener,noreferrer,width=600,height=700",
+    });
   };
 
   const chooseBatchProvider = (next: Provider) => {

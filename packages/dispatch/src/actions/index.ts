@@ -15,6 +15,7 @@ import denyVaultRequest from "./deny-vault-request.js";
 import getAppCreationSettings from "./get-app-creation-settings.js";
 import getAgentThreadDebug from "./get-agent-thread-debug.js";
 import getDispatchSettings from "./get-dispatch-settings.js";
+import getVaultAccessSettings from "./get-vault-access-settings.js";
 import getWorkspaceInfo from "./get-workspace-info.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
@@ -48,11 +49,13 @@ import searchAgentThreads from "./search-agent-threads.js";
 import sendPlatformMessage from "./send-platform-message.js";
 import setAppCreationSettings from "./set-app-creation-settings.js";
 import setDispatchApprovalPolicy from "./set-dispatch-approval-policy.js";
+import setVaultAccessSettings from "./set-vault-access-settings.js";
 import startWorkspaceAppCreation from "./start-workspace-app-creation.js";
 import syncVaultToApp from "./sync-vault-to-app.js";
 import syncWorkspaceResourcesToAll from "./sync-workspace-resources-to-all.js";
 import syncWorkspaceResourcesToApp from "./sync-workspace-resources-to-app.js";
 import unarchiveWorkspaceApp from "./unarchive-workspace-app.js";
+import updateWorkspaceAppMetadata from "./update-workspace-app-metadata.js";
 import updateVaultSecret from "./update-vault-secret.js";
 import updateWorkspaceResource from "./update-workspace-resource.js";
 import upsertDestination from "./upsert-destination.js";
@@ -81,6 +84,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "get-app-creation-settings": getAppCreationSettings,
   "get-agent-thread-debug": getAgentThreadDebug,
   "get-dispatch-settings": getDispatchSettings,
+  "get-vault-access-settings": getVaultAccessSettings,
   "get-workspace-info": getWorkspaceInfo,
   "grant-workspace-resources-to-app": grantWorkspaceResourcesToApp,
   "grant-vault-secrets-to-app": grantVaultSecretsToApp,
@@ -114,11 +118,13 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "send-platform-message": sendPlatformMessage,
   "set-app-creation-settings": setAppCreationSettings,
   "set-dispatch-approval-policy": setDispatchApprovalPolicy,
+  "set-vault-access-settings": setVaultAccessSettings,
   "start-workspace-app-creation": startWorkspaceAppCreation,
   "sync-vault-to-app": syncVaultToApp,
   "sync-workspace-resources-to-all": syncWorkspaceResourcesToAll,
   "sync-workspace-resources-to-app": syncWorkspaceResourcesToApp,
   "unarchive-workspace-app": unarchiveWorkspaceApp,
+  "update-workspace-app-metadata": updateWorkspaceAppMetadata,
   "update-vault-secret": updateVaultSecret,
   "update-workspace-resource": updateWorkspaceResource,
   "upsert-destination": upsertDestination,

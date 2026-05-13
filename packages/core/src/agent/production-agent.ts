@@ -44,6 +44,7 @@ import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   getRequestRunContext,
+  ensureRequestRunContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -69,6 +70,48 @@ import { preUploadImageAttachments } from "../file-upload/pre-upload-attachments
 registerBuiltinEngines();
 
 export { PROVIDER_TO_ENV };
+
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+function normalizeBrowserTabId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+}
+
+function normalizeChatScope(
+  value: unknown,
+): { type: string; id: string; label?: string } | null | undefined {
+  if (value == null) return null;
+  if (typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type.trim() : "";
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  if (!type || !id || type.length > 64 || id.length > 256) {
+    return undefined;
+  }
+  const label =
+    typeof record.label === "string" && record.label.trim().length > 0
+      ? record.label.trim().slice(0, 256)
+      : undefined;
+  return { type, id, ...(label ? { label } : {}) };
+}
+
+function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
+  return browserTabId ? `${key}:${browserTabId}` : key;
+}
+
+async function readAppStateForBrowserTab<T>(
+  key: string,
+  browserTabId?: string,
+): Promise<T | null> {
+  const tabKey = appStateKeyForBrowserTab(key, browserTabId);
+  if (tabKey !== key) {
+    const scoped = (await readAppState(tabKey).catch(() => null)) as T | null;
+    if (scoped) return scoped;
+  }
+  return (await readAppState(key)) as T | null;
+}
 
 /**
  * Look up a user's persisted API key for the given provider. Returns
@@ -1771,7 +1814,16 @@ export function createProductionAgentHandler(
       model: requestModel,
       engine: requestEngine,
       effort: requestEffort,
+      browserTabId,
+      scope,
     } = body;
+    const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
+    const requestChatScope = normalizeChatScope(scope);
+    const requestRunCtx = ensureRequestRunContext();
+    if (requestRunCtx) {
+      requestRunCtx.browserTabId = requestBrowserTabId;
+      requestRunCtx.chatScope = requestChatScope;
+    }
     const requestMode: AgentExecutionMode =
       body.mode === "plan" ? "plan" : "act";
     const hasMessageText =
@@ -1966,7 +2018,10 @@ export function createProductionAgentHandler(
             return `\n\n<current-screen>\n${screenText}\n</current-screen>`;
           }
         } else {
-          const navigation = await readAppState("navigation");
+          const navigation = await readAppStateForBrowserTab(
+            "navigation",
+            requestBrowserTabId,
+          );
           if (navigation) {
             return `\n\n<current-screen>\n${JSON.stringify(navigation, null, 2)}\n</current-screen>`;
           }
@@ -1979,7 +2034,10 @@ export function createProductionAgentHandler(
 
     const urlContextPromise = (async (): Promise<string> => {
       try {
-        const url = (await readAppState("__url__")) as {
+        const url = (await readAppStateForBrowserTab(
+          "__url__",
+          requestBrowserTabId,
+        )) as {
           pathname?: string;
           search?: string;
           hash?: string;

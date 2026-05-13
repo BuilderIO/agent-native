@@ -16,6 +16,7 @@ import {
   listSecrets,
   listGrants,
   listRequests,
+  getVaultAccessSettings,
 } from "../server/lib/vault-store.js";
 import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
 import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
@@ -78,11 +79,13 @@ export default defineAction({
       }
     }
     if (navigation?.view === "vault" || navigation?.view === "new-app") {
-      const [secrets, grants, requests] = await Promise.all([
+      const [secrets, grants, requests, access] = await Promise.all([
         listSecrets(),
         listGrants(),
         listRequests({ status: "pending" }),
+        getVaultAccessSettings(),
       ]);
+      screen.vaultAccessMode = access.mode;
       screen.vaultSecrets = secrets.map((s) => ({
         id: s.id,
         name: s.name,

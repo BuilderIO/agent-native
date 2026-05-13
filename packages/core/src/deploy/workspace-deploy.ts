@@ -196,6 +196,7 @@ function buildOneApp(
     VITE_AGENT_NATIVE_WORKSPACE: "1",
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
+    VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: JSON.stringify(workspaceApps),
     ...(workspaceGatewayUrl
       ? {
           WORKSPACE_GATEWAY_URL:
@@ -605,6 +606,7 @@ function setBasePathEnv() {
     APP_BASE_PATH: basePath,
     VITE_AGENT_NATIVE_WORKSPACE: "1",
     VITE_APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
 }
@@ -663,6 +665,7 @@ function setBasePathEnv() {
     APP_BASE_PATH: basePath,
     VITE_AGENT_NATIVE_WORKSPACE: "1",
     VITE_APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
 }

@@ -18,6 +18,7 @@ import type {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
 } from "../agent/types.js";
+import type { ChatThreadScope } from "./use-chat-threads.js";
 
 type AdapterHistoryMessage = {
   role: "user" | "assistant";
@@ -600,6 +601,8 @@ export function createAgentChatAdapter(options?: {
   engineRef?: { current: string | undefined };
   effortRef?: { current: ReasoningEffort | undefined };
   execModeRef?: { current: "build" | "plan" | undefined };
+  browserTabId?: string;
+  scopeRef?: { current: ChatThreadScope | null | undefined };
 }): ChatModelAdapter {
   const apiUrl =
     options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
@@ -609,6 +612,8 @@ export function createAgentChatAdapter(options?: {
   const engineRef = options?.engineRef;
   const effortRef = options?.effortRef;
   const execModeRef = options?.execModeRef;
+  const browserTabId = options?.browserTabId;
+  const scopeRef = options?.scopeRef;
 
   return {
     async *run({ messages, abortSignal, runConfig }) {
@@ -1112,6 +1117,8 @@ export function createAgentChatAdapter(options?: {
                 ...(modelRef?.current ? { model: modelRef.current } : {}),
                 ...(engineRef?.current ? { engine: engineRef.current } : {}),
                 ...(effortRef?.current ? { effort: effortRef.current } : {}),
+                ...(browserTabId ? { browserTabId } : {}),
+                ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
                 ...(includeAttachments ? { attachments } : {}),
                 ...(includeReferences && runConfig?.custom?.references
                   ? { references: runConfig.custom.references }

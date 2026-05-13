@@ -1002,6 +1002,13 @@ ${
         return false;
       }
     }
+    function __anIsAgentNativeDesktop() {
+      try {
+        return (navigator.userAgent || '').indexOf('AgentNativeDesktop') !== -1;
+      } catch(e) {
+        return false;
+      }
+    }
     function __anIsElectron() {
       try {
         return (navigator.userAgent || '').indexOf('Electron') !== -1;
@@ -1133,6 +1140,18 @@ ${
         __anShowOAuthError(err, btn, 'Could not open Google popup for flow ' + __anFlowDebugId(flowId) + ': ' + (e && e.message ? e.message : 'unknown error'));
         return;
       }
+      __anWaitForOAuthExchange(flowId, ret, btn, err);
+    }
+    function __anStartNativeDesktopOAuth(ret, btn, err) {
+      var flowId = __anNewOAuthFlowId();
+      var params = new URLSearchParams();
+      if (ret) params.set('return', ret);
+      params.set('desktop', '1');
+      params.set('flow_id', flowId);
+      params.set('redirect', '1');
+      var url = __anPath('/_agent-native/google/auth-url') + '?' + params.toString();
+      __anSetOAuthDebug('Opening Google sign-in in system browser', flowId);
+      __anOpenOAuthUrl(url);
       __anWaitForOAuthExchange(flowId, ret, btn, err);
     }
     function __anOpenOAuthUrl(url) {
@@ -1615,6 +1634,10 @@ ${
     err.classList.remove('show');
     if (__anResolveAuthFlow() === 'popup') {
       __anStartPopupOAuth(ret, btn, err);
+      return;
+    }
+    if (__anIsAgentNativeDesktop()) {
+      __anStartNativeDesktopOAuth(ret, btn, err);
       return;
     }
     if (__anIsBuilderPreview()) {

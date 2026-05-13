@@ -95,10 +95,12 @@ function ConnectDialog({
   service,
   open,
   onOpenChange,
+  accessMode,
 }: {
   service: Service;
   open: boolean;
   onOpenChange: (next: boolean) => void;
+  accessMode: "all-apps" | "manual";
 }) {
   const [value, setValue] = useState("");
   const qc = useQueryClient();
@@ -133,16 +135,18 @@ function ConnectDialog({
         throw new Error("Secret created but id missing");
       }
 
-      // 2. Grant + sync to every app that declared this credential.
-      const targets = service.apps.filter((a) => !a.vaultGranted);
-      for (const app of targets) {
-        try {
-          await createGrant.mutateAsync({
-            secretId,
-            appId: app.appId,
-          });
-        } catch (err) {
-          console.warn(`grant to ${app.appId} failed`, err);
+      // 2. Manual mode needs grants; all-apps mode only needs sync.
+      if (accessMode === "manual") {
+        const targets = service.apps.filter((a) => !a.vaultGranted);
+        for (const app of targets) {
+          try {
+            await createGrant.mutateAsync({
+              secretId,
+              appId: app.appId,
+            });
+          } catch (err) {
+            console.warn(`grant to ${app.appId} failed`, err);
+          }
         }
       }
       for (const app of service.apps) {
@@ -222,7 +226,13 @@ function ConnectDialog({
   );
 }
 
-function ConnectorCard({ service }: { service: Service }) {
+function ConnectorCard({
+  service,
+  accessMode,
+}: {
+  service: Service;
+  accessMode: "all-apps" | "manual";
+}) {
   const [open, setOpen] = useState(false);
   const isConnected = service.apps.some((a) => a.configured);
   const appCount = service.apps.length;
@@ -273,7 +283,12 @@ function ConnectorCard({ service }: { service: Service }) {
           Used by {appCount} {appCount === 1 ? "app" : "apps"}
         </div>
       </button>
-      <ConnectDialog service={service} open={open} onOpenChange={setOpen} />
+      <ConnectDialog
+        service={service}
+        open={open}
+        onOpenChange={setOpen}
+        accessMode={accessMode}
+      />
     </>
   );
 }
@@ -307,7 +322,13 @@ export default function ConnectionsRoute() {
     "list-integrations-catalog",
     {},
   );
+  const { data: accessSettings } = useActionQuery(
+    "get-vault-access-settings",
+    {},
+  );
   const apps = (catalog as CatalogApp[]) || [];
+  const accessMode =
+    (accessSettings as any)?.mode === "manual" ? "manual" : "all-apps";
 
   const services = useMemo<Service[]>(() => {
     const map = new Map<string, Service>();
@@ -367,7 +388,11 @@ export default function ConnectionsRoute() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {available.map((service) => (
-              <ConnectorCard key={service.key} service={service} />
+              <ConnectorCard
+                key={service.key}
+                service={service}
+                accessMode={accessMode}
+              />
             ))}
           </div>
         </section>
@@ -383,7 +408,11 @@ export default function ConnectionsRoute() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {connected.map((service) => (
-              <ConnectorCard key={service.key} service={service} />
+              <ConnectorCard
+                key={service.key}
+                service={service}
+                accessMode={accessMode}
+              />
             ))}
           </div>
         </section>

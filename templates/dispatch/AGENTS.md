@@ -94,11 +94,18 @@ export const dispatchExtensions = {
 
 ### Vault (workspace-wide secrets)
 
+Vault access is `all-apps` by default: every saved key is available to every
+workspace app and `sync-vault-to-app` pushes all vault keys to the target app.
+Switch to `manual` only when the workspace needs explicit per-app grants; in
+manual mode, create grants before syncing.
+
 - `list-workspace-apps`: list apps installed in the workspace and their mounted paths; when `url` is present, use it for links in Slack/email replies instead of returning only the relative path. When the user asks whether workspace apps have agent cards or A2A endpoints, call this with `includeAgentCards: true`; without that probe, missing `agentCard*`/`a2aEndpointUrl` fields mean "not checked", not "none".
 - `get-workspace-info`: read the workspace's identity (name, displayName, app count) from the workspace root package.json. Use when a user asks "what workspace am I in" or you need to refer to the workspace by name in a reply.
 - `get-app-creation-settings`: see whether production app creation can use a Builder project
 - `set-app-creation-settings`: set the default Builder project ID in Dispatch settings without writing env vars or files
 - `start-workspace-app-creation`: start a request that truly needs a new workspace app; in local dev, use the returned prompt with the local code agent, and in production it posts the request to Builder branch creation when a Builder project is configured. The branch must create a separate workspace app under `apps/<app-id>`, not add a route or file to `apps/starter`.
+- `get-vault-access-settings`: read whether vault access is `all-apps` or `manual`
+- `set-vault-access-settings`: switch between default all-apps vault access and manual per-app grants
 - `list-vault-secrets`: list all secrets in the vault (values are masked)
 - `list-vault-secret-options`: list vault secrets for app-creation key pickers without exposing values
 - `create-vault-secret`: store a new secret (admin only)
@@ -159,7 +166,7 @@ export const dispatchExtensions = {
 - Analytics requests, including pageviews, traffic, visits, views, conversions, and dashboard metrics, belong to the Analytics app. Delegate them to the analytics agent with `call-agent`.
 - Keep outbound messages concise and operational.
 - When a user asks about integrations or credentials, use `list-integrations-catalog` to check cross-app status.
-- After granting a secret to an app, always offer to sync it immediately with `sync-vault-to-app`.
+- In default all-apps vault mode, do not create per-app grants for new apps; sync the target app when credentials need to be pushed. In manual vault mode, after granting a secret to an app, always offer to sync it immediately with `sync-vault-to-app`.
 - When a user asks to create, build, make, scaffold, or generate an "agent" from Dispatch chat or by tagging `@agent-native` in Slack/email/Telegram, first classify the ask. If it is a simple Dispatch-native behavior like a reminder, digest, monitor, routing rule, saved instruction, or recurring workflow, create or update the recurring job/resource/destination in Dispatch. If it is a robust unique product or teammate that needs its own UI, data model, actions, integrations, or domain workflow, treat it as a new workspace app and use `start-workspace-app-creation`.
 - When a user explicitly asks for a new app or workspace app from Slack, email, Telegram, or chat, use `start-workspace-app-creation`.
 - New-app requests from Dispatch create a **new workspace app** that appears in the workspace apps list. Do not satisfy them by adding a route, page, component, or file inside `apps/starter` or any other existing app unless the user explicitly asks to modify that existing app.

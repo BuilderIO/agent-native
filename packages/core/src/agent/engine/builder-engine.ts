@@ -60,6 +60,7 @@ export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 // streaming + the soft-timeout continuation path in run-loop-with-resume.
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
 const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
+const DEFAULT_BUILDER_MAX_OUTPUT_TOKENS = 32768;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
 
 export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
@@ -153,9 +154,7 @@ class BuilderEngine implements AgentEngine {
       messages,
       ...(opts.systemPrompt ? { system: opts.systemPrompt } : {}),
       ...(tools.length > 0 ? { tools } : {}),
-      ...(opts.maxOutputTokens !== undefined
-        ? { max_tokens: opts.maxOutputTokens }
-        : {}),
+      max_tokens: opts.maxOutputTokens ?? DEFAULT_BUILDER_MAX_OUTPUT_TOKENS,
       ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };
 

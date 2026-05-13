@@ -44,6 +44,8 @@ interface WorkspaceResourceOption {
   updatedAt?: number;
 }
 
+type VaultAccessMode = "all-apps" | "manual";
+
 interface CreateAppPopoverProps {
   /**
    * Custom trigger element. Defaults to a dashed-border tile that matches the
@@ -78,11 +80,15 @@ function buildAppCreationPrompt(input: {
   prompt: string;
   selectedKeys: string[];
   selectedResources: WorkspaceResourceOption[];
+  vaultAccessMode: VaultAccessMode;
 }): string {
   const keyList = input.selectedKeys.join(", ");
-  const grantRequest = keyList
-    ? `Requested Dispatch vault key grants for this app: ${keyList}`
-    : `Requested Dispatch vault key grants for this app: none`;
+  const grantRequest =
+    input.vaultAccessMode === "all-apps"
+      ? `Dispatch vault access: all saved vault keys are available to every workspace app by default. No per-app vault grants are needed.`
+      : keyList
+        ? `Requested Dispatch vault key grants for this app: ${keyList}`
+        : `Requested Dispatch vault key grants for this app: none`;
   const resourceList = input.selectedResources.length
     ? input.selectedResources
         .map(
@@ -98,6 +104,7 @@ function buildAppCreationPrompt(input: {
     ``,
     `Suggested app name: ${input.appId} (you may adjust the slug if it conflicts)`,
     `User prompt: ${input.prompt.trim()}`,
+    `Generate a concise one-sentence app description from the user prompt before coding; save it in apps/${input.appId}/package.json "description" so Dispatch and A2A can describe the app.`,
     `If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.`,
     grantRequest,
     `Requested Dispatch workspace resources for this app:\n${resourceList}`,
@@ -112,18 +119,20 @@ function buildAppCreationPrompt(input: {
     `Do not clone first-party templates, create wrapper apps, or scaffold child apps/routes for Mail, Calendar, Analytics, etc. inside apps/${input.appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
     `Only create another first-party app copy when the user explicitly asks for a customized fork/copy of that app; otherwise keep using the hosted/shared app so improvements to the base template keep flowing to users.`,
     `Do not satisfy this by adding a route, page, component, or file inside apps/starter or another existing app unless the user explicitly asks to modify that existing app.`,
-    keyList
-      ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
-      : `Do not grant any Dispatch vault keys unless the user asks later.`,
+    input.vaultAccessMode === "all-apps"
+      ? `Do not create per-app Dispatch vault grants unless the workspace switches vault access to manual or the user explicitly asks for manual grants.`
+      : keyList
+        ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
+        : `Do not grant any Dispatch vault keys unless the user asks later.`,
     input.selectedResources.length
       ? `After the app exists, grant the selected Dispatch workspace resources to appId "${input.appId}" and sync them once the app server is available. Add a short note to apps/${input.appId}/AGENTS.md telling the app agent to read relevant shared resources under context/ or the selected resource paths before doing GTM/domain work.`
       : `Do not grant any Dispatch workspace resources unless the user asks later.`,
     ``,
     `App readiness requirements before handing off:`,
-    `- Ensure apps/${input.appId}/package.json exists; Dispatch discovers workspace apps from apps/<app-id>/package.json, not a separate app registry.`,
+    `- Ensure apps/${input.appId}/package.json exists with displayName/name and a concise description; Dispatch discovers workspace apps from apps/<app-id>/package.json, not a separate app registry.`,
     `- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model.`,
     `- Ensure the React Router client entry preserves APP_BASE_PATH/VITE_APP_BASE_PATH via appBasePath() so /${input.appId} hydrates correctly.`,
-    `- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment.`,
+    `- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment. Every sibling workspace app is available over A2A by default through call-agent, with names and descriptions from the workspace app registry.`,
     `When it is ready, start or update the workspace dev server and navigate the user to the absolute path /${input.appId} on the workspace origin. Do not prefix with /dispatch/, /apps/, /workspace/, or any other Dispatch tab — the new app is mounted at the workspace root, not under Dispatch. If you have a navigate tool available, pass /${input.appId} verbatim; if you only have a window.location-style escape hatch, set it to /${input.appId}.`,
   ].join("\n");
 }
@@ -170,6 +179,8 @@ export function CreateAppFlow({
   const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
   const [secrets, setSecrets] = useState<VaultSecretOption[]>([]);
   const [resources, setResources] = useState<WorkspaceResourceOption[]>([]);
+  const [vaultAccessMode, setVaultAccessMode] =
+    useState<VaultAccessMode>("all-apps");
   const [secretsError, setSecretsError] = useState<string | null>(null);
   const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -192,6 +203,15 @@ export function CreateAppFlow({
         if (cancelled) return;
         setSecrets([]);
         setSecretsError(err?.message || "Could not load Dispatch keys");
+      });
+    fetchJson(actionUrl(basePath, "get-vault-access-settings"))
+      .then((data) => {
+        if (cancelled) return;
+        setVaultAccessMode(data?.mode === "manual" ? "manual" : "all-apps");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setVaultAccessMode("manual");
       });
     fetchJson(actionUrl(basePath, "list-workspace-resource-options"))
       .then((data) => {
@@ -218,9 +238,11 @@ export function CreateAppFlow({
     [resources, selectedResourceIds],
   );
   const selectedSecretLabel =
-    selectedSecretIds.length === 0
-      ? "no keys"
-      : `${selectedSecretIds.length} key${selectedSecretIds.length === 1 ? "" : "s"}`;
+    vaultAccessMode === "all-apps"
+      ? "all keys"
+      : selectedSecretIds.length === 0
+        ? "no keys"
+        : `${selectedSecretIds.length} key${selectedSecretIds.length === 1 ? "" : "s"}`;
   const selectedResourceLabel =
     selectedResourceIds.length === 0
       ? "no resources"
@@ -254,8 +276,12 @@ export function CreateAppFlow({
     const message = buildAppCreationPrompt({
       appId,
       prompt: trimmed,
-      selectedKeys: selectedSecrets.map((s) => s.credentialKey),
+      selectedKeys:
+        vaultAccessMode === "manual"
+          ? selectedSecrets.map((s) => s.credentialKey)
+          : [],
       selectedResources,
+      vaultAccessMode,
     });
     setIsSubmitting(true);
     setStatusMessage(null);
@@ -279,7 +305,10 @@ export function CreateAppFlow({
             body: JSON.stringify({
               prompt: trimmed,
               appId,
-              secretIds: selectedSecretIds.length > 0 ? selectedSecretIds : [],
+              secretIds:
+                vaultAccessMode === "manual" && selectedSecretIds.length > 0
+                  ? selectedSecretIds
+                  : [],
               resourceIds:
                 selectedResourceIds.length > 0 ? selectedResourceIds : [],
             }),
@@ -351,7 +380,11 @@ export function CreateAppFlow({
               <IconKey size={12} />
               Dispatch keys
             </div>
-            {secretsError ? (
+            {vaultAccessMode === "all-apps" ? (
+              <p className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
+                Every saved Dispatch vault key is available to new apps.
+              </p>
+            ) : secretsError ? (
               <p className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
                 {secretsError}
               </p>

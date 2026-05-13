@@ -23,6 +23,14 @@ export default defineAction({
       .optional()
       .nullable()
       .describe("Template to start from"),
+    description: z
+      .string()
+      .max(500)
+      .optional()
+      .nullable()
+      .describe(
+        "Concise AI-generated description of the app based on the user's prompt. Dispatch saves this while the app is being created.",
+      ),
     secretIds: z
       .array(z.string())
       .max(100)

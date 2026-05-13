@@ -173,10 +173,29 @@ describe("createBuilderEngine", () => {
 
     const body = JSON.parse(init.body);
     expect(body.model).toBe("claude-sonnet-4-6");
+    expect(body.max_tokens).toBe(32768);
     expect(body.system).toBe("You are helpful.");
     expect(body.messages).toEqual([
       { role: "user", content: [{ type: "text", text: "Hi" }] },
     ]);
+  });
+
+  it("honors an explicit max output token override", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream({ ...BASE_OPTS, maxOutputTokens: 1024 }));
+
+    const [, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.max_tokens).toBe(1024);
   });
 
   it("streams text-delta events and emits assistant-content + stop(end_turn)", async () => {

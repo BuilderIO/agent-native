@@ -8,6 +8,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { agentNativePath } from "../api-path.js";
+import { trackEvent } from "../analytics.js";
 
 const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
 
@@ -230,6 +231,14 @@ export function CodeRequiredDialog({
               href={builderHref}
               target="_blank"
               rel="noreferrer"
+              onClick={() => {
+                trackEvent("builder connect clicked", {
+                  feature: "builder",
+                  stage: "client",
+                  source: "code_required_dialog",
+                  connect_url_kind: connectUrl ? "provided" : "default",
+                });
+              }}
               style={{ ...s.optionCard, ...s.optionLink }}
               onMouseEnter={(e) =>
                 Object.assign(e.currentTarget.style, s.optionCardHover)

@@ -8,6 +8,7 @@ import {
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
+import { trackEvent } from "../analytics.js";
 
 interface AgentsRunResult {
   branchName: string | null;
@@ -71,6 +72,14 @@ export function BackgroundAgentSection() {
           {builder?.connectUrl && (
             <a
               href={builder.connectUrl}
+              onClick={() => {
+                trackEvent("builder connect clicked", {
+                  feature: "builder",
+                  stage: "client",
+                  source: "background_agent_settings",
+                  connect_url_kind: "provided",
+                });
+              }}
               className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80"
             >
               Connect Builder

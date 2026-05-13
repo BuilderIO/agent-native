@@ -283,6 +283,13 @@ function createRefreshScreenEntry(): Record<string, ActionEntry> {
 
 /** Well-known application-state key used by the refresh-screen tool. */
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+function appStateKeyForBrowserTab(key: string, browserTabId: unknown): string {
+  if (typeof browserTabId !== "string") return key;
+  const trimmed = browserTabId.trim();
+  return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? `${key}:${trimmed}` : key;
+}
 
 /**
  * In-memory rate-limit tracker for `/generate-title`. Keyed by user email,
@@ -336,16 +343,22 @@ function createUrlTools(): Record<string, ActionEntry> {
         const merge = (args as any)?.merge !== "false";
         const { writeAppState } =
           await import("../application-state/script-helpers.js");
-        await writeAppState("__set_url__", {
-          searchParams: params,
-          mergeSearchParams: merge,
-          // Unique-per-write token. The client's URLSync hook dedups by this
-          // so a fire-and-forget DELETE that loses its race against the next
-          // polling refetch can't cause the same URL command to be applied
-          // repeatedly (which caused the editor to bounce between slides
-          // when an agent turn errored partway through).
-          _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        });
+        await writeAppState(
+          appStateKeyForBrowserTab(
+            "__set_url__",
+            getRequestRunContext()?.browserTabId,
+          ),
+          {
+            searchParams: params,
+            mergeSearchParams: merge,
+            // Unique-per-write token. The client's URLSync hook dedups by this
+            // so a fire-and-forget DELETE that loses its race against the next
+            // polling refetch can't cause the same URL command to be applied
+            // repeatedly (which caused the editor to bounce between slides
+            // when an agent turn errored partway through).
+            _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          },
+        );
         const keys = Object.keys(params);
         return `set-search-params: ${keys.length} key${keys.length === 1 ? "" : "s"}${merge ? "" : " (replace)"}`;
       },
@@ -391,15 +404,21 @@ function createUrlTools(): Record<string, ActionEntry> {
         const merge = (args as any)?.merge !== "false";
         const { writeAppState } =
           await import("../application-state/script-helpers.js");
-        await writeAppState("__set_url__", {
-          pathname,
-          searchParams: params,
-          mergeSearchParams: merge,
-          // See note in set-search-params: unique-per-write dedup token so a
-          // race between GET and consume-DELETE in URLSync can't re-apply
-          // this command.
-          _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        });
+        await writeAppState(
+          appStateKeyForBrowserTab(
+            "__set_url__",
+            getRequestRunContext()?.browserTabId,
+          ),
+          {
+            pathname,
+            searchParams: params,
+            mergeSearchParams: merge,
+            // See note in set-search-params: unique-per-write dedup token so a
+            // race between GET and consume-DELETE in URLSync can't re-apply
+            // this command.
+            _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          },
+        );
         return `set-url-path: ${pathname}`;
       },
     },
@@ -2007,6 +2026,7 @@ const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
 async function loadResourcesForPrompt(
   owner: string,
   compact = false,
+  selfAppId?: string,
 ): Promise<string> {
   await ensurePersonalDefaults(owner);
 
@@ -2077,6 +2097,21 @@ async function loadResourcesForPrompt(
         }
       } catch {}
     }
+  }
+
+  try {
+    const agents = (await discoverAgents(selfAppId)).slice(0, 30);
+    if (agents.length > 0) {
+      const lines = agents.map(
+        (agent) =>
+          `- ${agent.name} (${agent.id}) — ${agent.description || "Connected A2A app"}`,
+      );
+      sections.push(
+        `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nUse \`call-agent\` with the app id when another app owns the work or data. Use tool-search or app-specific actions for details only when needed.\n</available-apps>`,
+      );
+    }
+  } catch {
+    // Agent discovery is helpful context, not required for the run.
   }
 
   if (sections.length === 0) return "";
@@ -2926,7 +2961,11 @@ export function createAgentChatPlugin(
           // Build the same system prompt the interactive agent uses
           if (!userEmail) throw new Error("no authenticated user");
           const owner = userEmail;
-          const resources = await loadResourcesForPrompt(owner, lazyContext);
+          const resources = await loadResourcesForPrompt(
+            owner,
+            lazyContext,
+            options?.appId,
+          );
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, devActive);
@@ -3155,6 +3194,7 @@ export function createAgentChatPlugin(
           const resources = await loadResourcesForPrompt(
             SHARED_OWNER,
             lazyContext,
+            options?.appId,
           );
           const schemaBlock = lazyContext
             ? ""
@@ -3803,7 +3843,11 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
               leanBasePrompt + runtimeContext + browserLocalDev + extra,
             );
           }
-          const resources = await loadResourcesForPrompt(owner, lazyContext);
+          const resources = await loadResourcesForPrompt(
+            owner,
+            lazyContext,
+            options?.appId,
+          );
           // In lazy context mode, skip embedding the full schema — the agent
           // calls `db-schema` on demand. This saves ~1-2K tokens per request.
           const schemaBlock = lazyContext
@@ -3951,7 +3995,11 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
                 leanBasePrompt + runtimeContext + extra,
               );
             }
-            const resources = await loadResourcesForPrompt(owner, lazyContext);
+            const resources = await loadResourcesForPrompt(
+              owner,
+              lazyContext,
+              options?.appId,
+            );
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(owner, true);
@@ -5176,7 +5224,11 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             ...toolActions,
           }),
           getSystemPrompt: async (owner: string) => {
-            const resources = await loadResourcesForPrompt(owner, lazyContext);
+            const resources = await loadResourcesForPrompt(
+              owner,
+              lazyContext,
+              options?.appId,
+            );
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(owner, false);
@@ -5219,7 +5271,11 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             ...toolActions,
           }),
           getSystemPrompt: async (owner: string) => {
-            const resources = await loadResourcesForPrompt(owner, lazyContext);
+            const resources = await loadResourcesForPrompt(
+              owner,
+              lazyContext,
+              options?.appId,
+            );
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(owner, false);

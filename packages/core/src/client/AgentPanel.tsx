@@ -77,6 +77,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
 import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
+import { trackEvent } from "./analytics.js";
 import { getFrameOrigin, isInFrame, isTrustedFrameMessage } from "./frame.js";
 import {
   getInitialAgentSidebarOpen,
@@ -364,6 +365,8 @@ export interface AgentPanelProps extends Omit<
    * from the current route — see the `Layout` files for each template.
    */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Stable browser tab id used for tab-scoped app-state context. */
+  browserTabId?: string;
   /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
   /** Capability gate for source edits, workspace files, and CLI access. */
@@ -437,6 +440,14 @@ function CodeAccessUnavailablePanel({
           href={builderHref}
           target="_blank"
           rel="noreferrer"
+          onClick={() => {
+            trackEvent("builder connect clicked", {
+              feature: "builder",
+              stage: "client",
+              source: "code_access_unavailable_panel",
+              connect_url_kind: builderConnectUrl ? "provided" : "fallback",
+            });
+          }}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
         >
           {secondaryCtaLabel}
@@ -460,6 +471,7 @@ function AgentPanelInner({
   devAppUrl,
   storageKey,
   scope,
+  browserTabId,
   chatNotice,
   codeAccess,
 }: AgentPanelProps) {
@@ -1330,6 +1342,7 @@ function AgentPanelInner({
             onExecModeChange={switchExecMode}
             storageKey={storageKey}
             scope={scope}
+            browserTabId={browserTabId}
           />
         )}
       </div>
@@ -1572,10 +1585,26 @@ function ResizeHandle({
  *                 the command, applies it via react-router, then deletes
  *                 the key. The UI reacts in one tick, no page reload.
  */
-function URLSync() {
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+function URLSync({ browserTabId }: { browserTabId?: string }) {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const normalizedBrowserTabId = React.useMemo(() => {
+    if (typeof browserTabId !== "string") return undefined;
+    const trimmed = browserTabId.trim();
+    return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+  }, [browserTabId]);
+  const appStateKey = React.useCallback(
+    (key: string) =>
+      normalizedBrowserTabId ? `${key}:${normalizedBrowserTabId}` : key,
+    [normalizedBrowserTabId],
+  );
+  const setUrlQueryKey = React.useMemo(
+    () => ["__set_url__", normalizedBrowserTabId ?? "global"],
+    [normalizedBrowserTabId],
+  );
 
   // Outbound: write the current URL to app-state whenever it changes.
   React.useEffect(() => {
@@ -1589,13 +1618,22 @@ function URLSync() {
       hash: location.hash,
       searchParams,
     };
-    fetch(agentNativePath("/_agent-native/application-state/__url__"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).catch(() => {});
-  }, [location.pathname, location.search, location.hash]);
+    const write = (key: string) =>
+      fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
+        method: "PUT",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).catch(() => {});
+    write(appStateKey("__url__"));
+    if (normalizedBrowserTabId) write("__url__");
+  }, [
+    appStateKey,
+    location.pathname,
+    location.search,
+    location.hash,
+    normalizedBrowserTabId,
+  ]);
 
   // Inbound: poll for URL-update commands from the agent. `useDbSync`
   // invalidates this key on every relevant app-state event, so default
@@ -1606,18 +1644,34 @@ function URLSync() {
   // when the JSON is unchanged so the useEffect only fires when the command
   // actually changes; the `lastProcessedDedupKeyRef` below covers the residual
   // race window after the cache is cleared to `null`.
-  const { data: command } = useQuery({
-    queryKey: ["__set_url__"],
+  const { data: command } = useQuery<{
+    key: string;
+    command: {
+      pathname?: string;
+      searchParams?: Record<string, string | null>;
+      mergeSearchParams?: boolean;
+      hash?: string;
+      _writeId?: string;
+    };
+  } | null>({
+    queryKey: setUrlQueryKey,
     queryFn: async () => {
-      try {
+      const read = async (key: string) => {
         const res = await fetch(
-          agentNativePath("/_agent-native/application-state/__set_url__"),
+          agentNativePath(`/_agent-native/application-state/${key}`),
         );
         if (!res.ok || res.status === 204) return null;
         const text = await res.text();
         if (!text) return null;
         const data = JSON.parse(text);
-        return data ?? null;
+        return data ? { key, command: data } : null;
+      };
+      try {
+        return (
+          (normalizedBrowserTabId
+            ? await read(appStateKey("__set_url__"))
+            : null) ?? (await read("__set_url__"))
+        );
       } catch {
         return null;
       }
@@ -1630,13 +1684,7 @@ function URLSync() {
 
   React.useEffect(() => {
     if (!command) return;
-    const cmd = command as {
-      pathname?: string;
-      searchParams?: Record<string, string | null>;
-      mergeSearchParams?: boolean;
-      hash?: string;
-      _writeId?: string;
-    };
+    const cmd = command.command;
     const dedupKey =
       cmd._writeId ??
       JSON.stringify({
@@ -1650,18 +1698,21 @@ function URLSync() {
       // next polling refetch, so when it loses the same command can show up
       // again on the next tick. Re-fire DELETE and bail rather than navigate
       // again.
-      fetch(agentNativePath("/_agent-native/application-state/__set_url__"), {
-        method: "DELETE",
-        headers: { "X-Agent-Native-CSRF": "1" },
-      }).catch(() => {});
-      queryClient.setQueryData(["__set_url__"], null);
+      fetch(
+        agentNativePath(`/_agent-native/application-state/${command.key}`),
+        {
+          method: "DELETE",
+          headers: { "X-Agent-Native-CSRF": "1" },
+        },
+      ).catch(() => {});
+      queryClient.setQueryData(setUrlQueryKey, null);
       return;
     }
     lastProcessedDedupKeyRef.current = dedupKey;
 
     // Delete the one-shot command before applying so duplicate events
     // don't cause repeated navigation.
-    fetch(agentNativePath("/_agent-native/application-state/__set_url__"), {
+    fetch(agentNativePath(`/_agent-native/application-state/${command.key}`), {
       method: "DELETE",
       headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
@@ -1697,7 +1748,7 @@ function URLSync() {
       const currentUrl =
         current.pathname + (current.search || "") + (current.hash || "");
       if (url === currentUrl) {
-        queryClient.setQueryData(["__set_url__"], null);
+        queryClient.setQueryData(setUrlQueryKey, null);
         return;
       }
       // Replace rather than push so repeated agent URL updates don't
@@ -1707,8 +1758,8 @@ function URLSync() {
     } catch {
       // Malformed command — ignore.
     }
-    queryClient.setQueryData(["__set_url__"], null);
-  }, [command, navigate, queryClient]);
+    queryClient.setQueryData(setUrlQueryKey, null);
+  }, [command, navigate, queryClient, setUrlQueryKey]);
 
   return null;
 }
@@ -1812,6 +1863,8 @@ export interface AgentSidebarProps {
    * Templates compute this from the active route (see template layouts).
    */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Stable browser tab id used for tab-scoped app-state context. */
+  browserTabId?: string;
 }
 
 /**
@@ -1828,6 +1881,7 @@ export function AgentSidebar({
   defaultOpen = false,
   animateMobile = false,
   scope,
+  browserTabId,
 }: AgentSidebarProps) {
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(() =>
@@ -2144,6 +2198,7 @@ export function AgentSidebar({
           isFullscreen={effectiveFullscreen}
           onToggleFullscreen={isMobile ? undefined : toggleFullscreen}
           scope={scope}
+          browserTabId={browserTabId}
         />
       </div>
       {showResizeHandle && isLeft && (
@@ -2171,7 +2226,7 @@ export function AgentSidebar({
       {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
-      <URLSync />
+      <URLSync browserTabId={browserTabId} />
       {isLeft && !presentationMode ? sidebar : null}
       <div className="flex flex-1 flex-col overflow-auto min-w-0">
         {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this

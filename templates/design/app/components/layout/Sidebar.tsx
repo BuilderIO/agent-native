@@ -3,10 +3,10 @@ import { Link, useLocation } from "react-router";
 import {
   IconPencil,
   IconPalette,
-  IconLayoutGrid,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconTemplate,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
@@ -21,7 +21,7 @@ import {
 
 const navItems = [
   { icon: IconPencil, label: "Designs", href: "/" },
-  { icon: IconLayoutGrid, label: "Examples", href: "/examples" },
+  { icon: IconTemplate, label: "Templates", href: "/templates" },
   { icon: IconPalette, label: "Design Systems", href: "/design-systems" },
   { icon: IconSettings, label: "Settings", href: "/settings" },
 ];

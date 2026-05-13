@@ -130,6 +130,18 @@ Only `name` and `track` are required. `identify` and `flush` are optional — im
 - **Best-effort delivery** — provider errors are caught and logged. A failing analytics integration never crashes the caller or blocks request handling.
 - **Global singleton** — the registry uses a `Symbol.for` key on `globalThis` so multiple ESM graph instances (dev-mode Vite + Nitro, symlinks) share one provider set.
 
+## Browser defaults {#browser-defaults}
+
+Template roots call `configureTracking()` once at startup. Browser events sent with `trackEvent()` automatically include app/template context plus the current LLM connection when the app can resolve it:
+
+- `llm_connection` — normalized provider label such as `builder`, `anthropic`, `openai`, `google`, or `none`
+- `llm_engine` — the engine id, for example `builder` or `ai-sdk:openai`
+- `llm_model` — the selected/default model when known
+- `llm_connection_source` — `app_secrets`, `settings`, or `env`
+- `llm_connection_configured` — whether an LLM connection is available
+
+The framework also tracks `builder connect clicked` from Connect Builder CTAs, and the server-side Builder connect routes track started/succeeded/failed lifecycle events.
+
 ## Using track() in templates {#templates}
 
 Call `track()` from action handlers to record user or agent activity:

@@ -28,6 +28,7 @@ import {
 } from "./workspace-resources-store.js";
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
+const WORKSPACE_APP_METADATA_SETTINGS_KEY = "workspace-app-metadata";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
@@ -107,6 +108,19 @@ interface PendingWorkspaceApp {
   updatedAt: string;
 }
 
+interface WorkspaceAppMetadataOverride {
+  name?: string;
+  description?: string;
+  generated?: boolean;
+  sourcePrompt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+interface WorkspaceAppMetadataSettings {
+  apps: Record<string, WorkspaceAppMetadataOverride>;
+}
+
 function readJson(file: string): any {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -137,10 +151,54 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function ensureSentence(value: string): string {
+  if (!value) return value;
+  const capitalized = value.charAt(0).toUpperCase() + value.slice(1);
+  return /[.!?]$/.test(capitalized) ? capitalized : `${capitalized}.`;
+}
+
+function clipSentence(value: string, max = 180): string {
+  if (value.length <= max) return value;
+  const clipped = value
+    .slice(0, max - 1)
+    .replace(/\s+\S*$/, "")
+    .trim();
+  return `${clipped || value.slice(0, max - 1).trim()}…`;
+}
+
+export function generateWorkspaceAppDescription(
+  prompt: string,
+  appId: string,
+): string {
+  const cleaned = normalizeWhitespace(prompt)
+    .replace(
+      /^(please\s+)?(build|create|make|generate|scaffold)\s+(me\s+|us\s+)?/i,
+      "",
+    )
+    .replace(
+      /^(an?\s+)?(workspace\s+)?(agent-native\s+)?(app|tool)\s+(that|to|for)\s+/i,
+      "",
+    )
+    .replace(/^(an?\s+)?(dashboard|workspace|agent)\s+(that|to|for)\s+/i, "");
+
+  if (!cleaned) return `Workspace app for ${titleCase(appId)}.`;
+  return clipSentence(ensureSentence(cleaned));
+}
+
 function scopedSettingsKey(): string {
   const orgId = currentOrgId();
   if (orgId) return `${SETTINGS_KEY}:org:${orgId}`;
   return `${SETTINGS_KEY}:user:${currentOwnerEmail()}`;
+}
+
+function workspaceAppMetadataSettingsKey(): string {
+  const orgId = currentOrgId();
+  if (orgId) return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:org:${orgId}`;
+  return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:user:${currentOwnerEmail()}`;
 }
 
 async function readSettingsRecord(): Promise<Record<string, any>> {
@@ -148,6 +206,114 @@ async function readSettingsRecord(): Promise<Record<string, any>> {
   return raw && typeof raw === "object" && !Array.isArray(raw)
     ? (raw as Record<string, any>)
     : {};
+}
+
+function cleanOptionalText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function parseWorkspaceAppMetadataSettings(
+  raw: unknown,
+): WorkspaceAppMetadataSettings {
+  const record =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const rawApps =
+    record.apps &&
+    typeof record.apps === "object" &&
+    !Array.isArray(record.apps)
+      ? (record.apps as Record<string, unknown>)
+      : {};
+  const apps: Record<string, WorkspaceAppMetadataOverride> = {};
+
+  for (const [id, value] of Object.entries(rawApps)) {
+    if (!id.trim() || !value || typeof value !== "object") continue;
+    const item = value as Record<string, unknown>;
+    const override: WorkspaceAppMetadataOverride = {};
+    const name = cleanOptionalText(item.name);
+    const description = cleanOptionalText(item.description);
+    const sourcePrompt = cleanOptionalText(item.sourcePrompt);
+    const updatedAt = cleanOptionalText(item.updatedAt);
+    const updatedBy = cleanOptionalText(item.updatedBy);
+
+    if (name) override.name = name;
+    if (description) override.description = description;
+    if (item.generated === true) override.generated = true;
+    if (sourcePrompt) override.sourcePrompt = sourcePrompt;
+    if (updatedAt) override.updatedAt = updatedAt;
+    if (updatedBy) override.updatedBy = updatedBy;
+
+    if (Object.keys(override).length > 0) apps[id.trim()] = override;
+  }
+
+  return { apps };
+}
+
+async function readWorkspaceAppMetadataSettings(): Promise<WorkspaceAppMetadataSettings> {
+  const raw = await getSetting(workspaceAppMetadataSettingsKey()).catch(
+    () => null,
+  );
+  return parseWorkspaceAppMetadataSettings(raw);
+}
+
+async function writeWorkspaceAppMetadataOverride(input: {
+  appId: string;
+  name?: string | null;
+  description?: string | null;
+  generated?: boolean;
+  sourcePrompt?: string | null;
+  updatedBy?: string | null;
+}): Promise<WorkspaceAppMetadataSettings> {
+  const key = workspaceAppMetadataSettingsKey();
+  const current = parseWorkspaceAppMetadataSettings(
+    await getSetting(key).catch(() => null),
+  );
+  const appId = input.appId.trim();
+  const existing = current.apps[appId] ?? {};
+  const next: WorkspaceAppMetadataOverride = {
+    ...existing,
+    updatedAt: new Date().toISOString(),
+  };
+  const name = cleanOptionalText(input.name);
+  const description = cleanOptionalText(input.description);
+  const sourcePrompt = cleanOptionalText(input.sourcePrompt);
+  const updatedBy = cleanOptionalText(input.updatedBy);
+
+  if (name) next.name = name;
+  else delete next.name;
+  if (description) next.description = description;
+  else delete next.description;
+  if (input.generated === true) next.generated = true;
+  else if (input.generated === false) delete next.generated;
+  if (sourcePrompt) next.sourcePrompt = sourcePrompt;
+  if (updatedBy) next.updatedBy = updatedBy;
+
+  current.apps[appId] = next;
+  await putSetting(key, { apps: current.apps });
+  return current;
+}
+
+function applyWorkspaceAppMetadataOverride(
+  app: WorkspaceAppSummary,
+  settings: WorkspaceAppMetadataSettings,
+): WorkspaceAppSummary {
+  const override = settings.apps[app.id];
+  if (!override) return app;
+
+  const name = cleanOptionalText(override.name);
+  const description = cleanOptionalText(override.description);
+  const generated = override.generated === true;
+  const shouldApplyName = !!name && !generated;
+  const shouldApplyDescription =
+    !!description && (!generated || !cleanOptionalText(app.description));
+  if (!shouldApplyName && !shouldApplyDescription) return app;
+
+  return {
+    ...app,
+    ...(shouldApplyName ? { name } : {}),
+    ...(shouldApplyDescription ? { description } : {}),
+  };
 }
 
 function workspaceAppUrl(appPath: string): string | null {
@@ -494,6 +660,8 @@ async function maybeIncludeAgentCards(
 async function recordPendingWorkspaceApp(input: {
   appId: string;
   projectId: string | null;
+  description: string;
+  sourcePrompt: string;
   branchName?: string | null;
   builderUrl?: string | null;
 }) {
@@ -505,6 +673,7 @@ async function recordPendingWorkspaceApp(input: {
     id: input.appId,
     name: titleCase(input.appId),
     description:
+      input.description ||
       "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
     path: `/${input.appId}`,
     builderUrl: input.builderUrl?.trim() || null,
@@ -520,6 +689,14 @@ async function recordPendingWorkspaceApp(input: {
       next,
       ...pendingApps.filter((app) => app.id !== input.appId),
     ].slice(0, MAX_PENDING_APPS),
+  });
+
+  await writeWorkspaceAppMetadataOverride({
+    appId: input.appId,
+    description: input.description,
+    generated: true,
+    sourcePrompt: input.sourcePrompt,
+    updatedBy: currentOwnerEmail(),
   });
 
   await recordAudit({
@@ -689,17 +866,70 @@ async function applyArchivedAndPending(
   apps: WorkspaceAppSummary[],
   options: ListWorkspaceAppsOptions,
 ): Promise<WorkspaceAppSummary[]> {
-  const [withPending, archivedIds] = await Promise.all([
+  const [withPending, archivedIds, metadataSettings] = await Promise.all([
     appendPendingWorkspaceApps(apps),
     listArchivedAppIds(),
+    readWorkspaceAppMetadataSettings(),
   ]);
   const archivedSet = new Set(archivedIds);
-  const annotated = withPending.map((app) =>
-    archivedSet.has(app.id) ? { ...app, archived: true } : app,
-  );
+  const annotated = withPending.map((app) => {
+    const withMetadata = applyWorkspaceAppMetadataOverride(
+      app,
+      metadataSettings,
+    );
+    return archivedSet.has(app.id)
+      ? { ...withMetadata, archived: true }
+      : withMetadata;
+  });
   return options.includeArchived
     ? annotated
     : annotated.filter((app) => !app.archived);
+}
+
+export async function updateWorkspaceAppMetadata(input: {
+  appId: string;
+  name?: string | null;
+  description?: string | null;
+}): Promise<WorkspaceAppSummary> {
+  await assertCanManageAppCreationSettings();
+  const appId = input.appId.trim();
+  assertValidWorkspaceAppId(appId);
+
+  const apps = await listWorkspaceApps({
+    includeAgentCards: false,
+    includeArchived: true,
+  });
+  const app = apps.find((candidate) => candidate.id === appId);
+  if (!app) throw new Error(`Workspace app "${appId}" was not found.`);
+
+  const name = input.name?.trim() || app.name;
+  const description = input.description?.trim() || "";
+  await writeWorkspaceAppMetadataOverride({
+    appId,
+    name,
+    description,
+    generated: false,
+    updatedBy: currentOwnerEmail(),
+  });
+
+  await recordAudit({
+    action: "workspace-app.metadata-updated",
+    targetType: "workspace-app",
+    targetId: appId,
+    summary: `Updated workspace app details for ${name}`,
+    metadata: {
+      name,
+      descriptionConfigured: !!description,
+    },
+  });
+
+  const updated = (
+    await listWorkspaceApps({
+      includeAgentCards: false,
+      includeArchived: true,
+    })
+  ).find((candidate) => candidate.id === appId);
+  return updated ?? { ...app, name, description };
 }
 
 export async function listWorkspaceApps(
@@ -1166,6 +1396,7 @@ async function remoteAppCreationAuthorization(): Promise<
 function buildWorkspaceAppPrompt(input: {
   prompt: string;
   appId?: string | null;
+  description?: string | null;
   template?: string | null;
   selectedKeys?: string[];
   selectedResources?: WorkspaceResourceOption[];
@@ -1176,6 +1407,9 @@ function buildWorkspaceAppPrompt(input: {
       input.prompt.replace(/\b(build|create|make|an?|the|app|tool)\b/gi, " "),
     ) ||
     "new-app";
+  const appDescription =
+    input.description?.trim() ||
+    generateWorkspaceAppDescription(input.prompt, appId);
   const selectedKeys = input.selectedKeys || [];
   const selectedResources = input.selectedResources || [];
   const resourceList = selectedResources.length
@@ -1192,6 +1426,7 @@ function buildWorkspaceAppPrompt(input: {
       "Create a new agent-native app in this workspace.",
       "",
       `App name: ${appId}`,
+      `App description: ${appDescription}`,
       `Template to start from: ${input.template || "starter"}`,
       `User prompt: ${input.prompt.trim()}`,
       "If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.",
@@ -1222,11 +1457,13 @@ function buildWorkspaceAppPrompt(input: {
       "",
       "Branch readiness requirements before handing off:",
       "- The CLI auto-fills package.json name and displayName from the app id; only edit the description / scripts / dependencies if the app actually needs more than the template provides.",
+      `- Save a concise, human-readable app description in apps/${appId}/package.json "description" so Dispatch, A2A discovery, and connected agents can describe what this app does. Use the description above or improve it based on the prompt.`,
       "- Do not add or update workspace-apps.json or .agent-native/workspace-apps.json unless the app needs an explicit external URL override; the root deploy generates the workspace app registry from apps/* and deploy metadata.",
       "- Update pnpm-lock.yaml when adding or changing dependencies so Netlify can install the branch reliably.",
       "- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model; do not leave the branch relying only on uncommitted local state.",
-      "- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment.",
-      "- Include a final verification note covering the registry entry, manifest/deploy metadata, and agent-card readiness.",
+      "- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment. Every sibling workspace app should be usable over A2A by default through call-agent.",
+      "- Give the app agent context that sibling workspace apps are available over A2A with names and descriptions from the workspace app registry; do not hardcode a stale app list.",
+      "- Include a final verification note covering the registry entry, manifest/deploy metadata, relative same-origin routing, and agent-card readiness.",
       `When it is ready, start or update the workspace dev server and navigate the user to /${appId}.`,
     ].join("\n"),
   };
@@ -1270,6 +1507,7 @@ async function grantSelectedWorkspaceResources(input: {
 export async function startWorkspaceAppCreation(input: {
   prompt: string;
   appId?: string | null;
+  description?: string | null;
   template?: string | null;
   secretIds?: string[];
   resourceIds?: string[];
@@ -1277,6 +1515,7 @@ export async function startWorkspaceAppCreation(input: {
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
     appId: input.appId,
+    description: input.description,
     template: input.template,
   });
   assertValidWorkspaceAppId(initial.appId);
@@ -1304,11 +1543,15 @@ export async function startWorkspaceAppCreation(input: {
   const built = buildWorkspaceAppPrompt({
     prompt: input.prompt,
     appId: input.appId,
+    description: input.description,
     template: input.template,
     selectedKeys,
     selectedResources,
   });
   const prompt = built.prompt;
+  const appDescription =
+    input.description?.trim() ||
+    generateWorkspaceAppDescription(input.prompt, built.appId);
 
   if (isLocal) {
     await requestSelectedVaultKeys({
@@ -1375,6 +1618,8 @@ export async function startWorkspaceAppCreation(input: {
   await recordPendingWorkspaceApp({
     appId: built.appId,
     projectId: settings.builderProjectId,
+    description: appDescription,
+    sourcePrompt: input.prompt,
     branchName: result.branchName,
     builderUrl: result.url,
   });

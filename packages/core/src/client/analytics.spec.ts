@@ -44,11 +44,39 @@ function setLocation(
 
 async function tick() {
   await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
 }
 
 async function freshAnalytics() {
   vi.resetModules();
   return import("./analytics.js");
+}
+
+function installFetch({
+  status = {
+    configured: true,
+    engine: "builder",
+    model: "claude-sonnet-4-6",
+    source: "app_secrets",
+  },
+}: {
+  status?: Record<string, unknown>;
+} = {}) {
+  const analyticsCalls: Array<[unknown, RequestInit]> = [];
+  const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
+    if (String(url).includes("/_agent-native/agent-engine/status")) {
+      return new Response(JSON.stringify(status), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    analyticsCalls.push([url, init ?? {}]);
+    return new Response("{}");
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return { fetchMock, analyticsCalls };
 }
 
 function installBrowser(url = "https://mail.agent-native.com/inbox") {
@@ -110,8 +138,8 @@ describe("browser analytics pageviews", () => {
   });
 
   it("emits a default pageview with useful browser context", async () => {
-    const { fetchMock } = installBrowser();
-    vi.stubGlobal("fetch", fetchMock);
+    installBrowser();
+    const { analyticsCalls } = installFetch();
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT",
@@ -127,10 +155,10 @@ describe("browser analytics pageviews", () => {
     });
     await tick();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    expect(analyticsCalls).toHaveLength(1);
+    const [url, init] = analyticsCalls[0];
     expect(url).toBe("https://analytics.example.test/track");
-    const body = JSON.parse(init.body);
+    const body = JSON.parse(String(init.body));
     expect(body).toMatchObject({
       publicKey: "anpk_test",
       event: "pageview",
@@ -143,13 +171,18 @@ describe("browser analytics pageviews", () => {
         referrer: "https://builder.io/start?token=%3Credacted%3E&utm=ok",
         title: "Inbox",
         navigation_type: "load",
+        llm_connection: "builder",
+        llm_connection_configured: true,
+        llm_engine: "builder",
+        llm_model: "claude-sonnet-4-6",
+        llm_connection_source: "app_secrets",
       },
     });
   });
 
   it("tracks client-side URL changes once per URL", async () => {
-    const { fetchMock, history } = installBrowser();
-    vi.stubGlobal("fetch", fetchMock);
+    const { history } = installBrowser();
+    const { analyticsCalls } = installFetch();
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     const { configureTracking } = await freshAnalytics();
 
@@ -160,9 +193,9 @@ describe("browser analytics pageviews", () => {
     history.replaceState({}, "", "/sent");
     await tick();
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const events = fetchMock.mock.calls.map(([, init]) =>
-      JSON.parse(init.body),
+    expect(analyticsCalls).toHaveLength(2);
+    const events = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
     );
     expect(events.map((event) => event.properties.path)).toEqual([
       "/inbox",
@@ -171,16 +204,43 @@ describe("browser analytics pageviews", () => {
     expect(events[1].properties.navigation_type).toBe("pushState");
   });
 
-  it("keeps Agent Native Analytics quiet on localhost", async () => {
-    const { fetchMock } = installBrowser("http://localhost:3000/inbox");
-    vi.stubGlobal("fetch", fetchMock);
+  it("normalizes AI SDK engine names into provider connection labels", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch({
+      status: {
+        configured: true,
+        engine: "ai-sdk:openai",
+        model: "gpt-5.5",
+        source: "env",
+        envVar: "OPENAI_API_KEY",
+      },
+    });
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
     await tick();
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    const body = JSON.parse(String(analyticsCalls[0][1].body));
+    expect(body.properties).toMatchObject({
+      llm_connection: "openai",
+      llm_engine: "ai-sdk:openai",
+      llm_model: "gpt-5.5",
+      llm_connection_source: "env",
+      llm_connection_env_var: "OPENAI_API_KEY",
+    });
+  });
+
+  it("keeps Agent Native Analytics quiet on localhost", async () => {
+    installBrowser("http://localhost:3000/inbox");
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(0);
   });
 
   it("initializes browser Sentry from SSR runtime config", async () => {

@@ -641,6 +641,7 @@ function BuilderCliAuthMethod({
   primary?: boolean;
 }) {
   const { connecting, error, start } = useBuilderConnectFlow({
+    trackingSource: "onboarding_builder_cli_auth",
     onConnected: onCompleted,
   });
 

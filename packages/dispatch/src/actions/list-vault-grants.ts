@@ -4,7 +4,7 @@ import { listGrants } from "../server/lib/vault-store.js";
 
 export default defineAction({
   description:
-    "List vault grants — which apps have access to which secrets. Optionally filter by app or secret.",
+    "List explicit vault grants used by manual vault access mode. Optionally filter by app or secret.",
   schema: z.object({
     appId: z.string().optional().describe("Filter by app ID"),
     secretId: z.string().optional().describe("Filter by secret ID"),

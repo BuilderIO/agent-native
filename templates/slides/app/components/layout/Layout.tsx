@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useDecks } from "@/context/DeckContext";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
+import { TAB_ID } from "@/lib/tab-id";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -72,6 +73,7 @@ export function Layout({ children }: LayoutProps) {
           "Generate a hero image for this slide",
         ]}
         scope={deckScope}
+        browserTabId={TAB_ID}
       >
         <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
           {sidebarOpen && (

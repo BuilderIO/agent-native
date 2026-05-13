@@ -6,7 +6,7 @@ import { RunsTray } from "@agent-native/core/client/progress";
 
 const pageTitles: Record<string, string> = {
   "/": "Designs",
-  "/examples": "Examples",
+  "/templates": "Templates",
   "/design-systems": "Design Systems",
   "/design-systems/setup": "Set up design system",
   "/settings": "Settings",

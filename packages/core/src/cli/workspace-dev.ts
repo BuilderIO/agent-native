@@ -12,6 +12,7 @@ import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 export interface WorkspaceApp {
   id: string;
   name: string;
+  description: string;
   dir: string;
   port: number;
   process?: ChildProcess;
@@ -151,6 +152,7 @@ function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
       return {
         id: entry.name,
         name: pkg.displayName || pkg.name || entry.name,
+        description: typeof pkg.description === "string" ? pkg.description : "",
         dir,
         port: appPortStart,
       } satisfies WorkspaceApp;
@@ -471,6 +473,7 @@ export async function runWorkspaceDev(
       apps.map((workspaceApp) => ({
         id: workspaceApp.id,
         name: workspaceApp.name,
+        description: workspaceApp.description,
         path: `/${workspaceApp.id}`,
       })),
     );
@@ -569,6 +572,7 @@ export async function runWorkspaceDev(
         AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
         APP_BASE_PATH: basePath,
         VITE_AGENT_NATIVE_WORKSPACE: "1",
+        VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
         VITE_APP_BASE_PATH: basePath,
         VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(env, gatewayUrl),
         VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
@@ -899,6 +903,7 @@ export async function runWorkspaceDev(
           apps.map((app) => ({
             id: app.id,
             name: app.name,
+            description: app.description,
             path: `/${app.id}`,
             port: app.port,
             running: Boolean(app.process && !app.process.killed),

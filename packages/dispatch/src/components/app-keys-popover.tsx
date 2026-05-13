@@ -89,6 +89,12 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
     isLoading: grantsLoading,
     refetch: refetchGrants,
   } = useActionQuery("list-vault-grants", { appId });
+  const { data: accessSettings, isLoading: accessLoading } = useActionQuery(
+    "get-vault-access-settings",
+    {},
+  );
+  const accessMode =
+    (accessSettings as any)?.mode === "manual" ? "manual" : "all-apps";
 
   const grantBySecretId = useMemo(() => {
     const map = new Map<string, VaultGrant>();
@@ -135,11 +141,13 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
     onError: (err) => toast.error(`Sync failed: ${String(err)}`),
   });
 
-  const isLoading = secretsLoading || grantsLoading;
+  const isLoading = secretsLoading || grantsLoading || accessLoading;
   const grantedCount = grantBySecretId.size;
   const typedSecrets = secrets as VaultSecret[];
+  const allApps = accessMode !== "manual";
 
   const toggleSecret = (secret: VaultSecret) => {
+    if (allApps) return;
     if (pendingSecretIds.has(secret.id)) return;
     const existing = grantBySecretId.get(secret.id);
     markPending(secret.id, true);
@@ -159,14 +167,20 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
             Keys for {appName}
           </p>
           <p className="text-[11px] text-muted-foreground">
-            {grantedCount} of {typedSecrets.length} granted
+            {allApps
+              ? `${typedSecrets.length} available`
+              : `${grantedCount} of ${typedSecrets.length} granted`}
           </p>
         </div>
         <Button
           type="button"
           variant="outline"
           size="sm"
-          disabled={syncMutation.isPending || grantedCount === 0}
+          disabled={
+            syncMutation.isPending ||
+            typedSecrets.length === 0 ||
+            (!allApps && grantedCount === 0)
+          }
           onClick={() => syncMutation.mutate({ appId })}
           className="h-7 px-2"
         >
@@ -201,17 +215,17 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
           </p>
         ) : (
           typedSecrets.map((secret) => {
-            const granted = grantBySecretId.has(secret.id);
+            const granted = allApps || grantBySecretId.has(secret.id);
             const pending = pendingSecretIds.has(secret.id);
             return (
               <button
                 key={secret.id}
                 type="button"
                 aria-pressed={granted}
-                disabled={pending}
+                disabled={pending || allApps}
                 onClick={() => toggleSecret(secret)}
                 className={`flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60 ${
-                  pending ? "" : "cursor-pointer"
+                  pending || allApps ? "" : "cursor-pointer"
                 } ${
                   granted
                     ? "border border-primary/45 bg-primary/5"
@@ -232,7 +246,9 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
                     {secret.credentialKey}
                   </span>
                   <span className="block truncate text-xs text-muted-foreground/70">
-                    {secret.provider || secret.name || "Vault secret"}
+                    {allApps
+                      ? "Available to this app"
+                      : secret.provider || secret.name || "Vault secret"}
                   </span>
                 </span>
               </button>

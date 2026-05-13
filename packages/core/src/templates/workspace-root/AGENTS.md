@@ -36,6 +36,9 @@ coding agents can discover the same workspace-wide guidance from the root.
   `/<app-id>`.
 - When a user explicitly asks for a new app or workspace app, create the
   separate workspace app.
+- Dispatch vault access is workspace-wide by default: every saved vault key is
+  available to every workspace app. Only create or request per-app vault grants
+  when Dispatch's vault access setting is switched to manual mode.
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/starter` or another existing app unless the user explicitly asks to
   modify that existing app.
@@ -54,6 +57,15 @@ coding agents can discover the same workspace-wide guidance from the root.
   base template improvements continue to flow automatically.
 - Workspace apps are discovered from `apps/<app-id>/package.json`. There is no
   separate workspace app registry to edit for Dispatch to list the app.
+- Always save a concise, human-readable `description` in the generated app's
+  `apps/<app-id>/package.json`. Dispatch lists and A2A connected-agent context
+  use the app name plus this description so other agents understand what the app
+  does. Dispatch users can later edit the displayed name/description from the
+  Apps page without changing source.
+- All sibling workspace apps are accessible by default over A2A through
+  `call-agent`. Agents receive a compact list of available app names and
+  descriptions in prompt context; use tool search or app-specific actions only
+  when more detail is needed.
 - Use relative workspace links like `/<app-id>`. Never hardcode
   `localhost`, `127.0.0.1`, `8080`, `8100`, or any dev port in app cards,
   instructions, redirects, or navigation; the active workspace gateway/browser

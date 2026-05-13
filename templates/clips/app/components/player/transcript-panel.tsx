@@ -15,7 +15,10 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { msToClock } from "./scrubber";
-import { agentNativePath, getCallbackOrigin } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  openBuilderConnectPopup,
+} from "@agent-native/core/client";
 import {
   Tooltip,
   TooltipContent,
@@ -458,15 +461,7 @@ function TranscriptSetupCard({
     setConnecting(true);
     setConnectError(null);
 
-    const origin = getCallbackOrigin() || window.location.origin;
-    window.open(
-      new URL(
-        agentNativePath("/_agent-native/builder/connect"),
-        origin,
-      ).toString(),
-      "_blank",
-      "noopener,noreferrer",
-    );
+    openBuilderConnectPopup({ source: "clips_transcript_panel" });
 
     const start = Date.now();
     pollRef.current = setInterval(async () => {
