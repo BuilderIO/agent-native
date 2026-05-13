@@ -455,6 +455,47 @@ describe("workspace deploy", () => {
     expect(fs.existsSync(path.join(tmpDir, "dist", "_worker.js"))).toBe(false);
   });
 
+  it("propagates public workspace app audience into manifests and app env", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "portal", { audience: "public" });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const portalCall = buildCallForApp("portal");
+    expect(portalCall?.env).toMatchObject({
+      AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+      VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+    });
+    const manifest = JSON.parse(
+      portalCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]",
+    );
+    expect(manifest.find((app: any) => app.id === "portal")).toMatchObject({
+      id: "portal",
+      audience: "public",
+    });
+
+    const portalServer = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "portal-server",
+        "portal-server.mjs",
+      ),
+      "utf-8",
+    );
+    expect(portalServer).toContain(
+      'AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public"',
+    );
+    expect(portalServer).toContain(
+      'VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public"',
+    );
+  });
+
   it("uses Netlify unpooled database URLs for apps that request them", async () => {
     process.env.DATABASE_URL = "postgres://pooled";
     process.env.NETLIFY_DATABASE_URL_UNPOOLED = "postgres://unpooled";
