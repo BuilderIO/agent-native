@@ -93,7 +93,9 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 ### Provider Skills
 
-Provider-specific knowledge may be added as skills in `.agents/skills/<provider>/SKILL.md`. Read the relevant skill when it exists before querying that provider. Skills should contain connection details, table names, column mappings, auth, and gotchas for the configured deployment.
+Provider-specific knowledge lives in `.agents/skills/<provider>/SKILL.md` when available. Read the relevant skill before querying that provider. Skills should contain connection details, table names, column mappings, auth, and gotchas for the configured deployment.
+
+- **bigquery** — Warehouse source selection, schema discovery, SQL patterns, and data-dictionary trust tiers
 
 Skills should be **continuously improved**. When you discover a new reusable gotcha or pattern, update the relevant SKILL.md directly.
 
@@ -348,7 +350,7 @@ The data dictionary is the canonical catalog of the metrics, tables, columns, an
 
 **Workflow for "build me a dashboard":**
 
-A `<data-dictionary>` block is injected into your system prompt with the approved entries for this workspace. Read it before you write any SQL. If the entry you need is there, you MUST use its `table` and `columns` values verbatim — column names in the underlying warehouse use prefixes (`hs_`, `m_`, `sfdc_`, etc.) that you cannot guess. Making them up produces `Unrecognized name` errors and a broken dashboard.
+A `<data-dictionary>` block is injected into your system prompt with trust-tiered entries for this workspace. Read it before you write any SQL. Approved entries are canonical and you MUST use their `table` and `columns` values verbatim. Human-authored unreviewed entries are usable, but verify them for high-stakes work. AI-generated unapproved entries are suggestions only; inspect the real schema or ask the user before treating them as truth. Column names in the underlying warehouse use prefixes (`hs_`, `m_`, `sfdc_`, etc.) that you cannot guess. Making them up produces `Unrecognized name` errors and a broken dashboard.
 
 **BigQuery is a warehouse, not a single table.** Treat `BIGQUERY_PROJECT_ID` + `GOOGLE_APPLICATION_CREDENTIALS_JSON` as the connection. `ANALYTICS_BIGQUERY_EVENTS_TABLE` only powers the optional `@app_events` shortcut for examples and event discovery; its absence does not mean BigQuery is disconnected, and its presence does not mean all warehouse data lives there. For warehouse questions, use approved data-dictionary entries, existing dashboard SQL, or `INFORMATION_SCHEMA` discovery to find the real datasets, tables, and columns.
 
@@ -359,7 +361,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 5. If something looks relevant but you need the full entry (example output, join pattern, etc.), call `list-data-dictionary --search <topic>`.
 6. Before adding any panel, query or dry-run the real source it depends on. Only show a panel after its real query or validation succeeds; never save placeholder, fabricated, or illustrative metrics.
 7. If relevant entries exist, use their `queryTemplate`, `table`, `columns`, and `cuts` **verbatim** — never rename or guess column names.
-8. If the user mentions a metric that isn't in the dictionary, do NOT invent column names. Instead: (a) ask the user for the table/columns, OR (b) run an exploratory BigQuery query against `INFORMATION_SCHEMA.COLUMNS` to discover the real column names before writing the panel SQL, then propose an entry via `save-data-dictionary-entry` (set `aiGenerated: true`, `approved: false` for human review).
+8. If the user mentions a metric that isn't in the dictionary, do NOT invent column names. Instead: (a) ask the user for the table/columns, OR (b) call `search-bigquery-schema` to discover real datasets, tables, and columns before writing the panel SQL, then propose an entry via `save-data-dictionary-entry` (set `aiGenerated: true`, `approved: false` for human review).
 9. Obey `knownGotchas` from any entry you use — note them to the user if the data has limitations.
 10. Insert or update validated panels incrementally with `update-dashboard` ops when it is safe, rather than waiting to persist one fully finished dashboard at the end. Prefer small operations such as `ops=[{ "op": "insert", "path": "/panels/-", "value": <validated-panel> }]` or targeted replacements for existing panels.
 11. The dashboard save endpoint now dry-runs every panel's SQL through BigQuery before persisting. If a panel fails validation you'll get a 400 with the BigQuery error text (e.g. `Unrecognized name: is_closed; Did you mean hs_is_closed?`) — fix the SQL and retry; never try to persist broken SQL.
@@ -412,6 +414,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `seo-blog-pages`               |                                         | Blog page SEO metrics                                                                                                                                            |
 | `ga4-report`                   | `--metrics`, `--dimensions`             | Google Analytics reports                                                                                                                                         |
 | `bigquery`                     | `--sql`                                 | Ad-hoc BigQuery/warehouse queries across configured datasets and tables. Do not use as a substitute for named provider actions like Jira or Pylon.               |
+| `search-bigquery-schema`       | `[--dataset] [--table] [--search]`      | List BigQuery datasets/tables or describe exact table columns before writing SQL                                                                                 |
 | `query-agent-native-analytics` | `--sql`                                 | Query first-party `analytics_events` recorded via `/track`, including traffic, product events, and app/template usage collected by this analytics app            |
 | `create-analytics-public-key`  | `[--name <label>]`                      | Generate a public write key for hosted apps to send events to `analytics.agent-native.com/track`                                                                 |
 | `list-analytics-public-keys`   |                                         | List active/revoked first-party analytics write keys                                                                                                             |

@@ -24,6 +24,12 @@ export interface Resource {
   size: number;
   createdAt: number;
   updatedAt: number;
+  createdBy: "user" | "agent" | "system";
+  visibility: "workspace" | "agent_scratch";
+  threadId: string | null;
+  runId: string | null;
+  expiresAt: number | null;
+  metadata: string | null;
 }
 
 export interface ResourceMeta {
@@ -34,6 +40,12 @@ export interface ResourceMeta {
   size: number;
   createdAt: number;
   updatedAt: number;
+  createdBy: "user" | "agent" | "system";
+  visibility: "workspace" | "agent_scratch";
+  threadId: string | null;
+  runId: string | null;
+  expiresAt: number | null;
+  metadata: string | null;
 }
 
 export interface JobMetadata {
@@ -110,6 +122,12 @@ export function withMcpServersFolder(
         size: 0,
         createdAt: s.createdAt,
         updatedAt: s.createdAt,
+        createdBy: "system",
+        visibility: "workspace",
+        threadId: null,
+        runId: null,
+        expiresAt: null,
+        metadata: null,
       },
     };
   });
@@ -147,16 +165,29 @@ export function withMcpServersFolder(
  * keeps them visible (so the user can inspect or delete) without making
  * them look like first-class personal files.
  */
-export function withAgentScratchFolder(tree: TreeNode[]): TreeNode[] {
+function isTopLevelAgentScratchNode(node: TreeNode): boolean {
+  return (
+    node.resource?.visibility === "agent_scratch" ||
+    (node.type === "folder" &&
+      (node.name === "scripts" || node.name === "tasks"))
+  );
+}
+
+export function withAgentScratchFolder(
+  tree: TreeNode[],
+  opts?: { show?: boolean },
+): TreeNode[] {
+  const show = opts?.show ?? true;
   const scratch: TreeNode[] = [];
   const rest: TreeNode[] = [];
   for (const n of tree) {
-    if (n.type === "folder" && (n.name === "scripts" || n.name === "tasks")) {
+    if (isTopLevelAgentScratchNode(n)) {
       scratch.push(n);
     } else {
       rest.push(n);
     }
   }
+  if (!show) return rest;
   if (scratch.length === 0) return tree;
   const folder: TreeNode = {
     name: "agent-scratch",
@@ -181,23 +212,29 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 export function useResources(scope: ResourceScope = "personal") {
+  const query = new URLSearchParams({ scope });
   return useQuery<ResourceMeta[]>({
     queryKey: ["resources", "list", scope],
     queryFn: async () => {
       const data = await fetchJson<{ resources: ResourceMeta[] }>(
-        agentNativePath(`/_agent-native/resources?scope=${scope}`),
+        agentNativePath(`/_agent-native/resources?${query.toString()}`),
       );
       return data.resources ?? [];
     },
   });
 }
 
-export function useResourceTree(scope: ResourceScope = "personal") {
+export function useResourceTree(
+  scope: ResourceScope = "personal",
+  opts?: { includeAgentScratch?: boolean },
+) {
   return useQuery<TreeNode[]>({
-    queryKey: ["resources", "tree", scope],
+    queryKey: ["resources", "tree", scope, opts?.includeAgentScratch ?? false],
     queryFn: async () => {
+      const query = new URLSearchParams({ scope });
+      if (opts?.includeAgentScratch) query.set("includeAgentScratch", "true");
       const data = await fetchJson<{ tree: TreeNode[] }>(
-        agentNativePath(`/_agent-native/resources/tree?scope=${scope}`),
+        agentNativePath(`/_agent-native/resources/tree?${query.toString()}`),
       );
       return data.tree ?? [];
     },

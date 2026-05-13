@@ -90,9 +90,13 @@ describe("workspace dev startup", () => {
     );
   });
 
-  it("passes workspace app audience through local dev manifests and env", async () => {
+  it("passes workspace app route access through local dev manifests and env", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
-    makeApp(tmpDir, "portal", { audience: "public" });
+    makeApp(tmpDir, "portal", {
+      audience: "public",
+      publicPaths: ["/", "/pricing"],
+      protectedPaths: ["/admin"],
+    });
     const fake = fakeSpawn();
     handle = await runWorkspaceDev({
       root: tmpDir,
@@ -107,12 +111,28 @@ describe("workspace dev startup", () => {
       .calls()
       .find((call) => call.options?.env?.APP_NAME === "portal")?.options?.env;
     expect(portalEnv?.AGENT_NATIVE_WORKSPACE_APP_AUDIENCE).toBe("public");
+    expect(portalEnv?.AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS).toBe(
+      '["/","/pricing"]',
+    );
+    expect(portalEnv?.AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS).toBe(
+      '["/admin"]',
+    );
     expect(portalEnv?.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE).toBe("public");
+    expect(portalEnv?.VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS).toBe(
+      '["/","/pricing"]',
+    );
+    expect(portalEnv?.VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS).toBe(
+      '["/admin"]',
+    );
     expect(
       JSON.parse(portalEnv?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]").find(
         (app: any) => app.id === "portal",
       ),
-    ).toMatchObject({ audience: "public" });
+    ).toMatchObject({
+      audience: "public",
+      publicPaths: ["/", "/pricing"],
+      protectedPaths: ["/admin"],
+    });
   });
 
   it("uses polling watchers in Builder-style remote dev environments", async () => {
@@ -442,7 +462,12 @@ function makeWorkspace(apps: string[]): string {
 function makeApp(
   workspaceRoot: string,
   app: string,
-  opts: { audience?: "internal" | "public"; installVite?: boolean } = {},
+  opts: {
+    audience?: "internal" | "public";
+    installVite?: boolean;
+    protectedPaths?: string[];
+    publicPaths?: string[];
+  } = {},
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   fs.mkdirSync(appDir, { recursive: true });
@@ -450,9 +475,13 @@ function makeApp(
     name: app,
     displayName: app.charAt(0).toUpperCase() + app.slice(1),
   };
-  if (opts.audience) {
+  if (opts.audience || opts.protectedPaths || opts.publicPaths) {
     pkg["agent-native"] = {
-      workspaceApp: { audience: opts.audience },
+      workspaceApp: {
+        ...(opts.audience ? { audience: opts.audience } : {}),
+        ...(opts.publicPaths ? { publicPaths: opts.publicPaths } : {}),
+        ...(opts.protectedPaths ? { protectedPaths: opts.protectedPaths } : {}),
+      },
     };
   }
   fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));

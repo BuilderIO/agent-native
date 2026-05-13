@@ -14,6 +14,7 @@ import {
   isSafeNoDataAnalyticsResponse,
   looksLikeAnalyticsDataRequest,
 } from "../lib/real-data-actions";
+import { renderDataDictionary } from "../lib/data-dictionary-context";
 
 const SQL_DASHBOARD_PREFIX = "sql-dashboard-";
 const DATA_DICT_PREFIX = "data-dict-";
@@ -47,46 +48,6 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
   };
 }
 
-/**
- * Render the data-dictionary entries available to this request as a
- * compact prompt block. Lets the agent pick the right table / column
- * names up front instead of hallucinating them and hitting a data-source
- * error after save. Only includes fields that are actually useful for
- * SQL generation (metric / definition / table / columnsUsed / query
- * template / gotchas) — the full entry is still fetchable via
- * `list-data-dictionary` when the agent wants more.
- */
-function renderDataDictionary(entries: Array<Record<string, unknown>>): string {
-  if (!entries.length) return "";
-  const lines: string[] = [];
-  for (const e of entries) {
-    const metric = String(e.metric ?? "").trim();
-    const definition = String(e.definition ?? "").trim();
-    if (!metric) continue;
-    lines.push(`- **${metric}**${definition ? ` — ${definition}` : ""}`);
-    const table = String(e.table ?? "").trim();
-    if (table) lines.push(`  - table: ${table}`);
-    const columns = String(e.columnsUsed ?? "").trim();
-    if (columns) lines.push(`  - columns: ${columns}`);
-    const template = String(e.queryTemplate ?? "").trim();
-    if (template) {
-      const oneLine = template.replace(/\s+/g, " ").slice(0, 240);
-      lines.push(`  - query: ${oneLine}${template.length > 240 ? "…" : ""}`);
-    }
-    const gotchas = String(e.knownGotchas ?? "").trim();
-    if (gotchas) lines.push(`  - gotchas: ${gotchas}`);
-  }
-  if (!lines.length) return "";
-  return (
-    "<data-dictionary>\n" +
-    "Canonical metric/table/column definitions for this organization. " +
-    "Use the data source, table, and column names below verbatim when querying configured sources. " +
-    "If the metric you need isn't here, call `list-data-dictionary` / `save-data-dictionary-entry`, inspect configured schemas, or ask the user before guessing.\n\n" +
-    lines.join("\n") +
-    "\n</data-dictionary>"
-  );
-}
-
 export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   finalResponseGuard: realDataFinalGuard,
@@ -107,7 +68,7 @@ export default createAgentChatPlugin({
       "If a provider action fails, stop using that provider for the turn, surface the actual error, and wait for the user to choose whether to fix SQL, use another source, or retry. Do not loop through more queries after a failed provider call. " +
       "For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query or bounded evidence batch instead of continuing into suggested follow-up investigations. " +
       "Unstructured source records are valid analytics evidence: Pylon tickets, Jira issues, Gong calls/transcripts, Slack messages, and similar text records may be coded for themes, mention counts, sentiment, objections, and qualitative patterns as long as the answer states the inspected sample size and does not imply unsupported statistical certainty. " +
-      "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions. " +
+      "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions; use `search-bigquery-schema` for BigQuery metadata before inventing datasets, tables, or columns. " +
       "Never substitute fabricated numbers for a failed query or unavailable provider. It is fine to ask a clarifying question, provide a plan, or say exactly which source is unavailable as long as you do not present metrics or source-record conclusions without evidence.\n" +
       "</data-source-guidance>";
 

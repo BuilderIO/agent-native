@@ -30,6 +30,8 @@ describe("listWorkspaceApps", () => {
               description: "Tracks personal tasks and follow-ups",
               path: "/todo",
               audience: "public",
+              publicPaths: ["/"],
+              protectedPaths: ["/admin"],
             },
           ],
         }),
@@ -60,6 +62,10 @@ describe("listWorkspaceApps", () => {
       "Tracks personal tasks and follow-ups",
     );
     expect(apps.find((app) => app.id === "todo")?.audience).toBe("public");
+    expect(apps.find((app) => app.id === "todo")?.publicPaths).toEqual(["/"]);
+    expect(apps.find((app) => app.id === "todo")?.protectedPaths).toEqual([
+      "/admin",
+    ]);
   });
 
   it("filters workspace apps by audience", async () => {

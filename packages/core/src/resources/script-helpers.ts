@@ -14,6 +14,8 @@ import {
   resourceList,
   resourceListAccessible,
   type ResourceMeta,
+  type ResourceVisibility,
+  type ResourceCreatedBy,
 } from "./store.js";
 import { getRequestUserEmail } from "../server/request-context.js";
 
@@ -40,9 +42,33 @@ export async function readResource(
 export async function writeResource(
   path: string,
   content: string,
-  options?: { shared?: boolean; mimeType?: string },
+  options?: {
+    shared?: boolean;
+    mimeType?: string;
+    visibility?: ResourceVisibility;
+    createdBy?: ResourceCreatedBy;
+    threadId?: string | null;
+    runId?: string | null;
+    expiresAt?: number | null;
+    metadata?: string | Record<string, unknown> | null;
+  },
 ): Promise<void> {
   const owner = getOwner(options?.shared);
+  const writeOptions = {
+    visibility: options?.visibility,
+    createdBy: options?.createdBy,
+    threadId: options?.threadId,
+    runId: options?.runId,
+    expiresAt: options?.expiresAt,
+    metadata: options?.metadata,
+  };
+  const hasWriteOptions = Object.values(writeOptions).some(
+    (value) => value !== undefined,
+  );
+  if (hasWriteOptions) {
+    await resourcePut(owner, path, content, options?.mimeType, writeOptions);
+    return;
+  }
   await resourcePut(owner, path, content, options?.mimeType);
 }
 
@@ -56,15 +82,20 @@ export async function deleteResource(
 
 export async function listResources(
   prefix?: string,
-  options?: { shared?: boolean },
+  options?: { shared?: boolean; includeAgentScratch?: boolean },
 ): Promise<ResourceMeta[]> {
   const owner = getOwner(options?.shared);
-  return resourceList(owner, prefix);
+  return options?.includeAgentScratch
+    ? resourceList(owner, prefix, { includeAgentScratch: true })
+    : resourceList(owner, prefix);
 }
 
 export async function listAllResources(
   prefix?: string,
+  options?: { includeAgentScratch?: boolean },
 ): Promise<ResourceMeta[]> {
   const userEmail = getOwner(false);
-  return resourceListAccessible(userEmail, prefix);
+  return options?.includeAgentScratch
+    ? resourceListAccessible(userEmail, prefix, { includeAgentScratch: true })
+    : resourceListAccessible(userEmail, prefix);
 }

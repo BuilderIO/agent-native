@@ -131,6 +131,21 @@ describe("resource handlers", () => {
         "skills/",
       );
     });
+
+    it("includes agent scratch resources only when requested", async () => {
+      mockResourceListAccessible.mockResolvedValue([]);
+
+      const event = {
+        _query: { includeAgentScratch: "true" },
+      };
+      await handleListResources(event);
+
+      expect(mockResourceListAccessible).toHaveBeenCalledWith(
+        "test@test.com",
+        undefined,
+        { includeAgentScratch: true },
+      );
+    });
   });
 
   describe("handleGetResource", () => {
@@ -590,6 +605,21 @@ describe("resource handlers", () => {
       const result = await handleGetResourceTree(event);
 
       expect(result.tree).toEqual([]);
+    });
+
+    it("passes includeAgentScratch through to tree lists", async () => {
+      mockResourceList.mockResolvedValue([]);
+
+      const event = {
+        _query: { scope: "personal", includeAgentScratch: "true" },
+      };
+      await handleGetResourceTree(event);
+
+      expect(mockResourceList).toHaveBeenCalledWith(
+        "test@test.com",
+        undefined,
+        { includeAgentScratch: true },
+      );
     });
 
     it("creates file nodes with resource metadata", async () => {

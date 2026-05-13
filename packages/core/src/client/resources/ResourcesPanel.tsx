@@ -960,6 +960,10 @@ Create skill files under \`skills/<name>/SKILL.md\` to give the agent specialize
 | Skill | Path | Description |
 |-------|------|-------------|
 | *(use the skill button to create one)* | \`skills/example/SKILL.md\` | |
+
+## Workspace files
+
+Workspace resources are for files users intentionally add, edit, or manage. Agents may create hidden \`agent_scratch\` resources for temporary working notes, scripts, or intermediate results; only promote those files into workspace visibility when a user explicitly asks to keep them.
 `;
 
 // BuilderBrowserCard moved to settings/BrowserSection.tsx
@@ -988,6 +992,7 @@ export function ResourcesPanel() {
     } catch {}
     return "visual";
   });
+  const [showAgentScratch, setShowAgentScratch] = useState(false);
 
   useEffect(() => {
     setToolbarDeleteConfirmId(null);
@@ -997,8 +1002,12 @@ export function ResourcesPanel() {
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const sharedTreeQuery = useResourceTree("shared");
-  const personalTreeQuery = useResourceTree("personal");
+  const sharedTreeQuery = useResourceTree("shared", {
+    includeAgentScratch: showAgentScratch,
+  });
+  const personalTreeQuery = useResourceTree("personal", {
+    includeAgentScratch: showAgentScratch,
+  });
   const mcpServersQuery = useMcpServers();
   const createMcpServer = useCreateMcpServer();
   const deleteMcpServer = useDeleteMcpServer();
@@ -1013,10 +1022,14 @@ export function ResourcesPanel() {
       personalTreeQuery.data ?? [],
       mcpServersQuery.data?.user ?? [],
     ),
+    { show: showAgentScratch },
   );
-  const sharedTree = withMcpServersFolder(
-    sharedTreeQuery.data ?? [],
-    mcpServersQuery.data?.org ?? [],
+  const sharedTree = withAgentScratchFolder(
+    withMcpServersFolder(
+      sharedTreeQuery.data ?? [],
+      mcpServersQuery.data?.org ?? [],
+    ),
+    { show: showAgentScratch },
   );
 
   const orgRole = mcpServersQuery.data?.role ?? org?.role ?? null;
@@ -1380,6 +1393,32 @@ export function ResourcesPanel() {
                 </button>
               </TooltipTrigger>
               <TooltipContent>Upload file</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setShowAgentScratch((value) => !value)}
+                  aria-label={
+                    showAgentScratch
+                      ? "Hide agent scratch files"
+                      : "Show agent scratch files"
+                  }
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    showAgentScratch && "bg-accent/50 text-foreground",
+                  )}
+                >
+                  <IconEye className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {showAgentScratch
+                  ? "Hide agent scratch files"
+                  : "Show agent scratch files"}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <TooltipProvider delayDuration={200}>

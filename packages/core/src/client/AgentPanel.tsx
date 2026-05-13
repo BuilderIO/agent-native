@@ -234,7 +234,7 @@ function IconTooltip({
 // ─── AgentPanel ─────────────────────────────────────────────────────────────
 
 export interface AgentPanelCodeAccess {
-  /** Whether this surface can safely edit source, access workspace files, and run shell commands. */
+  /** Whether this surface can safely edit source and run shell commands. */
   enabled: boolean;
   /** Heading shown when code access is unavailable. */
   unavailableTitle?: string;
@@ -374,7 +374,7 @@ export interface AgentPanelProps extends Omit<
   browserTabId?: string;
   /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
-  /** Capability gate for source edits, workspace files, and CLI access. */
+  /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
 }
 
@@ -663,7 +663,7 @@ function AgentPanelInner({
     codeAccess?.unavailableTitle ?? "Open Desktop to edit code";
   const codeUnavailableDescription =
     codeAccess?.unavailableDescription ??
-    "Source-code changes, workspace files, and CLI access are available in the Agent Native Desktop app.";
+    "Source-code changes and CLI access are available in the Agent Native Desktop app.";
   const codeUnavailableCtaLabel =
     codeAccess?.unavailableCtaLabel ?? "Download Desktop";
   const codeUnavailableCtaHref =
@@ -777,9 +777,7 @@ function AgentPanelInner({
               </button>
             </TooltipTrigger>
             <TooltipContent>
-              {codeAccessEnabled
-                ? "Workspace files, agents, skills, and tasks"
-                : "Open Desktop to use Workspace"}
+              Workspace files, agents, skills, and tasks
             </TooltipContent>
           </Tooltip>
           <Tooltip>
@@ -1403,33 +1401,20 @@ function AgentPanelInner({
       {/* Resources view */}
       {mode === "resources" && (
         <div className="flex-1 min-h-0">
-          {codeAccessEnabled ? (
-            <Suspense
-              fallback={
-                <div className="flex h-full flex-col min-h-0">
-                  <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
-                    <div className="flex items-center gap-1">
-                      <div className="h-5 w-16 rounded bg-muted animate-pulse" />
-                      <div className="h-5 w-14 rounded bg-muted animate-pulse" />
-                    </div>
+          <Suspense
+            fallback={
+              <div className="flex h-full flex-col min-h-0">
+                <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
+                  <div className="flex items-center gap-1">
+                    <div className="h-5 w-16 rounded bg-muted animate-pulse" />
+                    <div className="h-5 w-14 rounded bg-muted animate-pulse" />
                   </div>
                 </div>
-              }
-            >
-              <ResourcesPanel />
-            </Suspense>
-          ) : (
-            <div className="flex h-full items-center justify-center px-6">
-              <CodeAccessUnavailablePanel
-                title="Open Desktop to use Workspace"
-                description={codeUnavailableDescription}
-                ctaLabel={codeUnavailableCtaLabel}
-                ctaHref={codeUnavailableCtaHref}
-                secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
-                secondaryCtaHref={codeUnavailableSecondaryCtaHref}
-              />
-            </div>
-          )}
+              </div>
+            }
+          >
+            <ResourcesPanel />
+          </Suspense>
         </div>
       )}
 

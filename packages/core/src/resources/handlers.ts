@@ -80,6 +80,15 @@ async function assertCanEditShared(event: any): Promise<void> {
   });
 }
 
+function shouldIncludeAgentScratch(query: Record<string, unknown>): boolean {
+  return (
+    query.includeAgentScratch === "true" ||
+    query.includeScratch === "true" ||
+    query.includeAgentScratch === true ||
+    query.includeScratch === true
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tree building
 // ---------------------------------------------------------------------------
@@ -169,6 +178,9 @@ export async function handleListResources(event: any) {
   const prefix = (query.prefix as string) || undefined;
   const scope = (query.scope as string) || "all";
   const email = await resolveEmail(event);
+  const listOptions = shouldIncludeAgentScratch(query)
+    ? { includeAgentScratch: true }
+    : undefined;
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
   await ensurePersonalDefaults(email);
@@ -176,12 +188,18 @@ export async function handleListResources(event: any) {
   let resources: ResourceMeta[];
 
   if (scope === "personal") {
-    resources = await resourceList(email, prefix);
+    resources = listOptions
+      ? await resourceList(email, prefix, listOptions)
+      : await resourceList(email, prefix);
   } else if (scope === "shared") {
-    resources = await resourceList(SHARED_OWNER, prefix);
+    resources = listOptions
+      ? await resourceList(SHARED_OWNER, prefix, listOptions)
+      : await resourceList(SHARED_OWNER, prefix);
   } else {
     // "all" — personal + shared
-    resources = await resourceListAccessible(email, prefix);
+    resources = listOptions
+      ? await resourceListAccessible(email, prefix, listOptions)
+      : await resourceListAccessible(email, prefix);
   }
 
   return { resources };
@@ -192,6 +210,9 @@ export async function handleGetResourceTree(event: any) {
   const query = getQuery(event);
   const scope = (query.scope as string) || "all";
   const email = await resolveEmail(event);
+  const listOptions = shouldIncludeAgentScratch(query)
+    ? { includeAgentScratch: true }
+    : undefined;
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
   await ensurePersonalDefaults(email);
@@ -199,11 +220,17 @@ export async function handleGetResourceTree(event: any) {
   let resources: ResourceMeta[];
 
   if (scope === "personal") {
-    resources = await resourceList(email);
+    resources = listOptions
+      ? await resourceList(email, undefined, listOptions)
+      : await resourceList(email);
   } else if (scope === "shared") {
-    resources = await resourceList(SHARED_OWNER);
+    resources = listOptions
+      ? await resourceList(SHARED_OWNER, undefined, listOptions)
+      : await resourceList(SHARED_OWNER);
   } else {
-    resources = await resourceListAccessible(email);
+    resources = listOptions
+      ? await resourceListAccessible(email, undefined, listOptions)
+      : await resourceListAccessible(email);
   }
 
   const tree = buildTree(resources);

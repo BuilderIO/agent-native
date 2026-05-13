@@ -202,24 +202,40 @@ The [Dispatch](/docs/dispatch) app is the workspace's runtime control plane. It 
 - **Approvals** — require review before runtime changes (destinations, settings) take effect.
 - **Audit** — full history of secret access, grants, syncs, and changes.
 
-### Public App Audience
+### Public App Routes
 
-Workspace apps are internal by default. To make a whole app's page routes public,
-set the audience in that app's `package.json`:
+Workspace apps are internal by default. For a public site with login-only admin
+pages, set a public audience and protect the admin prefix in that app's
+`package.json`:
 
 ```json
 {
   "agent-native": {
     "workspaceApp": {
-      "audience": "public"
+      "audience": "public",
+      "protectedPaths": ["/admin"]
     }
   }
 }
 ```
 
-Public audience does not publish framework tools, agent chat, A2A, vault access,
-or arbitrary APIs. Those routes stay authenticated unless the app explicitly
-declares public prefixes with `createAuthPlugin({ publicPaths: [...] })`.
+For mostly internal apps with a few public pages, leave the audience internal and
+list page prefixes:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "publicPaths": ["/", "/share"]
+    }
+  }
+}
+```
+
+These settings only affect read-only page navigation. Framework tools, agent
+chat, A2A, vault access, and arbitrary APIs stay authenticated unless the app
+explicitly declares public prefixes with
+`createAuthPlugin({ publicPaths: [...] })`.
 
 ## Setup Checklist
 

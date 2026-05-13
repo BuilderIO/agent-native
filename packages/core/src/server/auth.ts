@@ -3059,12 +3059,12 @@ export async function autoMountAuth(
         : {
             getLoginHtml: (_event, rawPath) =>
               getTokenLoginHtml({ requestPath: rawPath }),
-    }),
-    publicPaths,
-    workspaceAppAudience,
-    workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
-    workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
-  };
+          }),
+      publicPaths,
+      workspaceAppAudience,
+      workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
+      workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
+    };
     const guardFn = createAuthGuardFn();
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
