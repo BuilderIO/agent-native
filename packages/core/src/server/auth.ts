@@ -1983,6 +1983,7 @@ async function mountBetterAuthRoutes(
 ): Promise<void> {
   const publicPaths = [...(options.publicPaths ?? [])];
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
+  const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
   // The A2A agent card is part of an open protocol — other agents must be
   // able to discover it without auth. Same for favicons and similar probes.
@@ -2695,7 +2696,13 @@ async function mountBetterAuthRoutes(
       googleSignInNotice: options.googleSignInNotice,
       googleAuthMode: options.googleAuthMode,
     });
-  _authGuardConfig = { loginHtml, publicPaths, workspaceAppAudience };
+  _authGuardConfig = {
+    loginHtml,
+    publicPaths,
+    workspaceAppAudience,
+    workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
+    workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
+  };
   const guardFn = createAuthGuardFn();
   _authGuardFn = guardFn;
   app.use(defineEventHandler(guardFn));
@@ -2710,6 +2717,7 @@ function mountTokenOnlyRoutes(
   accessTokens: string[],
   publicPaths: string[] = [],
   workspaceAppAudience = resolveWorkspaceAppAudience(),
+  workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(),
 ): void {
   app.use(
     "/_agent-native/auth/login",
@@ -2767,6 +2775,8 @@ function mountTokenOnlyRoutes(
       getTokenLoginHtml({ requestPath: rawPath }),
     publicPaths,
     workspaceAppAudience,
+    workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
+    workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
   };
   const guardFn = createAuthGuardFn();
   _authGuardFn = guardFn;
@@ -2969,6 +2979,14 @@ export async function autoMountAuth(
         _authGuardConfig.workspaceAppAudience =
           resolveWorkspaceAppAudience(options);
       }
+      if (options.workspaceAppPublicPaths) {
+        _authGuardConfig.workspaceAppPublicPaths =
+          options.workspaceAppPublicPaths;
+      }
+      if (options.workspaceAppProtectedPaths) {
+        _authGuardConfig.workspaceAppProtectedPaths =
+          options.workspaceAppProtectedPaths;
+      }
     }
     return true;
   }
@@ -2994,6 +3012,7 @@ export async function autoMountAuth(
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = options.publicPaths ?? [];
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
+  const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
   mountAuthCorsMiddleware(app);
 
@@ -3040,10 +3059,12 @@ export async function autoMountAuth(
         : {
             getLoginHtml: (_event, rawPath) =>
               getTokenLoginHtml({ requestPath: rawPath }),
-          }),
-      publicPaths,
-      workspaceAppAudience,
-    };
+    }),
+    publicPaths,
+    workspaceAppAudience,
+    workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
+    workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
+  };
     const guardFn = createAuthGuardFn();
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
@@ -3056,7 +3077,13 @@ export async function autoMountAuth(
   // ACCESS_TOKEN-only mode
   const tokens = getAccessTokens();
   if (tokens.length > 0) {
-    mountTokenOnlyRoutes(app, tokens, publicPaths, workspaceAppAudience);
+    mountTokenOnlyRoutes(
+      app,
+      tokens,
+      publicPaths,
+      workspaceAppAudience,
+      workspaceAppRouteAccess,
+    );
     if (process.env.DEBUG)
       console.log(
         `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
@@ -3085,7 +3112,13 @@ export async function autoMountAuth(
         googleSignInNotice: options.googleSignInNotice,
         googleAuthMode: options.googleAuthMode,
       });
-    _authGuardConfig = { loginHtml, publicPaths, workspaceAppAudience };
+    _authGuardConfig = {
+      loginHtml,
+      publicPaths,
+      workspaceAppAudience,
+      workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
+      workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
+    };
     const guardFn = createAuthGuardFn();
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
