@@ -2043,15 +2043,32 @@ export function AgentSidebar({
   // the sidebar is currently open. Mixing them up dispatched a stale
   // "open: true" before the first frame message arrived.
   const [frameSidebarOpen, setFrameSidebarOpen] = useState(false);
+  // Has the frame told us its sidebar state yet? In frame-owned mode we
+  // don't know whether the sidebar is open or closed until the parent frame
+  // dispatches `agentNative.sidebarMode`. Emitting a synthetic
+  // `{ open: false }` before that message arrives makes downstream listeners
+  // flip a moment later when the real state lands, which is the same
+  // ownership-vs-open-state confusion the previous fix addressed.
+  const [hasFrameSidebarState, setHasFrameSidebarState] = useState(false);
 
   useEffect(() => {
     const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
+    // Skip the initial emit in frame-owned mode — wait until the frame has
+    // sent us its real sidebar state. Once we know, this effect re-runs and
+    // dispatches the correct value.
+    if (frameOwned && !hasFrameSidebarState) return;
     dispatchAgentSidebarStateChange({
       open: !presentationMode && (frameOwned ? frameSidebarOpen : open),
       source: frameOwned ? "frame" : "app",
       mode: frameOwned ? "code" : "app",
     });
-  }, [frameCodeMode, frameSidebarOpen, open, presentationMode]);
+  }, [
+    frameCodeMode,
+    frameSidebarOpen,
+    open,
+    presentationMode,
+    hasFrameSidebarState,
+  ]);
 
   useEffect(() => {
     const toggleHandler = () => {
@@ -2115,11 +2132,13 @@ export function AgentSidebar({
         // Frame is showing its own sidebar — hide the app's
         setFrameCodeMode(true);
         setFrameSidebarOpen(frameOpen !== false);
+        setHasFrameSidebarState(true);
         setOpenPersisted(false);
       } else if (mode === "app") {
         // Frame deferred to the app — show and sync width + mode
         setFrameCodeMode(false);
         setFrameSidebarOpen(false);
+        setHasFrameSidebarState(true);
         setOpenPersisted(frameOpen !== false);
         if (
           frameWidth &&
