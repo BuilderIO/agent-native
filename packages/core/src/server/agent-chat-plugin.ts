@@ -2026,6 +2026,7 @@ const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
 async function loadResourcesForPrompt(
   owner: string,
   compact = false,
+  selfAppId?: string,
 ): Promise<string> {
   await ensurePersonalDefaults(owner);
 
@@ -2096,6 +2097,21 @@ async function loadResourcesForPrompt(
         }
       } catch {}
     }
+  }
+
+  try {
+    const agents = (await discoverAgents(selfAppId)).slice(0, 30);
+    if (agents.length > 0) {
+      const lines = agents.map(
+        (agent) =>
+          `- ${agent.name} (${agent.id}) — ${agent.description || "Connected A2A app"}`,
+      );
+      sections.push(
+        `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nUse \`call-agent\` with the app id when another app owns the work or data. Use tool-search or app-specific actions for details only when needed.\n</available-apps>`,
+      );
+    }
+  } catch {
+    // Agent discovery is helpful context, not required for the run.
   }
 
   if (sections.length === 0) return "";
@@ -2945,7 +2961,11 @@ export function createAgentChatPlugin(
           // Build the same system prompt the interactive agent uses
           if (!userEmail) throw new Error("no authenticated user");
           const owner = userEmail;
-          const resources = await loadResourcesForPrompt(owner, lazyContext);
+          const resources = await loadResourcesForPrompt(
+            owner,
+            lazyContext,
+            options?.appId,
+          );
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, devActive);
@@ -3174,6 +3194,7 @@ export function createAgentChatPlugin(
           const resources = await loadResourcesForPrompt(
             SHARED_OWNER,
             lazyContext,
+            options?.appId,
           );
           const schemaBlock = lazyContext
             ? ""
@@ -3822,7 +3843,11 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
               leanBasePrompt + runtimeContext + browserLocalDev + extra,
             );
           }
-          const resources = await loadResourcesForPrompt(owner, lazyContext);
+          const resources = await loadResourcesForPrompt(
+            owner,
+            lazyContext,
+            options?.appId,
+          );
           // In lazy context mode, skip embedding the full schema — the agent
           // calls `db-schema` on demand. This saves ~1-2K tokens per request.
           const schemaBlock = lazyContext
@@ -3970,7 +3995,11 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
                 leanBasePrompt + runtimeContext + extra,
               );
             }
-            const resources = await loadResourcesForPrompt(owner, lazyContext);
+            const resources = await loadResourcesForPrompt(
+              owner,
+              lazyContext,
+              options?.appId,
+            );
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(owner, true);
@@ -5195,7 +5224,11 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             ...toolActions,
           }),
           getSystemPrompt: async (owner: string) => {
-            const resources = await loadResourcesForPrompt(owner, lazyContext);
+            const resources = await loadResourcesForPrompt(
+              owner,
+              lazyContext,
+              options?.appId,
+            );
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(owner, false);
@@ -5238,7 +5271,11 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             ...toolActions,
           }),
           getSystemPrompt: async (owner: string) => {
-            const resources = await loadResourcesForPrompt(owner, lazyContext);
+            const resources = await loadResourcesForPrompt(
+              owner,
+              lazyContext,
+              options?.appId,
+            );
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(owner, false);
