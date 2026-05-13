@@ -77,6 +77,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
 import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
+import { trackEvent } from "./analytics.js";
 import { getFrameOrigin, isInFrame, isTrustedFrameMessage } from "./frame.js";
 import {
   getInitialAgentSidebarOpen,
@@ -439,6 +440,14 @@ function CodeAccessUnavailablePanel({
           href={builderHref}
           target="_blank"
           rel="noreferrer"
+          onClick={() => {
+            trackEvent("builder connect clicked", {
+              feature: "builder",
+              stage: "client",
+              source: "code_access_unavailable_panel",
+              connect_url_kind: builderConnectUrl ? "provided" : "fallback",
+            });
+          }}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
         >
           {secondaryCtaLabel}
