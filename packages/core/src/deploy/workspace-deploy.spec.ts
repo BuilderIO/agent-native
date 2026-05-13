@@ -18,6 +18,7 @@ let previousNetlify: string | undefined;
 let previousNetlifyLocal: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
+let previousViteWorkspaceAppsJson: string | undefined;
 let previousViteAppBasePath: string | undefined;
 let previousViteWorkspaceGatewayUrl: string | undefined;
 let previousViteWorkspaceOAuthOrigin: string | undefined;
@@ -51,6 +52,8 @@ beforeEach(() => {
   previousNetlifyLocal = process.env.NETLIFY_LOCAL;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousVercel = process.env.VERCEL;
+  previousViteWorkspaceAppsJson =
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
   previousViteWorkspaceGatewayUrl = process.env.VITE_WORKSPACE_GATEWAY_URL;
   previousViteWorkspaceOAuthOrigin = process.env.VITE_WORKSPACE_OAUTH_ORIGIN;
@@ -68,6 +71,7 @@ beforeEach(() => {
   delete process.env.NETLIFY_LOCAL;
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
+  delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.VITE_APP_BASE_PATH;
   delete process.env.VITE_WORKSPACE_GATEWAY_URL;
   delete process.env.VITE_WORKSPACE_OAUTH_ORIGIN;
@@ -88,6 +92,10 @@ afterEach(() => {
   restoreEnv("NETLIFY_LOCAL", previousNetlifyLocal);
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VERCEL", previousVercel);
+  restoreEnv(
+    "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+    previousViteWorkspaceAppsJson,
+  );
   restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
   restoreEnv("VITE_WORKSPACE_GATEWAY_URL", previousViteWorkspaceGatewayUrl);
   restoreEnv("VITE_WORKSPACE_OAUTH_ORIGIN", previousViteWorkspaceOAuthOrigin);
@@ -116,6 +124,8 @@ describe("workspace deploy", () => {
       NITRO_PRESET: "netlify",
       APP_BASE_PATH: "/dispatch",
       VITE_APP_BASE_PATH: "/dispatch",
+      VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON:
+        dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON,
     });
     expect(
       JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
@@ -342,9 +352,13 @@ describe("workspace deploy", () => {
     );
     process.env.APP_BASE_PATH = "/wrong";
     process.env.VITE_APP_BASE_PATH = "/wrong";
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON = "[]";
     await dispatchModule.default();
     expect(process.env.APP_BASE_PATH).toBe("/dispatch");
     expect(process.env.VITE_APP_BASE_PATH).toBe("/dispatch");
+    expect(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON).toBe(
+      process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON,
+    );
     expect(
       JSON.parse(process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]").map(
         (app: { id: string; path: string }) => [app.id, app.path],

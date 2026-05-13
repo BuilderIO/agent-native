@@ -430,7 +430,7 @@ export function Layout({
         <AgentSidebar
           position="right"
           defaultOpen={false}
-          emptyStateText="Create apps, grant keys, and route work across the workspace."
+          emptyStateText="Create apps, manage vault keys, and route work across the workspace."
           suggestions={SIDEBAR_SUGGESTIONS}
         >
           {appContent}

@@ -121,8 +121,8 @@ function buildAppCreationPrompt(input: {
     input.vaultAccessMode === "all-apps"
       ? `Do not create per-app Dispatch vault grants unless the workspace switches vault access to manual or the user explicitly asks for manual grants.`
       : keyList
-      ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
-      : `Do not grant any Dispatch vault keys unless the user asks later.`,
+        ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
+        : `Do not grant any Dispatch vault keys unless the user asks later.`,
     input.selectedResources.length
       ? `After the app exists, grant the selected Dispatch workspace resources to appId "${input.appId}" and sync them once the app server is available. Add a short note to apps/${input.appId}/AGENTS.md telling the app agent to read relevant shared resources under context/ or the selected resource paths before doing GTM/domain work.`
       : `Do not grant any Dispatch workspace resources unless the user asks later.`,
@@ -178,6 +178,8 @@ export function CreateAppFlow({
   const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
   const [secrets, setSecrets] = useState<VaultSecretOption[]>([]);
   const [resources, setResources] = useState<WorkspaceResourceOption[]>([]);
+  const [vaultAccessMode, setVaultAccessMode] =
+    useState<VaultAccessMode>("all-apps");
   const [secretsError, setSecretsError] = useState<string | null>(null);
   const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -200,6 +202,15 @@ export function CreateAppFlow({
         if (cancelled) return;
         setSecrets([]);
         setSecretsError(err?.message || "Could not load Dispatch keys");
+      });
+    fetchJson(actionUrl(basePath, "get-vault-access-settings"))
+      .then((data) => {
+        if (cancelled) return;
+        setVaultAccessMode(data?.mode === "manual" ? "manual" : "all-apps");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setVaultAccessMode("manual");
       });
     fetchJson(actionUrl(basePath, "list-workspace-resource-options"))
       .then((data) => {
@@ -226,9 +237,11 @@ export function CreateAppFlow({
     [resources, selectedResourceIds],
   );
   const selectedSecretLabel =
-    selectedSecretIds.length === 0
-      ? "no keys"
-      : `${selectedSecretIds.length} key${selectedSecretIds.length === 1 ? "" : "s"}`;
+    vaultAccessMode === "all-apps"
+      ? "all keys"
+      : selectedSecretIds.length === 0
+        ? "no keys"
+        : `${selectedSecretIds.length} key${selectedSecretIds.length === 1 ? "" : "s"}`;
   const selectedResourceLabel =
     selectedResourceIds.length === 0
       ? "no resources"
@@ -262,8 +275,12 @@ export function CreateAppFlow({
     const message = buildAppCreationPrompt({
       appId,
       prompt: trimmed,
-      selectedKeys: selectedSecrets.map((s) => s.credentialKey),
+      selectedKeys:
+        vaultAccessMode === "manual"
+          ? selectedSecrets.map((s) => s.credentialKey)
+          : [],
       selectedResources,
+      vaultAccessMode,
     });
     setIsSubmitting(true);
     setStatusMessage(null);
@@ -287,7 +304,10 @@ export function CreateAppFlow({
             body: JSON.stringify({
               prompt: trimmed,
               appId,
-              secretIds: selectedSecretIds.length > 0 ? selectedSecretIds : [],
+              secretIds:
+                vaultAccessMode === "manual" && selectedSecretIds.length > 0
+                  ? selectedSecretIds
+                  : [],
               resourceIds:
                 selectedResourceIds.length > 0 ? selectedResourceIds : [],
             }),
@@ -359,7 +379,11 @@ export function CreateAppFlow({
               <IconKey size={12} />
               Dispatch keys
             </div>
-            {secretsError ? (
+            {vaultAccessMode === "all-apps" ? (
+              <p className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
+                Every saved Dispatch vault key is available to new apps.
+              </p>
+            ) : secretsError ? (
               <p className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
                 {secretsError}
               </p>
