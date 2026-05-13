@@ -924,9 +924,30 @@ function normalizeOrigin(value: string | null | undefined): string | undefined {
   }
 }
 
+function isLoopbackOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "[::1]" ||
+      host === "::1"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function workspaceOAuthOrigin(
   workspaceGatewayUrl: string | null,
 ): string | undefined {
+  // Explicit overrides (env vars set by the operator) win even if they happen
+  // to be loopback — that's a deliberate dev-against-prod choice.
+  // The gateway-URL fallback, however, is auto-resolved and would silently
+  // send users to localhost if the configured gateway is loopback in a
+  // production deploy. Strip loopback there so OAuth fails loudly instead.
+  const gatewayFallback = normalizeOrigin(workspaceGatewayUrl);
   return (
     normalizeOrigin(process.env.VITE_WORKSPACE_OAUTH_ORIGIN) ||
     normalizeOrigin(process.env.WORKSPACE_OAUTH_ORIGIN) ||
@@ -934,7 +955,7 @@ function workspaceOAuthOrigin(
     normalizeOrigin(process.env.BETTER_AUTH_URL) ||
     normalizeOrigin(process.env.URL) ||
     normalizeOrigin(process.env.DEPLOY_URL) ||
-    normalizeOrigin(workspaceGatewayUrl)
+    (isLoopbackOrigin(gatewayFallback) ? undefined : gatewayFallback)
   );
 }
 
