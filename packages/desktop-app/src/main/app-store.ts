@@ -1,7 +1,7 @@
 import { app } from "electron";
 import fs from "fs";
 import path from "path";
-import { DEFAULT_APPS, type AppConfig } from "@agent-native/shared-app-config";
+import { DESKTOP_DEFAULT_APPS, type AppConfig } from "@shared/app-registry";
 
 const STORE_FILE = "app-config.json";
 const FRAME_STORE_FILE = "frame-config.json";
@@ -24,13 +24,16 @@ function defaultFrameSettings(): FrameSettings {
 }
 
 function defaultApps(): AppConfig[] {
-  return DEFAULT_APPS.map((def) => ({
+  return DESKTOP_DEFAULT_APPS.map((def) => ({
     ...def,
-    mode: app.isPackaged ? (def.mode ?? "prod") : "dev",
+    mode:
+      app.isPackaged || def.id === "dispatch" ? (def.mode ?? "prod") : "dev",
   }));
 }
 
 function canonicalizeDefaultApp(appConfig: AppConfig, def: AppConfig) {
+  const shouldBackfillProdUrl = !appConfig.url?.trim() && Boolean(def.url);
+
   // Preserve everything the user can edit in the settings dialog. Only
   // structural fields the user can't edit (id, icon, isBuiltIn, placeholder)
   // and template-canonical metadata (color) come from `def`. Without this,
@@ -38,10 +41,12 @@ function canonicalizeDefaultApp(appConfig: AppConfig, def: AppConfig) {
   return {
     ...def,
     enabled: appConfig.enabled ?? def.enabled,
-    mode: appConfig.mode ?? def.mode,
+    mode: shouldBackfillProdUrl
+      ? (def.mode ?? "prod")
+      : (appConfig.mode ?? def.mode),
     name: appConfig.name || def.name,
     description: appConfig.description || def.description,
-    url: appConfig.url ?? def.url,
+    url: shouldBackfillProdUrl ? def.url : (appConfig.url ?? def.url),
     devUrl: appConfig.devUrl ?? def.devUrl,
     devCommand: appConfig.devCommand ?? def.devCommand,
     devPort: appConfig.devPort || def.devPort,

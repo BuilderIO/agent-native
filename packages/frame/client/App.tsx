@@ -87,6 +87,15 @@ function useAgentNativeDesktop() {
   return isDesktop;
 }
 
+function isAgentSidebarToggleShortcut(event: KeyboardEvent): boolean {
+  return (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    (event.key === "\\" || event.code === "Backslash")
+  );
+}
+
 export function App() {
   const [appId] = useState(getAppId);
   const isDesktop = useAgentNativeDesktop();
@@ -204,6 +213,30 @@ export function App() {
     notifyIframe(frameMode, sidebarWidth, sidebarOpen);
   }, [frameMode, sidebarWidth, sidebarOpen]);
 
+  useEffect(() => {
+    const toggleHandler = () => setSidebarOpen((prev) => !prev);
+    const openHandler = () => setSidebarOpen(true);
+    const closeHandler = () => setSidebarOpen(false);
+    window.addEventListener("agent-panel:toggle", toggleHandler);
+    window.addEventListener("agent-panel:open", openHandler);
+    window.addEventListener("agent-panel:close", closeHandler);
+    return () => {
+      window.removeEventListener("agent-panel:toggle", toggleHandler);
+      window.removeEventListener("agent-panel:open", openHandler);
+      window.removeEventListener("agent-panel:close", closeHandler);
+    };
+  }, []);
+
+  useEffect(() => {
+    const keydownHandler = (event: KeyboardEvent) => {
+      if (!isAgentSidebarToggleShortcut(event)) return;
+      event.preventDefault();
+      window.dispatchEvent(new Event("agent-panel:toggle"));
+    };
+    window.addEventListener("keydown", keydownHandler);
+    return () => window.removeEventListener("keydown", keydownHandler);
+  }, []);
+
   // Listen for dev mode toggle from AgentPanel settings cog
   useEffect(() => {
     function handler(e: Event) {
@@ -227,6 +260,8 @@ export function App() {
         const forceOpen = event.data.data?.open;
         if (forceOpen === true) {
           setSidebarOpen(true);
+        } else if (forceOpen === false) {
+          setSidebarOpen(false);
         } else {
           setSidebarOpen((prev) => !prev);
         }

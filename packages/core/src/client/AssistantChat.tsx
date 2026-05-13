@@ -33,7 +33,10 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
-import type { ChatThreadScope } from "./use-chat-threads.js";
+import type {
+  ChatThreadScope,
+  ChatThreadSnapshot,
+} from "./use-chat-threads.js";
 import { getActiveRun } from "./active-run-state.js";
 import {
   AgentAutoContinueSignal,
@@ -1789,21 +1792,22 @@ export function isAssistantUiStaleIndexError(error: unknown): boolean {
   );
 }
 
-type AssistantMessageListErrorBoundaryProps = {
+type AssistantUiStaleIndexErrorBoundaryProps = {
   resetKey: string;
+  componentName?: string;
   children: React.ReactNode;
 };
 
-type AssistantMessageListErrorBoundaryState = {
+type AssistantUiStaleIndexErrorBoundaryState = {
   error: Error | null;
   retryToken: number;
 };
 
-export class AssistantMessageListErrorBoundary extends React.Component<
-  AssistantMessageListErrorBoundaryProps,
-  AssistantMessageListErrorBoundaryState
+export class AssistantUiStaleIndexErrorBoundary extends React.Component<
+  AssistantUiStaleIndexErrorBoundaryProps,
+  AssistantUiStaleIndexErrorBoundaryState
 > {
-  state: AssistantMessageListErrorBoundaryState = {
+  state: AssistantUiStaleIndexErrorBoundaryState = {
     error: null,
     retryToken: 0,
   };
@@ -1812,7 +1816,7 @@ export class AssistantMessageListErrorBoundary extends React.Component<
 
   static getDerivedStateFromError(
     error: unknown,
-  ): Partial<AssistantMessageListErrorBoundaryState> {
+  ): Partial<AssistantUiStaleIndexErrorBoundaryState> {
     return {
       error: error instanceof Error ? error : new Error(String(error ?? "")),
     };
@@ -1823,7 +1827,7 @@ export class AssistantMessageListErrorBoundary extends React.Component<
 
     captureError(error, {
       tags: {
-        component: "AssistantChat",
+        component: this.props.componentName ?? "AssistantChat",
         recoverable: "assistant-ui-stale-message-index",
       },
       extra: {
@@ -1844,7 +1848,7 @@ export class AssistantMessageListErrorBoundary extends React.Component<
     }, 0);
   }
 
-  componentDidUpdate(prevProps: AssistantMessageListErrorBoundaryProps) {
+  componentDidUpdate(prevProps: AssistantUiStaleIndexErrorBoundaryProps) {
     if (
       this.state.error &&
       isAssistantUiStaleIndexError(this.state.error) &&
@@ -1877,6 +1881,23 @@ export class AssistantMessageListErrorBoundary extends React.Component<
       </React.Fragment>
     );
   }
+}
+
+export function AssistantMessageListErrorBoundary({
+  resetKey,
+  children,
+}: {
+  resetKey: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <AssistantUiStaleIndexErrorBoundary
+      resetKey={resetKey}
+      componentName="AssistantMessageList"
+    >
+      {children}
+    </AssistantUiStaleIndexErrorBoundary>
+  );
 }
 
 function UserMessageAttachments() {
@@ -3046,6 +3067,8 @@ export interface AssistantChatHandle {
   isRunning(): boolean;
   /** Focus the composer input */
   focusComposer(): void;
+  /** Export the currently visible client-side thread for operations like fork. */
+  exportThreadSnapshot(): ChatThreadSnapshot | null;
 }
 
 export interface AssistantChatProps {
@@ -4241,8 +4264,19 @@ const AssistantChatInner = forwardRef<
       focusComposer() {
         tiptapRef.current?.focus();
       },
+      exportThreadSnapshot() {
+        if (messages.length === 0) return null;
+        const repo = threadRuntime.export();
+        const { title, preview } = extractThreadMeta(repo);
+        return {
+          threadData: JSON.stringify(repo),
+          title,
+          preview,
+          messageCount: messages.length,
+        };
+      },
     }),
-    [addToQueue, thread.isRunning],
+    [addToQueue, messages.length, thread.isRunning, threadRuntime],
   );
 
   // Track whether user has scrolled away from bottom
@@ -4896,13 +4930,18 @@ export const AssistantChat = forwardRef<
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
-        <AssistantChatInner
-          ref={ref}
-          {...props}
-          apiUrl={apiUrl}
-          tabId={tabId}
-          threadId={threadId}
-        />
+        <AssistantUiStaleIndexErrorBoundary
+          resetKey={`${tabId ?? ""}:${threadId ?? ""}`}
+          componentName="AssistantChat"
+        >
+          <AssistantChatInner
+            ref={ref}
+            {...props}
+            apiUrl={apiUrl}
+            tabId={tabId}
+            threadId={threadId}
+          />
+        </AssistantUiStaleIndexErrorBoundary>
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );

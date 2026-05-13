@@ -70,7 +70,10 @@ import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
-import type { AssistantChatProps } from "./AssistantChat.js";
+import {
+  isAssistantUiStaleIndexError,
+  type AssistantChatProps,
+} from "./AssistantChat.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1780,20 +1783,94 @@ function ScreenRefreshBoundary({ children }: { children: React.ReactNode }) {
 
 class AgentPanelErrorBoundary extends React.Component<
   { children: React.ReactNode; onReset: () => void },
-  { error: Error | null }
+  { error: Error | null; staleIndexRecoveryCount: number }
 > {
-  state: { error: Error | null } = { error: null };
+  state: { error: Error | null; staleIndexRecoveryCount: number } = {
+    error: null,
+    staleIndexRecoveryCount: 0,
+  };
+
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  private recoveryCooldownTimer: ReturnType<typeof setTimeout> | null = null;
 
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    if (isAssistantUiStaleIndexError(error)) {
+      console.warn(
+        "[agent-native] Recovering agent panel after stale UI index",
+      );
+      if (this.state.staleIndexRecoveryCount >= 2) {
+        console.error(
+          "[agent-native] Agent panel stale-index recovery failed",
+          error,
+          errorInfo,
+        );
+        return;
+      }
+      if (!this.recoveryTimer) {
+        this.recoveryTimer = setTimeout(() => {
+          this.recoveryTimer = null;
+          this.setState((state) => ({
+            error: null,
+            staleIndexRecoveryCount: state.staleIndexRecoveryCount + 1,
+          }));
+          this.props.onReset();
+        }, 0);
+      }
+      return;
+    }
     console.error("[agent-native] Agent panel crashed", error, errorInfo);
+  }
+
+  componentDidUpdate(
+    _prevProps: Readonly<{ children: React.ReactNode; onReset: () => void }>,
+    prevState: Readonly<{
+      error: Error | null;
+      staleIndexRecoveryCount: number;
+    }>,
+  ) {
+    if (
+      prevState.error &&
+      !this.state.error &&
+      this.state.staleIndexRecoveryCount > 0
+    ) {
+      if (this.recoveryCooldownTimer) {
+        clearTimeout(this.recoveryCooldownTimer);
+      }
+      this.recoveryCooldownTimer = setTimeout(() => {
+        this.recoveryCooldownTimer = null;
+        this.setState((state) =>
+          state.error ? null : { staleIndexRecoveryCount: 0 },
+        );
+      }, 2_000);
+    }
+  }
+
+  componentWillUnmount() {
+    if (this.recoveryTimer) {
+      clearTimeout(this.recoveryTimer);
+    }
+    if (this.recoveryCooldownTimer) {
+      clearTimeout(this.recoveryCooldownTimer);
+    }
   }
 
   render() {
     if (!this.state.error) return this.props.children;
+
+    if (
+      isAssistantUiStaleIndexError(this.state.error) &&
+      this.state.staleIndexRecoveryCount < 2
+    ) {
+      return (
+        <div className="flex h-full items-center justify-center p-6 text-center text-xs text-muted-foreground">
+          Reloading chat UI...
+        </div>
+      );
+    }
 
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
@@ -1809,7 +1886,7 @@ class AgentPanelErrorBoundary extends React.Component<
           type="button"
           className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
           onClick={() => {
-            this.setState({ error: null });
+            this.setState({ error: null, staleIndexRecoveryCount: 0 });
             this.props.onReset();
           }}
         >
@@ -2051,11 +2128,20 @@ export function AgentSidebar({
     return () => window.removeEventListener("message", handleMessage);
   }, [setOpenPersisted]);
 
-  // Cmd+I / Ctrl+I to focus the agent chat. If the user has selected text,
-  // capture it into application_state under `pending-selection-context` so
-  // the agent's next turn includes it as immediate context to act on.
+  // Cmd+\ / Ctrl+\ toggles the agent sidebar globally. Cmd+I / Ctrl+I focuses
+  // chat and attaches selected page text as one-shot context for the next turn.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        (e.key === "\\" || e.code === "Backslash")
+      ) {
+        e.preventDefault();
+        window.dispatchEvent(new Event("agent-panel:toggle"));
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === "i") {
         e.preventDefault();
         let selectionText = "";

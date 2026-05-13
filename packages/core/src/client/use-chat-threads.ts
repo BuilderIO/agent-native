@@ -29,6 +29,13 @@ export interface ChatThreadData {
   scope: ChatThreadScope | null;
 }
 
+export interface ChatThreadSnapshot {
+  threadData: string;
+  title: string;
+  preview: string;
+  messageCount: number;
+}
+
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
 
 function scopeKeySegment(scope?: ChatThreadScope | null): string {
@@ -399,15 +406,24 @@ export function useChatThreads(
   );
 
   const forkThread = useCallback(
-    async (sourceId: string): Promise<string | null> => {
+    async (
+      sourceId: string,
+      sourceSnapshot?: ChatThreadSnapshot | null,
+    ): Promise<string | null> => {
       const id = crypto.randomUUID();
       try {
+        const localScope =
+          threadsRef.current.find((t) => t.id === sourceId)?.scope ?? null;
+        const source =
+          sourceSnapshot && sourceSnapshot.messageCount > 0
+            ? { ...sourceSnapshot, scope: localScope }
+            : undefined;
         const res = await fetch(
           `${apiUrl}/threads/${encodeURIComponent(sourceId)}/fork`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id }),
+            body: JSON.stringify({ id, ...(source ? { source } : {}) }),
           },
         );
         if (!res.ok) {

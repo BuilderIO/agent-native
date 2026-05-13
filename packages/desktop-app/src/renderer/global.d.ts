@@ -123,6 +123,7 @@ interface ElectronWebviewElement extends HTMLElement {
   goBack(): void;
   goForward(): void;
   openDevTools(): void;
+  executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>;
   findInPage(
     text: string,
     options?: { findNext?: boolean; forward?: boolean },

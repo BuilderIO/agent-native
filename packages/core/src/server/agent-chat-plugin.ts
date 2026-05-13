@@ -86,6 +86,7 @@ import {
   deleteThread,
   setThreadQueuedMessages,
   type ChatThreadScope,
+  type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
 import {
   resourceList,
@@ -4908,6 +4909,26 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
         const label = typeof r.label === "string" ? r.label : undefined;
         return label ? { type, id, label } : { type, id };
       };
+      const parseForkSourceFromBody = (
+        raw: unknown,
+      ): ForkThreadSourceSnapshot | null => {
+        if (!raw || typeof raw !== "object") return null;
+        const r = raw as Record<string, unknown>;
+        if (typeof r.threadData !== "string") return null;
+        const messageCount =
+          typeof r.messageCount === "number"
+            ? r.messageCount
+            : Number(r.messageCount ?? 0);
+        return {
+          threadData: r.threadData,
+          title: typeof r.title === "string" ? r.title : "",
+          preview: typeof r.preview === "string" ? r.preview : "",
+          messageCount,
+          ...(Object.prototype.hasOwnProperty.call(r, "scope")
+            ? { scope: parseScopeFromBody(r.scope) }
+            : {}),
+        };
+      };
       getH3App(nitroApp).use(
         `${routePath}/threads`,
         defineEventHandler(async (event) => {
@@ -5027,6 +5048,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
               const body = await readBody(event);
               const forked = await forkThread(threadId, owner, {
                 id: body?.id,
+                source: parseForkSourceFromBody(body?.source),
               });
               if (!forked) {
                 setResponseStatus(event, 404);

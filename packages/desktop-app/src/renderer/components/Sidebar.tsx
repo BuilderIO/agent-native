@@ -18,6 +18,8 @@ import {
   IconNote,
   IconMicrophone,
   IconCalendarTime,
+  IconPlus,
+  IconWorld,
 } from "@tabler/icons-react";
 import type { AppDefinition } from "@shared/app-registry";
 import { UpdateIndicator } from "./UpdateIndicator.js";
@@ -41,12 +43,14 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   Note: IconNote,
   Microphone: IconMicrophone,
   CalendarTime: IconCalendarTime,
+  Globe: IconWorld,
 };
 
 interface SidebarProps {
   apps: AppDefinition[];
   activeAppId: string;
   onTabChange: (appId: string) => void;
+  onAddAppClick?: () => void;
   onSettingsClick?: () => void;
 }
 
@@ -54,9 +58,10 @@ export default function Sidebar({
   apps,
   activeAppId,
   onTabChange,
+  onAddAppClick,
   onSettingsClick,
 }: SidebarProps) {
-  const pinnedBottomOrder = ["dispatch", "starter"];
+  const pinnedBottomOrder = ["dispatch"];
   const pinnedBottom = pinnedBottomOrder
     .map((id) => apps.find((app) => app.id === id))
     .filter((app): app is AppDefinition => !!app);
@@ -97,6 +102,7 @@ export default function Sidebar({
             onClick={() => onTabChange(app.id)}
           />
         ))}
+        {onAddAppClick && <SidebarAddButton onClick={onAddAppClick} />}
       </nav>
 
       {/* Footer: update indicator (when relevant) + settings */}
@@ -118,6 +124,23 @@ export default function Sidebar({
         )}
       </div>
     </aside>
+  );
+}
+
+function SidebarAddButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      className="sidebar-item sidebar-item--add"
+      tabIndex={-1}
+      onClick={onClick}
+      title="Add an app"
+      aria-label="Add an app"
+    >
+      <span className="icon-wrapper">
+        <IconPlus size={21} strokeWidth={1.8} />
+      </span>
+      <span className="item-label">Add</span>
+    </button>
   );
 }
 

@@ -1645,7 +1645,9 @@ export function MultiTabAssistantChat({
 
   const handleForkChat = useCallback(
     async (sourceThreadId: string) => {
-      const forkedId = await forkThread(sourceThreadId);
+      const sourceSnapshot =
+        chatRefs.current.get(sourceThreadId)?.exportThreadSnapshot() ?? null;
+      const forkedId = await forkThread(sourceThreadId, sourceSnapshot);
       if (!forkedId) return;
       setOpenTabIds((prev) => {
         const idx = prev.indexOf(sourceThreadId);
