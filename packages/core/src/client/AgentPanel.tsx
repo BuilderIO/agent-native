@@ -2035,9 +2035,14 @@ export function AgentSidebar({
   const [frameCodeMode, setFrameCodeMode] = useState(() =>
     shouldParentFrameOwnAgentPanel(),
   );
-  const [frameSidebarOpen, setFrameSidebarOpen] = useState(() =>
-    shouldParentFrameOwnAgentPanel(),
-  );
+  // Frame sidebar visibility: we don't know the frame's open/closed state at
+  // mount, so start at false and wait for the frame to dispatch its real
+  // state via the message handler below. Initializing to
+  // `shouldParentFrameOwnAgentPanel()` here was a category error — that
+  // helper reports ownership (which side renders the sidebar), not whether
+  // the sidebar is currently open. Mixing them up dispatched a stale
+  // "open: true" before the first frame message arrived.
+  const [frameSidebarOpen, setFrameSidebarOpen] = useState(false);
 
   useEffect(() => {
     const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
