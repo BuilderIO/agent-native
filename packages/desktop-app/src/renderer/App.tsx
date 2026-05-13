@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Toaster, toast } from "sonner";
 import {
-  APP_REGISTRY,
   DESKTOP_DEFAULT_APPS,
   type AppDefinition,
   type AppConfig,
@@ -33,17 +32,6 @@ function createTab(app: AppDefinition | AppConfig): Tab {
 interface AppTabState {
   tabs: Tab[];
   activeTabId: string;
-}
-
-function initAppTabs(
-  apps: (AppDefinition | AppConfig)[],
-): Record<string, AppTabState> {
-  const state: Record<string, AppTabState> = {};
-  for (const app of apps) {
-    const tab = createTab(app);
-    state[app.id] = { tabs: [tab], activeTabId: tab.id };
-  }
-  return state;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -112,8 +100,6 @@ export default function App() {
     (a) => !PINNED_BOTTOM_ORDER.includes(a.id),
   );
   const appDefs = [...mainDefs, ...pinnedBottomDefs];
-
-  const defaultApp = appDefs.find((a) => !a.placeholder) ?? appDefs[0];
 
   const [activeSidebarAppId, setActiveSidebarAppId] = useState("");
   const [appTabs, setAppTabs] = useState<Record<string, AppTabState>>({});

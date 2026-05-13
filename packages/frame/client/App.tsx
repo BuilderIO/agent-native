@@ -43,6 +43,7 @@ const SIDEBAR_WIDTH_KEY = "frame-sidebar-width";
 const FRAME_MODE_KEY = "frame-mode";
 const SIDEBAR_OPEN_KEY = "frame-sidebar-open";
 const SIDEBAR_FULLSCREEN_KEY = "frame-sidebar-fullscreen";
+const SIDEBAR_STATE_CHANGE_EVENT = "agent-panel:state-change";
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const OPEN_DESKTOP_URL = "agentnative://open";
 const DOWNLOAD_DESKTOP_URL = "https://www.agent-native.com/download";
@@ -93,6 +94,26 @@ function isAgentSidebarToggleShortcut(event: KeyboardEvent): boolean {
     !event.altKey &&
     !event.shiftKey &&
     (event.key === "\\" || event.code === "Backslash")
+  );
+}
+
+function getVisibleSidebarOpen(
+  mode: FrameMode,
+  open: boolean,
+  presentationMode: boolean,
+) {
+  return mode === "dev" ? open && !presentationMode : open;
+}
+
+function dispatchFrameSidebarStateChange(open: boolean, mode: FrameMode) {
+  window.dispatchEvent(
+    new CustomEvent(SIDEBAR_STATE_CHANGE_EVENT, {
+      detail: {
+        open,
+        source: "frame",
+        mode: mode === "dev" ? "code" : "app",
+      },
+    }),
   );
 }
 
@@ -165,13 +186,14 @@ export function App() {
 
   // Notify iframe of sidebar state
   function notifyIframe(mode: FrameMode, width: number, open: boolean) {
+    const visibleOpen = getVisibleSidebarOpen(mode, open, isPresentationMode);
     iframeRef.current?.contentWindow?.postMessage(
       {
         type: "agentNative.sidebarMode",
         data: {
           mode: mode === "dev" ? "code" : "app",
           width,
-          open,
+          open: visibleOpen,
         },
       },
       "*",
@@ -211,7 +233,14 @@ export function App() {
   // When mode/open/width changes, notify iframe
   useEffect(() => {
     notifyIframe(frameMode, sidebarWidth, sidebarOpen);
-  }, [frameMode, sidebarWidth, sidebarOpen]);
+  }, [frameMode, sidebarWidth, sidebarOpen, isPresentationMode]);
+
+  useEffect(() => {
+    dispatchFrameSidebarStateChange(
+      getVisibleSidebarOpen(frameMode, sidebarOpen, isPresentationMode),
+      frameMode,
+    );
+  }, [frameMode, sidebarOpen, isPresentationMode]);
 
   useEffect(() => {
     const toggleHandler = () => setSidebarOpen((prev) => !prev);

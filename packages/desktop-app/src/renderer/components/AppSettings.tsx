@@ -268,7 +268,11 @@ export default function AppSettings({
                   <div key={app.id} className="settings-app-row">
                     <div className="settings-app-info">
                       <span className="settings-app-name">{app.name}</span>
-                      <span className="settings-app-url">{app.url}</span>
+                      <span className="settings-app-url">
+                        {app.mode === "dev" && app.devUrl
+                          ? app.devUrl
+                          : app.url || app.devUrl}
+                      </span>
                     </div>
                     <div className="settings-app-actions">
                       <div className="settings-mode-toggle">
@@ -435,7 +439,7 @@ export function AddAppDialog({
           </p>
         </div>
 
-        <div className="settings-choice-grid" role="tablist">
+        <div className="settings-choice-grid" aria-label="App target">
           <button
             type="button"
             className={`settings-choice-btn${mode === "prod" ? " settings-choice-btn--active" : ""}`}
@@ -669,11 +673,11 @@ function TemplatePicker({
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 520 }}
       >
-        <h3>Add From Template</h3>
+        <h3>Add First-Party App</h3>
         {available.length === 0 ? (
           <p style={{ color: "var(--muted, #6b7280)" }}>
-            Every first-party template is already installed. Use "Add Custom
-            App" for external apps.
+            Every first-party template is already installed. Use "Add App" for
+            external apps.
           </p>
         ) : (
           <div

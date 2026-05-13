@@ -95,7 +95,7 @@ export function loadApps(): AppConfig[] {
     const defaultsById = new Map(defaults.map((d) => [d.id, d]));
     const persistedIds = new Set(apps.map((a) => a.id));
 
-    // Remove stale built-in apps that no longer exist in DEFAULT_APPS
+    // Remove stale built-in apps that no longer exist in desktop defaults.
     const before = apps.length;
     apps = apps.filter((a) => !a.isBuiltIn || defaultsById.has(a.id));
     if (apps.length !== before) migrated = true;
@@ -123,7 +123,7 @@ export function loadApps(): AppConfig[] {
 
       // Sync any app whose id matches a default back to canonical built-in
       // metadata. Older persisted configs could keep stale placeholder/URL
-      // fields and leave apps such as Starter or Dispatch non-rendering.
+      // fields and leave apps such as Dispatch non-rendering.
       const def = defaultsById.get(app.id);
       if (def) {
         const canonical = canonicalizeDefaultApp(app, def);

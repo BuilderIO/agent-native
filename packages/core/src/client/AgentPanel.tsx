@@ -84,6 +84,7 @@ import { trackEvent } from "./analytics.js";
 import { getFrameOrigin, isInFrame, isTrustedFrameMessage } from "./frame.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
+  dispatchAgentSidebarStateChange,
   getInitialAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
 } from "./agent-sidebar-state.js";
@@ -2034,6 +2035,18 @@ export function AgentSidebar({
   const [frameCodeMode, setFrameCodeMode] = useState(() =>
     shouldParentFrameOwnAgentPanel(),
   );
+  const [frameSidebarOpen, setFrameSidebarOpen] = useState(() =>
+    shouldParentFrameOwnAgentPanel(),
+  );
+
+  useEffect(() => {
+    const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
+    dispatchAgentSidebarStateChange({
+      open: !presentationMode && (frameOwned ? frameSidebarOpen : open),
+      source: frameOwned ? "frame" : "app",
+      mode: frameOwned ? "code" : "app",
+    });
+  }, [frameCodeMode, frameSidebarOpen, open, presentationMode]);
 
   useEffect(() => {
     const toggleHandler = () => {
@@ -2096,13 +2109,13 @@ export function AgentSidebar({
       if (mode === "code") {
         // Frame is showing its own sidebar — hide the app's
         setFrameCodeMode(true);
+        setFrameSidebarOpen(frameOpen !== false);
         setOpenPersisted(false);
       } else if (mode === "app") {
         // Frame deferred to the app — show and sync width + mode
         setFrameCodeMode(false);
-        if (frameOpen !== false) {
-          setOpenPersisted(true);
-        }
+        setFrameSidebarOpen(false);
+        setOpenPersisted(frameOpen !== false);
         if (
           frameWidth &&
           frameWidth >= SIDEBAR_MIN &&
