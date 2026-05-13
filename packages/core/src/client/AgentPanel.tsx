@@ -1796,11 +1796,12 @@ function HistoryPanel({
   scope?: ChatThreadScope | null;
   onSelectThread: (threadId: string) => void;
 }) {
-  const { threads, activeThreadId, searchThreads } = useChatThreads(
-    apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
-    storageKey,
-    scope,
-  );
+  const { threads, activeThreadId, searchThreads, deleteThread } =
+    useChatThreads(
+      apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
+      storageKey,
+      scope,
+    );
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<
     ChatThreadSummary[] | null
@@ -1847,6 +1848,13 @@ function HistoryPanel({
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
+      {/* Hover-reveal delete button — Tailwind group-hover doesn't work in core package */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html:
+            ".history-row-delete{opacity:0}.history-row:hover .history-row-delete{opacity:1}",
+        }}
+      />
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
         <IconSearch size={13} className="text-muted-foreground shrink-0" />
         <input
@@ -1870,36 +1878,51 @@ function HistoryPanel({
         ) : (
           <div className="py-1">
             {filtered.map((thread) => (
-              <button
+              <div
                 key={thread.id}
-                type="button"
-                onClick={() => onSelectThread(thread.id)}
                 className={cn(
-                  "w-full px-3 py-2.5 text-left hover:bg-accent/50 cursor-pointer border-b border-border/30 last:border-0",
+                  "history-row relative flex items-stretch border-b border-border/30 last:border-0",
                   thread.id === activeThreadId && "bg-accent/30",
                 )}
               >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-xs font-medium text-foreground truncate">
-                    {thread.title || thread.preview || "Chat"}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground shrink-0">
-                    {thread.id === activeThreadId
-                      ? "Active"
-                      : formatHistoryTime(thread.updatedAt)}
-                  </span>
-                </div>
-                {thread.preview && thread.title !== thread.preview && (
-                  <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-                    {thread.preview}
+                <button
+                  type="button"
+                  onClick={() => onSelectThread(thread.id)}
+                  className="flex-1 min-w-0 px-3 py-2.5 text-left hover:bg-accent/50 cursor-pointer"
+                >
+                  <div className="flex items-baseline justify-between gap-2 pr-5">
+                    <span className="text-xs font-medium text-foreground truncate">
+                      {thread.title || thread.preview || "Chat"}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {thread.id === activeThreadId
+                        ? "Active"
+                        : formatHistoryTime(thread.updatedAt)}
+                    </span>
                   </div>
-                )}
-                {thread.scope?.label && (
-                  <div className="mt-0.5 text-[10px] text-muted-foreground/70 truncate">
-                    {thread.scope.label}
-                  </div>
-                )}
-              </button>
+                  {thread.preview && thread.title !== thread.preview && (
+                    <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                      {thread.preview}
+                    </div>
+                  )}
+                  {thread.scope?.label && (
+                    <div className="mt-0.5 text-[10px] text-muted-foreground/70 truncate">
+                      {thread.scope.label}
+                    </div>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  aria-label="Delete conversation"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteThread(thread.id);
+                  }}
+                  className="history-row-delete absolute right-2 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                >
+                  <IconTrash size={12} />
+                </button>
+              </div>
             ))}
           </div>
         )}
