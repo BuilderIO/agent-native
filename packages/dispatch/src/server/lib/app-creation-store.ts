@@ -154,7 +154,10 @@ function ensureSentence(value: string): string {
 
 function clipSentence(value: string, max = 180): string {
   if (value.length <= max) return value;
-  const clipped = value.slice(0, max - 1).replace(/\s+\S*$/, "").trim();
+  const clipped = value
+    .slice(0, max - 1)
+    .replace(/\s+\S*$/, "")
+    .trim();
   return `${clipped || value.slice(0, max - 1).trim()}…`;
 }
 
