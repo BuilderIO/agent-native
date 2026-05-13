@@ -1601,7 +1601,7 @@ describe("server/auth", () => {
         "Google popup was blocked. Allow popups for this site",
       );
       expect(html).toContain(
-        "check server logs for [agent-native][google-oauth]",
+        "never reached this app. Check the Google OAuth redirect URI",
       );
       expect(html).not.toContain("&debug=1");
       expect(html).toContain("params.set('desktop', '1')");
@@ -1699,7 +1699,7 @@ describe("server/auth", () => {
         "Google popup was blocked. Allow popups for this site",
       );
       expect(loginHtml).toContain(
-        "check server logs for [agent-native][google-oauth]",
+        "never reached this app. Check the Google OAuth redirect URI",
       );
       expect(loginHtml).not.toContain("&debug=1");
     });
