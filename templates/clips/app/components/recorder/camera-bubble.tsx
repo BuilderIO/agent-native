@@ -141,7 +141,7 @@ export function CameraBubble({
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onDoubleClick={cycleSize}
-      className="fixed z-[90] cursor-grab select-none rounded-full border-4 border-white/80 bg-black shadow-2xl active:cursor-grabbing"
+      className="fixed z-[110] cursor-grab select-none rounded-full border-4 border-white/80 bg-black shadow-2xl active:cursor-grabbing"
       style={{
         width: sizePx,
         height: sizePx,
