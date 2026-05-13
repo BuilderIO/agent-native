@@ -40,7 +40,7 @@ import {
   type ContentPart,
   readSSEStreamRaw,
 } from "./sse-event-processor.js";
-import { captureError } from "./analytics.js";
+import { captureError, trackEvent } from "./analytics.js";
 import { cn } from "./utils.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
@@ -2747,6 +2747,14 @@ function RunErrorRecoveryCard({
             href={agentNativePath("/_agent-native/builder/connect")}
             target="_blank"
             rel="noreferrer"
+            onClick={() => {
+              trackEvent("builder connect clicked", {
+                feature: "builder",
+                stage: "client",
+                source: "assistant_chat_reconnect_error",
+                connect_url_kind: "default",
+              });
+            }}
             className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
           >
             <IconExternalLink size={13} />

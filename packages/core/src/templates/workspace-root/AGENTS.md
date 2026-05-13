@@ -36,6 +36,9 @@ coding agents can discover the same workspace-wide guidance from the root.
   `/<app-id>`.
 - When a user explicitly asks for a new app or workspace app, create the
   separate workspace app.
+- Dispatch vault access is workspace-wide by default: every saved vault key is
+  available to every workspace app. Only create or request per-app vault grants
+  when Dispatch's vault access setting is switched to manual mode.
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/starter` or another existing app unless the user explicitly asks to
   modify that existing app.
