@@ -146,6 +146,11 @@ Active organization flows automatically: `session.orgId` → `AGENT_ORG_ID` → 
 
 The workspace root `.env` is loaded into every app automatically. Put shared keys once at the root — `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, `DATABASE_URL`, `BUILDER_PRIVATE_KEY`, etc. — and every app picks them up. Per-app overrides go in `apps/<name>/.env` and win on conflict.
 
+For runtime app credentials, prefer the Dispatch vault over hand-editing `.env`
+files. The vault defaults to all-apps access, so every saved vault key is
+available to every workspace app and can be pushed with `sync-vault-to-app`.
+Switch the vault to manual mode only when apps need explicit per-key grants.
+
 ```text
 my-company-platform/
 ├── .env                           # shared: ANTHROPIC_API_KEY=... , A2A_SECRET=... , ...

@@ -570,6 +570,13 @@ function emitPageview(reason: string): void {
 
 function schedulePageview(reason: string): void {
   const run = () => emitPageview(reason);
+  if (_llmConnectionRefresh && !_llmConnectionStatus) {
+    const timeout = new Promise<void>((resolve) =>
+      window.setTimeout(resolve, 250),
+    );
+    Promise.race([_llmConnectionRefresh, timeout]).finally(run);
+    return;
+  }
   if (typeof queueMicrotask === "function") {
     queueMicrotask(run);
     return;

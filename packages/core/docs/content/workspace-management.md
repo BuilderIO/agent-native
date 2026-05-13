@@ -184,7 +184,7 @@ The [Dispatch](/docs/dispatch) app is the workspace's runtime control plane. It 
 | Concern                         | Git / GitHub                  | Dispatch                                   |
 | ------------------------------- | ----------------------------- | ------------------------------------------ |
 | Who can change code             | CODEOWNERS, branch protection | —                                          |
-| Who can access secrets          | —                             | Vault grants + request workflow            |
+| Who can access secrets          | —                             | Vault policy, grants, request workflow     |
 | What instructions agents follow | —                             | Workspace resources (skills, instructions) |
 | Which agents are shared         | —                             | Workspace agent profiles                   |
 | Integration inventory           | —                             | Integrations catalog                       |
@@ -196,7 +196,7 @@ The [Dispatch](/docs/dispatch) app is the workspace's runtime control plane. It 
 
 ### What Dispatch Manages
 
-- **Vault** — store credentials centrally, grant them to specific apps, sync on demand. Non-admins can request access; admins approve.
+- **Vault** — store credentials centrally and sync on demand. The default policy makes all vault keys available to all workspace apps; manual mode requires specific app grants. Non-admins can request access; admins approve.
 - **Integrations catalog** — see which credentials each app needs, what's configured, what's missing, what's granted from the vault.
 - **Workspace resources** — share skills, behavioral instructions, and reusable agent profiles across apps. Scope to all apps or grant per-app.
 - **Approvals** — require review before runtime changes (destinations, settings) take effect.
@@ -216,8 +216,8 @@ For a new workspace, after running `agent-native create`:
 **Dispatch:**
 
 - [ ] Add shared secrets to the vault (API keys, OAuth credentials, etc.)
-- [ ] Grant secrets to the apps that need them
-- [ ] Sync granted secrets to push them to apps
+- [ ] Keep the default all-apps vault policy or switch to manual per-app grants
+- [ ] Sync vault secrets to push them to apps
 - [ ] Add workspace-wide skills and instructions via the Resources page
 - [ ] Configure the approval policy and approver emails
 - [ ] Set up SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) for admin notifications

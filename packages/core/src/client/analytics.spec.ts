@@ -44,6 +44,10 @@ function setLocation(
 
 async function tick() {
   await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
 }
 
 async function freshAnalytics() {

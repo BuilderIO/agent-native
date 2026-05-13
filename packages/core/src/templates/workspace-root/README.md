@@ -52,6 +52,10 @@ watches `apps/`, so newly-created apps are detected without restarting
 links should stay relative, such as `/starter` or `/<app-id>`; do not hardcode
 localhost or dev ports because the active gateway origin owns the port.
 
+Dispatch vault keys are workspace-wide by default: every saved vault key is
+available to every workspace app and can be synced from Dispatch. Switch the
+Vault page to manual access only when you need explicit per-app key grants.
+
 ## Workspace org identity
 
 Set these root `.env` values before production deploys or when repairing
