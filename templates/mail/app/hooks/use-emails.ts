@@ -594,10 +594,7 @@ export function useMarkThreadRead() {
   // Per-thread pending entries — using a Map so concurrent mutations for different
   // threads don't overwrite each other's pending entries.
   const pendingByThread = useRef(
-    new Map<
-      string,
-      { id: string; accountEmail?: string }[]
-    >(),
+    new Map<string, { id: string; accountEmail?: string }[]>(),
   );
   return useMutation({
     mutationFn: async (threadId: string) => {
