@@ -1645,7 +1645,7 @@ describe("server/auth", () => {
   });
 
   describe("onboarding Google sign-in", () => {
-    it("uses redirect OAuth for Builder preview surfaces", async () => {
+    it("uses popup OAuth for Builder web and redirect OAuth for Builder desktop", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
@@ -1686,7 +1686,9 @@ describe("server/auth", () => {
       expect(html).toContain("__anIsBuilderPreview();");
       expect(html).toContain("__anIsBuilderDesktop()");
       expect(html).toContain("__anIsAgentNativeDesktop()");
-      expect(html).toContain("if (__anIsBuilderPreview()) return 'redirect'");
+      expect(html).toContain(
+        "if (__anIsBuilderPreview()) return __anIsBuilderDesktop() ? 'redirect' : 'popup'",
+      );
       expect(html).toContain(
         "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
       );
@@ -1694,13 +1696,25 @@ describe("server/auth", () => {
         "__anSetOAuthDebug('Opening Google sign-in redirect')",
       );
       expect(html).toContain("function __anBuilderPreviewReturnOrigin()");
+      expect(html).toContain("function __anGoogleAuthUrlPath()");
       expect(html).toContain("function __anOAuthReturnTarget(ret)");
-      expect(html).toContain("function __anFinishOAuthExchange(ret, flowId)");
+      expect(html).toContain(
+        "function __anSessionBridgeUrl(ret, sessionToken)",
+      );
+      expect(html).toContain(
+        "function __anFinishOAuthExchange(ret, flowId, sessionToken)",
+      );
+      expect(html).toContain(
+        "window.location.replace(__anSessionBridgeUrl(ret, sessionToken))",
+      );
       expect(html).toContain(
         "params.set('return', __anOAuthReturnTarget(ret))",
       );
       expect(html).toContain(
         "var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
+      );
+      expect(html).toContain(
+        "__anFinishOAuthExchange(ret, flowId, data.token)",
       );
       expect(html).toContain("__anWaitForOAuthExchange(flowId, ret, btn, err)");
       expect(html).toContain("window.location.reload()");
@@ -1749,7 +1763,7 @@ describe("server/auth", () => {
       expect(loginHtml).toContain("__anIsBuilderDesktop()");
       expect(loginHtml).toContain("__anIsAgentNativeDesktop()");
       expect(loginHtml).toContain(
-        "if (__anIsBuilderPreview()) return 'redirect'",
+        "if (__anIsBuilderPreview()) return __anIsBuilderDesktop() ? 'redirect' : 'popup'",
       );
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
@@ -1761,9 +1775,16 @@ describe("server/auth", () => {
       expect(loginHtml).toContain(
         "var candidates = [window.location.href, document.referrer || ''];",
       );
+      expect(loginHtml).toContain("function __anGoogleAuthUrlPath()");
       expect(loginHtml).toContain("function __anOAuthReturnTarget(ret)");
       expect(loginHtml).toContain(
-        "function __anFinishOAuthExchange(ret, flowId)",
+        "function __anSessionBridgeUrl(ret, sessionToken)",
+      );
+      expect(loginHtml).toContain(
+        "function __anFinishOAuthExchange(ret, flowId, sessionToken)",
+      );
+      expect(loginHtml).toContain(
+        "window.location.replace(__anSessionBridgeUrl(ret, sessionToken))",
       );
       expect(loginHtml).toContain(
         "var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
@@ -1773,6 +1794,9 @@ describe("server/auth", () => {
       );
       expect(loginHtml).toContain(
         "__anWaitForOAuthExchange(flowId, ret, btn, err)",
+      );
+      expect(loginHtml).toContain(
+        "__anFinishOAuthExchange(ret, flowId, data.token)",
       );
       expect(loginHtml).toContain("window.location.reload()");
       expect(loginHtml).not.toContain(
