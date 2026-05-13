@@ -55,6 +55,11 @@ async function writeAppStateClient(key: string, value: unknown): Promise<void> {
 import { cn } from "@/lib/utils";
 import { computePeaks, type WaveformPeaks } from "@/lib/waveform-peaks";
 import {
+  parsePlaybackSpeed,
+  readPlaybackSpeedPreference,
+  savePlaybackSpeedPreference,
+} from "@/lib/playback-speed";
+import {
   parseEdits,
   getExcludedRanges,
   formatMs,
@@ -89,6 +94,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   const durationMs = recording?.durationMs ?? 0;
   const videoUrl: string | null = recording?.videoUrl ?? null;
   const videoFormat: "webm" | "mp4" = recording?.videoFormat ?? "webm";
+  const defaultPreviewSpeed = useMemo(
+    () => parsePlaybackSpeed(recording?.defaultSpeed) ?? 1.2,
+    [recording?.defaultSpeed],
+  );
 
   const edits: EditsJson = useMemo(
     () => parseEdits(recording?.editsJson),
@@ -133,6 +142,9 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [playheadMs, setPlayheadMs] = useState(0);
+  const [playbackSpeed, setPlaybackSpeed] = useState(() =>
+    readPlaybackSpeedPreference(1.2),
+  );
   const [zoom, setZoom] = useState(1);
   const [viewportWidth, setViewportWidth] = useState(800);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -181,6 +193,29 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     }
   }, [playing]);
 
+  // Load the clip's default speed (or the user's saved override) when a new
+  // recording enters the editor.
+  useEffect(() => {
+    if (!recording?.id) return;
+    const next = readPlaybackSpeedPreference(defaultPreviewSpeed);
+    setPlaybackSpeed(next);
+    if (videoRef.current) videoRef.current.playbackRate = next;
+  }, [defaultPreviewSpeed, recording?.id]);
+
+  // Keep the editor preview speed visible and in sync with the media element.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.playbackRate = playbackSpeed;
+  }, [playbackSpeed, videoUrl]);
+
+  const handlePlaybackSpeedChange = useCallback((rate: number) => {
+    const next = parsePlaybackSpeed(rate) ?? 1.2;
+    setPlaybackSpeed(next);
+    savePlaybackSpeedPreference(next);
+    if (videoRef.current) videoRef.current.playbackRate = next;
+  }, []);
+
   // Keep the playheadMs in sync with the element's currentTime.
   useEffect(() => {
     const v = videoRef.current;
@@ -195,10 +230,11 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     writeAppStateClient("editor-draft", {
       recordingId,
       playheadMs: Math.round(playheadMs),
+      playbackSpeed,
       zoom,
       editsJson: edits,
     });
-  }, [recordingId, playheadMs, zoom, edits]);
+  }, [recordingId, playheadMs, playbackSpeed, zoom, edits]);
 
   // --- waveform peaks, cached in application_state ------------------------
   const [peaks, setPeaks] = useState<WaveformPeaks | null>(null);
@@ -352,6 +388,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         durationMs={durationMs}
         playing={playing}
         onPlayPause={() => setPlaying((p) => !p)}
+        playbackSpeed={playbackSpeed}
+        onPlaybackSpeedChange={handlePlaybackSpeedChange}
         zoom={zoom}
         onZoomChange={setZoom}
         edits={edits}
@@ -474,7 +512,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 {excludedRanges.length} trim(s) · {splitPoints.length} split(s)
               </span>
               <span className="truncate text-right">
-                zoom {zoom}x · selection {formatMs(effectiveSelection.startMs)}–
+                speed {playbackSpeed}x · zoom {zoom}x · selection{" "}
+                {formatMs(effectiveSelection.startMs)}–
                 {formatMs(effectiveSelection.endMs)}
               </span>
             </div>
