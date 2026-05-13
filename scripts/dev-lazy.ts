@@ -209,14 +209,27 @@ function shouldUsePollingFileWatcher(
 const usePollingFileWatcher = shouldUsePollingFileWatcher(process.env, ROOT);
 
 function devWatcherEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  if (!usePollingFileWatcher) return env;
-  return {
-    ...env,
-    CHOKIDAR_USEPOLLING: "1",
-    CHOKIDAR_INTERVAL: env.CHOKIDAR_INTERVAL ?? POLLING_WATCH_INTERVAL_MS,
-    TSC_WATCHFILE: env.TSC_WATCHFILE ?? "DynamicPriorityPolling",
-    TSC_WATCHDIRECTORY: env.TSC_WATCHDIRECTORY ?? "DynamicPriorityPolling",
-  };
+  if (usePollingFileWatcher) {
+    return {
+      ...env,
+      CHOKIDAR_USEPOLLING: "1",
+      CHOKIDAR_INTERVAL: env.CHOKIDAR_INTERVAL ?? POLLING_WATCH_INTERVAL_MS,
+      TSC_WATCHFILE: env.TSC_WATCHFILE ?? "DynamicPriorityPolling",
+      TSC_WATCHDIRECTORY: env.TSC_WATCHDIRECTORY ?? "DynamicPriorityPolling",
+    };
+  }
+  // Explicit disable must override inherited CHOKIDAR_USEPOLLING from the
+  // parent shell so child processes don't silently poll despite the user
+  // setting AGENT_NATIVE_DEV_USE_POLLING=0. Strip the watcher vars instead
+  // of returning env unchanged.
+  const {
+    CHOKIDAR_USEPOLLING: _polling,
+    CHOKIDAR_INTERVAL: _interval,
+    TSC_WATCHFILE: _watchFile,
+    TSC_WATCHDIRECTORY: _watchDir,
+    ...rest
+  } = env;
+  return rest;
 }
 
 function workspaceAppsJson(): string {
