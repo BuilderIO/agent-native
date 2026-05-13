@@ -362,15 +362,20 @@ export function EmailThread({
   // Defer the mutation past the commit so its optimistic emails-cache update
   // doesn't re-render the detail view we just finished mounting.
   const hasUnread = messages.some((m) => !m.isRead);
+  const threadAccountEmail = messages[0]?.accountEmail;
   useEffect(() => {
     if (threadId && hasUnread) {
       const id = threadId;
-      const handle = setTimeout(() => markThreadRead.mutate(id), 0);
+      const account = threadAccountEmail;
+      const handle = setTimeout(
+        () => markThreadRead.mutate({ threadId: id, accountEmail: account }),
+        0,
+      );
       return () => clearTimeout(handle);
     }
     // Only trigger when threadId changes or messages load with unread
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, hasUnread]);
+  }, [threadId, hasUnread, threadAccountEmail]);
 
   const goBack = useCallback(() => {
     onNavigateThread?.(undefined);

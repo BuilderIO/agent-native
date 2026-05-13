@@ -589,50 +589,88 @@ export function useMarkRead() {
   });
 }
 
+export type MarkThreadReadInput =
+  | string
+  | { threadId: string; accountEmail?: string };
+
+function normalizeMarkThreadInput(input: MarkThreadReadInput): {
+  threadId: string;
+  accountEmail?: string;
+} {
+  if (typeof input === "string") return { threadId: input };
+  return { threadId: input.threadId, accountEmail: input.accountEmail };
+}
+
+/**
+ * Composite cache key so two connected Gmail accounts with the same raw
+ * `threadId` (Gmail thread IDs are scoped per account, not globally unique)
+ * don't share a pending-entries bucket. Falling back to bare `threadId` for
+ * the legacy call-site shape preserves single-account behavior.
+ */
+function markThreadPendingKey(threadId: string, accountEmail?: string): string {
+  return accountEmail ? `${accountEmail} ${threadId}` : threadId;
+}
+
 export function useMarkThreadRead() {
   const qc = useQueryClient();
   // Per-thread pending entries — using a Map so concurrent mutations for different
-  // threads don't overwrite each other's pending entries.
+  // threads don't overwrite each other's pending entries. Keyed by
+  // `accountEmail\0threadId` (with a bare-threadId fallback) so two accounts
+  // with colliding raw threadIds don't trample each other.
   const pendingByThread = useRef(
     new Map<string, { id: string; accountEmail?: string }[]>(),
   );
   return useMutation({
-    mutationFn: async (threadId: string) => {
-      const entries = pendingByThread.current.get(threadId) ?? [];
-      pendingByThread.current.delete(threadId);
+    mutationFn: async (input: MarkThreadReadInput) => {
+      const { threadId, accountEmail: hintedAccount } =
+        normalizeMarkThreadInput(input);
+      const key = markThreadPendingKey(threadId, hintedAccount);
+      const entries = pendingByThread.current.get(key) ?? [];
+      pendingByThread.current.delete(key);
       if (entries.length > 0) {
         await apiFetch(`/api/threads/${threadId}/read`, {
           method: "PATCH",
           body: JSON.stringify({
             isRead: true,
-            accountEmail: entries[0]?.accountEmail,
+            accountEmail: hintedAccount ?? entries[0]?.accountEmail,
           }),
         });
       }
     },
-    onMutate: async (threadId) => {
+    onMutate: async (input) => {
+      const { threadId, accountEmail: hintedAccount } =
+        normalizeMarkThreadInput(input);
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
-      // Capture unread entries BEFORE optimistic update
+      // Capture unread entries BEFORE optimistic update.
+      // Scope the filter to the caller's accountEmail when supplied so two
+      // accounts that happen to share a raw threadId don't get their reads
+      // crossed; fall back to bare threadId when the caller didn't hint an
+      // account (legacy call sites + single-account mode).
       const allEmails =
         previous.flatMap(([, data]) => flattenInfiniteEmails(data)) ?? [];
+      const matchesThread = (e: EmailMessage) => {
+        if ((e.threadId || e.id) !== threadId) return false;
+        if (!hintedAccount) return true;
+        return e.accountEmail === hintedAccount;
+      };
       const unreadEntries = allEmails
-        .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
+        .filter((e) => matchesThread(e) && !e.isRead)
         .map((e) => ({ id: e.id, accountEmail: e.accountEmail }));
-      pendingByThread.current.set(threadId, unreadEntries);
+      const key = markThreadPendingKey(threadId, hintedAccount);
+      pendingByThread.current.set(key, unreadEntries);
       const unreadIds = unreadEntries.map((e) => e.id);
       // Set overrides so refetches don't revert read state
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });
       }
-      // Optimistic update
+      // Optimistic update — same composite predicate so we don't mark the
+      // other account's thread read as a side effect.
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
-          emails.map((e) =>
-            (e.threadId || e.id) === threadId ? { ...e, isRead: true } : e,
-          ),
+          emails.map((e) => (matchesThread(e) ? { ...e, isRead: true } : e)),
         ),
       );
       return { previous, overrideIds: [...unreadIds] };

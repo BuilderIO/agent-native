@@ -521,7 +521,14 @@ export function EmailList({
     onNavigateThread?.(targetThreadId);
     navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
-      setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
+      setTimeout(
+        () =>
+          markThreadRead.mutate({
+            threadId: targetThreadId,
+            accountEmail: thread.latestMessage.accountEmail,
+          }),
+        0,
+      );
     }
   }, [
     threads,
@@ -737,7 +744,10 @@ export function EmailList({
     if (keys.length === 0) return;
     for (const t of resolveTargets(keys)) {
       if (t.hasUnread) {
-        markThreadRead.mutate(t.latestMessage.threadId || t.latestMessage.id);
+        markThreadRead.mutate({
+          threadId: t.latestMessage.threadId || t.latestMessage.id,
+          accountEmail: t.latestMessage.accountEmail,
+        });
       } else {
         markRead.mutate({
           id: t.latestMessage.id,
@@ -757,7 +767,10 @@ export function EmailList({
 
   const markFocusedRead = useCallback(() => {
     for (const t of resolveTargets(getActionThreadKeys())) {
-      markThreadRead.mutate(t.latestMessage.threadId || t.latestMessage.id);
+      markThreadRead.mutate({
+        threadId: t.latestMessage.threadId || t.latestMessage.id,
+        accountEmail: t.latestMessage.accountEmail,
+      });
     }
     setSelectedIds(new Set());
   }, [markThreadRead, getActionThreadKeys, resolveTargets, setSelectedIds]);
@@ -974,7 +987,14 @@ export function EmailList({
     onNavigateThread?.(targetThreadId);
     navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
-      setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
+      setTimeout(
+        () =>
+          markThreadRead.mutate({
+            threadId: targetThreadId,
+            accountEmail: email.accountEmail,
+          }),
+        0,
+      );
     }
   };
 
@@ -990,7 +1010,10 @@ export function EmailList({
     e.stopPropagation();
     const email = thread.latestMessage;
     if (thread.hasUnread) {
-      markThreadRead.mutate(email.threadId || email.id);
+      markThreadRead.mutate({
+        threadId: email.threadId || email.id,
+        accountEmail: email.accountEmail,
+      });
     } else {
       markRead.mutate({
         id: email.id,
