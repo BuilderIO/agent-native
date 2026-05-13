@@ -228,8 +228,8 @@ export interface AuthOptions {
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
    *
-   * - `'auto'` — popup in normal browsers, redirect in Electron and Builder.io
-   *   preview/editor surfaces.
+   * - `'auto'` — popup in normal browsers and Builder web iframes, redirect in
+   *   Electron and Builder desktop preview/editor surfaces.
    * - `'popup'` — force popup everywhere.
    * - `'redirect'` — force redirect everywhere.
    *

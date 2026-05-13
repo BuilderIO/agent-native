@@ -67,16 +67,26 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("function __anHasBuilderPreviewSignal()");
     expect(html).toContain("params.has('builder.preview')");
     expect(html).toContain("__anIsBuilderPreview();");
-    expect(html).toContain("if (__anIsBuilderPreview()) return 'redirect'");
+    expect(html).toContain(
+      "if (__anIsBuilderPreview()) return __anIsBuilderDesktop() ? 'redirect' : 'popup'",
+    );
     expect(html).toContain(
       "var candidates = [window.location.href, document.referrer || ''];",
     );
     expect(html).toContain("function __anIsAgentNativeDesktop()");
+    expect(html).toContain("function __anGoogleAuthUrlPath()");
     expect(html).toContain("function __anOAuthReturnTarget(ret)");
-    expect(html).toContain("function __anFinishOAuthExchange(ret, flowId)");
+    expect(html).toContain("function __anSessionBridgeUrl(ret, sessionToken)");
+    expect(html).toContain(
+      "function __anFinishOAuthExchange(ret, flowId, sessionToken)",
+    );
+    expect(html).toContain(
+      "window.location.replace(__anSessionBridgeUrl(ret, sessionToken))",
+    );
     expect(html).toContain(
       "var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
     );
+    expect(html).toContain("__anFinishOAuthExchange(ret, flowId, data.token)");
     expect(html).toContain("__anWaitForOAuthExchange(flowId, ret, btn, err)");
     expect(html).toContain("window.location.reload()");
     expect(html).toContain("params.set('return', __anOAuthReturnTarget(ret))");

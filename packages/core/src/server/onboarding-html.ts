@@ -79,8 +79,8 @@ export interface OnboardingHtmlOptions {
   };
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
-   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. Builder.io
-   * preview/editor surfaces always use redirect.
+   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. Builder web
+   * iframes use popup; Builder desktop preview/editor surfaces use redirect.
    */
   googleAuthMode?: GoogleAuthMode;
 }
@@ -923,6 +923,11 @@ ${
       var origin = __anIsBuilderPreview() ? __anConfiguredOAuthOrigin() : '';
       return origin ? origin + path : __anPath(path);
     }
+    function __anGoogleAuthUrlPath() {
+      return __anIsBuilderPreview()
+        ? __anAuthPath('/_agent-native/google/auth-url')
+        : __anPath('/_agent-native/google/auth-url');
+    }
     function __anBuilderPreviewReturnOrigin() {
       var candidates = [window.location.href, document.referrer || ''];
       try {
@@ -984,8 +989,23 @@ ${
       var origin = __anWorkspaceGatewayReturnOrigin();
       return origin ? origin + path : path;
     }
-    function __anFinishOAuthExchange(ret, flowId) {
+    function __anSessionBridgeUrl(ret, sessionToken) {
+      try {
+        var url = new URL(ret || window.location.pathname + window.location.search, window.location.origin);
+        url.searchParams.set('_session', sessionToken);
+        return url.pathname + url.search + url.hash;
+      } catch(e) {
+        var sep = (ret || '/').indexOf('?') === -1 ? '?' : '&';
+        return (ret || '/') + sep + '_session=' + encodeURIComponent(sessionToken);
+      }
+    }
+    function __anFinishOAuthExchange(ret, flowId, sessionToken) {
       if (__anIsBuilderPreview()) {
+        if (sessionToken) {
+          __anSetOAuthDebug('OAuth exchange redeemed; applying session bridge to embedded app', flowId);
+          window.location.replace(__anSessionBridgeUrl(ret, sessionToken));
+          return;
+        }
         __anSetOAuthDebug('OAuth exchange redeemed; reloading the embedded app', flowId);
         window.location.reload();
         return;
@@ -1057,7 +1077,7 @@ ${
       }
     }
     function __anResolveAuthFlow() {
-      if (__anIsBuilderPreview()) return 'redirect';
+      if (__anIsBuilderPreview()) return __anIsBuilderDesktop() ? 'redirect' : 'popup';
       // Per-session override for ad-hoc testing outside Builder: append
       // ?authMode=popup or ?authMode=redirect to the sign-in URL.
       try {
@@ -1124,7 +1144,7 @@ ${
           if (data && (data.email || data.token)) {
             if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
             __anOAuthPollTimer = null;
-            __anFinishOAuthExchange(ret, flowId);
+            __anFinishOAuthExchange(ret, flowId, data.token);
             return;
           }
           if (data && data.error) {
@@ -1156,7 +1176,7 @@ ${
       params.set('desktop', '1');
       params.set('flow_id', flowId);
       params.set('redirect', '1');
-      var url = __anPath('/_agent-native/google/auth-url') + '?' + params.toString();
+      var url = __anGoogleAuthUrlPath() + '?' + params.toString();
       try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
       __anSetOAuthDebug('Opening Google sign-in popup', flowId);
       try {
@@ -1187,7 +1207,7 @@ ${
       params.set('desktop', '1');
       params.set('flow_id', flowId);
       params.set('redirect', '1');
-      var url = __anPath('/_agent-native/google/auth-url') + '?' + params.toString();
+      var url = __anGoogleAuthUrlPath() + '?' + params.toString();
       __anSetOAuthDebug('Opening Google sign-in in system browser', flowId);
       __anOpenOAuthUrl(url);
       __anWaitForOAuthExchange(flowId, ret, btn, err);
@@ -1683,11 +1703,11 @@ ${
       if (ret) params.set('return', __anOAuthReturnTarget(ret));
       params.set('redirect', '1');
       __anSetOAuthDebug('Opening Google sign-in redirect');
-      __anOpenOAuthUrl(__anAuthPath('/_agent-native/google/auth-url') + '?' + params.toString());
+      __anOpenOAuthUrl(__anGoogleAuthUrlPath() + '?' + params.toString());
       return;
     }
     try {
-      var authUrl = __anPath('/_agent-native/google/auth-url') + '?return=' + encodeURIComponent(ret);
+      var authUrl = __anGoogleAuthUrlPath() + '?return=' + encodeURIComponent(ret);
       var res = await fetch(authUrl);
       var data = await res.json();
       if (data.url) {
