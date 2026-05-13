@@ -85,28 +85,6 @@ function workspaceOAuthOrigin(
   );
 }
 
-function normalizeOrigin(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return undefined;
-  }
-}
-
-function workspaceOAuthOrigin(
-  env: NodeJS.ProcessEnv,
-  gatewayUrl: string,
-): string | undefined {
-  return (
-    normalizeOrigin(env.VITE_WORKSPACE_OAUTH_ORIGIN) ||
-    normalizeOrigin(env.WORKSPACE_OAUTH_ORIGIN) ||
-    normalizeOrigin(env.APP_URL) ||
-    normalizeOrigin(env.BETTER_AUTH_URL) ||
-    normalizeOrigin(gatewayUrl)
-  );
-}
-
 export function isWorkspaceWatcherLimitError(
   err: Pick<NodeJS.ErrnoException, "code">,
 ): boolean {

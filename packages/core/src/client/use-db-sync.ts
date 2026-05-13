@@ -61,7 +61,10 @@ function eventVersion(event: SyncEvent): number {
 function hasAppStateEvent(events: SyncEvent[], key: string): boolean {
   return events.some(
     (event) =>
-      event.source === "app-state" && (event.key === key || event.key === "*"),
+      event.source === "app-state" &&
+      (event.key === key ||
+        event.key === "*" ||
+        (typeof event.key === "string" && event.key.startsWith(`${key}:`))),
   );
 }
 

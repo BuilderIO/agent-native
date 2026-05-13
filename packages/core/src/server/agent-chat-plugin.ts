@@ -283,6 +283,16 @@ function createRefreshScreenEntry(): Record<string, ActionEntry> {
 
 /** Well-known application-state key used by the refresh-screen tool. */
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+function appStateKeyForBrowserTab(
+  key: string,
+  browserTabId: unknown,
+): string {
+  if (typeof browserTabId !== "string") return key;
+  const trimmed = browserTabId.trim();
+  return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? `${key}:${trimmed}` : key;
+}
 
 /**
  * In-memory rate-limit tracker for `/generate-title`. Keyed by user email,
@@ -336,7 +346,12 @@ function createUrlTools(): Record<string, ActionEntry> {
         const merge = (args as any)?.merge !== "false";
         const { writeAppState } =
           await import("../application-state/script-helpers.js");
-        await writeAppState("__set_url__", {
+        await writeAppState(
+          appStateKeyForBrowserTab(
+            "__set_url__",
+            getRequestRunContext()?.browserTabId,
+          ),
+          {
           searchParams: params,
           mergeSearchParams: merge,
           // Unique-per-write token. The client's URLSync hook dedups by this
@@ -345,7 +360,8 @@ function createUrlTools(): Record<string, ActionEntry> {
           // repeatedly (which caused the editor to bounce between slides
           // when an agent turn errored partway through).
           _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        });
+          },
+        );
         const keys = Object.keys(params);
         return `set-search-params: ${keys.length} key${keys.length === 1 ? "" : "s"}${merge ? "" : " (replace)"}`;
       },
@@ -391,7 +407,12 @@ function createUrlTools(): Record<string, ActionEntry> {
         const merge = (args as any)?.merge !== "false";
         const { writeAppState } =
           await import("../application-state/script-helpers.js");
-        await writeAppState("__set_url__", {
+        await writeAppState(
+          appStateKeyForBrowserTab(
+            "__set_url__",
+            getRequestRunContext()?.browserTabId,
+          ),
+          {
           pathname,
           searchParams: params,
           mergeSearchParams: merge,
@@ -399,7 +420,8 @@ function createUrlTools(): Record<string, ActionEntry> {
           // race between GET and consume-DELETE in URLSync can't re-apply
           // this command.
           _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        });
+          },
+        );
         return `set-url-path: ${pathname}`;
       },
     },

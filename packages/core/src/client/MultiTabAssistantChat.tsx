@@ -681,6 +681,8 @@ export type MultiTabAssistantChatProps = Omit<
   contentHidden?: boolean;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
+  /** Stable browser tab id used for tab-scoped app-state context. */
+  browserTabId?: string;
   /**
    * Bind new chats to a resource (deck, design, dashboard, etc.). When set,
    * the tab bar, history popover, and active-thread persistence all
@@ -699,6 +701,7 @@ export function MultiTabAssistantChat({
   contentHidden = false,
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
+  browserTabId,
   scope = null,
   ...props
 }: MultiTabAssistantChatProps) {
@@ -1963,6 +1966,10 @@ export function MultiTabAssistantChat({
           )
           .map((tabId) => {
             const modelSelection = resolveThreadModelSelection(tabId);
+            const tabThread = threads.find((thread) => thread.id === tabId);
+            const tabScope =
+              tabThread?.scope ??
+              (tabId === activeThreadId ? activeThreadScope : null);
             return (
               <div
                 key={tabId}
@@ -1985,16 +1992,16 @@ export function MultiTabAssistantChat({
                 <AssistantChat
                   {...props}
                   emptyStateText={
-                    activeThreadScope?.label && tabId === activeThreadId
-                      ? `Ask about ${activeThreadScope.label}`
+                    tabScope?.label && tabId === activeThreadId
+                      ? `Ask about ${tabScope.label}`
                       : props.emptyStateText
                   }
                   emptyStateAddon={
                     tabId === activeThreadId &&
-                    activeThreadScope &&
+                    tabScope &&
                     otherScopedThreads.length > 0 ? (
                       <PreviousScopedChatsHint
-                        scope={activeThreadScope}
+                        scope={tabScope}
                         threads={otherScopedThreads}
                         onSelectThread={openFromHistory}
                       />
@@ -2009,6 +2016,8 @@ export function MultiTabAssistantChat({
                   }}
                   threadId={tabId}
                   tabId={tabId}
+                  browserTabId={browserTabId}
+                  contextScope={tabScope}
                   apiUrl={apiUrl}
                   isNewThread={
                     newThreadIds.current.has(tabId) || isNewThread(tabId)

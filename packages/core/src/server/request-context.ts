@@ -31,6 +31,14 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface RequestRunContext {
   /** Origin of the current request (used by the builder-browser tool). */
   requestOrigin?: string;
+  /** Stable browser tab id for tab-scoped app-state reads/writes. */
+  browserTabId?: string;
+  /** Resource scope for the current chat thread, e.g. the active deck. */
+  chatScope?: {
+    type: string;
+    id: string;
+    label?: string;
+  } | null;
   /** Resolved owner email (set by prepareRun). */
   owner?: string;
   /** Owner's active Anthropic API key (set by prepareRun). */

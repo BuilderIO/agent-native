@@ -364,6 +364,8 @@ export interface AgentPanelProps extends Omit<
    * from the current route — see the `Layout` files for each template.
    */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Stable browser tab id used for tab-scoped app-state context. */
+  browserTabId?: string;
   /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
   /** Capability gate for source edits, workspace files, and CLI access. */
@@ -460,6 +462,7 @@ function AgentPanelInner({
   devAppUrl,
   storageKey,
   scope,
+  browserTabId,
   chatNotice,
   codeAccess,
 }: AgentPanelProps) {
@@ -1330,6 +1333,7 @@ function AgentPanelInner({
             onExecModeChange={switchExecMode}
             storageKey={storageKey}
             scope={scope}
+            browserTabId={browserTabId}
           />
         )}
       </div>
@@ -1812,6 +1816,8 @@ export interface AgentSidebarProps {
    * Templates compute this from the active route (see template layouts).
    */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Stable browser tab id used for tab-scoped app-state context. */
+  browserTabId?: string;
 }
 
 /**
@@ -1828,6 +1834,7 @@ export function AgentSidebar({
   defaultOpen = false,
   animateMobile = false,
   scope,
+  browserTabId,
 }: AgentSidebarProps) {
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(() =>
@@ -2144,6 +2151,7 @@ export function AgentSidebar({
           isFullscreen={effectiveFullscreen}
           onToggleFullscreen={isMobile ? undefined : toggleFullscreen}
           scope={scope}
+          browserTabId={browserTabId}
         />
       </div>
       {showResizeHandle && isLeft && (
@@ -2171,7 +2179,7 @@ export function AgentSidebar({
       {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
-      <URLSync />
+      <URLSync browserTabId={browserTabId} />
       {isLeft && !presentationMode ? sidebar : null}
       <div className="flex flex-1 flex-col overflow-auto min-w-0">
         {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
