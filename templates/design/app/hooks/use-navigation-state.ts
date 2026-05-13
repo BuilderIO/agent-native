@@ -27,8 +27,11 @@ export function useNavigationState() {
     } else if (location.pathname.startsWith("/present/")) {
       state.view = "present";
       state.designId = params.id;
-    } else if (location.pathname.startsWith("/examples")) {
-      state.view = "examples";
+    } else if (
+      location.pathname.startsWith("/templates") ||
+      location.pathname.startsWith("/examples")
+    ) {
+      state.view = "templates";
     } else if (location.pathname.startsWith("/settings")) {
       state.view = "settings";
     }
@@ -81,8 +84,8 @@ export function useNavigationState() {
         path = "/design-systems";
       } else if (cmd.view === "present" && cmd.designId) {
         path = `/present/${cmd.designId}`;
-      } else if (cmd.view === "examples") {
-        path = "/examples";
+      } else if (cmd.view === "templates" || cmd.view === "examples") {
+        path = "/templates";
       } else if (cmd.view === "settings") {
         path = "/settings";
       } else {

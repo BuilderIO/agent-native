@@ -496,7 +496,7 @@ export default function DesignEditor() {
     const uploadedFiles = Array.isArray(pending.files) ? pending.files : [];
     const fileContext = formatUploadedFileContext(uploadedFiles);
     const sourceContext = pending.source
-      ? `The user picked the "${pending.source}" example template.`
+      ? `The user picked the "${pending.source}" template.`
       : "The user just created a new empty design.";
 
     const context = [

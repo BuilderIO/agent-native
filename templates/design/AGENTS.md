@@ -169,7 +169,7 @@ The UI writes `navigation` whenever the user navigates:
 }
 ```
 
-Views: `"list"` (design list / home), `"editor"` (editing a design), `"present"` (fullscreen preview), `"design-systems"` (design system management), `"examples"` (example gallery), `"settings"` (app and agent settings).
+Views: `"list"` (design list / home), `"editor"` (editing a design), `"present"` (fullscreen preview), `"design-systems"` (design system management), `"templates"` (marketing template gallery), `"settings"` (app and agent settings). The legacy `"examples"` view still routes to templates.
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. Use `navigate` to move the user.
 
@@ -300,7 +300,7 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 | `navigate` | `--view editor --designId <id>`  | Navigate to design editor  |
 | `navigate` | `--view design-systems`          | Navigate to design systems |
 | `navigate` | `--view present --designId <id>` | Navigate to presentation   |
-| `navigate` | `--view examples`                | Navigate to examples       |
+| `navigate` | `--view templates`               | Navigate to templates      |
 | `navigate` | `--view settings`                | Navigate to settings       |
 
 ### Creating & Editing Designs
