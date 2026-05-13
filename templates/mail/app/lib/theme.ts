@@ -20,4 +20,3 @@ export function getResolvedTheme(fallback?: string): ResolvedTheme {
 
   return "light";
 }
-

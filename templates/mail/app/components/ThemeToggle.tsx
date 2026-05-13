@@ -18,6 +18,8 @@ export function ThemeToggle({ className }: { className?: string }) {
 
   const resolved = getResolvedTheme(resolvedTheme);
   const isDark = mounted ? resolved === "dark" : false;
+  const toggleTheme = () =>
+    setTheme(getResolvedTheme(resolvedTheme) === "dark" ? "light" : "dark");
 
   return (
     <Tooltip>
@@ -25,9 +27,7 @@ export function ThemeToggle({ className }: { className?: string }) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() =>
-            setTheme(getResolvedTheme(resolvedTheme) === "dark" ? "light" : "dark")
-          }
+          onClick={toggleTheme}
           className={cn("h-7 w-7 text-muted-foreground", className)}
         >
           {mounted ? (
@@ -54,13 +54,13 @@ export function SidebarThemeRow() {
 
   const resolved = getResolvedTheme(resolvedTheme);
   const isDark = mounted ? resolved === "dark" : false;
+  const toggleTheme = () =>
+    setTheme(getResolvedTheme(resolvedTheme) === "dark" ? "light" : "dark");
 
   return (
     <button
       type="button"
-      onClick={() =>
-        setTheme(getResolvedTheme(resolvedTheme) === "dark" ? "light" : "dark")
-      }
+      onClick={toggleTheme}
       className="flex w-full items-center justify-between rounded-md px-3 py-2.5 text-[14px] text-foreground/70 hover:bg-accent/30 transition-colors min-h-[44px] cursor-pointer"
     >
       <span>Appearance</span>

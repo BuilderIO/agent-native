@@ -33,6 +33,7 @@ import {
 } from "@/hooks/use-emails";
 import { useQueryClient } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import { getResolvedTheme } from "@/lib/theme";
 import { appApiPath } from "@/lib/api-path";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
@@ -2648,7 +2649,7 @@ function HtmlEmailBody({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
   const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
+  const isDark = getResolvedTheme(resolvedTheme) === "dark";
   const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
   // Only fall back to light bg when the email has actual designed colored backgrounds
   // (not white/near-white which we override to dark). This matches Superhuman behavior.
