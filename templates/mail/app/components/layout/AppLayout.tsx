@@ -863,27 +863,29 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return Math.max(serverCount, localCount);
   };
 
+  const isExclusivePinnedTab = (viewId: string) => {
+    if (!hasPinnedFilters) return false;
+    // Pinned label rows (the ones that contribute to the "Other" remainder)
+    // are exclusive: each inbox thread is counted in exactly one tab. Gmail's
+    // server label counts don't have that exclusivity (e.g. server "important"
+    // returns *all* important threads, regardless of whether they're also
+    // categorized elsewhere), so we can't mix the two — use local only.
+    return pinnedLabels.some((id) => {
+      if (collapsibleViews.some((view) => view.id === id)) return false;
+      const label = resolveLabelForCount(id);
+      return (label?.id ?? id) === viewId || id === viewId;
+    });
+  };
+
   const getOtherCount = (kind: CountKind) => {
     if (!hasPinnedFilters) return getInboxCount(kind);
-    const countField = countFieldForKind(kind);
     const localCounts = localCountsForKind(kind);
-    const localCount = localCounts["inbox"] ?? 0;
-    let serverRemainder = 0;
-    if (useServerLabelCounts) {
-      const inboxLabel = resolveLabelForCount("inbox");
-      const inboxServerCount = inboxLabel?.[countField];
-      if (inboxServerCount !== undefined) {
-        const pinnedCount = pinnedLabels.reduce((total, id) => {
-          if (collapsibleViews.some((view) => view.id === id)) return total;
-          const label = resolveLabelForCount(id);
-          const countId = label?.id ?? id;
-          if (countId === "note-to-self") return total;
-          return total + (label?.[countField] ?? 0);
-        }, 0);
-        serverRemainder = Math.max(0, inboxServerCount - pinnedCount);
-      }
-    }
-    return Math.max(serverRemainder, localCount);
+    // Don't subtract pinned-label server counts from inbox server count:
+    // Gmail's label totals include archived/sent/trash threads outside the
+    // inbox, so the subtraction can drop "Other" to zero or undercount. The
+    // local count (computed from loaded inbox emails, filtered by pinned-tab
+    // membership) is the authoritative "Other" number.
+    return localCounts["inbox"] ?? 0;
   };
 
   const getTabCount = (viewId: string, kind: CountKind) => {
@@ -891,12 +893,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const label = resolveLabelForCount(viewId);
     const countField = countFieldForKind(kind);
     const localCounts = localCountsForKind(kind);
+    const localCount =
+      localCounts[viewId] ?? (label ? (localCounts[label.id] ?? 0) : 0);
+    // Exclusive pinned tabs (when hasPinnedFilters is on, a thread belongs to
+    // exactly one tab) can't fall back to Gmail's non-exclusive server count
+    // — that would over-report the badge relative to what the tab renders.
+    if (isExclusivePinnedTab(viewId)) return localCount;
     const serverCount =
       useServerLabelCounts && viewId !== "note-to-self"
         ? (label?.[countField] ?? 0)
         : 0;
-    const localCount =
-      localCounts[viewId] ?? (label ? (localCounts[label.id] ?? 0) : 0);
     return Math.max(serverCount, localCount);
   };
   const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
