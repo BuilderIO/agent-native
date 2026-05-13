@@ -494,6 +494,75 @@ describe("server/auth", () => {
       );
     });
 
+    it("lets signed Builder connect URLs bypass the global auth guard", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
+      vi.stubEnv("APP_BASE_PATH", "/todays-priorities");
+      const { autoMountAuth } = await import("./auth.js");
+      const { BUILDER_CONNECT_PARAM, signBuilderConnectToken } =
+        await import("./builder-browser.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const token = signBuilderConnectToken("jameson@builder.io");
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/todays-priorities/_agent-native/builder/connect",
+            query: { [BUILDER_CONNECT_PARAM]: token },
+          }),
+        ),
+      ).resolves.toBeUndefined();
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/todays-priorities/_agent-native/builder/connect",
+            query: { [BUILDER_CONNECT_PARAM]: `${token}.tampered` },
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
+    });
+
+    it("lets Builder connect callbacks with owner cookies bypass the global auth guard", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
+      vi.stubEnv("APP_BASE_PATH", "/todays-priorities");
+      const { autoMountAuth } = await import("./auth.js");
+      const { BUILDER_CONNECT_OWNER_COOKIE, signBuilderConnectToken } =
+        await import("./builder-browser.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const token = signBuilderConnectToken("jameson@builder.io");
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/todays-priorities/_agent-native/builder/callback",
+            headers: {
+              cookie: `${BUILDER_CONNECT_OWNER_COOKIE}=${token}`,
+            },
+          }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
     it("lets signed integration processor routes bypass the global auth guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -1576,7 +1645,7 @@ describe("server/auth", () => {
   });
 
   describe("onboarding Google sign-in", () => {
-    it("keeps popup OAuth for Builder preview surfaces", async () => {
+    it("uses redirect OAuth for Builder preview surfaces", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
@@ -1607,9 +1676,17 @@ describe("server/auth", () => {
       expect(html).toContain("params.set('desktop', '1')");
       expect(html).toContain("params.set('flow_id', flowId)");
       expect(html).toContain("params.set('redirect', '1')");
+      expect(html).toContain("var __anBuilderPreviewSeen = false");
+      expect(html).toContain("function __anRememberBuilderPreview()");
+      expect(html).toContain(
+        "sessionStorage.setItem('__an_builder_preview_seen', '1')",
+      );
+      expect(html).toContain("function __anHasBuilderPreviewSignal()");
+      expect(html).toContain("params.has('builder.preview')");
+      expect(html).toContain("__anIsBuilderPreview();");
       expect(html).toContain("__anIsBuilderDesktop()");
       expect(html).toContain("__anIsAgentNativeDesktop()");
-      expect(html).toContain("if (__anIsBuilderPreview()) return 'popup'");
+      expect(html).toContain("if (__anIsBuilderPreview()) return 'redirect'");
       expect(html).toContain(
         "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
       );
@@ -1661,9 +1738,19 @@ describe("server/auth", () => {
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
       );
+      expect(loginHtml).toContain("var __anBuilderPreviewSeen = false");
+      expect(loginHtml).toContain("function __anRememberBuilderPreview()");
+      expect(loginHtml).toContain(
+        "sessionStorage.setItem('__an_builder_preview_seen', '1')",
+      );
+      expect(loginHtml).toContain("function __anHasBuilderPreviewSignal()");
+      expect(loginHtml).toContain("params.has('builder.preview')");
+      expect(loginHtml).toContain("__anIsBuilderPreview();");
       expect(loginHtml).toContain("__anIsBuilderDesktop()");
       expect(loginHtml).toContain("__anIsAgentNativeDesktop()");
-      expect(loginHtml).toContain("if (__anIsBuilderPreview()) return 'popup'");
+      expect(loginHtml).toContain(
+        "if (__anIsBuilderPreview()) return 'redirect'",
+      );
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
       );

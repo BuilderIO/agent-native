@@ -13,6 +13,9 @@ import {
   setResponseHeader,
   getMethod,
   getHeader,
+  getCookie,
+  setCookie,
+  deleteCookie,
 } from "h3";
 import type { H3Event } from "h3";
 import path from "node:path";
@@ -23,6 +26,7 @@ import type { EnvKeyConfig } from "./create-server.js";
 import { readBody } from "./h3-helpers.js";
 import {
   BUILDER_CONNECT_PARAM,
+  BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_ENV_KEYS,
   appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
@@ -33,6 +37,8 @@ import {
   resolveSafePreviewUrl,
   runBuilderAgent,
   verifyBuilderConnectToken,
+  verifyBuilderConnectTokenAndGetOwner,
+  signBuilderConnectToken,
 } from "./builder-browser.js";
 import {
   getState,
@@ -51,7 +57,7 @@ import {
   deleteUserSetting,
 } from "../settings/user-settings.js";
 import { getSession } from "./auth.js";
-import { getOrigin } from "./google-oauth.js";
+import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { listOnboardingSteps } from "../onboarding/registry.js";
 import {
@@ -199,6 +205,40 @@ function stripAppBasePath(pathname: string): string {
     return pathname.slice(basePath.length) || "/";
   }
   return pathname;
+}
+
+function getBuilderConnectOwnerCookiePath(): string {
+  return getAppBasePath() || "/";
+}
+
+function readBuilderConnectOwnerCookie(event: H3Event): string | null {
+  return verifyBuilderConnectTokenAndGetOwner(
+    getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
+  );
+}
+
+function setBuilderConnectOwnerCookie(
+  event: H3Event,
+  ownerEmail: string,
+): void {
+  setCookie(
+    event,
+    BUILDER_CONNECT_OWNER_COOKIE,
+    signBuilderConnectToken(ownerEmail),
+    {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: getOrigin(event).startsWith("https://"),
+      path: getBuilderConnectOwnerCookiePath(),
+      maxAge: 10 * 60,
+    },
+  );
+}
+
+function clearBuilderConnectOwnerCookie(event: H3Event): void {
+  deleteCookie(event, BUILDER_CONNECT_OWNER_COOKIE, {
+    path: getBuilderConnectOwnerCookiePath(),
+  });
 }
 
 /**
@@ -518,6 +558,32 @@ export function createCoreRoutesPlugin(
         return { email: session.email, session, anonymous: false };
       }
 
+      const rawUrl = event.node?.req?.url ?? event.path ?? "/";
+      const queryStart = rawUrl.indexOf("?");
+      const rawPath = queryStart >= 0 ? rawUrl.slice(0, queryStart) : rawUrl;
+      const search = queryStart >= 0 ? rawUrl.slice(queryStart + 1) : "";
+      const path = stripAppBasePath(rawPath);
+
+      if (path === `${P}/builder/connect`) {
+        const ownerFromConnectToken = verifyBuilderConnectTokenAndGetOwner(
+          new URLSearchParams(search).get(BUILDER_CONNECT_PARAM),
+        );
+        if (ownerFromConnectToken) {
+          return {
+            email: ownerFromConnectToken,
+            session: null,
+            anonymous: false,
+          };
+        }
+      }
+
+      if (path === `${P}/builder/callback`) {
+        const ownerFromCookie = readBuilderConnectOwnerCookie(event);
+        if (ownerFromCookie) {
+          return { email: ownerFromCookie, session: null, anonymous: false };
+        }
+      }
+
       const anonymousOwner = await options.anonymousOwner?.(event);
       if (anonymousOwner) {
         return { email: anonymousOwner, session: null, anonymous: true };
@@ -809,6 +875,7 @@ export function createCoreRoutesPlugin(
             stage: "connect",
           },
         );
+        setBuilderConnectOwnerCookie(event, ownerEmail);
         // Build the cli-auth URL without embedding state in redirect_url:
         // Builder's /cli-auth appends params directly to redirect_url and
         // does not preserve any pre-existing query string we put there.
@@ -939,6 +1006,7 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
+        clearBuilderConnectOwnerCookie(event);
 
         const requestUrl = new URL(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,

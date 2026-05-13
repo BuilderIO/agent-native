@@ -79,8 +79,8 @@ export interface OnboardingHtmlOptions {
   };
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
-   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. The Builder.io
-   * browser iframe always uses popup regardless (Google blocks framing).
+   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. Builder.io
+   * preview/editor surfaces always use redirect.
    */
   googleAuthMode?: GoogleAuthMode;
 }
@@ -1000,18 +1000,40 @@ ${
       } catch(e) {}
       return window.location.pathname + window.location.search;
     }
-    function __anIsBuilderPreview() {
+    var __anBuilderPreviewSeen = false;
+    function __anRememberBuilderPreview() {
+      __anBuilderPreviewSeen = true;
+      try { sessionStorage.setItem('__an_builder_preview_seen', '1'); } catch(e) {}
+    }
+    function __anHasBuilderPreviewSignal() {
       try {
         var params = new URLSearchParams(window.location.search);
         if (params.has('builder.preview') || params.has('builder.frameEditing') || params.has('__builder_editing__')) return true;
       } catch(e) {}
+      return false;
+    }
+    function __anIsBuilderPreview() {
+      if (__anBuilderPreviewSeen) return true;
+      if (__anHasBuilderPreviewSignal()) {
+        __anRememberBuilderPreview();
+        return true;
+      }
+      try {
+        if (sessionStorage.getItem('__an_builder_preview_seen') === '1') {
+          __anBuilderPreviewSeen = true;
+          return true;
+        }
+      } catch(e) {}
       try {
         var ref = document.referrer || '';
-        return ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1 || ref.indexOf('builderio.xyz') !== -1 || ref.indexOf('builderio.dev') !== -1 || ref.indexOf('builder.codes') !== -1;
+        var fromBuilder = ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1 || ref.indexOf('builderio.xyz') !== -1 || ref.indexOf('builderio.dev') !== -1 || ref.indexOf('builder.codes') !== -1;
+        if (fromBuilder) __anRememberBuilderPreview();
+        return fromBuilder;
       } catch(e) {
         return false;
       }
     }
+    __anIsBuilderPreview();
     function __anIsBuilderDesktop() {
       try {
         var ua = navigator.userAgent || '';
@@ -1035,15 +1057,13 @@ ${
       }
     }
     function __anResolveAuthFlow() {
-      // Per-session override for ad-hoc testing: append ?authMode=popup
-      // or ?authMode=redirect to the sign-in URL. Wins over every other rule.
+      if (__anIsBuilderPreview()) return 'redirect';
+      // Per-session override for ad-hoc testing outside Builder: append
+      // ?authMode=popup or ?authMode=redirect to the sign-in URL.
       try {
         var qp = new URLSearchParams(window.location.search).get('authMode');
         if (qp === 'popup' || qp === 'redirect') return qp;
       } catch(e) {}
-      // Builder.io preview surfaces must use popup — Google sets
-      // X-Frame-Options: DENY so a redirect inside the webview/iframe fails.
-      if (__anIsBuilderPreview()) return 'popup';
       var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
       if (mode === 'popup') return 'popup';
       if (mode === 'redirect') return 'redirect';

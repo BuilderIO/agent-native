@@ -59,6 +59,15 @@ describe("getOnboardingHtml", () => {
       "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
     );
     expect(html).toContain("function __anBuilderPreviewReturnOrigin()");
+    expect(html).toContain("var __anBuilderPreviewSeen = false");
+    expect(html).toContain("function __anRememberBuilderPreview()");
+    expect(html).toContain(
+      "sessionStorage.setItem('__an_builder_preview_seen', '1')",
+    );
+    expect(html).toContain("function __anHasBuilderPreviewSignal()");
+    expect(html).toContain("params.has('builder.preview')");
+    expect(html).toContain("__anIsBuilderPreview();");
+    expect(html).toContain("if (__anIsBuilderPreview()) return 'redirect'");
     expect(html).toContain(
       "var candidates = [window.location.href, document.referrer || ''];",
     );

@@ -13,8 +13,8 @@ export interface GoogleAuthPluginOptions {
   publicPaths?: string[];
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
-   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. The Builder.io
-   * browser iframe always uses popup regardless (Google blocks framing).
+   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. Builder.io
+   * preview/editor surfaces always use redirect.
    */
   googleAuthMode?: GoogleAuthMode;
 }
@@ -187,18 +187,40 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
     __anSetOAuthDebug('OAuth exchange redeemed; returning to the app', flowId);
     window.location.href = ret || '/';
   }
-  function __anIsBuilderPreview() {
+  var __anBuilderPreviewSeen = false;
+  function __anRememberBuilderPreview() {
+    __anBuilderPreviewSeen = true;
+    try { sessionStorage.setItem('__an_builder_preview_seen', '1'); } catch(e) {}
+  }
+  function __anHasBuilderPreviewSignal() {
     try {
       var params = new URLSearchParams(window.location.search);
       if (params.has('builder.preview') || params.has('builder.frameEditing') || params.has('__builder_editing__')) return true;
     } catch(e) {}
+    return false;
+  }
+  function __anIsBuilderPreview() {
+    if (__anBuilderPreviewSeen) return true;
+    if (__anHasBuilderPreviewSignal()) {
+      __anRememberBuilderPreview();
+      return true;
+    }
+    try {
+      if (sessionStorage.getItem('__an_builder_preview_seen') === '1') {
+        __anBuilderPreviewSeen = true;
+        return true;
+      }
+    } catch(e) {}
     try {
       var ref = document.referrer || '';
-      return ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1 || ref.indexOf('builderio.xyz') !== -1 || ref.indexOf('builderio.dev') !== -1 || ref.indexOf('builder.codes') !== -1;
+      var fromBuilder = ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1 || ref.indexOf('builderio.xyz') !== -1 || ref.indexOf('builderio.dev') !== -1 || ref.indexOf('builder.codes') !== -1;
+      if (fromBuilder) __anRememberBuilderPreview();
+      return fromBuilder;
     } catch(e) {
       return false;
     }
   }
+  __anIsBuilderPreview();
   function __anIsBuilderDesktop() {
     try {
       var ua = navigator.userAgent || '';
@@ -222,7 +244,7 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
     }
   }
   function __anResolveAuthFlow() {
-    if (__anIsBuilderPreview()) return 'popup';
+    if (__anIsBuilderPreview()) return 'redirect';
     var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
     if (mode === 'popup') return 'popup';
     if (mode === 'redirect') return 'redirect';

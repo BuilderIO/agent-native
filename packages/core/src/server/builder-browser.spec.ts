@@ -13,6 +13,7 @@ import {
   signBuilderCallbackState,
   verifyBuilderConnectToken,
   verifyBuilderCallbackState,
+  verifyBuilderConnectTokenAndGetOwner,
 } from "./builder-browser.js";
 
 describe("Builder callback CSRF state", () => {
@@ -206,6 +207,22 @@ describe("Builder callback CSRF state", () => {
       const token = new URL(connectUrl).searchParams.get(BUILDER_CONNECT_PARAM);
       expect(token).toBeTruthy();
       expect(verifyBuilderConnectToken(token, "alice@example.com")).toBe(true);
+    });
+
+    it("extracts the owner email from a valid connect token", () => {
+      const token = signBuilderConnectToken("alice@example.com");
+
+      expect(verifyBuilderConnectTokenAndGetOwner(token)).toBe(
+        "alice@example.com",
+      );
+    });
+
+    it("does not extract an owner from a forged connect token", () => {
+      const token = signBuilderConnectToken("alice@example.com");
+      const parts = token.split(".");
+      parts[1] = Buffer.from("bob@example.com", "utf8").toString("base64url");
+
+      expect(verifyBuilderConnectTokenAndGetOwner(parts.join("."))).toBeNull();
     });
   });
 

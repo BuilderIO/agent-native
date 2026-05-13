@@ -95,6 +95,11 @@ import {
   workspaceAppRouteAccessFromEnv,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import {
+  BUILDER_CONNECT_OWNER_COOKIE,
+  BUILDER_CONNECT_PARAM,
+  verifyBuilderConnectTokenAndGetOwner,
+} from "./builder-browser.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -223,11 +228,10 @@ export interface AuthOptions {
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
    *
-   * - `'auto'` — popup in normal browsers, redirect in Electron. Always uses
-   *   popup inside the Builder.io browser iframe (Google blocks framing).
+   * - `'auto'` — popup in normal browsers, redirect in Electron and Builder.io
+   *   preview/editor surfaces.
    * - `'popup'` — force popup everywhere.
-   * - `'redirect'` — force redirect everywhere except the Builder.io browser
-   *   iframe, which stays popup for technical reasons.
+   * - `'redirect'` — force redirect everywhere.
    *
    * Falls back to the `GOOGLE_AUTH_MODE` env var, then `'auto'`.
    */
@@ -1129,6 +1133,32 @@ function workspaceOAuthCallbackRelayResponse(
   });
 }
 
+function verifiedBuilderConnectOwnerFromUrl(url: string): string | null {
+  const queryStart = url.indexOf("?");
+  if (queryStart < 0) return null;
+  const token = new URLSearchParams(url.slice(queryStart + 1)).get(
+    BUILDER_CONNECT_PARAM,
+  );
+  return verifyBuilderConnectTokenAndGetOwner(token);
+}
+
+function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
+  if (p === "/_agent-native/builder/connect") {
+    const url = event.node?.req?.url ?? event.path ?? "/";
+    return Boolean(verifiedBuilderConnectOwnerFromUrl(url));
+  }
+
+  if (p === "/_agent-native/builder/callback") {
+    return Boolean(
+      verifyBuilderConnectTokenAndGetOwner(
+        getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
+      ),
+    );
+  }
+
+  return false;
+}
+
 function createAuthGuardFn(): (
   event: H3Event,
 ) => Promise<Response | object | string | void> {
@@ -1293,6 +1323,7 @@ function createAuthGuardFn(): (
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (isPublicPath(normalizedUrl, publicPaths)) return;
+    if (shouldBypassAuthForBuilderConnect(event, p)) return;
     if (isPublicWorkspacePageRequest(event, p, config)) {
       return;
     }
