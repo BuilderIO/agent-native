@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconBolt, IconExternalLink, IconLoader2 } from "@tabler/icons-react";
 import { agentNativePath } from "../api-path.js";
-import { getCallbackOrigin } from "../frame.js";
+import { openBuilderConnectPopup } from "../settings/useBuilderStatus.js";
 
 export function BuilderTranscriptionCta() {
   const [configured, setConfigured] = useState<boolean | null>(null);
@@ -46,12 +46,7 @@ export function BuilderTranscriptionCta() {
     setConnecting(true);
     setError(null);
 
-    const origin = getCallbackOrigin() || window.location.origin;
-    window.open(
-      new URL(agentNativePath("/_agent-native/builder/connect"), origin).href,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    openBuilderConnectPopup({ source: "builder_transcription_cta" });
 
     const start = Date.now();
     pollRef.current = setInterval(async () => {
