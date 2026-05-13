@@ -24,10 +24,7 @@ import {
   type DesignTemplateKind,
 } from "@/lib/design-templates";
 
-const iconByKind: Record<
-  DesignTemplateKind,
-  typeof IconFileDescription
-> = {
+const iconByKind: Record<DesignTemplateKind, typeof IconFileDescription> = {
   "one-sheet": IconFileDescription,
   "social-ads": IconAd,
   "launch-page": IconRocket,
