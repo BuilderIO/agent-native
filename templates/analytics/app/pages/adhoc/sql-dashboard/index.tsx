@@ -34,10 +34,12 @@ import {
 import {
   IconArchive,
   IconArchiveOff,
+  IconClock,
   IconDots,
   IconPencil,
   IconPlus,
   IconTrash,
+  IconUser,
 } from "@tabler/icons-react";
 import {
   DropdownMenu,
@@ -117,6 +119,8 @@ async function fetchWithAuth(url: string, options?: RequestInit) {
 type FetchedDashboard = {
   config: SqlDashboardConfig;
   archivedAt: string | null;
+  updatedAt: string | null;
+  ownerEmail: string | null;
 };
 
 async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
@@ -133,6 +137,8 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
       panels: data.panels ?? [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
+    ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
   };
 }
 
@@ -167,6 +173,10 @@ export default function SqlDashboardPage() {
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(
+    null,
+  );
+  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [editingDescription, setEditingDescription] = useState(false);
@@ -305,6 +315,8 @@ export default function SqlDashboardPage() {
     };
     setDashboard(next);
     setArchivedAt(fetched?.archivedAt ?? null);
+    setDashboardUpdatedAt(fetched?.updatedAt ?? null);
+    setDashboardOwner(fetched?.ownerEmail ?? null);
     setLoaded(true);
     if (fetched && viewedDashboardIdRef.current !== dashboardId) {
       viewedDashboardIdRef.current = dashboardId;
@@ -908,6 +920,29 @@ export default function SqlDashboardPage() {
 
   return (
     <div className="space-y-4">
+      {/* Author and last updated metadata */}
+      {(dashboardUpdatedAt || dashboardOwner) && (
+        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          {dashboardUpdatedAt && (
+            <span className="flex items-center gap-1">
+              <IconClock className="h-3 w-3" />
+              Updated{" "}
+              {new Date(dashboardUpdatedAt).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
+          )}
+          {dashboardOwner && (
+            <span className="flex items-center gap-1">
+              <IconUser className="h-3 w-3" />
+              {dashboardOwner.split("@")[0]}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Description (click to edit) */}
       {editingDescription ? (
         <Textarea

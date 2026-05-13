@@ -131,6 +131,8 @@ export const getSqlDashboard = defineEventHandler(async (event) => {
       orgId: dash.orgId,
       visibility: dash.visibility,
       archivedAt: dash.archivedAt,
+      createdAt: dash.createdAt,
+      updatedAt: dash.updatedAt,
     };
   } catch (err: any) {
     const status = err?.statusCode ?? 500;
