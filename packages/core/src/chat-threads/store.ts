@@ -272,9 +272,9 @@ export async function forkThread(
   ownerEmail: string,
   opts?: { id?: string; source?: ForkThreadSourceSnapshot | null },
 ): Promise<ChatThread | null> {
+  const snapshot = normalizeForkSourceSnapshot(opts?.source);
   let source = await getThread(sourceId);
   if (!source) {
-    const snapshot = normalizeForkSourceSnapshot(opts?.source);
     if (snapshot) {
       try {
         await createThread(ownerEmail, {
@@ -300,6 +300,24 @@ export async function forkThread(
         source = await getThread(sourceId);
       }
     }
+  } else if (
+    snapshot &&
+    source.ownerEmail === ownerEmail &&
+    snapshot.messageCount > source.messageCount
+  ) {
+    // The source row exists but the in-memory snapshot is fresher — the agent
+    // run flushed an older state to SQL, but the tab has additional unflushed
+    // messages. Overlay the snapshot before cloning so the fork captures the
+    // latest user-visible content. Guard with messageCount > stored to avoid
+    // clobbering a fresher persisted row with a stale snapshot from another
+    // tab.
+    source = {
+      ...source,
+      threadData: snapshot.threadData,
+      title: snapshot.title || source.title,
+      preview: snapshot.preview || source.preview,
+      messageCount: snapshot.messageCount,
+    };
   }
   if (!source || source.ownerEmail !== ownerEmail) return null;
   const id = opts?.id ?? generateId();
