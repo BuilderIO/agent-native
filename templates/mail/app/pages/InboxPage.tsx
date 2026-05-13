@@ -627,7 +627,7 @@ export function InboxPage() {
           <ResizableHandle
             id="mail-thread-list-resizer"
             aria-label="Resize email list"
-            className="w-1 cursor-col-resize bg-transparent transition-colors after:w-px after:bg-border/30 hover:after:bg-border/80 data-[separator=active]:after:bg-primary/70 data-[separator=focus]:after:bg-ring/70"
+            className="w-2 cursor-col-resize bg-transparent transition-colors after:w-px after:bg-border/30 hover:after:bg-border/80 data-[separator=active]:after:bg-primary/70 data-[separator=focus]:after:bg-ring/70"
           />
           <ResizablePanel
             id="mail-thread-detail"
