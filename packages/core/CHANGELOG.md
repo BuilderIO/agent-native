@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.15.3
+
+### Patch Changes
+
+- b2d1228: Use popup Google sign-in for Builder web iframes and bridge the returned session back into the embedded preview.
+
 ## 0.15.2
 
 ### Patch Changes
