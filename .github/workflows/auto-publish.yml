@@ -30,9 +30,18 @@ on:
       - "packages/pinpoint/**"
       - "packages/dispatch/**"
       - ".changeset/**"
+      # Release workflow plumbing changes should exercise the npm release job.
+      - ".github/workflows/auto-publish.yml"
+      - "scripts/changeset-publish-sequential.ts"
       # desktop-app stays version-triggered (not changesets-managed).
       - "packages/desktop-app/package.json"
   workflow_dispatch:
+    inputs:
+      publishDesktop:
+        description: "Also publish desktop binaries"
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -142,7 +151,7 @@ jobs:
     name: Publish desktop app
     needs: []
     if: |
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.publishDesktop) ||
       contains(github.event.head_commit.modified, 'packages/desktop-app/package.json') ||
       contains(github.event.head_commit.added, 'packages/desktop-app/package.json')
     # electron-builder --publish always creates/updates a GitHub release.
