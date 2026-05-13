@@ -816,6 +816,56 @@ export const markRead = defineEventHandler(async (event: H3Event) => {
   return emails[idx];
 });
 
+export const markThreadRead = defineEventHandler(async (event: H3Event) => {
+  const email = await userEmail(event);
+  const threadId = getRouterParam(event, "threadId") as string;
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    isRead?: boolean;
+    accountEmail?: string;
+  };
+  const isRead = body.isRead !== false;
+
+  if (await isConnected(email)) {
+    const acct = await resolveAccountEmail(body.accountEmail, email);
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
+    }
+    try {
+      await gmailModifyThread(
+        accessToken,
+        threadId,
+        isRead ? undefined : ["UNREAD"],
+        isRead ? ["UNREAD"] : undefined,
+      );
+      invalidateThreadCache(email, threadId);
+      return { threadId, isRead };
+    } catch (error: any) {
+      console.error("[markThreadRead] Gmail error:", error.message);
+      setResponseStatus(event, 500);
+      return { error: error.message };
+    }
+  }
+
+  const emails = await readEmails(email);
+  let changed = false;
+  for (let i = 0; i < emails.length; i++) {
+    const key = emails[i].threadId || emails[i].id;
+    if (key === threadId && emails[i].isRead !== isRead) {
+      emails[i] = { ...emails[i], isRead };
+      changed = true;
+    }
+  }
+
+  if (!changed) return { threadId, isRead };
+
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
+  const labels = recomputeUnreadCounts(emails, await readLabels(email));
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
+  return { threadId, isRead };
+});
+
 // ─── Toggle star ──────────────────────────────────────────────────────────────
 
 export const toggleStar = defineEventHandler(async (event: H3Event) => {
@@ -866,7 +916,11 @@ export const toggleStar = defineEventHandler(async (event: H3Event) => {
 
 export const archiveEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
-  const body = await readBody(event);
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    accountEmail?: string;
+    removeLabel?: string;
+    threadId?: string;
+  };
   if (await isConnected(email)) {
     const acct = await resolveAccountEmail(body?.accountEmail, email);
     const accessToken = await getAccessToken(acct);
@@ -876,12 +930,22 @@ export const archiveEmail = defineEventHandler(async (event: H3Event) => {
     }
     try {
       const id = getRouterParam(event, "id") as string;
-      const msg = await gmailGetMessage(accessToken, id, "minimal");
+      let threadId = body.threadId;
+      let labelIds: string[] | undefined;
+      if (!threadId || body.removeLabel) {
+        const msg = await gmailGetMessage(accessToken, id, "minimal");
+        threadId = threadId || msg.threadId;
+        labelIds = msg.labelIds;
+      }
+      if (!threadId) {
+        setResponseStatus(event, 404);
+        return { error: "Thread not found" };
+      }
       // Remove INBOX + the current label (if archiving from a label view)
       const removeLabels = ["INBOX"];
-      if (body?.removeLabel) {
+      if (body.removeLabel) {
         // Gmail label IDs for user labels are the label name or a Label_N id
-        const labelId = msg.labelIds?.find(
+        const labelId = labelIds?.find(
           (l: string) =>
             l === body.removeLabel ||
             l.toLowerCase() === body.removeLabel.toLowerCase(),
@@ -890,14 +954,9 @@ export const archiveEmail = defineEventHandler(async (event: H3Event) => {
           removeLabels.push(labelId);
         }
       }
-      await gmailModifyThread(
-        accessToken,
-        msg.threadId,
-        undefined,
-        removeLabels,
-      );
-      invalidateThreadCache(email, msg.threadId);
-      return { id, threadId: msg.threadId, isArchived: true };
+      await gmailModifyThread(accessToken, threadId, undefined, removeLabels);
+      invalidateThreadCache(email, threadId);
+      return { id, threadId, isArchived: true };
     } catch (error: any) {
       console.error("[archiveEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);

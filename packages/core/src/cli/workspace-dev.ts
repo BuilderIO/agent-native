@@ -112,19 +112,33 @@ function readBooleanEnv(value: string | undefined): boolean | undefined {
   return undefined;
 }
 
-export function shouldUsePollingFileWatcher(
+export type PollingFileWatcherMode =
+  | "enable"
+  | "disable-explicit"
+  | "disable-default";
+
+/**
+ * Three-way classification of the polling-watcher decision so callers can
+ * tell apart "the user explicitly turned this off" (where we want to override
+ * any inherited chokidar/TSC env vars from the parent shell) from "we just
+ * didn't auto-detect a Builder/Codespaces/Gitpod container" (where the user's
+ * own watcher vars should pass through untouched).
+ */
+export function pollingFileWatcherMode(
   env: NodeJS.ProcessEnv = process.env,
   root = process.cwd(),
-): boolean {
+): PollingFileWatcherMode {
   const explicit =
     readBooleanEnv(env.AGENT_NATIVE_DEV_USE_POLLING) ??
     readBooleanEnv(env.WORKSPACE_USE_POLLING_WATCHER);
-  if (explicit !== undefined) return explicit;
+  if (explicit === true) return "enable";
+  if (explicit === false) return "disable-explicit";
 
   const chokidarExplicit = readBooleanEnv(env.CHOKIDAR_USEPOLLING);
-  if (chokidarExplicit !== undefined) return chokidarExplicit;
+  if (chokidarExplicit === true) return "enable";
+  if (chokidarExplicit === false) return "disable-explicit";
 
-  return Boolean(
+  const autoEnable = Boolean(
     env.BUILDER_IO_DEV_SERVER ||
     env.BUILDER_PROJECT_ID ||
     env.BUILDER_WORKSPACE_ID ||
@@ -134,13 +148,21 @@ export function shouldUsePollingFileWatcher(
     env.DEVCONTAINER ||
     root.startsWith("/root/app/"),
   );
+  return autoEnable ? "enable" : "disable-default";
+}
+
+export function shouldUsePollingFileWatcher(
+  env: NodeJS.ProcessEnv = process.env,
+  root = process.cwd(),
+): boolean {
+  return pollingFileWatcherMode(env, root) === "enable";
 }
 
 function devWatcherEnv(
   env: NodeJS.ProcessEnv,
-  usePollingFileWatcher: boolean,
+  mode: PollingFileWatcherMode,
 ): NodeJS.ProcessEnv {
-  if (usePollingFileWatcher) {
+  if (mode === "enable") {
     return {
       ...env,
       CHOKIDAR_USEPOLLING: "1",
@@ -149,18 +171,25 @@ function devWatcherEnv(
       TSC_WATCHDIRECTORY: env.TSC_WATCHDIRECTORY ?? "DynamicPriorityPolling",
     };
   }
-  // Explicit disable must override inherited CHOKIDAR_USEPOLLING from the
-  // parent shell so child processes don't silently poll despite the user
-  // setting AGENT_NATIVE_DEV_USE_POLLING=0. Strip the watcher vars instead
-  // of returning env unchanged.
-  const {
-    CHOKIDAR_USEPOLLING: _polling,
-    CHOKIDAR_INTERVAL: _interval,
-    TSC_WATCHFILE: _watchFile,
-    TSC_WATCHDIRECTORY: _watchDir,
-    ...rest
-  } = env;
-  return rest;
+  if (mode === "disable-explicit") {
+    // The user explicitly turned polling off (AGENT_NATIVE_DEV_USE_POLLING=0
+    // / WORKSPACE_USE_POLLING_WATCHER=0 / CHOKIDAR_USEPOLLING=0). Strip the
+    // watcher vars from the child env so an inherited parent-shell
+    // CHOKIDAR_USEPOLLING=1 (or stale TSC_WATCH* override) can't silently
+    // re-enable polling against the user's explicit wish.
+    const {
+      CHOKIDAR_USEPOLLING: _polling,
+      CHOKIDAR_INTERVAL: _interval,
+      TSC_WATCHFILE: _watchFile,
+      TSC_WATCHDIRECTORY: _watchDir,
+      ...rest
+    } = env;
+    return rest;
+  }
+  // mode === "disable-default": no explicit signal either way. Pass the env
+  // through unchanged so legitimate user overrides like
+  // TSC_WATCHFILE=UseFsEventsWithFallbackDynamicPolling survive.
+  return env;
 }
 
 export function initialWorkspaceAppIds(
@@ -456,7 +485,8 @@ export async function runWorkspaceDev(
   );
   const forceVite = env.WORKSPACE_VITE_FORCE === "1";
   const eager = shouldEagerStartWorkspaceApps(args, env);
-  const usePollingFileWatcher = shouldUsePollingFileWatcher(env, root);
+  const pollingMode = pollingFileWatcherMode(env, root);
+  const usePollingFileWatcher = pollingMode === "enable";
   const proxyReadyTimeoutMs = Number(
     env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
   );
@@ -647,7 +677,7 @@ export async function runWorkspaceDev(
           PORT: String(app.port),
           WORKSPACE_GATEWAY_URL: gatewayUrl,
         },
-        usePollingFileWatcher,
+        pollingMode,
       ),
     });
     app.process = child;

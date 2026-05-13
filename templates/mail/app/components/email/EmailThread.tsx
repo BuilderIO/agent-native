@@ -607,6 +607,7 @@ export function EmailThread({
         id: t.id,
         accountEmail: t.accountEmail,
         removeLabel: labelParam || undefined,
+        threadId: t.threadId || t.id,
       });
     }
     setSelectedIds?.(new Set());

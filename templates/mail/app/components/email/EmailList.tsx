@@ -612,6 +612,7 @@ export function EmailList({
           id: t.latestMessage.id,
           accountEmail: t.latestMessage.accountEmail,
           removeLabel: labelParam || undefined,
+          threadId: t.latestMessage.threadId || t.latestMessage.id,
         });
       }
       setSelectedIds(new Set());
@@ -1120,6 +1121,7 @@ export function EmailList({
         id,
         accountEmail: thread.latestMessage.accountEmail,
         removeLabel: labelParam || undefined,
+        threadId: tid,
       });
     },
     [
