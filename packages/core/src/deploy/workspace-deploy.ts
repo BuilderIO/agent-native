@@ -22,7 +22,10 @@ import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
+  normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromPackageJson,
+  workspaceAppRouteAccessFromPackageJson,
+  type WorkspaceAppRouteAccess,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 
@@ -63,6 +66,16 @@ interface WorkspaceAppManifestEntry {
   url?: string;
   isDispatch: boolean;
   audience: WorkspaceAppAudience;
+  publicPaths: string[];
+  protectedPaths: string[];
+}
+
+interface WorkspaceAppManifestOverride {
+  id: string;
+  url?: string;
+  audience?: WorkspaceAppAudience;
+  publicPaths?: string[];
+  protectedPaths?: string[];
 }
 
 export interface WorkspaceDeployOptions {
@@ -194,6 +207,10 @@ function buildOneApp(
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
+  const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
+    workspaceApps,
+    app,
+  );
   const workspaceGatewayUrl =
     process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl();
   const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
@@ -205,7 +222,19 @@ function buildOneApp(
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: workspaceAppAudience,
+    AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
+      workspaceAppRouteAccess.publicPaths,
+    ),
+    AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: JSON.stringify(
+      workspaceAppRouteAccess.protectedPaths,
+    ),
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: workspaceAppAudience,
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
+      workspaceAppRouteAccess.publicPaths,
+    ),
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: JSON.stringify(
+      workspaceAppRouteAccess.protectedPaths,
+    ),
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: JSON.stringify(workspaceApps),
     ...(workspaceGatewayUrl
       ? {
@@ -590,6 +619,10 @@ function patchNetlifyFunctionEntry(
 
   const basePath = `/${app}`;
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
+  const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
+    workspaceApps,
+    app,
+  );
   const pathConfig =
     app === "dispatch"
       ? ["/_agent-native/*", "/.well-known/*", `${basePath}/*`]
@@ -622,9 +655,13 @@ function setBasePathEnv() {
     AGENT_NATIVE_WORKSPACE: "1",
     APP_BASE_PATH: basePath,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE: "1",
     VITE_APP_BASE_PATH: basePath,
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
@@ -675,6 +712,10 @@ function patchVercelFunctionEntry(
 
   const basePath = `/${app}`;
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
+  const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
+    workspaceApps,
+    app,
+  );
   const entry = `const basePath = ${JSON.stringify(basePath)};
 
 function setBasePathEnv() {
@@ -684,9 +725,13 @@ function setBasePathEnv() {
     AGENT_NATIVE_WORKSPACE: "1",
     APP_BASE_PATH: basePath,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE: "1",
     VITE_APP_BASE_PATH: basePath,
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
@@ -851,6 +896,15 @@ function readWorkspaceAppManifest(
         workspaceAppAudienceFromPackageJson(pkg) ??
         explicit?.audience ??
         DEFAULT_WORKSPACE_APP_AUDIENCE;
+      const packageRouteAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+      const publicPaths =
+        packageRouteAccess.publicPaths.length > 0
+          ? packageRouteAccess.publicPaths
+          : (explicit?.publicPaths ?? []);
+      const protectedPaths =
+        packageRouteAccess.protectedPaths.length > 0
+          ? packageRouteAccess.protectedPaths
+          : (explicit?.protectedPaths ?? []);
       return {
         id: app,
         name: pkg?.displayName || titleCase(app),
@@ -859,6 +913,8 @@ function readWorkspaceAppManifest(
         ...(url ? { url } : {}),
         isDispatch: app === "dispatch",
         audience,
+        publicPaths,
+        protectedPaths,
       };
     })
     .sort((a, b) => {
@@ -870,7 +926,7 @@ function readWorkspaceAppManifest(
 
 function readExistingWorkspaceAppManifest(
   workspaceRoot: string,
-): Map<string, { url?: string; audience?: WorkspaceAppAudience }> {
+): Map<string, WorkspaceAppManifestOverride> {
   const fromEnv = parseWorkspaceAppsJson(process.env[WORKSPACE_APPS_ENV_KEY]);
   const fromFile =
     readWorkspaceAppsFromFile(
@@ -889,7 +945,7 @@ function readExistingWorkspaceAppManifest(
 
 function parseWorkspaceAppsJson(
   raw: string | undefined,
-): Array<{ id: string; url?: string; audience?: WorkspaceAppAudience }> | null {
+): WorkspaceAppManifestOverride[] | null {
   if (!raw) return null;
   try {
     return parseWorkspaceAppsManifest(JSON.parse(raw));
@@ -900,14 +956,14 @@ function parseWorkspaceAppsJson(
 
 function readWorkspaceAppsFromFile(
   file: string,
-): Array<{ id: string; url?: string; audience?: WorkspaceAppAudience }> | null {
+): WorkspaceAppManifestOverride[] | null {
   if (!fs.existsSync(file)) return null;
   return parseWorkspaceAppsManifest(readPackageJson(file));
 }
 
 function parseWorkspaceAppsManifest(
   parsed: any,
-): Array<{ id: string; url?: string; audience?: WorkspaceAppAudience }> | null {
+): WorkspaceAppManifestOverride[] | null {
   const rawApps = Array.isArray(parsed?.apps)
     ? parsed.apps
     : Array.isArray(parsed)
@@ -925,18 +981,19 @@ function parseWorkspaceAppsManifest(
         entry.audience === undefined
           ? undefined
           : normalizeWorkspaceAppAudience(entry.audience);
+      const publicPaths = normalizeWorkspaceAppPathList(entry.publicPaths);
+      const protectedPaths = normalizeWorkspaceAppPathList(
+        entry.protectedPaths,
+      );
       return {
         id,
         ...(url ? { url } : {}),
         ...(audience ? { audience } : {}),
+        ...(publicPaths.length > 0 ? { publicPaths } : {}),
+        ...(protectedPaths.length > 0 ? { protectedPaths } : {}),
       };
     })
-    .filter(
-      (
-        app,
-      ): app is { id: string; url?: string; audience?: WorkspaceAppAudience } =>
-        !!app,
-    );
+    .filter((app): app is NonNullable<typeof app> => !!app);
 
   return apps.length ? apps : null;
 }
@@ -1133,6 +1190,17 @@ function workspaceAppAudienceForApp(
     workspaceApps.find((entry) => entry.id === app)?.audience ??
     DEFAULT_WORKSPACE_APP_AUDIENCE
   );
+}
+
+function workspaceAppRouteAccessForApp(
+  workspaceApps: WorkspaceAppManifestEntry[],
+  app: string,
+): WorkspaceAppRouteAccess {
+  const entry = workspaceApps.find((candidate) => candidate.id === app);
+  return {
+    publicPaths: entry?.publicPaths ?? [],
+    protectedPaths: entry?.protectedPaths ?? [],
+  };
 }
 
 function compareWorkspaceAppIds(a: string, b: string): number {

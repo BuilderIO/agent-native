@@ -9,11 +9,20 @@ Use these sources of truth instead:
 
 - \`list-data-dictionary\` for approved metric, table, column, join, and caveat definitions configured by this organization.
 - \`data-source-status --key bigquery\` to confirm whether BigQuery credentials and a project are configured.
+- \`search-bigquery-schema\` to list configured datasets/tables or inspect exact table columns before writing SQL.
 - The configured warehouse's \`INFORMATION_SCHEMA.COLUMNS\` tables when you need to discover actual datasets, tables, and columns.
 - \`@app_events\` as an optional placeholder for a default application events table in query-metrics examples. It defaults to \`<BIGQUERY_PROJECT_ID>.analytics.events_partitioned\` and can be overridden with \`ANALYTICS_BIGQUERY_EVENTS_TABLE\`; it is not the BigQuery connection status or a table catalog.
 - \`@project\` as the configured BigQuery project placeholder for fully-qualified table references.
 
 If no data-dictionary entry exists and schema discovery is unavailable, ask the user for the source table or metric definition before writing SQL. Never invent table names, column names, joins, or numbers.
+
+Preferred schema discovery:
+
+\`\`\`bash
+pnpm action search-bigquery-schema
+pnpm action search-bigquery-schema --dataset=<dataset>
+pnpm action search-bigquery-schema --table=<dataset.table>
+\`\`\`
 
 Example schema discovery query:
 

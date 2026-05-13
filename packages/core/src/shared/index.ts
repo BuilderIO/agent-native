@@ -23,7 +23,11 @@ export {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   WORKSPACE_APP_AUDIENCES,
   normalizeWorkspaceAppAudience,
+  normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromEnv,
   workspaceAppAudienceFromPackageJson,
+  workspaceAppRouteAccessFromEnv,
+  workspaceAppRouteAccessFromPackageJson,
+  type WorkspaceAppRouteAccess,
   type WorkspaceAppAudience,
 } from "./workspace-app-audience.js";

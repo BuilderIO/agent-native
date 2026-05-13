@@ -466,9 +466,9 @@ export function App() {
                 storageKey={appId}
                 codeAccess={{
                   enabled: isDesktop,
-                  unavailableTitle: "Open Desktop to edit code",
+                  unavailableTitle: "Open Desktop to use CLI",
                   unavailableDescription:
-                    "Open Agent Native Desktop, click the + button, and add this app with its local dev URL to use CLI and Workspace files.",
+                    "Open Agent Native Desktop, click the + button, and add this app with its local dev URL to use CLI.",
                   unavailableCtaLabel: "Open Desktop",
                   unavailableCtaHref: OPEN_DESKTOP_URL,
                   unavailableSecondaryCtaLabel: "Download",

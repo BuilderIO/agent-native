@@ -11,7 +11,7 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 ## Approach
 
-1. **Read the relevant provider skill first** — check `.agents/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas
+1. **Read the relevant provider skill first** — check `.agents/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas. For BigQuery, read `.agents/skills/bigquery/SKILL.md` and use `search-bigquery-schema` before guessing table or column names.
 2. **Use existing actions or connected provider MCP tools** — call the provider action/tool with structured arguments, then filter or aggregate the returned records in your answer
 3. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 4. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it
@@ -94,4 +94,4 @@ For complete answers, combine data from multiple sources:
 - Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, `generate-chart`, and `save-analysis` are not data queries. For analyses and dashboards, run at least one provider query action and preserve the result evidence in the final answer or `resultData`.
 - Use action arguments such as `query`, `objectType`, `properties`, `owner`, `limit`, or provider-specific filters to narrow output; if an action returns a broad batch, filter it in your analysis and cite the records used
 - Update the relevant `.agents/skills/<provider>/SKILL.md` when you discover new patterns
-- For BigQuery queries, check `.agents/skills/bigquery/SKILL.md` for table schemas first
+- For BigQuery queries, check `.agents/skills/bigquery/SKILL.md` first; if the data dictionary does not contain the exact table/columns, call `search-bigquery-schema`.

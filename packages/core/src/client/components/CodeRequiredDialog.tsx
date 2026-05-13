@@ -164,8 +164,8 @@ export function CodeRequiredDialog({
             <div style={s.optionText}>
               <span style={s.optionTitle}>Use Agent Native Desktop</span>
               <span style={s.optionDesc}>
-                Open the project in the desktop app to enable source edits,
-                Workspace files, and CLI access.
+                Open the project in the desktop app to enable source edits and
+                CLI access.
               </span>
             </div>
           </a>

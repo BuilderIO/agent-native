@@ -400,6 +400,7 @@ describe("server/auth", () => {
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("APP_BASE_PATH", "/portal");
       vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_AUDIENCE", "public");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS", '["/admin"]');
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -417,6 +418,11 @@ describe("server/auth", () => {
         guard(createMockEvent({ path: "/portal/pricing" })),
       ).resolves.toBeUndefined();
 
+      const adminResult = await guard(
+        createMockEvent({ path: "/portal/admin/users" }),
+      );
+      expect(adminResult).toBeInstanceOf(Response);
+
       const apiResult = await guard(
         createMockEvent({ path: "/portal/api/private" }),
       );
@@ -426,6 +432,35 @@ describe("server/auth", () => {
         createMockEvent({ path: "/portal/_agent-native/actions/list" }),
       );
       expect(actionResult).toEqual({ error: "Unauthorized" });
+    });
+
+    it("allows selected public workspace page paths in an internal app", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_BASE_PATH", "/docs");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_AUDIENCE", "internal");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS", "/,/share");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(createMockEvent({ path: "/docs" })),
+      ).resolves.toBeUndefined();
+      await expect(
+        guard(createMockEvent({ path: "/docs/share/report" })),
+      ).resolves.toBeUndefined();
+
+      const privateResult = await guard(
+        createMockEvent({ path: "/docs/admin" }),
+      );
+      expect(privateResult).toBeInstanceOf(Response);
     });
 
     it("relays root workspace OAuth callbacks to the app from state", async () => {

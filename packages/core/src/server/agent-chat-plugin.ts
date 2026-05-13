@@ -632,17 +632,31 @@ async function createDocsScriptEntries(): Promise<Record<string, ActionEntry>> {
 /**
  * Creates resource ScriptEntries available in both prod and dev modes.
  */
+function shouldDefaultResourceWriteToWorkspace(path: string): boolean {
+  const normalized = path.replace(/^\/+/, "");
+  return (
+    normalized === "AGENTS.md" ||
+    normalized === "LEARNINGS.md" ||
+    normalized.startsWith("memory/") ||
+    normalized.startsWith("skills/") ||
+    normalized.startsWith("jobs/") ||
+    normalized.startsWith("agents/") ||
+    normalized.startsWith("remote-agents/")
+  );
+}
+
 async function createResourceScriptEntries(): Promise<
   Record<string, ActionEntry>
 > {
   try {
-    const [list, read, write, del, saveMem, delMem] = await Promise.all([
+    const [list, read, write, del, saveMem, delMem, store] = await Promise.all([
       import("../scripts/resources/list.js"),
       import("../scripts/resources/read.js"),
       import("../scripts/resources/write.js"),
       import("../scripts/resources/delete.js"),
       import("../scripts/resources/save-memory.js"),
       import("../scripts/resources/delete-memory.js"),
+      import("../resources/store.js"),
     ]);
 
     // Wrap each CLI runner so it captures stdout and converts args properly
@@ -681,14 +695,14 @@ async function createResourceScriptEntries(): Promise<
       resources: {
         tool: {
           description:
-            'Manage persistent user files and notes. Actions: "list" (browse), "read" (get contents), "write" (create/update), "delete" (remove).',
+            'Manage workspace resources. Actions: "list" (browse visible files), "read" (get contents), "write" (create/update), "promote" (make agent scratch visible), "delete" (remove). Agent scratch writes are hidden from the Workspace view by default; use visibility="workspace" only for files the user explicitly wants to keep/manage.',
           parameters: {
             type: "object",
             properties: {
               action: {
                 type: "string",
                 description: "The operation to perform",
-                enum: ["list", "read", "write", "delete"],
+                enum: ["list", "read", "write", "promote", "delete"],
               },
               path: {
                 type: "string",
@@ -721,6 +735,16 @@ async function createResourceScriptEntries(): Promise<
                   'Output format for list: "json" or "text" (default: text)',
                 enum: ["json", "text"],
               },
+              visibility: {
+                type: "string",
+                description:
+                  'Visibility for write: "agent_scratch" for internal working files, "workspace" for user-requested files. Defaults to agent_scratch except durable instruction/skill/job/memory paths.',
+                enum: ["workspace", "agent_scratch"],
+              },
+              includeAgentScratch: {
+                type: "boolean",
+                description: "Include hidden agent scratch files when listing.",
+              },
             },
             required: ["action"],
           },
@@ -733,15 +757,62 @@ async function createResourceScriptEntries(): Promise<
             return readEntry.run(rest);
           }
           if (a === "write") {
-            if (!rest.path || !rest.content)
+            if (
+              !rest.path ||
+              rest.content === undefined ||
+              rest.content === null
+            )
               return "Error: path and content are required for write";
+            rest.createdBy = "agent";
+            rest.visibility =
+              rest.visibility ??
+              (shouldDefaultResourceWriteToWorkspace(String(rest.path))
+                ? "workspace"
+                : "agent_scratch");
+            const runCtx = getRequestRunContext();
+            if (runCtx?.threadId) rest.threadId = runCtx.threadId;
             return writeEntry.run(rest);
+          }
+          if (a === "promote") {
+            if (!rest.path) return "Error: path is required for promote";
+            const scope = rest.scope ?? "personal";
+            const owner =
+              scope === "shared"
+                ? store.SHARED_OWNER
+                : (getRequestRunContext()?.owner ??
+                  getRequestUserEmail() ??
+                  process.env.AGENT_USER_EMAIL);
+            if (!owner) {
+              return "Error: promote requires an authenticated user";
+            }
+            const resource = await store.resourceGetByPath(
+              owner,
+              String(rest.path),
+            );
+            if (!resource) {
+              return `Resource not found: ${rest.path}`;
+            }
+            const promoted = await store.resourcePut(
+              owner,
+              resource.path,
+              resource.content,
+              resource.mimeType,
+              {
+                createdBy: resource.createdBy,
+                visibility: "workspace",
+                threadId: resource.threadId,
+                runId: resource.runId,
+                expiresAt: null,
+                metadata: resource.metadata,
+              },
+            );
+            return `Promoted resource: ${promoted.path}`;
           }
           if (a === "delete") {
             if (!rest.path) return "Error: path is required for delete";
             return deleteEntry.run(rest);
           }
-          return `Error: unknown action "${a}". Use: list, read, write, delete`;
+          return `Error: unknown action "${a}". Use: list, read, write, promote, delete`;
         },
       },
       "save-memory": wrapCliScript(
@@ -1493,7 +1564,7 @@ const FRAMEWORK_CORE_COMPACT = `
 ### Resources
 
 Use resource-list, resource-read, resource-write, resource-delete for persistent notes and context files.
-Resources are NOT an agent scratchpad — never create executable scripts, task plans, or work-in-progress files.
+Workspace resources are user-facing by default. If you need temporary working files, write them as agent scratch (\`visibility: "agent_scratch"\`); scratch is hidden from the Workspace view by default and expires. Use \`visibility: "workspace"\` only when the user explicitly asked to save/manage that file, or for durable AGENTS.md, LEARNINGS.md, memory, skills, jobs, or custom agents.
 
 ### Navigation Rule
 
@@ -1699,7 +1770,7 @@ Resources can be personal (per-user) or shared (team-wide). By default, resource
 
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
 
-**Resources are NOT an agent scratchpad.** Never use \`resource-write\` to store executable scripts, task plans, retry notes, or work-in-progress files you're writing to yourself. Specifically, do NOT create resources under \`scripts/\` or \`tasks/\` unless the user explicitly asked for a file at that path, or a tool (like \`manage-jobs\` or \`agent-teams\`) writes there as part of its contract. If you can't complete a task with the tools you have, say so — don't improvise by leaving behind \`FINAL-*.md\`, \`EXECUTE-NOW-*.js\`, or similar artifacts. Resources are visible to the user in the workspace sidebar; every file you write is something they'll see and have to clean up.
+Workspace resources are user-facing by default. If you need temporary working files, use the \`resources\` tool with \`visibility: "agent_scratch"\`; scratch resources are hidden from the Workspace view by default and expire automatically. Use \`visibility: "workspace"\` only when the user explicitly asked to save/create/manage that file, or for durable control files such as \`AGENTS.md\`, \`LEARNINGS.md\`, \`memory/\`, \`skills/\`, \`jobs/\`, or \`agents/\`. If a scratch result becomes useful to the user, call \`resources\` with \`action: "promote"\` or rewrite it with \`visibility: "workspace"\`.
 
 ### Navigation Rule
 

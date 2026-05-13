@@ -217,9 +217,7 @@ export async function getGitHubOAuthStatus(
   }
 }
 
-export async function getGitHubAccessToken(
-  ctx: CredentialContext,
-): Promise<{
+export async function getGitHubAccessToken(ctx: CredentialContext): Promise<{
   token?: string;
   scopes: string[];
   source?: "oauth" | "credential";

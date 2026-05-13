@@ -1,15 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadAppState = vi.fn();
+let mockRunContext: { browserTabId?: string } | undefined;
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestRunContext: () => mockRunContext,
 }));
 
 import { awaitLayoutFitCheck, formatOverflowForTool } from "./_await-fit-check";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockRunContext = undefined;
 });
 
 afterEach(() => {
@@ -34,6 +40,30 @@ describe("awaitLayoutFitCheck", () => {
       expect(result.measurement.verticalOverflow).toBe(225);
       expect(result.measurement.slideId).toBe("slide-A");
     }
+  });
+
+  it("reads the tab-scoped measurement when the action came from a browser tab", async () => {
+    mockRunContext = { browserTabId: "slides-tab-a" };
+    mockReadAppState.mockImplementation(async (key) => {
+      if (key === "slide-fit-check:slides-tab-a") {
+        return {
+          slideId: "slide-A",
+          contentHeight: 380,
+          viewportHeight: 420,
+          verticalOverflow: 0,
+          measuredAt: 1500,
+        };
+      }
+      return null;
+    });
+
+    const result = await awaitLayoutFitCheck("slide-A", 1000, 2000);
+
+    expect(result.status).toBe("fits");
+    expect(mockReadAppState).toHaveBeenCalledWith(
+      "slide-fit-check:slides-tab-a",
+    );
+    expect(mockReadAppState).not.toHaveBeenCalledWith("slide-fit-check");
   });
 
   it("returns { status: 'fits' } when the editor reports zero overflow", async () => {

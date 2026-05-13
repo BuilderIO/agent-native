@@ -18,11 +18,13 @@ export function appStateKeyForCurrentTab(key: string): string {
 
 export async function readAppStateForCurrentTab(
   key: string,
+  options?: { fallbackToGlobal?: boolean },
 ): Promise<Record<string, unknown> | null> {
   const tabKey = appStateKeyForCurrentTab(key);
   if (tabKey !== key) {
     const scoped = await readAppState(tabKey).catch(() => null);
     if (scoped) return scoped;
+    if (options?.fallbackToGlobal === false) return null;
   }
   return readAppState(key);
 }

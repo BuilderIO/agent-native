@@ -20,6 +20,12 @@ export interface Resource {
   size: number;
   createdAt: number;
   updatedAt: number;
+  createdBy: ResourceCreatedBy;
+  visibility: ResourceVisibility;
+  threadId: string | null;
+  runId: string | null;
+  expiresAt: number | null;
+  metadata: string | null;
 }
 
 export interface ResourceMeta {
@@ -30,9 +36,37 @@ export interface ResourceMeta {
   size: number;
   createdAt: number;
   updatedAt: number;
+  createdBy: ResourceCreatedBy;
+  visibility: ResourceVisibility;
+  threadId: string | null;
+  runId: string | null;
+  expiresAt: number | null;
+  metadata: string | null;
+}
+
+export type ResourceCreatedBy = "user" | "agent" | "system";
+export type ResourceVisibility = "workspace" | "agent_scratch";
+
+export interface ResourceWriteOptions extends StoreWriteOptions {
+  createdBy?: ResourceCreatedBy;
+  visibility?: ResourceVisibility;
+  threadId?: string | null;
+  runId?: string | null;
+  expiresAt?: number | null;
+  metadata?: string | Record<string, unknown> | null;
+}
+
+export interface ResourceListOptions {
+  includeAgentScratch?: boolean;
 }
 
 let _initPromise: Promise<void> | undefined;
+let _lastScratchCleanupAt = 0;
+
+const AGENT_SCRATCH_TTL_MS = 24 * 60 * 60 * 1000;
+const SCRATCH_CLEANUP_INTERVAL_MS = 60 * 1000;
+const RESOURCE_META_SELECT =
+  "id, path, owner, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata";
 
 const DEFAULT_LEARNINGS_SHARED_MD = `# Learnings
 
@@ -149,6 +183,10 @@ You can create skill files to give the agent specialized knowledge for specific 
 
 The agent will read the relevant skill file when performing that type of task.
 
+## Workspace files
+
+Workspace resources are for files users intentionally add, edit, or manage. Agents may create hidden \`agent_scratch\` resources for temporary working notes, scripts, or intermediate results; only promote those files into workspace visibility when a user explicitly asks to keep them.
+
 ## Example
 
 \`\`\`markdown
@@ -180,6 +218,10 @@ Add people you frequently interact with so the agent can resolve names like "ema
 ## Preferences
 
 ## Context
+
+## Workspace files
+
+Files you create here are user-facing. Temporary agent working files should stay hidden as \`agent_scratch\` unless you ask the agent to keep them.
 `;
 
 async function migrateDefaultResourcePath({
@@ -220,6 +262,87 @@ async function migrateDefaultResourcePath({
   }
 }
 
+function isDuplicateColumnError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code;
+  const message = String((err as { message?: unknown })?.message ?? err)
+    .toLowerCase()
+    .trim();
+  return (
+    code === "42701" ||
+    message.includes("duplicate column") ||
+    message.includes("already exists")
+  );
+}
+
+async function ensureResourceColumn(
+  client: DbExec,
+  definition: string,
+): Promise<void> {
+  try {
+    await retryOnDdlRace(() =>
+      client.execute(`ALTER TABLE resources ADD COLUMN ${definition}`),
+    );
+  } catch (err) {
+    if (!isDuplicateColumnError(err)) throw err;
+  }
+}
+
+function normalizeCreatedBy(value: unknown): ResourceCreatedBy {
+  return value === "agent" || value === "system" || value === "user"
+    ? value
+    : "user";
+}
+
+function normalizeVisibility(value: unknown): ResourceVisibility {
+  return value === "agent_scratch" ? "agent_scratch" : "workspace";
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hasOption<K extends keyof ResourceWriteOptions>(
+  options: ResourceWriteOptions | undefined,
+  key: K,
+): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(options ?? {}, key) &&
+    options?.[key] !== undefined
+  );
+}
+
+function serializeMetadata(
+  value: ResourceWriteOptions["metadata"] | undefined,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function scratchFilterSql(options?: ResourceListOptions): string {
+  return options?.includeAgentScratch === true
+    ? ""
+    : " AND (visibility IS NULL OR visibility != 'agent_scratch')";
+}
+
+async function cleanupExpiredAgentScratchResources(
+  client: DbExec,
+): Promise<void> {
+  const now = Date.now();
+  if (now - _lastScratchCleanupAt < SCRATCH_CLEANUP_INTERVAL_MS) return;
+  _lastScratchCleanupAt = now;
+  await client.execute({
+    sql: `DELETE FROM resources WHERE visibility = ? AND expires_at IS NOT NULL AND expires_at <= ?`,
+    args: ["agent_scratch", now],
+  });
+}
+
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = _doEnsureTable().catch((err) => {
@@ -244,10 +367,26 @@ async function _doEnsureTable(): Promise<void> {
         size ${intType()} NOT NULL DEFAULT 0,
         created_at ${intType()} NOT NULL,
         updated_at ${intType()} NOT NULL,
+        created_by TEXT NOT NULL DEFAULT 'user',
+        visibility TEXT NOT NULL DEFAULT 'workspace',
+        thread_id TEXT,
+        run_id TEXT,
+        expires_at ${intType()},
+        metadata TEXT,
         UNIQUE(path, owner)
       )
     `),
   );
+
+  await ensureResourceColumn(client, "created_by TEXT NOT NULL DEFAULT 'user'");
+  await ensureResourceColumn(
+    client,
+    "visibility TEXT NOT NULL DEFAULT 'workspace'",
+  );
+  await ensureResourceColumn(client, "thread_id TEXT");
+  await ensureResourceColumn(client, "run_id TEXT");
+  await ensureResourceColumn(client, `expires_at ${intType()}`);
+  await ensureResourceColumn(client, "metadata TEXT");
 
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid race conditions)
   const now = Date.now();
@@ -484,9 +623,15 @@ function rowToResource(row: any): Resource {
     owner: row.owner as string,
     content: row.content as string,
     mimeType: row.mime_type as string,
-    size: row.size as number,
-    createdAt: row.created_at as number,
-    updatedAt: row.updated_at as number,
+    size: Number(row.size),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+    createdBy: normalizeCreatedBy(row.created_by),
+    visibility: normalizeVisibility(row.visibility),
+    threadId: nullableString(row.thread_id),
+    runId: nullableString(row.run_id),
+    expiresAt: nullableNumber(row.expires_at),
+    metadata: nullableString(row.metadata),
   };
 }
 
@@ -496,15 +641,22 @@ function rowToMeta(row: any): ResourceMeta {
     path: row.path as string,
     owner: row.owner as string,
     mimeType: row.mime_type as string,
-    size: row.size as number,
-    createdAt: row.created_at as number,
-    updatedAt: row.updated_at as number,
+    size: Number(row.size),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+    createdBy: normalizeCreatedBy(row.created_by),
+    visibility: normalizeVisibility(row.visibility),
+    threadId: nullableString(row.thread_id),
+    runId: nullableString(row.run_id),
+    expiresAt: nullableNumber(row.expires_at),
+    metadata: nullableString(row.metadata),
   };
 }
 
 export async function resourceGet(id: string): Promise<Resource | null> {
   await ensureTable();
   const client = getDbExec();
+  await cleanupExpiredAgentScratchResources(client);
   const { rows } = await client.execute({
     sql: `SELECT * FROM resources WHERE id = ?`,
     args: [id],
@@ -519,6 +671,7 @@ export async function resourceGetByPath(
 ): Promise<Resource | null> {
   await ensureTable();
   const client = getDbExec();
+  await cleanupExpiredAgentScratchResources(client);
   const { rows } = await client.execute({
     sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
@@ -532,7 +685,7 @@ export async function resourcePut(
   path: string,
   content: string,
   mimeType?: string,
-  options?: StoreWriteOptions,
+  options?: ResourceWriteOptions,
 ): Promise<Resource> {
   await ensureTable();
   const client = getDbExec();
@@ -542,20 +695,76 @@ export async function resourcePut(
 
   // Check for existing resource to preserve ID on upsert
   const { rows: existing } = await client.execute({
-    sql: `SELECT id, created_at FROM resources WHERE owner = ? AND path = ?`,
+    sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
   });
+  const existingRow = existing[0] as
+    | {
+        id: string;
+        created_at: number;
+        created_by?: string | null;
+        visibility?: string | null;
+        thread_id?: string | null;
+        run_id?: string | null;
+        expires_at?: number | null;
+        metadata?: string | null;
+      }
+    | undefined;
 
   const id =
-    existing.length > 0 ? (existing[0].id as string) : crypto.randomUUID();
-  const createdAt =
-    existing.length > 0 ? (existing[0].created_at as number) : now;
+    existing.length > 0 ? (existingRow?.id as string) : crypto.randomUUID();
+  const createdAt = existingRow ? Number(existingRow.created_at) : now;
+  const createdBy = normalizeCreatedBy(
+    hasOption(options, "createdBy")
+      ? options?.createdBy
+      : existingRow?.created_by,
+  );
+  const visibility = normalizeVisibility(
+    hasOption(options, "visibility")
+      ? options?.visibility
+      : existingRow?.visibility,
+  );
+  const threadId = hasOption(options, "threadId")
+    ? (options?.threadId ?? null)
+    : nullableString(existingRow?.thread_id);
+  const runId = hasOption(options, "runId")
+    ? (options?.runId ?? null)
+    : nullableString(existingRow?.run_id);
+  let expiresAt = hasOption(options, "expiresAt")
+    ? (options?.expiresAt ?? null)
+    : nullableNumber(existingRow?.expires_at);
+  if (visibility === "agent_scratch" && expiresAt === null) {
+    expiresAt = now + AGENT_SCRATCH_TTL_MS;
+  }
+  if (visibility === "workspace" && !hasOption(options, "expiresAt")) {
+    expiresAt = null;
+  }
+  const serializedMetadata = serializeMetadata(options?.metadata);
+  const metadata =
+    serializedMetadata !== undefined
+      ? serializedMetadata
+      : nullableString(existingRow?.metadata);
 
   await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO UPDATE SET id=EXCLUDED.id, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [id, path, owner, content, mime, size, createdAt, now],
+      ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO UPDATE SET id=EXCLUDED.id, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at, created_by=EXCLUDED.created_by, visibility=EXCLUDED.visibility, thread_id=EXCLUDED.thread_id, run_id=EXCLUDED.run_id, expires_at=EXCLUDED.expires_at, metadata=EXCLUDED.metadata`
+      : `INSERT OR REPLACE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      id,
+      path,
+      owner,
+      content,
+      mime,
+      size,
+      createdAt,
+      now,
+      createdBy,
+      visibility,
+      threadId,
+      runId,
+      expiresAt,
+      metadata,
+    ],
   });
 
   emitResourceChange(id, path, owner, options?.requestSource);
@@ -569,6 +778,12 @@ export async function resourcePut(
     size,
     createdAt,
     updatedAt: now,
+    createdBy,
+    visibility,
+    threadId,
+    runId,
+    expiresAt,
+    metadata,
   };
 }
 
@@ -622,20 +837,23 @@ export async function resourceDeleteByPath(
 export async function resourceList(
   owner: string,
   pathPrefix?: string,
+  options?: ResourceListOptions,
 ): Promise<ResourceMeta[]> {
   await ensureTable();
   const client = getDbExec();
+  await cleanupExpiredAgentScratchResources(client);
+  const visibilitySql = scratchFilterSql(options);
 
   if (pathPrefix) {
     const { rows } = await client.execute({
-      sql: `SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ? AND path LIKE ?`,
+      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}`,
       args: [owner, pathPrefix + "%"],
     });
     return rows.map(rowToMeta);
   }
 
   const { rows } = await client.execute({
-    sql: `SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ?`,
+    sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
     args: [owner],
   });
   return rows.map(rowToMeta);
@@ -644,24 +862,27 @@ export async function resourceList(
 export async function resourceListAccessible(
   userEmail: string,
   pathPrefix?: string,
+  options?: ResourceListOptions,
 ): Promise<ResourceMeta[]> {
   await ensureTable();
   const client = getDbExec();
+  await cleanupExpiredAgentScratchResources(client);
+  const visibilitySql = scratchFilterSql(options);
 
   if (pathPrefix) {
     const { rows } = await client.execute({
-      sql: `SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ? AND path LIKE ?
+      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}
             UNION
-            SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ? AND path LIKE ?`,
+            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}`,
       args: [userEmail, pathPrefix + "%", SHARED_OWNER, pathPrefix + "%"],
     });
     return rows.map(rowToMeta);
   }
 
   const { rows } = await client.execute({
-    sql: `SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ?
+    sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}
           UNION
-          SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ?`,
+          SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
     args: [userEmail, SHARED_OWNER],
   });
   return rows.map(rowToMeta);

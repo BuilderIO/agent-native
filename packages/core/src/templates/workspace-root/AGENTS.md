@@ -14,6 +14,17 @@ coding agents can discover the same workspace-wide guidance from the root.
   work, and read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md`
   before building agent-driven UI or "AI" features.
 
+## Workspace Resources
+
+- The Workspace files view is for user-authored or user-requested resources
+  they intentionally add, edit, or manage.
+- Agents may use hidden `agent_scratch` resources for temporary working notes,
+  scripts, task plans, or intermediate outputs. Keep those scratch files hidden
+  by default and promote them only when the user explicitly asks to keep or
+  manage the file.
+- Durable instructions, skills, jobs, memories, custom agents, and files the
+  user explicitly asked to save belong in normal workspace visibility.
+
 ## Workspace Scope
 
 - Keep root changes focused on workspace orchestration, shared configuration,

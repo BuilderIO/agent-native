@@ -7,10 +7,10 @@ import {
 } from "./credentials-context";
 import { getDbExec } from "@agent-native/core/db";
 
-async function getProjectInfo(): Promise<{
+async function getProjectContext(): Promise<{
   projectId: string;
   cacheScope: string;
-  appEventsTable: BigQueryTableRef;
+  ctx: CredentialContext;
 }> {
   const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
   const projectId = await resolveCredential("BIGQUERY_PROJECT_ID", ctx);
@@ -18,6 +18,24 @@ async function getProjectInfo(): Promise<{
   return {
     projectId,
     cacheScope: cacheScopeForContext(ctx),
+    ctx,
+  };
+}
+
+export async function getBigQueryProjectId(): Promise<string> {
+  const { projectId } = await getProjectContext();
+  return projectId;
+}
+
+async function getProjectInfo(): Promise<{
+  projectId: string;
+  cacheScope: string;
+  appEventsTable: BigQueryTableRef;
+}> {
+  const { projectId, cacheScope, ctx } = await getProjectContext();
+  return {
+    projectId,
+    cacheScope,
     appEventsTable: await getAppEventsTable(projectId, ctx),
   };
 }

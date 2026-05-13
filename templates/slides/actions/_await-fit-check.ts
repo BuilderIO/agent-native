@@ -1,4 +1,4 @@
-import { readAppState } from "@agent-native/core/application-state";
+import { readAppStateForCurrentTab } from "./_tab-state.js";
 
 /** A measurement record written by the editor after rendering a slide.
  * `verticalOverflow === 0` means the slide fits the canvas;
@@ -53,7 +53,9 @@ export async function awaitLayoutFitCheck(
     // is reporting, so we can't fit-check" and exit with timeout.
     let raw: unknown = null;
     try {
-      raw = await readAppState("slide-fit-check");
+      raw = await readAppStateForCurrentTab("slide-fit-check", {
+        fallbackToGlobal: false,
+      });
     } catch {
       return { status: "timeout" };
     }

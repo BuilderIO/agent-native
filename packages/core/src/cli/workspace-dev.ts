@@ -11,6 +11,7 @@ import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   workspaceAppAudienceFromPackageJson,
+  workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 
@@ -19,6 +20,8 @@ export interface WorkspaceApp {
   name: string;
   description: string;
   audience: WorkspaceAppAudience;
+  publicPaths: string[];
+  protectedPaths: string[];
   dir: string;
   port: number;
   process?: ChildProcess;
@@ -244,6 +247,7 @@ function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
       const dir = path.join(appsDir, entry.name);
       const pkg = readJson(path.join(dir, "package.json"));
       if (!pkg) return null;
+      const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
       return {
         id: entry.name,
         name: pkg.displayName || pkg.name || entry.name,
@@ -251,6 +255,8 @@ function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
         audience:
           workspaceAppAudienceFromPackageJson(pkg) ??
           DEFAULT_WORKSPACE_APP_AUDIENCE,
+        publicPaths: routeAccess.publicPaths,
+        protectedPaths: routeAccess.protectedPaths,
         dir,
         port: appPortStart,
       } satisfies WorkspaceApp;
@@ -582,6 +588,8 @@ export async function runWorkspaceDev(
         description: workspaceApp.description,
         path: `/${workspaceApp.id}`,
         audience: workspaceApp.audience,
+        publicPaths: workspaceApp.publicPaths,
+        protectedPaths: workspaceApp.protectedPaths,
       })),
     );
   }
@@ -594,6 +602,8 @@ export async function runWorkspaceDev(
         existing.name = app.name;
         existing.description = app.description;
         existing.audience = app.audience;
+        existing.publicPaths = app.publicPaths;
+        existing.protectedPaths = app.protectedPaths;
         existing.dir = app.dir;
         continue;
       }
@@ -681,10 +691,22 @@ export async function runWorkspaceDev(
           AGENT_NATIVE_WORKSPACE: "1",
           AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
           AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
+          AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
+            app.publicPaths,
+          ),
+          AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: JSON.stringify(
+            app.protectedPaths,
+          ),
           APP_BASE_PATH: basePath,
           VITE_AGENT_NATIVE_WORKSPACE: "1",
           VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
           VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
+          VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
+            app.publicPaths,
+          ),
+          VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: JSON.stringify(
+            app.protectedPaths,
+          ),
           VITE_APP_BASE_PATH: basePath,
           VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(env, gatewayUrl),
           VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
@@ -1020,6 +1042,8 @@ export async function runWorkspaceDev(
             description: app.description,
             path: `/${app.id}`,
             audience: app.audience,
+            publicPaths: app.publicPaths,
+            protectedPaths: app.protectedPaths,
             port: app.port,
             running: Boolean(app.process && !app.process.killed),
           })),

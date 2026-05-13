@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+const mockReadAppState = vi.fn(async () => null);
+const mockWriteAppState = vi.fn(async () => undefined);
+let mockRunContext: { browserTabId?: string } | undefined;
 // Each test sets this; the helper consults it to decide whether to report
 // overflow, fit, or timeout.
 let mockFitCheckResult:
@@ -53,8 +56,12 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: async () => null,
-  writeAppState: async () => undefined,
+  readAppState: (...args: unknown[]) => mockReadAppState(...args),
+  writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestRunContext: () => mockRunContext,
 }));
 
 vi.mock("./_await-fit-check.js", () => ({
@@ -67,6 +74,10 @@ import action from "./add-slide";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockRunContext = undefined;
+  mockReadAppState.mockResolvedValue(null);
+  mockWriteAppState.mockResolvedValue(undefined);
+  mockFitCheckResult = undefined;
   deckData = {
     title: "Test deck",
     slides: [
@@ -106,6 +117,40 @@ describe("add-slide", () => {
     ]);
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("scopes auto-navigation to the requesting browser tab", async () => {
+    mockRunContext = { browserTabId: "slides-tab-a" };
+    mockReadAppState.mockImplementation(async (key) => {
+      if (key === "navigation:slides-tab-a") {
+        return { view: "editor", deckId: "deck-1" };
+      }
+      if (key === "navigation") {
+        return { view: "editor", deckId: "deck-other" };
+      }
+      return null;
+    });
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+      position: 1,
+    });
+
+    expect(mockReadAppState).toHaveBeenCalledWith("navigation:slides-tab-a");
+    expect(mockReadAppState).not.toHaveBeenCalledWith("navigation");
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "navigate:slides-tab-a",
+      expect.objectContaining({
+        deckId: "deck-1",
+        slideIndex: 1,
+      }),
+    );
+    expect(mockWriteAppState).not.toHaveBeenCalledWith(
+      "navigate",
+      expect.anything(),
+    );
   });
 
   it("rejects empty string positions", async () => {

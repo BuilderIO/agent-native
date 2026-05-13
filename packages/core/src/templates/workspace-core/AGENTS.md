@@ -22,6 +22,11 @@ agent should know.
   `apps/<app>/.env` only for app-specific overrides.
 - Prefer framework defaults until the workspace has a real custom rule,
   component, plugin, action, or skill to share.
+- Keep the Workspace files view for user-authored or user-requested resources.
+  Agents may create hidden `agent_scratch` resources for temporary working
+  notes, scripts, task plans, or intermediate outputs, but should promote them
+  to normal workspace visibility only when the user explicitly asks to keep or
+  manage the file.
 
 ## Adding Apps
 

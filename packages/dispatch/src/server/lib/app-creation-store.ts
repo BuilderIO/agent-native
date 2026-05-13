@@ -48,6 +48,8 @@ export interface WorkspaceAppSummary {
   url: string | null;
   isDispatch: boolean;
   audience: WorkspaceAppAudience;
+  publicPaths: string[];
+  protectedPaths: string[];
   status?: "ready" | "pending";
   statusLabel?: string;
   builderUrl?: string | null;
@@ -356,6 +358,30 @@ function normalizeWorkspaceAppAudience(value: unknown): WorkspaceAppAudience {
   return value === "public" ? "public" : DEFAULT_WORKSPACE_APP_AUDIENCE;
 }
 
+function normalizeWorkspaceAppPathList(value: unknown): string[] {
+  let rawPaths: unknown[] = [];
+  if (Array.isArray(value)) {
+    rawPaths = value;
+  } else if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      rawPaths = Array.isArray(parsed) ? parsed : [trimmed];
+    } catch {
+      rawPaths = trimmed.split(",");
+    }
+  }
+
+  const paths = rawPaths
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => entry.startsWith("/"))
+    .map((entry) =>
+      entry.length > 1 && entry.endsWith("/") ? entry.slice(0, -1) : entry,
+    );
+  return Array.from(new Set(paths));
+}
+
 function workspaceAppAudienceFromPackageJson(
   pkg: unknown,
 ): WorkspaceAppAudience | undefined {
@@ -373,6 +399,38 @@ function workspaceAppAudienceFromPackageJson(
     record.workspaceAppAudience;
   if (raw === undefined) return undefined;
   return normalizeWorkspaceAppAudience(raw);
+}
+
+function workspaceAppRouteAccessFromPackageJson(pkg: unknown): {
+  publicPaths: string[];
+  protectedPaths: string[];
+} {
+  if (!pkg || typeof pkg !== "object" || Array.isArray(pkg)) {
+    return { publicPaths: [], protectedPaths: [] };
+  }
+  const record = pkg as Record<string, any>;
+  const config = record["agent-native"] ?? record.agentNative;
+  const nested =
+    config && typeof config === "object" && !Array.isArray(config)
+      ? (config as Record<string, any>)
+      : {};
+  return {
+    publicPaths: normalizeWorkspaceAppPathList(
+      nested.workspaceApp?.publicPaths ??
+        nested.workspaceApp?.publicPagePaths ??
+        nested.workspace?.publicPaths ??
+        nested.publicPaths ??
+        record.workspaceAppPublicPaths,
+    ),
+    protectedPaths: normalizeWorkspaceAppPathList(
+      nested.workspaceApp?.protectedPaths ??
+        nested.workspaceApp?.privatePaths ??
+        nested.workspaceApp?.authRequiredPaths ??
+        nested.workspace?.protectedPaths ??
+        nested.protectedPaths ??
+        record.workspaceAppProtectedPaths,
+    ),
+  };
 }
 
 function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
@@ -407,6 +465,8 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
           entry.audience === undefined
             ? DEFAULT_WORKSPACE_APP_AUDIENCE
             : normalizeWorkspaceAppAudience(entry.audience),
+        publicPaths: normalizeWorkspaceAppPathList(entry.publicPaths),
+        protectedPaths: normalizeWorkspaceAppPathList(entry.protectedPaths),
         status: "ready",
       } satisfies WorkspaceAppSummary;
     })
@@ -559,6 +619,8 @@ function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
     url: app.builderUrl,
     isDispatch: false,
     audience: app.audience ?? DEFAULT_WORKSPACE_APP_AUDIENCE,
+    publicPaths: [],
+    protectedPaths: [],
     status: "pending",
     statusLabel: "Building in Builder",
     builderUrl: app.builderUrl,
@@ -833,6 +895,7 @@ function readWorkspaceAppsFromFilesystem(
       const appDir = path.join(appsDir, entry.name);
       const pkg = readJson(path.join(appDir, "package.json"));
       if (!pkg) return null;
+      const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
       return {
         id: entry.name,
         name: pkg.displayName || titleCase(entry.name),
@@ -843,6 +906,8 @@ function readWorkspaceAppsFromFilesystem(
         audience:
           workspaceAppAudienceFromPackageJson(pkg) ??
           DEFAULT_WORKSPACE_APP_AUDIENCE,
+        publicPaths: routeAccess.publicPaths,
+        protectedPaths: routeAccess.protectedPaths,
         status: "ready",
       } satisfies WorkspaceAppSummary;
     })
@@ -1038,6 +1103,8 @@ export async function listWorkspaceApps(
             url: workspaceAppUrl("/dispatch"),
             isDispatch: true,
             audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
+            publicPaths: [],
+            protectedPaths: [],
             status: "ready",
           },
         ],

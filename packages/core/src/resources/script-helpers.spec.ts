@@ -131,6 +131,32 @@ describe("resources script-helpers", () => {
         undefined,
       );
     });
+
+    it("passes agent scratch metadata when provided", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockResourcePut.mockResolvedValue({});
+
+      await writeResource("scratch/plan.md", "notes", {
+        visibility: "agent_scratch",
+        createdBy: "agent",
+        threadId: "thread-1",
+      });
+
+      expect(mockResourcePut).toHaveBeenCalledWith(
+        "alice@test.com",
+        "scratch/plan.md",
+        "notes",
+        undefined,
+        {
+          visibility: "agent_scratch",
+          createdBy: "agent",
+          threadId: "thread-1",
+          runId: undefined,
+          expiresAt: undefined,
+          metadata: undefined,
+        },
+      );
+    });
   });
 
   describe("deleteResource", () => {
@@ -186,6 +212,18 @@ describe("resources script-helpers", () => {
       await listResources(undefined, { shared: true });
       expect(mockResourceList).toHaveBeenCalledWith("__shared__", undefined);
     });
+
+    it("can include agent scratch resources", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockResourceList.mockResolvedValue([]);
+
+      await listResources(undefined, { includeAgentScratch: true });
+      expect(mockResourceList).toHaveBeenCalledWith(
+        "alice@test.com",
+        undefined,
+        { includeAgentScratch: true },
+      );
+    });
   });
 
   describe("listAllResources", () => {
@@ -212,6 +250,18 @@ describe("resources script-helpers", () => {
       expect(mockResourceListAccessible).toHaveBeenCalledWith(
         "alice@test.com",
         "skills/",
+      );
+    });
+
+    it("can include all agent scratch resources", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockResourceListAccessible.mockResolvedValue([]);
+
+      await listAllResources(undefined, { includeAgentScratch: true });
+      expect(mockResourceListAccessible).toHaveBeenCalledWith(
+        "alice@test.com",
+        undefined,
+        { includeAgentScratch: true },
       );
     });
 
