@@ -19,3 +19,11 @@ export {
   getWorkspaceAppIdValidationError,
   isValidWorkspaceAppIdFormat,
 } from "./workspace-app-id.js";
+export {
+  DEFAULT_WORKSPACE_APP_AUDIENCE,
+  WORKSPACE_APP_AUDIENCES,
+  normalizeWorkspaceAppAudience,
+  workspaceAppAudienceFromEnv,
+  workspaceAppAudienceFromPackageJson,
+  type WorkspaceAppAudience,
+} from "./workspace-app-audience.js";

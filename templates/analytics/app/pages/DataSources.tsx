@@ -383,9 +383,7 @@ function GitHubOAuthView({
             <IconBrandGithub className="h-4 w-4" />
           </div>
           <div className="min-w-0 space-y-1">
-            <p className="text-xs font-medium text-foreground">
-              GitHub OAuth
-            </p>
+            <p className="text-xs font-medium text-foreground">GitHub OAuth</p>
             <p className="text-xs text-muted-foreground">
               Grant repository access so the agent can search source code and
               read files without a manual token.

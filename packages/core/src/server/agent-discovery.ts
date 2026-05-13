@@ -3,6 +3,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import {
+  DEFAULT_WORKSPACE_APP_AUDIENCE,
+  normalizeWorkspaceAppAudience,
+  workspaceAppAudienceFromPackageJson,
+  type WorkspaceAppAudience,
+} from "../shared/workspace-app-audience.js";
 
 export interface DiscoveredAgent {
   id: string;
@@ -70,6 +76,7 @@ export interface WorkspaceAppManifestEntry {
   path: string;
   url?: string | null;
   isDispatch?: boolean;
+  audience?: WorkspaceAppAudience;
 }
 
 export function workspaceAppMetadataSettingsKey(input?: {
@@ -426,6 +433,10 @@ function parseWorkspaceAppsManifest(
           typeof entry.isDispatch === "boolean"
             ? entry.isDispatch
             : id === "dispatch",
+        audience:
+          entry.audience === undefined
+            ? DEFAULT_WORKSPACE_APP_AUDIENCE
+            : normalizeWorkspaceAppAudience(entry.audience),
       } satisfies WorkspaceAppManifestEntry;
     })
     .filter((app): app is WorkspaceAppManifestEntry => !!app)
@@ -501,6 +512,9 @@ function readWorkspaceAppsFromFilesystem(): WorkspaceAppManifestEntry[] | null {
         description: pkg.description || "",
         path: `/${entry.name}`,
         isDispatch: entry.name === "dispatch",
+        audience:
+          workspaceAppAudienceFromPackageJson(pkg) ??
+          DEFAULT_WORKSPACE_APP_AUDIENCE,
       } satisfies WorkspaceAppManifestEntry;
     })
     .filter((app): app is WorkspaceAppManifestEntry => !!app)

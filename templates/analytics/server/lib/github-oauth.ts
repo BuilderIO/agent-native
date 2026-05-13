@@ -219,7 +219,11 @@ export async function getGitHubOAuthStatus(
 
 export async function getGitHubAccessToken(
   ctx: CredentialContext,
-): Promise<{ token?: string; scopes: string[]; source?: "oauth" | "credential" }> {
+): Promise<{
+  token?: string;
+  scopes: string[];
+  source?: "oauth" | "credential";
+}> {
   if (ctx.userEmail) {
     const accounts = await listOAuthAccountsByOwner(PROVIDER, ctx.userEmail);
     const account = accounts.find(
