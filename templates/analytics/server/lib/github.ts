@@ -543,11 +543,13 @@ function encodeRepoPath(path: string): string {
     .join("/");
 }
 
-export async function listRepos(opts: {
-  query?: string;
-  visibility?: "all" | "public" | "private";
-  limit?: number;
-} = {}): Promise<GitHubRepository[]> {
+export async function listRepos(
+  opts: {
+    query?: string;
+    visibility?: "all" | "public" | "private";
+    limit?: number;
+  } = {},
+): Promise<GitHubRepository[]> {
   const limit = Math.min(opts.limit ?? 50, 100);
   const visibility = opts.visibility ?? "all";
   const data = await restGet<RawRepo[]>(
@@ -661,9 +663,7 @@ export async function getFileContent(opts: {
 
   const rawContent =
     data.encoding === "base64" && data.content
-      ? Buffer.from(data.content.replace(/\s/g, ""), "base64").toString(
-          "utf8",
-        )
+      ? Buffer.from(data.content.replace(/\s/g, ""), "base64").toString("utf8")
       : (data.content ?? "");
   const maxBytes = Math.min(opts.maxBytes ?? 80_000, 200_000);
   const truncated = Buffer.byteLength(rawContent, "utf8") > maxBytes;
