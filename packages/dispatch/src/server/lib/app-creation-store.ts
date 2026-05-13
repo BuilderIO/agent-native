@@ -537,6 +537,8 @@ async function maybeIncludeAgentCards(
 async function recordPendingWorkspaceApp(input: {
   appId: string;
   projectId: string | null;
+  description: string;
+  sourcePrompt: string;
   branchName?: string | null;
   builderUrl?: string | null;
 }) {
@@ -548,6 +550,7 @@ async function recordPendingWorkspaceApp(input: {
     id: input.appId,
     name: titleCase(input.appId),
     description:
+      input.description ||
       "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
     path: `/${input.appId}`,
     builderUrl: input.builderUrl?.trim() || null,
@@ -563,6 +566,14 @@ async function recordPendingWorkspaceApp(input: {
       next,
       ...pendingApps.filter((app) => app.id !== input.appId),
     ].slice(0, MAX_PENDING_APPS),
+  });
+
+  await writeWorkspaceAppMetadataOverride({
+    appId: input.appId,
+    description: input.description,
+    generated: true,
+    sourcePrompt: input.sourcePrompt,
+    updatedBy: currentOwnerEmail(),
   });
 
   await recordAudit({
@@ -732,17 +743,70 @@ async function applyArchivedAndPending(
   apps: WorkspaceAppSummary[],
   options: ListWorkspaceAppsOptions,
 ): Promise<WorkspaceAppSummary[]> {
-  const [withPending, archivedIds] = await Promise.all([
+  const [withPending, archivedIds, metadataSettings] = await Promise.all([
     appendPendingWorkspaceApps(apps),
     listArchivedAppIds(),
+    readWorkspaceAppMetadataSettings(),
   ]);
   const archivedSet = new Set(archivedIds);
-  const annotated = withPending.map((app) =>
-    archivedSet.has(app.id) ? { ...app, archived: true } : app,
-  );
+  const annotated = withPending.map((app) => {
+    const withMetadata = applyWorkspaceAppMetadataOverride(
+      app,
+      metadataSettings,
+    );
+    return archivedSet.has(app.id)
+      ? { ...withMetadata, archived: true }
+      : withMetadata;
+  });
   return options.includeArchived
     ? annotated
     : annotated.filter((app) => !app.archived);
+}
+
+export async function updateWorkspaceAppMetadata(input: {
+  appId: string;
+  name?: string | null;
+  description?: string | null;
+}): Promise<WorkspaceAppSummary> {
+  await assertCanManageAppCreationSettings();
+  const appId = input.appId.trim();
+  assertValidWorkspaceAppId(appId);
+
+  const apps = await listWorkspaceApps({
+    includeAgentCards: false,
+    includeArchived: true,
+  });
+  const app = apps.find((candidate) => candidate.id === appId);
+  if (!app) throw new Error(`Workspace app "${appId}" was not found.`);
+
+  const name = input.name?.trim() || app.name;
+  const description = input.description?.trim() || "";
+  await writeWorkspaceAppMetadataOverride({
+    appId,
+    name,
+    description,
+    generated: false,
+    updatedBy: currentOwnerEmail(),
+  });
+
+  await recordAudit({
+    action: "workspace-app.metadata-updated",
+    targetType: "workspace-app",
+    targetId: appId,
+    summary: `Updated workspace app details for ${name}`,
+    metadata: {
+      name,
+      descriptionConfigured: !!description,
+    },
+  });
+
+  const updated = (
+    await listWorkspaceApps({
+      includeAgentCards: false,
+      includeArchived: true,
+    })
+  ).find((candidate) => candidate.id === appId);
+  return updated ?? { ...app, name, description };
 }
 
 export async function listWorkspaceApps(
@@ -1209,6 +1273,7 @@ async function remoteAppCreationAuthorization(): Promise<
 function buildWorkspaceAppPrompt(input: {
   prompt: string;
   appId?: string | null;
+  description?: string | null;
   template?: string | null;
   selectedKeys?: string[];
   selectedResources?: WorkspaceResourceOption[];
@@ -1219,6 +1284,9 @@ function buildWorkspaceAppPrompt(input: {
       input.prompt.replace(/\b(build|create|make|an?|the|app|tool)\b/gi, " "),
     ) ||
     "new-app";
+  const appDescription =
+    input.description?.trim() ||
+    generateWorkspaceAppDescription(input.prompt, appId);
   const selectedKeys = input.selectedKeys || [];
   const selectedResources = input.selectedResources || [];
   const resourceList = selectedResources.length
@@ -1235,6 +1303,7 @@ function buildWorkspaceAppPrompt(input: {
       "Create a new agent-native app in this workspace.",
       "",
       `App name: ${appId}`,
+      `App description: ${appDescription}`,
       `Template to start from: ${input.template || "starter"}`,
       `User prompt: ${input.prompt.trim()}`,
       "If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.",
@@ -1265,11 +1334,13 @@ function buildWorkspaceAppPrompt(input: {
       "",
       "Branch readiness requirements before handing off:",
       "- The CLI auto-fills package.json name and displayName from the app id; only edit the description / scripts / dependencies if the app actually needs more than the template provides.",
+      `- Save a concise, human-readable app description in apps/${appId}/package.json "description" so Dispatch, A2A discovery, and connected agents can describe what this app does. Use the description above or improve it based on the prompt.`,
       "- Do not add or update workspace-apps.json or .agent-native/workspace-apps.json unless the app needs an explicit external URL override; the root deploy generates the workspace app registry from apps/* and deploy metadata.",
       "- Update pnpm-lock.yaml when adding or changing dependencies so Netlify can install the branch reliably.",
       "- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model; do not leave the branch relying only on uncommitted local state.",
-      "- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment.",
-      "- Include a final verification note covering the registry entry, manifest/deploy metadata, and agent-card readiness.",
+      "- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment. Every sibling workspace app should be usable over A2A by default through call-agent.",
+      "- Give the app agent context that sibling workspace apps are available over A2A with names and descriptions from the workspace app registry; do not hardcode a stale app list.",
+      "- Include a final verification note covering the registry entry, manifest/deploy metadata, relative same-origin routing, and agent-card readiness.",
       `When it is ready, start or update the workspace dev server and navigate the user to /${appId}.`,
     ].join("\n"),
   };
@@ -1313,6 +1384,7 @@ async function grantSelectedWorkspaceResources(input: {
 export async function startWorkspaceAppCreation(input: {
   prompt: string;
   appId?: string | null;
+  description?: string | null;
   template?: string | null;
   secretIds?: string[];
   resourceIds?: string[];
@@ -1320,6 +1392,7 @@ export async function startWorkspaceAppCreation(input: {
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
     appId: input.appId,
+    description: input.description,
     template: input.template,
   });
   assertValidWorkspaceAppId(initial.appId);
@@ -1347,11 +1420,15 @@ export async function startWorkspaceAppCreation(input: {
   const built = buildWorkspaceAppPrompt({
     prompt: input.prompt,
     appId: input.appId,
+    description: input.description,
     template: input.template,
     selectedKeys,
     selectedResources,
   });
   const prompt = built.prompt;
+  const appDescription =
+    input.description?.trim() ||
+    generateWorkspaceAppDescription(input.prompt, built.appId);
 
   if (isLocal) {
     await requestSelectedVaultKeys({
@@ -1418,6 +1495,8 @@ export async function startWorkspaceAppCreation(input: {
   await recordPendingWorkspaceApp({
     appId: built.appId,
     projectId: settings.builderProjectId,
+    description: appDescription,
+    sourcePrompt: input.prompt,
     branchName: result.branchName,
     builderUrl: result.url,
   });

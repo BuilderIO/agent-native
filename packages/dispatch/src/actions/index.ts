@@ -55,6 +55,7 @@ import syncVaultToApp from "./sync-vault-to-app.js";
 import syncWorkspaceResourcesToAll from "./sync-workspace-resources-to-all.js";
 import syncWorkspaceResourcesToApp from "./sync-workspace-resources-to-app.js";
 import unarchiveWorkspaceApp from "./unarchive-workspace-app.js";
+import updateWorkspaceAppMetadata from "./update-workspace-app-metadata.js";
 import updateVaultSecret from "./update-vault-secret.js";
 import updateWorkspaceResource from "./update-workspace-resource.js";
 import upsertDestination from "./upsert-destination.js";
@@ -123,6 +124,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "sync-workspace-resources-to-all": syncWorkspaceResourcesToAll,
   "sync-workspace-resources-to-app": syncWorkspaceResourcesToApp,
   "unarchive-workspace-app": unarchiveWorkspaceApp,
+  "update-workspace-app-metadata": updateWorkspaceAppMetadata,
   "update-vault-secret": updateVaultSecret,
   "update-workspace-resource": updateWorkspaceResource,
   "upsert-destination": upsertDestination,
