@@ -1,12 +1,28 @@
 import crypto from "node:crypto";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
+import {
+  getOrgSetting,
+  getUserSetting,
+  putOrgSetting,
+  putUserSetting,
+} from "@agent-native/core/settings";
 import { getDb, schema } from "../../db/index.js";
 import {
   currentOwnerEmail,
   currentOrgId,
   recordAudit,
 } from "./dispatch-store.js";
+
+const VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
+
+export type VaultAccessMode = "all-apps" | "manual";
+
+export interface VaultAccessSettings {
+  mode: VaultAccessMode;
+  scope: "org" | "user";
+  scopeId: string;
+}
 
 /**
  * Caller-supplied access context for vault operations.
@@ -40,10 +56,10 @@ function ctxScope<T extends { ownerEmail: any; orgId: any }>(
   table: T,
   ctx: VaultCtx,
 ) {
-  return or(
-    eq(table.ownerEmail, ctx.ownerEmail),
-    ctx.orgId ? eq(table.orgId, ctx.orgId) : isNull(table.orgId),
-  );
+  if (!ctx.orgId) {
+    return and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId));
+  }
+  return or(eq(table.ownerEmail, ctx.ownerEmail), eq(table.orgId, ctx.orgId));
 }
 
 /** Build a ctx that scopes to a specific row's owner/org (used when a
@@ -68,12 +84,57 @@ function safeJson(value: unknown) {
   return JSON.stringify(value ?? null);
 }
 
-function orgFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
+function scopedFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
+  return ctxScope(table, requireVaultCtx());
+}
+
+function normalizeCredentialKey(value: string) {
+  return value.trim();
+}
+
+function vaultAccessScope() {
   const orgId = currentOrgId();
-  return and(
-    eq(table.ownerEmail, currentOwnerEmail()),
-    orgId ? eq(table.orgId, orgId) : isNull(table.orgId),
-  );
+  if (orgId) return { scope: "org" as const, scopeId: orgId };
+  return { scope: "user" as const, scopeId: currentOwnerEmail() };
+}
+
+function parseVaultAccessMode(value: unknown): VaultAccessMode {
+  return value === "manual" ? "manual" : "all-apps";
+}
+
+export async function getVaultAccessSettings(): Promise<VaultAccessSettings> {
+  const scope = vaultAccessScope();
+  const raw =
+    scope.scope === "org"
+      ? await getOrgSetting(scope.scopeId, VAULT_ACCESS_SETTINGS_KEY)
+      : await getUserSetting(scope.scopeId, VAULT_ACCESS_SETTINGS_KEY);
+  return {
+    ...scope,
+    mode: parseVaultAccessMode(raw?.mode),
+  };
+}
+
+export async function setVaultAccessSettings(input: {
+  mode: VaultAccessMode;
+}): Promise<VaultAccessSettings> {
+  const scope = vaultAccessScope();
+  const next = { mode: parseVaultAccessMode(input.mode) };
+  if (scope.scope === "org") {
+    await putOrgSetting(scope.scopeId, VAULT_ACCESS_SETTINGS_KEY, next);
+  } else {
+    await putUserSetting(scope.scopeId, VAULT_ACCESS_SETTINGS_KEY, next);
+  }
+  await recordAudit({
+    action: "vault.access-settings.updated",
+    targetType: "vault-settings",
+    targetId: VAULT_ACCESS_SETTINGS_KEY,
+    summary:
+      next.mode === "all-apps"
+        ? "Set vault access to all workspace apps"
+        : "Set vault access to manual per-app grants",
+    metadata: next,
+  });
+  return getVaultAccessSettings();
 }
 
 // ─── Vault Audit ──────────────────────────────────────────────────
@@ -106,7 +167,7 @@ export async function listVaultAudit(limit = 50) {
   return db
     .select()
     .from(schema.vaultAuditLog)
-    .where(orgFilter(schema.vaultAuditLog))
+    .where(scopedFilter(schema.vaultAuditLog))
     .orderBy(desc(schema.vaultAuditLog.createdAt))
     .limit(limit);
 }
@@ -118,7 +179,7 @@ export async function listSecrets() {
   return db
     .select()
     .from(schema.vaultSecrets)
-    .where(orgFilter(schema.vaultSecrets))
+    .where(scopedFilter(schema.vaultSecrets))
     .orderBy(desc(schema.vaultSecrets.updatedAt));
 }
 
@@ -149,6 +210,55 @@ export async function createSecret(
 ) {
   const db = getDb();
   const timestamp = now();
+  const credentialKey = normalizeCredentialKey(input.credentialKey);
+  if (!credentialKey) throw new Error("Credential key is required");
+  const existing = await db
+    .select()
+    .from(schema.vaultSecrets)
+    .where(
+      and(
+        eq(schema.vaultSecrets.credentialKey, credentialKey),
+        ctxScope(schema.vaultSecrets, ctx),
+      ),
+    )
+    .orderBy(desc(schema.vaultSecrets.updatedAt))
+    .limit(1);
+
+  if (existing[0]) {
+    await db
+      .update(schema.vaultSecrets)
+      .set({
+        name: input.name,
+        credentialKey,
+        value: input.value,
+        provider: input.provider || null,
+        description: input.description || null,
+        updatedAt: timestamp,
+      })
+      .where(
+        and(
+          eq(schema.vaultSecrets.id, existing[0].id),
+          ctxScope(schema.vaultSecrets, ctx),
+        ),
+      );
+
+    await recordVaultAudit({
+      action: "secret.updated",
+      secretId: existing[0].id,
+      summary: `Updated secret "${input.name}" (${credentialKey})`,
+      metadata: { credentialKey, provider: input.provider },
+    });
+
+    await recordAudit({
+      action: "vault.secret.updated",
+      targetType: "vault-secret",
+      targetId: existing[0].id,
+      summary: `Updated vault secret "${input.name}" (${credentialKey})`,
+    });
+
+    return getSecret(existing[0].id, ctx);
+  }
+
   const secretId = id();
   const actor = ctx.ownerEmail;
 
@@ -157,7 +267,7 @@ export async function createSecret(
     ownerEmail: actor,
     orgId: ctx.orgId,
     name: input.name,
-    credentialKey: input.credentialKey,
+    credentialKey,
     value: input.value,
     provider: input.provider || null,
     description: input.description || null,
@@ -169,15 +279,15 @@ export async function createSecret(
   await recordVaultAudit({
     action: "secret.created",
     secretId,
-    summary: `Created secret "${input.name}" (${input.credentialKey})`,
-    metadata: { credentialKey: input.credentialKey, provider: input.provider },
+    summary: `Created secret "${input.name}" (${credentialKey})`,
+    metadata: { credentialKey, provider: input.provider },
   });
 
   await recordAudit({
     action: "vault.secret.created",
     targetType: "vault-secret",
     targetId: secretId,
-    summary: `Created vault secret "${input.name}" (${input.credentialKey})`,
+    summary: `Created vault secret "${input.name}" (${credentialKey})`,
   });
 
   return getSecret(secretId, ctx);
@@ -259,7 +369,7 @@ export async function listGrants(filter?: {
   appId?: string;
 }) {
   const db = getDb();
-  const conditions = [orgFilter(schema.vaultGrants)];
+  const conditions = [scopedFilter(schema.vaultGrants)];
   if (filter?.secretId) {
     conditions.push(eq(schema.vaultGrants.secretId, filter.secretId) as any);
   }
@@ -340,7 +450,16 @@ export async function grantSecretsToApp(
   appId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  const access = await getVaultAccessSettings();
   const uniqueSecretIds = Array.from(new Set(secretIds));
+  if (access.mode === "all-apps") {
+    return {
+      appId,
+      accessMode: access.mode,
+      created: [],
+      skipped: uniqueSecretIds,
+    };
+  }
   const existingActive = (await listGrants({ appId })).filter(
     (grant) => grant.status === "active",
   );
@@ -362,7 +481,7 @@ export async function grantSecretsToApp(
     }
   }
 
-  return { appId, created, skipped };
+  return { appId, accessMode: access.mode, created, skipped };
 }
 
 export async function revokeGrant(
@@ -410,27 +529,33 @@ export async function syncGrantsToApp(
   ctx: VaultCtx = requireVaultCtx(),
 ) {
   const db = getDb();
+  const access = await getVaultAccessSettings();
   const agents = await discoverAgents("dispatch");
   const agent = agents.find((a) => a.id === appId);
   if (!agent) throw new Error(`App "${appId}" not found in agent registry`);
 
-  const grants = await listGrants({ appId });
-  const activeGrants = grants.filter((g) => g.status === "active");
-  if (activeGrants.length === 0) {
-    return { appId, synced: 0, keys: [] };
-  }
-
-  // Resolve secret values for each grant
   const vars: Array<{ key: string; value: string }> = [];
-  for (const grant of activeGrants) {
-    const secret = await getSecret(grant.secretId, ctx);
-    if (secret) {
+  const activeGrants =
+    access.mode === "manual"
+      ? (await listGrants({ appId })).filter((g) => g.status === "active")
+      : [];
+
+  if (access.mode === "all-apps") {
+    const secrets = await listSecrets();
+    for (const secret of secrets) {
       vars.push({ key: secret.credentialKey, value: secret.value });
+    }
+  } else {
+    for (const grant of activeGrants) {
+      const secret = await getSecret(grant.secretId, ctx);
+      if (secret) {
+        vars.push({ key: secret.credentialKey, value: secret.value });
+      }
     }
   }
 
   if (vars.length === 0) {
-    return { appId, synced: 0, keys: [] };
+    return { appId, accessMode: access.mode, synced: 0, keys: [] };
   }
 
   // Push to the app's env-vars endpoint
@@ -464,17 +589,22 @@ export async function syncGrantsToApp(
     action: "secret.synced",
     appId,
     summary: `Synced ${syncedKeys.length} secret(s) to ${appId}: ${syncedKeys.join(", ")}`,
-    metadata: { syncedKeys },
+    metadata: { syncedKeys, accessMode: access.mode },
   });
 
-  return { appId, synced: syncedKeys.length, keys: syncedKeys };
+  return {
+    appId,
+    accessMode: access.mode,
+    synced: syncedKeys.length,
+    keys: syncedKeys,
+  };
 }
 
 // ─── Requests ──────────────────────────────────────────────────────
 
 export async function listRequests(filter?: { status?: string }) {
   const db = getDb();
-  const conditions = [orgFilter(schema.vaultRequests)];
+  const conditions = [scopedFilter(schema.vaultRequests)];
   if (filter?.status) {
     conditions.push(eq(schema.vaultRequests.status, filter.status) as any);
   }
@@ -671,10 +801,12 @@ export interface AppIntegrations {
   url: string;
   color: string;
   integrations: IntegrationEntry[];
+  vaultAccessMode: VaultAccessMode;
   reachable: boolean;
 }
 
 export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
+  const access = await getVaultAccessSettings();
   const agents = await discoverAgents("dispatch");
   const grants = await listGrants();
   const secrets = await listSecrets();
@@ -695,6 +827,7 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
           url: agent.url,
           color: agent.color,
           integrations: [],
+          vaultAccessMode: access.mode,
           reachable: false,
         });
         continue;
@@ -720,7 +853,9 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
           required: env.required,
           configured: env.configured,
           vaultGranted:
-            !!matchingSecret && grantedSecretIds.has(matchingSecret.id),
+            !!matchingSecret &&
+            (access.mode === "all-apps" ||
+              grantedSecretIds.has(matchingSecret.id)),
           vaultSecretId: matchingSecret?.id,
         };
       });
@@ -731,6 +866,7 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
         url: agent.url,
         color: agent.color,
         integrations,
+        vaultAccessMode: access.mode,
         reachable: true,
       });
     } catch {
@@ -740,6 +876,7 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
         url: agent.url,
         color: agent.color,
         integrations: [],
+        vaultAccessMode: access.mode,
         reachable: false,
       });
     }
@@ -751,15 +888,20 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
 // ─── Vault Overview (for dashboard) ──────────────────────────────
 
 export async function listVaultOverview() {
-  const [secrets, grants, requests] = await Promise.all([
+  const [secrets, grants, requests, access] = await Promise.all([
     listSecrets(),
     listGrants(),
     listRequests(),
+    getVaultAccessSettings(),
   ]);
+  const manualGrantCount = grants.filter((g) => g.status === "active").length;
 
   return {
+    accessMode: access.mode,
     secretCount: secrets.length,
-    activeGrantCount: grants.filter((g) => g.status === "active").length,
+    activeGrantCount:
+      access.mode === "all-apps" ? secrets.length : manualGrantCount,
+    manualGrantCount,
     pendingRequestCount: requests.filter((r) => r.status === "pending").length,
   };
 }

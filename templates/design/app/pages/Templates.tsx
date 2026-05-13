@@ -164,15 +164,15 @@ export default function Templates() {
                   <div className="absolute left-3 top-3 flex h-8 w-8 items-center justify-center rounded-md border border-white/70 bg-white/90 text-slate-900 shadow-sm dark:border-white/10 dark:bg-black/45 dark:text-white">
                     <Icon className="h-4 w-4" />
                   </div>
-                  <div className="absolute bottom-3 left-3 rounded-full border border-white/70 bg-white/90 px-2.5 py-1 text-[11px] font-medium text-slate-900 shadow-sm dark:border-white/10 dark:bg-black/45 dark:text-white">
-                    {template.format}
-                  </div>
                 </div>
 
                 <div className="p-4">
                   <h3 className="mb-1 text-sm font-medium text-foreground/90">
                     {template.title}
                   </h3>
+                  <div className="mb-2 inline-flex rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    {template.format}
+                  </div>
                   <p className="mb-3 line-clamp-2 text-xs text-muted-foreground">
                     {template.description}
                   </p>
@@ -202,7 +202,7 @@ function TemplatePreview({ title, html }: { title: string; html: string }) {
       srcDoc={html}
       sandbox=""
       tabIndex={-1}
-      className="h-full w-full scale-[1.01] border-0 bg-white pointer-events-none"
+      className="pointer-events-none absolute left-0 top-0 h-[460%] w-[460%] origin-top-left scale-[0.2174] border-0 bg-white"
     />
   );
 }

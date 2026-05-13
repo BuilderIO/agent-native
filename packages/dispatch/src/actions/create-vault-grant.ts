@@ -4,7 +4,7 @@ import { createGrant } from "../server/lib/vault-store.js";
 
 export default defineAction({
   description:
-    "Grant an app access to a vault secret. The secret can then be synced to the app. Admin only.",
+    "Grant an app access to a vault secret in manual vault access mode. Admin only.",
   schema: z.object({
     secretId: z.string().describe("ID of the secret to grant"),
     appId: z

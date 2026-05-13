@@ -77,6 +77,7 @@ import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { runWithRequestContext } from "./request-context.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
+import { DEFAULT_MODEL } from "../agent/default-model.js";
 import { canUseDeployCredentialFallbackForRequest } from "./credential-provider.js";
 import {
   canUpdateAgentLoopSettings,
@@ -95,6 +96,7 @@ import {
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
 import { getOrgContext } from "../org/context.js";
 import { isEnvVarWriteAllowed } from "./env-var-writes.js";
+import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -158,16 +160,22 @@ async function detectUsageEngineName(
   }
 }
 
-function trackBuilderLifecycle(
+async function trackBuilderLifecycle(
+  event: H3Event,
   name: string,
   userEmail: string | undefined | null,
   properties: Record<string, unknown> = {},
-): void {
+): Promise<void> {
   if (!userEmail) return;
+  const engine = await detectUsageEngineName(event, userEmail);
   track(
     name,
     {
       feature: "builder",
+      ...llmConnectionTrackingProperties({
+        configured: Boolean(engine),
+        engine,
+      }),
       ...properties,
     },
     { userId: userEmail },
@@ -736,11 +744,16 @@ export function createCoreRoutesPlugin(
         // connect token is the compatibility path for legitimate embedded or
         // local desktop popups stamped as same-site/cross-site by the browser.
         if (!isSameOriginConnect(event) && !hasValidConnectToken) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "cross_origin",
-            stage: "connect",
-            has_connect_token: Boolean(connectToken),
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              reason: "cross_origin",
+              stage: "connect",
+              has_connect_token: Boolean(connectToken),
+            },
+          );
           setResponseStatus(event, 403);
           return { error: "Cross-origin connect requests are not allowed" };
         }
@@ -763,10 +776,15 @@ export function createCoreRoutesPlugin(
             expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
           });
         } catch (err) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "pending_storage_unavailable",
-            stage: "connect",
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              reason: "pending_storage_unavailable",
+              stage: "connect",
+            },
+          );
           const msg =
             "Could not initiate Builder connect — storage unavailable. Try again.";
           console.error(
@@ -783,9 +801,14 @@ export function createCoreRoutesPlugin(
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackErrorPage(msg);
         }
-        trackBuilderLifecycle("builder connect started", ownerEmail, {
-          stage: "connect",
-        });
+        await trackBuilderLifecycle(
+          event,
+          "builder connect started",
+          ownerEmail,
+          {
+            stage: "connect",
+          },
+        );
         // Build the cli-auth URL without embedding state in redirect_url:
         // Builder's /cli-auth appends params directly to redirect_url and
         // does not preserve any pre-existing query string we put there.
@@ -887,9 +910,14 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
-        trackBuilderLifecycle("builder branch waitlist joined", session.email, {
-          stage: "waitlist",
-        });
+        await trackBuilderLifecycle(
+          event,
+          "builder branch waitlist joined",
+          session.email,
+          {
+            stage: "waitlist",
+          },
+        );
         return { ok: true };
       }),
     );
@@ -956,10 +984,15 @@ export function createCoreRoutesPlugin(
         }
 
         if (pendingError) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "pending_consume_storage_error",
-            stage: "callback",
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              reason: "pending_consume_storage_error",
+              stage: "callback",
+            },
+          );
           // Best-effort signal to the parent's poll loop, then render the
           // popup-friendly error page so the BroadcastChannel notify fires.
           await putSetting(`builder-connect-error:${ownerEmail}`, {
@@ -972,10 +1005,15 @@ export function createCoreRoutesPlugin(
         }
 
         if (!pendingValid) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "missing_pending_connect",
-            stage: "callback",
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              reason: "missing_pending_connect",
+              stage: "callback",
+            },
+          );
           const msg =
             "No active connect flow found. Restart the Builder connect flow from Settings.";
           // Write an error signal so the polling loop in the parent tab
@@ -997,10 +1035,15 @@ export function createCoreRoutesPlugin(
         const publicKey = requestUrl.searchParams.get("api-key");
 
         if (!privateKey || !publicKey) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "missing_credentials",
-            stage: "callback",
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              reason: "missing_credentials",
+              stage: "callback",
+            },
+          );
           // Render the popup-friendly error page (and write a status row)
           // instead of bare JSON, so the parent tab's poll loop terminates
           // immediately via BroadcastChannel rather than hanging until the
@@ -1070,10 +1113,15 @@ export function createCoreRoutesPlugin(
         }
 
         if (writeError) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "credential_write_failed",
-            stage: "callback",
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              reason: "credential_write_failed",
+              stage: "callback",
+            },
+          );
           // Best-effort signal to /builder/status. If putSetting also fails
           // (entire DB unreachable) the popup's postMessage still notifies
           // the parent. If both fail the parent times out at 5min as today.
@@ -1110,11 +1158,16 @@ export function createCoreRoutesPlugin(
           requestUrl.searchParams.get("preview-url"),
           event,
         );
-        trackBuilderLifecycle("builder connect succeeded", ownerEmail, {
-          stage: "callback",
-          has_preview_url: Boolean(previewUrl),
-          org_kind: orgKind || undefined,
-        });
+        await trackBuilderLifecycle(
+          event,
+          "builder connect succeeded",
+          ownerEmail,
+          {
+            stage: "callback",
+            has_preview_url: Boolean(previewUrl),
+            org_kind: orgKind || undefined,
+          },
+        );
         setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
         return createBuilderBrowserCallbackPage(previewUrl);
       }),
@@ -1160,9 +1213,14 @@ export function createCoreRoutesPlugin(
         try {
           await deleteBuilderCredentials(session.email, { orgId, role });
         } catch (err) {
-          trackBuilderLifecycle("builder disconnect failed", session.email, {
-            reason: "credential_delete_failed",
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder disconnect failed",
+            session.email,
+            {
+              reason: "credential_delete_failed",
+            },
+          );
           setResponseStatus(event, 500);
           return {
             ok: false,
@@ -1172,7 +1230,11 @@ export function createCoreRoutesPlugin(
           };
         }
 
-        trackBuilderLifecycle("builder disconnect succeeded", session.email);
+        await trackBuilderLifecycle(
+          event,
+          "builder disconnect succeeded",
+          session.email,
+        );
         return { ok: true };
       }),
     );
@@ -1446,11 +1508,15 @@ export function createCoreRoutesPlugin(
           }
           const stored = (await getSetting("agent-engine")) as {
             engine?: string;
+            model?: string;
           } | null;
           if (isAgentEngineSettingConfigured(stored)) {
+            const engine = (stored as { engine: string }).engine;
+            const entry = getAgentEngineEntry(engine);
             return {
               configured: true,
-              engine: (stored as { engine: string }).engine,
+              engine,
+              model: stored.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
               source: "settings" as const,
             };
           }
@@ -1466,6 +1532,7 @@ export function createCoreRoutesPlugin(
             return {
               configured: true,
               engine: detectedFromUser.name,
+              model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
               source: "app_secrets" as const,
               envVar: detectedFromUser.requiredEnvVars[0],
             };
@@ -1481,6 +1548,7 @@ export function createCoreRoutesPlugin(
               return {
                 configured: true,
                 engine: stored.engine,
+                model: stored.model ?? entry.defaultModel ?? DEFAULT_MODEL,
                 source: "env" as const,
                 envVar: entry.requiredEnvVars[0],
               };
@@ -1490,6 +1558,7 @@ export function createCoreRoutesPlugin(
             return {
               configured: true,
               engine: detectedFromUser.name,
+              model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
               source: "app_secrets" as const,
               envVar: detectedFromUser.requiredEnvVars[0],
             };
@@ -1503,6 +1572,7 @@ export function createCoreRoutesPlugin(
             return {
               configured: true,
               engine: detected.name,
+              model: detected.defaultModel ?? DEFAULT_MODEL,
               source: "env" as const,
               envVar: detected.requiredEnvVars[0],
             };
