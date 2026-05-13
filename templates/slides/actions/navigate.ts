@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
+import { writeAppStateForCurrentTab } from "./_tab-state.js";
 
 export default defineAction({
   description:
@@ -43,7 +43,7 @@ export default defineAction({
     // dedup race-driven re-reads of the same command (see that hook for the
     // full reasoning).
     nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await writeAppState("navigate", nav);
+    await writeAppStateForCurrentTab("navigate", nav);
     return `Navigating to ${args.view || ""}${args.deckId ? ` deck:${args.deckId}` : ""}${internalSlideIndex != null ? ` slide:${internalSlideIndex + 1}` : ""}`;
   },
 });

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 
 export interface NavigationState {
   view: string;
@@ -24,7 +25,9 @@ export function useNavigationState() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  // Sync current route to application state
+  // Sync current route to application state. The tab-scoped key is what chat
+  // requests from this browser tab read; the global key remains for CLI and
+  // older callers that do not send a browser tab id.
   useEffect(() => {
     const path = location.pathname;
     const state: NavigationState = { view: "list" };
@@ -60,37 +63,54 @@ export function useNavigationState() {
         params.get("createdBy") === "me" ? "created-by-me" : "all";
     }
 
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Request-Source": TAB_ID,
-      },
-      body: JSON.stringify(state),
-    }).catch(() => {});
+    const write = (key: string) =>
+      fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
+        method: "PUT",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Source": TAB_ID,
+        },
+        body: JSON.stringify(state),
+      }).catch(() => {});
+
+    write(appStateKeyForBrowserTab("navigation", TAB_ID));
+    write("navigation");
   }, [location.pathname, location.search]);
 
-  // Listen for navigate commands from agent. Default React Query options
-  // (`structuralSharing: true`) deep-equal the response and reuse the previous
-  // reference when the value hasn't changed — so repeated invalidations
-  // triggered by `useDbSync` (which fire on every app-state event including
-  // unrelated keys like `slide-fit-check`) don't churn the useEffect below.
-  const { data: navCommand } = useQuery<NavigationState | null>({
-    queryKey: ["navigate-command"],
+  // Listen for navigate commands from agent. Prefer the one-shot command for
+  // this browser tab; fall back to the legacy global command for CLI actions.
+  //
+  // Default React Query options (`structuralSharing: true`) deep-equal the
+  // response and reuse the previous reference when the value hasn't changed,
+  // so repeated invalidations triggered by `useDbSync` (which fire on every
+  // app-state event including unrelated keys like `slide-fit-check`) don't
+  // churn the useEffect below.
+  const { data: navCommand } = useQuery<{
+    key: string;
+    command: NavigationState;
+  } | null>({
+    queryKey: ["navigate-command", TAB_ID],
     queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/application-state/navigate"),
+      const read = async (key: string) => {
+        const res = await fetch(
+          agentNativePath(`/_agent-native/application-state/${key}`),
+        );
+        if (!res.ok) return null;
+        const text = await res.text();
+        if (!text) return null;
+        try {
+          const data = JSON.parse(text);
+          return data ? { key, command: data as NavigationState } : null;
+        } catch {
+          return null;
+        }
+      };
+
+      return (
+        (await read(appStateKeyForBrowserTab("navigate", TAB_ID))) ??
+        (await read("navigate"))
       );
-      if (!res.ok) return null;
-      const text = await res.text();
-      if (!text) return null;
-      try {
-        const data = JSON.parse(text);
-        return data ?? null;
-      } catch {
-        return null;
-      }
     },
   });
 
@@ -109,8 +129,7 @@ export function useNavigationState() {
 
   useEffect(() => {
     if (!navCommand) return;
-
-    const cmd = navCommand;
+    const { key, command: cmd } = navCommand;
     const dedupKey =
       cmd._writeId ??
       JSON.stringify({
@@ -123,17 +142,17 @@ export function useNavigationState() {
       // Same command we already handled. Re-fire the DELETE in case the
       // earlier one lost its race, and clear the local cache so we don't
       // re-enter on the next render.
-      fetch(agentNativePath("/_agent-native/application-state/navigate"), {
+      fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
         method: "DELETE",
         headers: { "X-Agent-Native-CSRF": "1", "X-Request-Source": TAB_ID },
       }).catch(() => {});
-      qc.setQueryData(["navigate-command"], null);
+      qc.setQueryData(["navigate-command", TAB_ID], null);
       return;
     }
     lastProcessedDedupKeyRef.current = dedupKey;
 
     // Delete the one-shot command AFTER reading it
-    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
+    fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
       method: "DELETE",
       headers: { "X-Agent-Native-CSRF": "1", "X-Request-Source": TAB_ID },
     }).catch(() => {});
@@ -165,6 +184,6 @@ export function useNavigationState() {
     }
 
     navigate(path);
-    qc.setQueryData(["navigate-command"], null);
+    qc.setQueryData(["navigate-command", TAB_ID], null);
   }, [navCommand, navigate, qc]);
 }
