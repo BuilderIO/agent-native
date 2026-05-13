@@ -1018,6 +1018,7 @@ export async function listWorkspaceApps(
             path: "/dispatch",
             url: workspaceAppUrl("/dispatch"),
             isDispatch: true,
+            audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
             status: "ready",
           },
         ],

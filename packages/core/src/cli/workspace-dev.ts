@@ -1019,6 +1019,7 @@ export async function runWorkspaceDev(
             name: app.name,
             description: app.description,
             path: `/${app.id}`,
+            audience: app.audience,
             port: app.port,
             running: Boolean(app.process && !app.process.killed),
           })),
