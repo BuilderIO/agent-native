@@ -897,14 +897,15 @@ function readWorkspaceAppManifest(
         explicit?.audience ??
         DEFAULT_WORKSPACE_APP_AUDIENCE;
       const packageRouteAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+      // Prefer the package.json value whenever the field was set — including
+      // an explicit empty array, which is how a per-app package.json signals
+      // "clear any previously-published manifest override." Falling back on
+      // length > 0 would silently keep the explicit override even after the
+      // app owner blanked their list.
       const publicPaths =
-        packageRouteAccess.publicPaths.length > 0
-          ? packageRouteAccess.publicPaths
-          : (explicit?.publicPaths ?? []);
+        packageRouteAccess.publicPaths ?? explicit?.publicPaths ?? [];
       const protectedPaths =
-        packageRouteAccess.protectedPaths.length > 0
-          ? packageRouteAccess.protectedPaths
-          : (explicit?.protectedPaths ?? []);
+        packageRouteAccess.protectedPaths ?? explicit?.protectedPaths ?? [];
       return {
         id: app,
         name: pkg?.displayName || titleCase(app),

@@ -82,26 +82,42 @@ export function workspaceAppAudienceFromPackageJson(
   return normalizeWorkspaceAppAudience(raw);
 }
 
+/**
+ * Per-app route-access config read from a `package.json`. Each field is
+ * `undefined` when the corresponding key is fully absent from every
+ * supported alias chain — that lets callers distinguish "user didn't say"
+ * from "user set [] to clear inherited overrides". `workspaceAppRouteAccess`
+ * always emits a full `WorkspaceAppRouteAccess` for runtime consumption.
+ */
+export interface WorkspaceAppRouteAccessFromConfig {
+  publicPaths?: string[];
+  protectedPaths?: string[];
+}
+
 export function workspaceAppRouteAccessFromPackageJson(
   pkg: unknown,
-): WorkspaceAppRouteAccess {
+): WorkspaceAppRouteAccessFromConfig {
   const config = workspaceAppConfigFromPackageJson(pkg);
+  const rawPublic =
+    config?.workspaceApp?.publicPaths ??
+    config?.workspaceApp?.publicPagePaths ??
+    config?.workspace?.publicPaths ??
+    config?.publicPaths ??
+    config?.root?.workspaceAppPublicPaths;
+  const rawProtected =
+    config?.workspaceApp?.protectedPaths ??
+    config?.workspaceApp?.privatePaths ??
+    config?.workspaceApp?.authRequiredPaths ??
+    config?.workspace?.protectedPaths ??
+    config?.protectedPaths ??
+    config?.root?.workspaceAppProtectedPaths;
   return {
-    publicPaths: normalizeWorkspaceAppPathList(
-      config?.workspaceApp?.publicPaths ??
-        config?.workspaceApp?.publicPagePaths ??
-        config?.workspace?.publicPaths ??
-        config?.publicPaths ??
-        config?.root?.workspaceAppPublicPaths,
-    ),
-    protectedPaths: normalizeWorkspaceAppPathList(
-      config?.workspaceApp?.protectedPaths ??
-        config?.workspaceApp?.privatePaths ??
-        config?.workspaceApp?.authRequiredPaths ??
-        config?.workspace?.protectedPaths ??
-        config?.protectedPaths ??
-        config?.root?.workspaceAppProtectedPaths,
-    ),
+    ...(rawPublic === undefined
+      ? {}
+      : { publicPaths: normalizeWorkspaceAppPathList(rawPublic) }),
+    ...(rawProtected === undefined
+      ? {}
+      : { protectedPaths: normalizeWorkspaceAppPathList(rawProtected) }),
   };
 }
 
