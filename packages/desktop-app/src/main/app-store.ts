@@ -9,6 +9,7 @@ import {
 
 const STORE_FILE = "app-config.json";
 const FRAME_STORE_FILE = "frame-config.json";
+const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
 
 /** Settings for the local dev frame */
 export interface FrameSettings {
@@ -122,14 +123,14 @@ export function loadApps(): AppConfig[] {
     const templateAppsById = new Map(TEMPLATE_APPS.map((d) => [d.id, d]));
     const persistedIds = new Set(apps.map((a) => a.id));
 
-    // Remove stale built-in apps whose ids are no longer known. Preserve
-    // first-party template ids that are no longer desktop defaults so existing
-    // user configs (for example legacy Starter tabs) can still be migrated
-    // instead of disappearing.
+    // Remove stale desktop apps that should no longer appear, then preserve
+    // other first-party template ids so existing user configs can still be
+    // migrated instead of disappearing.
     const before = apps.length;
     apps = apps.filter(
       (a) =>
-        !a.isBuiltIn || defaultsById.has(a.id) || templateAppsById.has(a.id),
+        !REMOVED_DESKTOP_APP_IDS.has(a.id) &&
+        (!a.isBuiltIn || defaultsById.has(a.id) || templateAppsById.has(a.id)),
     );
     if (apps.length !== before) migrated = true;
 
@@ -169,9 +170,9 @@ export function loadApps(): AppConfig[] {
 
       // User-added or legacy entries that match a first-party template should
       // still get canonical URL backfills. This covers old desktop configs
-      // where hidden-but-known templates such as Starter existed with an empty
-      // production URL, which otherwise falls through to the local dev frame in
-      // packaged builds and renders a blank tab.
+      // where hidden-but-known templates existed with an empty production URL,
+      // which otherwise falls through to the local dev frame in packaged builds
+      // and renders a blank tab.
       const templateDef = templateAppsById.get(app.id);
       if (templateDef) {
         const canonical = canonicalizeTemplateApp(app, templateDef);

@@ -924,6 +924,88 @@ describe("server/auth", () => {
       });
     });
 
+    it("surfaces Google callback failures through desktop exchange polling", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const { encodeOAuthState } = await import("./google-oauth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const callbackHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/google/callback",
+      )?.[1];
+      const exchangeHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/desktop-exchange",
+      )?.[1];
+      expect(callbackHandler).toBeTypeOf("function");
+      expect(exchangeHandler).toBeTypeOf("function");
+
+      const state = encodeOAuthState({
+        redirectUri:
+          "https://agent-workspace.builder.io/_agent-native/google/callback",
+        desktop: true,
+        flowId: "flow-denied",
+      });
+      const response = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: {
+            state,
+            error: "access_denied",
+            error_description: "The user denied access",
+          },
+          headers: {
+            host: "agent-workspace.builder.io",
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+      expect(response).toBeInstanceOf(Response);
+      await expect((response as Response).text()).resolves.toContain(
+        "The user denied access",
+      );
+
+      const result = await exchangeHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/desktop-exchange",
+          query: { flow_id: "flow-denied" },
+        }),
+      );
+
+      expect(result).toMatchObject({
+        error: "Google sign-in failed: The user denied access",
+        message: "Google sign-in failed: The user denied access",
+        code: "access_denied",
+      });
+    });
+
     it("strips APP_BASE_PATH before forwarding requests to Better Auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_BASE_PATH", "/docs");
@@ -1519,7 +1601,7 @@ describe("server/auth", () => {
         "Google popup was blocked. Allow popups for this site",
       );
       expect(html).toContain(
-        "check server logs for [agent-native][google-oauth]",
+        "never reached this app. Check the Google OAuth redirect URI",
       );
       expect(html).not.toContain("&debug=1");
       expect(html).toContain("params.set('desktop', '1')");
@@ -1536,8 +1618,17 @@ describe("server/auth", () => {
       );
       expect(html).toContain("function __anBuilderPreviewReturnOrigin()");
       expect(html).toContain("function __anOAuthReturnTarget(ret)");
+      expect(html).toContain("function __anFinishOAuthExchange(ret, flowId)");
       expect(html).toContain(
         "params.set('return', __anOAuthReturnTarget(ret))",
+      );
+      expect(html).toContain(
+        "var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
+      );
+      expect(html).toContain("__anWaitForOAuthExchange(flowId, ret, btn, err)");
+      expect(html).toContain("window.location.reload()");
+      expect(html).not.toContain(
+        "__anWaitForOAuthExchange(flowId, target, btn, err)",
       );
       expect(html).toContain(
         "window.open('', '_blank', 'width=640,height=760')",
@@ -1585,10 +1676,20 @@ describe("server/auth", () => {
       );
       expect(loginHtml).toContain("function __anOAuthReturnTarget(ret)");
       expect(loginHtml).toContain(
-        "var target = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
+        "function __anFinishOAuthExchange(ret, flowId)",
+      );
+      expect(loginHtml).toContain(
+        "var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
       );
       expect(loginHtml).toContain(
         "params.set('return', __anOAuthReturnTarget(ret))",
+      );
+      expect(loginHtml).toContain(
+        "__anWaitForOAuthExchange(flowId, ret, btn, err)",
+      );
+      expect(loginHtml).toContain("window.location.reload()");
+      expect(loginHtml).not.toContain(
+        "__anWaitForOAuthExchange(flowId, target, btn, err)",
       );
       expect(loginHtml).toContain(
         "window.open('', '_blank', 'width=640,height=760')",
@@ -1598,7 +1699,7 @@ describe("server/auth", () => {
         "Google popup was blocked. Allow popups for this site",
       );
       expect(loginHtml).toContain(
-        "check server logs for [agent-native][google-oauth]",
+        "never reached this app. Check the Google OAuth redirect URI",
       );
       expect(loginHtml).not.toContain("&debug=1");
     });

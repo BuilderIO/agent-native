@@ -2098,11 +2098,6 @@ async function mountBetterAuthRoutes(
         try {
           const query = getQuery(event);
           const code = query.code as string;
-          if (!code) {
-            setResponseStatus(event, 400);
-            return { error: "Missing authorization code" };
-          }
-
           const { redirectUri, desktop, returnUrl, flowId } = decodeOAuthState(
             query.state as string | undefined,
             getAppUrl(event, "/_agent-native/google/callback"),
@@ -2116,14 +2111,54 @@ async function mountBetterAuthRoutes(
             hasCode: !!code,
             returnUrl,
           });
+          if (!code) {
+            const providerError =
+              typeof query.error === "string" && query.error
+                ? query.error
+                : undefined;
+            const providerDescription =
+              typeof query.error_description === "string" &&
+              query.error_description
+                ? query.error_description
+                : undefined;
+            const msg =
+              providerDescription ||
+              providerError ||
+              "Missing authorization code";
+            if (flowId) {
+              setDesktopExchangeError(flowId, {
+                message: `Google sign-in failed: ${msg}`,
+                code: providerError || "missing_authorization_code",
+              });
+            }
+            logGoogleOAuthDebug(event, "callback-error", {
+              flowId,
+              desktop,
+              message: msg,
+              code: providerError,
+            });
+            return oauthErrorPage(`Connection failed: ${msg}`);
+          }
           // Defence in depth: the state is HMAC-signed, but if the signing
           // key ever leaked an attacker could mint state with their own
           // redirect_uri. Re-validate against the same allowlist used at
           // auth-url time so the token exchange is always sent to a URI we
           // own.
           if (!isAllowedOAuthRedirectUri(redirectUri, event)) {
-            setResponseStatus(event, 400);
-            return { error: "Invalid redirect_uri in state" };
+            const msg =
+              "Invalid Google OAuth redirect URI in state. Restart sign-in from this app.";
+            if (flowId) {
+              setDesktopExchangeError(flowId, {
+                message: msg,
+                code: "invalid_redirect_uri",
+              });
+            }
+            logGoogleOAuthDebug(event, "callback-error", {
+              flowId,
+              desktop,
+              message: msg,
+            });
+            return oauthErrorPage(`Connection failed: ${msg}`);
           }
 
           const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -2204,6 +2239,12 @@ async function mountBetterAuthRoutes(
           });
         } catch (error: any) {
           const msg = error.message || "Unknown error";
+          if (callbackFlowId) {
+            setDesktopExchangeError(callbackFlowId, {
+              message: `Google sign-in failed: ${msg}`,
+              code: "callback_error",
+            });
+          }
           logGoogleOAuthDebug(event, "callback-error", {
             flowId: callbackFlowId,
             desktop: callbackDesktop,

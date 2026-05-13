@@ -178,6 +178,15 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
     var origin = __anWorkspaceGatewayReturnOrigin();
     return origin ? origin + path : path;
   }
+  function __anFinishOAuthExchange(ret, flowId) {
+    if (__anIsBuilderPreview()) {
+      __anSetOAuthDebug('OAuth exchange redeemed; reloading the embedded app', flowId);
+      window.location.reload();
+      return;
+    }
+    __anSetOAuthDebug('OAuth exchange redeemed; returning to the app', flowId);
+    window.location.href = ret || '/';
+  }
   function __anIsBuilderPreview() {
     try {
       var params = new URLSearchParams(window.location.search);
@@ -242,7 +251,7 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
   function __anSetOAuthDebug(message, flowId) {
     var text = message + (flowId ? ' (flow ' + __anFlowDebugId(flowId) + ')' : '');
     try {
-      console.info('[agent-native][google-oauth]', { message: message, flow: __anFlowDebugId(flowId) || undefined });
+      console.info('[agent-native][google-oauth] ' + text);
     } catch(e) {}
     var debug = document.getElementById('debug');
     if (debug) {
@@ -271,8 +280,7 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
         if (data && (data.email || data.token)) {
           if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
           __anOAuthPollTimer = null;
-          __anSetOAuthDebug('OAuth exchange redeemed; returning to the app', flowId);
-          window.location.href = ret || '/';
+          __anFinishOAuthExchange(ret, flowId);
           return;
         }
         if (data && data.error) {
@@ -289,7 +297,7 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
         }
       }
       if (Date.now() - started > timeoutMs) {
-        __anShowOAuthError(err, btn, 'Google sign-in did not finish. Flow ' + __anFlowDebugId(flowId) + ' never redeemed; check server logs for [agent-native][google-oauth].');
+        __anShowOAuthError(err, btn, 'Google sign-in did not finish. Flow ' + __anFlowDebugId(flowId) + ' never reached this app. Check the Google OAuth redirect URI and server logs for [agent-native][google-oauth].');
       }
     }
     if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
@@ -298,9 +306,9 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
   }
   function __anStartPopupOAuth(ret, btn, err) {
     var flowId = __anNewOAuthFlowId();
-    var target = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
+    var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
     var params = new URLSearchParams();
-    if (target) params.set('return', target);
+    if (oauthReturn) params.set('return', oauthReturn);
     params.set('desktop', '1');
     params.set('flow_id', flowId);
     params.set('redirect', '1');
@@ -326,7 +334,7 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
       __anShowOAuthError(err, btn, 'Could not open Google popup for flow ' + __anFlowDebugId(flowId) + ': ' + (e && e.message ? e.message : 'unknown error'));
       return;
     }
-    __anWaitForOAuthExchange(flowId, target, btn, err);
+    __anWaitForOAuthExchange(flowId, ret, btn, err);
   }
   function __anStartNativeDesktopOAuth(ret, btn, err) {
     var flowId = __anNewOAuthFlowId();

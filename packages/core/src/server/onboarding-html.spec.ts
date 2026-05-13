@@ -64,9 +64,12 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).toContain("function __anIsAgentNativeDesktop()");
     expect(html).toContain("function __anOAuthReturnTarget(ret)");
+    expect(html).toContain("function __anFinishOAuthExchange(ret, flowId)");
     expect(html).toContain(
-      "var target = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
+      "var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
     );
+    expect(html).toContain("__anWaitForOAuthExchange(flowId, ret, btn, err)");
+    expect(html).toContain("window.location.reload()");
     expect(html).toContain("params.set('return', __anOAuthReturnTarget(ret))");
   });
 

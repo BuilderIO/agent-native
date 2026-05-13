@@ -108,6 +108,12 @@ assert.match(
   /DESKTOP_DEFAULT_EXCLUDED_APP_IDS[\s\S]*"starter"/,
   "desktop defaults must explicitly exclude starter",
 );
+const desktopAppStore = read("packages/desktop-app/src/main/app-store.ts");
+assert.match(
+  desktopAppStore,
+  /REMOVED_DESKTOP_APP_IDS[\s\S]*"starter"/,
+  "desktop app-store migration must remove persisted starter entries",
+);
 
 const visibleWithoutProdUrl = templates
   .filter((template) => !template.hidden)

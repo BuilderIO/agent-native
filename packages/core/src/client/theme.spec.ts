@@ -37,7 +37,7 @@ describe("getThemeInitScript", () => {
     runThemeScript(getThemeInitScript());
 
     expect(document.documentElement.classList.contains("dark")).toBe(true);
-    expect(document.documentElement.getAttribute("data-theme")).toBe(null);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(document.documentElement.style.colorScheme).toBe("dark");
   });
 
