@@ -111,6 +111,56 @@ describe("workspace dev startup", () => {
     expect(env?.TSC_WATCHDIRECTORY).toBe("DynamicPriorityPolling");
   });
 
+  it("strips inherited watcher env vars when polling is explicitly disabled", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: {
+        ...testEnv(),
+        // Container detected (would normally auto-enable polling) ...
+        BUILDER_PROJECT_ID: "builder-project",
+        // ... but operator explicitly disabled it.
+        AGENT_NATIVE_DEV_USE_POLLING: "0",
+        // Inherited from a stale parent shell — must NOT leak through.
+        CHOKIDAR_USEPOLLING: "1",
+        CHOKIDAR_INTERVAL: "500",
+        TSC_WATCHFILE: "DynamicPriorityPolling",
+        TSC_WATCHDIRECTORY: "DynamicPriorityPolling",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const env = fake.calls()[0]?.options?.env;
+    expect(env?.CHOKIDAR_USEPOLLING).toBeUndefined();
+    expect(env?.CHOKIDAR_INTERVAL).toBeUndefined();
+    expect(env?.TSC_WATCHFILE).toBeUndefined();
+    expect(env?.TSC_WATCHDIRECTORY).toBeUndefined();
+  });
+
+  it("preserves user-set watcher env vars when polling is not explicitly disabled", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: {
+        ...testEnv(),
+        // No container, no explicit toggle — auto-detection says no polling.
+        // The user's custom TSC_WATCHFILE override must still pass through.
+        TSC_WATCHFILE: "UseFsEventsWithFallbackDynamicPolling",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const env = fake.calls()[0]?.options?.env;
+    expect(env?.TSC_WATCHFILE).toBe("UseFsEventsWithFallbackDynamicPolling");
+    expect(env?.CHOKIDAR_USEPOLLING).toBeUndefined();
+  });
+
   it("uses the root list as fallback when Dispatch is absent", async () => {
     tmpDir = makeWorkspace(["starter"]);
     const fake = fakeSpawn();

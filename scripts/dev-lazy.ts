@@ -182,19 +182,23 @@ function readBooleanEnv(value: string | undefined): boolean | undefined {
   return undefined;
 }
 
-function shouldUsePollingFileWatcher(
+type PollingFileWatcherMode = "enable" | "disable-explicit" | "disable-default";
+
+function pollingFileWatcherMode(
   env: NodeJS.ProcessEnv,
   root: string,
-): boolean {
+): PollingFileWatcherMode {
   const explicit =
     readBooleanEnv(env.AGENT_NATIVE_DEV_USE_POLLING) ??
     readBooleanEnv(env.WORKSPACE_USE_POLLING_WATCHER);
-  if (explicit !== undefined) return explicit;
+  if (explicit === true) return "enable";
+  if (explicit === false) return "disable-explicit";
 
   const chokidarExplicit = readBooleanEnv(env.CHOKIDAR_USEPOLLING);
-  if (chokidarExplicit !== undefined) return chokidarExplicit;
+  if (chokidarExplicit === true) return "enable";
+  if (chokidarExplicit === false) return "disable-explicit";
 
-  return Boolean(
+  const autoEnable = Boolean(
     env.BUILDER_IO_DEV_SERVER ||
     env.BUILDER_PROJECT_ID ||
     env.BUILDER_WORKSPACE_ID ||
@@ -204,12 +208,14 @@ function shouldUsePollingFileWatcher(
     env.DEVCONTAINER ||
     root.startsWith("/root/app/"),
   );
+  return autoEnable ? "enable" : "disable-default";
 }
 
-const usePollingFileWatcher = shouldUsePollingFileWatcher(process.env, ROOT);
+const pollingMode = pollingFileWatcherMode(process.env, ROOT);
+const usePollingFileWatcher = pollingMode === "enable";
 
 function devWatcherEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  if (usePollingFileWatcher) {
+  if (pollingMode === "enable") {
     return {
       ...env,
       CHOKIDAR_USEPOLLING: "1",
@@ -218,18 +224,24 @@ function devWatcherEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
       TSC_WATCHDIRECTORY: env.TSC_WATCHDIRECTORY ?? "DynamicPriorityPolling",
     };
   }
-  // Explicit disable must override inherited CHOKIDAR_USEPOLLING from the
-  // parent shell so child processes don't silently poll despite the user
-  // setting AGENT_NATIVE_DEV_USE_POLLING=0. Strip the watcher vars instead
-  // of returning env unchanged.
-  const {
-    CHOKIDAR_USEPOLLING: _polling,
-    CHOKIDAR_INTERVAL: _interval,
-    TSC_WATCHFILE: _watchFile,
-    TSC_WATCHDIRECTORY: _watchDir,
-    ...rest
-  } = env;
-  return rest;
+  if (pollingMode === "disable-explicit") {
+    // The user explicitly turned polling off. Strip the watcher vars from
+    // the child env so an inherited parent-shell CHOKIDAR_USEPOLLING=1 (or
+    // stale TSC_WATCH* override) can't silently re-enable polling against
+    // the user's explicit wish.
+    const {
+      CHOKIDAR_USEPOLLING: _polling,
+      CHOKIDAR_INTERVAL: _interval,
+      TSC_WATCHFILE: _watchFile,
+      TSC_WATCHDIRECTORY: _watchDir,
+      ...rest
+    } = env;
+    return rest;
+  }
+  // disable-default: no explicit signal either way. Pass the env through
+  // unchanged so legitimate user overrides like
+  // TSC_WATCHFILE=UseFsEventsWithFallbackDynamicPolling survive.
+  return env;
 }
 
 function workspaceAppsJson(): string {

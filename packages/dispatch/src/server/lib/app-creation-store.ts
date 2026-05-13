@@ -902,10 +902,11 @@ export async function updateWorkspaceAppMetadata(input: {
   const app = apps.find((candidate) => candidate.id === appId);
   if (!app) throw new Error(`Workspace app "${appId}" was not found.`);
 
-  // Treat undefined/null as "field omitted, leave existing value alone"; only
-  // an explicit empty string clears the description. Without this, a partial
-  // update that only touches `name` silently wipes any existing description.
-  const name = input.name?.trim() || app.name;
+  // Treat undefined/null as "field omitted, leave existing value alone"; an
+  // explicit empty string clears the override (the app reverts to its
+  // built-in name / no description). Without this, a partial update that
+  // only touches one field silently wipes the other.
+  const name = input.name == null ? app.name : input.name.trim();
   const description =
     input.description == null
       ? (app.description ?? undefined)
