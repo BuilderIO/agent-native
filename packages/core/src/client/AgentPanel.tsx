@@ -1576,10 +1576,26 @@ function ResizeHandle({
  *                 the command, applies it via react-router, then deletes
  *                 the key. The UI reacts in one tick, no page reload.
  */
-function URLSync() {
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+function URLSync({ browserTabId }: { browserTabId?: string }) {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const normalizedBrowserTabId = React.useMemo(() => {
+    if (typeof browserTabId !== "string") return undefined;
+    const trimmed = browserTabId.trim();
+    return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+  }, [browserTabId]);
+  const appStateKey = React.useCallback(
+    (key: string) =>
+      normalizedBrowserTabId ? `${key}:${normalizedBrowserTabId}` : key,
+    [normalizedBrowserTabId],
+  );
+  const setUrlQueryKey = React.useMemo(
+    () => ["__set_url__", normalizedBrowserTabId ?? "global"],
+    [normalizedBrowserTabId],
+  );
 
   // Outbound: write the current URL to app-state whenever it changes.
   React.useEffect(() => {
@@ -1593,13 +1609,22 @@ function URLSync() {
       hash: location.hash,
       searchParams,
     };
-    fetch(agentNativePath("/_agent-native/application-state/__url__"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).catch(() => {});
-  }, [location.pathname, location.search, location.hash]);
+    const write = (key: string) =>
+      fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
+        method: "PUT",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).catch(() => {});
+    write(appStateKey("__url__"));
+    if (normalizedBrowserTabId) write("__url__");
+  }, [
+    appStateKey,
+    location.pathname,
+    location.search,
+    location.hash,
+    normalizedBrowserTabId,
+  ]);
 
   // Inbound: poll for URL-update commands from the agent. `useDbSync`
   // invalidates this key on every relevant app-state event, so default
@@ -1610,18 +1635,34 @@ function URLSync() {
   // when the JSON is unchanged so the useEffect only fires when the command
   // actually changes; the `lastProcessedDedupKeyRef` below covers the residual
   // race window after the cache is cleared to `null`.
-  const { data: command } = useQuery({
-    queryKey: ["__set_url__"],
+  const { data: command } = useQuery<{
+    key: string;
+    command: {
+      pathname?: string;
+      searchParams?: Record<string, string | null>;
+      mergeSearchParams?: boolean;
+      hash?: string;
+      _writeId?: string;
+    };
+  } | null>({
+    queryKey: setUrlQueryKey,
     queryFn: async () => {
-      try {
+      const read = async (key: string) => {
         const res = await fetch(
-          agentNativePath("/_agent-native/application-state/__set_url__"),
+          agentNativePath(`/_agent-native/application-state/${key}`),
         );
         if (!res.ok || res.status === 204) return null;
         const text = await res.text();
         if (!text) return null;
         const data = JSON.parse(text);
-        return data ?? null;
+        return data ? { key, command: data } : null;
+      };
+      try {
+        return (
+          (normalizedBrowserTabId
+            ? await read(appStateKey("__set_url__"))
+            : null) ?? (await read("__set_url__"))
+        );
       } catch {
         return null;
       }
@@ -1634,13 +1675,7 @@ function URLSync() {
 
   React.useEffect(() => {
     if (!command) return;
-    const cmd = command as {
-      pathname?: string;
-      searchParams?: Record<string, string | null>;
-      mergeSearchParams?: boolean;
-      hash?: string;
-      _writeId?: string;
-    };
+    const cmd = command.command;
     const dedupKey =
       cmd._writeId ??
       JSON.stringify({
@@ -1654,18 +1689,18 @@ function URLSync() {
       // next polling refetch, so when it loses the same command can show up
       // again on the next tick. Re-fire DELETE and bail rather than navigate
       // again.
-      fetch(agentNativePath("/_agent-native/application-state/__set_url__"), {
+      fetch(agentNativePath(`/_agent-native/application-state/${command.key}`), {
         method: "DELETE",
         headers: { "X-Agent-Native-CSRF": "1" },
       }).catch(() => {});
-      queryClient.setQueryData(["__set_url__"], null);
+      queryClient.setQueryData(setUrlQueryKey, null);
       return;
     }
     lastProcessedDedupKeyRef.current = dedupKey;
 
     // Delete the one-shot command before applying so duplicate events
     // don't cause repeated navigation.
-    fetch(agentNativePath("/_agent-native/application-state/__set_url__"), {
+    fetch(agentNativePath(`/_agent-native/application-state/${command.key}`), {
       method: "DELETE",
       headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
@@ -1701,7 +1736,7 @@ function URLSync() {
       const currentUrl =
         current.pathname + (current.search || "") + (current.hash || "");
       if (url === currentUrl) {
-        queryClient.setQueryData(["__set_url__"], null);
+        queryClient.setQueryData(setUrlQueryKey, null);
         return;
       }
       // Replace rather than push so repeated agent URL updates don't
@@ -1711,8 +1746,8 @@ function URLSync() {
     } catch {
       // Malformed command — ignore.
     }
-    queryClient.setQueryData(["__set_url__"], null);
-  }, [command, navigate, queryClient]);
+    queryClient.setQueryData(setUrlQueryKey, null);
+  }, [command, navigate, queryClient, setUrlQueryKey]);
 
   return null;
 }

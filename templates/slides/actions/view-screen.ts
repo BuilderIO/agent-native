@@ -32,6 +32,10 @@ export default defineAction({
           ...(navigation ?? {}),
           view: "editor",
           deckId: scopedDeckId,
+          slideNumber:
+            navigation?.deckId === scopedDeckId
+              ? navigation.slideNumber
+              : undefined,
           slideIndex:
             navigation?.deckId === scopedDeckId ? navigation.slideIndex : 0,
         }
