@@ -181,9 +181,13 @@ describe("createBuilderEngine", () => {
   });
 
   it("honors an explicit max output token override", async () => {
-    const fetchSpy = vi.fn().mockResolvedValue(
-      jsonlResponse([{ type: "stop", reason: "end_turn", requestId: "req_1" }]),
-    );
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
     vi.stubGlobal("fetch", fetchSpy);
 
     const engine = createBuilderEngine();
