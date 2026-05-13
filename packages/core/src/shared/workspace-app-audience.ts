@@ -112,13 +112,29 @@ export function workspaceAppRouteAccessFromPackageJson(
     config?.protectedPaths ??
     config?.root?.workspaceAppProtectedPaths;
   return {
-    ...(rawPublic === undefined
-      ? {}
-      : { publicPaths: normalizeWorkspaceAppPathList(rawPublic) }),
-    ...(rawProtected === undefined
-      ? {}
-      : { protectedPaths: normalizeWorkspaceAppPathList(rawProtected) }),
+    ...(isPathConfigValueSet(rawPublic)
+      ? { publicPaths: normalizeWorkspaceAppPathList(rawPublic) }
+      : {}),
+    ...(isPathConfigValueSet(rawProtected)
+      ? { protectedPaths: normalizeWorkspaceAppPathList(rawProtected) }
+      : {}),
   };
+}
+
+/**
+ * Only treat a package.json field as "explicitly set" when its raw value is a
+ * supported type — an array, a string, or explicit null. Garbage types like
+ * `false`, `0`, or `{}` are ignored (left as undefined) so a typo such as
+ * `"publicPaths": false` doesn't silently clear an inherited manifest
+ * override. (`normalizeWorkspaceAppPathList` happily turns those into `[]`,
+ * which without this guard would be indistinguishable from a deliberate
+ * empty array.)
+ */
+function isPathConfigValueSet(value: unknown): boolean {
+  if (value === undefined) return false;
+  if (value === null) return true;
+  if (Array.isArray(value)) return true;
+  return typeof value === "string";
 }
 
 function workspaceAppConfigFromPackageJson(pkg: unknown):

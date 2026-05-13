@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
+import { writeAppSecret, type SecretScope } from "@agent-native/core/secrets";
 import {
   getOrgSetting,
   getUserSetting,
@@ -522,6 +523,40 @@ export async function revokeGrant(
   return getGrant(grantId, ctx);
 }
 
+// ─── Shared Credential Store Sync ─────────────────────────────────
+
+type VaultSecretRow = typeof schema.vaultSecrets.$inferSelect;
+
+export function credentialStoreScopeForVaultCtx(ctx: VaultCtx): {
+  scope: Extract<SecretScope, "org" | "workspace">;
+  scopeId: string;
+} {
+  if (ctx.orgId) return { scope: "org", scopeId: ctx.orgId };
+  return { scope: "workspace", scopeId: `solo:${ctx.ownerEmail}` };
+}
+
+export async function syncSecretsToCredentialStore(
+  secrets: VaultSecretRow[],
+  ctx: VaultCtx,
+) {
+  const target = credentialStoreScopeForVaultCtx(ctx);
+  const syncedKeys: string[] = [];
+
+  for (const secret of secrets) {
+    if (!secret.credentialKey || !secret.value) continue;
+    await writeAppSecret({
+      key: secret.credentialKey,
+      value: secret.value,
+      scope: target.scope,
+      scopeId: target.scopeId,
+      description: `Synced from Dispatch vault: ${secret.name}`,
+    });
+    syncedKeys.push(secret.credentialKey);
+  }
+
+  return { ...target, keys: syncedKeys };
+}
+
 // ─── Sync ──────────────────────────────────────────────────────
 
 export async function syncGrantsToApp(
@@ -534,7 +569,7 @@ export async function syncGrantsToApp(
   const agent = agents.find((a) => a.id === appId);
   if (!agent) throw new Error(`App "${appId}" not found in agent registry`);
 
-  const vars: Array<{ key: string; value: string }> = [];
+  const secretsToSync: VaultSecretRow[] = [];
   const activeGrants =
     access.mode === "manual"
       ? (await listGrants({ appId })).filter((g) => g.status === "active")
@@ -543,38 +578,64 @@ export async function syncGrantsToApp(
   if (access.mode === "all-apps") {
     const secrets = await listSecrets();
     for (const secret of secrets) {
-      vars.push({ key: secret.credentialKey, value: secret.value });
+      secretsToSync.push(secret);
     }
   } else {
     for (const grant of activeGrants) {
       const secret = await getSecret(grant.secretId, ctx);
       if (secret) {
-        vars.push({ key: secret.credentialKey, value: secret.value });
+        secretsToSync.push(secret);
       }
     }
   }
 
-  if (vars.length === 0) {
+  if (secretsToSync.length === 0) {
     return { appId, accessMode: access.mode, synced: 0, keys: [] };
   }
 
-  // Push to the app's env-vars endpoint
-  const res = await fetch(`${agent.url}/_agent-native/env-vars`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ vars }),
-  });
+  const credentialStoreSync = await syncSecretsToCredentialStore(
+    secretsToSync,
+    ctx,
+  );
+  const vars = secretsToSync.map((secret) => ({
+    key: secret.credentialKey,
+    value: secret.value,
+  }));
+  let envVarSync:
+    | { status: "synced"; keys: string[] }
+    | { status: "skipped"; reason: string }
+    | { status: "failed"; reason: string };
 
-  if (!res.ok) {
-    const err = await res.text().catch(() => "Unknown error");
-    throw new Error(`Failed to sync to ${appId}: ${err}`);
+  // Best-effort push to the app's env-vars endpoint for local/dev apps that
+  // still read process.env directly. Production/shared-DB apps intentionally
+  // reject env writes; the encrypted app_secrets sync above is the canonical
+  // path for request-scoped credentials.
+  try {
+    const res = await fetch(`${agent.url}/_agent-native/env-vars`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vars }),
+    });
+
+    if (res.ok) {
+      const result = await res.json();
+      envVarSync = { status: "synced", keys: result.saved || [] };
+    } else {
+      const err = await res.text().catch(() => "Unknown error");
+      envVarSync = { status: "skipped", reason: err };
+    }
+  } catch (err) {
+    envVarSync = {
+      status: "failed",
+      reason: err instanceof Error ? err.message : String(err),
+    };
   }
 
-  const result = await res.json();
-  const syncedKeys: string[] = result.saved || [];
+  const syncedKeys = credentialStoreSync.keys;
   const timestamp = now();
 
-  // Update syncedAt on grants that were successfully pushed
+  // Update syncedAt on grants that were successfully pushed to the shared
+  // credential store. All-apps mode has no explicit grant rows to update.
   for (const grant of activeGrants) {
     const secret = await getSecret(grant.secretId, ctx);
     if (secret && syncedKeys.includes(secret.credentialKey)) {
@@ -589,7 +650,15 @@ export async function syncGrantsToApp(
     action: "secret.synced",
     appId,
     summary: `Synced ${syncedKeys.length} secret(s) to ${appId}: ${syncedKeys.join(", ")}`,
-    metadata: { syncedKeys, accessMode: access.mode },
+    metadata: {
+      syncedKeys,
+      accessMode: access.mode,
+      credentialStore: {
+        scope: credentialStoreSync.scope,
+        scopeId: credentialStoreSync.scopeId,
+      },
+      envVars: envVarSync,
+    },
   });
 
   return {
@@ -597,6 +666,12 @@ export async function syncGrantsToApp(
     accessMode: access.mode,
     synced: syncedKeys.length,
     keys: syncedKeys,
+    credentialStore: {
+      scope: credentialStoreSync.scope,
+      scopeId: credentialStoreSync.scopeId,
+      synced: credentialStoreSync.keys.length,
+    },
+    envVars: envVarSync,
   };
 }
 
