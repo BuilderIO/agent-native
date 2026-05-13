@@ -16,7 +16,7 @@ export interface NavigationState {
   /** Optional unique-per-write token. When present, the UI uses it to detect
    * legitimate repeat writes (same payload, different `_writeId`) vs. the
    * race where DELETE didn't land before the next polling refetch. Older
-   * writers may omit it; the dedup logic falls back to content equality.  */
+   * writers may omit it; the dedup logic falls back to content equality. */
   _writeId?: string;
 }
 
@@ -80,12 +80,6 @@ export function useNavigationState() {
 
   // Listen for navigate commands from agent. Prefer the one-shot command for
   // this browser tab; fall back to the legacy global command for CLI actions.
-  //
-  // Default React Query options (`structuralSharing: true`) deep-equal the
-  // response and reuse the previous reference when the value hasn't changed,
-  // so repeated invalidations triggered by `useDbSync` (which fire on every
-  // app-state event including unrelated keys like `slide-fit-check`) don't
-  // churn the useEffect below.
   const { data: navCommand } = useQuery<{
     key: string;
     command: NavigationState;
@@ -120,11 +114,8 @@ export function useNavigationState() {
   // the GET still returns the old value, and (2) the agent error path leaves
   // a stale command in `application_state` that every subsequent app-state
   // event keeps re-reading. Without this dedup the editor visibly flips
-  // between slides — most painfully when both `navigate` and `__set_url__`
-  // have stale commands pointing at different slides, producing an
-  // oscillation between two slide indexes. Dedup key prefers the writer's
-  // `_writeId` (unique per write) and falls back to content equality so older
-  // writers that haven't been updated to include `_writeId` still benefit.
+  // between slides. Dedup key prefers the writer's `_writeId` and falls back
+  // to content equality so older writers still benefit.
   const lastProcessedDedupKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
