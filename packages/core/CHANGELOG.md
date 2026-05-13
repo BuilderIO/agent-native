@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.15.1
+
+### Patch Changes
+
+- 10dc17f: Improve Builder preview Google OAuth popup completion, diagnostics, and callback error propagation.
+- 10dc17f: Keep the pre-hydration theme script's resolved data-theme in sync with the html class.
+
 ## 0.15.0
 
 ### Minor Changes
