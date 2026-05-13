@@ -328,7 +328,7 @@ function serializeMetadata(
 function scratchFilterSql(options?: ResourceListOptions): string {
   return options?.includeAgentScratch === true
     ? ""
-    : " AND visibility != 'agent_scratch'";
+    : " AND (visibility IS NULL OR visibility != 'agent_scratch')";
 }
 
 async function cleanupExpiredAgentScratchResources(
