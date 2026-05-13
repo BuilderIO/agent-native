@@ -43,6 +43,7 @@ type SidebarDashboard = {
   subviews?: DashboardSubview[];
   source: "static" | "sql";
   archivedAt?: string | null;
+  visibility?: Visibility;
 };
 import {
   Tooltip,
@@ -259,6 +260,7 @@ function SortableRow({
   onRename,
   onArchive,
   archived,
+  visibility,
   children,
 }: {
   id: string;
@@ -275,6 +277,7 @@ function SortableRow({
    *  omitted, Delete fires immediately with no confirm (analyses behavior). */
   onArchive?: (action: "archive" | "restore") => Promise<void> | void;
   archived?: boolean;
+  visibility?: Visibility;
   children?: React.ReactNode;
 }) {
   const {
@@ -392,7 +395,10 @@ function SortableRow({
                 to={href}
                 className="min-w-0 flex-1 px-2 py-1.5 pr-12 text-xs transition-[padding] md:pr-2 md:group-hover/item:pr-12 md:group-focus-within/item:pr-12"
               >
-                <span className="block truncate">{name}</span>
+                <span className="flex items-center gap-1.5">
+                  {visibility && <VisibilityDot visibility={visibility} />}
+                  <span className="truncate">{name}</span>
+                </span>
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right">{name}</TooltipContent>
@@ -602,6 +608,7 @@ function SortableDashboardItem({
       onRename={(name) => onRename(d, name)}
       onArchive={onArchive ? (action) => onArchive(d, action) : undefined}
       archived={!!d.archivedAt}
+      visibility={d.visibility}
     >
       {isActive && allSubviews.length > 0 && (
         <div className="ml-6 mt-0.5 space-y-0.5">
@@ -869,11 +876,38 @@ function setStaticDashboardRenames(renames: Record<string, string>): void {
   }
 }
 
+type Visibility = "private" | "org" | "public";
+
 type SqlDashboardListItem = {
   id: string;
   name: string;
   archivedAt: string | null;
+  visibility?: Visibility;
 };
+
+function VisibilityDot({ visibility }: { visibility: Visibility }) {
+  const colors: Record<Visibility, string> = {
+    private: "bg-yellow-400",
+    org: "bg-blue-400",
+    public: "bg-green-400",
+  };
+  const labels: Record<Visibility, string> = {
+    private: "Private",
+    org: "Shared with org",
+    public: "Public",
+  };
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${colors[visibility]}`}
+          aria-label={labels[visibility]}
+        />
+      </TooltipTrigger>
+      <TooltipContent side="right">{labels[visibility]}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 async function fetchSqlDashboardsByArchived(
   archived: "active" | "archived",
@@ -897,6 +931,10 @@ async function fetchSqlDashboardsByArchived(
           ? d.name
           : "Untitled dashboard",
       archivedAt: typeof d.archivedAt === "string" ? d.archivedAt : null,
+      visibility:
+        d.visibility === "org" || d.visibility === "public"
+          ? d.visibility
+          : ("private" as Visibility),
     }));
 }
 
@@ -904,7 +942,9 @@ const fetchSqlDashboards = () => fetchSqlDashboardsByArchived("active");
 const fetchArchivedSqlDashboards = () =>
   fetchSqlDashboardsByArchived("archived");
 
-async function fetchSidebarAnalyses(): Promise<{ id: string; name: string }[]> {
+async function fetchSidebarAnalyses(): Promise<
+  { id: string; name: string; visibility?: Visibility }[]
+> {
   const token = await getIdToken();
   const res = await fetch(appApiPath("/api/analyses"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -920,6 +960,10 @@ async function fetchSidebarAnalyses(): Promise<{ id: string; name: string }[]> {
         typeof a.name === "string" && a.name.trim().length > 0
           ? a.name
           : "Untitled analysis",
+      visibility:
+        a.visibility === "org" || a.visibility === "public"
+          ? a.visibility
+          : ("private" as Visibility),
     }));
 }
 
@@ -1128,6 +1172,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       name: d.name,
       source: "sql",
       archivedAt: d.archivedAt,
+      visibility: d.visibility,
     }));
     const all = [...staticItems, ...sqlItems];
     if (dashboardSortMode === "alphabetical") {
@@ -1724,6 +1769,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       onToggleFavorite={toggleFavorite}
                       onDelete={() => handleAnalysisDelete(a)}
                       onRename={(name) => handleAnalysisRename(a, name)}
+                      visibility={a.visibility}
                     />
                   ))}
                   {sortedAnalyses.length > SIDEBAR_PREVIEW_COUNT && (

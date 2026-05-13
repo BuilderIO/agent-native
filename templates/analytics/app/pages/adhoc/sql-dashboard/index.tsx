@@ -121,6 +121,7 @@ type FetchedDashboard = {
   archivedAt: string | null;
   updatedAt: string | null;
   ownerEmail: string | null;
+  visibility: "private" | "org" | "public" | null;
 };
 
 async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
@@ -139,6 +140,10 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
     updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
     ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
+    visibility:
+      data.visibility === "org" || data.visibility === "public"
+        ? data.visibility
+        : "private",
   };
 }
 
@@ -177,6 +182,9 @@ export default function SqlDashboardPage() {
     null,
   );
   const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardVisibility, setDashboardVisibility] = useState<
+    "private" | "org" | "public"
+  >("private");
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [editingDescription, setEditingDescription] = useState(false);
@@ -317,6 +325,7 @@ export default function SqlDashboardPage() {
     setArchivedAt(fetched?.archivedAt ?? null);
     setDashboardUpdatedAt(fetched?.updatedAt ?? null);
     setDashboardOwner(fetched?.ownerEmail ?? null);
+    setDashboardVisibility(fetched?.visibility ?? "private");
     setLoaded(true);
     if (fetched && viewedDashboardIdRef.current !== dashboardId) {
       viewedDashboardIdRef.current = dashboardId;
@@ -920,28 +929,50 @@ export default function SqlDashboardPage() {
 
   return (
     <div className="space-y-4">
-      {/* Author and last updated metadata */}
-      {(dashboardUpdatedAt || dashboardOwner) && (
-        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          {dashboardUpdatedAt && (
-            <span className="flex items-center gap-1">
-              <IconClock className="h-3 w-3" />
-              Updated{" "}
-              {new Date(dashboardUpdatedAt).toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-              })}
-            </span>
-          )}
-          {dashboardOwner && (
-            <span className="flex items-center gap-1">
-              <IconUser className="h-3 w-3" />
-              {dashboardOwner.split("@")[0]}
-            </span>
-          )}
-        </div>
-      )}
+      {/* Author, last updated, and visibility metadata */}
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        {dashboardUpdatedAt && (
+          <span className="flex items-center gap-1">
+            <IconClock className="h-3 w-3" />
+            Updated{" "}
+            {new Date(dashboardUpdatedAt).toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            })}
+          </span>
+        )}
+        {dashboardOwner && (
+          <span className="flex items-center gap-1">
+            <IconUser className="h-3 w-3" />
+            {dashboardOwner.split("@")[0]}
+          </span>
+        )}
+        <span
+          className={`flex items-center gap-1.5 font-medium ${
+            dashboardVisibility === "public"
+              ? "text-green-600"
+              : dashboardVisibility === "org"
+                ? "text-blue-600"
+                : "text-yellow-600"
+          }`}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              dashboardVisibility === "public"
+                ? "bg-green-500"
+                : dashboardVisibility === "org"
+                  ? "bg-blue-500"
+                  : "bg-yellow-500"
+            }`}
+          />
+          {dashboardVisibility === "public"
+            ? "Public"
+            : dashboardVisibility === "org"
+              ? "Shared with org"
+              : "Private"}
+        </span>
+      </div>
 
       {/* Description (click to edit) */}
       {editingDescription ? (
