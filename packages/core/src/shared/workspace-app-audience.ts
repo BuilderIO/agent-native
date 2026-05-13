@@ -24,7 +24,10 @@ export function normalizeWorkspaceAppPathList(value: unknown): string[] {
     if (!trimmed) return [];
     try {
       const parsed = JSON.parse(trimmed);
-      rawPaths = Array.isArray(parsed) ? parsed : [trimmed];
+      // When JSON parses to a non-array (e.g. a single quoted string
+      // `"/api"`), use the parsed value, not the original quoted form —
+      // otherwise the `/`-prefix filter below silently drops it.
+      rawPaths = Array.isArray(parsed) ? parsed : [parsed];
     } catch {
       rawPaths = trimmed.split(",");
     }
