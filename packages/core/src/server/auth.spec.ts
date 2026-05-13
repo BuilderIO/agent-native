@@ -1426,7 +1426,7 @@ describe("server/auth", () => {
   });
 
   describe("onboarding Google sign-in", () => {
-    it("keeps popup OAuth for browser Builder previews and uses redirect for Builder desktop", async () => {
+    it("keeps popup OAuth for Builder preview surfaces", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
@@ -1459,9 +1459,7 @@ describe("server/auth", () => {
       expect(html).toContain("params.set('redirect', '1')");
       expect(html).toContain("__anIsBuilderDesktop()");
       expect(html).toContain("__anIsAgentNativeDesktop()");
-      expect(html).toContain(
-        "if (__anIsBuilderPreview() && !__anIsBuilderDesktop())",
-      );
+      expect(html).toContain("if (__anIsBuilderPreview()) return 'popup'");
       expect(html).toContain(
         "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
       );
@@ -1506,9 +1504,7 @@ describe("server/auth", () => {
       );
       expect(loginHtml).toContain("__anIsBuilderDesktop()");
       expect(loginHtml).toContain("__anIsAgentNativeDesktop()");
-      expect(loginHtml).toContain(
-        "if (__anIsBuilderPreview() && !__anIsBuilderDesktop())",
-      );
+      expect(loginHtml).toContain("if (__anIsBuilderPreview()) return 'popup'");
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
       );
@@ -1898,6 +1894,25 @@ describe("server/auth", () => {
     });
   });
 
+  describe("getAppProductionUrl", () => {
+    it("uses the workspace OAuth origin ahead of a loopback gateway", async () => {
+      vi.stubEnv("WORKSPACE_OAUTH_ORIGIN", "https://auth.agent.example");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+      const { getAppProductionUrl } = await import("./app-url.js");
+
+      expect(getAppProductionUrl()).toBe("https://auth.agent.example");
+    });
+
+    it("uses platform URLs ahead of loopback workspace gateways in production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("URL", "https://workspace.example.test");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+      const { getAppProductionUrl } = await import("./app-url.js");
+
+      expect(getAppProductionUrl()).toBe("https://workspace.example.test");
+    });
+  });
+
   describe("resolveOAuthRedirectUri", () => {
     it("defaults root workspace framework-route requests to the root callback", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
@@ -1965,6 +1980,46 @@ describe("server/auth", () => {
 
       expect(resolveOAuthRedirectUri(event)).toBe(
         "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+    });
+
+    it("uses the configured workspace OAuth origin instead of the local gateway", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("WORKSPACE_OAUTH_ORIGIN", "https://auth.agent.example");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: "127.0.0.1:8080",
+          referer:
+            "https://940ebc5a83164aa6a37dde445e494f3a-thunder-handle-xmq6tgfy.builderio.xyz/?builder.preview=interact",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://auth.agent.example/_agent-native/google/callback",
+      );
+    });
+
+    it("prefers platform public URLs over loopback workspace gateways in production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("URL", "https://workspace.example.test");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: "127.0.0.1:8080",
+          "x-forwarded-proto": "http",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://workspace.example.test/_agent-native/google/callback",
       );
     });
 

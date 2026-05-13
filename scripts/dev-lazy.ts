@@ -36,6 +36,7 @@ const DEFAULT_GATEWAY_PORT = 8080;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
+const POLLING_WATCH_INTERVAL_MS = "1000";
 
 function hasFlag(name: string): boolean {
   return argv.includes(name);
@@ -172,6 +173,64 @@ const defaultApp = selectedById.has("dispatch") ? "dispatch" : apps[0].id;
 const backgroundProcesses: ChildProcess[] = [];
 let shuttingDown = false;
 let gatewayServer: http.Server | undefined;
+
+function readBooleanEnv(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+function shouldUsePollingFileWatcher(
+  env: NodeJS.ProcessEnv,
+  root: string,
+): boolean {
+  const explicit =
+    readBooleanEnv(env.AGENT_NATIVE_DEV_USE_POLLING) ??
+    readBooleanEnv(env.WORKSPACE_USE_POLLING_WATCHER);
+  if (explicit !== undefined) return explicit;
+
+  const chokidarExplicit = readBooleanEnv(env.CHOKIDAR_USEPOLLING);
+  if (chokidarExplicit !== undefined) return chokidarExplicit;
+
+  return Boolean(
+    env.BUILDER_IO_DEV_SERVER ||
+    env.BUILDER_PROJECT_ID ||
+    env.BUILDER_WORKSPACE_ID ||
+    env.CODESPACES ||
+    env.GITPOD_WORKSPACE_ID ||
+    env.REMOTE_CONTAINERS ||
+    env.DEVCONTAINER ||
+    root.startsWith("/root/app/"),
+  );
+}
+
+const usePollingFileWatcher = shouldUsePollingFileWatcher(process.env, ROOT);
+
+function devWatcherEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (usePollingFileWatcher) {
+    return {
+      ...env,
+      CHOKIDAR_USEPOLLING: "1",
+      CHOKIDAR_INTERVAL: env.CHOKIDAR_INTERVAL ?? POLLING_WATCH_INTERVAL_MS,
+      TSC_WATCHFILE: env.TSC_WATCHFILE ?? "DynamicPriorityPolling",
+      TSC_WATCHDIRECTORY: env.TSC_WATCHDIRECTORY ?? "DynamicPriorityPolling",
+    };
+  }
+  // Explicit disable must override inherited CHOKIDAR_USEPOLLING from the
+  // parent shell so child processes don't silently poll despite the user
+  // setting AGENT_NATIVE_DEV_USE_POLLING=0. Strip the watcher vars instead
+  // of returning env unchanged.
+  const {
+    CHOKIDAR_USEPOLLING: _polling,
+    CHOKIDAR_INTERVAL: _interval,
+    TSC_WATCHFILE: _watchFile,
+    TSC_WATCHDIRECTORY: _watchDir,
+    ...rest
+  } = env;
+  return rest;
+}
 
 function workspaceAppsJson(): string {
   return JSON.stringify(
@@ -481,7 +540,7 @@ function startApp(app: TemplateApp): void {
     {
       cwd: ROOT,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
+      env: devWatcherEnv({
         ...process.env,
         // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors
         // skip colors by default. FORCE_COLOR=1 re-enables them — the parent's
@@ -495,7 +554,7 @@ function startApp(app: TemplateApp): void {
         VITE_APP_BASE_PATH: basePath,
         PORT: String(app.port),
         WORKSPACE_GATEWAY_URL: gatewayUrl,
-      },
+      }),
     },
   );
 
@@ -739,7 +798,7 @@ function startBackgroundProcess(
   const child = spawn(command, args, {
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...env, FORCE_COLOR: "1" },
+    env: devWatcherEnv({ ...env, FORCE_COLOR: "1" }),
     shell: process.platform === "win32",
   });
   backgroundProcesses.push(child);
@@ -787,6 +846,11 @@ function shutdown(code = 0): void {
 if (dryRun) {
   console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
   console.log(`[dev-lazy] Mode: ${eager ? "eager" : "lazy"}`);
+  if (usePollingFileWatcher) {
+    console.log(
+      `[dev-lazy] Watch mode: polling (${POLLING_WATCH_INTERVAL_MS}ms)`,
+    );
+  }
   for (const app of apps) {
     console.log(`[dev-lazy] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
   }
@@ -803,6 +867,12 @@ if (shouldKill) {
 
 console.log("[dev-lazy] Prebuilding @agent-native/core...");
 execSync("pnpm --filter @agent-native/core build", { stdio: "inherit" });
+
+if (usePollingFileWatcher) {
+  console.log(
+    `[dev-lazy] Using polling file watchers (${POLLING_WATCH_INTERVAL_MS}ms) to avoid remote-container inotify limits.`,
+  );
+}
 
 startBackgroundProcess("core", "pnpm", [
   "--filter",

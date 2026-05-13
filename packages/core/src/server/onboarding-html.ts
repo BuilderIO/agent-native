@@ -1023,9 +1023,9 @@ ${
         var qp = new URLSearchParams(window.location.search).get('authMode');
         if (qp === 'popup' || qp === 'redirect') return qp;
       } catch(e) {}
-      // Builder.io browser iframe must use popup — Google sets
-      // X-Frame-Options: DENY so a redirect inside the iframe fails.
-      if (__anIsBuilderPreview() && !__anIsBuilderDesktop()) return 'popup';
+      // Builder.io preview surfaces must use popup — Google sets
+      // X-Frame-Options: DENY so a redirect inside the webview/iframe fails.
+      if (__anIsBuilderPreview()) return 'popup';
       var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
       if (mode === 'popup') return 'popup';
       if (mode === 'redirect') return 'redirect';

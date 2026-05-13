@@ -204,7 +204,7 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
     }
   }
   function __anResolveAuthFlow() {
-    if (__anIsBuilderPreview() && !__anIsBuilderDesktop()) return 'popup';
+    if (__anIsBuilderPreview()) return 'popup';
     var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
     if (mode === 'popup') return 'popup';
     if (mode === 'redirect') return 'redirect';

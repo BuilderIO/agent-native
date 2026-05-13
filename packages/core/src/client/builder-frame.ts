@@ -98,6 +98,12 @@ export function isInBuilderFrame(): boolean {
   return hasBuilderPreviewParams();
 }
 
+export function shouldParentFrameOwnAgentPanel(): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.parent === window) return false;
+  return !isInBuilderFrame();
+}
+
 export function isTrustedBuilderMessage(event: MessageEvent): boolean {
   if (typeof window === "undefined") return false;
   const origin = getBuilderParentOrigin();

@@ -100,6 +100,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | `self-modifying-code` | Before editing source, components, or styles                                      |
 | `capture-learnings`   | Before recording user preferences or corrections                                  |
 | `frontend-design`     | Before building or restyling any UI component, page, or layout                    |
+| `shadcn-ui`           | Before adding, updating, or debugging shadcn/ui components                        |
 | `agent-engines`       | Before switching LLM providers or registering a custom engine                     |
 | `notifications`       | Before surfacing alerts/progress to the user or adding channels                   |
 | `progress`            | Before running any task that takes more than a few seconds                        |

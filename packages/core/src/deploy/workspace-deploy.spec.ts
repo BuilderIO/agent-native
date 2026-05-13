@@ -788,6 +788,51 @@ describe("workspace deploy", () => {
     ]);
   });
 
+  it("uses public workspace URLs before loopback gateways when building apps", async () => {
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "mail");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const dispatchCall = buildCallForApp("dispatch");
+    expect(dispatchCall?.env?.WORKSPACE_GATEWAY_URL).toBe(
+      "http://127.0.0.1:8080",
+    );
+    expect(dispatchCall?.env?.VITE_WORKSPACE_GATEWAY_URL).toBe(
+      "https://workspace.example.test",
+    );
+    expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
+      "https://workspace.example.test",
+    );
+    expect(
+      JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
+    ).toEqual([
+      {
+        id: "dispatch",
+        name: "Dispatch",
+        description: "",
+        path: "/dispatch",
+        url: "https://workspace.example.test/dispatch",
+        isDispatch: true,
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        description: "",
+        path: "/mail",
+        url: "https://workspace.example.test/mail",
+        isDispatch: false,
+      },
+    ]);
+  });
+
   it("rejects app ids that conflict with reserved workspace routes", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "login");

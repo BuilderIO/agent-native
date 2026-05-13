@@ -68,36 +68,37 @@ actions/               # App operations (agent tools + auto-mounted HTTP endpoin
 
 Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant skill before making changes — these are the source of truth for how to do things in this codebase.
 
-| Skill                  | When to use                                                   |
-| ---------------------- | ------------------------------------------------------------- |
-| `address-feedback`     | Triage feedback docs into bugs to fix and UX proposals        |
-| `adding-a-feature`     | Adding any new feature (the four-area checklist)              |
-| `actions`              | Creating or running agent actions                             |
-| `storing-data`         | Adding data models, reading/writing config or state           |
-| `real-time-sync`       | Wiring polling sync, debugging UI not updating, jitter issues |
-| `real-time-collab`     | Multi-user collaborative editing with Yjs CRDT + live cursors |
-| `context-awareness`    | Exposing UI state to the agent, view-screen pattern           |
-| `client-side-routing`  | Adding routes without remounting the app shell                |
-| `delegate-to-agent`    | Delegating AI work from UI or actions to the agent            |
-| `self-modifying-code`  | Editing app source, components, or styles                     |
-| `portability`          | Keeping code database- and hosting-agnostic                   |
-| `server-plugins`       | Framework plugins and the `/_agent-native/` namespace         |
-| `authentication`       | Auth modes, sessions, orgs, protecting routes                 |
-| `security`             | Input validation, SQL injection, XSS, secrets, data scoping   |
-| `a2a-protocol`         | Enabling inter-agent communication                            |
-| `recurring-jobs`       | Scheduled tasks the agent runs on a cron schedule             |
-| `onboarding`           | Registering setup steps for API keys / OAuth                  |
-| `secrets`              | Declaratively register API keys the template needs            |
-| `automations`          | Event-triggered and schedule-triggered automations            |
-| `integration-webhooks` | Cross-platform webhook → SQL queue → processor pattern        |
-| `observability`        | Agent traces, evals, feedback, experiments, and dashboard     |
-| `tracking`             | Server-side analytics with pluggable providers                |
-| `sharing`              | Per-user / per-org sharing and access checks on resources     |
-| `voice-transcription`  | Voice dictation in the agent composer (Whisper / browser)     |
-| `frontend-design`      | Building or styling any web UI, components, or pages          |
-| `create-skill`         | Adding new skills for the agent                               |
-| `extensions`           | Creating, editing, and managing sandboxed mini-app extensions |
-| `capture-learnings`    | Recording corrections and patterns                            |
+| Skill                  | When to use                                                     |
+| ---------------------- | --------------------------------------------------------------- |
+| `address-feedback`     | Triage feedback docs into bugs to fix and UX proposals          |
+| `adding-a-feature`     | Adding any new feature (the four-area checklist)                |
+| `actions`              | Creating or running agent actions                               |
+| `storing-data`         | Adding data models, reading/writing config or state             |
+| `real-time-sync`       | Wiring polling sync, debugging UI not updating, jitter issues   |
+| `real-time-collab`     | Multi-user collaborative editing with Yjs CRDT + live cursors   |
+| `context-awareness`    | Exposing UI state to the agent, view-screen pattern             |
+| `client-side-routing`  | Adding routes without remounting the app shell                  |
+| `delegate-to-agent`    | Delegating AI work from UI or actions to the agent              |
+| `self-modifying-code`  | Editing app source, components, or styles                       |
+| `portability`          | Keeping code database- and hosting-agnostic                     |
+| `server-plugins`       | Framework plugins and the `/_agent-native/` namespace           |
+| `authentication`       | Auth modes, sessions, orgs, protecting routes                   |
+| `security`             | Input validation, SQL injection, XSS, secrets, data scoping     |
+| `a2a-protocol`         | Enabling inter-agent communication                              |
+| `recurring-jobs`       | Scheduled tasks the agent runs on a cron schedule               |
+| `onboarding`           | Registering setup steps for API keys / OAuth                    |
+| `secrets`              | Declaratively register API keys the template needs              |
+| `automations`          | Event-triggered and schedule-triggered automations              |
+| `integration-webhooks` | Cross-platform webhook → SQL queue → processor pattern          |
+| `observability`        | Agent traces, evals, feedback, experiments, and dashboard       |
+| `tracking`             | Server-side analytics with pluggable providers                  |
+| `sharing`              | Per-user / per-org sharing and access checks on resources       |
+| `voice-transcription`  | Voice dictation in the agent composer (Whisper / browser)       |
+| `frontend-design`      | Building or styling any web UI, components, or pages            |
+| `shadcn-ui`            | shadcn/ui components, CLI, composition, theming, and registries |
+| `create-skill`         | Adding new skills for the agent                                 |
+| `extensions`           | Creating, editing, and managing sandboxed mini-app extensions   |
+| `capture-learnings`    | Recording corrections and patterns                              |
 
 ## All-Agent Support
 

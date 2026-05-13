@@ -63,6 +63,7 @@ const DEFAULT_APP_PORT_START = 8100;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
+const POLLING_WATCH_INTERVAL_MS = "1000";
 
 function normalizeOrigin(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -101,6 +102,65 @@ export function shouldEagerStartWorkspaceApps(
     env.WORKSPACE_EAGER === "1" ||
     env.WORKSPACE_EAGER === "true"
   );
+}
+
+function readBooleanEnv(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+export function shouldUsePollingFileWatcher(
+  env: NodeJS.ProcessEnv = process.env,
+  root = process.cwd(),
+): boolean {
+  const explicit =
+    readBooleanEnv(env.AGENT_NATIVE_DEV_USE_POLLING) ??
+    readBooleanEnv(env.WORKSPACE_USE_POLLING_WATCHER);
+  if (explicit !== undefined) return explicit;
+
+  const chokidarExplicit = readBooleanEnv(env.CHOKIDAR_USEPOLLING);
+  if (chokidarExplicit !== undefined) return chokidarExplicit;
+
+  return Boolean(
+    env.BUILDER_IO_DEV_SERVER ||
+    env.BUILDER_PROJECT_ID ||
+    env.BUILDER_WORKSPACE_ID ||
+    env.CODESPACES ||
+    env.GITPOD_WORKSPACE_ID ||
+    env.REMOTE_CONTAINERS ||
+    env.DEVCONTAINER ||
+    root.startsWith("/root/app/"),
+  );
+}
+
+function devWatcherEnv(
+  env: NodeJS.ProcessEnv,
+  usePollingFileWatcher: boolean,
+): NodeJS.ProcessEnv {
+  if (usePollingFileWatcher) {
+    return {
+      ...env,
+      CHOKIDAR_USEPOLLING: "1",
+      CHOKIDAR_INTERVAL: env.CHOKIDAR_INTERVAL ?? POLLING_WATCH_INTERVAL_MS,
+      TSC_WATCHFILE: env.TSC_WATCHFILE ?? "DynamicPriorityPolling",
+      TSC_WATCHDIRECTORY: env.TSC_WATCHDIRECTORY ?? "DynamicPriorityPolling",
+    };
+  }
+  // Explicit disable must override inherited CHOKIDAR_USEPOLLING from the
+  // parent shell so child processes don't silently poll despite the user
+  // setting AGENT_NATIVE_DEV_USE_POLLING=0. Strip the watcher vars instead
+  // of returning env unchanged.
+  const {
+    CHOKIDAR_USEPOLLING: _polling,
+    CHOKIDAR_INTERVAL: _interval,
+    TSC_WATCHFILE: _watchFile,
+    TSC_WATCHDIRECTORY: _watchDir,
+    ...rest
+  } = env;
+  return rest;
 }
 
 export function initialWorkspaceAppIds(
@@ -396,6 +456,7 @@ export async function runWorkspaceDev(
   );
   const forceVite = env.WORKSPACE_VITE_FORCE === "1";
   const eager = shouldEagerStartWorkspaceApps(args, env);
+  const usePollingFileWatcher = shouldUsePollingFileWatcher(env, root);
   const proxyReadyTimeoutMs = Number(
     env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
   );
@@ -462,6 +523,12 @@ export async function runWorkspaceDev(
   let syncTimer: NodeJS.Timeout | undefined;
   let shuttingDown = false;
   let workspaceStarted = false;
+
+  if (usePollingFileWatcher) {
+    stdout.write(
+      `[workspace] Using polling file watchers (${POLLING_WATCH_INTERVAL_MS}ms) to avoid remote-container inotify limits.\n`,
+    );
+  }
 
   let readyResolve: (value: { port: number; url: string }) => void;
   const ready = new Promise<{ port: number; url: string }>((resolve) => {
@@ -565,20 +632,23 @@ export async function runWorkspaceDev(
     const child = spawnProcess("pnpm", childArgs, {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...env,
-        APP_NAME: app.id,
-        AGENT_NATIVE_WORKSPACE: "1",
-        AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
-        APP_BASE_PATH: basePath,
-        VITE_AGENT_NATIVE_WORKSPACE: "1",
-        VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
-        VITE_APP_BASE_PATH: basePath,
-        VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(env, gatewayUrl),
-        VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
-        PORT: String(app.port),
-        WORKSPACE_GATEWAY_URL: gatewayUrl,
-      },
+      env: devWatcherEnv(
+        {
+          ...env,
+          APP_NAME: app.id,
+          AGENT_NATIVE_WORKSPACE: "1",
+          AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+          APP_BASE_PATH: basePath,
+          VITE_AGENT_NATIVE_WORKSPACE: "1",
+          VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+          VITE_APP_BASE_PATH: basePath,
+          VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(env, gatewayUrl),
+          VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
+          PORT: String(app.port),
+          WORKSPACE_GATEWAY_URL: gatewayUrl,
+        },
+        usePollingFileWatcher,
+      ),
     });
     app.process = child;
     app.installing = shouldInstall;

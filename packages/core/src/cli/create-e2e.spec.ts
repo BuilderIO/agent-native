@@ -486,7 +486,13 @@ describe("workspace scaffold defaults", () => {
       fs.existsSync(path.join(sharedSkillsDir, "sharing", "SKILL.md")),
     ).toBe(true);
     expect(
+      fs.existsSync(path.join(sharedSkillsDir, "shadcn-ui", "SKILL.md")),
+    ).toBe(true);
+    expect(
       fs.existsSync(path.join(rootSkillsDir, "context-awareness", "SKILL.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(rootSkillsDir, "shadcn-ui", "SKILL.md")),
     ).toBe(true);
     expect(fs.existsSync(path.join(wsDir, ".claude", "skills"))).toBe(true);
     expect(

@@ -12,58 +12,81 @@ source: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SK
 
 # Frontend Design
 
-This skill guides creation of distinctive, production-grade frontend interfaces that avoid generic "AI slop" aesthetics. Implement real working code with exceptional attention to aesthetic details and creative choices.
+This skill guides creation of distinctive, production-grade frontend interfaces. Implement real working code with strong product judgment, excellent accessibility, and a clear visual point of view.
 
-The user provides frontend requirements: a component, page, application, or interface to build. They may include context about the purpose, audience, or technical constraints.
+The user may ask for a component, page, full app, dashboard, marketing surface, or restyle. Before coding, understand the audience and pick a direction that fits the product instead of defaulting to generic SaaS polish.
 
 ## Design Thinking
 
-Before coding, understand the context and commit to a BOLD aesthetic direction:
-- **Purpose**: What problem does this interface solve? Who uses it?
-- **Tone**: Pick an extreme: brutally minimal, maximalist chaos, retro-futuristic, organic/natural, luxury/refined, playful/toy-like, editorial/magazine, brutalist/raw, art deco/geometric, soft/pastel, industrial/utilitarian, etc. There are so many flavors to choose from. Use these for inspiration but design one that is true to the aesthetic direction.
-- **Constraints**: Technical requirements (framework, performance, accessibility).
-- **Differentiation**: What makes this UNFORGETTABLE? What's the one thing someone will remember?
+Before coding, decide:
 
-**CRITICAL**: Choose a clear conceptual direction and execute it with precision. Bold maximalism and refined minimalism both work — the key is intentionality, not intensity.
+- **Purpose**: What workflow does this surface make easier? What is the primary action?
+- **Audience**: Who will use it repeatedly, and what should feel fast, calm, playful, premium, editorial, technical, or utilitarian?
+- **Tone**: Choose a concrete aesthetic direction: refined minimal, dense operations console, editorial, playful, industrial, warm handmade, high-contrast data tool, etc.
+- **Information hierarchy**: What must be visible in the first five seconds, and what should be progressively disclosed?
+- **Differentiation**: What makes this feel designed for this exact domain?
 
-Then implement working code (HTML/CSS/JS, React, Vue, etc.) that is:
-- Production-grade and functional
-- Visually striking and memorable
-- Cohesive with a clear aesthetic point-of-view
-- Meticulously refined in every detail
+Then implement working code that is cohesive, accessible, responsive, and polished in small details: typography, spacing, copy, motion, empty states, loading states, focus states, and error states.
 
-## Frontend Aesthetics Guidelines
+## Aesthetic Guidelines
 
-Focus on:
-- **Typography**: Choose fonts that are beautiful, unique, and interesting. Avoid generic fonts like Arial and Inter; opt instead for distinctive choices that elevate the frontend's aesthetics; unexpected, characterful font choices. Pair a distinctive display font with a refined body font.
-- **Color & Theme**: Commit to a cohesive aesthetic. Use CSS variables for consistency. Dominant colors with sharp accents outperform timid, evenly-distributed palettes.
-- **Motion**: Use animations for effects and micro-interactions. Prioritize CSS-only solutions for HTML. Use Motion library for React when available. Focus on high-impact moments: one well-orchestrated page load with staggered reveals (`animation-delay`) creates more delight than scattered micro-interactions. Use scroll-triggering and hover states that surprise.
-- **Spatial Composition**: Unexpected layouts. Asymmetry. Overlap. Diagonal flow. Grid-breaking elements. Generous negative space OR controlled density.
-- **Backgrounds & Visual Details**: Create atmosphere and depth rather than defaulting to solid colors. Add contextual effects and textures that match the overall aesthetic. Apply creative forms like gradient meshes, noise textures, geometric patterns, layered transparencies, dramatic shadows, decorative borders, custom cursors, and grain overlays.
+- **Typography**: Use the product's existing type system first. For net-new public pages, choose characterful but readable type and keep sizing appropriate to the surface.
+- **Color and theme**: Use semantic tokens and CSS variables. Avoid one-note palettes and default purple/blue gradients unless the brand demands them.
+- **Motion**: Prefer purposeful transitions and small state changes. Use CSS transitions/keyframes unless the app already uses a motion library.
+- **Composition**: Match the workflow. Operational apps should be dense and scannable; marketing or portfolio pages can be more immersive.
+- **Visual assets**: Websites, games, and object-focused pages need real or generated media when images help users understand the subject.
+- **Responsive fit**: Text must not overflow buttons, cards, tabs, sidebars, or fixed-format tools. Use stable dimensions for boards, grids, toolbars, and counters.
 
-## Anti-Patterns to Avoid
+## Agent-Native UI Rules
 
-NEVER use generic AI-generated aesthetics like:
-- Overused font families (Inter, Roboto, Arial, system fonts)
-- Clichéd color schemes (particularly purple gradients on white backgrounds)
-- Predictable layouts and component patterns
-- Cookie-cutter design that lacks context-specific character
+- Agent-native apps use React, Vite, Tailwind CSS, shadcn/ui, and `@tabler/icons-react`.
+- **Use shadcn/ui primitives for standard UI**: `DropdownMenu`, `Popover`, `Dialog`, `AlertDialog`, `Sheet`, `Tabs`, `Tooltip`, `Select`, `Command`, `Sidebar`, `Table`, `Card`, `Badge`, `Skeleton`, and related primitives.
+- **When touching shadcn/ui components, also read `shadcn-ui` if it exists.** That skill covers `components.json`, CLI docs, component composition, theming, and registry workflows.
+- Check `app/components/ui/` before importing a shadcn component. If a primitive is missing, add it from the app root with `pnpm dlx shadcn@latest add <component>`, then review the generated file.
+- Do not build custom dropdowns, menus, popovers, modals, or confirmations with manual absolute positioning and click-outside effects.
+- Never use browser dialogs (`window.alert`, `window.confirm`, `window.prompt`). Use `AlertDialog`, `Dialog`, or app-specific confirmation UI.
+- Use Tabler icons for all first-party UI icons. Do not add Lucide, Heroicons, inline SVG icon sets, or emoji icons.
+- Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` for action-backed UI. Standard CRUD should go through actions, not custom `/api/` routes.
+- Keep UI optimistic where possible: update cache and navigation immediately, then reconcile or roll back on mutation result.
+- Custom styles belong in Tailwind classes, component CSS, or the existing global CSS theme file; avoid inline styles.
 
-Interpret creatively and make unexpected choices that feel genuinely designed for the context. No design should be the same. Vary between light and dark themes, different fonts, different aesthetics. NEVER converge on common choices (Space Grotesk, for example) across generations.
+## shadcn/ui Design Rules
 
-## Implementation Notes
+- Use built-in component variants first (`variant`, `size`) before overriding classes.
+- Use semantic tokens (`bg-background`, `text-muted-foreground`, `border-border`, `bg-primary`) instead of raw Tailwind colors for app chrome and reusable components.
+- Use `gap-*` in flex/grid layouts instead of `space-x-*` or `space-y-*`.
+- Use `size-*` when width and height are equal, and `truncate` instead of spelling out overflow/ellipsis/nowrap.
+- Use `cn()` from the local utils alias for conditional classes.
+- Dialog, Sheet, Drawer, and AlertDialog content must have an accessible title. Use `sr-only` only when the visible design already communicates the title.
+- Put menu/list items inside their group primitives: `SelectGroup`, `DropdownMenuGroup`, `CommandGroup`, and equivalents.
+- Use full `Card` composition when the content has a title, description, content, or actions. Do not dump complex cards into a single `CardContent`.
+- Use `ToggleGroup` for small option sets, `Switch` for binary settings, `Checkbox` for multi-select, `RadioGroup` for one-of-many, and `Slider`/inputs for numeric values.
+- For forms, prefer the app's existing shadcn form pattern. If newer `Field`, `FieldGroup`, or `InputGroup` primitives are installed or appropriate to add, use them instead of raw layout divs.
+- Loading states use `Skeleton`, `Progress`, `Spinner`, or the app's existing loading primitives. Empty states should have one clear next action.
 
-**Match implementation complexity to the aesthetic vision.** Maximalist designs need elaborate code with extensive animations and effects. Minimalist or refined designs need restraint, precision, and careful attention to spacing, typography, and subtle details. Elegance comes from executing the vision well.
+## Anti-Patterns
 
-In the agent-native framework context:
-- Agent-native apps use React 18, Vite, TailwindCSS, and shadcn/ui
-- Custom styles go in component CSS or Tailwind classes — never inline styles
-- For complex visual effects, use a `<style>` tag in the component or a dedicated CSS file
-- Fonts can be loaded from Google Fonts via `@import` in a CSS file or `<link>` in `index.html`
-- Animation libraries: prefer CSS transitions and keyframes; use Framer Motion for complex sequences
-- All new UI components should be placed in `app/components/`
+Avoid:
+
+- Generic AI aesthetics: purple gradients, glassy cards everywhere, vague sparkle language, decorative blobs, and context-free hero sections.
+- Custom reimplementations of shadcn primitives.
+- Raw color overrides on shared components when semantic tokens or variants would work.
+- New always-visible controls for rare actions. Prefer menus, popovers, sheets, tabs, collapsibles, or advanced sections.
+- UI cards nested inside other cards.
+- Text or icons that resize or shift fixed-format UI on hover/loading.
+
+## Verification
+
+For substantial frontend work:
+
+1. Run the relevant formatter/checks.
+2. Start the dev server when the app needs one.
+3. Verify with browser screenshots at desktop and mobile widths.
+4. Check interactive states: hover, focus, loading, empty, error, and destructive confirmations.
 
 ## Related Skills
 
+- **shadcn-ui** — shadcn CLI, component docs, composition rules, theming, and registries
 - **self-modifying-code** — The agent can edit source code to apply design changes
-- **storing-data** — Design configuration can be stored in the settings table for agent-editable theming
+- **storing-data** — All data lives in SQL; use actions for data access
+- **actions** — `useActionQuery`/`useActionMutation` hooks for frontend data fetching

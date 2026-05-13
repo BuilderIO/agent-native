@@ -75,6 +75,8 @@ coding agents can discover the same workspace-wide guidance from the root.
   when mounted at `/<app-id>`.
 - Use the framework/template UI stack for standard UI: shadcn/ui components and
   `@tabler/icons-react`. Do not add `lucide-react` or another icon library.
+  Read `packages/shared/.agents/skills/shadcn-ui/SKILL.md` before adding,
+  updating, or debugging shadcn components.
 - In local development, scaffold the app from the workspace root with
   `pnpm exec agent-native create <app-id> --template=<template>`. In production
   Dispatch posts the request to Builder branch creation; the Builder branch

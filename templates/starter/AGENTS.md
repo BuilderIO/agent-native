@@ -86,6 +86,7 @@ cd templates/starter && pnpm action <name> [args]
 | `actions`             | Before creating or modifying actions                                              |
 | `self-modifying-code` | Before editing source, components, or styles                                      |
 | `frontend-design`     | Before building or restyling any UI component, page, or layout                    |
+| `shadcn-ui`           | Before adding, updating, or debugging shadcn/ui components                        |
 
 ## When Adding Features
 
