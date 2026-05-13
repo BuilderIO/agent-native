@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { listWorkspaceApps } from "./app-creation-store.js";
+import {
+  generateWorkspaceAppDescription,
+  listWorkspaceApps,
+} from "./app-creation-store.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -21,7 +24,12 @@ describe("listWorkspaceApps", () => {
               name: "Agent-Native Dispatch",
               path: "/dispatch",
             },
-            { id: "todo", name: "Todo", path: "/todo" },
+            {
+              id: "todo",
+              name: "Todo",
+              description: "Tracks personal tasks and follow-ups",
+              path: "/todo",
+            },
           ],
         }),
         { headers: { "content-type": "application/json" } },
@@ -47,5 +55,17 @@ describe("listWorkspaceApps", () => {
       }),
     );
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "todo"]);
+    expect(apps.find((app) => app.id === "todo")?.description).toBe(
+      "Tracks personal tasks and follow-ups",
+    );
+  });
+
+  it("generates a concise seed description from an app prompt", () => {
+    expect(
+      generateWorkspaceAppDescription(
+        "Build me an app that tracks customer onboarding risks and handoffs",
+        "customer-onboarding",
+      ),
+    ).toBe("Tracks customer onboarding risks and handoffs.");
   });
 });
