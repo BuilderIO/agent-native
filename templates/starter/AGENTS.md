@@ -35,7 +35,12 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 
 ## Workspace App Creation
 
-The `/new-app` route lets the user prompt a new workspace app and choose which Dispatch vault keys it should receive. When loaded inside Builder, code prompts are delegated to Builder chat; in local dev, they go to the agent-native code agent. In production, app creation is only enabled when Builder branching is explicitly configured.
+The `/new-app` route lets the user prompt a new workspace app. Dispatch vault
+access is all-apps by default, so every saved vault key is available to the new
+app; only choose/request specific keys when Dispatch vault access is switched to
+manual mode. When loaded inside Builder, code prompts are delegated to Builder
+chat; in local dev, they go to the agent-native code agent. In production, app
+creation is only enabled when Builder branching is explicitly configured.
 
 When the user asks to create, build, make, scaffold, or generate a new app from this flow, create a separate workspace app. If they ask for an "agent", classify the ask first: simple reminders, digests, monitors, routing rules, saved instructions, or recurring workflows can stay in Dispatch; robust unique products or teammates with their own UI, data model, actions, integrations, or domain workflow should become a separate workspace app. Keep new apps under `apps/<app-id>`, mount them at `/<app-id>`, use the shared workspace database/hosting model, and namespace any new domain tables so apps do not collide.
 

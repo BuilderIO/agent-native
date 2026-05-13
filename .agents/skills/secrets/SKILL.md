@@ -222,6 +222,20 @@ Key resolution falls back from user scope to workspace scope, so users can
 override shared keys without breaking automations that reference workspace
 defaults.
 
+## Dispatch Vault Access
+
+Dispatch workspaces have a vault access policy for workspace app credentials:
+
+- `all-apps` is the default. Every saved Dispatch vault key is available to
+  every workspace app; `sync-vault-to-app` pushes all vault keys to the target
+  app.
+- `manual` requires explicit per-app grants. Use
+  `create-vault-grant` / `grant-vault-secrets-to-app`, then
+  `sync-vault-to-app`.
+
+Use `get-vault-access-settings` before deciding whether to create grants, and
+use `set-vault-access-settings` only when the user asks to change the policy.
+
 ### Key Files (ad-hoc)
 
 | File                                           | Purpose                                     |

@@ -146,9 +146,13 @@ function refreshLlmConnectionStatus(): Promise<void> {
     return Promise.resolve();
   }
   if (_llmConnectionRefresh) return _llmConnectionRefresh;
-  _llmConnectionRefresh = fetch(
-    agentNativePath("/_agent-native/agent-engine/status"),
-  )
+  let request: Promise<Response>;
+  try {
+    request = fetch(agentNativePath("/_agent-native/agent-engine/status"));
+  } catch {
+    return Promise.resolve();
+  }
+  _llmConnectionRefresh = request
     .then((res) => (res.ok ? res.json() : null))
     .then((data) => {
       _llmConnectionStatus = normalizeAgentEngineStatus(data);

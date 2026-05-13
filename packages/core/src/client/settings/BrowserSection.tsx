@@ -6,6 +6,7 @@ import {
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
+import { trackEvent } from "../analytics.js";
 
 export function BrowserSection() {
   const { status: builder, loading } = useBuilderStatus();
@@ -41,6 +42,14 @@ export function BrowserSection() {
           {builder?.connectUrl && (
             <a
               href={builder.connectUrl}
+              onClick={() => {
+                trackEvent("builder connect clicked", {
+                  feature: "builder",
+                  stage: "client",
+                  source: "browser_settings_reconnect",
+                  connect_url_kind: "provided",
+                });
+              }}
               className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
             >
               Reconnect
@@ -57,6 +66,14 @@ export function BrowserSection() {
           {builder?.connectUrl && (
             <a
               href={builder.connectUrl}
+              onClick={() => {
+                trackEvent("builder connect clicked", {
+                  feature: "builder",
+                  stage: "client",
+                  source: "browser_settings",
+                  connect_url_kind: "provided",
+                });
+              }}
               className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80"
             >
               Connect Builder

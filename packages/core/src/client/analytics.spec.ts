@@ -154,7 +154,7 @@ describe("browser analytics pageviews", () => {
     expect(analyticsCalls).toHaveLength(1);
     const [url, init] = analyticsCalls[0];
     expect(url).toBe("https://analytics.example.test/track");
-    const body = JSON.parse(init.body);
+    const body = JSON.parse(String(init.body));
     expect(body).toMatchObject({
       publicKey: "anpk_test",
       event: "pageview",
@@ -190,7 +190,9 @@ describe("browser analytics pageviews", () => {
     await tick();
 
     expect(analyticsCalls).toHaveLength(2);
-    const events = analyticsCalls.map(([, init]) => JSON.parse(init.body));
+    const events = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
     expect(events.map((event) => event.properties.path)).toEqual([
       "/inbox",
       "/sent",
@@ -215,7 +217,7 @@ describe("browser analytics pageviews", () => {
     configureTracking({});
     await tick();
 
-    const body = JSON.parse(analyticsCalls[0][1].body);
+    const body = JSON.parse(String(analyticsCalls[0][1].body));
     expect(body.properties).toMatchObject({
       llm_connection: "openai",
       llm_engine: "ai-sdk:openai",
