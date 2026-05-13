@@ -1,9 +1,15 @@
 import type { CredentialContext } from "./credentials";
-import { resolveCredential, saveCredential } from "./credentials";
+import { resolveCredential } from "./credentials";
+import {
+  listOAuthAccountsByOwner,
+  saveOAuthTokens,
+  setOAuthDisplayName,
+} from "@agent-native/core/oauth-tokens";
 
 const GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const GITHUB_API_BASE = "https://api.github.com";
+const PROVIDER = "github";
 
 export const GITHUB_OAUTH_SCOPES = [
   "repo",
@@ -31,8 +37,11 @@ export interface GitHubOAuthStatus {
 }
 
 function getGitHubOAuthConfig() {
-  const clientId = process.env.GITHUB_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+  const clientId =
+    process.env.GITHUB_INTEGRATION_CLIENT_ID || process.env.GITHUB_CLIENT_ID;
+  const clientSecret =
+    process.env.GITHUB_INTEGRATION_CLIENT_SECRET ||
+    process.env.GITHUB_CLIENT_SECRET;
   if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret };
 }
@@ -104,8 +113,27 @@ export async function exchangeGitHubOAuthCode(
 export async function saveGitHubOAuthToken(
   accessToken: string,
   ctx: CredentialContext,
+  viewer: GitHubOAuthViewer,
+  scopes: string[] = [],
 ): Promise<void> {
-  await saveCredential("GITHUB_TOKEN", accessToken, ctx);
+  const accountId = viewer.login || String(viewer.id);
+  await saveOAuthTokens(
+    PROVIDER,
+    accountId,
+    {
+      accessToken,
+      scopes,
+      login: viewer.login,
+      email: viewer.email,
+      avatarUrl: viewer.avatarUrl,
+      htmlUrl: viewer.htmlUrl,
+    },
+    ctx.userEmail,
+  );
+  const displayName = viewer.name || viewer.login || viewer.email;
+  if (displayName) {
+    await setOAuthDisplayName(PROVIDER, accountId, displayName);
+  }
 }
 
 export async function fetchGitHubViewer(
@@ -166,7 +194,7 @@ export async function fetchGitHubViewer(
 export async function getGitHubOAuthStatus(
   ctx: CredentialContext,
 ): Promise<GitHubOAuthStatus> {
-  const token = await resolveCredential("GITHUB_TOKEN", ctx);
+  const { token, scopes } = await getGitHubAccessToken(ctx);
   const configured = isGitHubOAuthConfigured();
   if (!token) return { configured, connected: false };
 
@@ -177,6 +205,7 @@ export async function getGitHubOAuthStatus(
       connected: true,
       valid: true,
       viewer,
+      scopes,
     };
   } catch (err) {
     return {
@@ -186,4 +215,27 @@ export async function getGitHubOAuthStatus(
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+export async function getGitHubAccessToken(
+  ctx: CredentialContext,
+): Promise<{ token?: string; scopes: string[]; source?: "oauth" | "credential" }> {
+  if (ctx.userEmail) {
+    const accounts = await listOAuthAccountsByOwner(PROVIDER, ctx.userEmail);
+    const account = accounts.find(
+      (item) => typeof item.tokens?.accessToken === "string",
+    );
+    const token = account?.tokens?.accessToken;
+    if (typeof token === "string" && token) {
+      const scopes = Array.isArray(account.tokens.scopes)
+        ? account.tokens.scopes.filter(
+            (scope): scope is string => typeof scope === "string",
+          )
+        : [];
+      return { token, scopes, source: "oauth" };
+    }
+  }
+
+  const token = await resolveCredential("GITHUB_TOKEN", ctx);
+  return token ? { token, scopes: [], source: "credential" } : { scopes: [] };
 }

@@ -1,7 +1,11 @@
 import { app } from "electron";
 import fs from "fs";
 import path from "path";
-import { DESKTOP_DEFAULT_APPS, type AppConfig } from "@shared/app-registry";
+import {
+  DESKTOP_DEFAULT_APPS,
+  TEMPLATE_APPS,
+  type AppConfig,
+} from "@shared/app-registry";
 
 const STORE_FILE = "app-config.json";
 const FRAME_STORE_FILE = "frame-config.json";
@@ -53,6 +57,28 @@ function canonicalizeDefaultApp(appConfig: AppConfig, def: AppConfig) {
   };
 }
 
+function canonicalizeTemplateApp(appConfig: AppConfig, def: AppConfig) {
+  const shouldBackfillProdUrl = !appConfig.url?.trim() && Boolean(def.url);
+  const shouldBackfillDevUrl = !appConfig.devUrl?.trim() && Boolean(def.devUrl);
+
+  return {
+    ...appConfig,
+    icon: appConfig.icon || def.icon,
+    color: appConfig.color ?? def.color,
+    colorRgb: appConfig.colorRgb ?? def.colorRgb,
+    mode: shouldBackfillProdUrl
+      ? (def.mode ?? "prod")
+      : (appConfig.mode ?? def.mode),
+    name: appConfig.name || def.name,
+    description: appConfig.description || def.description,
+    url: shouldBackfillProdUrl ? def.url : (appConfig.url ?? def.url),
+    devUrl: shouldBackfillDevUrl
+      ? def.devUrl
+      : (appConfig.devUrl ?? def.devUrl),
+    devPort: appConfig.devPort || def.devPort,
+  };
+}
+
 function getFrameStorePath(): string {
   return path.join(app.getPath("userData"), FRAME_STORE_FILE);
 }
@@ -93,11 +119,18 @@ export function loadApps(): AppConfig[] {
     // Build a lookup of canonical built-in app defaults by id
     const defaults = defaultApps();
     const defaultsById = new Map(defaults.map((d) => [d.id, d]));
+    const templateAppsById = new Map(TEMPLATE_APPS.map((d) => [d.id, d]));
     const persistedIds = new Set(apps.map((a) => a.id));
 
-    // Remove stale built-in apps that no longer exist in desktop defaults.
+    // Remove stale built-in apps whose ids are no longer known. Preserve
+    // first-party template ids that are no longer desktop defaults so existing
+    // user configs (for example legacy Starter tabs) can still be migrated
+    // instead of disappearing.
     const before = apps.length;
-    apps = apps.filter((a) => !a.isBuiltIn || defaultsById.has(a.id));
+    apps = apps.filter(
+      (a) =>
+        !a.isBuiltIn || defaultsById.has(a.id) || templateAppsById.has(a.id),
+    );
     if (apps.length !== before) migrated = true;
 
     // Add new built-in apps that aren't in the persisted config
@@ -127,6 +160,21 @@ export function loadApps(): AppConfig[] {
       const def = defaultsById.get(app.id);
       if (def) {
         const canonical = canonicalizeDefaultApp(app, def);
+        if (JSON.stringify(app) !== JSON.stringify(canonical)) {
+          apps[i] = canonical;
+          migrated = true;
+        }
+        continue;
+      }
+
+      // User-added or legacy entries that match a first-party template should
+      // still get canonical URL backfills. This covers old desktop configs
+      // where hidden-but-known templates such as Starter existed with an empty
+      // production URL, which otherwise falls through to the local dev frame in
+      // packaged builds and renders a blank tab.
+      const templateDef = templateAppsById.get(app.id);
+      if (templateDef) {
+        const canonical = canonicalizeTemplateApp(app, templateDef);
         if (JSON.stringify(app) !== JSON.stringify(canonical)) {
           apps[i] = canonical;
           migrated = true;

@@ -2,11 +2,11 @@
 // Auth: GITHUB_TOKEN (personal access token or GitHub App token)
 // Mirrors patterns from server/lib/gong.ts
 
-import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,
   scopedCredentialCacheKey,
 } from "./credentials-context";
+import { getGitHubAccessToken } from "./github-oauth";
 
 const REST_BASE = "https://api.github.com";
 const GRAPHQL_URL = "https://api.github.com/graphql";
@@ -17,8 +17,8 @@ const MAX_CACHE = 200;
 
 async function getToken(): Promise<string> {
   const ctx = requireRequestCredentialContext("GITHUB_TOKEN");
-  const token = await resolveCredential("GITHUB_TOKEN", ctx);
-  if (!token) throw new Error("GITHUB_TOKEN not configured");
+  const { token } = await getGitHubAccessToken(ctx);
+  if (!token) throw new Error("GitHub is not connected");
   return token;
 }
 

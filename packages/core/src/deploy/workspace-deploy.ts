@@ -383,13 +383,17 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
     ? `    if (pathname.startsWith("/apps/")) return Response.redirect(new URL("/dispatch" + pathname + search, request.url).toString(), 302);
 `
     : "";
+  const dispatchMountedRootRedirect = apps.includes("dispatch")
+    ? `    if (pathname === "/dispatch" || pathname === "/dispatch/") return Response.redirect(new URL("/dispatch/overview" + search, request.url).toString(), 302);
+`
+    : "";
 
   const worker = `${imports}
 
 export default {
   async fetch(request, env, ctx) {
     const { pathname, search } = new URL(request.url);
-${dispatchRootFrameworkRoutes}${dispatchRootFaviconRoute}${dispatchRootAliasRoutes}${dispatchRootDynamicAliasRoutes}${dispatch}
+${dispatchRootFrameworkRoutes}${dispatchRootFaviconRoute}${dispatchRootAliasRoutes}${dispatchRootDynamicAliasRoutes}${dispatchMountedRootRedirect}${dispatch}
     if (pathname === "/") {
       return Response.redirect(new URL("${cloudflareRootRedirectPath(apps)}", request.url).toString(), 302);
     }
@@ -426,6 +430,7 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
   if (apps.includes("dispatch")) {
     lines.push("/ /dispatch/overview 302");
     lines.push("/dispatch /dispatch/overview 302");
+    lines.push("/dispatch/ /dispatch/overview 302");
     for (const [from, to] of DISPATCH_WORKSPACE_ROOT_REDIRECTS) {
       lines.push(`/${from} /dispatch/${to} 302`);
     }
@@ -458,6 +463,7 @@ function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
     routes.push(
       vercelRedirect("/", "/dispatch/overview"),
       vercelRedirect("/dispatch", "/dispatch/overview"),
+      vercelRedirect("/dispatch/", "/dispatch/overview"),
     );
     for (const [from, to] of DISPATCH_WORKSPACE_ROOT_REDIRECTS) {
       routes.push(vercelRedirect(`/${from}`, `/dispatch/${to}`));

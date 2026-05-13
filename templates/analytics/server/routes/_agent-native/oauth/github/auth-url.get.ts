@@ -24,7 +24,7 @@ export default defineEventHandler(async (event: H3Event) => {
     return {
       error: "missing_credentials",
       message:
-        "GitHub OAuth credentials are not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.",
+        "GitHub OAuth credentials are not configured. Set GITHUB_INTEGRATION_CLIENT_ID and GITHUB_INTEGRATION_CLIENT_SECRET.",
     };
   }
 

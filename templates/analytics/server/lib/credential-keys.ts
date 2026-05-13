@@ -68,7 +68,7 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // Apollo
   { key: "APOLLO_API_KEY", label: "Apollo", required: false },
   // GitHub
-  { key: "GITHUB_TOKEN", label: "GitHub", required: false },
+  { key: "GITHUB_TOKEN", label: "GitHub token", required: false },
   // Jira
   { key: "JIRA_BASE_URL", label: "Jira Base URL", required: false },
   { key: "JIRA_USER_EMAIL", label: "Jira Email", required: false },
@@ -282,6 +282,9 @@ const credentialAliases: Record<string, string[]> = {
   ga4: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],
   googleanalytics: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],
   github: ["GITHUB_TOKEN"],
+  githubcode: ["GITHUB_TOKEN"],
+  repositories: ["GITHUB_TOKEN"],
+  repos: ["GITHUB_TOKEN"],
   gcloud: ["GOOGLE_APPLICATION_CREDENTIALS_JSON"],
   gong: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
   grafana: ["GRAFANA_URL", "GRAFANA_API_TOKEN"],

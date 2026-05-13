@@ -19,6 +19,7 @@ export const DATA_QUERY_ACTIONS = new Set([
   "content-calendar-schema",
   "ga4-report",
   "gcloud",
+  "github-code",
   "github-prs",
   "gong-calls",
   "grafana",

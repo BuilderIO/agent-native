@@ -426,6 +426,7 @@ describe("workspace deploy", () => {
     expect(redirects).toContain("/favicon.ico /dispatch/favicon.ico 302");
     expect(redirects).toContain("/ /dispatch/overview 302");
     expect(redirects).toContain("/dispatch /dispatch/overview 302");
+    expect(redirects).toContain("/dispatch/ /dispatch/overview 302");
     expect(redirects).toContain("/login /dispatch/login 302");
     expect(redirects).toContain("/signup /dispatch/signup 302");
     expect(redirects).toContain("/apps /dispatch/apps 302");
@@ -603,6 +604,11 @@ describe("workspace deploy", () => {
     });
     expect(config.routes).toContainEqual({
       src: "/dispatch",
+      status: 302,
+      headers: { Location: "/dispatch/overview" },
+    });
+    expect(config.routes).toContainEqual({
+      src: "/dispatch/",
       status: 302,
       headers: { Location: "/dispatch/overview" },
     });
@@ -895,6 +901,9 @@ describe("workspace deploy", () => {
     );
     expect(worker).toContain(
       'if (pathname.startsWith("/apps/")) return Response.redirect(new URL("/dispatch" + pathname + search, request.url).toString(), 302);',
+    );
+    expect(worker).toContain(
+      'if (pathname === "/dispatch" || pathname === "/dispatch/") return Response.redirect(new URL("/dispatch/overview" + search, request.url).toString(), 302);',
     );
     expect(worker).toContain(
       'if (pathname === "/dispatch" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(request, env, ctx);',

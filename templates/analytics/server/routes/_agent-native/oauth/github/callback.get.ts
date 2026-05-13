@@ -77,17 +77,22 @@ export default defineEventHandler(async (event: H3Event) => {
       return oauthErrorPage("Session expired. Please sign in and retry.");
     }
 
-    const { accessToken } = await exchangeGitHubOAuthCode(
+    const { accessToken, scopes } = await exchangeGitHubOAuthCode(
       code,
       state.redirectUri,
     );
+    const viewer = await fetchGitHubViewer(accessToken);
     const org = await getOrgContext(event).catch(() => null);
-    await saveGitHubOAuthToken(accessToken, {
-      userEmail: ownerEmail,
-      orgId: org?.orgId ?? session?.orgId ?? null,
-    });
+    await saveGitHubOAuthToken(
+      accessToken,
+      {
+        userEmail: ownerEmail,
+        orgId: org?.orgId ?? session?.orgId ?? null,
+      },
+      viewer,
+      scopes,
+    );
 
-    const viewer = await fetchGitHubViewer(accessToken).catch(() => null);
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
     return githubConnectedPage(viewer?.login ?? "");
   } catch (err) {
