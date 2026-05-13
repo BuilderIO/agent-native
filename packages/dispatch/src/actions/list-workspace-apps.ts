@@ -12,13 +12,17 @@ const httpBoolean = z.preprocess((value) => {
 
 export default defineAction({
   description:
-    "List apps installed in this workspace, including mounted paths, absolute URLs, and agent-card/A2A metadata for ready apps by default. UI polling callers can pass includeAgentCards=false to skip network probes.",
+    "List apps installed in this workspace, including mounted paths, absolute URLs, audience (internal/public), and agent-card/A2A metadata for ready apps by default. UI polling callers can pass includeAgentCards=false to skip network probes.",
   schema: z.object({
     includeAgentCards: httpBoolean
       .default(true)
       .describe(
         "Fetch each ready app's /.well-known/agent-card.json with a short non-throwing timeout and include agentCardUrl, agentCardReachable, a2aEndpointUrl, agentName, and agentSkillsCount. Defaults to true for agent calls; UI polling should pass false. Pending Builder apps are not probed.",
       ),
+    audience: z
+      .enum(["all", "internal", "public"])
+      .default("all")
+      .describe("Filter by workspace app audience."),
   }),
   http: { method: "GET" },
   run: async (input) => listWorkspaceApps(input),

@@ -4,6 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSetting, putSetting } from "@agent-native/core/settings";
 import {
+  DEFAULT_WORKSPACE_APP_AUDIENCE,
+  normalizeWorkspaceAppAudience,
+  workspaceAppAudienceFromPackageJson,
+  type WorkspaceAppAudience,
+} from "@agent-native/core/shared";
+import {
   getBuilderBranchProjectId,
   getRequestContext,
   isIntegrationCallerRequest,
@@ -44,6 +50,7 @@ export interface WorkspaceAppSummary {
   path: string;
   url: string | null;
   isDispatch: boolean;
+  audience: WorkspaceAppAudience;
   status?: "ready" | "pending";
   statusLabel?: string;
   builderUrl?: string | null;
@@ -65,6 +72,7 @@ export interface ListWorkspaceAppsOptions {
    * when rendering the "Hidden apps" expander.
    */
   includeArchived?: boolean;
+  audience?: WorkspaceAppAudience | "all";
 }
 
 export interface AvailableWorkspaceTemplate {
@@ -104,6 +112,7 @@ interface PendingWorkspaceApp {
   builderUrl: string | null;
   branchName: string | null;
   projectId: string | null;
+  audience?: WorkspaceAppAudience;
   createdAt: string;
   updatedAt: string;
 }
@@ -374,6 +383,10 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
           typeof entry.isDispatch === "boolean"
             ? entry.isDispatch
             : id === "dispatch",
+        audience:
+          entry.audience === undefined
+            ? DEFAULT_WORKSPACE_APP_AUDIENCE
+            : normalizeWorkspaceAppAudience(entry.audience),
         status: "ready",
       } satisfies WorkspaceAppSummary;
     })
@@ -425,6 +438,10 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
           typeof record.projectId === "string" && record.projectId.trim()
             ? record.projectId.trim()
             : null,
+        audience:
+          record.audience === undefined
+            ? undefined
+            : normalizeWorkspaceAppAudience(record.audience),
         createdAt:
           typeof record.createdAt === "string" && record.createdAt.trim()
             ? record.createdAt.trim()
@@ -522,6 +539,7 @@ function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
     path: app.path,
     url: app.builderUrl,
     isDispatch: false,
+    audience: app.audience ?? DEFAULT_WORKSPACE_APP_AUDIENCE,
     status: "pending",
     statusLabel: "Building in Builder",
     builderUrl: app.builderUrl,
@@ -803,6 +821,9 @@ function readWorkspaceAppsFromFilesystem(
         path: `/${entry.name}`,
         url: workspaceAppUrl(`/${entry.name}`),
         isDispatch: entry.name === "dispatch",
+        audience:
+          workspaceAppAudienceFromPackageJson(pkg) ??
+          DEFAULT_WORKSPACE_APP_AUDIENCE,
         status: "ready",
       } satisfies WorkspaceAppSummary;
     })
@@ -882,8 +903,23 @@ async function applyArchivedAndPending(
       : withMetadata;
   });
   return options.includeArchived
-    ? annotated
-    : annotated.filter((app) => !app.archived);
+    ? filterAppsByAudience(annotated, options.audience)
+    : filterAppsByAudience(
+        annotated.filter((app) => !app.archived),
+        options.audience,
+      );
+}
+
+function filterAppsByAudience(
+  apps: WorkspaceAppSummary[],
+  audience: ListWorkspaceAppsOptions["audience"],
+): WorkspaceAppSummary[] {
+  if (!audience || audience === "all") return apps;
+  return apps.filter(
+    (app) =>
+      (app.audience ?? DEFAULT_WORKSPACE_APP_AUDIENCE) ===
+      normalizeWorkspaceAppAudience(audience),
+  );
 }
 
 export async function updateWorkspaceAppMetadata(input: {

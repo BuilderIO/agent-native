@@ -7,6 +7,8 @@ import {
   IconEdit,
   IconEye,
   IconEyeOff,
+  IconLock,
+  IconWorld,
   IconTrash,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
@@ -47,6 +49,7 @@ export function WorkspaceAppCard({
   const openInNewTab = isPendingBuilderHref(app);
   const isPending = app.status === "pending";
   const isArchived = !!app.archived;
+  const audience = app.audience ?? "internal";
   const [editOpen, setEditOpen] = useState(false);
   const [draftName, setDraftName] = useState(app.name);
   const [draftDescription, setDraftDescription] = useState(
@@ -146,6 +149,14 @@ export function WorkspaceAppCard({
                 Hidden
               </Badge>
             ) : null}
+            <Badge variant="outline" className="shrink-0 gap-1">
+              {audience === "public" ? (
+                <IconWorld size={12} />
+              ) : (
+                <IconLock size={12} />
+              )}
+              {audience === "public" ? "Public" : "Internal"}
+            </Badge>
           </div>
           <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
             {app.path}
