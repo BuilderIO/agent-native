@@ -85,17 +85,28 @@ function prunePendingOAuthStates(now = Date.now()) {
   }
 }
 
-function extractAppFromOAuthState(state: string | null): string | undefined {
+function decodeOAuthStatePayload(
+  state: string | null,
+): Record<string, unknown> | undefined {
   if (!state) return undefined;
   try {
     const dotIdx = state.lastIndexOf(".");
     if (dotIdx === -1) return undefined;
     const data = state.slice(0, dotIdx);
-    const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
-    return typeof parsed.app === "string" ? parsed.app : undefined;
+    return JSON.parse(Buffer.from(data, "base64url").toString());
   } catch {
     return undefined;
   }
+}
+
+function extractAppFromOAuthState(state: string | null): string | undefined {
+  const parsed = decodeOAuthStatePayload(state);
+  return typeof parsed?.app === "string" ? parsed.app : undefined;
+}
+
+function extractFlowFromOAuthState(state: string | null): string | undefined {
+  const parsed = decodeOAuthStatePayload(state);
+  return typeof parsed?.f === "string" ? parsed.f : undefined;
 }
 
 function getCookieNameForApp(id: string | null | undefined): string {
@@ -919,13 +930,9 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 });
 
 // ---------- OAuth handling ----------
-// Open OAuth in an Electron BrowserWindow (not the system browser) so
-// the callback sets the session cookie in the same Electron session as
-// the app webviews. After the callback completes, auto-close the OAuth
-// window and reload webviews to pick up the new auth state.
-
-// OAuth providers we recognize as "safe to open inside an Electron popup"
-// instead of handing off to the system browser. Each provider specifies:
+// OAuth providers we recognize and keep out of app webviews. Depending on the
+// provider and flow, the URL is opened in an Electron BrowserWindow or the
+// system browser. Each provider specifies:
 //   - a `matches` predicate on the initial URL (from window.open)
 //   - a `callbackPathFragment` used to detect when the OAuth callback has
 //     been reached so we can auto-close the popup
@@ -1051,6 +1058,32 @@ function rememberOAuthStateFromNavigation(
   } catch {
     // Malformed URL — ignore
   }
+}
+
+function googleOAuthUsesDesktopExchange(url: URL): boolean {
+  if (url.searchParams.has("flow_id")) return true;
+  return !!extractFlowFromOAuthState(url.searchParams.get("state"));
+}
+
+function shouldOpenOAuthInSystemBrowser(provider: OAuthProvider, url: URL) {
+  // Google blocks embedded/Electron OAuth surfaces. Framework pages that pass
+  // a flow id poll /desktop-exchange, so the system browser can complete the
+  // OAuth callback and the app webview can claim the resulting session token.
+  return provider.name === "google" && googleOAuthUsesDesktopExchange(url);
+}
+
+function openMatchedOAuthUrl(
+  url: string,
+  parsed: URL,
+  sourceSession: Electron.Session | undefined,
+  provider: OAuthProvider,
+  sourceUrl?: string,
+) {
+  if (shouldOpenOAuthInSystemBrowser(provider, parsed)) {
+    openExternalUrl(url);
+    return;
+  }
+  openOAuthWindow(url, sourceSession, provider, sourceUrl);
 }
 
 function openOAuthWindow(
@@ -1248,8 +1281,9 @@ function openOAuthFromWebviewNavigation(
       sourceUrl: sourceContents.getURL(),
     });
     if (!provider) return false;
-    openOAuthWindow(
+    openMatchedOAuthUrl(
       url,
+      parsed,
       sourceContents.session,
       provider,
       sourceContents.getURL(),
@@ -1315,7 +1349,7 @@ app.on("web-contents-created", (_event, contents) => {
           }
           const provider = matchOAuthProvider(url, { sourceUrl: wc.getURL() });
           if (provider) {
-            openOAuthWindow(url, wc.session, provider, wc.getURL());
+            openMatchedOAuthUrl(url, parsed, wc.session, provider, wc.getURL());
           } else {
             shell.openExternal(url).catch(() => {});
           }
@@ -1345,7 +1379,13 @@ app.on("web-contents-created", (_event, contents) => {
         sourceUrl: contents.getURL(),
       });
       if (provider) {
-        openOAuthWindow(url, contents.session, provider, contents.getURL());
+        openMatchedOAuthUrl(
+          url,
+          parsed,
+          contents.session,
+          provider,
+          contents.getURL(),
+        );
       } else {
         shell.openExternal(url).catch(() => {});
       }
