@@ -751,10 +751,10 @@ function AgentPanelInner({
                   CLI
                 </button>
               </TooltipTrigger>
-              <TooltipContent>
+              <TooltipContent className="max-w-[260px]">
                 {codeAccessEnabled
                   ? "CLI terminal mode"
-                  : "Open Desktop to use CLI"}
+                  : codeUnavailableDescription}
               </TooltipContent>
             </Tooltip>
           )}
@@ -801,7 +801,7 @@ function AgentPanelInner({
         </div>
       </TooltipProvider>
     ),
-    [codeAccessEnabled, showCliMode],
+    [codeAccessEnabled, codeUnavailableDescription, showCliMode],
   );
 
   const renderHeaderActions = useCallback(

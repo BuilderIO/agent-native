@@ -439,7 +439,7 @@ export function App() {
                   enabled: isDesktop,
                   unavailableTitle: "Open Desktop to edit code",
                   unavailableDescription:
-                    "Use Agent Native Desktop for local source edits, CLI, and Workspace files. Download it if it is not installed yet.",
+                    "Open Agent Native Desktop, click the + button, and add this app with its local dev URL to use CLI and Workspace files.",
                   unavailableCtaLabel: "Open Desktop",
                   unavailableCtaHref: OPEN_DESKTOP_URL,
                   unavailableSecondaryCtaLabel: "Download",
