@@ -1,5 +1,11 @@
 # @agent-native/scheduling
 
+## 0.1.4
+
+### Patch Changes
+
+- 97ca0db: Fix "Cannot read properties of null (reading 'value')" crash in `BookingLinkCreateDialog` when typing into the slug input. React nulls `e.currentTarget` once the synthetic event finishes synchronous propagation; reading it inside the `setForm` updater closure happened after that point. Capture the value before calling `setForm`.
+
 ## 0.1.3
 
 ### Patch Changes
