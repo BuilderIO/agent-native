@@ -391,7 +391,7 @@ export function AddAppDialog({
   onSave: (app: AppConfig) => void | Promise<void>;
   onCancel: () => void;
 }) {
-  const [mode, setMode] = useState<"prod" | "dev">("prod");
+  const [mode, setMode] = useState<"prod" | "dev">("dev");
   const [name, setName] = useState("");
   const [prodUrl, setProdUrl] = useState("");
   const [devUrl, setDevUrl] = useState("");
@@ -435,7 +435,7 @@ export function AddAppDialog({
         <div className="settings-form-header">
           <h3>Add App</h3>
           <p className="settings-form-subtitle">
-            Add a deployed app or a localhost dev server.
+            Add a localhost dev server or a deployed app.
           </p>
         </div>
 

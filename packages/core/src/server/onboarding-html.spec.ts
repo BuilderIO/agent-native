@@ -59,18 +59,26 @@ describe("getOnboardingHtml", () => {
       "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
     );
     expect(html).toContain("function __anBuilderPreviewReturnOrigin()");
+    expect(html).toContain(
+      "var candidates = [window.location.href, document.referrer || ''];",
+    );
     expect(html).toContain("function __anIsAgentNativeDesktop()");
     expect(html).toContain("function __anOAuthReturnTarget(ret)");
+    expect(html).toContain(
+      "var target = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
+    );
     expect(html).toContain("params.set('return', __anOAuthReturnTarget(ret))");
   });
 
   it("embeds the local workspace gateway return origin when configured", () => {
+    vi.stubEnv("VITE_WORKSPACE_OAUTH_ORIGIN", "http://127.0.0.1:8080/");
     vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080/");
     vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
 
     const html = getOnboardingHtml();
 
+    expect(html).toContain('var __AN_PUBLIC_OAUTH_ORIGIN = "";');
     expect(html).toContain(
       'var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "http://127.0.0.1:8080";',
     );

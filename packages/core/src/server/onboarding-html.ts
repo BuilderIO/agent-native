@@ -924,18 +924,27 @@ ${
       return origin ? origin + path : __anPath(path);
     }
     function __anBuilderPreviewReturnOrigin() {
+      var candidates = [window.location.href, document.referrer || ''];
       try {
-        var url = new URL(window.location.href);
-        var host = url.hostname.toLowerCase();
-        var isPreviewHost =
-          host === 'builderio.xyz' || host.slice(-14) === '.builderio.xyz' ||
-          host === 'builderio.dev' || host.slice(-14) === '.builderio.dev' ||
-          host === 'builder.codes' || host.slice(-14) === '.builder.codes' ||
-          host === 'builder.my' || host.slice(-11) === '.builder.my';
-        return url.protocol === 'https:' && isPreviewHost ? url.origin : '';
-      } catch(e) {
-        return '';
+        if (window.location.ancestorOrigins) {
+          for (var j = 0; j < window.location.ancestorOrigins.length; j++) {
+            candidates.push(window.location.ancestorOrigins[j]);
+          }
+        }
+      } catch(e) {}
+      for (var i = 0; i < candidates.length; i++) {
+        try {
+          var url = new URL(candidates[i]);
+          var host = url.hostname.toLowerCase();
+          var isPreviewHost =
+            host === 'builderio.xyz' || host.slice(-14) === '.builderio.xyz' ||
+            host === 'builderio.dev' || host.slice(-14) === '.builderio.dev' ||
+            host === 'builder.codes' || host.slice(-14) === '.builder.codes' ||
+            host === 'builder.my' || host.slice(-11) === '.builder.my';
+          if (url.protocol === 'https:' && isPreviewHost) return url.origin;
+        } catch(e) {}
       }
+      return '';
     }
     function __anWorkspaceGatewayReturnOrigin() {
       var previewOrigin = __anBuilderPreviewReturnOrigin();
@@ -1113,8 +1122,9 @@ ${
     }
     function __anStartPopupOAuth(ret, btn, err) {
       var flowId = __anNewOAuthFlowId();
+      var target = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
       var params = new URLSearchParams();
-      if (ret) params.set('return', ret);
+      if (target) params.set('return', target);
       params.set('desktop', '1');
       params.set('flow_id', flowId);
       params.set('redirect', '1');
@@ -1140,7 +1150,7 @@ ${
         __anShowOAuthError(err, btn, 'Could not open Google popup for flow ' + __anFlowDebugId(flowId) + ': ' + (e && e.message ? e.message : 'unknown error'));
         return;
       }
-      __anWaitForOAuthExchange(flowId, ret, btn, err);
+      __anWaitForOAuthExchange(flowId, target, btn, err);
     }
     function __anStartNativeDesktopOAuth(ret, btn, err) {
       var flowId = __anNewOAuthFlowId();
