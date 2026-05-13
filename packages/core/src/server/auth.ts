@@ -92,6 +92,7 @@ import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import {
   normalizeWorkspaceAppAudience,
   workspaceAppAudienceFromEnv,
+  workspaceAppRouteAccessFromEnv,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 
@@ -143,6 +144,17 @@ export interface AuthOptions {
    * and API routes remain protected unless explicitly listed in publicPaths.
    */
   workspaceAppAudience?: WorkspaceAppAudience;
+  /**
+   * Workspace app page paths that anonymous visitors can load.
+   * Uses the same prefix matching as publicPaths, but only for page routes:
+   * framework, API, and .well-known routes stay protected.
+   */
+  workspaceAppPublicPaths?: string[];
+  /**
+   * Workspace app page paths that still require auth when the app audience is
+   * public. Useful for public sites with login-only admin/management pages.
+   */
+  workspaceAppProtectedPaths?: string[];
   /**
    * Custom login page HTML. When provided, this HTML is served to
    * unauthenticated page requests instead of the built-in login form.
@@ -775,6 +787,8 @@ interface AuthGuardConfig {
   getLoginHtml?: (event: H3Event, rawPath: string) => string;
   publicPaths: string[];
   workspaceAppAudience: WorkspaceAppAudience;
+  workspaceAppPublicPaths: string[];
+  workspaceAppProtectedPaths: string[];
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
 const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
@@ -785,6 +799,19 @@ function resolveWorkspaceAppAudience(
   return normalizeWorkspaceAppAudience(
     options.workspaceAppAudience ?? workspaceAppAudienceFromEnv(),
   );
+}
+
+function resolveWorkspaceAppRouteAccess(
+  options: Pick<
+    AuthOptions,
+    "workspaceAppPublicPaths" | "workspaceAppProtectedPaths"
+  > = {},
+): { publicPaths: string[]; protectedPaths: string[] } {
+  const env = workspaceAppRouteAccessFromEnv();
+  return {
+    publicPaths: options.workspaceAppPublicPaths ?? env.publicPaths,
+    protectedPaths: options.workspaceAppProtectedPaths ?? env.protectedPaths,
+  };
 }
 
 function setGenericGoogleOAuthRoutesEnabled(
@@ -1266,7 +1293,7 @@ function createAuthGuardFn(): (
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (isPublicPath(normalizedUrl, publicPaths)) return;
-    if (isPublicWorkspacePageRequest(event, p, config.workspaceAppAudience)) {
+    if (isPublicWorkspacePageRequest(event, p, config)) {
       return;
     }
 
@@ -1570,15 +1597,24 @@ function isHttpsRequest(event: H3Event): boolean {
 
 function isPublicPath(url: string, publicPaths: string[]): boolean {
   const p = url.split("?")[0];
-  return publicPaths.some((pp) => p === pp || p.startsWith(pp + "/"));
+  return matchesPathList(p, publicPaths);
+}
+
+function matchesPathList(path: string, paths: string[]): boolean {
+  return paths.some((candidate) => {
+    const normalized =
+      candidate.length > 1 && candidate.endsWith("/")
+        ? candidate.slice(0, -1)
+        : candidate;
+    return path === normalized || path.startsWith(normalized + "/");
+  });
 }
 
 function isPublicWorkspacePageRequest(
   event: H3Event,
   path: string,
-  audience: WorkspaceAppAudience,
+  config: AuthGuardConfig,
 ): boolean {
-  if (audience !== "public") return false;
   if (!isReadMethod(event)) return false;
   if (
     path === "/_agent-native" ||
@@ -1590,7 +1626,9 @@ function isPublicWorkspacePageRequest(
   ) {
     return false;
   }
-  return true;
+  if (matchesPathList(path, config.workspaceAppProtectedPaths)) return false;
+  if (matchesPathList(path, config.workspaceAppPublicPaths)) return true;
+  return config.workspaceAppAudience === "public";
 }
 
 function stripAppBasePath(pathname: string): string {
