@@ -20,6 +20,7 @@ export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
  */
 export const BUILDER_STATE_PARAM = "_an_state";
 export const BUILDER_CONNECT_PARAM = "_an_connect";
+export const BUILDER_CONNECT_OWNER_COOKIE = "an_builder_connect_owner";
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -152,6 +153,25 @@ export function verifyBuilderConnectToken(
   ownerEmail: string,
 ): boolean {
   return verifyEmailBoundBuilderToken(token, ownerEmail, "connect");
+}
+
+export function verifyBuilderConnectTokenAndGetOwner(
+  token: string | null | undefined,
+): string | null {
+  if (typeof token !== "string" || token.length === 0) return null;
+  const parts = token.split(".");
+  if (parts.length !== 4) return null;
+  const emailEncoded = parts[1];
+  if (!emailEncoded) return null;
+
+  let ownerEmail: string;
+  try {
+    ownerEmail = Buffer.from(emailEncoded, "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
+  if (!ownerEmail) return null;
+  return verifyBuilderConnectToken(token, ownerEmail) ? ownerEmail : null;
 }
 
 export function appendBuilderConnectToken(
