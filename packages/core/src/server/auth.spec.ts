@@ -1439,6 +1439,7 @@ describe("server/auth", () => {
       );
       expect(html).toContain('var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";');
       expect(html).toContain("__anStartPopupOAuth(ret, btn, err)");
+      expect(html).toContain("__anStartNativeDesktopOAuth(ret, btn, err)");
       expect(html).toContain(
         "__anPath('/_agent-native/auth/desktop-exchange')",
       );
@@ -1457,8 +1458,12 @@ describe("server/auth", () => {
       expect(html).toContain("params.set('flow_id', flowId)");
       expect(html).toContain("params.set('redirect', '1')");
       expect(html).toContain("__anIsBuilderDesktop()");
+      expect(html).toContain("__anIsAgentNativeDesktop()");
       expect(html).toContain(
         "if (__anIsBuilderPreview() && !__anIsBuilderDesktop())",
+      );
+      expect(html).toContain(
+        "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
       );
       expect(html).toContain(
         "__anSetOAuthDebug('Opening Google sign-in redirect')",
@@ -1500,8 +1505,12 @@ describe("server/auth", () => {
         "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
       );
       expect(loginHtml).toContain("__anIsBuilderDesktop()");
+      expect(loginHtml).toContain("__anIsAgentNativeDesktop()");
       expect(loginHtml).toContain(
         "if (__anIsBuilderPreview() && !__anIsBuilderDesktop())",
+      );
+      expect(loginHtml).toContain(
+        "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
       );
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Opening Google sign-in redirect')",
