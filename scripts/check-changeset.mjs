@@ -68,6 +68,17 @@ function listPublishablePackages() {
   return map;
 }
 
+function listIgnoredPackages() {
+  const configPath = path.join(repoRoot, ".changeset", "config.json");
+  if (!fs.existsSync(configPath)) return new Set();
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    return new Set(Array.isArray(config.ignore) ? config.ignore : []);
+  } catch {
+    return new Set();
+  }
+}
+
 function packageFromPath(file, publishables) {
   // packages/<name>/...  → <name>
   const m = file.match(/^packages\/([^/]+)\//);
@@ -123,9 +134,38 @@ function packagesCoveredBy(changesetPath) {
     .filter(Boolean);
 }
 
+function failOnMixedIgnoredChangesets(ignoredPackages) {
+  if (ignoredPackages.size === 0) return;
+
+  for (const cs of listPendingChangesets()) {
+    const packages = packagesCoveredBy(cs);
+    const ignored = packages.filter((pkg) => ignoredPackages.has(pkg));
+    const notIgnored = packages.filter((pkg) => !ignoredPackages.has(pkg));
+    if (ignored.length === 0 || notIgnored.length === 0) continue;
+
+    console.error(
+      "✗ Mixed changeset includes ignored and publishable packages.",
+    );
+    console.error("");
+    console.error(`Changeset: .changeset/${path.basename(cs)}`);
+    console.error(`Ignored packages: ${ignored.join(", ")}`);
+    console.error(`Publishable packages: ${notIgnored.join(", ")}`);
+    console.error("");
+    console.error(
+      "Changesets cannot version a file that mixes ignored packages with packages that publish to npm.",
+    );
+    console.error(
+      "Remove ignored packages from the changeset, or split them into a separate non-publishing note.",
+    );
+    process.exit(1);
+  }
+}
+
 function main() {
   const baseSha = getBaseSha();
   const publishables = listPublishablePackages();
+  failOnMixedIgnoredChangesets(listIgnoredPackages());
+
   const changedFiles = listChangedFiles(baseSha);
 
   const touchedPackages = new Set();

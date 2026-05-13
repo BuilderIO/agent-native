@@ -244,6 +244,31 @@ function devWatcherEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env;
 }
 
+function normalizeOrigin(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function workspaceOAuthOrigin(
+  env: NodeJS.ProcessEnv,
+  gatewayUrl: string,
+): string | undefined {
+  return (
+    normalizeOrigin(env.VITE_WORKSPACE_OAUTH_ORIGIN) ||
+    normalizeOrigin(env.WORKSPACE_OAUTH_ORIGIN) ||
+    normalizeOrigin(env.APP_URL) ||
+    normalizeOrigin(env.VITE_APP_URL) ||
+    normalizeOrigin(env.BETTER_AUTH_URL) ||
+    normalizeOrigin(env.VITE_BETTER_AUTH_URL) ||
+    normalizeOrigin(env.BUILDER_IO_DEV_SERVER) ||
+    normalizeOrigin(gatewayUrl)
+  );
+}
+
 function workspaceAppsJson(): string {
   return JSON.stringify(
     apps.map((app) => ({
@@ -563,7 +588,13 @@ function startApp(app: TemplateApp): void {
         AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
         APP_BASE_PATH: basePath,
         VITE_AGENT_NATIVE_WORKSPACE: "1",
+        VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
         VITE_APP_BASE_PATH: basePath,
+        VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(
+          process.env,
+          gatewayUrl,
+        ),
+        VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
         PORT: String(app.port),
         WORKSPACE_GATEWAY_URL: gatewayUrl,
       }),

@@ -1580,7 +1580,13 @@ describe("server/auth", () => {
         "__anSetOAuthDebug('Opening Google sign-in redirect')",
       );
       expect(loginHtml).toContain("function __anBuilderPreviewReturnOrigin()");
+      expect(loginHtml).toContain(
+        "var candidates = [window.location.href, document.referrer || ''];",
+      );
       expect(loginHtml).toContain("function __anOAuthReturnTarget(ret)");
+      expect(loginHtml).toContain(
+        "var target = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
+      );
       expect(loginHtml).toContain(
         "params.set('return', __anOAuthReturnTarget(ret))",
       );

@@ -19,6 +19,11 @@ import {
 
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import type { EmailMessage } from "@shared/types";
@@ -123,7 +128,7 @@ function ThreadListSidebar({
   useKeyboardShortcuts([{ key: "a", meta: true, handler: selectAllThreads }]);
 
   return (
-    <div className="w-[220px] shrink-0 flex flex-col border-r border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] overflow-hidden">
+    <div className="flex h-full w-full min-w-0 shrink-0 flex-col overflow-hidden bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => {
           const email = thread.latestMessage;
@@ -593,48 +598,88 @@ export function InboxPage() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Thin email list sidebar — shown when viewing a thread, hidden on mobile or when maximized */}
-      {hasThread && !isMobile && !isMaximized && (
-        <ThreadListSidebar
-          emails={emails}
-          activeThreadId={threadId!}
-          view={view}
-          routeSearchSuffix={routeSearchSuffix}
-          selectedIds={selectedIds}
-          setSelectedIds={setSelectedIds}
-          onNavigateThread={handleOptimisticThreadNavigation}
-        />
+      {/* Main content — resizable thread list + detail view on desktop */}
+      {hasThread && !isMobile && !isMaximized ? (
+        <ResizablePanelGroup
+          id="mail-thread-detail-layout"
+          orientation="horizontal"
+          resizeTargetMinimumSize={{ coarse: 28, fine: 8 }}
+          className="min-w-0 flex-1"
+        >
+          <ResizablePanel
+            id="mail-thread-list"
+            defaultSize="220px"
+            minSize="180px"
+            maxSize="420px"
+            groupResizeBehavior="preserve-pixel-size"
+            className="min-w-0"
+          >
+            <ThreadListSidebar
+              emails={emails}
+              activeThreadId={threadId!}
+              view={view}
+              routeSearchSuffix={routeSearchSuffix}
+              selectedIds={selectedIds}
+              setSelectedIds={setSelectedIds}
+              onNavigateThread={handleOptimisticThreadNavigation}
+            />
+          </ResizablePanel>
+          <ResizableHandle
+            id="mail-thread-list-resizer"
+            aria-label="Resize email list"
+            className="w-1 cursor-col-resize bg-transparent transition-colors after:w-px after:bg-border/30 hover:after:bg-border/80 data-[separator=active]:after:bg-primary/70 data-[separator=focus]:after:bg-ring/70"
+          />
+          <ResizablePanel
+            id="mail-thread-detail"
+            minSize="360px"
+            className="min-w-0"
+          >
+            <div className="flex h-full min-w-0 flex-col overflow-hidden">
+              <EmailThread
+                activeThreadId={threadId}
+                onArchived={setLastArchivedId}
+                emailIds={threadIds}
+                threads={threads}
+                selectedIds={selectedIds}
+                setSelectedIds={setSelectedIds}
+                onContactSelect={setSidebarContactEmail}
+                onNavigateThread={handleOptimisticThreadNavigation}
+                isMaximized={isMaximized}
+                onToggleMaximize={() => setIsMaximized((v) => !v)}
+              />
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      ) : (
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {hasThread ? (
+            <EmailThread
+              activeThreadId={threadId}
+              onArchived={setLastArchivedId}
+              emailIds={threadIds}
+              threads={threads}
+              selectedIds={selectedIds}
+              setSelectedIds={setSelectedIds}
+              onContactSelect={setSidebarContactEmail}
+              onNavigateThread={handleOptimisticThreadNavigation}
+              isMaximized={isMaximized}
+              onToggleMaximize={() => setIsMaximized((v) => !v)}
+            />
+          ) : (
+            <EmailList
+              emails={emails}
+              focusedId={focusedId}
+              setFocusedId={setFocusedId}
+              selectedIds={selectedIds}
+              setSelectedIds={setSelectedIds}
+              onCompose={handleCompose}
+              onArchived={setLastArchivedId}
+              onDraftOpen={handleDraftOpen}
+              onNavigateThread={handleOptimisticThreadNavigation}
+            />
+          )}
+        </div>
       )}
-
-      {/* Center area — email list OR thread view */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {hasThread ? (
-          <EmailThread
-            activeThreadId={threadId}
-            onArchived={setLastArchivedId}
-            emailIds={threadIds}
-            threads={threads}
-            selectedIds={selectedIds}
-            setSelectedIds={setSelectedIds}
-            onContactSelect={setSidebarContactEmail}
-            onNavigateThread={handleOptimisticThreadNavigation}
-            isMaximized={isMaximized}
-            onToggleMaximize={() => setIsMaximized((v) => !v)}
-          />
-        ) : (
-          <EmailList
-            emails={emails}
-            focusedId={focusedId}
-            setFocusedId={setFocusedId}
-            selectedIds={selectedIds}
-            setSelectedIds={setSelectedIds}
-            onCompose={handleCompose}
-            onArchived={setLastArchivedId}
-            onDraftOpen={handleDraftOpen}
-            onNavigateThread={handleOptimisticThreadNavigation}
-          />
-        )}
-      </div>
 
       {/* Right contact panel — hidden during initial load or when maximized */}
       {!isLoading && !(hasThread && isMaximized) && (
