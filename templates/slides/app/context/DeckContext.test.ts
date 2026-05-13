@@ -44,11 +44,7 @@ describe("DeckContext route hydration helpers", () => {
 
   it("reports only decks whose snapshot changed", () => {
     const before = [deck("a"), deck("b")];
-    const after = [
-      deck("a"),
-      { ...deck("b"), title: "Updated" },
-      deck("c"),
-    ];
+    const after = [deck("a"), { ...deck("b"), title: "Updated" }, deck("c")];
 
     expect(changedDeckIds(before, after)).toEqual(["b", "c"]);
   });

@@ -1689,10 +1689,13 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
       // next polling refetch, so when it loses the same command can show up
       // again on the next tick. Re-fire DELETE and bail rather than navigate
       // again.
-      fetch(agentNativePath(`/_agent-native/application-state/${command.key}`), {
-        method: "DELETE",
-        headers: { "X-Agent-Native-CSRF": "1" },
-      }).catch(() => {});
+      fetch(
+        agentNativePath(`/_agent-native/application-state/${command.key}`),
+        {
+          method: "DELETE",
+          headers: { "X-Agent-Native-CSRF": "1" },
+        },
+      ).catch(() => {});
       queryClient.setQueryData(setUrlQueryKey, null);
       return;
     }
