@@ -6,7 +6,11 @@ import {
   IconLoader2,
   IconServer,
 } from "@tabler/icons-react";
-import { appPath, openBuilderConnectPopup } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appPath,
+  openBuilderConnectPopup,
+} from "@agent-native/core/client";
 
 function BuilderBMark({ className }: { className?: string }) {
   return (
