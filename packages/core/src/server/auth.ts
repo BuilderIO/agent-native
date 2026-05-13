@@ -2928,9 +2928,8 @@ export async function autoMountAuth(
         ];
       }
       if (options.workspaceAppAudience) {
-        _authGuardConfig.workspaceAppAudience = resolveWorkspaceAppAudience(
-          options,
-        );
+        _authGuardConfig.workspaceAppAudience =
+          resolveWorkspaceAppAudience(options);
       }
     }
     return true;

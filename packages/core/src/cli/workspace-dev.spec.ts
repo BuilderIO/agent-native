@@ -455,10 +455,7 @@ function makeApp(
       workspaceApp: { audience: opts.audience },
     };
   }
-  fs.writeFileSync(
-    path.join(appDir, "package.json"),
-    JSON.stringify(pkg),
-  );
+  fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
   if (opts.installVite !== false) createViteBin(appDir);
 }
 

@@ -10,12 +10,13 @@ export function normalizeWorkspaceAppAudience(
   return value === "public" ? "public" : DEFAULT_WORKSPACE_APP_AUDIENCE;
 }
 
-export function workspaceAppAudienceFromEnv(env = process.env):
-  | WorkspaceAppAudience
-  | undefined {
+export function workspaceAppAudienceFromEnv(
+  env?: Record<string, string | undefined>,
+): WorkspaceAppAudience | undefined {
+  const source = env ?? (typeof process !== "undefined" ? process.env : {});
   const raw =
-    env.AGENT_NATIVE_WORKSPACE_APP_AUDIENCE ??
-    env.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
+    source.AGENT_NATIVE_WORKSPACE_APP_AUDIENCE ??
+    source.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
   if (raw === undefined) return undefined;
   return normalizeWorkspaceAppAudience(raw);
 }

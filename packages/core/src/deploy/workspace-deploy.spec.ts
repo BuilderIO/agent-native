@@ -20,8 +20,10 @@ let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
 let previousViteAppBasePath: string | undefined;
+let previousViteWorkspaceAppAudience: string | undefined;
 let previousViteWorkspaceGatewayUrl: string | undefined;
 let previousViteWorkspaceOAuthOrigin: string | undefined;
+let previousWorkspaceAppAudience: string | undefined;
 let previousWorkspaceGatewayUrl: string | undefined;
 let previousWorkspaceOAuthOrigin: string | undefined;
 let previousWorkspaceAppsJson: string | undefined;
@@ -55,8 +57,12 @@ beforeEach(() => {
   previousViteWorkspaceAppsJson =
     process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
+  previousViteWorkspaceAppAudience =
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
   previousViteWorkspaceGatewayUrl = process.env.VITE_WORKSPACE_GATEWAY_URL;
   previousViteWorkspaceOAuthOrigin = process.env.VITE_WORKSPACE_OAUTH_ORIGIN;
+  previousWorkspaceAppAudience =
+    process.env.AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
   previousWorkspaceGatewayUrl = process.env.WORKSPACE_GATEWAY_URL;
   previousWorkspaceOAuthOrigin = process.env.WORKSPACE_OAUTH_ORIGIN;
   previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -73,8 +79,10 @@ beforeEach(() => {
   delete process.env.VERCEL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.VITE_APP_BASE_PATH;
+  delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
   delete process.env.VITE_WORKSPACE_GATEWAY_URL;
   delete process.env.VITE_WORKSPACE_OAUTH_ORIGIN;
+  delete process.env.AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
   delete process.env.WORKSPACE_GATEWAY_URL;
   delete process.env.WORKSPACE_OAUTH_ORIGIN;
   delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -97,8 +105,16 @@ afterEach(() => {
     previousViteWorkspaceAppsJson,
   );
   restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
+  restoreEnv(
+    "VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE",
+    previousViteWorkspaceAppAudience,
+  );
   restoreEnv("VITE_WORKSPACE_GATEWAY_URL", previousViteWorkspaceGatewayUrl);
   restoreEnv("VITE_WORKSPACE_OAUTH_ORIGIN", previousViteWorkspaceOAuthOrigin);
+  restoreEnv(
+    "AGENT_NATIVE_WORKSPACE_APP_AUDIENCE",
+    previousWorkspaceAppAudience,
+  );
   restoreEnv("WORKSPACE_GATEWAY_URL", previousWorkspaceGatewayUrl);
   restoreEnv("WORKSPACE_OAUTH_ORIGIN", previousWorkspaceOAuthOrigin);
   restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
@@ -1008,10 +1024,7 @@ function makeWorkspaceApp(
       workspaceApp: { audience: opts.audience },
     };
   }
-  fs.writeFileSync(
-    path.join(appDir, "package.json"),
-    JSON.stringify(pkg),
-  );
+  fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
 
   if (opts.usesUnpooledDatabaseUrl) {
     fs.writeFileSync(

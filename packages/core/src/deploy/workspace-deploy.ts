@@ -932,7 +932,9 @@ function parseWorkspaceAppsManifest(
       };
     })
     .filter(
-      (app): app is { id: string; url?: string; audience?: WorkspaceAppAudience } =>
+      (
+        app,
+      ): app is { id: string; url?: string; audience?: WorkspaceAppAudience } =>
         !!app,
     );
 

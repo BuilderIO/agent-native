@@ -7,7 +7,6 @@ import {
   IconEdit,
   IconEye,
   IconEyeOff,
-  IconLock,
   IconWorld,
   IconTrash,
 } from "@tabler/icons-react";
@@ -149,14 +148,12 @@ export function WorkspaceAppCard({
                 Hidden
               </Badge>
             ) : null}
-            <Badge variant="outline" className="shrink-0 gap-1">
-              {audience === "public" ? (
+            {audience === "public" ? (
+              <Badge variant="outline" className="shrink-0 gap-1">
                 <IconWorld size={12} />
-              ) : (
-                <IconLock size={12} />
-              )}
-              {audience === "public" ? "Public" : "Internal"}
-            </Badge>
+                Public
+              </Badge>
+            ) : null}
           </div>
           <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
             {app.path}
