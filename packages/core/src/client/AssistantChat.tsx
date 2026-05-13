@@ -2395,6 +2395,7 @@ function BuilderConnectCta({
 }) {
   const { configured, orgName, connecting, error, start } =
     useBuilderConnectFlow({
+      trackingSource: "assistant_chat_builder_cta",
       onConnected,
     });
 

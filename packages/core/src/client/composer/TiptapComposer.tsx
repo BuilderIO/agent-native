@@ -553,7 +553,9 @@ function ModelSelector({
   // When Builder.io isn't connected, surface a one-click connect path —
   // it unlocks every model family (Claude, OpenAI, Gemini) without the
   // user having to paste individual API keys.
-  const builderFlow = useBuilderConnectFlow();
+  const builderFlow = useBuilderConnectFlow({
+    trackingSource: "composer_builder_cta",
+  });
   const showBuilderCta =
     builderFlow.hasFetchedStatus &&
     !builderFlow.configured &&

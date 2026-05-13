@@ -69,7 +69,9 @@ export default function SettingsPage() {
 
 function ManageCredentialsSection() {
   const { status } = useBuilderStatus();
-  const flow = useBuilderConnectFlow();
+  const flow = useBuilderConnectFlow({
+    trackingSource: "images_settings_credentials",
+  });
   // `BUILDER_IMAGE_GENERATION_ENABLED=false` deployments reject Builder
   // credentials in `generateWithManagedImageProvider` even when Builder is
   // connected. Surface that here so the settings UI doesn't send users

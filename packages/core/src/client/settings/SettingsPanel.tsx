@@ -1802,7 +1802,10 @@ export function SettingsPanel({
   const envManaged = !!builder?.envManaged;
   const credentialSource = builder?.credentialSource;
   const builderBranchesAvailable = !!builder?.builderEnabled;
-  const builderFlow = useBuilderConnectFlow({ popupUrl: connectUrl });
+  const builderFlow = useBuilderConnectFlow({
+    popupUrl: connectUrl,
+    trackingSource: "settings_panel_builder_card",
+  });
 
   // Detect whether the app registered any secrets — controls whether the
   // "API Keys & Connections" section renders at all.

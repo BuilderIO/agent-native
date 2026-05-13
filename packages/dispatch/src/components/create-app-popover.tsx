@@ -44,6 +44,8 @@ interface WorkspaceResourceOption {
   updatedAt?: number;
 }
 
+type VaultAccessMode = "all-apps" | "manual";
+
 interface CreateAppPopoverProps {
   /**
    * Custom trigger element. Defaults to a dashed-border tile that matches the
@@ -78,11 +80,15 @@ function buildAppCreationPrompt(input: {
   prompt: string;
   selectedKeys: string[];
   selectedResources: WorkspaceResourceOption[];
+  vaultAccessMode: VaultAccessMode;
 }): string {
   const keyList = input.selectedKeys.join(", ");
-  const grantRequest = keyList
-    ? `Requested Dispatch vault key grants for this app: ${keyList}`
-    : `Requested Dispatch vault key grants for this app: none`;
+  const grantRequest =
+    input.vaultAccessMode === "all-apps"
+      ? `Dispatch vault access: all saved vault keys are available to every workspace app by default. No per-app vault grants are needed.`
+      : keyList
+        ? `Requested Dispatch vault key grants for this app: ${keyList}`
+        : `Requested Dispatch vault key grants for this app: none`;
   const resourceList = input.selectedResources.length
     ? input.selectedResources
         .map(
@@ -112,7 +118,9 @@ function buildAppCreationPrompt(input: {
     `Do not clone first-party templates, create wrapper apps, or scaffold child apps/routes for Mail, Calendar, Analytics, etc. inside apps/${input.appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
     `Only create another first-party app copy when the user explicitly asks for a customized fork/copy of that app; otherwise keep using the hosted/shared app so improvements to the base template keep flowing to users.`,
     `Do not satisfy this by adding a route, page, component, or file inside apps/starter or another existing app unless the user explicitly asks to modify that existing app.`,
-    keyList
+    input.vaultAccessMode === "all-apps"
+      ? `Do not create per-app Dispatch vault grants unless the workspace switches vault access to manual or the user explicitly asks for manual grants.`
+      : keyList
       ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
       : `Do not grant any Dispatch vault keys unless the user asks later.`,
     input.selectedResources.length

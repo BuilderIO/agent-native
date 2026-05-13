@@ -569,6 +569,7 @@ export async function runWorkspaceDev(
         AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
         APP_BASE_PATH: basePath,
         VITE_AGENT_NATIVE_WORKSPACE: "1",
+        VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
         VITE_APP_BASE_PATH: basePath,
         VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(env, gatewayUrl),
         VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
