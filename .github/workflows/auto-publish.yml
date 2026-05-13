@@ -88,12 +88,11 @@ jobs:
         uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b # v1
         with:
           # When changesets/action finds no pending changesets, it runs
-          # `publish` — which shells out to `npm publish` per package.
-          # We invoke `changeset publish` directly via npx (NOT
-          # `pnpm changeset publish`); pnpm's publish path bypasses npm's
-          # OIDC trusted-publishing handshake and fails ENEEDAUTH.
-          # See pnpm#9812, changesets/changesets#1914.
-          publish: npx changeset publish
+          # `publish`. @changesets/cli publishes packages concurrently, which
+          # can make several npm OIDC trusted-publishing handshakes race in the
+          # same job. The wrapper keeps changesets' version-PR behavior but
+          # serializes the actual npm publishes.
+          publish: node scripts/changeset-publish-sequential.ts
           # When pending changesets exist, opens this PR with the version
           # bumps + changelog updates. Merging it triggers the publish run.
           title: "chore: version packages"
