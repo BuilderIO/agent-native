@@ -210,10 +210,24 @@ function SortableSlideThumb({
           <IconGripVertical className="w-3.5 h-3.5 text-muted-foreground/70" />
         </div>
 
-        {/* Index */}
-        <span className="flex-shrink-0 w-5 mt-2 text-[10px] font-medium text-muted-foreground/70">
-          {index + 1}
-        </span>
+        {/* Index and slide presence share the fixed rail so presence does not resize the row. */}
+        <div className="relative flex-shrink-0 w-5 self-stretch mt-2">
+          <span className="block text-center text-[10px] font-medium text-muted-foreground/70">
+            {index + 1}
+          </span>
+          {presenceUsers.length > 0 && (
+            <div className="absolute left-1/2 top-6 z-10 flex -translate-x-1/2 flex-col items-center gap-1">
+              {presenceUsers.slice(0, 4).map((u, i) => (
+                <PresenceAvatarTip key={i} user={u} size={16} />
+              ))}
+              {presenceUsers.length > 4 && (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[8px] font-medium leading-none text-muted-foreground ring-1 ring-black/40">
+                  +{presenceUsers.length - 4}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Thumbnail */}
         <div className="flex-1 min-w-0">
@@ -228,19 +242,6 @@ function SortableSlideThumb({
           >
             <SlideRenderer slide={slide} aspectRatio={aspectRatio} />
           </div>
-          {/* Presence avatars — show who's on this slide */}
-          {presenceUsers.length > 0 && (
-            <div className="flex items-center gap-0.5 mt-1 px-0.5">
-              {presenceUsers.slice(0, 4).map((u, i) => (
-                <PresenceAvatarTip key={i} user={u} size={16} />
-              ))}
-              {presenceUsers.length > 4 && (
-                <span className="text-[9px] text-muted-foreground/70 ml-0.5">
-                  +{presenceUsers.length - 4}
-                </span>
-              )}
-            </div>
-          )}
         </div>
       </button>
 

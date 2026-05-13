@@ -255,8 +255,8 @@ function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
         audience:
           workspaceAppAudienceFromPackageJson(pkg) ??
           DEFAULT_WORKSPACE_APP_AUDIENCE,
-        publicPaths: routeAccess.publicPaths,
-        protectedPaths: routeAccess.protectedPaths,
+        publicPaths: routeAccess.publicPaths ?? [],
+        protectedPaths: routeAccess.protectedPaths ?? [],
         dir,
         port: appPortStart,
       } satisfies WorkspaceApp;
@@ -327,6 +327,11 @@ function appRestartDelay(attempts: number): number {
     1_000 * 2 ** Math.max(0, attempts - 1),
     APP_RESTART_MAX_DELAY_MS,
   );
+}
+
+function formatProxyReadyTimeout(timeoutMs: number): string {
+  const seconds = timeoutMs / 1_000;
+  return Number.isInteger(seconds) ? `${seconds}s` : `${timeoutMs}ms`;
 }
 
 function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
@@ -744,6 +749,7 @@ export async function runWorkspaceDev(
       app.installing = false;
       app.ready = false;
       app.readinessProbe = undefined;
+      if (app.restartTimer) return;
       if (code === 0 || shuttingDown) {
         if (wasInstalling && code === 0 && !shuttingDown) {
           app.installAttempted = true;
@@ -752,28 +758,70 @@ export async function runWorkspaceDev(
         return;
       }
       if (wasInstalling) app.installAttempted = false;
-      app.restartAttempts = (app.restartAttempts ?? 0) + 1;
-      const delay = appRestartDelay(app.restartAttempts);
-      const nextRetryAt = Date.now() + delay;
-      app.lastFailure = {
+      scheduleAppRestart(app, {
         code,
         signal,
-        at: Date.now(),
         installing: wasInstalling,
         output: app.outputTail ?? "",
-        nextRetryAt,
-      };
-      stderr.write(
-        `${prefix} exited with code ${code}; retrying in ${Math.round(
-          delay / 1000,
-        )}s\n`,
-      );
-      app.restartTimer = setTimeout(() => {
-        app.restartTimer = undefined;
-        startApp(app);
-      }, delay);
-      app.restartTimer.unref();
+        logMessage: `exited with code ${code}`,
+      });
     });
+  }
+
+  function scheduleAppRestart(
+    app: WorkspaceApp,
+    input: {
+      code: number | null;
+      signal: NodeJS.Signals | null;
+      installing: boolean;
+      output: string;
+      logMessage: string;
+    },
+  ): void {
+    if (shuttingDown || app.restartTimer) return;
+    if (input.installing) app.installAttempted = false;
+    app.restartAttempts = (app.restartAttempts ?? 0) + 1;
+    const delay = appRestartDelay(app.restartAttempts);
+    const nextRetryAt = Date.now() + delay;
+    app.lastFailure = {
+      code: input.code,
+      signal: input.signal,
+      at: Date.now(),
+      installing: input.installing,
+      output: input.output,
+      nextRetryAt,
+    };
+    stderr.write(
+      `[${app.id}] ${input.logMessage}; retrying in ${Math.round(
+        delay / 1000,
+      )}s\n`,
+    );
+    app.restartTimer = setTimeout(() => {
+      app.restartTimer = undefined;
+      startApp(app);
+    }, delay);
+    app.restartTimer.unref();
+  }
+
+  function failAppStartupTimeout(app: WorkspaceApp): void {
+    if (app.installing || app.ready || app.restartTimer) return;
+    const timeout = formatProxyReadyTimeout(proxyReadyTimeoutMs);
+    const message =
+      `Timed out waiting ${timeout} for /${app.id} to accept ` +
+      `connections on 127.0.0.1:${app.port}.`;
+    const output = [message, app.outputTail?.trim()]
+      .filter(Boolean)
+      .join("\n\nLast child output:\n");
+    app.ready = false;
+    app.readinessProbe = undefined;
+    scheduleAppRestart(app, {
+      code: null,
+      signal: null,
+      installing: false,
+      output,
+      logMessage: message,
+    });
+    app.process?.kill("SIGTERM");
   }
 
   function forwardedProto(req: http.IncomingMessage): string {
@@ -812,10 +860,14 @@ export async function runWorkspaceDev(
   }
 
   function ensureReadinessProbe(app: WorkspaceApp): void {
-    if (app.ready || app.readinessProbe) return;
+    if (app.ready || app.readinessProbe || app.installing) return;
     app.readinessProbe = waitForPort(app.port, Date.now() + proxyReadyTimeoutMs)
       .then((ready) => {
-        if (ready) app.ready = true;
+        if (ready) {
+          app.ready = true;
+          return;
+        }
+        failAppStartupTimeout(app);
       })
       .finally(() => {
         app.readinessProbe = undefined;
@@ -882,6 +934,7 @@ export async function runWorkspaceDev(
     void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then(
       (ready) => {
         if (!ready) {
+          failAppStartupTimeout(app);
           if (!res.headersSent) {
             res.writeHead(502, { "content-type": "text/plain" });
             res.end(
@@ -908,6 +961,7 @@ export async function runWorkspaceDev(
     void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then(
       (ready) => {
         if (!ready) {
+          failAppStartupTimeout(app);
           socket.destroy();
           return;
         }

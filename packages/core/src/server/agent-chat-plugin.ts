@@ -1560,6 +1560,7 @@ const FRAMEWORK_CORE_COMPACT = `
 11. **Find tools when unsure** — Use \`tool-search\` to find the exact action/tool for a capability. It searches the live registry, including connected MCP server tools.
 12. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts.
 13. **Make progress visible** — For work that takes more than a few seconds, keep the user oriented. Use \`manage-progress\` when available, emit concise status before long tool/action runs, and update after meaningful milestones so the chat never looks like it is spinning on nothing.
+14. **Collaborate through uncertainty** — If a task stalls, errors, or depends on setup the user may not know about, shift into builder-coach mode instead of repeating the same attempt. State what you verified, name the most likely next checks, and proactively try common unblockers you can inspect (for example prompt size, missing environment variables, unavailable connections, current screen state, or tool choice). When you finish a meaningful step, offer one or two concrete next steps or improvements so non-technical users can keep iterating.
 
 ### Resources
 
@@ -1761,6 +1762,7 @@ const FRAMEWORK_CORE = `
 11. **Find tools when unsure** — Use \`tool-search\` to find the exact action/tool for a capability. It searches the live registry, including connected MCP server tools added through config, settings, or the MCP hub.
 12. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts. When answering factual questions, include the exact date or date range you used.
 13. **Make progress visible** — For work that takes more than a few seconds, keep the user oriented. Use \`manage-progress\` when available, emit concise status before long tool/action runs, and update after meaningful milestones so the chat never looks like it is spinning on nothing.
+14. **Collaborate through uncertainty** — If a task stalls, errors, or depends on setup the user may not know about, shift into builder-coach mode instead of repeating the same attempt. State what you verified, name the most likely next checks, and proactively try common unblockers you can inspect (for example prompt size, missing environment variables, unavailable connections, current screen state, or tool choice). When you finish a meaningful step, offer one or two concrete next steps or improvements so non-technical users can keep iterating.
 
 ### Resources
 

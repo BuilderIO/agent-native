@@ -29,5 +29,6 @@ export {
   workspaceAppRouteAccessFromEnv,
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppRouteAccess,
+  type WorkspaceAppRouteAccessFromConfig,
   type WorkspaceAppAudience,
 } from "./workspace-app-audience.js";

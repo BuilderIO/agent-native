@@ -522,8 +522,8 @@ function readWorkspaceAppsFromFilesystem(): WorkspaceAppManifestEntry[] | null {
         audience:
           workspaceAppAudienceFromPackageJson(pkg) ??
           DEFAULT_WORKSPACE_APP_AUDIENCE,
-        publicPaths: routeAccess.publicPaths,
-        protectedPaths: routeAccess.protectedPaths,
+        publicPaths: routeAccess.publicPaths ?? [],
+        protectedPaths: routeAccess.protectedPaths ?? [],
       } satisfies WorkspaceAppManifestEntry;
     })
     .filter((app): app is WorkspaceAppManifestEntry => !!app)

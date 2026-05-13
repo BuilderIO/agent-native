@@ -396,6 +396,35 @@ describe("workspace dev startup", () => {
     expect(html).toContain("@agent-native/example");
     expect(fake.startedApps()).toEqual(["dispatch"]);
   });
+
+  it("turns a never-ready child process into a visible retrying failure", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_PROXY_READY_TIMEOUT_MS: "50" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+
+    const first = await fetch(`${url}/dispatch`, {
+      headers: { accept: "text/html" },
+    });
+    expect(await first.text()).toContain("Starting Dispatch");
+
+    await waitUntil(() => Boolean(handle?.apps[0]?.lastFailure), 500);
+
+    const res = await fetch(`${url}/dispatch`, {
+      headers: { accept: "text/html" },
+    });
+    const html = await res.text();
+
+    expect(html).toContain("App failed to start: Dispatch");
+    expect(html).toContain("Timed out waiting 50ms");
+    expect(html).toContain("127.0.0.1:");
+    expect(fake.calls().at(-1)?.child.kill).toHaveBeenCalledWith("SIGTERM");
+  });
 });
 
 describe("workspace dev helpers", () => {
