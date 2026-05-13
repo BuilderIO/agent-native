@@ -11,6 +11,11 @@ import {
   resolveBuilderCredentials,
   runBuilderAgent,
 } from "@agent-native/core/server";
+import {
+  applyWorkspaceAppMetadataOverride,
+  readWorkspaceAppMetadataSettings,
+  writeWorkspaceAppMetadataOverride,
+} from "@agent-native/core/server/agent-discovery";
 import { getDbExec } from "@agent-native/core/db";
 import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
 import {
@@ -135,6 +140,41 @@ function titleCase(value: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function ensureSentence(value: string): string {
+  if (!value) return value;
+  const capitalized = value.charAt(0).toUpperCase() + value.slice(1);
+  return /[.!?]$/.test(capitalized) ? capitalized : `${capitalized}.`;
+}
+
+function clipSentence(value: string, max = 180): string {
+  if (value.length <= max) return value;
+  const clipped = value.slice(0, max - 1).replace(/\s+\S*$/, "").trim();
+  return `${clipped || value.slice(0, max - 1).trim()}…`;
+}
+
+export function generateWorkspaceAppDescription(
+  prompt: string,
+  appId: string,
+): string {
+  const cleaned = normalizeWhitespace(prompt)
+    .replace(
+      /^(please\s+)?(build|create|make|generate|scaffold)\s+(me\s+|us\s+)?/i,
+      "",
+    )
+    .replace(
+      /^(an?\s+)?(workspace\s+)?(agent-native\s+)?(app|tool)\s+(that|to|for)\s+/i,
+      "",
+    )
+    .replace(/^(an?\s+)?(dashboard|workspace|agent)\s+(that|to|for)\s+/i, "");
+
+  if (!cleaned) return `Workspace app for ${titleCase(appId)}.`;
+  return clipSentence(ensureSentence(cleaned));
 }
 
 function scopedSettingsKey(): string {
