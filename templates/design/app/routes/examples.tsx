@@ -1,4 +1,4 @@
-export { default } from "../pages/Examples";
+export { default } from "../pages/Templates";
 
 export function meta() {
   return [{ title: "Design Examples" }];
