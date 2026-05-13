@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -35,6 +35,7 @@ import {
   IconKey,
   IconCopy,
   IconDotsVertical,
+  IconBrandGithub,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -51,6 +52,8 @@ import {
 } from "@/lib/data-source-status";
 import {
   appApiPath,
+  agentNativePath,
+  oauthRedirectUri,
   useActionMutation,
   useActionQuery,
   useSendToAgentChat,
@@ -77,6 +80,20 @@ interface AnalyticsPublicKeyRow {
   lastUsedAt: string | null;
   revokedAt: string | null;
   orgId: string | null;
+}
+
+interface GitHubOAuthStatus {
+  configured: boolean;
+  connected: boolean;
+  valid?: boolean;
+  viewer?: {
+    login: string;
+    name?: string | null;
+    email?: string | null;
+    avatarUrl?: string | null;
+    htmlUrl?: string | null;
+  };
+  error?: string;
 }
 
 const firstPartyAnalyticsEndpoint =
@@ -123,6 +140,17 @@ async function testConnection(
     },
     body: JSON.stringify({ source }),
   });
+  return res.json();
+}
+
+async function fetchGitHubOAuthStatus(): Promise<GitHubOAuthStatus> {
+  const res = await fetch(
+    agentNativePath("/_agent-native/oauth/github/status"),
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Failed to load GitHub status");
+  }
   return res.json();
 }
 
@@ -255,6 +283,173 @@ async function deleteCredentials(keys: string[]): Promise<void> {
   }
 }
 
+async function disconnectDataSource(source: DataSource): Promise<void> {
+  if (source.id === "github") {
+    const res = await fetch(
+      agentNativePath("/_agent-native/oauth/github/disconnect"),
+      { method: "POST" },
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to disconnect GitHub");
+    }
+    return;
+  }
+  await deleteCredentials(source.envKeys);
+}
+
+function GitHubOAuthView({
+  connected,
+  onSaved,
+}: {
+  connected: boolean;
+  onSaved: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const { data: status, isLoading } = useQuery({
+    queryKey: ["github-oauth-status"],
+    queryFn: fetchGitHubOAuthStatus,
+    staleTime: 30_000,
+    retry: false,
+  });
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["github-oauth-status"] });
+    onSaved();
+  };
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === "agent-native:github-connected") refresh();
+    };
+
+    window.addEventListener("message", onMessage);
+
+    let channel: BroadcastChannel | null = null;
+    if ("BroadcastChannel" in window) {
+      channel = new BroadcastChannel("agent-native-github-oauth");
+      channel.onmessage = (event) => {
+        if (event.data?.type === "agent-native:github-connected") refresh();
+      };
+    }
+
+    return () => {
+      window.removeEventListener("message", onMessage);
+      channel?.close();
+    };
+  }, [queryClient, onSaved]);
+
+  const connectMutation = useMutation({
+    mutationFn: async () => {
+      const redirectUri = oauthRedirectUri(
+        "/_agent-native/oauth/github/callback",
+      );
+      const authPath = agentNativePath(
+        `/_agent-native/oauth/github/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&redirect=1`,
+      );
+      const popup = window.open(
+        authPath,
+        "_blank",
+        "popup,width=560,height=760",
+      );
+      if (!popup) {
+        window.location.assign(authPath);
+        return { opened: "same-tab" as const };
+      }
+      return { opened: "popup" as const };
+    },
+    onSuccess: () => {
+      const startedAt = Date.now();
+      const pollId = window.setInterval(() => {
+        refresh();
+        if (Date.now() - startedAt > 120_000) {
+          window.clearInterval(pollId);
+        }
+      }, 2_000);
+    },
+  });
+
+  const oauthAvailable = status?.configured ?? false;
+  const oauthConnected = !!status?.connected && status.valid !== false;
+  const viewerLabel =
+    status?.viewer?.name || status?.viewer?.login || status?.viewer?.email;
+
+  return (
+    <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+            <IconBrandGithub className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <p className="text-xs font-medium text-foreground">GitHub OAuth</p>
+            <p className="text-xs text-muted-foreground">
+              Grant repository access so the agent can search source code and
+              read files without a manual token.
+            </p>
+          </div>
+        </div>
+        {isLoading ? (
+          <Skeleton className="h-8 w-24 shrink-0 rounded-md" />
+        ) : oauthAvailable ? (
+          <Button
+            size="sm"
+            variant={oauthConnected ? "outline" : "default"}
+            onClick={() => connectMutation.mutate()}
+            disabled={connectMutation.isPending}
+            className="shrink-0 text-xs"
+          >
+            {connectMutation.isPending ? (
+              <>
+                <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                Opening...
+              </>
+            ) : oauthConnected || connected ? (
+              "Reconnect"
+            ) : (
+              "Connect"
+            )}
+          </Button>
+        ) : null}
+      </div>
+
+      {oauthAvailable ? (
+        oauthConnected ? (
+          <div className="flex items-center gap-2 text-xs text-emerald-500">
+            <IconCheck className="h-3.5 w-3.5" />
+            {viewerLabel
+              ? `Connected as ${viewerLabel}`
+              : "GitHub is connected"}
+          </div>
+        ) : status?.connected && status.valid === false ? (
+          <div className="flex items-center gap-2 text-xs text-amber-500">
+            <IconAlertCircle className="h-3.5 w-3.5" />
+            Saved GitHub token needs to be reconnected.
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            OAuth will request repo read access for code search, file reads,
+            pull requests, and issues.
+          </p>
+        )
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          OAuth app credentials are not configured on this deployment. Use the
+          personal access token field below.
+        </p>
+      )}
+
+      {connectMutation.isError && (
+        <div className="flex items-center gap-2 text-xs text-rose-400">
+          <IconAlertCircle className="h-3.5 w-3.5" />
+          {(connectMutation.error as Error).message}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ConnectedView({
   source,
   onSaved,
@@ -264,6 +459,7 @@ function ConnectedView({
   onSaved: () => void;
   envStatus: EnvKeyStatus[];
 }) {
+  const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
@@ -295,9 +491,12 @@ function ConnectedView({
   });
 
   const disconnectMutation = useMutation({
-    mutationFn: () => deleteCredentials(source.envKeys),
+    mutationFn: () => disconnectDataSource(source),
     onSuccess: () => {
       setDisconnectConfirmOpen(false);
+      if (source.id === "github") {
+        queryClient.invalidateQueries({ queryKey: ["github-oauth-status"] });
+      }
       onSaved();
     },
   });
@@ -746,6 +945,11 @@ function DataSourceCard({
 
       {expanded && (
         <CardContent className="border-t border-border/50 px-5 py-4">
+          {source.id === "github" && (
+            <div className="mb-4">
+              <GitHubOAuthView connected={connected} onSaved={onSaved} />
+            </div>
+          )}
           {connected ? (
             <ConnectedView
               source={source}

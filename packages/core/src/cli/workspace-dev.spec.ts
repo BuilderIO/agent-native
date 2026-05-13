@@ -90,6 +90,31 @@ describe("workspace dev startup", () => {
     );
   });
 
+  it("passes workspace app audience through local dev manifests and env", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    makeApp(tmpDir, "portal", { audience: "public" });
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const portalEnv = fake
+      .calls()
+      .find((call) => call.options?.env?.APP_NAME === "portal")?.options?.env;
+    expect(portalEnv?.AGENT_NATIVE_WORKSPACE_APP_AUDIENCE).toBe("public");
+    expect(portalEnv?.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE).toBe("public");
+    expect(
+      JSON.parse(portalEnv?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]").find(
+        (app: any) => app.id === "portal",
+      ),
+    ).toMatchObject({ audience: "public" });
+  });
+
   it("uses polling watchers in Builder-style remote dev environments", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
@@ -417,17 +442,20 @@ function makeWorkspace(apps: string[]): string {
 function makeApp(
   workspaceRoot: string,
   app: string,
-  opts: { installVite?: boolean } = {},
+  opts: { audience?: "internal" | "public"; installVite?: boolean } = {},
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   fs.mkdirSync(appDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(appDir, "package.json"),
-    JSON.stringify({
-      name: app,
-      displayName: app.charAt(0).toUpperCase() + app.slice(1),
-    }),
-  );
+  const pkg: Record<string, unknown> = {
+    name: app,
+    displayName: app.charAt(0).toUpperCase() + app.slice(1),
+  };
+  if (opts.audience) {
+    pkg["agent-native"] = {
+      workspaceApp: { audience: opts.audience },
+    };
+  }
+  fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
   if (opts.installVite !== false) createViteBin(appDir);
 }
 

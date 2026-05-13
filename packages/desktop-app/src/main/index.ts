@@ -1430,7 +1430,12 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
-    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, 1-9, [, ]
+    const isAgentSidebarToggleShortcut =
+      !input.alt &&
+      !input.shift &&
+      (key === "\\" || input.code === "Backslash");
+
+    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, 1-9, [, ], \
     const isShortcut =
       key === "f" ||
       key === "l" ||
@@ -1438,12 +1443,13 @@ app.on("web-contents-created", (_event, contents) => {
       key === "t" ||
       key === "[" ||
       key === "]" ||
+      isAgentSidebarToggleShortcut ||
       (key >= "1" && key <= "9");
 
     if (isShortcut) {
       event.preventDefault();
       win.webContents.send("shortcut:keydown", {
-        key: input.key,
+        key: isAgentSidebarToggleShortcut ? "\\" : input.key,
         shiftKey: input.shift,
         altKey: false,
       });
@@ -1639,6 +1645,20 @@ app.whenReady().then(() => {
       win.webContents.send("shortcut:keydown", {
         key: "l",
         shiftKey: input.shift,
+      });
+      return;
+    }
+
+    // Cmd+\ — toggle the agent sidebar for the active webview
+    if (
+      !input.alt &&
+      !input.shift &&
+      (key === "\\" || input.code === "Backslash")
+    ) {
+      _event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: "\\",
+        shiftKey: false,
       });
       return;
     }

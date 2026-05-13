@@ -1,8 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Toaster, toast } from "sonner";
 import {
-  APP_REGISTRY,
-  DEFAULT_APPS,
+  DESKTOP_DEFAULT_APPS,
   type AppDefinition,
   type AppConfig,
   toAppDefinition,
@@ -10,7 +9,7 @@ import {
 import Sidebar from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
 import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
-import AppSettings from "./components/AppSettings.js";
+import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
 
 export interface Tab {
@@ -35,17 +34,6 @@ interface AppTabState {
   activeTabId: string;
 }
 
-function initAppTabs(
-  apps: (AppDefinition | AppConfig)[],
-): Record<string, AppTabState> {
-  const state: Record<string, AppTabState> = {};
-  for (const app of apps) {
-    const tab = createTab(app);
-    state[app.id] = { tabs: [tab], activeTabId: tab.id };
-  }
-  return state;
-}
-
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
@@ -57,6 +45,7 @@ function isShellShortcut(e: KeyboardEvent): boolean {
 
   const key = e.key.toLowerCase();
   if (e.altKey && (key === "arrowup" || key === "arrowdown")) return true;
+  if (isAgentSidebarToggleShortcut(e)) return true;
 
   return (
     key === "f" ||
@@ -69,10 +58,20 @@ function isShellShortcut(e: KeyboardEvent): boolean {
   );
 }
 
+function isAgentSidebarToggleShortcut(e: KeyboardEvent): boolean {
+  return (
+    (e.metaKey || e.ctrlKey) &&
+    !e.altKey &&
+    !e.shiftKey &&
+    (e.key === "\\" || e.code === "Backslash")
+  );
+}
+
 export default function App() {
   const [apps, setApps] = useState<AppConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAddApp, setShowAddApp] = useState(false);
 
   // Load apps from persistent store
   useEffect(() => {
@@ -82,7 +81,7 @@ export default function App() {
         setApps(loaded);
       } else {
         // Fallback for dev without electron — use full config with production URLs
-        setApps(DEFAULT_APPS);
+        setApps(DESKTOP_DEFAULT_APPS);
       }
       setLoading(false);
     }
@@ -93,7 +92,7 @@ export default function App() {
   const enabledAppIdsKey = enabledApps.map((a) => a.id).join(",");
   const rawAppDefs = enabledApps.map(toAppDefinition);
   // Keep this in sync with Sidebar's pinned-bottom order.
-  const PINNED_BOTTOM_ORDER = ["dispatch", "starter"];
+  const PINNED_BOTTOM_ORDER = ["dispatch"];
   const pinnedBottomDefs = PINNED_BOTTOM_ORDER.map((id) =>
     rawAppDefs.find((a) => a.id === id),
   ).filter((a): a is NonNullable<typeof a> => !!a);
@@ -101,8 +100,6 @@ export default function App() {
     (a) => !PINNED_BOTTOM_ORDER.includes(a.id),
   );
   const appDefs = [...mainDefs, ...pinnedBottomDefs];
-
-  const defaultApp = appDefs.find((a) => !a.placeholder) ?? appDefs[0];
 
   const [activeSidebarAppId, setActiveSidebarAppId] = useState("");
   const [appTabs, setAppTabs] = useState<Record<string, AppTabState>>({});
@@ -168,6 +165,17 @@ export default function App() {
 
   const handleAppsChanged = useCallback((newApps: AppConfig[]) => {
     setApps(newApps);
+  }, []);
+
+  const handleAddApp = useCallback(async (app: AppConfig) => {
+    if (window.electronAPI?.appConfig) {
+      const updated = await window.electronAPI.appConfig.add(app);
+      setApps(updated);
+    } else {
+      setApps((prev) => [...prev, app]);
+    }
+    setActiveSidebarAppId(app.id);
+    setShowAddApp(false);
   }, []);
 
   const handleSidebarTabChange = useCallback((appId: string) => {
@@ -329,6 +337,11 @@ export default function App() {
         return;
       }
 
+      if (k === "\\") {
+        webviewRefs.current.get(activeTabIdRef.current)?.toggleAgentSidebar();
+        return;
+      }
+
       if (k === "r") {
         setRefreshKey((n) => n + 1);
         return;
@@ -370,9 +383,15 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!isShellShortcut(e) || isEditableTarget(e.target)) return;
+      if (!isShellShortcut(e)) return;
+      const isSidebarToggle = isAgentSidebarToggleShortcut(e);
+      if (!isSidebarToggle && isEditableTarget(e.target)) return;
       e.preventDefault();
-      handleShortcut(e.key, e.shiftKey, e.altKey);
+      handleShortcut(
+        e.code === "Backslash" ? "\\" : e.key,
+        e.shiftKey,
+        e.altKey,
+      );
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -530,6 +549,7 @@ export default function App() {
           apps={appDefs}
           activeAppId={activeSidebarAppId}
           onTabChange={handleSidebarTabChange}
+          onAddAppClick={() => setShowAddApp(true)}
           onSettingsClick={() => setShowSettings(true)}
         />
         <div className="content-area">
@@ -555,6 +575,17 @@ export default function App() {
           apps={apps}
           onClose={() => setShowSettings(false)}
           onAppsChanged={handleAppsChanged}
+          onAddAppClick={() => {
+            setShowSettings(false);
+            setShowAddApp(true);
+          }}
+        />
+      )}
+
+      {showAddApp && (
+        <AddAppDialog
+          onSave={handleAddApp}
+          onCancel={() => setShowAddApp(false)}
         />
       )}
 

@@ -19,6 +19,12 @@ import fs from "fs";
 import path from "path";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
+import {
+  DEFAULT_WORKSPACE_APP_AUDIENCE,
+  normalizeWorkspaceAppAudience,
+  workspaceAppAudienceFromPackageJson,
+  type WorkspaceAppAudience,
+} from "../shared/workspace-app-audience.js";
 
 export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify" | "vercel";
 
@@ -56,6 +62,7 @@ interface WorkspaceAppManifestEntry {
   path: string;
   url?: string;
   isDispatch: boolean;
+  audience: WorkspaceAppAudience;
 }
 
 export interface WorkspaceDeployOptions {
@@ -186,6 +193,7 @@ function buildOneApp(
   workspaceApps: WorkspaceAppManifestEntry[],
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
+  const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
   const workspaceGatewayUrl =
     process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl();
   const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
@@ -196,6 +204,8 @@ function buildOneApp(
     VITE_AGENT_NATIVE_WORKSPACE: "1",
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
+    AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: workspaceAppAudience,
+    VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: workspaceAppAudience,
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: JSON.stringify(workspaceApps),
     ...(workspaceGatewayUrl
       ? {
@@ -383,13 +393,17 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
     ? `    if (pathname.startsWith("/apps/")) return Response.redirect(new URL("/dispatch" + pathname + search, request.url).toString(), 302);
 `
     : "";
+  const dispatchMountedRootRedirect = apps.includes("dispatch")
+    ? `    if (pathname === "/dispatch" || pathname === "/dispatch/") return Response.redirect(new URL("/dispatch/overview" + search, request.url).toString(), 302);
+`
+    : "";
 
   const worker = `${imports}
 
 export default {
   async fetch(request, env, ctx) {
     const { pathname, search } = new URL(request.url);
-${dispatchRootFrameworkRoutes}${dispatchRootFaviconRoute}${dispatchRootAliasRoutes}${dispatchRootDynamicAliasRoutes}${dispatch}
+${dispatchRootFrameworkRoutes}${dispatchRootFaviconRoute}${dispatchRootAliasRoutes}${dispatchRootDynamicAliasRoutes}${dispatchMountedRootRedirect}${dispatch}
     if (pathname === "/") {
       return Response.redirect(new URL("${cloudflareRootRedirectPath(apps)}", request.url).toString(), 302);
     }
@@ -426,6 +440,7 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
   if (apps.includes("dispatch")) {
     lines.push("/ /dispatch/overview 302");
     lines.push("/dispatch /dispatch/overview 302");
+    lines.push("/dispatch/ /dispatch/overview 302");
     for (const [from, to] of DISPATCH_WORKSPACE_ROOT_REDIRECTS) {
       lines.push(`/${from} /dispatch/${to} 302`);
     }
@@ -458,6 +473,7 @@ function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
     routes.push(
       vercelRedirect("/", "/dispatch/overview"),
       vercelRedirect("/dispatch", "/dispatch/overview"),
+      vercelRedirect("/dispatch/", "/dispatch/overview"),
     );
     for (const [from, to] of DISPATCH_WORKSPACE_ROOT_REDIRECTS) {
       routes.push(vercelRedirect(`/${from}`, `/dispatch/${to}`));
@@ -573,6 +589,7 @@ function patchNetlifyFunctionEntry(
   if (!fs.existsSync(serverPath)) return;
 
   const basePath = `/${app}`;
+  const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
   const pathConfig =
     app === "dispatch"
       ? ["/_agent-native/*", "/.well-known/*", `${basePath}/*`]
@@ -604,8 +621,10 @@ function setBasePathEnv() {
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     APP_BASE_PATH: basePath,
+    AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE: "1",
     VITE_APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
@@ -655,6 +674,7 @@ function patchVercelFunctionEntry(
   fs.renameSync(entryPath, mainPath);
 
   const basePath = `/${app}`;
+  const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
   const entry = `const basePath = ${JSON.stringify(basePath)};
 
 function setBasePathEnv() {
@@ -663,8 +683,10 @@ function setBasePathEnv() {
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     APP_BASE_PATH: basePath,
+    AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE: "1",
     VITE_APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
@@ -825,6 +847,10 @@ function readWorkspaceAppManifest(
       const explicit = explicitApps.get(app);
       const url =
         normalizeWorkspaceAppUrl(explicit?.url) ?? workspaceAppUrl(appPath);
+      const audience =
+        workspaceAppAudienceFromPackageJson(pkg) ??
+        explicit?.audience ??
+        DEFAULT_WORKSPACE_APP_AUDIENCE;
       return {
         id: app,
         name: pkg?.displayName || titleCase(app),
@@ -832,6 +858,7 @@ function readWorkspaceAppManifest(
         path: appPath,
         ...(url ? { url } : {}),
         isDispatch: app === "dispatch",
+        audience,
       };
     })
     .sort((a, b) => {
@@ -843,7 +870,7 @@ function readWorkspaceAppManifest(
 
 function readExistingWorkspaceAppManifest(
   workspaceRoot: string,
-): Map<string, { url?: string }> {
+): Map<string, { url?: string; audience?: WorkspaceAppAudience }> {
   const fromEnv = parseWorkspaceAppsJson(process.env[WORKSPACE_APPS_ENV_KEY]);
   const fromFile =
     readWorkspaceAppsFromFile(
@@ -862,7 +889,7 @@ function readExistingWorkspaceAppManifest(
 
 function parseWorkspaceAppsJson(
   raw: string | undefined,
-): Array<{ id: string; url?: string }> | null {
+): Array<{ id: string; url?: string; audience?: WorkspaceAppAudience }> | null {
   if (!raw) return null;
   try {
     return parseWorkspaceAppsManifest(JSON.parse(raw));
@@ -873,14 +900,14 @@ function parseWorkspaceAppsJson(
 
 function readWorkspaceAppsFromFile(
   file: string,
-): Array<{ id: string; url?: string }> | null {
+): Array<{ id: string; url?: string; audience?: WorkspaceAppAudience }> | null {
   if (!fs.existsSync(file)) return null;
   return parseWorkspaceAppsManifest(readPackageJson(file));
 }
 
 function parseWorkspaceAppsManifest(
   parsed: any,
-): Array<{ id: string; url?: string }> | null {
+): Array<{ id: string; url?: string; audience?: WorkspaceAppAudience }> | null {
   const rawApps = Array.isArray(parsed?.apps)
     ? parsed.apps
     : Array.isArray(parsed)
@@ -894,12 +921,22 @@ function parseWorkspaceAppsManifest(
       const id = typeof entry.id === "string" ? entry.id.trim() : "";
       if (!id) return null;
       const url = normalizeWorkspaceAppUrl(entry.url);
+      const audience =
+        entry.audience === undefined
+          ? undefined
+          : normalizeWorkspaceAppAudience(entry.audience);
       return {
         id,
         ...(url ? { url } : {}),
+        ...(audience ? { audience } : {}),
       };
     })
-    .filter((app): app is { id: string; url?: string } => !!app);
+    .filter(
+      (
+        app,
+      ): app is { id: string; url?: string; audience?: WorkspaceAppAudience } =>
+        !!app,
+    );
 
   return apps.length ? apps : null;
 }
@@ -1086,6 +1123,16 @@ function normalizePreset(
 
 function moduleIdent(app: string): string {
   return "app_" + app.replace(/[^a-zA-Z0-9_]/g, "_");
+}
+
+function workspaceAppAudienceForApp(
+  workspaceApps: WorkspaceAppManifestEntry[],
+  app: string,
+): WorkspaceAppAudience {
+  return (
+    workspaceApps.find((entry) => entry.id === app)?.audience ??
+    DEFAULT_WORKSPACE_APP_AUDIENCE
+  );
 }
 
 function compareWorkspaceAppIds(a: string, b: string): number {

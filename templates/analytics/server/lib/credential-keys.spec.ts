@@ -23,6 +23,8 @@ describe("credential key lookup", () => {
       "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       "BIGQUERY_PROJECT_ID",
     ]);
+    expect(keysFor("github")).toEqual(["GITHUB_TOKEN"]);
+    expect(keysFor("github-code")).toEqual(["GITHUB_TOKEN"]);
     expect(keysFor("google-analytics")).toEqual([
       "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       "GA4_PROPERTY_ID",

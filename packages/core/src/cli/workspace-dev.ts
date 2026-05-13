@@ -8,11 +8,17 @@ import type { Duplex } from "node:stream";
 import { fileURLToPath } from "node:url";
 import * as Sentry from "@sentry/node";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
+import {
+  DEFAULT_WORKSPACE_APP_AUDIENCE,
+  workspaceAppAudienceFromPackageJson,
+  type WorkspaceAppAudience,
+} from "../shared/workspace-app-audience.js";
 
 export interface WorkspaceApp {
   id: string;
   name: string;
   description: string;
+  audience: WorkspaceAppAudience;
   dir: string;
   port: number;
   process?: ChildProcess;
@@ -242,6 +248,9 @@ function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
         id: entry.name,
         name: pkg.displayName || pkg.name || entry.name,
         description: typeof pkg.description === "string" ? pkg.description : "",
+        audience:
+          workspaceAppAudienceFromPackageJson(pkg) ??
+          DEFAULT_WORKSPACE_APP_AUDIENCE,
         dir,
         port: appPortStart,
       } satisfies WorkspaceApp;
@@ -572,6 +581,7 @@ export async function runWorkspaceDev(
         name: workspaceApp.name,
         description: workspaceApp.description,
         path: `/${workspaceApp.id}`,
+        audience: workspaceApp.audience,
       })),
     );
   }
@@ -582,6 +592,8 @@ export async function runWorkspaceDev(
       const existing = appById.get(app.id);
       if (existing) {
         existing.name = app.name;
+        existing.description = app.description;
+        existing.audience = app.audience;
         existing.dir = app.dir;
         continue;
       }
@@ -668,9 +680,11 @@ export async function runWorkspaceDev(
           APP_NAME: app.id,
           AGENT_NATIVE_WORKSPACE: "1",
           AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+          AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
           APP_BASE_PATH: basePath,
           VITE_AGENT_NATIVE_WORKSPACE: "1",
           VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+          VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
           VITE_APP_BASE_PATH: basePath,
           VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(env, gatewayUrl),
           VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
@@ -1005,6 +1019,7 @@ export async function runWorkspaceDev(
             name: app.name,
             description: app.description,
             path: `/${app.id}`,
+            audience: app.audience,
             port: app.port,
             running: Boolean(app.process && !app.process.killed),
           })),

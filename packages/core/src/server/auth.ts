@@ -89,6 +89,11 @@ import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import { captureAuthError } from "./sentry.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
+import {
+  normalizeWorkspaceAppAudience,
+  workspaceAppAudienceFromEnv,
+  type WorkspaceAppAudience,
+} from "../shared/workspace-app-audience.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -128,6 +133,16 @@ export interface AuthOptions {
    * Both page routes and API routes can be made public.
    */
   publicPaths?: string[];
+  /**
+   * Workspace-level audience for the app.
+   *
+   * "internal" keeps the existing behavior: every app page requires an
+   * authenticated workspace member unless listed in publicPaths.
+   *
+   * "public" lets unauthenticated visitors load page routes, while framework
+   * and API routes remain protected unless explicitly listed in publicPaths.
+   */
+  workspaceAppAudience?: WorkspaceAppAudience;
   /**
    * Custom login page HTML. When provided, this HTML is served to
    * unauthenticated page requests instead of the built-in login form.
@@ -759,9 +774,18 @@ interface AuthGuardConfig {
   loginHtml: string;
   getLoginHtml?: (event: H3Event, rawPath: string) => string;
   publicPaths: string[];
+  workspaceAppAudience: WorkspaceAppAudience;
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
 const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
+
+function resolveWorkspaceAppAudience(
+  options: Pick<AuthOptions, "workspaceAppAudience"> = {},
+): WorkspaceAppAudience {
+  return normalizeWorkspaceAppAudience(
+    options.workspaceAppAudience ?? workspaceAppAudienceFromEnv(),
+  );
+}
 
 function setGenericGoogleOAuthRoutesEnabled(
   app: H3App,
@@ -1242,6 +1266,9 @@ function createAuthGuardFn(): (
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (isPublicPath(normalizedUrl, publicPaths)) return;
+    if (isPublicWorkspacePageRequest(event, p, config.workspaceAppAudience)) {
+      return;
+    }
 
     const session = await getSession(event);
     if (session) return;
@@ -1544,6 +1571,26 @@ function isHttpsRequest(event: H3Event): boolean {
 function isPublicPath(url: string, publicPaths: string[]): boolean {
   const p = url.split("?")[0];
   return publicPaths.some((pp) => p === pp || p.startsWith(pp + "/"));
+}
+
+function isPublicWorkspacePageRequest(
+  event: H3Event,
+  path: string,
+  audience: WorkspaceAppAudience,
+): boolean {
+  if (audience !== "public") return false;
+  if (!isReadMethod(event)) return false;
+  if (
+    path === "/_agent-native" ||
+    path.startsWith("/_agent-native/") ||
+    path === "/api" ||
+    path.startsWith("/api/") ||
+    path === "/.well-known" ||
+    path.startsWith("/.well-known/")
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function stripAppBasePath(pathname: string): string {
@@ -1897,6 +1944,7 @@ async function mountBetterAuthRoutes(
   options: AuthOptions,
 ): Promise<void> {
   const publicPaths = [...(options.publicPaths ?? [])];
+  const workspaceAppAudience = resolveWorkspaceAppAudience(options);
 
   // The A2A agent card is part of an open protocol — other agents must be
   // able to discover it without auth. Same for favicons and similar probes.
@@ -2609,7 +2657,7 @@ async function mountBetterAuthRoutes(
       googleSignInNotice: options.googleSignInNotice,
       googleAuthMode: options.googleAuthMode,
     });
-  _authGuardConfig = { loginHtml, publicPaths };
+  _authGuardConfig = { loginHtml, publicPaths, workspaceAppAudience };
   const guardFn = createAuthGuardFn();
   _authGuardFn = guardFn;
   app.use(defineEventHandler(guardFn));
@@ -2623,6 +2671,7 @@ function mountTokenOnlyRoutes(
   app: H3App,
   accessTokens: string[],
   publicPaths: string[] = [],
+  workspaceAppAudience = resolveWorkspaceAppAudience(),
 ): void {
   app.use(
     "/_agent-native/auth/login",
@@ -2679,6 +2728,7 @@ function mountTokenOnlyRoutes(
     getLoginHtml: (_event, rawPath) =>
       getTokenLoginHtml({ requestPath: rawPath }),
     publicPaths,
+    workspaceAppAudience,
   };
   const guardFn = createAuthGuardFn();
   _authGuardFn = guardFn;
@@ -2877,6 +2927,10 @@ export async function autoMountAuth(
           ...options.publicPaths,
         ];
       }
+      if (options.workspaceAppAudience) {
+        _authGuardConfig.workspaceAppAudience =
+          resolveWorkspaceAppAudience(options);
+      }
     }
     return true;
   }
@@ -2901,6 +2955,7 @@ export async function autoMountAuth(
   customGetSession = null;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = options.publicPaths ?? [];
+  const workspaceAppAudience = resolveWorkspaceAppAudience(options);
 
   mountAuthCorsMiddleware(app);
 
@@ -2949,6 +3004,7 @@ export async function autoMountAuth(
               getTokenLoginHtml({ requestPath: rawPath }),
           }),
       publicPaths,
+      workspaceAppAudience,
     };
     const guardFn = createAuthGuardFn();
     _authGuardFn = guardFn;
@@ -2962,7 +3018,7 @@ export async function autoMountAuth(
   // ACCESS_TOKEN-only mode
   const tokens = getAccessTokens();
   if (tokens.length > 0) {
-    mountTokenOnlyRoutes(app, tokens, publicPaths);
+    mountTokenOnlyRoutes(app, tokens, publicPaths, workspaceAppAudience);
     if (process.env.DEBUG)
       console.log(
         `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
@@ -2991,7 +3047,7 @@ export async function autoMountAuth(
         googleSignInNotice: options.googleSignInNotice,
         googleAuthMode: options.googleAuthMode,
       });
-    _authGuardConfig = { loginHtml, publicPaths };
+    _authGuardConfig = { loginHtml, publicPaths, workspaceAppAudience };
     const guardFn = createAuthGuardFn();
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));

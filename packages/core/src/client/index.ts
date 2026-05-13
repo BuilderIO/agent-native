@@ -124,6 +124,12 @@ export {
   type AgentPanelProps,
   type AgentSidebarProps,
 } from "./AgentPanel.js";
+export {
+  SIDEBAR_STATE_CHANGE_EVENT,
+  type AgentSidebarStateChangeDetail,
+  type AgentSidebarStateMode,
+  type AgentSidebarStateSource,
+} from "./agent-sidebar-state.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export { SettingsPanel, type SettingsPanelProps } from "./settings/index.js";
 export { useBuilderStatus } from "./settings/useBuilderStatus.js";

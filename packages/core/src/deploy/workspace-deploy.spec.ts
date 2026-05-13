@@ -20,8 +20,10 @@ let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
 let previousViteAppBasePath: string | undefined;
+let previousViteWorkspaceAppAudience: string | undefined;
 let previousViteWorkspaceGatewayUrl: string | undefined;
 let previousViteWorkspaceOAuthOrigin: string | undefined;
+let previousWorkspaceAppAudience: string | undefined;
 let previousWorkspaceGatewayUrl: string | undefined;
 let previousWorkspaceOAuthOrigin: string | undefined;
 let previousWorkspaceAppsJson: string | undefined;
@@ -55,8 +57,12 @@ beforeEach(() => {
   previousViteWorkspaceAppsJson =
     process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
+  previousViteWorkspaceAppAudience =
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
   previousViteWorkspaceGatewayUrl = process.env.VITE_WORKSPACE_GATEWAY_URL;
   previousViteWorkspaceOAuthOrigin = process.env.VITE_WORKSPACE_OAUTH_ORIGIN;
+  previousWorkspaceAppAudience =
+    process.env.AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
   previousWorkspaceGatewayUrl = process.env.WORKSPACE_GATEWAY_URL;
   previousWorkspaceOAuthOrigin = process.env.WORKSPACE_OAUTH_ORIGIN;
   previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -73,8 +79,10 @@ beforeEach(() => {
   delete process.env.VERCEL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.VITE_APP_BASE_PATH;
+  delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
   delete process.env.VITE_WORKSPACE_GATEWAY_URL;
   delete process.env.VITE_WORKSPACE_OAUTH_ORIGIN;
+  delete process.env.AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
   delete process.env.WORKSPACE_GATEWAY_URL;
   delete process.env.WORKSPACE_OAUTH_ORIGIN;
   delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -97,8 +105,16 @@ afterEach(() => {
     previousViteWorkspaceAppsJson,
   );
   restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
+  restoreEnv(
+    "VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE",
+    previousViteWorkspaceAppAudience,
+  );
   restoreEnv("VITE_WORKSPACE_GATEWAY_URL", previousViteWorkspaceGatewayUrl);
   restoreEnv("VITE_WORKSPACE_OAUTH_ORIGIN", previousViteWorkspaceOAuthOrigin);
+  restoreEnv(
+    "AGENT_NATIVE_WORKSPACE_APP_AUDIENCE",
+    previousWorkspaceAppAudience,
+  );
   restoreEnv("WORKSPACE_GATEWAY_URL", previousWorkspaceGatewayUrl);
   restoreEnv("WORKSPACE_OAUTH_ORIGIN", previousWorkspaceOAuthOrigin);
   restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
@@ -136,6 +152,7 @@ describe("workspace deploy", () => {
         description: "",
         path: "/dispatch",
         isDispatch: true,
+        audience: "internal",
       },
       {
         id: "starter",
@@ -143,6 +160,7 @@ describe("workspace deploy", () => {
         description: "",
         path: "/starter",
         isDispatch: false,
+        audience: "internal",
       },
     ]);
 
@@ -275,6 +293,7 @@ describe("workspace deploy", () => {
           description: "",
           path: "/dispatch",
           isDispatch: true,
+          audience: "internal",
         },
         {
           id: "starter",
@@ -282,6 +301,7 @@ describe("workspace deploy", () => {
           description: "",
           path: "/starter",
           isDispatch: false,
+          audience: "internal",
         },
       ],
     });
@@ -426,6 +446,7 @@ describe("workspace deploy", () => {
     expect(redirects).toContain("/favicon.ico /dispatch/favicon.ico 302");
     expect(redirects).toContain("/ /dispatch/overview 302");
     expect(redirects).toContain("/dispatch /dispatch/overview 302");
+    expect(redirects).toContain("/dispatch/ /dispatch/overview 302");
     expect(redirects).toContain("/login /dispatch/login 302");
     expect(redirects).toContain("/signup /dispatch/signup 302");
     expect(redirects).toContain("/apps /dispatch/apps 302");
@@ -448,6 +469,47 @@ describe("workspace deploy", () => {
       false,
     );
     expect(fs.existsSync(path.join(tmpDir, "dist", "_worker.js"))).toBe(false);
+  });
+
+  it("propagates public workspace app audience into manifests and app env", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "portal", { audience: "public" });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const portalCall = buildCallForApp("portal");
+    expect(portalCall?.env).toMatchObject({
+      AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+      VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+    });
+    const manifest = JSON.parse(
+      portalCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]",
+    );
+    expect(manifest.find((app: any) => app.id === "portal")).toMatchObject({
+      id: "portal",
+      audience: "public",
+    });
+
+    const portalServer = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "portal-server",
+        "portal-server.mjs",
+      ),
+      "utf-8",
+    );
+    expect(portalServer).toContain(
+      'AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public"',
+    );
+    expect(portalServer).toContain(
+      'VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public"',
+    );
   });
 
   it("uses Netlify unpooled database URLs for apps that request them", async () => {
@@ -607,6 +669,11 @@ describe("workspace deploy", () => {
       headers: { Location: "/dispatch/overview" },
     });
     expect(config.routes).toContainEqual({
+      src: "/dispatch/",
+      status: 302,
+      headers: { Location: "/dispatch/overview" },
+    });
+    expect(config.routes).toContainEqual({
       src: "/login",
       status: 302,
       headers: { Location: "/dispatch/login" },
@@ -753,6 +820,7 @@ describe("workspace deploy", () => {
         path: "/dispatch",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
+        audience: "internal",
       },
       {
         id: "mail",
@@ -761,6 +829,7 @@ describe("workspace deploy", () => {
         path: "/mail",
         url: "https://mail.custom.example.test",
         isDispatch: false,
+        audience: "internal",
       },
     ]);
 
@@ -821,6 +890,7 @@ describe("workspace deploy", () => {
         path: "/dispatch",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
+        audience: "internal",
       },
       {
         id: "mail",
@@ -829,6 +899,7 @@ describe("workspace deploy", () => {
         path: "/mail",
         url: "https://workspace.example.test/mail",
         isDispatch: false,
+        audience: "internal",
       },
     ]);
   });
@@ -897,6 +968,9 @@ describe("workspace deploy", () => {
       'if (pathname.startsWith("/apps/")) return Response.redirect(new URL("/dispatch" + pathname + search, request.url).toString(), 302);',
     );
     expect(worker).toContain(
+      'if (pathname === "/dispatch" || pathname === "/dispatch/") return Response.redirect(new URL("/dispatch/overview" + search, request.url).toString(), 302);',
+    );
+    expect(worker).toContain(
       'if (pathname === "/dispatch" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(request, env, ctx);',
     );
     expect(worker).not.toContain(
@@ -934,14 +1008,23 @@ describe("workspace deploy", () => {
 function makeWorkspaceApp(
   workspaceRoot: string,
   app: string,
-  opts: { usesUnpooledDatabaseUrl?: boolean } = {},
+  opts: {
+    audience?: "internal" | "public";
+    usesUnpooledDatabaseUrl?: boolean;
+  } = {},
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   fs.mkdirSync(appDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(appDir, "package.json"),
-    JSON.stringify({ name: app, scripts: { build: "agent-native build" } }),
-  );
+  const pkg: Record<string, unknown> = {
+    name: app,
+    scripts: { build: "agent-native build" },
+  };
+  if (opts.audience) {
+    pkg["agent-native"] = {
+      workspaceApp: { audience: opts.audience },
+    };
+  }
+  fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
 
   if (opts.usesUnpooledDatabaseUrl) {
     fs.writeFileSync(

@@ -116,7 +116,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="mx-1 border-t border-border/60 pt-2">
-            <OrgSwitcher />
+            <OrgSwitcher settingsPath="/teams" />
           </div>
         </aside>
         <AgentSidebar

@@ -395,6 +395,39 @@ describe("server/auth", () => {
       expect(result).toBeUndefined();
     });
 
+    it("allows public workspace app pages while keeping API and framework routes protected", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_BASE_PATH", "/portal");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_AUDIENCE", "public");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(createMockEvent({ path: "/portal" })),
+      ).resolves.toBeUndefined();
+      await expect(
+        guard(createMockEvent({ path: "/portal/pricing" })),
+      ).resolves.toBeUndefined();
+
+      const apiResult = await guard(
+        createMockEvent({ path: "/portal/api/private" }),
+      );
+      expect(apiResult).toEqual({ error: "Unauthorized" });
+
+      const actionResult = await guard(
+        createMockEvent({ path: "/portal/_agent-native/actions/list" }),
+      );
+      expect(actionResult).toEqual({ error: "Unauthorized" });
+    });
+
     it("relays root workspace OAuth callbacks to the app from state", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

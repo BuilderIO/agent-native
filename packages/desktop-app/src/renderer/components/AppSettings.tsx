@@ -8,6 +8,8 @@ import {
   IconCheck,
   IconChevronRight,
   IconChevronDown,
+  IconWorld,
+  IconTerminal2,
 } from "@tabler/icons-react";
 import type { AppConfig, TemplateMeta } from "@shared/app-registry";
 import {
@@ -27,6 +29,7 @@ interface AppSettingsProps {
   apps: AppConfig[];
   onClose: () => void;
   onAppsChanged: (apps: AppConfig[]) => void;
+  onAddAppClick?: () => void;
 }
 
 function inferPortFromUrl(url: string): number {
@@ -45,9 +48,9 @@ export default function AppSettings({
   apps,
   onClose,
   onAppsChanged,
+  onAddAppClick,
 }: AppSettingsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [showAddForm, setShowAddForm] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
@@ -150,15 +153,10 @@ export default function AppSettings({
   const handleSave = useCallback(
     async (app: AppConfig) => {
       if (!window.electronAPI?.appConfig) return;
-      if (editingId) {
-        const updated = await window.electronAPI.appConfig.update(app.id, app);
-        onAppsChanged(updated);
-        setEditingId(null);
-      } else {
-        const updated = await window.electronAPI.appConfig.add(app);
-        onAppsChanged(updated);
-        setShowAddForm(false);
-      }
+      if (!editingId) return;
+      const updated = await window.electronAPI.appConfig.update(app.id, app);
+      onAppsChanged(updated);
+      setEditingId(null);
     },
     [editingId, onAppsChanged],
   );
@@ -270,7 +268,11 @@ export default function AppSettings({
                   <div key={app.id} className="settings-app-row">
                     <div className="settings-app-info">
                       <span className="settings-app-name">{app.name}</span>
-                      <span className="settings-app-url">{app.url}</span>
+                      <span className="settings-app-url">
+                        {app.mode === "dev" && app.devUrl
+                          ? app.devUrl
+                          : app.url || app.devUrl}
+                      </span>
                     </div>
                     <div className="settings-app-actions">
                       <div className="settings-mode-toggle">
@@ -322,18 +324,15 @@ export default function AppSettings({
               <div className="settings-section">
                 <button
                   className="settings-btn settings-btn--primary"
-                  onClick={() => setShowTemplatePicker(true)}
+                  onClick={onAddAppClick}
                 >
-                  <IconPlus size={15} /> Add From Template
+                  <IconPlus size={15} /> Add App
                 </button>
                 <button
                   className="settings-btn"
-                  onClick={() => {
-                    setEditingId(null);
-                    setShowAddForm(true);
-                  }}
+                  onClick={() => setShowTemplatePicker(true)}
                 >
-                  <IconPlus size={15} /> Add Custom App
+                  <IconPlus size={15} /> Add First-Party App
                 </button>
                 <button
                   className="settings-btn settings-btn--danger"
@@ -368,18 +367,173 @@ export default function AppSettings({
           />
         )}
 
-        {/* Inline edit/add form */}
-        {(showAddForm || editingApp) && (
+        {/* Inline edit form */}
+        {editingApp && (
           <AppEditForm
-            app={editingApp ?? undefined}
+            app={editingApp}
             onSave={handleSave}
             onCancel={() => {
               setEditingId(null);
-              setShowAddForm(false);
             }}
           />
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Add app flow ─────────────────────────────────────────────
+
+export function AddAppDialog({
+  onSave,
+  onCancel,
+}: {
+  onSave: (app: AppConfig) => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const [mode, setMode] = useState<"prod" | "dev">("prod");
+  const [name, setName] = useState("");
+  const [prodUrl, setProdUrl] = useState("");
+  const [devUrl, setDevUrl] = useState("");
+  const [devCommand, setDevCommand] = useState("");
+
+  const trimmedName = name.trim();
+  const trimmedProdUrl = prodUrl.trim();
+  const trimmedDevUrl = devUrl.trim();
+  const requiredUrl = mode === "prod" ? trimmedProdUrl : trimmedDevUrl;
+  const canSave = Boolean(trimmedName && requiredUrl);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSave) return;
+
+    await onSave({
+      id: generateAppId(),
+      name: trimmedName,
+      icon: "Globe",
+      description:
+        mode === "prod"
+          ? `Production app at ${trimmedProdUrl}`
+          : `Local dev app at ${trimmedDevUrl}`,
+      url: trimmedProdUrl,
+      devPort: inferPortFromUrl(trimmedDevUrl),
+      devUrl: trimmedDevUrl || undefined,
+      devCommand: devCommand.trim() || undefined,
+      isBuiltIn: false,
+      enabled: true,
+      mode,
+    });
+  }
+
+  return (
+    <div className="settings-form-overlay" onClick={onCancel}>
+      <form
+        className="settings-form settings-add-form"
+        onSubmit={handleSubmit}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="settings-form-header">
+          <h3>Add App</h3>
+          <p className="settings-form-subtitle">
+            Add a deployed app or a localhost dev server.
+          </p>
+        </div>
+
+        <div className="settings-choice-grid" aria-label="App target">
+          <button
+            type="button"
+            className={`settings-choice-btn${mode === "prod" ? " settings-choice-btn--active" : ""}`}
+            onClick={() => setMode("prod")}
+            aria-pressed={mode === "prod"}
+          >
+            <IconWorld size={17} />
+            <span>
+              <strong>Production</strong>
+              <small>Hosted URL</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`settings-choice-btn${mode === "dev" ? " settings-choice-btn--active" : ""}`}
+            onClick={() => setMode("dev")}
+            aria-pressed={mode === "dev"}
+            title="Use this for localhost apps you run with pnpm dev; Desktop loads the dev URL with code tools available."
+          >
+            <IconTerminal2 size={17} />
+            <span>
+              <strong>Local dev</strong>
+              <small>localhost URL</small>
+            </span>
+          </button>
+        </div>
+
+        <label>
+          Name *
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={mode === "prod" ? "Dispatch" : "My local app"}
+            required
+          />
+        </label>
+
+        {mode === "prod" ? (
+          <label>
+            Production URL *
+            <input
+              type="url"
+              value={prodUrl}
+              onChange={(e) => setProdUrl(e.target.value)}
+              placeholder="https://dispatch.agent-native.com"
+              required
+            />
+          </label>
+        ) : (
+          <>
+            <label>
+              Dev URL *
+              <input
+                type="url"
+                value={devUrl}
+                onChange={(e) => setDevUrl(e.target.value)}
+                placeholder="http://localhost:3000"
+                required
+              />
+              <span className="settings-field-hint">
+                Use the URL from your local dev server.
+              </span>
+            </label>
+
+            <label>
+              Dev Command
+              <input
+                type="text"
+                value={devCommand}
+                onChange={(e) => setDevCommand(e.target.value)}
+                placeholder="pnpm dev"
+              />
+            </label>
+          </>
+        )}
+
+        <div className="settings-form-actions">
+          <button
+            type="button"
+            className="settings-btn settings-btn--ghost"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="settings-btn settings-btn--primary"
+            disabled={!canSave}
+          >
+            <IconCheck size={14} /> Add App
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -519,11 +673,11 @@ function TemplatePicker({
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 520 }}
       >
-        <h3>Add From Template</h3>
+        <h3>Add First-Party App</h3>
         {available.length === 0 ? (
           <p style={{ color: "var(--muted, #6b7280)" }}>
-            Every first-party template is already installed. Use "Add Custom
-            App" for external apps.
+            Every first-party template is already installed. Use "Add App" for
+            external apps.
           </p>
         ) : (
           <div

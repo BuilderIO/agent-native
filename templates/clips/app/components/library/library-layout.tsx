@@ -487,7 +487,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   </div>
 
                   <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
-                    <OrgSwitcher />
+                    <OrgSwitcher settingsPath="/settings/organization" />
                     <FeedbackButton />
                   </div>
                 </>

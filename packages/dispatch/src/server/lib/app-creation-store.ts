@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSetting, putSetting } from "@agent-native/core/settings";
+import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
 import {
   getBuilderBranchProjectId,
   getRequestContext,
@@ -12,7 +13,6 @@ import {
   runBuilderAgent,
 } from "@agent-native/core/server";
 import { getDbExec } from "@agent-native/core/db";
-import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
 import {
   currentOrgId,
   currentOwnerEmail,
@@ -36,6 +36,9 @@ const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 1_000;
 const MAX_PENDING_APPS = 50;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
 const AGENT_CARD_FETCH_TIMEOUT_MS = 1_500;
+const DEFAULT_WORKSPACE_APP_AUDIENCE = "internal";
+
+type WorkspaceAppAudience = "internal" | "public";
 
 export interface WorkspaceAppSummary {
   id: string;
@@ -44,6 +47,7 @@ export interface WorkspaceAppSummary {
   path: string;
   url: string | null;
   isDispatch: boolean;
+  audience: WorkspaceAppAudience;
   status?: "ready" | "pending";
   statusLabel?: string;
   builderUrl?: string | null;
@@ -65,6 +69,7 @@ export interface ListWorkspaceAppsOptions {
    * when rendering the "Hidden apps" expander.
    */
   includeArchived?: boolean;
+  audience?: WorkspaceAppAudience | "all";
 }
 
 export interface AvailableWorkspaceTemplate {
@@ -104,6 +109,7 @@ interface PendingWorkspaceApp {
   builderUrl: string | null;
   branchName: string | null;
   projectId: string | null;
+  audience?: WorkspaceAppAudience;
   createdAt: string;
   updatedAt: string;
 }
@@ -346,6 +352,29 @@ function workspaceAppLink(
   }
 }
 
+function normalizeWorkspaceAppAudience(value: unknown): WorkspaceAppAudience {
+  return value === "public" ? "public" : DEFAULT_WORKSPACE_APP_AUDIENCE;
+}
+
+function workspaceAppAudienceFromPackageJson(
+  pkg: unknown,
+): WorkspaceAppAudience | undefined {
+  if (!pkg || typeof pkg !== "object" || Array.isArray(pkg)) return undefined;
+  const record = pkg as Record<string, any>;
+  const config = record["agent-native"] ?? record.agentNative;
+  const nested =
+    config && typeof config === "object" && !Array.isArray(config)
+      ? (config as Record<string, any>)
+      : {};
+  const raw =
+    nested.workspaceApp?.audience ??
+    nested.workspace?.audience ??
+    nested.audience ??
+    record.workspaceAppAudience;
+  if (raw === undefined) return undefined;
+  return normalizeWorkspaceAppAudience(raw);
+}
+
 function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
   const rawApps = Array.isArray(parsed?.apps)
     ? parsed.apps
@@ -374,6 +403,10 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
           typeof entry.isDispatch === "boolean"
             ? entry.isDispatch
             : id === "dispatch",
+        audience:
+          entry.audience === undefined
+            ? DEFAULT_WORKSPACE_APP_AUDIENCE
+            : normalizeWorkspaceAppAudience(entry.audience),
         status: "ready",
       } satisfies WorkspaceAppSummary;
     })
@@ -394,7 +427,7 @@ function sortWorkspaceApps(a: WorkspaceAppSummary, b: WorkspaceAppSummary) {
 function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
   if (!Array.isArray(value)) return [];
   return value
-    .map((entry) => {
+    .map((entry): PendingWorkspaceApp | null => {
       if (!entry || typeof entry !== "object") return null;
       const record = entry as Record<string, unknown>;
       const id = typeof record.id === "string" ? record.id.trim() : "";
@@ -425,6 +458,9 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
           typeof record.projectId === "string" && record.projectId.trim()
             ? record.projectId.trim()
             : null,
+        ...(record.audience === undefined
+          ? {}
+          : { audience: normalizeWorkspaceAppAudience(record.audience) }),
         createdAt:
           typeof record.createdAt === "string" && record.createdAt.trim()
             ? record.createdAt.trim()
@@ -522,6 +558,7 @@ function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
     path: app.path,
     url: app.builderUrl,
     isDispatch: false,
+    audience: app.audience ?? DEFAULT_WORKSPACE_APP_AUDIENCE,
     status: "pending",
     statusLabel: "Building in Builder",
     builderUrl: app.builderUrl,
@@ -803,6 +840,9 @@ function readWorkspaceAppsFromFilesystem(
         path: `/${entry.name}`,
         url: workspaceAppUrl(`/${entry.name}`),
         isDispatch: entry.name === "dispatch",
+        audience:
+          workspaceAppAudienceFromPackageJson(pkg) ??
+          DEFAULT_WORKSPACE_APP_AUDIENCE,
         status: "ready",
       } satisfies WorkspaceAppSummary;
     })
@@ -882,8 +922,23 @@ async function applyArchivedAndPending(
       : withMetadata;
   });
   return options.includeArchived
-    ? annotated
-    : annotated.filter((app) => !app.archived);
+    ? filterAppsByAudience(annotated, options.audience)
+    : filterAppsByAudience(
+        annotated.filter((app) => !app.archived),
+        options.audience,
+      );
+}
+
+function filterAppsByAudience(
+  apps: WorkspaceAppSummary[],
+  audience: ListWorkspaceAppsOptions["audience"],
+): WorkspaceAppSummary[] {
+  if (!audience || audience === "all") return apps;
+  return apps.filter(
+    (app) =>
+      (app.audience ?? DEFAULT_WORKSPACE_APP_AUDIENCE) ===
+      normalizeWorkspaceAppAudience(audience),
+  );
 }
 
 export async function updateWorkspaceAppMetadata(input: {
@@ -982,6 +1037,7 @@ export async function listWorkspaceApps(
             path: "/dispatch",
             url: workspaceAppUrl("/dispatch"),
             isDispatch: true,
+            audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
             status: "ready",
           },
         ],

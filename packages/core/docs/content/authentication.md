@@ -124,6 +124,25 @@ export default createAuthPlugin({
 });
 ```
 
+## Public Workspace Apps {#public-workspace-apps}
+
+Workspace apps are internal by default. To let anonymous visitors load a whole
+app's page routes, declare the app audience in `apps/<id>/package.json`:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "audience": "public"
+    }
+  }
+}
+```
+
+This opens page navigation only. Framework routes (`/_agent-native/*`) and
+custom API routes (`/api/*`) still require auth unless the app explicitly adds
+those prefixes to `createAuthPlugin({ publicPaths: [...] })`.
+
 ## Session API {#session-api}
 
 The session object returned by `getSession(event)` has this shape:

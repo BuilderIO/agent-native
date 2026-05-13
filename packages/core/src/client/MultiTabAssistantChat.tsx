@@ -169,15 +169,36 @@ function ChatSkeleton({
 
 // ─── Scope Badge ─────────────────────────────────────────────────────────────
 
+function formatScopeType(type: string) {
+  return type.replace(/[-_]+/g, " ");
+}
+
+function indefiniteArticleFor(value: string) {
+  return /^[aeiou]/i.test(value.trim()) ? "an" : "a";
+}
+
+function getScopeCopy(scope: ChatThreadScope, isCurrentScope: boolean) {
+  const type = formatScopeType(scope.type);
+  const fallbackObject = isCurrentScope
+    ? `this ${type}`
+    : `${indefiniteArticleFor(type)} ${type}`;
+  const objectLabel = scope.label || fallbackObject;
+  return {
+    objectLabel,
+    chipLabel:
+      scope.label || (isCurrentScope ? `this ${type}` : `${type} context`),
+  };
+}
+
 /**
- * Thin "Linked to {Deck Title}" chip at the top of a scoped chat. Click →
- * popover with the Detach button. The chip is text + link icon and stays
- * unobtrusive when the user doesn't need it. It is the only escape hatch
- * for taking a scoped chat back to a general one, so it stays visible the
- * whole time a chat is scoped — not just on the empty state.
+ * Thin context chip at the top of a scoped chat. Click → popover with
+ * related chats and the remove-context action. The chip stays unobtrusive
+ * when the user doesn't need it, but remains available as the escape hatch
+ * for taking a scoped chat back to a general one.
  */
 function ScopeBadge({
   scope,
+  currentScope,
   onDetach,
   otherScopedThreads,
   activeThreadId,
@@ -185,23 +206,30 @@ function ScopeBadge({
   onSelectThread,
 }: {
   scope: ChatThreadScope;
+  currentScope?: ChatThreadScope | null;
   onDetach: () => void;
   /** Other threads scoped to the same resource (excluding the active one),
    *  pre-sorted most-recent-first. The chip popover lists these so the user
-   *  can hop between this design's chats without opening the full history. */
+   *  can hop between this resource's chats without opening the full history. */
   otherScopedThreads: ChatThreadSummary[];
   activeThreadId: string;
   openTabIds: Set<string>;
   onSelectThread: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  // Templates that don't have the resource's display title at layout time
-  // pass `{ type, id }` without a label. Fall back to "this {type}" so the
-  // chip still reads naturally.
-  const heading = scope.label
-    ? `Linked to ${scope.label}`
-    : `Linked to this ${scope.type}`;
-  const detailLabel = scope.label || `this ${scope.type}`;
+  const isCurrentScope = Boolean(
+    currentScope &&
+    currentScope.type === scope.type &&
+    currentScope.id === scope.id,
+  );
+  const hasDifferentCurrentScope = Boolean(currentScope && !isCurrentScope);
+  const { objectLabel, chipLabel } = getScopeCopy(scope, isCurrentScope);
+  const heading = `Using ${chipLabel}`;
+  const detailSuffix = hasDifferentCurrentScope
+    ? "Start a new chat to use the current page."
+    : isCurrentScope
+      ? "New chats here keep this context."
+      : "Start a new chat for a general conversation.";
   const otherCount = otherScopedThreads.length;
   return (
     <div className="flex items-center justify-center py-1 px-3 text-[11px] text-muted-foreground border-b border-border/40 shrink-0">
@@ -217,7 +245,7 @@ function ScopeBadge({
             {otherCount > 0 && (
               <span
                 className="ml-0.5 rounded-full bg-muted px-1.5 py-px text-[10px] leading-none text-muted-foreground"
-                aria-label={`${otherCount} other chats for this ${scope.type}`}
+                aria-label={`${otherCount} other chats for ${objectLabel}`}
               >
                 +{otherCount}
               </span>
@@ -226,14 +254,14 @@ function ScopeBadge({
         </PopoverTrigger>
         <PopoverContent align="center" side="bottom" className="w-72 p-0">
           <p className="px-3 pt-2 pb-1.5 text-[11px] text-muted-foreground">
-            This chat is linked to{" "}
-            <span className="text-foreground">{detailLabel}</span>. New chats
-            started here stay with this {scope.type}.
+            This chat can see{" "}
+            <span className="text-foreground">{objectLabel}</span>.{" "}
+            {detailSuffix}
           </p>
           {otherCount > 0 && (
             <div className="border-t border-border">
               <div className="px-3 pt-1.5 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                Other chats here
+                Chats for {objectLabel}
               </div>
               <div className="max-h-56 overflow-y-auto pb-1">
                 {otherScopedThreads.map((thread) =>
@@ -259,7 +287,7 @@ function ScopeBadge({
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent cursor-pointer"
             >
               <IconLinkOff size={13} />
-              <span>Detach from this {scope.type}</span>
+              <span>Remove context</span>
             </button>
           </div>
         </PopoverContent>
@@ -287,14 +315,11 @@ function PreviousScopedChatsHint({
   const MAX_INLINE = 3;
   const shown = threads.slice(0, MAX_INLINE);
   const remaining = threads.length - shown.length;
-  const scopeLabel = scope.label || `this ${scope.type}`;
+  const scopeLabel = scope.label || `this ${formatScopeType(scope.type)}`;
   return (
     <div className="flex w-full max-w-[280px] flex-col gap-1.5">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 text-center">
-        Continue a previous chat
-        <span className="ml-1 normal-case text-muted-foreground/70">
-          for {scopeLabel}
-        </span>
+        Previous chats for {scopeLabel}
       </div>
       <div className="flex flex-col gap-1">
         {shown.map((thread) => (
@@ -315,7 +340,7 @@ function PreviousScopedChatsHint({
       </div>
       {remaining > 0 && (
         <div className="text-[10px] text-muted-foreground/70 text-center">
-          +{remaining} more in the chip above
+          +{remaining} more
         </div>
       )}
     </div>
@@ -328,12 +353,12 @@ function PreviousScopedChatsHint({
  * holds the visual feedback long enough for the user to register what
  * just happened and learn where the chat went (History popover).
  */
-function DetachConfirmationBanner({ scopeType }: { scopeType: string }) {
+function DetachConfirmationBanner() {
   return (
     <div className="flex items-center justify-center py-1 px-3 text-[11px] text-muted-foreground border-b border-border/40 shrink-0">
       <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/40 px-2 py-0.5 text-foreground">
         <IconCheck size={11} className="shrink-0 opacity-80" />
-        <span>Detached from this {scopeType} — find this chat in History</span>
+        <span>Context removed. Find this chat in History.</span>
       </span>
     </div>
   );
@@ -1645,7 +1670,9 @@ export function MultiTabAssistantChat({
 
   const handleForkChat = useCallback(
     async (sourceThreadId: string) => {
-      const forkedId = await forkThread(sourceThreadId);
+      const sourceSnapshot =
+        chatRefs.current.get(sourceThreadId)?.exportThreadSnapshot() ?? null;
+      const forkedId = await forkThread(sourceThreadId, sourceSnapshot);
       if (!forkedId) return;
       setOpenTabIds((prev) => {
         const idx = prev.indexOf(sourceThreadId);
@@ -1930,6 +1957,7 @@ export function MultiTabAssistantChat({
           (activeThreadScope && activeThreadId ? (
             <ScopeBadge
               scope={activeThreadScope}
+              currentScope={scope}
               onDetach={handleDetachActiveThread}
               otherScopedThreads={otherScopedThreads}
               activeThreadId={activeThreadId}
@@ -1937,7 +1965,7 @@ export function MultiTabAssistantChat({
               onSelectThread={openFromHistory}
             />
           ) : detachConfirmType ? (
-            <DetachConfirmationBanner scopeType={detachConfirmType} />
+            <DetachConfirmationBanner />
           ) : null)}
 
         {/* History popover — rendered inside relative container so positioning works */}

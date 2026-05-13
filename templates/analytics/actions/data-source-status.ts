@@ -6,16 +6,17 @@ import {
   resolveCredentialConfigs,
 } from "../server/lib/credential-keys";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
+import { getGitHubAccessToken } from "../server/lib/github-oauth";
 
 export default defineAction({
   description:
-    "List which analytics data-source credentials are configured without revealing secret values. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, hubspot, gong, or slack.",
+    "List which analytics data-source credentials are configured without revealing secret values. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
   schema: z.object({
     key: z
       .string()
       .optional()
       .describe(
-        "Optional credential key or provider alias to check, e.g. jira, pylon, bigquery, or SENTRY_AUTH_TOKEN",
+        "Optional credential key or provider alias to check, e.g. jira, pylon, github, bigquery, or SENTRY_AUTH_TOKEN",
       ),
   }),
   http: { method: "GET" },
@@ -37,12 +38,18 @@ export default defineAction({
     }
 
     const results = await Promise.all(
-      configs.map(async (cfg) => ({
-        key: cfg.key,
-        label: cfg.label,
-        required: cfg.required,
-        configured: await hasCredential(cfg.key, ctx),
-      })),
+      configs.map(async (cfg) => {
+        const configured =
+          cfg.key === "GITHUB_TOKEN"
+            ? !!(await getGitHubAccessToken(ctx)).token
+            : await hasCredential(cfg.key, ctx);
+        return {
+          key: cfg.key,
+          label: cfg.label,
+          required: cfg.required,
+          configured,
+        };
+      }),
     );
     const configuredKeys = new Set(
       results.filter((result) => result.configured).map((result) => result.key),

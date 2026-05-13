@@ -99,7 +99,7 @@ workspace app and `sync-vault-to-app` pushes all vault keys to the target app.
 Switch to `manual` only when the workspace needs explicit per-app grants; in
 manual mode, create grants before syncing.
 
-- `list-workspace-apps`: list apps installed in the workspace and their mounted paths; when `url` is present, use it for links in Slack/email replies instead of returning only the relative path. When the user asks whether workspace apps have agent cards or A2A endpoints, call this with `includeAgentCards: true`; without that probe, missing `agentCard*`/`a2aEndpointUrl` fields mean "not checked", not "none".
+- `list-workspace-apps`: list apps installed in the workspace and their mounted paths; each row includes `audience` (`internal` or `public`). Pass `audience: "public"` or `"internal"` to filter. When `url` is present, use it for links in Slack/email replies instead of returning only the relative path. When the user asks whether workspace apps have agent cards or A2A endpoints, call this with `includeAgentCards: true`; without that probe, missing `agentCard*`/`a2aEndpointUrl` fields mean "not checked", not "none".
 - `get-workspace-info`: read the workspace's identity (name, displayName, app count) from the workspace root package.json. Use when a user asks "what workspace am I in" or you need to refer to the workspace by name in a reply.
 - `get-app-creation-settings`: see whether production app creation can use a Builder project
 - `set-app-creation-settings`: set the default Builder project ID in Dispatch settings without writing env vars or files

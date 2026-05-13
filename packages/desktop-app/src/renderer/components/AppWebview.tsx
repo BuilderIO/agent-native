@@ -49,6 +49,7 @@ export interface AppWebviewHandle {
   getUrl(): string | undefined;
   goBack(): void;
   goForward(): void;
+  toggleAgentSidebar(): void;
 }
 
 /**
@@ -74,7 +75,7 @@ function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
     return appConfig.url;
   }
 
-  // Fallback for apps with no production URL (e.g. starter)
+  // Fallback for custom apps with no production URL.
   return getAppUrl(app);
 }
 
@@ -124,6 +125,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         goForward() {
           const wv = webviewRef.current;
           if (wv?.canGoForward()) wv.goForward();
+        },
+        toggleAgentSidebar() {
+          const wv = webviewRef.current;
+          if (!wv || app.placeholder) return;
+          void wv
+            .executeJavaScript(
+              `window.dispatchEvent(new Event("agent-panel:toggle"));`,
+              false,
+            )
+            .catch(() => {});
         },
       }),
       [app.placeholder, url],

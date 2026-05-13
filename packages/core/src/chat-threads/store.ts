@@ -120,12 +120,56 @@ export interface ChatThreadSummary {
   scope: ChatThreadScope | null;
 }
 
+export interface ForkThreadSourceSnapshot {
+  threadData: string;
+  title?: string;
+  preview?: string;
+  messageCount?: number;
+  scope?: ChatThreadScope | null;
+}
+
 function readScope(r: Record<string, unknown>): ChatThreadScope | null {
   const type = r.scope_type as string | null | undefined;
   const id = r.scope_id as string | null | undefined;
   if (!type || !id) return null;
   const label = r.scope_label as string | null | undefined;
   return label ? { type, id, label } : { type, id };
+}
+
+function normalizeForkSourceSnapshot(
+  source: ForkThreadSourceSnapshot | null | undefined,
+): {
+  threadData: string;
+  title: string;
+  preview: string;
+  messageCount: number;
+  scope?: ChatThreadScope | null;
+} | null {
+  if (!source || typeof source.threadData !== "string") return null;
+  const threadData = source.threadData.trim();
+  if (!threadData) return null;
+
+  let parsed: any;
+  try {
+    parsed = normalizeThreadRepository(JSON.parse(threadData));
+  } catch {
+    return null;
+  }
+
+  const repoMessageCount = Array.isArray(parsed.messages)
+    ? parsed.messages.length
+    : 0;
+  if (repoMessageCount <= 0) return null;
+
+  return {
+    threadData: JSON.stringify(parsed),
+    title: typeof source.title === "string" ? source.title : "",
+    preview: typeof source.preview === "string" ? source.preview : "",
+    messageCount: repoMessageCount,
+    ...(Object.prototype.hasOwnProperty.call(source, "scope")
+      ? { scope: source.scope ?? null }
+      : {}),
+  };
 }
 
 function deriveMessageCount(threadData: unknown, fallback: number): number {
@@ -226,9 +270,55 @@ export async function getThread(id: string): Promise<ChatThread | null> {
 export async function forkThread(
   sourceId: string,
   ownerEmail: string,
-  opts?: { id?: string },
+  opts?: { id?: string; source?: ForkThreadSourceSnapshot | null },
 ): Promise<ChatThread | null> {
-  const source = await getThread(sourceId);
+  const snapshot = normalizeForkSourceSnapshot(opts?.source);
+  let source = await getThread(sourceId);
+  if (!source) {
+    if (snapshot) {
+      try {
+        await createThread(ownerEmail, {
+          id: sourceId,
+          title: snapshot.title,
+          scope: snapshot.scope ?? null,
+        });
+      } catch {
+        // The agent run may have created the row while the user clicked Fork.
+      }
+      const created = await getThread(sourceId);
+      if (created?.ownerEmail === ownerEmail) {
+        await updateThreadData(
+          sourceId,
+          snapshot.threadData,
+          snapshot.title || created.title,
+          snapshot.preview || created.preview,
+          snapshot.messageCount,
+        );
+        if (Object.prototype.hasOwnProperty.call(snapshot, "scope")) {
+          await setThreadScope(sourceId, snapshot.scope ?? null);
+        }
+        source = await getThread(sourceId);
+      }
+    }
+  } else if (
+    snapshot &&
+    source.ownerEmail === ownerEmail &&
+    snapshot.messageCount > source.messageCount
+  ) {
+    // The source row exists but the in-memory snapshot is fresher — the agent
+    // run flushed an older state to SQL, but the tab has additional unflushed
+    // messages. Overlay the snapshot before cloning so the fork captures the
+    // latest user-visible content. Guard with messageCount > stored to avoid
+    // clobbering a fresher persisted row with a stale snapshot from another
+    // tab.
+    source = {
+      ...source,
+      threadData: snapshot.threadData,
+      title: snapshot.title || source.title,
+      preview: snapshot.preview || source.preview,
+      messageCount: snapshot.messageCount,
+    };
+  }
   if (!source || source.ownerEmail !== ownerEmail) return null;
   const id = opts?.id ?? generateId();
   const now = Date.now();

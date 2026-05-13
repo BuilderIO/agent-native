@@ -9,10 +9,9 @@ import {
   listPRs,
   runGraphQL,
 } from "../server/lib/github";
-import {
-  providerError,
-  requireActionCredentials,
-} from "./_provider-action-utils";
+import { getGitHubAccessToken } from "../server/lib/github-oauth";
+import { tryRequestCredentialContext } from "../server/lib/credentials-context";
+import { providerError } from "./_provider-action-utils";
 
 export default defineAction({
   description:
@@ -37,11 +36,27 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
-    const credentials = await requireActionCredentials(
-      ["GITHUB_TOKEN"],
-      "GitHub",
-    );
-    if (credentials.ok === false) return credentials.response;
+    const ctx = tryRequestCredentialContext();
+    if (!ctx) {
+      return {
+        error: "missing_api_key",
+        key: "AUTH",
+        label: "Authentication",
+        message: "Sign in to access this data source.",
+        settingsPath: "/data-sources",
+      };
+    }
+    const { token } = await getGitHubAccessToken(ctx);
+    if (!token) {
+      return {
+        error: "missing_api_key",
+        key: "GITHUB_TOKEN",
+        label: "GitHub",
+        message:
+          "Connect your GitHub account in Settings -> Data sources, then retry.",
+        settingsPath: "/data-sources",
+      };
+    }
 
     try {
       if (args.pr) {

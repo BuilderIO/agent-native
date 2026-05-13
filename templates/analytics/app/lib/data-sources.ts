@@ -7,7 +7,7 @@ import {
   IconShoppingCart,
   IconPhone,
   IconUserSearch,
-  IconGitPullRequest,
+  IconBrandGithub,
   IconTicket,
   IconBug,
   IconChartLine,
@@ -475,16 +475,21 @@ export const dataSources: DataSource[] = [
   {
     id: "github",
     name: "GitHub",
-    description: "Pull requests, issues, and code reviews",
+    description: "Repositories, code search, pull requests, and issues",
     category: "engineering",
-    icon: IconGitPullRequest,
+    icon: IconBrandGithub,
     envKeys: ["GITHUB_TOKEN"],
-    docsUrl: "https://docs.github.com/en/rest",
+    docsUrl: "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps",
     walkthroughSteps: [
       {
-        title: "Create a Personal Access Token",
+        title: "Connect with OAuth",
         description:
-          'Go to GitHub Settings > Developer settings > Personal access tokens > Fine-grained tokens. Create a token with "Contents" and "Pull requests" read access for your repos.',
+          "Use the Connect with GitHub button in this card to grant repository access. If OAuth is unavailable on this deployment, use a fine-grained personal access token instead.",
+      },
+      {
+        title: "Fallback: create a personal access token",
+        description:
+          'Go to GitHub Settings > Developer settings > Personal access tokens > Fine-grained tokens. Create a token with "Contents", "Metadata", "Issues", and "Pull requests" read access for the repos the agent should inspect.',
         url: "https://github.com/settings/tokens?type=beta",
         linkText: "GitHub Tokens",
       },

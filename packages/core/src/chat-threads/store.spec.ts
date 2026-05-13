@@ -12,7 +12,11 @@ vi.mock("./emitter.js", () => ({
   emitChatThreadChange: emitChatThreadChangeMock,
 }));
 
-import { setThreadQueuedMessages, updateThreadData } from "./store.js";
+import {
+  forkThread,
+  setThreadQueuedMessages,
+  updateThreadData,
+} from "./store.js";
 
 type ChatThreadRow = {
   id: string;
@@ -23,6 +27,9 @@ type ChatThreadRow = {
   message_count: number;
   created_at: number;
   updated_at: number;
+  scope_type?: string | null;
+  scope_id?: string | null;
+  scope_label?: string | null;
 };
 
 const userMessage = {
@@ -154,5 +161,255 @@ describe("chat thread store", () => {
       "user-1",
       "assistant-1",
     ]);
+  });
+
+  it("forks from a client snapshot when the source thread is not persisted yet", async () => {
+    const rows = new Map<string, ChatThreadRow>();
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /ALTER TABLE/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        const found = rows.get(args[0]);
+        return { rows: found ? [found] : [], rowsAffected: 0 };
+      }
+      if (/INSERT INTO chat_threads/i.test(sql)) {
+        if (args.length === 8) {
+          rows.set(args[0], {
+            id: args[0],
+            owner_email: args[1],
+            title: args[2],
+            preview: "",
+            thread_data: "{}",
+            message_count: 0,
+            created_at: args[3],
+            updated_at: args[4],
+            scope_type: args[5],
+            scope_id: args[6],
+            scope_label: args[7],
+          });
+          return { rows: [], rowsAffected: 1 };
+        }
+        rows.set(args[0], {
+          id: args[0],
+          owner_email: args[1],
+          title: args[2],
+          preview: args[3],
+          thread_data: args[4],
+          message_count: args[5],
+          created_at: args[6],
+          updated_at: args[7],
+          scope_type: args[8],
+          scope_id: args[9],
+          scope_label: args[10],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/UPDATE chat_threads SET thread_data/i.test(sql)) {
+        const current = rows.get(args[5]);
+        if (!current || current.updated_at !== args[6]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        rows.set(args[5], {
+          ...current,
+          thread_data: args[0],
+          title: args[1],
+          preview: args[2],
+          message_count: args[3],
+          updated_at: args[4],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/UPDATE chat_threads SET scope_type/i.test(sql)) {
+        const current = rows.get(args[4]);
+        if (current) {
+          rows.set(args[4], {
+            ...current,
+            scope_type: args[0],
+            scope_id: args[1],
+            scope_label: args[2],
+            updated_at: args[3],
+          });
+        }
+        return { rows: [], rowsAffected: current ? 1 : 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const sourceRepo = {
+      messages: [
+        { message: userMessage, parentId: null },
+        { message: assistantMessage, parentId: "user-1" },
+      ],
+    };
+
+    const forked = await forkThread("thread-unflushed", "user@example.com", {
+      id: "thread-forked",
+      source: {
+        threadData: JSON.stringify(sourceRepo),
+        title: "Thread",
+        preview: "make this slide better",
+        messageCount: 2,
+        scope: { type: "dashboard", id: "dash-1", label: "Pipeline" },
+      },
+    });
+
+    expect(forked?.id).toBe("thread-forked");
+    expect(rows.get("thread-unflushed")?.message_count).toBe(2);
+    expect(rows.get("thread-unflushed")?.scope_type).toBe("dashboard");
+    expect(
+      JSON.parse(rows.get("thread-forked")!.thread_data).messages,
+    ).toHaveLength(2);
+  });
+
+  it("prefers the fresher in-memory snapshot when the source row already exists with older data", async () => {
+    const staleRepo = {
+      messages: [{ message: userMessage, parentId: null }],
+    };
+    const freshRepo = {
+      messages: [
+        { message: userMessage, parentId: null },
+        { message: assistantMessage, parentId: "user-1" },
+      ],
+    };
+    const rows = new Map<string, ChatThreadRow>([
+      [
+        "thread-stale",
+        {
+          id: "thread-stale",
+          owner_email: "user@example.com",
+          title: "Old title",
+          preview: "old preview",
+          thread_data: JSON.stringify(staleRepo),
+          message_count: 1,
+          created_at: 0,
+          updated_at: 0,
+          scope_type: null,
+          scope_id: null,
+          scope_label: null,
+        },
+      ],
+    ]);
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /ALTER TABLE/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        const found = rows.get(args[0]);
+        return { rows: found ? [found] : [], rowsAffected: 0 };
+      }
+      if (/INSERT INTO chat_threads/i.test(sql)) {
+        rows.set(args[0], {
+          id: args[0],
+          owner_email: args[1],
+          title: args[2],
+          preview: args[3],
+          thread_data: args[4],
+          message_count: args[5],
+          created_at: args[6],
+          updated_at: args[7],
+          scope_type: args[8],
+          scope_id: args[9],
+          scope_label: args[10],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const forked = await forkThread("thread-stale", "user@example.com", {
+      id: "thread-forked",
+      source: {
+        threadData: JSON.stringify(freshRepo),
+        title: "Old title",
+        preview: "fresher preview",
+        messageCount: 2,
+      },
+    });
+
+    expect(forked?.id).toBe("thread-forked");
+    expect(forked?.messageCount).toBe(2);
+    expect(forked?.preview).toBe("fresher preview");
+    expect(
+      JSON.parse(rows.get("thread-forked")!.thread_data).messages,
+    ).toHaveLength(2);
+  });
+
+  it("ignores stale snapshots when the persisted row is fresher", async () => {
+    const persistedRepo = {
+      messages: [
+        { message: userMessage, parentId: null },
+        { message: assistantMessage, parentId: "user-1" },
+      ],
+    };
+    const rows = new Map<string, ChatThreadRow>([
+      [
+        "thread-fresh",
+        {
+          id: "thread-fresh",
+          owner_email: "user@example.com",
+          title: "Fresh",
+          preview: "fresh preview",
+          thread_data: JSON.stringify(persistedRepo),
+          message_count: 2,
+          created_at: 0,
+          updated_at: 0,
+          scope_type: null,
+          scope_id: null,
+          scope_label: null,
+        },
+      ],
+    ]);
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /ALTER TABLE/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        const found = rows.get(args[0]);
+        return { rows: found ? [found] : [], rowsAffected: 0 };
+      }
+      if (/INSERT INTO chat_threads/i.test(sql)) {
+        rows.set(args[0], {
+          id: args[0],
+          owner_email: args[1],
+          title: args[2],
+          preview: args[3],
+          thread_data: args[4],
+          message_count: args[5],
+          created_at: args[6],
+          updated_at: args[7],
+          scope_type: args[8],
+          scope_id: args[9],
+          scope_label: args[10],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const staleRepo = {
+      messages: [{ message: userMessage, parentId: null }],
+    };
+    const forked = await forkThread("thread-fresh", "user@example.com", {
+      id: "thread-forked-stale",
+      source: {
+        threadData: JSON.stringify(staleRepo),
+        title: "Fresh",
+        preview: "stale preview",
+        messageCount: 1,
+      },
+    });
+
+    // Fresh persisted data wins.
+    expect(forked?.messageCount).toBe(2);
+    expect(
+      JSON.parse(rows.get("thread-forked-stale")!.thread_data).messages,
+    ).toHaveLength(2);
   });
 });

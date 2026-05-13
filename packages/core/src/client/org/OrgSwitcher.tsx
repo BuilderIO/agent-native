@@ -39,12 +39,12 @@ export interface OrgSwitcherProps {
   /** Keep the switcher's button height reserved while org state is loading. */
   reserveSpace?: boolean;
   /**
-   * Optional path to navigate to when the user clicks "Workspace settings".
-   * Templates that mount a dedicated team page (e.g. Dispatch's `/team`) can
-   * pass it here. When unset, only the in-sidebar settings panel opens —
-   * suitable for templates without a dedicated team page.
+   * Path to navigate to when the user clicks "Organization settings".
+   * Defaults to `/team`, the standard organization-management route. Templates
+   * with an established org surface can pass their own path; pass `null` to
+   * only open the in-sidebar settings panel.
    */
-  settingsPath?: string;
+  settingsPath?: string | null;
 }
 
 function personalLabelFromEmail(email: string | null | undefined): string {
@@ -73,7 +73,9 @@ const SECTION_LABEL_CLASS =
 const APP_SUBMENU_CONTENT_CLASS =
   "z-50 w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2";
 
-function workspaceSettingsPath(path: string): string {
+const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/team";
+
+function organizationSettingsPath(path: string): string {
   return `${path.replace(/#.*$/, "")}#workspace-settings`;
 }
 
@@ -227,7 +229,7 @@ export function OrgSwitcher({
   className,
   hideWhenSingle,
   reserveSpace,
-  settingsPath,
+  settingsPath = DEFAULT_ORGANIZATION_SETTINGS_PATH,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
   const switchOrg = useSwitchOrg();
@@ -302,6 +304,9 @@ export function OrgSwitcher({
   const inOrg = !!org.orgId;
   const buttonLabel = org.orgName ?? "Personal";
   const ButtonIcon = inOrg ? IconBuilding : IconUser;
+  const organizationSettingsHref = settingsPath
+    ? organizationSettingsPath(settingsPath)
+    : null;
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
@@ -473,14 +478,16 @@ export function OrgSwitcher({
                         detail: { section: "workspace-settings" },
                       }),
                     );
-                    if (settingsPath) {
-                      navigate(workspaceSettingsPath(settingsPath));
+                    if (organizationSettingsHref) {
+                      navigate(organizationSettingsHref);
                     }
                   }}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
                   <IconSettings className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-left">Workspace settings</span>
+                  <span className="flex-1 text-left">
+                    Organization settings
+                  </span>
                 </button>
               )}
               <button

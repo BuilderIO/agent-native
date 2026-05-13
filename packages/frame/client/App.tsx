@@ -43,6 +43,7 @@ const SIDEBAR_WIDTH_KEY = "frame-sidebar-width";
 const FRAME_MODE_KEY = "frame-mode";
 const SIDEBAR_OPEN_KEY = "frame-sidebar-open";
 const SIDEBAR_FULLSCREEN_KEY = "frame-sidebar-fullscreen";
+const SIDEBAR_STATE_CHANGE_EVENT = "agent-panel:state-change";
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const OPEN_DESKTOP_URL = "agentnative://open";
 const DOWNLOAD_DESKTOP_URL = "https://www.agent-native.com/download";
@@ -85,6 +86,35 @@ function useAgentNativeDesktop() {
   }, []);
 
   return isDesktop;
+}
+
+function isAgentSidebarToggleShortcut(event: KeyboardEvent): boolean {
+  return (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    (event.key === "\\" || event.code === "Backslash")
+  );
+}
+
+function getVisibleSidebarOpen(
+  mode: FrameMode,
+  open: boolean,
+  presentationMode: boolean,
+) {
+  return mode === "dev" ? open && !presentationMode : open;
+}
+
+function dispatchFrameSidebarStateChange(open: boolean, mode: FrameMode) {
+  window.dispatchEvent(
+    new CustomEvent(SIDEBAR_STATE_CHANGE_EVENT, {
+      detail: {
+        open,
+        source: "frame",
+        mode: mode === "dev" ? "code" : "app",
+      },
+    }),
+  );
 }
 
 export function App() {
@@ -156,13 +186,14 @@ export function App() {
 
   // Notify iframe of sidebar state
   function notifyIframe(mode: FrameMode, width: number, open: boolean) {
+    const visibleOpen = getVisibleSidebarOpen(mode, open, isPresentationMode);
     iframeRef.current?.contentWindow?.postMessage(
       {
         type: "agentNative.sidebarMode",
         data: {
           mode: mode === "dev" ? "code" : "app",
           width,
-          open,
+          open: visibleOpen,
         },
       },
       "*",
@@ -202,7 +233,38 @@ export function App() {
   // When mode/open/width changes, notify iframe
   useEffect(() => {
     notifyIframe(frameMode, sidebarWidth, sidebarOpen);
-  }, [frameMode, sidebarWidth, sidebarOpen]);
+  }, [frameMode, sidebarWidth, sidebarOpen, isPresentationMode]);
+
+  useEffect(() => {
+    dispatchFrameSidebarStateChange(
+      getVisibleSidebarOpen(frameMode, sidebarOpen, isPresentationMode),
+      frameMode,
+    );
+  }, [frameMode, sidebarOpen, isPresentationMode]);
+
+  useEffect(() => {
+    const toggleHandler = () => setSidebarOpen((prev) => !prev);
+    const openHandler = () => setSidebarOpen(true);
+    const closeHandler = () => setSidebarOpen(false);
+    window.addEventListener("agent-panel:toggle", toggleHandler);
+    window.addEventListener("agent-panel:open", openHandler);
+    window.addEventListener("agent-panel:close", closeHandler);
+    return () => {
+      window.removeEventListener("agent-panel:toggle", toggleHandler);
+      window.removeEventListener("agent-panel:open", openHandler);
+      window.removeEventListener("agent-panel:close", closeHandler);
+    };
+  }, []);
+
+  useEffect(() => {
+    const keydownHandler = (event: KeyboardEvent) => {
+      if (!isAgentSidebarToggleShortcut(event)) return;
+      event.preventDefault();
+      window.dispatchEvent(new Event("agent-panel:toggle"));
+    };
+    window.addEventListener("keydown", keydownHandler);
+    return () => window.removeEventListener("keydown", keydownHandler);
+  }, []);
 
   // Listen for dev mode toggle from AgentPanel settings cog
   useEffect(() => {
@@ -227,6 +289,8 @@ export function App() {
         const forceOpen = event.data.data?.open;
         if (forceOpen === true) {
           setSidebarOpen(true);
+        } else if (forceOpen === false) {
+          setSidebarOpen(false);
         } else {
           setSidebarOpen((prev) => !prev);
         }
@@ -404,7 +468,7 @@ export function App() {
                   enabled: isDesktop,
                   unavailableTitle: "Open Desktop to edit code",
                   unavailableDescription:
-                    "Use Agent Native Desktop for local source edits, CLI, and Workspace files. Download it if it is not installed yet.",
+                    "Open Agent Native Desktop, click the + button, and add this app with its local dev URL to use CLI and Workspace files.",
                   unavailableCtaLabel: "Open Desktop",
                   unavailableCtaHref: OPEN_DESKTOP_URL,
                   unavailableSecondaryCtaLabel: "Download",

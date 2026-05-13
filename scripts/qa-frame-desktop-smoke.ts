@@ -98,9 +98,15 @@ assertSameMembers(
     "mail",
     "slides",
     "starter",
-    "videos",
   ],
   "core template set changed; update desktop/default orchestration expectations deliberately",
+);
+
+const desktopRegistry = read("packages/desktop-app/shared/app-registry.ts");
+assert.match(
+  desktopRegistry,
+  /DESKTOP_DEFAULT_EXCLUDED_APP_IDS[\s\S]*"starter"/,
+  "desktop defaults must explicitly exclude starter",
 );
 
 const visibleWithoutProdUrl = templates
