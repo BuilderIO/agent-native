@@ -136,6 +136,7 @@ describe("workspace deploy", () => {
         description: "",
         path: "/dispatch",
         isDispatch: true,
+        audience: "internal",
       },
       {
         id: "starter",
@@ -143,6 +144,7 @@ describe("workspace deploy", () => {
         description: "",
         path: "/starter",
         isDispatch: false,
+        audience: "internal",
       },
     ]);
 
@@ -275,6 +277,7 @@ describe("workspace deploy", () => {
           description: "",
           path: "/dispatch",
           isDispatch: true,
+          audience: "internal",
         },
         {
           id: "starter",
@@ -282,6 +285,7 @@ describe("workspace deploy", () => {
           description: "",
           path: "/starter",
           isDispatch: false,
+          audience: "internal",
         },
       ],
     });
@@ -759,6 +763,7 @@ describe("workspace deploy", () => {
         path: "/dispatch",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
+        audience: "internal",
       },
       {
         id: "mail",
@@ -767,6 +772,7 @@ describe("workspace deploy", () => {
         path: "/mail",
         url: "https://mail.custom.example.test",
         isDispatch: false,
+        audience: "internal",
       },
     ]);
 
@@ -827,6 +833,7 @@ describe("workspace deploy", () => {
         path: "/dispatch",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
+        audience: "internal",
       },
       {
         id: "mail",
@@ -835,6 +842,7 @@ describe("workspace deploy", () => {
         path: "/mail",
         url: "https://workspace.example.test/mail",
         isDispatch: false,
+        audience: "internal",
       },
     ]);
   });
@@ -943,13 +951,25 @@ describe("workspace deploy", () => {
 function makeWorkspaceApp(
   workspaceRoot: string,
   app: string,
-  opts: { usesUnpooledDatabaseUrl?: boolean } = {},
+  opts: {
+    audience?: "internal" | "public";
+    usesUnpooledDatabaseUrl?: boolean;
+  } = {},
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   fs.mkdirSync(appDir, { recursive: true });
+  const pkg: Record<string, unknown> = {
+    name: app,
+    scripts: { build: "agent-native build" },
+  };
+  if (opts.audience) {
+    pkg["agent-native"] = {
+      workspaceApp: { audience: opts.audience },
+    };
+  }
   fs.writeFileSync(
     path.join(appDir, "package.json"),
-    JSON.stringify({ name: app, scripts: { build: "agent-native build" } }),
+    JSON.stringify(pkg),
   );
 
   if (opts.usesUnpooledDatabaseUrl) {
