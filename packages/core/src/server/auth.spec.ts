@@ -1645,7 +1645,7 @@ describe("server/auth", () => {
   });
 
   describe("onboarding Google sign-in", () => {
-    it("uses popup OAuth for Builder web and redirect OAuth for Builder desktop", async () => {
+    it("uses popup OAuth in Builder iframes and redirect OAuth for top-level Builder", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
@@ -1686,8 +1686,9 @@ describe("server/auth", () => {
       expect(html).toContain("__anIsBuilderPreview();");
       expect(html).toContain("__anIsBuilderDesktop()");
       expect(html).toContain("__anIsAgentNativeDesktop()");
+      expect(html).toContain("function __anIsInFrame()");
       expect(html).toContain(
-        "if (__anIsBuilderPreview()) return __anIsBuilderDesktop() ? 'redirect' : 'popup'",
+        "if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect'",
       );
       expect(html).toContain(
         "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
@@ -1762,8 +1763,9 @@ describe("server/auth", () => {
       expect(loginHtml).toContain("__anIsBuilderPreview();");
       expect(loginHtml).toContain("__anIsBuilderDesktop()");
       expect(loginHtml).toContain("__anIsAgentNativeDesktop()");
+      expect(loginHtml).toContain("function __anIsInFrame()");
       expect(loginHtml).toContain(
-        "if (__anIsBuilderPreview()) return __anIsBuilderDesktop() ? 'redirect' : 'popup'",
+        "if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect'",
       );
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",

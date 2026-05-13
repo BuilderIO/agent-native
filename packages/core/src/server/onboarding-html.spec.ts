@@ -67,8 +67,9 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("function __anHasBuilderPreviewSignal()");
     expect(html).toContain("params.has('builder.preview')");
     expect(html).toContain("__anIsBuilderPreview();");
+    expect(html).toContain("function __anIsInFrame()");
     expect(html).toContain(
-      "if (__anIsBuilderPreview()) return __anIsBuilderDesktop() ? 'redirect' : 'popup'",
+      "if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect'",
     );
     expect(html).toContain(
       "var candidates = [window.location.href, document.referrer || ''];",

@@ -6,9 +6,9 @@
  *   the user stays on the current page.
  * - `'redirect'`: full-page redirect to Google. Simpler, more reliable on
  *   mobile / inside in-app browsers / inside Electron.
- * - `'auto'` (default): popup in normal browsers; redirect in Electron;
- *   popup in the Builder.io browser iframe (a redirect there hits Google's
- *   `X-Frame-Options: DENY`).
+ * - `'auto'` (default): popup in normal browsers; redirect in Agent Native
+ *   Desktop; redirect in top-level Builder preview/editor pages; popup inside
+ *   Builder iframes (a redirect there hits Google's `X-Frame-Options: DENY`).
  */
 export type GoogleAuthMode = "auto" | "popup" | "redirect";
 

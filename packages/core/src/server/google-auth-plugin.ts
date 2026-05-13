@@ -13,8 +13,9 @@ export interface GoogleAuthPluginOptions {
   publicPaths?: string[];
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
-   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. Builder web
-   * iframes use popup; Builder desktop preview/editor surfaces use redirect.
+   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. Builder
+   * iframes use popup; top-level Builder preview/editor surfaces use
+   * redirect.
    */
   googleAuthMode?: GoogleAuthMode;
 }
@@ -256,6 +257,13 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
       return false;
     }
   }
+  function __anIsInFrame() {
+    try {
+      return window.self !== window.top;
+    } catch(e) {
+      return true;
+    }
+  }
   function __anIsElectron() {
     try {
       return (navigator.userAgent || '').indexOf('Electron') !== -1;
@@ -264,11 +272,11 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
     }
   }
   function __anResolveAuthFlow() {
-    if (__anIsBuilderPreview()) return __anIsBuilderDesktop() ? 'redirect' : 'popup';
+    if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect';
     var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
     if (mode === 'popup') return 'popup';
     if (mode === 'redirect') return 'redirect';
-    return __anIsElectron() ? 'redirect' : 'popup';
+    return __anIsAgentNativeDesktop() ? 'redirect' : 'popup';
   }
   var __anOAuthPollTimer = null;
   var __anOAuthPollCount = 0;
