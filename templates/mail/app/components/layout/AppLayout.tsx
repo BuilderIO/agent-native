@@ -69,6 +69,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  mailLabelsInclude,
+  mailLabelsIncludeAny,
+  normalizeMailLabel,
+} from "@shared/gmail-labels";
 
 const BARE_ROUTES = new Set(["/email"]);
 
@@ -306,19 +311,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const labelThreadCounts = useMemo(() => {
     const unread: Record<string, number> = {};
     const total: Record<string, number> = {};
-    const pinnedShorts = pinnedLabels.map((l) =>
-      l.includes("/")
-        ? l
-            .slice(l.lastIndexOf("/") + 1)
-            .replace(/_/g, " ")
-            .toLowerCase()
-        : l.toLowerCase(),
-    );
-    // Full normalized path (underscores -> spaces, lowercased) — matches the
-    // shape Gmail email labelIds end up in (see google-auth.ts mapping).
-    const pinnedFullNorms = pinnedLabels.map((l) =>
-      l.replace(/_/g, " ").toLowerCase(),
-    );
     // Filter emails by active accounts before counting
     const filtered =
       activeAccounts.size > 0
@@ -350,7 +342,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const inboxRows = threadRows.filter(
       ({ latest }) =>
         !hasPinnedFilters ||
-        !latest.labelIds.some((lid) => pinnedShorts.includes(lid)),
+        !mailLabelsIncludeAny(latest.labelIds, pinnedLabels),
     );
     total["__inboxTotal"] = threadRows.length;
     unread["__inboxTotal"] = threadRows.filter(
@@ -361,24 +353,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     // Count threads per pinned label: latest message must have that label
     // For "important", exclude threads that belong to any other pinned tab
     for (let i = 0; i < pinnedLabels.length; i++) {
-      const short = pinnedShorts[i];
       const full = pinnedLabels[i];
-      const fullNorm = pinnedFullNorms[i];
       const hasLabel = (e: (typeof filtered)[0]) =>
-        e.labelIds.some(
-          (lid) => lid === short || lid === full || lid === fullNorm,
-        );
+        mailLabelsInclude(e.labelIds, full);
       let rows: typeof threadRows;
       if (full === "important") {
-        const otherShorts = pinnedShorts.filter((_, j) => j !== i);
-        const otherFullNorms = pinnedFullNorms.filter((_, j) => j !== i);
+        const otherPinnedLabels = pinnedLabels.filter((_, j) => j !== i);
         rows = threadRows.filter(
           ({ latest }) =>
             hasLabel(latest) &&
-            !latest.labelIds.some(
-              (lid) =>
-                otherShorts.includes(lid) || otherFullNorms.includes(lid),
-            ),
+            !mailLabelsIncludeAny(latest.labelIds, otherPinnedLabels),
         );
       } else {
         rows = threadRows.filter(({ latest }) => hasLabel(latest));
@@ -390,7 +374,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       const canonical = labels.find(
         (l) =>
           l.id === full ||
-          l.id === fullNorm ||
+          l.id === normalizeMailLabel(full) ||
           l.name.toLowerCase() === full.toLowerCase(),
       );
       if (canonical) {
