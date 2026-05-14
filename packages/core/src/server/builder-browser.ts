@@ -372,6 +372,29 @@ function firstBuilderCliAuthCallbackOriginFromEnv(): string | null {
 }
 
 /**
+ * Query param on the callback URL that carries the original preview opener
+ * origin when cli-auth's allow-list forces `preview_url` to the gateway.
+ * Read on the callback to derive the correct postMessage targetOrigin.
+ *
+ * Not signed: the receive-side trust check in `useBuilderStatus` still
+ * gates messages by allow-listed origin. The worst an attacker could do by
+ * crafting a different `_an_opener` value is target a postMessage to an
+ * origin that doesn't match the actual opener — postMessage drops the
+ * message in that case, identical to the legacy wildcard-fallback path.
+ */
+export const BUILDER_OPENER_PARAM = "_an_opener";
+
+function isBuilderOpenerOriginSafe(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Build the Builder cli-auth URL for the connect popup. When a signed
  * `state` token is supplied it is embedded inside the `redirect_url`
  * query string so it survives Builder's redirect verbatim — Builder
@@ -404,6 +427,19 @@ export function buildBuilderCliAuthUrl(
   );
   if (state) {
     callbackUrl.searchParams.set(BUILDER_STATE_PARAM, state);
+  }
+  // When the cli-auth allow-list forces preview_url onto the gateway origin,
+  // the callback would otherwise lose the real opener origin and post its
+  // success message to the gateway instead of the preview tab. Embed the
+  // original preview origin in the callback's own query string so the
+  // callback handler can recover it for parentOrigin / postMessage. Builder
+  // preserves the redirect_url's query verbatim, so this round-trips.
+  if (
+    requestedPreviewOrigin &&
+    requestedPreviewOrigin !== normalizedPreviewOrigin &&
+    isBuilderOpenerOriginSafe(requestedPreviewOrigin)
+  ) {
+    callbackUrl.searchParams.set(BUILDER_OPENER_PARAM, requestedPreviewOrigin);
   }
   const url = new URL("/cli-auth", getBuilderAppHost());
   url.searchParams.set("response_type", "code");

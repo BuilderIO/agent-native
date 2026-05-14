@@ -383,11 +383,20 @@ describe("Builder callback CSRF state", () => {
       const parsed = new URL(cliAuthUrl);
 
       expect(callbackOrigin).toBe("https://agent-workspace.builder.io");
-      expect(parsed.searchParams.get("redirect_url")).toContain(
+      const redirectUrl = parsed.searchParams.get("redirect_url");
+      expect(redirectUrl).toContain(
         "https://agent-workspace.builder.io/dispatch/_agent-native/builder/callback",
       );
-      expect(parsed.searchParams.get("redirect_url")).not.toContain(
-        "builderio.xyz",
+      // The callback origin (the part Builder validates against its allow-list)
+      // must be the gateway, not the preview host.
+      expect(new URL(redirectUrl!).origin).toBe(
+        "https://agent-workspace.builder.io",
+      );
+      // The original preview origin must still ride along inside the
+      // redirect_url query string so the callback can use it as the
+      // postMessage targetOrigin for the opener tab.
+      expect(new URL(redirectUrl!).searchParams.get("_an_opener")).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
       );
       expect(parsed.searchParams.get("preview_url")).toBe(
         "https://agent-workspace.builder.io/dispatch",

@@ -28,6 +28,7 @@ import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_ENV_KEYS,
+  BUILDER_OPENER_PARAM,
   BUILDER_STATE_PARAM,
   appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
@@ -1109,14 +1110,25 @@ export function createCoreRoutesPlugin(
         // postMessage from the callback success/error pages must target the
         // original preview opener, not the callback server. On the fallback
         // path the callback is served from the env-configured gateway while
-        // the opener lives on the preview origin. The previewUrl query param
-        // (echoed verbatim by Builder from cli-auth) is the only reliable
-        // source for that origin pre-write.
+        // the opener lives on the preview origin. Three sources of opener
+        // origin, in priority order:
+        //   1. `_an_opener` — written into the callback URL's query by
+        //      buildBuilderCliAuthUrl when cli-auth's allow-list forced
+        //      preview_url onto the gateway. Survives Builder's redirect
+        //      verbatim (Builder preserves redirect_url's query string).
+        //   2. `preview-url` — Builder echoes the top-level preview_url back
+        //      as a query param on the callback. Reflects the gateway on
+        //      the fallback path, but matches the opener on the happy path.
+        //   3. The event's own origin — last-resort fallback.
+        const openerOriginFromQuery =
+          requestUrl.searchParams.get(BUILDER_OPENER_PARAM);
         const callbackParentOrigin =
+          resolveSafePreviewUrl(openerOriginFromQuery, event) ||
           resolveSafePreviewUrl(
             requestUrl.searchParams.get("preview-url"),
             event,
-          ) || getBuilderBrowserOriginForEvent(event);
+          ) ||
+          getBuilderBrowserOriginForEvent(event);
         const callbackStateOwner = verifyBuilderCallbackStateAndGetOwner(
           requestUrl.searchParams.get(BUILDER_STATE_PARAM),
         );
@@ -1368,10 +1380,11 @@ export function createCoreRoutesPlugin(
         // env-configured gateway is used as the callback fallback (because
         // Builder rejects the preview host), the callback server and the
         // opener live on different origins, and postMessage to the gateway
-        // origin would be dropped by the preview opener. Derive parentOrigin
-        // from previewUrl so the message is delivered correctly.
+        // origin would be dropped by the preview opener. callbackParentOrigin
+        // is the precomputed best-available opener origin (`_an_opener` →
+        // `preview-url` → event origin).
         return createBuilderBrowserCallbackPage(previewUrl, {
-          parentOrigin: previewUrl,
+          parentOrigin: callbackParentOrigin,
         });
       }),
     );

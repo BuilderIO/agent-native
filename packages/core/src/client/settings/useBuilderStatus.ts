@@ -397,6 +397,18 @@ export function useBuilderConnectFlow(
       } else if (!s.configured) {
         notifiedConnectedRef.current = false;
       }
+      // Surface persisted auth-failure messages on every refresh — reload,
+      // first paint in a new tab, agent-engine:configured-changed, etc.
+      // Without this, useBuilderConnectFlow's start() is the only path that
+      // ever sets `error`, so users who reload after a rejection see the
+      // generic "Connect Builder" CTA with no explanation. Clear the error
+      // when status is configured again so a self-healed marker stops
+      // showing the stale message.
+      if (s.connectError?.message) {
+        setError(s.connectError.message);
+      } else if (s.configured) {
+        setError(null);
+      }
     };
     refresh();
     const onVisible = () => {
