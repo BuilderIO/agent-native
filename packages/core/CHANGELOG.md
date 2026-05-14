@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.15.11
+
+### Patch Changes
+
+- 31b3ffe: Always refresh the Builder cli-auth URL inside a freshly-opened about:blank popup on web (desktop keeps direct path), add a stable `authError` field to BuilderStatus for persisted old-credential rejection, and keep Fusion/workspace-runtime deploy keys out of the identity fallback when a signed-in user is present.
+
 ## 0.15.10
 
 ### Patch Changes
