@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
+import { getHeader } from "h3";
 import { getAuthSecret } from "./better-auth-instance.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 
@@ -334,6 +335,77 @@ export function getBuilderBrowserConnectUrl(origin: string): string {
   return `${normalizeOrigin(origin)}${getAppBasePath()}/_agent-native/builder/connect`;
 }
 
+function firstHeaderValue(value: string | undefined): string | undefined {
+  return value?.split(",")[0]?.trim() || undefined;
+}
+
+function readEventHeader(event: H3Event, name: string): string | undefined {
+  try {
+    return getHeader(event, name) ?? undefined;
+  } catch {
+    const headers = (
+      event as unknown as {
+        node?: {
+          req?: { headers?: Record<string, string | string[] | undefined> };
+        };
+      }
+    ).node?.req?.headers;
+    const value = headers?.[name.toLowerCase()] ?? headers?.[name];
+    if (Array.isArray(value)) return value[0];
+    return typeof value === "string" ? value : undefined;
+  }
+}
+
+function isTrustedBuilderRequestHost(host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    const hostname = new URL(`http://${host}`).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]" ||
+      hostname === "builderio.xyz" ||
+      hostname.endsWith(".builderio.xyz") ||
+      hostname === "builderio.dev" ||
+      hostname.endsWith(".builderio.dev") ||
+      hostname === "builder.codes" ||
+      hostname.endsWith(".builder.codes") ||
+      hostname === "builder.io" ||
+      hostname.endsWith(".builder.io") ||
+      hostname === "builder.my" ||
+      hostname.endsWith(".builder.my")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Builder CLI-auth does not need the workspace OAuth relay that Google uses.
+ * In Builder/Fusion previews, keep connect + callback URLs on the actual app
+ * preview origin so the signed connect token and pending row are verified by
+ * the same deployment that minted them.
+ */
+export function getBuilderBrowserOriginForEvent(event: H3Event): string {
+  const headerHost = firstHeaderValue(
+    readEventHeader(event, "x-forwarded-host") ||
+      readEventHeader(event, "host"),
+  );
+  if (!isTrustedBuilderRequestHost(headerHost)) return getOrigin(event);
+
+  const rawProto = firstHeaderValue(
+    readEventHeader(event, "x-forwarded-proto"),
+  );
+  const proto =
+    rawProto === "http" || rawProto === "https"
+      ? rawProto
+      : process.env.NODE_ENV === "production"
+        ? "https"
+        : "http";
+  return `${proto}://${headerHost}`;
+}
+
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
   const branchProjectId = getConfiguredBuilderBranchProjectId();
   const envManaged = !!process.env.BUILDER_PRIVATE_KEY;
@@ -360,7 +432,7 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
 export function getBuilderBrowserStatusForEvent(
   event: H3Event,
 ): BuilderBrowserStatus {
-  return getBuilderBrowserStatus(getOrigin(event));
+  return getBuilderBrowserStatus(getBuilderBrowserOriginForEvent(event));
 }
 
 /**

@@ -32,11 +32,11 @@ import {
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
+  getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
   resolveSafePreviewUrl,
   runBuilderAgent,
-  verifyBuilderConnectToken,
   verifyBuilderConnectTokenAndGetOwner,
   signBuilderConnectToken,
 } from "./builder-browser.js";
@@ -801,10 +801,9 @@ export function createCoreRoutesPlugin(
           getOrigin(event),
         );
         const connectToken = requestUrl.searchParams.get(BUILDER_CONNECT_PARAM);
-        const hasValidConnectToken = verifyBuilderConnectToken(
-          connectToken,
-          ownerEmail,
-        );
+        const connectTokenOwner =
+          verifyBuilderConnectTokenAndGetOwner(connectToken);
+        const hasValidConnectToken = Boolean(connectTokenOwner);
 
         // Same-origin gate. Sec-Fetch-Site remains the fast path; the signed
         // connect token is the compatibility path for legitimate embedded or
@@ -822,6 +821,7 @@ export function createCoreRoutesPlugin(
               stage: "connect",
               has_connect_token: Boolean(connectToken),
               has_valid_connect_token: false,
+              connect_token_owner_matches_context: false,
               sec_fetch_site: getHeader(event, "sec-fetch-site") ?? null,
             },
           );
@@ -894,13 +894,23 @@ export function createCoreRoutesPlugin(
           ownerEmail,
           {
             stage: "connect",
+            connect_token_owner_matches_context:
+              !connectTokenOwner || connectTokenOwner === ownerEmail,
           },
         );
         setBuilderConnectOwnerCookie(event, ownerEmail);
         // Build the cli-auth URL without embedding state in redirect_url:
         // Builder's /cli-auth appends params directly to redirect_url and
         // does not preserve any pre-existing query string we put there.
-        const cliAuthUrl = buildBuilderCliAuthUrl(getOrigin(event), null);
+        //
+        // Use the Builder-specific origin here instead of the generic OAuth
+        // origin. Workspace Google OAuth callbacks intentionally relay through
+        // the stable gateway origin, but Builder connect needs to return to the
+        // same preview deployment that minted the signed connect token.
+        const cliAuthUrl = buildBuilderCliAuthUrl(
+          getBuilderBrowserOriginForEvent(event),
+          null,
+        );
         setResponseStatus(event, 302);
         setResponseHeader(event, "Location", cliAuthUrl);
         return "";

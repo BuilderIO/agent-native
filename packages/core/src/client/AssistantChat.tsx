@@ -2685,6 +2685,9 @@ function RunErrorRecoveryCard({
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const builderReconnect = useBuilderConnectFlow({
+    trackingSource: "assistant_chat_reconnect_error",
+  });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
   const isQueryError = isProviderQueryRunError(info);
@@ -2764,23 +2767,21 @@ function RunErrorRecoveryCard({
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {shouldShowBuilderReconnect && (
-          <a
-            href={agentNativePath("/_agent-native/builder/connect")}
-            target="_blank"
-            rel="noreferrer"
-            onClick={() => {
-              trackEvent("builder connect clicked", {
-                feature: "builder",
-                stage: "client",
-                source: "assistant_chat_reconnect_error",
-                connect_url_kind: "default",
-              });
-            }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+          <button
+            type="button"
+            onClick={builderReconnect.start}
+            disabled={builderReconnect.connecting}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
           >
-            <IconExternalLink size={13} />
-            Reconnect Builder.io
-          </a>
+            {builderReconnect.connecting ? (
+              <IconLoader2 size={13} className="animate-spin" />
+            ) : (
+              <IconExternalLink size={13} />
+            )}
+            {builderReconnect.connecting
+              ? "Connecting Builder.io"
+              : "Reconnect Builder.io"}
+          </button>
         )}
         {canRecover && (
           <>
@@ -2823,6 +2824,11 @@ function RunErrorRecoveryCard({
           {copied ? "Copied" : copyLabel}
         </button>
       </div>
+      {shouldShowBuilderReconnect && builderReconnect.error && (
+        <p className="mt-2 text-xs leading-relaxed text-red-500">
+          {builderReconnect.error}
+        </p>
+      )}
     </div>
   );
 }

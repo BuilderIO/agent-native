@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type { H3Event } from "h3";
 import {
   appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
@@ -7,6 +8,7 @@ import {
   BUILDER_STATE_PARAM,
   getBuilderBranchProjectId,
   getBuilderBrowserConnectUrl,
+  getBuilderBrowserStatusForEvent,
   isBuilderBranchingEnabled,
   runBuilderAgent,
   signBuilderConnectToken,
@@ -15,6 +17,34 @@ import {
   verifyBuilderCallbackState,
   verifyBuilderConnectTokenAndGetOwner,
 } from "./builder-browser.js";
+
+function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
+  const requestHeaders = new Headers(headers);
+  return {
+    req: {
+      method: "GET",
+      url: "https://agent-workspace.builder.io/_agent-native/builder/status",
+      headers: requestHeaders,
+    },
+    url: new URL(
+      "https://agent-workspace.builder.io/_agent-native/builder/status",
+    ),
+    res: {
+      headers: new Headers(),
+      status: 200,
+    },
+    node: {
+      req: {
+        headers,
+        url: "/_agent-native/builder/status",
+        method: "GET",
+      },
+    },
+    headers: requestHeaders,
+    context: {},
+    path: "/_agent-native/builder/status",
+  } as unknown as H3Event;
+}
 
 describe("Builder callback CSRF state", () => {
   const originalEnv = { ...process.env };
@@ -318,6 +348,38 @@ describe("Builder callback CSRF state", () => {
         getBuilderBrowserConnectUrl("https://alice.agent-native.com/"),
       ).toBe(
         "https://alice.agent-native.com/docs/_agent-native/builder/connect",
+      );
+    });
+
+    it("keeps Builder preview connect URLs on the preview deployment in workspace mode", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
+      process.env.APP_BASE_PATH = "/dispatch";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host":
+          "940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz/dispatch/_agent-native/builder/connect",
+      );
+    });
+
+    it("falls back to the configured public origin for untrusted hosts", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "attacker.example",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://agent-workspace.builder.io/_agent-native/builder/connect",
       );
     });
   });
