@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.15.9
+
+### Patch Changes
+
+- 5b2488b: Fix: default the Builder API host fallback to `https://api.builder.io` instead of the unreachable `https://ai-services.builder.io`, so calls succeed when `BUILDER_API_HOST` / `BUILDER_PROXY_ORIGIN` / `AIR_HOST` are unset.
+
 ## 0.15.8
 
 ### Patch Changes
