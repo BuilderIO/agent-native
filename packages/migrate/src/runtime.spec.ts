@@ -51,4 +51,56 @@ describe("migration runtime", () => {
       fs.stat(path.join(outputRoot, "actions/view-screen.ts")),
     ).resolves.toBeTruthy();
   });
+
+  it("namespaces task ids per run so repeated assessments can share a database", async () => {
+    const sourceRoot = path.join(
+      path.resolve(__dirname, "."),
+      "__fixtures__/next-pages",
+    );
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "an-migrate-ids-"));
+    const artifactRoot = path.join(tmp, "artifacts");
+
+    const firstRun = await createMigrationRun({
+      sourceRoot,
+      outputRoot: path.join(tmp, "first-output"),
+      artifactRoot,
+      id: "mig_first",
+    });
+    const secondRun = await createMigrationRun({
+      sourceRoot,
+      outputRoot: path.join(tmp, "second-output"),
+      artifactRoot,
+      id: "mig_second",
+    });
+
+    const firstDiscovered = await discoverMigration(
+      firstRun,
+      nextjsSourceAdapter,
+    );
+    const secondDiscovered = await discoverMigration(
+      secondRun,
+      nextjsSourceAdapter,
+    );
+    const firstPlan = await planMigration(
+      firstDiscovered.run,
+      firstDiscovered.ir,
+    );
+    const secondPlan = await planMigration(
+      secondDiscovered.run,
+      secondDiscovered.ir,
+    );
+
+    expect(firstPlan.tasks.length).toBeGreaterThan(0);
+    expect(secondPlan.tasks.length).toBe(firstPlan.tasks.length);
+    expect(
+      firstPlan.tasks.every((task) => task.id.startsWith("mig_first:")),
+    ).toBe(true);
+    expect(
+      secondPlan.tasks.every((task) => task.id.startsWith("mig_second:")),
+    ).toBe(true);
+    expect(
+      new Set([...firstPlan.tasks, ...secondPlan.tasks].map((task) => task.id))
+        .size,
+    ).toBe(firstPlan.tasks.length + secondPlan.tasks.length);
+  });
 });

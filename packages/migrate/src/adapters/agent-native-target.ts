@@ -54,7 +54,9 @@ export async function scaffoldAgentNativeTarget(
   await write("server/plugins/auth.ts", authPlugin());
   await write("server/plugins/agent-chat.ts", agentChatPlugin());
   await write("server/routes/[...page].get.ts", ssrRoute());
+  await write("ssr-entry.ts", ssrEntry());
   await write("app/routes.ts", routesTs());
+  await write("app/entry.server.tsx", entryServerTsx());
   await write("app/root.tsx", rootTsx());
   await write("app/global.css", globalCss());
   await write("app/routes/_index.tsx", indexRoute(context));
@@ -181,6 +183,9 @@ function packageJson(): string {
         "@react-router/dev": "^7.13.1",
         "@react-router/fs-routes": "^7.13.1",
         "@tailwindcss/vite": "^4.2.4",
+        "@types/node": "^25.8.0",
+        "@types/react": "^19.2.14",
+        "@types/react-dom": "^19.2.3",
         typescript: "^6.0.3",
         vite: "8.0.3",
       },
@@ -306,11 +311,86 @@ export default createH3SSRHandler(() => import("virtual:react-router/server-buil
 `;
 }
 
+function ssrEntry(): string {
+  return `import { createRequestHandler } from "react-router";
+
+const handler = createRequestHandler(
+  () => import("virtual:react-router/server-build"),
+);
+
+export default {
+  async fetch(request: Request) {
+    return handler(request);
+  },
+};
+`;
+}
+
 function routesTs(): string {
   return `import { type RouteConfig } from "@react-router/dev/routes";
 import { flatRoutes } from "@react-router/fs-routes";
 
 export default flatRoutes() satisfies RouteConfig;
+`;
+}
+
+function entryServerTsx(): string {
+  return `import type { AppLoadContext, EntryContext } from "react-router";
+import { ServerRouter } from "react-router";
+import ReactDOMServer from "react-dom/server.browser";
+const { renderToReadableStream } = ReactDOMServer;
+import { isbot } from "isbot";
+import { wrapWithAnalytics } from "@agent-native/core/server";
+
+export const streamTimeout = 5_000;
+
+export default async function handleRequest(
+  request: Request,
+  responseStatusCode: number,
+  responseHeaders: Headers,
+  routerContext: EntryContext,
+  _loadContext: AppLoadContext,
+) {
+  if (request.method.toUpperCase() === "HEAD") {
+    return new Response(null, {
+      status: responseStatusCode,
+      headers: responseHeaders,
+    });
+  }
+
+  const userAgent = request.headers.get("user-agent");
+  const waitForAll = (userAgent && isbot(userAgent)) || routerContext.isSpaMode;
+
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), streamTimeout);
+
+  try {
+    const body = await renderToReadableStream(
+      <ServerRouter context={routerContext} url={request.url} />,
+      {
+        signal: abortController.signal,
+        onError(error: unknown) {
+          if (!abortController.signal.aborted) {
+            responseStatusCode = 500;
+            console.error(error);
+          }
+        },
+      },
+    );
+
+    if (waitForAll) {
+      await body.allReady;
+    }
+
+    responseHeaders.set("Content-Type", "text/html");
+    return new Response(wrapWithAnalytics(body), {
+      headers: responseHeaders,
+      status: responseStatusCode,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 `;
 }
 
