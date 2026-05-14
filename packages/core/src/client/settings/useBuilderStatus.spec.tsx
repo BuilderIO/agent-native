@@ -29,6 +29,17 @@ function BuilderConnectProbe() {
   );
 }
 
+function createPopupStub() {
+  const doc = document.implementation.createHTMLDocument("popup");
+  return {
+    closed: false,
+    close: vi.fn(),
+    document: doc,
+    location: { href: "" },
+    opener: window,
+  } as unknown as Window;
+}
+
 describe("useBuilderConnectFlow", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -65,6 +76,36 @@ describe("useBuilderConnectFlow", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("refreshes the signed Builder connect URL inside a synchronously opened popup", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "about:blank",
+      "_blank",
+      "width=600,height=700",
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(popup.location.href).toBe(
+      "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+    );
+    expect(container.textContent).not.toContain("Popup blocked");
   });
 
   it("does not replace the desktop webview when Electron reports a handled popup as null", async () => {

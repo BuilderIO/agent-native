@@ -810,6 +810,9 @@ export function createCoreRoutesPlugin(
         // connect token is the compatibility path for legitimate embedded or
         // local desktop popups stamped as same-site/cross-site by the browser.
         if (!isSameOriginConnect(event) && !hasValidConnectToken) {
+          const crossOriginMessage = connectToken
+            ? "This Builder connect link is expired or belongs to a different deployment. Close this popup and click Connect account again."
+            : "Builder connect opened without a fresh signed link. Close this popup and click Connect account again.";
           await trackBuilderLifecycle(
             event,
             "builder connect failed",
@@ -818,10 +821,28 @@ export function createCoreRoutesPlugin(
               reason: "cross_origin",
               stage: "connect",
               has_connect_token: Boolean(connectToken),
+              has_valid_connect_token: false,
+              sec_fetch_site: getHeader(event, "sec-fetch-site") ?? null,
             },
           );
+          await putSetting(`builder-connect-error:${ownerEmail}`, {
+            message: crossOriginMessage,
+            at: Date.now(),
+          }).catch(() => {});
+          console.warn("[builder-connect] rejected cross-origin connect", {
+            hasConnectToken: Boolean(connectToken),
+            secFetchSite: getHeader(event, "sec-fetch-site") ?? null,
+            origin: getHeader(event, "origin") ?? null,
+            referer: getHeader(event, "referer") ?? null,
+          });
           setResponseStatus(event, 403);
-          return { error: "Cross-origin connect requests are not allowed" };
+          setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+          return createBuilderBrowserCallbackErrorPage(crossOriginMessage, {
+            title: "Couldn't start Builder connection",
+            body: "The connect popup did not include a valid signed link for this app.",
+            closeHint:
+              "Close this popup, refresh the app, and try Connect account again.",
+          });
         }
 
         // Clear any prior failure row from a previous attempt — otherwise

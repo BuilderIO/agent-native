@@ -138,6 +138,73 @@ export interface BuilderConnectFlow {
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+const BUILDER_CONNECT_PARAM = "_an_connect";
+const STATUS_CONNECT_URL_TTL_MS = 9 * 60 * 1000;
+
+function isAgentNativeDesktop() {
+  if (typeof navigator === "undefined") return false;
+  return /AgentNativeDesktop/i.test(navigator.userAgent || "");
+}
+
+function hasSignedConnectToken(url: string | null | undefined): boolean {
+  if (!url || typeof window === "undefined") return false;
+  try {
+    return new URL(url, window.location.origin).searchParams.has(
+      BUILDER_CONNECT_PARAM,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isFreshSignedConnectUrl(
+  url: string | null,
+  fetchedAt: number | null,
+): url is string {
+  return (
+    hasSignedConnectToken(url) &&
+    typeof fetchedAt === "number" &&
+    Date.now() - fetchedAt < STATUS_CONNECT_URL_TTL_MS
+  );
+}
+
+function showBuilderConnectPopupPlaceholder(opened: Window) {
+  try {
+    opened.opener = null;
+  } catch {
+    // Best effort only. We still hold the WindowProxy so the parent can
+    // navigate the blank popup after refreshing the signed connect URL.
+  }
+  try {
+    opened.document.title = "Opening Builder.io";
+    opened.document.body.style.margin = "0";
+    opened.document.body.style.background = "#111";
+    opened.document.body.style.color = "#ddd";
+    opened.document.body.style.fontFamily =
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    opened.document.body.style.display = "flex";
+    opened.document.body.style.alignItems = "center";
+    opened.document.body.style.justifyContent = "center";
+    opened.document.body.style.height = "100vh";
+    opened.document.body.textContent = "Opening Builder.io...";
+  } catch {
+    // Popup may already be cross-origin or browser may block document writes.
+  }
+}
+
+function navigateBuilderConnectPopup(opened: Window, url: string): boolean {
+  try {
+    opened.location.href = url;
+    return true;
+  } catch {
+    try {
+      opened.close();
+    } catch {
+      // Ignore close failures.
+    }
+    return false;
+  }
+}
 
 function notifyAgentEngineConfiguredChanged(source: string) {
   if (typeof window === "undefined") return;
@@ -211,9 +278,10 @@ export function useBuilderConnectFlow(
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const [statusConnectUrl, setStatusConnectUrl] = useState<string | null>(null);
   // When statusConnectUrl was last fetched. The server signs the embedded
-  // _an_connect token with a 10-minute TTL; using an older URL silently
-  // fails the same-origin check on the popup side. Track freshness so
-  // start() can fall back to the bare /builder/connect path when stale.
+  // _an_connect token with a 10-minute TTL; using an older URL fails the
+  // cross-origin popup gate. Track freshness so start() can either use a
+  // still-good direct URL (desktop) or refresh a new one inside the popup
+  // gesture path (browser/editor embeds).
   const statusConnectUrlAtRef = useRef<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
@@ -312,25 +380,87 @@ export function useBuilderConnectFlow(
     // before window.open lets the user-gesture token expire, which causes
     // popup blockers to block entirely or fall back to same-tab navigation.
     const origin = getCallbackOrigin() || window.location.origin;
-    // The signed _an_connect token in statusConnectUrl has a 10-minute TTL.
-    // If the panel has been open longer than that the token is dead and the
-    // popup will silently 403; drop the cached URL and let the bare /connect
-    // route do the same-origin Sec-Fetch-Site check instead.
-    const STATUS_CONNECT_URL_TTL_MS = 9 * 60 * 1000;
-    const cachedAt = statusConnectUrlAtRef.current;
-    const cachedFresh =
-      typeof cachedAt === "number" &&
-      Date.now() - cachedAt < STATUS_CONNECT_URL_TTL_MS;
-    const url =
-      (cachedFresh ? statusConnectUrl : null) ??
-      popupUrl ??
-      new URL(agentNativePath("/_agent-native/builder/connect"), origin).href;
-    const opened = openBuilderConnectPopup({
-      url,
-      source: trackingSource,
-    });
-    if (!opened && !/AgentNativeDesktop/i.test(navigator.userAgent || "")) {
-      setError("Couldn't open Builder. Allow popups and try again.");
+    const cachedFreshUrl = isFreshSignedConnectUrl(
+      statusConnectUrl,
+      statusConnectUrlAtRef.current,
+    )
+      ? statusConnectUrl
+      : null;
+    const signedPropUrl = hasSignedConnectToken(popupUrl) ? popupUrl : null;
+    const fallbackUrl = new URL(
+      agentNativePath("/_agent-native/builder/connect"),
+      origin,
+    ).href;
+    const directUrl = cachedFreshUrl ?? signedPropUrl ?? fallbackUrl;
+
+    if (isAgentNativeDesktop()) {
+      const opened = openBuilderConnectPopup({
+        url: directUrl,
+        source: trackingSource,
+      });
+      if (!opened) {
+        // Agent Native Desktop handles the popup in Electron and reports
+        // null to the embedded webview, so null is not a blocker here.
+      }
+    } else {
+      const opened = openBuilderConnectPopup({
+        url: "about:blank",
+        source: trackingSource,
+        features: "width=600,height=700",
+      });
+      if (!opened) {
+        setConnecting(false);
+        setError("Couldn't open Builder. Allow popups and try again.");
+        return;
+      }
+      showBuilderConnectPopupPlaceholder(opened);
+      void (async () => {
+        const s = await fetchStatus();
+        if (!mountedRef.current) {
+          try {
+            opened.close();
+          } catch {
+            // Ignore close failures.
+          }
+          return;
+        }
+        if (s) {
+          setHasFetchedStatus(true);
+          setConfigured(!!s.configured);
+          setEnvManaged(!!s.envManaged);
+          setBuilderEnabled(!!s.builderEnabled);
+          setStatusConnectUrl(s.connectUrl ?? null);
+          statusConnectUrlAtRef.current = s.connectUrl ? Date.now() : null;
+          setOrgName(s.orgName ?? null);
+        }
+
+        const freshUrl =
+          (s?.connectUrl && hasSignedConnectToken(s.connectUrl)
+            ? s.connectUrl
+            : null) ??
+          cachedFreshUrl ??
+          signedPropUrl;
+        if (!freshUrl) {
+          try {
+            opened.close();
+          } catch {
+            // Ignore close failures.
+          }
+          stopPoll();
+          setConnecting(false);
+          setError(
+            "Couldn't start Builder connect. Refresh this page and try again.",
+          );
+          return;
+        }
+        if (!navigateBuilderConnectPopup(opened, freshUrl)) {
+          stopPoll();
+          setConnecting(false);
+          setError(
+            "Couldn't navigate the Builder popup. Allow popups and try again.",
+          );
+        }
+      })();
     }
 
     const started = Date.now();

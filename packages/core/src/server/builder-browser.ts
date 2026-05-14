@@ -10,6 +10,23 @@ const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
 
 export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (ch) => {
+    switch (ch) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
+}
+
 /**
  * Query-param name carrying the signed CSRF state on the connect→callback
  * round-trip. Prefixed with `_an_` to avoid collisions if Builder ever
@@ -615,8 +632,21 @@ export function createBuilderBrowserCallbackPage(previewUrl: string): string {
  *    polling stops immediately rather than waiting for the next /status
  *    poll to surface the SQL `builder-connect-error:<email>` row.
  */
-export function createBuilderBrowserCallbackErrorPage(message: string): string {
+export function createBuilderBrowserCallbackErrorPage(
+  message: string,
+  opts: {
+    title?: string;
+    body?: string;
+    closeHint?: string;
+  } = {},
+): string {
   const escapedMessage = JSON.stringify(message);
+  const title = opts.title ?? "Couldn't save Builder connection";
+  const body =
+    opts.body ??
+    "Builder authorized your account but the server couldn't persist the credentials.";
+  const closeHint =
+    opts.closeHint ?? "You can close this tab and try again from settings.";
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -634,10 +664,10 @@ export function createBuilderBrowserCallbackErrorPage(message: string): string {
       <span class="icon icon-error" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
       </span>
-      <h1>Couldn't save Builder connection</h1>
-      <p class="muted">Builder authorized your account but the server couldn't persist the credentials.</p>
+      <h1>${escapeHtml(title)}</h1>
+      <p class="muted">${escapeHtml(body)}</p>
       <pre class="error-detail" id="msg"></pre>
-      <p class="muted" style="margin-top:12px">You can close this tab and try again from settings.</p>
+      <p class="muted" style="margin-top:12px">${escapeHtml(closeHint)}</p>
     </main>
     <script>
       try {

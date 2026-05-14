@@ -1069,6 +1069,13 @@ ${
         return false;
       }
     }
+    function __anIsInFrame() {
+      try {
+        return window.self !== window.top;
+      } catch(e) {
+        return true;
+      }
+    }
     function __anIsElectron() {
       try {
         return (navigator.userAgent || '').indexOf('Electron') !== -1;
@@ -1077,7 +1084,7 @@ ${
       }
     }
     function __anResolveAuthFlow() {
-      if (__anIsBuilderPreview()) return __anIsBuilderDesktop() ? 'redirect' : 'popup';
+      if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect';
       // Per-session override for ad-hoc testing outside Builder: append
       // ?authMode=popup or ?authMode=redirect to the sign-in URL.
       try {
@@ -1087,7 +1094,7 @@ ${
       var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
       if (mode === 'popup') return 'popup';
       if (mode === 'redirect') return 'redirect';
-      return __anIsElectron() ? 'redirect' : 'popup';
+      return __anIsAgentNativeDesktop() ? 'redirect' : 'popup';
     }
     var __anOAuthPollTimer = null;
     var __anOAuthPollCount = 0;

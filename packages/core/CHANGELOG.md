@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.15.4
+
+### Patch Changes
+
+- Refresh Builder connect links inside popup click flows and use Google OAuth popups for Builder iframes.
+
 ## 0.15.3
 
 ### Patch Changes
