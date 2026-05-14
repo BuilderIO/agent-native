@@ -1493,7 +1493,7 @@ export function createCoreRoutesPlugin(
               return { error: "userMessage is required" };
             }
             const apiHost =
-              process.env.BUILDER_API_HOST || "https://ai-services.builder.io";
+              process.env.BUILDER_API_HOST || "https://api.builder.io";
             try {
               const res = await fetch(
                 `${apiHost}/agents/run?apiKey=${encodeURIComponent(creds.publicKey)}`,

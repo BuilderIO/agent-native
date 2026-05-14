@@ -156,8 +156,7 @@ export function createGoogleRealtimeSessionHandler() {
         };
       }
 
-      const apiHost =
-        process.env.BUILDER_API_HOST || "https://ai-services.builder.io";
+      const apiHost = process.env.BUILDER_API_HOST || "https://api.builder.io";
       const body = ((await readBody(event).catch(() => ({}))) || {}) as {
         language?: unknown;
       };
