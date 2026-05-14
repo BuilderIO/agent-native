@@ -723,6 +723,13 @@ export function createCoreRoutesPlugin(
                 orgName: undefined,
                 orgKind: undefined,
                 credentialSource: credentialSource ?? undefined,
+                // Surface the failure message so the UI can explain why the
+                // connection is broken instead of silently showing "Connect
+                // Builder" with no context.
+                connectError: {
+                  message: authFailure.message,
+                  at: authFailure.at,
+                },
               });
             }
             if (creds.privateKey && creds.publicKey) {
@@ -1099,6 +1106,17 @@ export function createCoreRoutesPlugin(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,
           getOrigin(event),
         );
+        // postMessage from the callback success/error pages must target the
+        // original preview opener, not the callback server. On the fallback
+        // path the callback is served from the env-configured gateway while
+        // the opener lives on the preview origin. The previewUrl query param
+        // (echoed verbatim by Builder from cli-auth) is the only reliable
+        // source for that origin pre-write.
+        const callbackParentOrigin =
+          resolveSafePreviewUrl(
+            requestUrl.searchParams.get("preview-url"),
+            event,
+          ) || getBuilderBrowserOriginForEvent(event);
         const callbackStateOwner = verifyBuilderCallbackStateAndGetOwner(
           requestUrl.searchParams.get(BUILDER_STATE_PARAM),
         );
@@ -1165,7 +1183,7 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 503);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackErrorPage(pendingError, {
-            parentOrigin: getBuilderBrowserOriginForEvent(event),
+            parentOrigin: callbackParentOrigin,
           });
         }
 
@@ -1199,7 +1217,7 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 403);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackErrorPage(msg, {
-            parentOrigin: getBuilderBrowserOriginForEvent(event),
+            parentOrigin: callbackParentOrigin,
           });
         }
 
@@ -1229,7 +1247,7 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 400);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackErrorPage(msg, {
-            parentOrigin: getBuilderBrowserOriginForEvent(event),
+            parentOrigin: callbackParentOrigin,
           });
         }
 
@@ -1313,7 +1331,7 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 500);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackErrorPage(writeError, {
-            parentOrigin: getBuilderBrowserOriginForEvent(event),
+            parentOrigin: callbackParentOrigin,
           });
         }
 
@@ -1345,8 +1363,15 @@ export function createCoreRoutesPlugin(
           },
         );
         setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+        // The parent (opener) is the original preview surface that started the
+        // connect flow, NOT the callback server's own origin — when the
+        // env-configured gateway is used as the callback fallback (because
+        // Builder rejects the preview host), the callback server and the
+        // opener live on different origins, and postMessage to the gateway
+        // origin would be dropped by the preview opener. Derive parentOrigin
+        // from previewUrl so the message is delivered correctly.
         return createBuilderBrowserCallbackPage(previewUrl, {
-          parentOrigin: getBuilderBrowserOriginForEvent(event),
+          parentOrigin: previewUrl,
         });
       }),
     );
