@@ -2900,7 +2900,9 @@ export function createAgentChatPlugin(
           id: name,
           name,
           description: entry.tool.description,
+          publicAgent: entry.publicAgent,
         })),
+        publicSkillsOnly: true,
         streaming: true,
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.

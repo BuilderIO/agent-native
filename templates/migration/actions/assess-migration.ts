@@ -1,0 +1,43 @@
+import { defineAction } from "@agent-native/core";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { discoverMigration, nextjsSourceAdapter } from "@agent-native/migrate";
+import { getDb, schema } from "../server/db/index.js";
+import { getRunRow, rowToRun } from "./_utils.js";
+
+export default defineAction({
+  description:
+    "Discover a migration source and write the assessment artifact. This reads the source project but does not mutate it.",
+  schema: z.object({
+    id: z.string().describe("Migration run ID"),
+  }),
+  run: async ({ id }) => {
+    await assertAccess("migration-run", id, "editor");
+    const row = await getRunRow(id);
+    const run = rowToRun(row);
+    const detected = await nextjsSourceAdapter.detect(run.sourceRoot);
+    if (!detected) {
+      throw new Error(
+        `Source path ${run.sourceRoot} does not look like a Next.js app.`,
+      );
+    }
+    const result = await discoverMigration(run, nextjsSourceAdapter);
+    const db = getDb();
+    await db
+      .update(schema.migrationRuns)
+      .set({
+        phase: result.run.phase,
+        assessmentPath: result.assessmentPath,
+        irJson: JSON.stringify(result.ir),
+        updatedAt: result.run.updatedAt,
+      })
+      .where(eq(schema.migrationRuns.id, id));
+    return {
+      run: result.run,
+      assessmentPath: result.assessmentPath,
+      routeCount: result.ir.site.routes.length,
+      apiEndpointCount: result.ir.behavior.apiEndpoints.length,
+    };
+  },
+});

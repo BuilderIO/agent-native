@@ -10,6 +10,20 @@
   "bugs": {
     "url": "https://github.com/BuilderIO/agent-native/issues"
   },
+  "agent-native": {
+    "workspaceApp": {
+      "audience": "public",
+      "agentWeb": {
+        "discoverable": true,
+        "markdownTwins": true,
+        "llmsTxt": true,
+        "jsonLd": true,
+        "publicAgentCard": true,
+        "publicMcp": false,
+        "crawlerPolicy": "discoverable-no-training"
+      }
+    }
+  },
   "scripts": {
     "dev": "agent-native dev --port 3000",
     "generate-source-index": "tsx scripts/generate-source-index.ts",

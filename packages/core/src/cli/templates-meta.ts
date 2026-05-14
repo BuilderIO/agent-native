@@ -150,6 +150,18 @@ export const TEMPLATES: TemplateMeta[] = [
     core: true,
   },
   {
+    name: "migration",
+    label: "Migration",
+    hint: "Migration Workbench — move existing apps to agent-native with verification",
+    icon: "Route",
+    color: "#0F766E",
+    colorRgb: "15 118 110",
+    devPort: 8100,
+    defaultMode: "dev",
+    hidden: true,
+    requiredPackages: ["migrate"],
+  },
+  {
     name: "issues",
     label: "Issues",
     hint: "Agent-native Jira — project management and issue tracking",

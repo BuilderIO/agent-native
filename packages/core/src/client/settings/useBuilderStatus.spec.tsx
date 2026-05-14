@@ -224,6 +224,99 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("configured");
   });
 
+  it("clears the spinner when the callback succeeds but status never confirms credentials", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        configured: false,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        cliAuthUrl: signedCliAuthUrl,
+        connectUrl:
+          "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+        appHost: "https://builder.io",
+        apiHost: "https://api.builder.io",
+        publicKeyConfigured: false,
+        privateKeyConfigured: false,
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: { type: "builder-connect-success" },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain("couldn't confirm");
+  });
+
+  it("clears the spinner when the popup closes before status confirms credentials", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        configured: false,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        cliAuthUrl: signedCliAuthUrl,
+        connectUrl:
+          "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+        appHost: "https://builder.io",
+        apiHost: "https://api.builder.io",
+        publicKeyConfigured: false,
+        privateKeyConfigured: false,
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+
+    (popup as unknown as { closed: boolean }).closed = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8000);
+    });
+
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain("couldn't confirm");
+  });
+
   it("does not replace the desktop webview when Electron reports a handled popup as null", async () => {
     setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
 

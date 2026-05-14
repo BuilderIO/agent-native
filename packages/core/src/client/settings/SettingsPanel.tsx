@@ -519,6 +519,7 @@ function computeSourceBadge(args: {
   builderConnected: boolean;
 }): string | undefined {
   const { settingsConfigured, settingsStatus } = args;
+  if (args.builderConnected) return "Connected via Builder";
   if (settingsConfigured) {
     if (settingsStatus?.source === "env") {
       return `Connected via ${settingsStatus.envVar ?? args.envVar ?? "env"}`;
@@ -526,7 +527,6 @@ function computeSourceBadge(args: {
     return "Connected via template (server-side)";
   }
   if (args.envConfigured) return `Connected via ${args.envVar ?? "env"}`;
-  if (args.builderConnected) return "Connected via Builder";
   return undefined;
 }
 
@@ -685,13 +685,15 @@ function LLMSectionInner({
     : false;
   const settingsConfigured =
     settingsStatus != null && settingsStatus.engine === currentEngine;
-  const anyKeyConfigured = envConfigured || connected || settingsConfigured;
+  const builderConnected = connected || builderFlow.configured;
+  const anyKeyConfigured =
+    envConfigured || builderConnected || settingsConfigured;
   const sourceBadge = computeSourceBadge({
     settingsConfigured,
     settingsStatus,
     envConfigured,
     envVar,
-    builderConnected: connected,
+    builderConnected,
   });
 
   const engineChanged =
@@ -860,7 +862,7 @@ function LLMSectionInner({
             credentialSource={credentialSource}
             label="Connect Builder.io"
           />
-          {!connected && (
+          {!builderConnected && (
             <ManualSetupCard
               hint="Choose your AI provider and model."
               docsUrl={PROVIDER_DOCS[selectedEngine]}

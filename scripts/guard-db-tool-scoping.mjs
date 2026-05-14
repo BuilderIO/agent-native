@@ -92,6 +92,10 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "meeting-notes:meeting_notes": "child rows scoped through meetings",
   "meeting-notes:meeting_transcripts": "child rows scoped through meetings",
   "meeting-notes:people": "directory/cache table accessed by actions",
+  "migration:migration_artifacts": "child rows scoped through migration runs",
+  "migration:migration_tasks": "child rows scoped through migration runs",
+  "migration:migration_verifier_results":
+    "child rows scoped through migration runs",
   // Scheduling package re-exports (templates/scheduling). All child / join /
   // cache rows reachable only through a scoped parent (booking, user,
   // event-type, schedule, workflow, team) or via dedicated actions.
