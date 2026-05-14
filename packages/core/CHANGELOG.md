@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.15.6
+
+### Patch Changes
+
+- 54e65a6: Keep Builder connect on the active preview deployment and route chat reconnect buttons through the signed popup flow.
+- 54e65a6: Keep Builder CLI auth connect URLs fresh and preview-aware in embedded Builder editor contexts.
+
 ## 0.15.5
 
 ### Patch Changes
