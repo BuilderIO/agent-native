@@ -821,7 +821,12 @@ export function createCoreRoutesPlugin(
         const connectToken = requestUrl.searchParams.get(BUILDER_CONNECT_PARAM);
         const connectTokenOwner =
           verifyBuilderConnectTokenAndGetOwner(connectToken);
-        const hasValidConnectToken = Boolean(connectTokenOwner);
+        // The token must both be well-formed AND minted for the current
+        // session owner. Without the owner check, an attacker holding any
+        // valid signed token could trick a victim into hitting this route
+        // with that token to bypass the cross-origin gate.
+        const hasValidConnectToken =
+          Boolean(connectTokenOwner) && connectTokenOwner === ownerEmail;
 
         // Same-origin gate. Sec-Fetch-Site remains the fast path; the signed
         // connect token is the compatibility path for legitimate embedded or
