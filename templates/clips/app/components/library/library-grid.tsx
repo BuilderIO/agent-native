@@ -257,7 +257,11 @@ export function LibraryGrid({
               ))}
             </div>
           ) : recordings.length === 0 ? (
-            <EmptyState kind={resolvedEmptyKind} spaceId={spaceId} />
+            <EmptyState
+              kind={resolvedEmptyKind}
+              spaceId={spaceId}
+              folderId={folderId}
+            />
           ) : (
             <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
               {recordings.map((r: RecordingSummary) => (
