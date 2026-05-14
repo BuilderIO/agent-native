@@ -203,6 +203,35 @@ async function hasRemoteTag(pkg: PublishPackage): Promise<boolean> {
   return result.stdout.trim().length > 0;
 }
 
+async function hasLocalTag(pkg: PublishPackage): Promise<boolean> {
+  const result = await run(
+    "git",
+    ["rev-parse", "-q", "--verify", `refs/tags/${tagName(pkg)}`],
+    { stream: false },
+  );
+  if (result.code === 0) {
+    return true;
+  }
+  if (result.code === 1) {
+    return false;
+  }
+  throw new Error(
+    `Unable to check whether ${tagName(pkg)} exists locally:\n${result.stderr}`,
+  );
+}
+
+async function createLocalTag(pkg: PublishPackage): Promise<void> {
+  if (await hasLocalTag(pkg)) {
+    return;
+  }
+  const result = await run("git", ["tag", tagName(pkg)], { stream: false });
+  if (result.code !== 0) {
+    throw new Error(
+      `Unable to create local tag ${tagName(pkg)}:\n${result.stderr}`,
+    );
+  }
+}
+
 async function publishPackage(pkg: PublishPackage): Promise<boolean> {
   const publishDir = path.resolve(
     pkg.dir,
@@ -277,6 +306,7 @@ async function main() {
   }
   for (const pkg of packagesNeedingTags) {
     console.log("Creating git tag...");
+    await createLocalTag(pkg);
     console.log(`New tag:  ${tagName(pkg)}`);
   }
 }
