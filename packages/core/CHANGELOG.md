@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.15.10
+
+### Patch Changes
+
+- e2d812c: Keep Builder reconnect flows alive while replacing rejected deploy fallback credentials.
+
 ## 0.15.9
 
 ### Patch Changes
