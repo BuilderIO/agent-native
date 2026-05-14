@@ -145,7 +145,7 @@ Generate forms from a prompt, branch logic with the agent, and own every respons
 </tr>
 </table>
 
-Every template is a complete cloneable SaaS — fork it, customize it with the agent, own it. Try them with example data before connecting your own sources.
+Every template is cloneable SaaS — fork it, customize it with the agent, own it. Try them with example data before connecting your own sources.
 
 ## Quick Start
 
@@ -184,7 +184,7 @@ my-platform/
 Add another app later:
 
 ```bash
-npx @agent-native/core add-app notes --template content
+agent-native add-app notes --template content
 ```
 
 Deploy every app behind one origin:
