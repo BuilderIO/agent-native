@@ -1476,7 +1476,7 @@ function ToolCallDisplay({
           <ConnectBuilderCard
             configured={!!parsed.configured}
             builderEnabled={parsed.builderEnabled !== false}
-            connectUrl={parsed.connectUrl || ""}
+            connectUrl={parsed.cliAuthUrl || parsed.connectUrl || ""}
             orgName={parsed.orgName ?? null}
             prompt={typeof parsed.prompt === "string" ? parsed.prompt : ""}
           />
