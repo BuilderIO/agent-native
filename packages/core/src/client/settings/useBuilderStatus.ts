@@ -229,6 +229,32 @@ function notifyAgentEngineConfiguredChanged(source: string) {
   );
 }
 
+function isTrustedBuilderConnectMessageOrigin(origin: string): boolean {
+  if (typeof window !== "undefined" && origin === window.location.origin) {
+    return true;
+  }
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "builder.io" ||
+      hostname.endsWith(".builder.io") ||
+      hostname === "builder.my" ||
+      hostname.endsWith(".builder.my") ||
+      hostname === "builderio.xyz" ||
+      hostname.endsWith(".builderio.xyz") ||
+      hostname === "builderio.dev" ||
+      hostname.endsWith(".builderio.dev") ||
+      hostname === "builder.codes" ||
+      hostname.endsWith(".builder.codes")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export interface OpenBuilderConnectPopupOptions {
   url?: string;
   source?: string;
@@ -553,7 +579,7 @@ export function useBuilderConnectFlow(
     }, POLL_INTERVAL_MS);
   }, [fetchStatus, popupUrl, statusConnectUrl, stopPoll, trackingSource]);
 
-  // Popup-side fast path: the error page broadcasts a message so we stop
+  // Popup-side fast path: the callback page broadcasts a message so we stop
   // polling immediately rather than waiting for the next 2s tick.
   //
   // We listen on BroadcastChannel (same-origin, works with noopener popups)
@@ -568,25 +594,57 @@ export function useBuilderConnectFlow(
       setConnecting(false);
       setError(`Couldn't save Builder credentials: ${message}.`);
     };
+    const handleSuccess = async () => {
+      const s = await fetchStatus();
+      if (!mountedRef.current || !s?.configured) return;
+      stopPoll();
+      setHasFetchedStatus(true);
+      setConfigured(true);
+      setEnvManaged(!!s.envManaged);
+      setBuilderEnabled(!!s.builderEnabled);
+      const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+      setStatusConnectUrl(nextConnectUrl);
+      statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
+      const org = s.orgName ?? null;
+      setOrgName(org);
+      setConnecting(false);
+      notifiedConnectedRef.current = true;
+      notifyAgentEngineConfiguredChanged("builder-connect-message");
+      try {
+        await onConnectedRef.current?.({ orgName: org });
+      } catch {
+        // The caller's callback is a UI convenience; status is already set.
+      }
+    };
 
     try {
       channel = new BroadcastChannel(`builder-connect:${window.location.host}`);
       channel.onmessage = (e: MessageEvent) => {
         const data = e.data as { type?: string; message?: string } | undefined;
-        if (data?.type !== "builder-connect-error") return;
-        if (typeof data.message !== "string" || !data.message) return;
-        handleError(data.message);
+        if (data?.type === "builder-connect-success") {
+          void handleSuccess();
+          return;
+        }
+        if (data?.type === "builder-connect-error") {
+          if (typeof data.message !== "string" || !data.message) return;
+          handleError(data.message);
+        }
       };
     } catch {
       // BroadcastChannel not available (rare) \u2014 fall through to postMessage.
     }
 
     const handler = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return;
+      if (!isTrustedBuilderConnectMessageOrigin(e.origin)) return;
       const data = e.data as { type?: string; message?: string } | undefined;
-      if (data?.type !== "builder-connect-error") return;
-      if (typeof data.message !== "string" || !data.message) return;
-      handleError(data.message);
+      if (data?.type === "builder-connect-success") {
+        void handleSuccess();
+        return;
+      }
+      if (data?.type === "builder-connect-error") {
+        if (typeof data.message !== "string" || !data.message) return;
+        handleError(data.message);
+      }
     };
     window.addEventListener("message", handler);
 
@@ -594,7 +652,7 @@ export function useBuilderConnectFlow(
       channel?.close();
       window.removeEventListener("message", handler);
     };
-  }, [stopPoll]);
+  }, [fetchStatus, stopPoll]);
 
   return {
     configured,

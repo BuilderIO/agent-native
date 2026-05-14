@@ -2693,6 +2693,10 @@ function RunErrorRecoveryCard({
   });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
+  const builderReconnectResolved =
+    shouldShowBuilderReconnect &&
+    builderReconnect.hasFetchedStatus &&
+    builderReconnect.configured;
   const isQueryError = isProviderQueryRunError(info);
   const copyLabel =
     info.runId || info.errorCode || info.details ? "Copy debug" : "Copy";
@@ -2710,6 +2714,12 @@ function RunErrorRecoveryCard({
     setTimeout(() => setCopied(false), 1200);
   }, [info]);
 
+  useEffect(() => {
+    if (builderReconnectResolved) {
+      onDismiss();
+    }
+  }, [builderReconnectResolved, onDismiss]);
+
   return (
     <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
       <div className="flex items-start gap-2">
@@ -2725,7 +2735,7 @@ function RunErrorRecoveryCard({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {info.message}
           </p>
-          {shouldShowBuilderReconnect && (
+          {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               The current Builder.io or model-provider credential was rejected.
               Reconnect Builder.io, then retry this message.
@@ -2769,7 +2779,7 @@ function RunErrorRecoveryCard({
         </button>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {shouldShowBuilderReconnect && (
+        {shouldShowBuilderReconnect && !builderReconnectResolved && (
           <button
             type="button"
             onClick={builderReconnect.start}

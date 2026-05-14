@@ -241,7 +241,16 @@ function isAllowedBrowserReturnUrl(urlString: string): boolean {
       hostname === "127.0.0.1" ||
       hostname === "[::1]";
     const isBuilderDomain =
-      hostname === "builder.io" || hostname.endsWith(".builder.io");
+      hostname === "builder.io" ||
+      hostname.endsWith(".builder.io") ||
+      hostname === "builder.my" ||
+      hostname.endsWith(".builder.my") ||
+      hostname === "builderio.xyz" ||
+      hostname.endsWith(".builderio.xyz") ||
+      hostname === "builderio.dev" ||
+      hostname.endsWith(".builderio.dev") ||
+      hostname === "builder.codes" ||
+      hostname.endsWith(".builder.codes");
     const isAgentNativeDomain =
       hostname === "agent-native.com" || hostname.endsWith(".agent-native.com");
     return (
@@ -407,6 +416,43 @@ function isTrustedBuilderRequestHost(host: string | undefined): boolean {
   }
 }
 
+function isLoopbackBuilderRequestHost(host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    const hostname = new URL(`http://${host}`).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function firstPublicBuilderPreviewOriginFromEnv(): string | null {
+  for (const key of [
+    "FUSION_ENV_ORIGIN",
+    "VITE_FUSION_ENV_ORIGIN",
+    "BUILDER_PREVIEW_URL",
+    "VITE_BUILDER_PREVIEW_URL",
+  ]) {
+    const raw = process.env[key];
+    if (!raw) continue;
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      if (isLoopbackBuilderRequestHost(url.host)) continue;
+      if (!isTrustedBuilderRequestHost(url.host)) continue;
+      return url.origin;
+    } catch {
+      // Ignore malformed environment values.
+    }
+  }
+  return null;
+}
+
 /**
  * Builder CLI-auth does not need the workspace OAuth relay that Google uses.
  * In Builder/Fusion previews, keep connect + callback URLs on the actual app
@@ -419,6 +465,10 @@ export function getBuilderBrowserOriginForEvent(event: H3Event): string {
       readEventHeader(event, "host"),
   );
   if (!isTrustedBuilderRequestHost(headerHost)) return getOrigin(event);
+  if (isLoopbackBuilderRequestHost(headerHost)) {
+    const publicPreviewOrigin = firstPublicBuilderPreviewOriginFromEnv();
+    if (publicPreviewOrigin) return publicPreviewOrigin;
+  }
 
   const rawProto = firstHeaderValue(
     readEventHeader(event, "x-forwarded-proto"),
@@ -502,7 +552,7 @@ export function resolveSafePreviewUrl(
   if (previewUrl && isAllowedBrowserReturnUrl(previewUrl)) {
     return previewUrl;
   }
-  return getOrigin(event);
+  return getBuilderBrowserOriginForEvent(event);
 }
 
 /**
@@ -695,7 +745,7 @@ export function createBuilderBrowserCallbackPage(previewUrl: string): string {
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage(
             { type: "builder-connect-success" },
-            window.location.origin,
+            "*",
           );
         }
       } catch (e) {}
@@ -789,7 +839,7 @@ export function createBuilderBrowserCallbackErrorPage(
           try {
             window.opener.postMessage(
               { type: "builder-connect-error", message: msg },
-              window.location.origin,
+              "*",
             );
           } catch (e) {}
         }
