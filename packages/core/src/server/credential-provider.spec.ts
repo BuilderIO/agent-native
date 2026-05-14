@@ -384,7 +384,10 @@ describe("resolveBuilderCredential", () => {
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
     process.env.BUILDER_PUBLIC_KEY = "space-id";
     process.env.OPENAI_API_KEY = "openai-deploy-key";
-    mockIsLocalDatabase.mockReturnValue(false);
+    // Fusion/workspace dev servers can still look "local" to DB detection
+    // during startup, but their Builder env fallback must not impersonate the
+    // signed-in user.
+    mockIsLocalDatabase.mockReturnValue(true);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
     mockReadAppSecret.mockResolvedValue(null);
