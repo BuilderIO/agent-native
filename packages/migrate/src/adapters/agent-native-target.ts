@@ -165,7 +165,7 @@ function packageJson(): string {
         action: "agent-native action",
       },
       dependencies: {
-        "@agent-native/core": "workspace:*",
+        "@agent-native/core": "latest",
         "@tabler/icons-react": "^3.41.1",
         "@tanstack/react-query": "^5.99.2",
         "@vitejs/plugin-react": "^6.0.1",
@@ -321,11 +321,12 @@ import { useState } from "react";
 import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { AgentSidebar } from "@agent-native/core/client";
 import stylesheet from "./global.css?url";
+import type { ReactNode } from "react";
 import type { LinksFunction } from "react-router";
 
 export const links: LinksFunction = () => [{ rel: "stylesheet", href: stylesheet }];
 
-export function Layout({ children }: { children: React.ReactNode }) {
+export function Layout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
