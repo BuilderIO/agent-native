@@ -330,7 +330,7 @@ function UseBuilderCard({
   connected: boolean;
   orgName?: string;
   envManaged?: boolean;
-  credentialSource?: "user" | "org" | "env";
+  credentialSource?: "user" | "org" | "workspace" | "env";
   label?: string;
   subtitle?: string;
   dim?: boolean;
@@ -589,7 +589,7 @@ function LLMSectionInner({
   connected: boolean;
   orgName?: string;
   envManaged?: boolean;
-  credentialSource?: "user" | "org" | "env";
+  credentialSource?: "user" | "org" | "workspace" | "env";
   open?: boolean;
   onToggle?: () => void;
 }) {
