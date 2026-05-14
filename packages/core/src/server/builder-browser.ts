@@ -53,7 +53,8 @@ export interface BuilderBrowserStatus {
    * account, which takes precedence for their request.
    */
   envManaged: boolean;
-  credentialSource?: "user" | "org" | "env";
+  credentialSource?: "user" | "org" | "workspace" | "env";
+  connectError?: { message: string; at: number };
   appHost: string;
   apiHost: string;
   /**
@@ -324,6 +325,75 @@ export async function resolveIsBuilderBranchingEnabled(): Promise<boolean> {
   return !!(await resolveBuilderBranchProjectId());
 }
 
+function isBuilderCliAuthAllowedOrigin(origin: string | null | undefined) {
+  if (!origin) return false;
+  try {
+    const parsed = new URL(origin);
+    const hostname = parsed.hostname.toLowerCase();
+    const isAllowedProtocol =
+      parsed.protocol === "http:" || parsed.protocol === "https:";
+    const isLocalhost =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]";
+    const isBuilderDomain =
+      hostname === "builder.io" || hostname.endsWith(".builder.io");
+    const isAgentNativeDomain =
+      hostname === "agent-native.com" || hostname.endsWith(".agent-native.com");
+    return (
+      isAllowedProtocol &&
+      (isLocalhost || isBuilderDomain || isAgentNativeDomain)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function firstBuilderCliAuthCallbackOriginFromEnv(): string | null {
+  for (const key of [
+    "APP_URL",
+    "VITE_APP_URL",
+    "BETTER_AUTH_URL",
+    "VITE_BETTER_AUTH_URL",
+    "WORKSPACE_GATEWAY_URL",
+    "VITE_WORKSPACE_GATEWAY_URL",
+  ]) {
+    const raw = process.env[key];
+    if (!raw) continue;
+    try {
+      const origin = new URL(raw).origin;
+      if (isBuilderCliAuthAllowedOrigin(origin)) return origin;
+    } catch {
+      // Ignore malformed environment values.
+    }
+  }
+  return null;
+}
+
+/**
+ * Query param on the callback URL that carries the original preview opener
+ * origin when cli-auth's allow-list forces `preview_url` to the gateway.
+ * Read on the callback to derive the correct postMessage targetOrigin.
+ *
+ * Not signed: the receive-side trust check in `useBuilderStatus` still
+ * gates messages by allow-listed origin. The worst an attacker could do by
+ * crafting a different `_an_opener` value is target a postMessage to an
+ * origin that doesn't match the actual opener — postMessage drops the
+ * message in that case, identical to the legacy wildcard-fallback path.
+ */
+export const BUILDER_OPENER_PARAM = "_an_opener";
+
+function isBuilderOpenerOriginSafe(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Build the Builder cli-auth URL for the connect popup. When a signed
  * `state` token is supplied it is embedded inside the `redirect_url`
@@ -332,30 +402,54 @@ export async function resolveIsBuilderBranchingEnabled(): Promise<boolean> {
  * api-key / etc., so we don't depend on Builder echoing a top-level
  * `state` parameter (it doesn't).
  *
- * The user-facing connect entry point is `/_agent-native/builder/connect`
- * (a server-side 302). Status / chat-card responses surface that path
- * rather than the cli-auth URL directly, so the 302 handler can mint a
- * fresh state bound to the current session on every click.
+ * Status responses can surface this URL directly; the legacy
+ * `/_agent-native/builder/connect` trampoline still calls this helper for
+ * clients that only know the app-local connect URL.
  */
 export function buildBuilderCliAuthUrl(
-  origin: string,
+  callbackOrigin: string,
   state: string | null = null,
+  options: { previewOrigin?: string } = {},
 ): string {
-  const normalizedOrigin = normalizeOrigin(origin);
+  const normalizedCallbackOrigin = normalizeOrigin(callbackOrigin);
+  const requestedPreviewOrigin = normalizeOrigin(
+    options.previewOrigin || callbackOrigin,
+  );
+  const normalizedPreviewOrigin = isBuilderCliAuthAllowedOrigin(
+    requestedPreviewOrigin,
+  )
+    ? requestedPreviewOrigin
+    : normalizedCallbackOrigin;
   const appBasePath = getAppBasePath();
   const callbackUrl = new URL(
     `${appBasePath}${BUILDER_CALLBACK_PATH}`,
-    normalizedOrigin,
+    normalizedCallbackOrigin,
   );
   if (state) {
     callbackUrl.searchParams.set(BUILDER_STATE_PARAM, state);
+  }
+  // When the cli-auth allow-list forces preview_url onto the gateway origin,
+  // the callback would otherwise lose the real opener origin and post its
+  // success message to the gateway instead of the preview tab. Embed the
+  // original preview origin in the callback's own query string so the
+  // callback handler can recover it for parentOrigin / postMessage. Builder
+  // preserves the redirect_url's query verbatim, so this round-trips.
+  if (
+    requestedPreviewOrigin &&
+    requestedPreviewOrigin !== normalizedPreviewOrigin &&
+    isBuilderOpenerOriginSafe(requestedPreviewOrigin)
+  ) {
+    callbackUrl.searchParams.set(BUILDER_OPENER_PARAM, requestedPreviewOrigin);
   }
   const url = new URL("/cli-auth", getBuilderAppHost());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("host", BUILDER_BROWSER_HOST);
   url.searchParams.set("client_id", BUILDER_BROWSER_CLIENT_ID);
   url.searchParams.set("redirect_url", callbackUrl.toString());
-  url.searchParams.set("preview_url", `${normalizedOrigin}${appBasePath}`);
+  url.searchParams.set(
+    "preview_url",
+    `${normalizedPreviewOrigin}${appBasePath}`,
+  );
   url.searchParams.set("framework", "agent-native");
   return url.toString();
 }
@@ -454,10 +548,9 @@ function firstPublicBuilderPreviewOriginFromEnv(): string | null {
 }
 
 /**
- * Builder CLI-auth does not need the workspace OAuth relay that Google uses.
- * In Builder/Fusion previews, keep connect + callback URLs on the actual app
- * preview origin so the signed connect token and pending row are verified by
- * the same deployment that minted them.
+ * User-visible Builder connect origin. In Builder/Fusion previews, keep the
+ * connect URL on the actual app preview origin so clicking Connect happens in
+ * the same deployment that minted the signed connect token.
  */
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {
   const headerHost = firstHeaderValue(
@@ -480,6 +573,22 @@ export function getBuilderBrowserOriginForEvent(event: H3Event): string {
         ? "https"
         : "http";
   return `${proto}://${headerHost}`;
+}
+
+/**
+ * Builder's /cli-auth page currently only accepts localhost, *.builder.io,
+ * *.agent-native.com, or builder: redirect_url destinations. Preview hosts
+ * such as *.builderio.xyz and *.builder.codes are valid app origins for us,
+ * but Builder rejects them and falls back to http://localhost:10110/auth.
+ * Use a configured public gateway for the callback in those cases while
+ * leaving the surfaced connect URL on the user's active preview.
+ */
+export function getBuilderCliAuthCallbackOriginForEvent(
+  event: H3Event,
+): string {
+  const previewOrigin = getBuilderBrowserOriginForEvent(event);
+  if (isBuilderCliAuthAllowedOrigin(previewOrigin)) return previewOrigin;
+  return firstBuilderCliAuthCallbackOriginFromEnv() ?? previewOrigin;
 }
 
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
@@ -701,8 +810,27 @@ const BUILDER_CALLBACK_BASE_CSS = `
   }
 `;
 
-export function createBuilderBrowserCallbackPage(previewUrl: string): string {
+function safeOriginFromUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+export function createBuilderBrowserCallbackPage(
+  previewUrl: string,
+  opts: { parentOrigin?: string } = {},
+): string {
   const escapedUrl = JSON.stringify(previewUrl);
+  const parentOrigin =
+    safeOriginFromUrl(opts.parentOrigin) ?? safeOriginFromUrl(previewUrl);
+  // postMessage requires a specific target origin for cross-origin opener
+  // delivery; only fall back to "*" when we have no usable origin (the
+  // BroadcastChannel path on the success page still works for same-origin
+  // openers in that case).
+  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -745,7 +873,7 @@ export function createBuilderBrowserCallbackPage(previewUrl: string): string {
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage(
             { type: "builder-connect-success" },
-            "*",
+            ${escapedTargetOrigin},
           );
         }
       } catch (e) {}
@@ -786,9 +914,12 @@ export function createBuilderBrowserCallbackErrorPage(
     title?: string;
     body?: string;
     closeHint?: string;
+    parentOrigin?: string;
   } = {},
 ): string {
   const escapedMessage = JSON.stringify(message);
+  const parentOrigin = safeOriginFromUrl(opts.parentOrigin);
+  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
   const title = opts.title ?? "Couldn't save Builder connection";
   const body =
     opts.body ??
@@ -839,7 +970,7 @@ export function createBuilderBrowserCallbackErrorPage(
           try {
             window.opener.postMessage(
               { type: "builder-connect-error", message: msg },
-              "*",
+              ${escapedTargetOrigin},
             );
           } catch (e) {}
         }

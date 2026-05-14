@@ -12,7 +12,7 @@ export interface BuilderStatus {
    * and take precedence for that request.
    */
   envManaged?: boolean;
-  credentialSource?: "user" | "org" | "env";
+  credentialSource?: "user" | "org" | "workspace" | "env";
   connectUrl: string;
   cliAuthUrl?: string;
   appHost: string;
@@ -248,7 +248,9 @@ function isTrustedBuilderConnectMessageOrigin(origin: string): boolean {
       hostname === "builderio.dev" ||
       hostname.endsWith(".builderio.dev") ||
       hostname === "builder.codes" ||
-      hostname.endsWith(".builder.codes")
+      hostname.endsWith(".builder.codes") ||
+      hostname === "agent-native.com" ||
+      hostname.endsWith(".agent-native.com")
     );
   } catch {
     return false;
@@ -352,7 +354,7 @@ export function useBuilderConnectFlow(
         orgName?: string | null;
         connectUrl?: string;
         cliAuthUrl?: string;
-        credentialSource?: "user" | "org" | "env";
+        credentialSource?: "user" | "org" | "workspace" | "env";
         connectError?: { message: string; at: number };
       };
     } catch {
@@ -394,6 +396,18 @@ export function useBuilderConnectFlow(
         }
       } else if (!s.configured) {
         notifiedConnectedRef.current = false;
+      }
+      // Surface persisted auth-failure messages on every refresh — reload,
+      // first paint in a new tab, agent-engine:configured-changed, etc.
+      // Without this, useBuilderConnectFlow's start() is the only path that
+      // ever sets `error`, so users who reload after a rejection see the
+      // generic "Connect Builder" CTA with no explanation. Clear the error
+      // when status is configured again so a self-healed marker stops
+      // showing the stale message.
+      if (s.connectError?.message) {
+        setError(s.connectError.message);
+      } else if (s.configured) {
+        setError(null);
       }
     };
     refresh();

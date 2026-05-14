@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockReadAppSecret = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
+const mockGetSetting = vi.fn();
+const mockPutSetting = vi.fn();
+const mockDeleteSetting = vi.fn();
 const mockGetRequestUserEmail = vi.fn<[], string | undefined>();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
 const mockIsLocalDatabase = vi.fn<[], boolean>();
@@ -19,9 +22,17 @@ vi.mock("./request-context.js", () => ({
 vi.mock("../db/client.js", () => ({
   isLocalDatabase: () => mockIsLocalDatabase(),
 }));
+vi.mock("../settings/store.js", () => ({
+  getSetting: (...args: any[]) => mockGetSetting(...args),
+  putSetting: (...args: any[]) => mockPutSetting(...args),
+  deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
+}));
 
 import {
+  builderCredentialFingerprint,
   canUseDeployCredentialFallbackForRequest,
+  getBuilderCredentialAuthFailure,
+  recordBuilderCredentialAuthFailure,
   resolveCredentialWriteScope,
   writeBuilderCredentials,
   deleteBuilderCredentials,
@@ -46,6 +57,9 @@ beforeEach(() => {
   mockReadAppSecret.mockResolvedValue(null);
   mockWriteAppSecret.mockResolvedValue("id");
   mockDeleteAppSecret.mockResolvedValue(true);
+  mockGetSetting.mockResolvedValue(null);
+  mockPutSetting.mockResolvedValue(undefined);
+  mockDeleteSetting.mockResolvedValue(true);
   mockGetRequestUserEmail.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
   mockIsLocalDatabase.mockReturnValue(true);
@@ -222,6 +236,69 @@ describe("writeBuilderCredentials", () => {
     expect(firstWrite).toBeGreaterThan(-1);
     expect(lastDelete).toBeGreaterThan(-1);
     expect(lastDelete).toBeLessThan(firstWrite);
+  });
+
+  it("clears the auth-failure marker for the new key pair", async () => {
+    await writeBuilderCredentials(
+      "owner@b.com",
+      { privateKey: "pk-new", publicKey: "pub-new" },
+      { orgId: "builder_io", role: "owner" },
+    );
+    const fingerprint = builderCredentialFingerprint("pk-new", "pub-new");
+    expect(mockDeleteSetting).toHaveBeenCalledWith(
+      `builder-auth-failure:${fingerprint}`,
+    );
+  });
+});
+
+describe("Builder credential auth failure markers", () => {
+  it("records gateway auth failures against a fingerprint without storing raw keys in the setting key", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "bpk-secret";
+    process.env.BUILDER_PUBLIC_KEY = "pub-secret";
+
+    await recordBuilderCredentialAuthFailure({
+      status: 401,
+      code: "unauthorized",
+      message: "Invalid key",
+    });
+
+    expect(mockPutSetting).toHaveBeenCalledTimes(1);
+    const [key, value] = mockPutSetting.mock.calls[0];
+    expect(key).toMatch(/^builder-auth-failure:[a-f0-9]{24}$/);
+    expect(key).not.toContain("bpk-secret");
+    expect(key).not.toContain("pub-secret");
+    expect(value).toMatchObject({
+      message: "Invalid key",
+      status: 401,
+      code: "unauthorized",
+      ownerEmail: null,
+      orgId: null,
+    });
+  });
+
+  it("reads an auth-failure marker for the same effective key pair", async () => {
+    mockGetSetting.mockResolvedValue({
+      message: "Invalid key",
+      status: 401,
+      code: "unauthorized",
+      at: 123,
+    });
+
+    const failure = await getBuilderCredentialAuthFailure({
+      privateKey: "bpk-secret",
+      publicKey: "pub-secret",
+    });
+
+    expect(failure).toMatchObject({
+      fingerprint: builderCredentialFingerprint("bpk-secret", "pub-secret"),
+      message: "Invalid key",
+      status: 401,
+      code: "unauthorized",
+      at: 123,
+    });
+    expect(mockGetSetting).toHaveBeenCalledWith(
+      `builder-auth-failure:${builderCredentialFingerprint("bpk-secret", "pub-secret")}`,
+    );
   });
 });
 

@@ -25,9 +25,12 @@ import {
   engineToolsToAnthropic,
 } from "./translate-anthropic.js";
 import {
+  clearBuilderCredentialAuthFailure,
   resolveBuilderAuthHeader,
   resolveBuilderCredential,
+  resolveBuilderCredentials,
   getBuilderGatewayBaseUrl,
+  recordBuilderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
 import {
   normalizeReasoningEffortForModel,
@@ -220,6 +223,22 @@ class BuilderEngine implements AgentEngine {
         return;
       }
 
+      // A successful gateway call proves the connected credentials are valid
+      // again. Clear any prior auth-failure marker so status / chat-card
+      // surfaces stop flagging the connection as broken. This is the only
+      // self-healing path for workspace/env-managed credentials, which never
+      // flow through writeBuilderCredentials.
+      try {
+        const creds = await resolveBuilderCredentials();
+        await clearBuilderCredentialAuthFailure({
+          privateKey: creds.privateKey,
+          publicKey: creds.publicKey,
+        });
+      } catch {
+        // Marker clearing is best-effort; a stale marker just means the user
+        // sees "reconnect Builder" until the next successful call clears it.
+      }
+
       const contentType = response.headers.get("content-type") ?? "";
       if (contentType.includes("text/html")) {
         const rawText = await response.text().catch(() => "");
@@ -294,6 +313,7 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     return;
   }
   if (status === 401 || code === "unauthorized") {
+    await recordBuilderCredentialAuthFailure({ status, code, message });
     yield {
       type: "stop",
       reason: "error",
@@ -311,6 +331,7 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
       lowerMessage.includes("invalid_token") ||
       lowerMessage.includes("token invalid"))
   ) {
+    await recordBuilderCredentialAuthFailure({ status, code, message });
     yield {
       type: "stop",
       reason: "error",

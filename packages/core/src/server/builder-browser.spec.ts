@@ -7,6 +7,7 @@ import {
   BUILDER_CONNECT_PARAM,
   BUILDER_STATE_PARAM,
   getBuilderBranchProjectId,
+  getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
@@ -356,6 +357,49 @@ describe("Builder callback CSRF state", () => {
         getBuilderBrowserConnectUrl("https://alice.agent-native.com/"),
       ).toBe(
         "https://alice.agent-native.com/docs/_agent-native/builder/connect",
+      );
+    });
+
+    it("uses a Builder-accepted gateway callback for preview-host cli-auth redirects", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.APP_URL = "https://agent-workspace.builder.io";
+      process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
+      process.env.APP_BASE_PATH = "/dispatch";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host":
+          "940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
+        "x-forwarded-proto": "https",
+      });
+
+      const previewOrigin = getBuilderBrowserOriginForEvent(event);
+      const callbackOrigin = getBuilderCliAuthCallbackOriginForEvent(event);
+      const cliAuthUrl = buildBuilderCliAuthUrl(
+        callbackOrigin,
+        signBuilderCallbackState("alice@example.com"),
+        { previewOrigin },
+      );
+      const parsed = new URL(cliAuthUrl);
+
+      expect(callbackOrigin).toBe("https://agent-workspace.builder.io");
+      const redirectUrl = parsed.searchParams.get("redirect_url");
+      expect(redirectUrl).toContain(
+        "https://agent-workspace.builder.io/dispatch/_agent-native/builder/callback",
+      );
+      // The callback origin (the part Builder validates against its allow-list)
+      // must be the gateway, not the preview host.
+      expect(new URL(redirectUrl!).origin).toBe(
+        "https://agent-workspace.builder.io",
+      );
+      // The original preview origin must still ride along inside the
+      // redirect_url query string so the callback can use it as the
+      // postMessage targetOrigin for the opener tab.
+      expect(new URL(redirectUrl!).searchParams.get("_an_opener")).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
+      );
+      expect(parsed.searchParams.get("preview_url")).toBe(
+        "https://agent-workspace.builder.io/dispatch",
       );
     });
 
