@@ -31,6 +31,7 @@
     "./server/agent-discovery": "./dist/server/agent-discovery.js",
     "./server/request-context": "./dist/server/request-context.js",
     "./server/design-token-utils": "./dist/server/design-token-utils.js",
+    "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",
     "./db/drizzle-config": "./dist/db/drizzle-config.js",

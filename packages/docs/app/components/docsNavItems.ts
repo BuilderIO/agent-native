@@ -87,6 +87,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Server", to: "/docs/server" as const },
       { label: "Client", to: "/docs/client" as const },
       { label: "Actions", to: "/docs/actions" as const },
+      { label: "Agent Web Surfaces", to: "/docs/agent-web-surfaces" as const },
       { label: "Authentication", to: "/docs/authentication" as const },
       { label: "Multi-Tenancy", to: "/docs/multi-tenancy" as const },
       { label: "Security & Data Scoping", to: "/docs/security" as const },
@@ -104,6 +105,10 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Creating Templates", to: "/docs/creating-templates" as const },
       { label: "Frames", to: "/docs/frames" as const },
+      {
+        label: "Migration Workbench",
+        to: "/docs/migration-workbench" as const,
+      },
       { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
     ],
   },

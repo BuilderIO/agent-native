@@ -21,6 +21,7 @@ export {
   isAgentActionStopError,
   type ActionHttpConfig,
   type AgentActionStopOptions,
+  type PublicAgentActionConfig,
 } from "./action.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
@@ -71,6 +72,41 @@ export {
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./shared/index.js";
+
+// Agent Web surfaces
+export {
+  AGENT_WEB_CRAWLER_CATEGORIES,
+  AGENT_WEB_CRAWLER_USER_AGENTS,
+  DEFAULT_AGENT_WEB_CRAWLER_POLICY,
+  absoluteUrl,
+  agentWebConfigFromPackageJson,
+  buildAgentWebStaticFiles,
+  buildBaseJsonLd,
+  buildLlmsFullTxt,
+  buildLlmsTxt,
+  buildMarkdownResponseHeaders,
+  buildPageJsonLd,
+  buildRobotsTxt,
+  buildSitemapXml,
+  deriveAgentWebPublicRoutes,
+  estimateMarkdownTokens,
+  markdownFilePathForPage,
+  markdownUrlForPage,
+  normalizeAgentWebConfig,
+  pathPatternMatches,
+  resolveAgentWebCrawlerPolicy,
+  type AgentWebConfig,
+  type AgentWebCrawlerCategory,
+  type AgentWebCrawlerDecision,
+  type AgentWebCrawlerOverrides,
+  type AgentWebCrawlerPolicy,
+  type AgentWebInputConfig,
+  type AgentWebPage,
+  type AgentWebStaticFile,
+  type BuildAgentWebStaticFilesOptions,
+  type DeriveAgentWebPublicRoutesOptions,
+  type MarkdownResponseHeadersOptions,
+} from "./agent-web/index.js";
 
 // Token usage tracking
 export {

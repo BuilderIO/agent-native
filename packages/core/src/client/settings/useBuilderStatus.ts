@@ -145,6 +145,9 @@ export interface BuilderConnectFlow {
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 5000;
+const CALLBACK_SUCCESS_STATUS_RETRY_MS = 500;
+const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
 const BUILDER_STATE_PARAM = "_an_state";
 const STATUS_CONNECT_URL_TTL_MS = 9 * 60 * 1000;
@@ -198,12 +201,9 @@ function isCurrentConnectError(
 }
 
 function showBuilderConnectPopupPlaceholder(opened: Window) {
-  try {
-    opened.opener = null;
-  } catch {
-    // Best effort only. We still hold the WindowProxy so the parent can
-    // navigate the blank popup after refreshing the signed connect URL.
-  }
+  // Keep opener attached: the Builder callback uses postMessage to notify the
+  // settings tab that the popup completed. We still hold the WindowProxy so the
+  // parent can navigate the blank popup after refreshing the signed connect URL.
   try {
     opened.document.title = "Opening Builder.io";
     opened.document.body.style.margin = "0";
@@ -242,6 +242,19 @@ function notifyAgentEngineConfiguredChanged(source: string) {
       detail: { source },
     }),
   );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isPopupClosed(opened: Window | null): boolean {
+  if (!opened) return false;
+  try {
+    return opened.closed === true;
+  } catch {
+    return false;
+  }
 }
 
 function isTrustedBuilderConnectMessageOrigin(origin: string): boolean {
@@ -449,6 +462,8 @@ export function useBuilderConnectFlow(
   const start = useCallback(() => {
     stopPoll();
     const started = Date.now();
+    let openedPopup: Window | null = null;
+    let popupClosedAt: number | null = null;
     connectStartedAtRef.current = started;
     setConnecting(true);
     setError(null);
@@ -481,6 +496,7 @@ export function useBuilderConnectFlow(
         url: directUrl,
         source: trackingSource,
       });
+      openedPopup = opened;
       if (!opened) {
         // Agent Native Desktop handles the popup in Electron and reports
         // null to the embedded webview, so null is not a blocker here.
@@ -497,6 +513,7 @@ export function useBuilderConnectFlow(
         setError("Couldn't open Builder. Allow popups and try again.");
         return;
       }
+      openedPopup = opened;
       showBuilderConnectPopupPlaceholder(opened);
       void (async () => {
         const s = await fetchStatus();
@@ -580,6 +597,22 @@ export function useBuilderConnectFlow(
         setError(
           `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
         );
+      } else if (isPopupClosed(openedPopup)) {
+        popupClosedAt ??= Date.now();
+        if (Date.now() - popupClosedAt > POPUP_CLOSED_CONFIRMATION_GRACE_MS) {
+          stopPoll();
+          connectStartedAtRef.current = null;
+          setConnecting(false);
+          trackEvent("builder connect failed", {
+            feature: "builder",
+            stage: "client",
+            reason: "popup_closed_without_status",
+            source: trackingSource,
+          });
+          setError(
+            "Builder finished, but this workspace couldn't confirm the saved credentials. Refresh this page or try Connect Builder.io again.",
+          );
+        }
       } else if (Date.now() - started > POLL_TIMEOUT_MS) {
         stopPoll();
         connectStartedAtRef.current = null;
@@ -614,8 +647,48 @@ export function useBuilderConnectFlow(
       setError(`Couldn't save Builder credentials: ${message}.`);
     };
     const handleSuccess = async () => {
-      const s = await fetchStatus();
-      if (!mountedRef.current || !s?.configured) return;
+      let s: Awaited<ReturnType<typeof fetchStatus>> = null;
+      for (let i = 0; i < CALLBACK_SUCCESS_STATUS_RETRIES; i += 1) {
+        s = await fetchStatus();
+        if (!mountedRef.current) return;
+        if (
+          s?.configured ||
+          isCurrentConnectError(s?.connectError, connectStartedAtRef.current)
+        ) {
+          break;
+        }
+        if (i < CALLBACK_SUCCESS_STATUS_RETRIES - 1) {
+          await delay(CALLBACK_SUCCESS_STATUS_RETRY_MS);
+        }
+      }
+      if (!mountedRef.current) return;
+      if (!s?.configured) {
+        const connectError = isCurrentConnectError(
+          s?.connectError,
+          connectStartedAtRef.current,
+        )
+          ? s?.connectError
+          : null;
+        stopPoll();
+        setHasFetchedStatus(true);
+        if (s) {
+          setConfigured(false);
+          setEnvManaged(!!s.envManaged);
+          setBuilderEnabled(!!s.builderEnabled);
+          const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+          setStatusConnectUrl(nextConnectUrl);
+          statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
+          setOrgName(s.orgName ?? null);
+        }
+        connectStartedAtRef.current = null;
+        setConnecting(false);
+        setError(
+          connectError
+            ? `Couldn't save Builder credentials: ${connectError.message}. Try again or contact support.`
+            : "Builder finished, but this workspace couldn't confirm the saved credentials. Refresh this page or try Connect Builder.io again.",
+        );
+        return;
+      }
       stopPoll();
       setHasFetchedStatus(true);
       setConfigured(true);

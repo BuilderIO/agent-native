@@ -47,6 +47,16 @@ export interface ActionHttpConfig {
   path?: string;
 }
 
+/** Explicit opt-in metadata for public agent protocols such as MCP or A2A. */
+export interface PublicAgentActionConfig {
+  expose: boolean;
+  readOnly: boolean;
+  requiresAuth?: boolean;
+  isConsequential?: boolean;
+  title?: string;
+  description?: string;
+}
+
 /** Schema definition for a single action parameter (legacy JSON schema style). */
 export interface ParameterSchema {
   type: string;
@@ -101,6 +111,10 @@ interface DefineActionWithSchema<
    *  `packages/core/src/server/action-routes.ts`. Audit reference: H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /** Explicit public-agent exposure metadata. Public web routes never imply
+   *  public MCP/A2A/OpenAPI tool exposure. Actions must opt in here and public
+   *  protocol mounts must still filter for safe, route-appropriate tools. */
+  publicAgent?: PublicAgentActionConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +145,8 @@ interface DefineActionWithParams<
    *  via `appAction(name, params)`. See the schema overload above for details
    *  and the `toolCallable` section in actions.md. */
   toolCallable?: boolean;
+  /** Explicit public-agent exposure metadata. See schema overload above. */
+  publicAgent?: PublicAgentActionConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +254,12 @@ export function defineAction(options: any) {
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
       : undefined;
+  const publicAgent: PublicAgentActionConfig | undefined =
+    options.publicAgent &&
+    typeof options.publicAgent === "object" &&
+    !Array.isArray(options.publicAgent)
+      ? options.publicAgent
+      : undefined;
 
   return {
     tool: {
@@ -250,6 +272,7 @@ export function defineAction(options: any) {
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
+    ...(publicAgent ? { publicAgent } : {}),
   };
 }
 

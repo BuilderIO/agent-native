@@ -573,6 +573,13 @@ switch (command) {
     break;
   }
 
+  case "migrate": {
+    import("./migrate.js")
+      .then((m) => m.runMigrate(args))
+      .catch(handleScaffoldImportError);
+    break;
+  }
+
   case "create-workspace": {
     // Deprecated alias for `create` (since workspace is now the default).
     const parsed = parseScaffoldArgs(args);
@@ -619,6 +626,16 @@ switch (command) {
     break;
   }
 
+  case "audit-agent-web": {
+    import("./audit-agent-web.js")
+      .then((m) => m.runAuditAgentWeb(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "--version":
   case "-v": {
     console.log(_version);
@@ -648,6 +665,7 @@ Usage:
   agent-native setup-agents     Create symlinks for all agent tools
   agent-native info <pkg>       Print info about an installed package:
                                 exports, source paths, and docs links.
+  agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
 
 Options:
   -h, --help                    Show this help message
@@ -660,6 +678,7 @@ Options:
                                 cloudflare_pages (default), netlify, or vercel
   --build-only                  Build workspace deploy artifacts without publishing
   --eager                       With workspace dev, start every app immediately
+  --url <url>                   URL to audit with audit-agent-web
 
 Feedback:  ${FEEDBACK_URL}
 Bugs:      ${BUGS_URL}`);

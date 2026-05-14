@@ -18,6 +18,8 @@ import { defaultSocialImageMeta } from "./seo";
 
 import appCss from "./global.css?url";
 
+const SITE_URL = "https://www.agent-native.com";
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -29,24 +31,41 @@ const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getIte
 
 const GA_SCRIPT = `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-ESF7FYXGN9');`;
 
-const JSON_LD = JSON.stringify({
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Agent-Native",
-  applicationCategory: "DeveloperApplication",
-  operatingSystem: "Cross-platform",
-  description:
-    "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
-  url: "https://agent-native.com",
-  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  license: "https://opensource.org/licenses/MIT",
-  sourceOrganization: {
+const JSON_LD = JSON.stringify([
+  {
+    "@context": "https://schema.org",
     "@type": "Organization",
     name: "Builder.io",
     url: "https://builder.io",
+    sameAs: ["https://github.com/BuilderIO/agent-native"],
   },
-  codeRepository: "https://github.com/BuilderIO/agent-native",
-});
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Agent-Native",
+    url: SITE_URL,
+    description:
+      "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "Agent-Native",
+    applicationCategory: "DeveloperApplication",
+    operatingSystem: "Cross-platform",
+    description:
+      "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
+    url: SITE_URL,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    license: "https://opensource.org/licenses/MIT",
+    sourceOrganization: {
+      "@type": "Organization",
+      name: "Builder.io",
+      url: "https://builder.io",
+    },
+    codeRepository: "https://github.com/BuilderIO/agent-native",
+  },
+]);
 
 export const links = () => [
   { rel: "stylesheet", href: appCss },
@@ -72,14 +91,14 @@ export const meta = () => [
       "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork templates.",
   },
   { property: "og:type", content: "website" },
-  { property: "og:url", content: "https://agent-native.com" },
+  { property: "og:url", content: SITE_URL },
   { property: "og:site_name", content: "Agent-Native" },
 ];
 
 function CanonicalLink() {
   const location = useLocation();
   const path = location.pathname.replace(/\/$/, "") || "/";
-  const canonical = `https://agent-native.com${path}`;
+  const canonical = `${SITE_URL}${path}`;
   return <link rel="canonical" href={canonical} />;
 }
 

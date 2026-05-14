@@ -256,6 +256,9 @@ export interface ActionEntry {
   ) => Promise<any>;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
   http?: import("../action.js").ActionHttpConfig | false;
+  /** Explicit opt-in metadata for public agent protocols. Public routes never
+   *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
+  publicAgent?: import("../action.js").PublicAgentActionConfig;
   /** If true, completion does NOT trigger a screen-refresh poll event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;

@@ -99,6 +99,55 @@ describe("mountA2A auth", () => {
     expect(response.url).toBe("https://agent.example/workspace/rpc/a2a");
   });
 
+  it("filters public agent-card skills to explicit public-safe capabilities", async () => {
+    const handler = await mountedAgentCardHandler({
+      ...config,
+      publicSkillsOnly: true,
+      skills: [
+        {
+          id: "search-docs",
+          name: "Search docs",
+          description: "Search public docs",
+          publicAgent: { expose: true, readOnly: true },
+        },
+        {
+          id: "create-doc",
+          name: "Create doc",
+          description: "Writes private data",
+          publicAgent: {
+            expose: true,
+            readOnly: false,
+            isConsequential: true,
+          },
+        },
+        {
+          id: "mcp__user_abc__gmail",
+          name: "Gmail",
+          description: "Private user MCP tool",
+          publicAgent: { expose: true, readOnly: true },
+        },
+        {
+          id: "implicit",
+          name: "Implicit",
+          description: "No public opt-in",
+        },
+      ],
+    });
+
+    const response = await handler({
+      method: "GET",
+      headers: {
+        host: "agent.example",
+        "x-forwarded-proto": "https",
+      },
+      context: {},
+    });
+
+    expect(response.skills.map((skill: { id: string }) => skill.id)).toEqual([
+      "search-docs",
+    ]);
+  });
+
   it("allows legacy apiKeyEnv bearer auth even when A2A_SECRET is configured", async () => {
     process.env.A2A_SECRET = "jwt-secret";
     process.env.LEGACY_A2A_KEY = "legacy-key";
