@@ -33,6 +33,7 @@ import {
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
+  getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
   resolveSafePreviewUrl,
@@ -580,10 +581,13 @@ export function createCoreRoutesPlugin(
       }
 
       if (path === `${P}/builder/callback`) {
-        const ownerFromCookie = readBuilderConnectOwnerCookie(event);
-        if (ownerFromCookie) {
-          return { email: ownerFromCookie, session: null, anonymous: false };
-        }
+        // Prefer the signed _an_state owner over the legacy
+        // an_builder_connect_owner cookie. The cookie can be stale on a
+        // shared browser — user A signed in earlier, user B starts a fresh
+        // callback with a signed state for B — and using the cookie first
+        // would mis-attribute B's Builder credentials to A. The signed
+        // state is per-flow and TTL-bounded, so it's authoritative when
+        // both are present.
         const ownerFromCallbackState = verifyBuilderCallbackStateAndGetOwner(
           new URLSearchParams(search).get(BUILDER_STATE_PARAM),
         );
@@ -593,6 +597,10 @@ export function createCoreRoutesPlugin(
             session: null,
             anonymous: false,
           };
+        }
+        const ownerFromCookie = readBuilderConnectOwnerCookie(event);
+        if (ownerFromCookie) {
+          return { email: ownerFromCookie, session: null, anonymous: false };
         }
       }
 
@@ -614,7 +622,12 @@ export function createCoreRoutesPlugin(
           status: T,
         ): T & { cliAuthUrl?: string } => {
           if (!userEmail) return status;
-          const callbackOrigin = getOrigin(event);
+          // Use the preview-aware origin (same one connectUrl uses) so
+          // Builder's CLI auth flow returns to the active preview deployment
+          // instead of bouncing through the gateway. getOrigin(event) falls
+          // back to the gateway on Builder preview hosts, which defeats the
+          // whole preview-aware isolation goal of this PR.
+          const callbackOrigin = getBuilderBrowserOriginForEvent(event);
           const cliAuthUrl = buildBuilderCliAuthUrl(
             callbackOrigin,
             signBuilderCallbackState(userEmail),

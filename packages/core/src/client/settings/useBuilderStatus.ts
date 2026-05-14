@@ -402,15 +402,20 @@ export function useBuilderConnectFlow(
     )
       ? statusConnectUrl
       : null;
+    // popupUrl prop (e.g. from a chat ConnectBuilderCard) may be a signed
+    // URL that was minted minutes-to-days ago — we don't have a mint
+    // timestamp for it, so we can't be sure it's still within the signed
+    // TTL. Use it as a *direct* popup URL only for desktop (where the
+    // about:blank refresh-in-popup path doesn't exist); on web, fall
+    // through to the refresh-in-popup branch so a stale prop URL doesn't
+    // open an expired popup.
     const signedPropUrl = hasSignedConnectToken(popupUrl) ? popupUrl : null;
     const signedCliPropUrl = hasSignedCallbackState(popupUrl) ? popupUrl : null;
     const fallbackUrl = new URL(
       agentNativePath("/_agent-native/builder/connect"),
       origin,
     ).href;
-    const hasDirectSignedUrl = Boolean(
-      cachedFreshUrl || signedCliPropUrl || signedPropUrl,
-    );
+    const hasDirectSignedUrl = Boolean(cachedFreshUrl);
     const directUrl =
       cachedFreshUrl ?? signedCliPropUrl ?? signedPropUrl ?? fallbackUrl;
 
