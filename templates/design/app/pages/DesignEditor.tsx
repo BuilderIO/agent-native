@@ -499,6 +499,12 @@ export default function DesignEditor() {
       ? `The user picked the "${pending.source}" template.`
       : "The user just created a new empty design.";
 
+    if (pending.autoGenerate === false) {
+      setGenerationIssue(null);
+      setHasPendingGeneration(true);
+      return;
+    }
+
     const context = [
       sourceContext,
       `Design id: "${id}"`,

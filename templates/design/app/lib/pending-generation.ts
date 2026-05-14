@@ -13,6 +13,7 @@ export interface PendingGeneration {
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
+  autoGenerate?: boolean;
   createdAt?: number;
   startedAt?: number;
   runTabId?: string;
