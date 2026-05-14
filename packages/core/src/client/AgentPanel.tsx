@@ -270,7 +270,9 @@ function useBuilderConnectUrl() {
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (cancelled || !data) return;
-          if (data.connectUrl) setConnectUrl(data.connectUrl);
+          if (data.cliAuthUrl || data.connectUrl) {
+            setConnectUrl(data.cliAuthUrl || data.connectUrl);
+          }
           const nextConfigured = !!data.configured;
           setConfigured(nextConfigured);
           if (nextConfigured && !lastConfigured) {

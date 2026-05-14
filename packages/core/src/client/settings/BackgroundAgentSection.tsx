@@ -21,6 +21,7 @@ export function BackgroundAgentSection() {
   const { status: builder } = useBuilderStatus();
   const connected = builder?.configured ?? false;
   const cloudAgentsAvailable = !!builder?.builderEnabled;
+  const builderConnectUrl = builder?.cliAuthUrl ?? builder?.connectUrl;
 
   const [projectUrl, setProjectUrl] = useState("");
   const [running, setRunning] = useState(false);
@@ -69,9 +70,9 @@ export function BackgroundAgentSection() {
             Connect Builder to enable code changes from production. The agent
             will create branches and provide preview URLs.
           </p>
-          {builder?.connectUrl && (
+          {builderConnectUrl && (
             <a
-              href={builder.connectUrl}
+              href={builderConnectUrl}
               onClick={() => {
                 trackEvent("builder connect clicked", {
                   feature: "builder",
