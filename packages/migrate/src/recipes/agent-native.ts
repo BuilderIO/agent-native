@@ -132,7 +132,7 @@ function recipe(
     description: title,
     async selectTasks(context: MigrationContext) {
       return select(context.ir).map((task, index) => ({
-        id: `${name}-${index + 1}`,
+        id: `${context.run.id}:${name}-${index + 1}`,
         runId: context.run.id,
         recipeName: name,
         title: task.title,
