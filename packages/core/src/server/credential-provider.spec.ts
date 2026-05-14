@@ -51,6 +51,11 @@ beforeEach(() => {
     process.env.NODE_ENV = ORIGINAL_NODE_ENV;
   }
   delete process.env.AGENT_ENGINE;
+  delete process.env.AGENT_NATIVE_WORKSPACE;
+  delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+  delete process.env.FUSION_ENVIRONMENT;
+  delete process.env.FUSION_ENV_ORIGIN;
+  delete process.env.VITE_FUSION_ENV_ORIGIN;
   delete process.env.BUILDER_PRIVATE_KEY;
   delete process.env.BUILDER_PUBLIC_KEY;
   delete process.env.OPENAI_API_KEY;
@@ -371,6 +376,24 @@ describe("resolveBuilderCredential", () => {
 
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
+  });
+
+  it("does not use deploy-level Builder keys for signed-in hosted workspace users", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "space-id";
+    process.env.OPENAI_API_KEY = "openai-deploy-key";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(await resolveBuilderCredentialSource()).toBeNull();
+    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
+    expect(canUseDeployCredentialFallbackForRequest()).toBe(true);
   });
 
   it("falls back to org scope when no user-scope row exists", async () => {

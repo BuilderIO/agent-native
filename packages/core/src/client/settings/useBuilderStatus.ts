@@ -30,6 +30,12 @@ export interface BuilderStatus {
    * can stop with a clear message instead of timing out at 5min.
    */
   connectError?: { message: string; at: number };
+  /**
+   * Set when the currently effective Builder credential was rejected by
+   * Builder's API. Unlike connectError, this describes the old credential pair
+   * and should not abort a new reconnect attempt while the popup is open.
+   */
+  authError?: { message: string; at: number };
 }
 
 /**
@@ -182,6 +188,15 @@ function isFreshSignedConnectUrl(
   );
 }
 
+function isCurrentConnectError(
+  error: { message: string; at: number } | undefined,
+  startedAt: number | null,
+): error is { message: string; at: number } {
+  if (!error?.message) return false;
+  if (!startedAt) return true;
+  return typeof error.at !== "number" || error.at >= startedAt - 1000;
+}
+
 function showBuilderConnectPopupPlaceholder(opened: Window) {
   try {
     opened.opener = null;
@@ -326,6 +341,7 @@ export function useBuilderConnectFlow(
   // gesture path (browser/editor embeds).
   const statusConnectUrlAtRef = useRef<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectStartedAtRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
   // Keep onConnected in a ref so start() doesn't need to re-create when the
@@ -356,6 +372,7 @@ export function useBuilderConnectFlow(
         cliAuthUrl?: string;
         credentialSource?: "user" | "org" | "workspace" | "env";
         connectError?: { message: string; at: number };
+        authError?: { message: string; at: number };
       };
     } catch {
       return null;
@@ -386,6 +403,9 @@ export function useBuilderConnectFlow(
       statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
       const org = s.orgName ?? null;
       setOrgName(org);
+      if (s.configured) {
+        connectStartedAtRef.current = null;
+      }
       if (s.configured && !notifiedConnectedRef.current) {
         notifiedConnectedRef.current = true;
         notifyAgentEngineConfiguredChanged("builder-status");
@@ -397,15 +417,14 @@ export function useBuilderConnectFlow(
       } else if (!s.configured) {
         notifiedConnectedRef.current = false;
       }
-      // Surface persisted auth-failure messages on every refresh — reload,
-      // first paint in a new tab, agent-engine:configured-changed, etc.
-      // Without this, useBuilderConnectFlow's start() is the only path that
-      // ever sets `error`, so users who reload after a rejection see the
-      // generic "Connect Builder" CTA with no explanation. Clear the error
-      // when status is configured again so a self-healed marker stops
-      // showing the stale message.
-      if (s.connectError?.message) {
+      // Surface persisted auth-failure messages on idle refreshes, but don't
+      // let an old rejected credential abort a new reconnect popup while the
+      // user is still choosing a Builder space.
+      const activeConnectStartedAt = connectStartedAtRef.current;
+      if (isCurrentConnectError(s.connectError, activeConnectStartedAt)) {
         setError(s.connectError.message);
+      } else if (!activeConnectStartedAt && s.authError?.message) {
+        setError(s.authError.message);
       } else if (s.configured) {
         setError(null);
       }
@@ -429,6 +448,8 @@ export function useBuilderConnectFlow(
 
   const start = useCallback(() => {
     stopPoll();
+    const started = Date.now();
+    connectStartedAtRef.current = started;
     setConnecting(true);
     setError(null);
 
@@ -475,6 +496,7 @@ export function useBuilderConnectFlow(
         features: "width=600,height=700",
       });
       if (!opened) {
+        connectStartedAtRef.current = null;
         setConnecting(false);
         setError("Couldn't open Builder. Allow popups and try again.");
         return;
@@ -486,6 +508,7 @@ export function useBuilderConnectFlow(
         features: "width=600,height=700",
       });
       if (!opened) {
+        connectStartedAtRef.current = null;
         setConnecting(false);
         setError("Couldn't open Builder. Allow popups and try again.");
         return;
@@ -527,6 +550,7 @@ export function useBuilderConnectFlow(
             // Ignore close failures.
           }
           stopPoll();
+          connectStartedAtRef.current = null;
           setConnecting(false);
           setError(
             "Couldn't start Builder connect. Refresh this page and try again.",
@@ -535,6 +559,7 @@ export function useBuilderConnectFlow(
         }
         if (!navigateBuilderConnectPopup(opened, freshUrl)) {
           stopPoll();
+          connectStartedAtRef.current = null;
           setConnecting(false);
           setError(
             "Couldn't navigate the Builder popup. Allow popups and try again.",
@@ -543,7 +568,6 @@ export function useBuilderConnectFlow(
       })();
     }
 
-    const started = Date.now();
     pollRef.current = setInterval(async () => {
       const s = await fetchStatus();
       if (!mountedRef.current) {
@@ -561,6 +585,7 @@ export function useBuilderConnectFlow(
         const org = s.orgName ?? null;
         setOrgName(org);
         setConnecting(false);
+        connectStartedAtRef.current = null;
         notifiedConnectedRef.current = true;
         notifyAgentEngineConfiguredChanged("builder-connect");
         try {
@@ -569,16 +594,18 @@ export function useBuilderConnectFlow(
           // Consumer's callback failed; we've already flipped the UI state
           // to connected. Swallow so we don't re-arm the flow.
         }
-      } else if (s?.connectError?.message) {
+      } else if (isCurrentConnectError(s?.connectError, started)) {
         // OAuth callback ran but writeBuilderCredentials threw — surface the
         // real error instead of letting the user wait 5 minutes for timeout.
         stopPoll();
+        connectStartedAtRef.current = null;
         setConnecting(false);
         setError(
           `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
         );
       } else if (Date.now() - started > POLL_TIMEOUT_MS) {
         stopPoll();
+        connectStartedAtRef.current = null;
         setConnecting(false);
         trackEvent("builder connect failed", {
           feature: "builder",
@@ -605,6 +632,7 @@ export function useBuilderConnectFlow(
     let channel: BroadcastChannel | null = null;
     const handleError = (message: string) => {
       stopPoll();
+      connectStartedAtRef.current = null;
       setConnecting(false);
       setError(`Couldn't save Builder credentials: ${message}.`);
     };
@@ -622,6 +650,7 @@ export function useBuilderConnectFlow(
       const org = s.orgName ?? null;
       setOrgName(org);
       setConnecting(false);
+      connectStartedAtRef.current = null;
       notifiedConnectedRef.current = true;
       notifyAgentEngineConfiguredChanged("builder-connect-message");
       try {

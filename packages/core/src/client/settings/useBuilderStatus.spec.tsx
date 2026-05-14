@@ -91,6 +91,7 @@ describe("useBuilderConnectFlow", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -239,5 +240,109 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(window.location.href).toBe("http://localhost:3000/settings");
     expect(container.textContent).not.toContain("Popup blocked");
+  });
+
+  it("does not abort a reconnect popup because the old credential was rejected", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const signedConnectUrl =
+      "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed";
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        configured: false,
+        envManaged: true,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+        appHost: "https://builder.io",
+        apiHost: "https://api.builder.io",
+        publicKeyConfigured: false,
+        privateKeyConfigured: false,
+        authError: {
+          message: "Private key does not match spaceId",
+          at: Date.now() - 60_000,
+        },
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain(
+      "Private key does not match spaceId",
+    );
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      signedConnectUrl,
+      "_blank",
+      "width=600,height=700",
+    );
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain(
+      "Private key does not match spaceId",
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain(
+      "Private key does not match spaceId",
+    );
+  });
+
+  it("ignores stale connect callback errors after starting a fresh reconnect", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const signedConnectUrl =
+      "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed";
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        configured: false,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+        appHost: "https://builder.io",
+        apiHost: "https://api.builder.io",
+        publicKeyConfigured: false,
+        privateKeyConfigured: false,
+        connectError: {
+          message: "No active connect flow found",
+          at: Date.now() - 60_000,
+        },
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("No active connect flow found");
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain("No active connect flow found");
   });
 });

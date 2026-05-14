@@ -89,6 +89,38 @@ export function canUseDeployCredentialFallbackForRequest(): boolean {
   return isDeployCredentialFallbackAllowed();
 }
 
+const BUILDER_CREDENTIAL_KEYS = [
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
+  "BUILDER_USER_ID",
+  "BUILDER_ORG_NAME",
+  "BUILDER_ORG_KIND",
+] as const;
+
+function isBuilderCredentialKey(key: string): boolean {
+  return (BUILDER_CREDENTIAL_KEYS as readonly string[]).includes(key);
+}
+
+function isHostedWorkspaceRuntime(): boolean {
+  if (isLocalDatabase()) return false;
+  const hasFusionPreview = Boolean(
+    process.env.FUSION_ENVIRONMENT ||
+    process.env.FUSION_ENV_ORIGIN ||
+    process.env.VITE_FUSION_ENV_ORIGIN,
+  );
+  return (
+    /^(1|true)$/i.test(process.env.AGENT_NATIVE_WORKSPACE ?? "") ||
+    /^(1|true)$/i.test(process.env.VITE_AGENT_NATIVE_WORKSPACE ?? "") ||
+    hasFusionPreview
+  );
+}
+
+function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
+  const email = getRequestUserEmail();
+  if (email && isHostedWorkspaceRuntime()) return false;
+  return canUseDeployCredentialFallbackForRequest();
+}
+
 // ---------------------------------------------------------------------------
 // Builder credential resolution:
 //
@@ -210,7 +242,7 @@ export async function resolveBuilderCredential(
 ): Promise<string | null> {
   const scoped = await resolveScopedBuilderCredential(key);
   if (scoped) return scoped.value;
-  if (!canUseDeployCredentialFallbackForRequest()) return null;
+  if (!canUseBuilderDeployCredentialFallbackForRequest()) return null;
   return readDeployCredentialEnv(key) ?? null;
 }
 
@@ -254,7 +286,7 @@ export async function resolveHasBuilderPrivateKey(): Promise<boolean> {
 export async function resolveBuilderCredentialSource(): Promise<BuilderCredentialSource | null> {
   const scoped = await resolveScopedBuilderCredential("BUILDER_PRIVATE_KEY");
   if (scoped) return scoped.source;
-  return canUseDeployCredentialFallbackForRequest() &&
+  return canUseBuilderDeployCredentialFallbackForRequest() &&
     process.env.BUILDER_PRIVATE_KEY
     ? "env"
     : null;
@@ -388,14 +420,6 @@ export async function clearBuilderCredentialAuthFailure(creds: {
     // A stale failure marker should not block writing fresh credentials.
   }
 }
-
-const BUILDER_CREDENTIAL_KEYS = [
-  "BUILDER_PRIVATE_KEY",
-  "BUILDER_PUBLIC_KEY",
-  "BUILDER_USER_ID",
-  "BUILDER_ORG_NAME",
-  "BUILDER_ORG_KIND",
-] as const;
 
 /**
  * Write Builder credentials to `app_secrets`.
@@ -629,7 +653,11 @@ export async function resolveSecret(key: string): Promise<string | null> {
     // The deploy-level value would silently impersonate the actual key
     // owner across every tenant. Local/single-tenant deployments keep the
     // original env fallback for BYO-server workflows.
-    const envFallback = canUseDeployCredentialFallbackForRequest()
+    const envFallback = (
+      isBuilderCredentialKey(key)
+        ? canUseBuilderDeployCredentialFallbackForRequest()
+        : canUseDeployCredentialFallbackForRequest()
+    )
       ? process.env[key] || null
       : null;
     if (traceLookup) {

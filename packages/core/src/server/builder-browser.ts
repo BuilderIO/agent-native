@@ -54,14 +54,20 @@ export interface BuilderBrowserStatus {
    */
   envManaged: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
+  /**
+   * The currently effective Builder credential was rejected by Builder's API.
+   * This is durable status about the credential pair, not a failure of an
+   * in-progress cli-auth callback.
+   */
+  authError?: { message: string; at: number };
   connectError?: { message: string; at: number };
   appHost: string;
   apiHost: string;
   /**
-   * Ready-to-open Builder CLI auth URL for this request owner. This points
-   * directly at builder.io/cli-auth and carries signed callback state in the
-   * nested redirect_url so the popup never has to visit the app's connect
-   * trampoline first.
+   * Ready-to-open Builder CLI auth URL for this request owner, when the
+   * callback can return to the same deployment that minted the state. Preview
+   * deployments that must callback through a gateway omit this and use
+   * connectUrl so the server can write a pending-connect row first.
    */
   cliAuthUrl?: string;
   connectUrl: string;
