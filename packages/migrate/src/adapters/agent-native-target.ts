@@ -462,14 +462,22 @@ function generatedRoute(
   sourceFile: string,
   isPublic: boolean,
 ): string {
+  // Emit dynamic strings as JSON-stringified JSX expressions so route paths
+  // containing JSX-significant characters (`{`, `}`, `<`, `>`, `&`) or
+  // template-literal terminators (backticks, `${`) can't break the outer
+  // generated file. Next.js routes legitimately contain `[slug]`, `(group)`,
+  // and `@parallel` segments; any of those slipping into JSX text un-escaped
+  // would produce invalid TS.
+  const routePathExpr = JSON.stringify(routePath);
+  const sourceFileExpr = JSON.stringify(sourceFile);
   return `export default function MigratedRoute() {
   return (
     <main style={{ padding: 32, fontFamily: "system-ui, sans-serif" }}>
       <p style={{ textTransform: "uppercase", fontSize: 12, letterSpacing: 1, color: "#666" }}>
         ${isPublic ? "Public SSR route" : "Logged-in app route"}
       </p>
-      <h1>${routePath}</h1>
-      <p>Source: <code>${sourceFile}</code></p>
+      <h1>{${routePathExpr}}</h1>
+      <p>Source: <code>{${sourceFileExpr}}</code></p>
       <p>This route is a scaffolded migration placeholder. Continue the recipe sweep to port UI, actions, SQL, and app-state behavior.</p>
     </main>
   );
