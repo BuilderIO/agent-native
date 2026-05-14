@@ -624,21 +624,30 @@ export function createCoreRoutesPlugin(
           status: T,
         ): T & { cliAuthUrl?: string } => {
           if (!userEmail) return status;
-          // Use the preview-aware origin (same one connectUrl uses) so
-          // Builder's CLI auth flow returns to the active preview deployment
-          // instead of bouncing through the gateway. getOrigin(event) falls
-          // back to the gateway on Builder preview hosts, which defeats the
-          // whole preview-aware isolation goal of this PR.
           const previewOrigin = getBuilderBrowserOriginForEvent(event);
           const callbackOrigin = getBuilderCliAuthCallbackOriginForEvent(event);
+          const statusWithConnectToken = {
+            ...status,
+            connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
+          } as T & { cliAuthUrl?: string };
+          // Direct cli-auth only works when the callback lands on the same
+          // deployment that minted the signed state. Builder/Fusion previews
+          // often need a gateway callback origin; in that case use the
+          // /builder/connect trampoline so it can write the pending-connect
+          // row that the gateway callback validates against.
+          if (
+            previewOrigin.replace(/\/+$/, "") !==
+            callbackOrigin.replace(/\/+$/, "")
+          ) {
+            return statusWithConnectToken;
+          }
           const cliAuthUrl = buildBuilderCliAuthUrl(
             callbackOrigin,
             signBuilderCallbackState(userEmail),
             { previewOrigin },
           );
           return {
-            ...status,
-            connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
+            ...statusWithConnectToken,
             cliAuthUrl,
           };
         };
@@ -724,10 +733,12 @@ export function createCoreRoutesPlugin(
                 orgName: undefined,
                 orgKind: undefined,
                 credentialSource: credentialSource ?? undefined,
-                // Surface the failure message so the UI can explain why the
-                // connection is broken instead of silently showing "Connect
-                // Builder" with no context.
-                connectError: {
+                // Surface durable credential rejection separately from
+                // one-shot cli-auth callback failures. The reconnect UI keeps
+                // polling through authError while the user chooses a new
+                // Builder space; connectError means the active callback itself
+                // failed and should stop the flow.
+                authError: {
                   message: authFailure.message,
                   at: authFailure.at,
                 },
@@ -1097,6 +1108,24 @@ export function createCoreRoutesPlugin(
         // /builder/connect) blocks CSRF and callback replay.
         const ownerContext = await resolveBuilderOwnerContext(event);
         const ownerEmail = ownerContext.email;
+        // Diagnostic: log the resolver's inputs for debugging "No active
+        // connect flow found" reports. Reveals session-vs-state owner
+        // mismatches and missing/forged _an_state without leaking the
+        // signed token itself.
+        try {
+          const debugSearch = new URLSearchParams(
+            (event.url?.search || "").replace(/^\?/, ""),
+          );
+          const stateRaw = debugSearch.get(BUILDER_STATE_PARAM);
+          const stateOwnerProbe =
+            verifyBuilderCallbackStateAndGetOwner(stateRaw);
+          const session = await getSession(event).catch(() => null);
+          console.log(
+            `[builder-callback] resolved-owner=${ownerEmail ?? "(none)"} session-email=${session?.email ?? "(none)"} state-owner=${stateOwnerProbe ?? "(none)"} state-present=${Boolean(stateRaw)} anon=${ownerContext.anonymous} host=${getHeader(event, "host") ?? "(none)"} sec-fetch-site=${getHeader(event, "sec-fetch-site") ?? "(none)"} origin=${getHeader(event, "origin") ?? "(none)"} referer=${getHeader(event, "referer") ?? "(none)"}`,
+          );
+        } catch {
+          // Diagnostic logging is best-effort; do not break the callback.
+        }
         if (!ownerEmail) {
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
@@ -1200,6 +1229,12 @@ export function createCoreRoutesPlugin(
         }
 
         if (!pendingValid) {
+          // Diagnostic: log the exact reason pendingValid is false so we can
+          // distinguish "state didn't validate" from "no pending row" in
+          // production "No active connect flow found" reports.
+          console.warn(
+            `[builder-callback] pending-invalid owner=${ownerEmail} has-state-param=${Boolean(requestUrl.searchParams.get(BUILDER_STATE_PARAM))} state-validated=${hasValidCallbackState} pending-error=${pendingError ?? "(none)"}`,
+          );
           await trackBuilderLifecycle(
             event,
             "builder connect failed",
