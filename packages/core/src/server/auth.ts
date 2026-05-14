@@ -1161,9 +1161,9 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
         : null;
     return Boolean(
       verifyBuilderCallbackStateAndGetOwner(state) ||
-        verifyBuilderConnectTokenAndGetOwner(
-          getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
-        ),
+      verifyBuilderConnectTokenAndGetOwner(
+        getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
+      ),
     );
   }
 

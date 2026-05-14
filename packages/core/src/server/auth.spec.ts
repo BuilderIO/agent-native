@@ -569,9 +569,8 @@ describe("server/auth", () => {
       vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
       vi.stubEnv("APP_BASE_PATH", "/todays-priorities");
       const { autoMountAuth } = await import("./auth.js");
-      const { BUILDER_STATE_PARAM, signBuilderCallbackState } = await import(
-        "./builder-browser.js"
-      );
+      const { BUILDER_STATE_PARAM, signBuilderCallbackState } =
+        await import("./builder-browser.js");
 
       const app = createMockApp();
       await autoMountAuth(app);

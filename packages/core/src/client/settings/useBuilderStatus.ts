@@ -403,9 +403,7 @@ export function useBuilderConnectFlow(
       ? statusConnectUrl
       : null;
     const signedPropUrl = hasSignedConnectToken(popupUrl) ? popupUrl : null;
-    const signedCliPropUrl = hasSignedCallbackState(popupUrl)
-      ? popupUrl
-      : null;
+    const signedCliPropUrl = hasSignedCallbackState(popupUrl) ? popupUrl : null;
     const fallbackUrl = new URL(
       agentNativePath("/_agent-native/builder/connect"),
       origin,
