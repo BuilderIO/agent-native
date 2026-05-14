@@ -28,16 +28,18 @@ import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_ENV_KEYS,
+  BUILDER_STATE_PARAM,
   appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
-  getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
   resolveSafePreviewUrl,
   runBuilderAgent,
+  signBuilderCallbackState,
   verifyBuilderConnectTokenAndGetOwner,
+  verifyBuilderCallbackStateAndGetOwner,
   signBuilderConnectToken,
 } from "./builder-browser.js";
 import {
@@ -582,6 +584,16 @@ export function createCoreRoutesPlugin(
         if (ownerFromCookie) {
           return { email: ownerFromCookie, session: null, anonymous: false };
         }
+        const ownerFromCallbackState = verifyBuilderCallbackStateAndGetOwner(
+          new URLSearchParams(search).get(BUILDER_STATE_PARAM),
+        );
+        if (ownerFromCallbackState) {
+          return {
+            email: ownerFromCallbackState,
+            session: null,
+            anonymous: false,
+          };
+        }
       }
 
       const anonymousOwner = await options.anonymousOwner?.(event);
@@ -600,11 +612,17 @@ export function createCoreRoutesPlugin(
         const userEmail = ownerContext.email;
         const withConnectToken = <T extends { connectUrl: string }>(
           status: T,
-        ): T => {
+        ): T & { cliAuthUrl?: string } => {
           if (!userEmail) return status;
+          const callbackOrigin = getOrigin(event);
+          const cliAuthUrl = buildBuilderCliAuthUrl(
+            callbackOrigin,
+            signBuilderCallbackState(userEmail),
+          );
           return {
             ...status,
             connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
+            cliAuthUrl,
           };
         };
 
@@ -899,17 +917,13 @@ export function createCoreRoutesPlugin(
           },
         );
         setBuilderConnectOwnerCookie(event, ownerEmail);
-        // Build the cli-auth URL without embedding state in redirect_url:
-        // Builder's /cli-auth appends params directly to redirect_url and
-        // does not preserve any pre-existing query string we put there.
-        //
-        // Use the Builder-specific origin here instead of the generic OAuth
-        // origin. Workspace Google OAuth callbacks intentionally relay through
-        // the stable gateway origin, but Builder connect needs to return to the
-        // same preview deployment that minted the signed connect token.
+        // The primary UI now opens the signed Builder /cli-auth URL directly
+        // from /builder/status. Keep this legacy trampoline working for older
+        // clients, but still send it to Builder immediately and include signed
+        // callback state so the callback does not depend on popup cookies.
         const cliAuthUrl = buildBuilderCliAuthUrl(
-          getBuilderBrowserOriginForEvent(event),
-          null,
+          getOrigin(event),
+          signBuilderCallbackState(ownerEmail),
         );
         setResponseStatus(event, 302);
         setResponseHeader(event, "Location", cliAuthUrl);

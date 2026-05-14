@@ -56,6 +56,13 @@ export interface BuilderBrowserStatus {
   credentialSource?: "user" | "org" | "env";
   appHost: string;
   apiHost: string;
+  /**
+   * Ready-to-open Builder CLI auth URL for this request owner. This points
+   * directly at builder.io/cli-auth and carries signed callback state in the
+   * nested redirect_url so the popup never has to visit the app's connect
+   * trampoline first.
+   */
+  cliAuthUrl?: string;
   connectUrl: string;
   publicKeyConfigured: boolean;
   privateKeyConfigured: boolean;
@@ -160,6 +167,25 @@ export function verifyBuilderCallbackState(
   sessionEmail: string,
 ): boolean {
   return verifyEmailBoundBuilderToken(token, sessionEmail, "callback");
+}
+
+export function verifyBuilderCallbackStateAndGetOwner(
+  token: string | null | undefined,
+): string | null {
+  if (typeof token !== "string" || token.length === 0) return null;
+  const parts = token.split(".");
+  if (parts.length !== 4) return null;
+  const emailEncoded = parts[1];
+  if (!emailEncoded) return null;
+
+  let ownerEmail: string;
+  try {
+    ownerEmail = Buffer.from(emailEncoded, "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
+  if (!ownerEmail) return null;
+  return verifyBuilderCallbackState(token, ownerEmail) ? ownerEmail : null;
 }
 
 export function signBuilderConnectToken(ownerEmail: string): string {

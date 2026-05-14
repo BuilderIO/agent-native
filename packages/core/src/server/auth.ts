@@ -98,6 +98,8 @@ import {
 import {
   BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_CONNECT_PARAM,
+  BUILDER_STATE_PARAM,
+  verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
 } from "./builder-browser.js";
 
@@ -1149,10 +1151,19 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
   }
 
   if (p === "/_agent-native/builder/callback") {
+    const url = event.node?.req?.url ?? event.path ?? "/";
+    const queryStart = url.indexOf("?");
+    const state =
+      queryStart >= 0
+        ? new URLSearchParams(url.slice(queryStart + 1)).get(
+            BUILDER_STATE_PARAM,
+          )
+        : null;
     return Boolean(
-      verifyBuilderConnectTokenAndGetOwner(
-        getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
-      ),
+      verifyBuilderCallbackStateAndGetOwner(state) ||
+        verifyBuilderConnectTokenAndGetOwner(
+          getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
+        ),
     );
   }
 
