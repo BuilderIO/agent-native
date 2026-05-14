@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.15.12
+
+### Patch Changes
+
+- 2cb8220: Add Agent Web surface generators, public-agent action metadata, and an audit command for crawlable public routes.
+- 2cb8220: Stop the Builder connect card from spinning after popup completion when status does not confirm credentials, and show Builder as the active LLM source when connected.
+- 2cb8220: Add the Migration Workbench engine, hidden migration template, CLI entrypoint, and documentation for verified Next.js-to-agent-native migrations.
+
 ## 0.15.11
 
 ### Patch Changes
