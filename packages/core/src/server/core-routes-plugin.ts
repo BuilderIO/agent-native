@@ -1057,19 +1057,25 @@ export function createCoreRoutesPlugin(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,
           getOrigin(event),
         );
+        const callbackStateOwner = verifyBuilderCallbackStateAndGetOwner(
+          requestUrl.searchParams.get(BUILDER_STATE_PARAM),
+        );
+        const hasValidCallbackState = callbackStateOwner === ownerEmail;
 
-        // Verify and consume the server-side pending-connect row that the
-        // /builder/connect route stored. This replaces the old URL-embedded
-        // signed CSRF state (_an_state) which Builder's /cli-auth page was
-        // stripping from the redirect_url query string.
+        // Verify either:
+        //   1. the signed callback state embedded in redirect_url by
+        //      /builder/status (primary flow), or
+        //   2. the server-side pending-connect row written by the legacy
+        //      /builder/connect trampoline.
         //
-        // The delete must succeed before we proceed — otherwise a DB blip
+        // For the pending-row path, delete must succeed before we proceed;
+        // otherwise a DB blip
         // leaves the row in place and the same callback URL can be
         // replayed against the same session for up to 10 minutes (the
         // TTL window). Treat a delete failure as a hard failure: the
         // user retries, the next /builder/connect call rewrites the
         // pending row.
-        let pendingValid = false;
+        let pendingValid = hasValidCallbackState;
         let pendingError: string | null = null;
         try {
           const pending = (await getSetting(
@@ -1084,12 +1090,14 @@ export function createCoreRoutesPlugin(
               await deleteSetting(`builder-pending-connect:${ownerEmail}`);
               pendingValid = true;
             } catch (err) {
-              pendingError =
-                "Could not consume pending-connect token (storage error). Please retry.";
-              console.error(
-                "[builder] deleteSetting failed for pending-connect — refusing to proceed (replay risk):",
-                (err as Error)?.message ?? err,
-              );
+              if (!hasValidCallbackState) {
+                pendingError =
+                  "Could not consume pending-connect token (storage error). Please retry.";
+                console.error(
+                  "[builder] deleteSetting failed for pending-connect — refusing to proceed (replay risk):",
+                  (err as Error)?.message ?? err,
+                );
+              }
             }
           }
         } catch {
@@ -1123,8 +1131,13 @@ export function createCoreRoutesPlugin(
             "builder connect failed",
             ownerEmail,
             {
-              reason: "missing_pending_connect",
+              reason: hasValidCallbackState
+                ? "callback_state_unexpectedly_rejected"
+                : "missing_pending_connect",
               stage: "callback",
+              has_callback_state: Boolean(
+                requestUrl.searchParams.get(BUILDER_STATE_PARAM),
+              ),
             },
           );
           const msg =
