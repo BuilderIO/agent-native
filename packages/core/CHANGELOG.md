@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.15.7
+
+### Patch Changes
+
+- d4c9097: Polish Builder connect completion by avoiding loopback callback URLs and refreshing connected chat UI.
+
 ## 0.15.6
 
 ### Patch Changes
