@@ -344,13 +344,16 @@ export default function DesignEditor() {
     }
   }, [id, markGenerationStale, trackAgentGeneration]);
 
+  const pendingGenerationActive =
+    hasPendingGeneration && !!readPendingGeneration(id);
+
   const { data: designResult, isLoading: designLoading } = useActionQuery<
     DesignData | string
   >(
     "get-design",
     { id: id! },
     {
-      refetchInterval: hasPendingGeneration || generating ? 1000 : false,
+      refetchInterval: pendingGenerationActive || generating ? 1000 : false,
     },
   );
 
@@ -498,6 +501,12 @@ export default function DesignEditor() {
     const sourceContext = pending.source
       ? `The user picked the "${pending.source}" template.`
       : "The user just created a new empty design.";
+
+    if (pending.autoGenerate === false) {
+      setGenerationIssue(null);
+      setHasPendingGeneration(true);
+      return;
+    }
 
     const context = [
       sourceContext,
@@ -998,7 +1007,7 @@ export default function DesignEditor() {
     return null;
   }
 
-  if (designLoading || (!design && hasPendingGeneration)) {
+  if (designLoading || (!design && pendingGenerationActive)) {
     return (
       <div className="flex-1 bg-background flex items-center justify-center">
         <Spinner className="size-8 text-foreground/30" />
@@ -1462,7 +1471,7 @@ export default function DesignEditor() {
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              {generating || hasPendingGeneration ? (
+              {generating || pendingGenerationActive ? (
                 <>
                   <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
                   <p className="text-sm text-muted-foreground">

@@ -28,16 +28,19 @@ import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_ENV_KEYS,
+  BUILDER_STATE_PARAM,
   appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
+  getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
   resolveSafePreviewUrl,
   runBuilderAgent,
-  verifyBuilderConnectToken,
+  signBuilderCallbackState,
   verifyBuilderConnectTokenAndGetOwner,
+  verifyBuilderCallbackStateAndGetOwner,
   signBuilderConnectToken,
 } from "./builder-browser.js";
 import {
@@ -578,6 +581,23 @@ export function createCoreRoutesPlugin(
       }
 
       if (path === `${P}/builder/callback`) {
+        // Prefer the signed _an_state owner over the legacy
+        // an_builder_connect_owner cookie. The cookie can be stale on a
+        // shared browser — user A signed in earlier, user B starts a fresh
+        // callback with a signed state for B — and using the cookie first
+        // would mis-attribute B's Builder credentials to A. The signed
+        // state is per-flow and TTL-bounded, so it's authoritative when
+        // both are present.
+        const ownerFromCallbackState = verifyBuilderCallbackStateAndGetOwner(
+          new URLSearchParams(search).get(BUILDER_STATE_PARAM),
+        );
+        if (ownerFromCallbackState) {
+          return {
+            email: ownerFromCallbackState,
+            session: null,
+            anonymous: false,
+          };
+        }
         const ownerFromCookie = readBuilderConnectOwnerCookie(event);
         if (ownerFromCookie) {
           return { email: ownerFromCookie, session: null, anonymous: false };
@@ -600,11 +620,22 @@ export function createCoreRoutesPlugin(
         const userEmail = ownerContext.email;
         const withConnectToken = <T extends { connectUrl: string }>(
           status: T,
-        ): T => {
+        ): T & { cliAuthUrl?: string } => {
           if (!userEmail) return status;
+          // Use the preview-aware origin (same one connectUrl uses) so
+          // Builder's CLI auth flow returns to the active preview deployment
+          // instead of bouncing through the gateway. getOrigin(event) falls
+          // back to the gateway on Builder preview hosts, which defeats the
+          // whole preview-aware isolation goal of this PR.
+          const callbackOrigin = getBuilderBrowserOriginForEvent(event);
+          const cliAuthUrl = buildBuilderCliAuthUrl(
+            callbackOrigin,
+            signBuilderCallbackState(userEmail),
+          );
           return {
             ...status,
             connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
+            cliAuthUrl,
           };
         };
 
@@ -745,7 +776,10 @@ export function createCoreRoutesPlugin(
       const fetchSite = getHeader(event, "sec-fetch-site");
       if (fetchSite === "same-origin" || fetchSite === "none") return true;
       if (fetchSite) return false; // browser told us it's cross-site/same-site
-      const expected = getOrigin(event).replace(/\/+$/, "");
+      const expected = getBuilderBrowserOriginForEvent(event).replace(
+        /\/+$/,
+        "",
+      );
       const origin = getHeader(event, "origin");
       if (origin) return origin.replace(/\/+$/, "") === expected;
       const referer = getHeader(event, "referer");
@@ -798,13 +832,17 @@ export function createCoreRoutesPlugin(
 
         const requestUrl = new URL(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,
-          getOrigin(event),
+          getBuilderBrowserOriginForEvent(event),
         );
         const connectToken = requestUrl.searchParams.get(BUILDER_CONNECT_PARAM);
-        const hasValidConnectToken = verifyBuilderConnectToken(
-          connectToken,
-          ownerEmail,
-        );
+        const connectTokenOwner =
+          verifyBuilderConnectTokenAndGetOwner(connectToken);
+        // The token must both be well-formed AND minted for the current
+        // session owner. Without the owner check, an attacker holding any
+        // valid signed token could trick a victim into hitting this route
+        // with that token to bypass the cross-origin gate.
+        const hasValidConnectToken =
+          Boolean(connectTokenOwner) && connectTokenOwner === ownerEmail;
 
         // Same-origin gate. Sec-Fetch-Site remains the fast path; the signed
         // connect token is the compatibility path for legitimate embedded or
@@ -822,6 +860,7 @@ export function createCoreRoutesPlugin(
               stage: "connect",
               has_connect_token: Boolean(connectToken),
               has_valid_connect_token: false,
+              connect_token_owner_matches_context: false,
               sec_fetch_site: getHeader(event, "sec-fetch-site") ?? null,
             },
           );
@@ -894,13 +933,19 @@ export function createCoreRoutesPlugin(
           ownerEmail,
           {
             stage: "connect",
+            connect_token_owner_matches_context:
+              !connectTokenOwner || connectTokenOwner === ownerEmail,
           },
         );
         setBuilderConnectOwnerCookie(event, ownerEmail);
-        // Build the cli-auth URL without embedding state in redirect_url:
-        // Builder's /cli-auth appends params directly to redirect_url and
-        // does not preserve any pre-existing query string we put there.
-        const cliAuthUrl = buildBuilderCliAuthUrl(getOrigin(event), null);
+        // The primary UI now opens the signed Builder /cli-auth URL directly
+        // from /builder/status. Keep this legacy trampoline working for older
+        // clients, but still send it to Builder immediately and include signed
+        // callback state so the callback does not depend on popup cookies.
+        const cliAuthUrl = buildBuilderCliAuthUrl(
+          getBuilderBrowserOriginForEvent(event),
+          signBuilderCallbackState(ownerEmail),
+        );
         setResponseStatus(event, 302);
         setResponseHeader(event, "Location", cliAuthUrl);
         return "";
@@ -1033,19 +1078,25 @@ export function createCoreRoutesPlugin(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,
           getOrigin(event),
         );
+        const callbackStateOwner = verifyBuilderCallbackStateAndGetOwner(
+          requestUrl.searchParams.get(BUILDER_STATE_PARAM),
+        );
+        const hasValidCallbackState = callbackStateOwner === ownerEmail;
 
-        // Verify and consume the server-side pending-connect row that the
-        // /builder/connect route stored. This replaces the old URL-embedded
-        // signed CSRF state (_an_state) which Builder's /cli-auth page was
-        // stripping from the redirect_url query string.
+        // Verify either:
+        //   1. the signed callback state embedded in redirect_url by
+        //      /builder/status (primary flow), or
+        //   2. the server-side pending-connect row written by the legacy
+        //      /builder/connect trampoline.
         //
-        // The delete must succeed before we proceed — otherwise a DB blip
+        // For the pending-row path, delete must succeed before we proceed;
+        // otherwise a DB blip
         // leaves the row in place and the same callback URL can be
         // replayed against the same session for up to 10 minutes (the
         // TTL window). Treat a delete failure as a hard failure: the
         // user retries, the next /builder/connect call rewrites the
         // pending row.
-        let pendingValid = false;
+        let pendingValid = hasValidCallbackState;
         let pendingError: string | null = null;
         try {
           const pending = (await getSetting(
@@ -1060,12 +1111,14 @@ export function createCoreRoutesPlugin(
               await deleteSetting(`builder-pending-connect:${ownerEmail}`);
               pendingValid = true;
             } catch (err) {
-              pendingError =
-                "Could not consume pending-connect token (storage error). Please retry.";
-              console.error(
-                "[builder] deleteSetting failed for pending-connect — refusing to proceed (replay risk):",
-                (err as Error)?.message ?? err,
-              );
+              if (!hasValidCallbackState) {
+                pendingError =
+                  "Could not consume pending-connect token (storage error). Please retry.";
+                console.error(
+                  "[builder] deleteSetting failed for pending-connect — refusing to proceed (replay risk):",
+                  (err as Error)?.message ?? err,
+                );
+              }
             }
           }
         } catch {
@@ -1099,8 +1152,13 @@ export function createCoreRoutesPlugin(
             "builder connect failed",
             ownerEmail,
             {
-              reason: "missing_pending_connect",
+              reason: hasValidCallbackState
+                ? "callback_state_unexpectedly_rejected"
+                : "missing_pending_connect",
               stage: "callback",
+              has_callback_state: Boolean(
+                requestUrl.searchParams.get(BUILDER_STATE_PARAM),
+              ),
             },
           );
           const msg =

@@ -1797,7 +1797,7 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const { status: builder, loading: builderLoading } = useBuilderStatus();
   const connected = builder?.configured ?? false;
-  const connectUrl = builder?.connectUrl;
+  const connectUrl = builder?.cliAuthUrl ?? builder?.connectUrl;
   const orgName = builder?.orgName;
   const envManaged = !!builder?.envManaged;
   const credentialSource = builder?.credentialSource;

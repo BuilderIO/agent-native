@@ -13,6 +13,7 @@ import { openBuilderConnectPopup } from "../settings/useBuilderStatus.js";
 
 export function BuilderTranscriptionCta() {
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [connectUrl, setConnectUrl] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -23,7 +24,12 @@ export function BuilderTranscriptionCta() {
     fetch(agentNativePath("/_agent-native/builder/status"))
       .then((r) =>
         r.ok
-          ? (r.json() as Promise<{ configured: boolean; envManaged?: boolean }>)
+          ? (r.json() as Promise<{
+              configured: boolean;
+              envManaged?: boolean;
+              cliAuthUrl?: string;
+              connectUrl?: string;
+            }>)
           : null,
       )
       .then((s) => {
@@ -31,6 +37,7 @@ export function BuilderTranscriptionCta() {
         // Env-managed mode counts as configured for the CTA — the deploy
         // already routes transcription through Builder, no per-user prompt.
         setConfigured(!!(s?.configured || s?.envManaged));
+        setConnectUrl(s?.cliAuthUrl || s?.connectUrl || null);
       })
       .catch(() => {
         if (mountedRef.current) setConfigured(false);
@@ -46,7 +53,10 @@ export function BuilderTranscriptionCta() {
     setConnecting(true);
     setError(null);
 
-    openBuilderConnectPopup({ source: "builder_transcription_cta" });
+    openBuilderConnectPopup({
+      url: connectUrl ?? undefined,
+      source: "builder_transcription_cta",
+    });
 
     const start = Date.now();
     pollRef.current = setInterval(async () => {
@@ -73,7 +83,7 @@ export function BuilderTranscriptionCta() {
         // transient — keep polling
       }
     }, 2000);
-  }, []);
+  }, [connectUrl]);
 
   // Already connected or still loading — render nothing
   if (configured === null || configured) return null;

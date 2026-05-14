@@ -14,6 +14,7 @@ export interface BuilderStatus {
   envManaged?: boolean;
   credentialSource?: "user" | "org" | "env";
   connectUrl: string;
+  cliAuthUrl?: string;
   appHost: string;
   apiHost: string;
   branchProjectIdConfigured?: boolean;
@@ -139,6 +140,7 @@ export interface BuilderConnectFlow {
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 const BUILDER_CONNECT_PARAM = "_an_connect";
+const BUILDER_STATE_PARAM = "_an_state";
 const STATUS_CONNECT_URL_TTL_MS = 9 * 60 * 1000;
 
 function isAgentNativeDesktop() {
@@ -157,12 +159,24 @@ function hasSignedConnectToken(url: string | null | undefined): boolean {
   }
 }
 
+function hasSignedCallbackState(url: string | null | undefined): boolean {
+  if (!url || typeof window === "undefined") return false;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    const redirectUrl = parsed.searchParams.get("redirect_url");
+    if (!redirectUrl) return false;
+    return new URL(redirectUrl).searchParams.has(BUILDER_STATE_PARAM);
+  } catch {
+    return false;
+  }
+}
+
 function isFreshSignedConnectUrl(
   url: string | null,
   fetchedAt: number | null,
 ): url is string {
   return (
-    hasSignedConnectToken(url) &&
+    (hasSignedConnectToken(url) || hasSignedCallbackState(url)) &&
     typeof fetchedAt === "number" &&
     Date.now() - fetchedAt < STATUS_CONNECT_URL_TTL_MS
   );
@@ -311,6 +325,7 @@ export function useBuilderConnectFlow(
         builderEnabled?: boolean;
         orgName?: string | null;
         connectUrl?: string;
+        cliAuthUrl?: string;
         credentialSource?: "user" | "org" | "env";
         connectError?: { message: string; at: number };
       };
@@ -338,8 +353,9 @@ export function useBuilderConnectFlow(
       setConfigured(!!s.configured);
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
-      setStatusConnectUrl(s.connectUrl ?? null);
-      statusConnectUrlAtRef.current = s.connectUrl ? Date.now() : null;
+      const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+      setStatusConnectUrl(nextConnectUrl);
+      statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
       const org = s.orgName ?? null;
       setOrgName(org);
       if (s.configured && !notifiedConnectedRef.current) {
@@ -386,12 +402,22 @@ export function useBuilderConnectFlow(
     )
       ? statusConnectUrl
       : null;
+    // popupUrl prop (e.g. from a chat ConnectBuilderCard) may be a signed
+    // URL that was minted minutes-to-days ago — we don't have a mint
+    // timestamp for it, so we can't be sure it's still within the signed
+    // TTL. Use it as a *direct* popup URL only for desktop (where the
+    // about:blank refresh-in-popup path doesn't exist); on web, fall
+    // through to the refresh-in-popup branch so a stale prop URL doesn't
+    // open an expired popup.
     const signedPropUrl = hasSignedConnectToken(popupUrl) ? popupUrl : null;
+    const signedCliPropUrl = hasSignedCallbackState(popupUrl) ? popupUrl : null;
     const fallbackUrl = new URL(
       agentNativePath("/_agent-native/builder/connect"),
       origin,
     ).href;
-    const directUrl = cachedFreshUrl ?? signedPropUrl ?? fallbackUrl;
+    const hasDirectSignedUrl = Boolean(cachedFreshUrl);
+    const directUrl =
+      cachedFreshUrl ?? signedCliPropUrl ?? signedPropUrl ?? fallbackUrl;
 
     if (isAgentNativeDesktop()) {
       const opened = openBuilderConnectPopup({
@@ -401,6 +427,17 @@ export function useBuilderConnectFlow(
       if (!opened) {
         // Agent Native Desktop handles the popup in Electron and reports
         // null to the embedded webview, so null is not a blocker here.
+      }
+    } else if (hasDirectSignedUrl) {
+      const opened = openBuilderConnectPopup({
+        url: directUrl,
+        source: trackingSource,
+        features: "width=600,height=700",
+      });
+      if (!opened) {
+        setConnecting(false);
+        setError("Couldn't open Builder. Allow popups and try again.");
+        return;
       }
     } else {
       const opened = openBuilderConnectPopup({
@@ -429,17 +466,20 @@ export function useBuilderConnectFlow(
           setConfigured(!!s.configured);
           setEnvManaged(!!s.envManaged);
           setBuilderEnabled(!!s.builderEnabled);
-          setStatusConnectUrl(s.connectUrl ?? null);
-          statusConnectUrlAtRef.current = s.connectUrl ? Date.now() : null;
+          const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+          setStatusConnectUrl(nextConnectUrl);
+          statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
           setOrgName(s.orgName ?? null);
         }
 
         const freshUrl =
+          (s?.cliAuthUrl && hasSignedCallbackState(s.cliAuthUrl)
+            ? s.cliAuthUrl
+            : null) ??
           (s?.connectUrl && hasSignedConnectToken(s.connectUrl)
             ? s.connectUrl
             : null) ??
-          cachedFreshUrl ??
-          signedPropUrl;
+          cachedFreshUrl;
         if (!freshUrl) {
           try {
             opened.close();
@@ -475,8 +515,9 @@ export function useBuilderConnectFlow(
         setConfigured(true);
         setEnvManaged(!!s.envManaged);
         setBuilderEnabled(!!s.builderEnabled);
-        setStatusConnectUrl(s.connectUrl ?? null);
-        statusConnectUrlAtRef.current = s.connectUrl ? Date.now() : null;
+        const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+        setStatusConnectUrl(nextConnectUrl);
+        statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
         const org = s.orgName ?? null;
         setOrgName(org);
         setConnecting(false);

@@ -23,6 +23,10 @@ import {
   type DesignTemplate,
   type DesignTemplateKind,
 } from "@/lib/design-templates";
+import {
+  clearPendingGeneration,
+  writePendingGeneration,
+} from "@/lib/pending-generation";
 
 const iconByKind: Record<DesignTemplateKind, typeof IconFileDescription> = {
   "one-sheet": IconFileDescription,
@@ -84,6 +88,13 @@ export default function Templates() {
       updatedAt: now,
     };
 
+    writePendingGeneration(id, {
+      title: template.title,
+      prompt: template.prompt,
+      source: template.title,
+      autoGenerate: false,
+    });
+
     for (const queryArgs of [undefined, { includePreview: "true" }]) {
       queryClient.setQueryData(
         ["action", "list-designs", queryArgs],
@@ -93,6 +104,10 @@ export default function Templates() {
         }),
       );
     }
+    queryClient.setQueryData(["action", "get-design", { id }], {
+      ...design,
+      files: [],
+    });
 
     void (async () => {
       await createMutation.mutateAsync({
@@ -121,6 +136,7 @@ export default function Templates() {
       queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
       queryClient.invalidateQueries({ queryKey: ["action", "list-designs"] });
     })().catch(() => {
+      clearPendingGeneration(id);
       queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
       queryClient.invalidateQueries({ queryKey: ["action", "list-designs"] });
     });

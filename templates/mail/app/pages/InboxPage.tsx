@@ -24,8 +24,8 @@ import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import type { EmailMessage } from "@shared/types";
 import {
   isInboxScopedAppLabel,
-  mailLabelMatches,
-  shortMailLabel,
+  mailLabelsInclude,
+  mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
@@ -330,7 +330,7 @@ export function InboxPage() {
       // differs.
       const isInboxScopedLabel = isInboxScopedAppLabel(activeLabel);
       const hasLabel = (e: (typeof filtered)[0]) =>
-        e.labelIds.some((l) => mailLabelMatches(l, activeLabel));
+        mailLabelsInclude(e.labelIds, activeLabel);
       // Find the latest message per thread
       const latestByThread = new Map<string, (typeof filtered)[0]>();
       const labelThreadIds = new Set<string>();
@@ -344,11 +344,9 @@ export function InboxPage() {
       }
       // Keep threads whose latest message has the label
       // For "important", exclude threads that belong to any other pinned tab
-      const otherPinnedShorts =
+      const otherPinnedLabels =
         activeLabel === "important"
-          ? pinnedUserLabels
-              .filter((l) => l !== "important")
-              .map((l) => shortMailLabel(l))
+          ? pinnedUserLabels.filter((l) => l !== "important")
           : [];
       const qualifiedThreadIds = new Set(
         [...latestByThread.entries()]
@@ -361,8 +359,8 @@ export function InboxPage() {
               return false;
             // If viewing "important", skip threads that match another pinned tab
             if (
-              otherPinnedShorts.length > 0 &&
-              latest.labelIds.some((lid) => otherPinnedShorts.includes(lid))
+              otherPinnedLabels.length > 0 &&
+              mailLabelsIncludeAny(latest.labelIds, otherPinnedLabels)
             )
               return false;
             return true;
@@ -374,13 +372,8 @@ export function InboxPage() {
     if (!searchQuery && view === "inbox" && pinnedUserLabels.length > 0) {
       // "Other" is the inbox remainder: messages that do not belong to one of
       // the pinned triage labels.
-      const pinnedShortNames = pinnedUserLabels.map((l) => shortMailLabel(l));
       return filtered.filter(
-        (e) =>
-          !e.labelIds.some(
-            (lid) =>
-              pinnedUserLabels.includes(lid) || pinnedShortNames.includes(lid),
-          ),
+        (e) => !mailLabelsIncludeAny(e.labelIds, pinnedUserLabels),
       );
     }
     return filtered;

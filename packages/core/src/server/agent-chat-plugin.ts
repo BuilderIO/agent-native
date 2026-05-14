@@ -1031,6 +1031,7 @@ async function createCallAgentScriptEntry(
 
 function createBuilderBrowserTool(deps: {
   getOrigin: () => string;
+  getOwner?: () => string | null | undefined;
 }): Record<string, ActionEntry> {
   return {
     "connect-builder": {
@@ -1055,11 +1056,12 @@ function createBuilderBrowserTool(deps: {
         const configured = !!(creds.privateKey && creds.publicKey);
         const branchProjectId = await resolveBuilderBranchProjectId();
         const prompt = typeof args?.prompt === "string" ? args.prompt : "";
+        const origin = deps.getOrigin();
         return JSON.stringify({
           kind: "connect-builder-card",
           configured,
           builderEnabled: !!branchProjectId,
-          connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
+          connectUrl: getBuilderBrowserConnectUrl(origin),
           orgName: creds.orgName || null,
           prompt,
         });
@@ -2586,6 +2588,7 @@ export function createAgentChatPlugin(
       const browserTools = createBuilderBrowserTool({
         getOrigin: () =>
           getRequestRunContext()?.requestOrigin ?? "http://localhost:3000",
+        getOwner: () => getRequestRunContext()?.owner ?? getRequestUserEmail(),
       });
 
       // Auto-mount A2A protocol endpoints so every app is discoverable

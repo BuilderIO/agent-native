@@ -11,6 +11,7 @@ import { trackEvent } from "../analytics.js";
 export function BrowserSection() {
   const { status: builder, loading } = useBuilderStatus();
   const connected = builder?.configured ?? false;
+  const builderConnectUrl = builder?.cliAuthUrl ?? builder?.connectUrl;
 
   return (
     <SettingsSection
@@ -39,9 +40,11 @@ export function BrowserSection() {
               connect-builder
             </code>
           </p>
-          {builder?.connectUrl && (
+          {builderConnectUrl && (
             <a
-              href={builder.connectUrl}
+              href={builderConnectUrl}
+              target="_blank"
+              rel="noreferrer"
               onClick={() => {
                 trackEvent("builder connect clicked", {
                   feature: "builder",
@@ -63,9 +66,11 @@ export function BrowserSection() {
             Connect Builder to provision browser sessions without wiring browser
             setup into every app.
           </p>
-          {builder?.connectUrl && (
+          {builderConnectUrl && (
             <a
-              href={builder.connectUrl}
+              href={builderConnectUrl}
+              target="_blank"
+              rel="noreferrer"
               onClick={() => {
                 trackEvent("builder connect clicked", {
                   feature: "builder",

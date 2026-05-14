@@ -98,6 +98,8 @@ import {
 import {
   BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_CONNECT_PARAM,
+  BUILDER_STATE_PARAM,
+  verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
 } from "./builder-browser.js";
 
@@ -1149,7 +1151,26 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
   }
 
   if (p === "/_agent-native/builder/callback") {
+    const url = event.node?.req?.url ?? event.path ?? "/";
+    const queryStart = url.indexOf("?");
+    const state =
+      queryStart >= 0
+        ? new URLSearchParams(url.slice(queryStart + 1)).get(
+            BUILDER_STATE_PARAM,
+          )
+        : null;
+    // The signed `_an_state` only authenticates the popup back to our app
+    // when the redirect chain through Builder dropped the session cookie
+    // (preview hosts, third-party-cookie blockers, etc). It is NOT a
+    // bearer credential that should let *any* request through. We bypass
+    // the auth guard only when no session exists (the legitimate
+    // session-lost popup case) — when a session IS present, the normal
+    // guard runs and the callback handler cross-checks the state owner
+    // against the session.
+    const hasSession = Boolean(getCookie(event, COOKIE_NAME));
+    if (hasSession) return false;
     return Boolean(
+      verifyBuilderCallbackStateAndGetOwner(state) ||
       verifyBuilderConnectTokenAndGetOwner(
         getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
       ),
