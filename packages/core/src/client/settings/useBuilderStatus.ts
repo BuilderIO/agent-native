@@ -410,7 +410,11 @@ export function useBuilderConnectFlow(
       agentNativePath("/_agent-native/builder/connect"),
       origin,
     ).href;
-    const directUrl = cachedFreshUrl ?? signedCliPropUrl ?? signedPropUrl ?? fallbackUrl;
+    const hasDirectSignedUrl = Boolean(
+      cachedFreshUrl || signedCliPropUrl || signedPropUrl,
+    );
+    const directUrl =
+      cachedFreshUrl ?? signedCliPropUrl ?? signedPropUrl ?? fallbackUrl;
 
     if (isAgentNativeDesktop()) {
       const opened = openBuilderConnectPopup({
@@ -420,6 +424,17 @@ export function useBuilderConnectFlow(
       if (!opened) {
         // Agent Native Desktop handles the popup in Electron and reports
         // null to the embedded webview, so null is not a blocker here.
+      }
+    } else if (hasDirectSignedUrl) {
+      const opened = openBuilderConnectPopup({
+        url: directUrl,
+        source: trackingSource,
+        features: "width=600,height=700",
+      });
+      if (!opened) {
+        setConnecting(false);
+        setError("Couldn't open Builder. Allow popups and try again.");
+        return;
       }
     } else {
       const opened = openBuilderConnectPopup({
