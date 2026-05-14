@@ -102,7 +102,6 @@ function isBuilderCredentialKey(key: string): boolean {
 }
 
 function isHostedWorkspaceRuntime(): boolean {
-  if (isLocalDatabase()) return false;
   const hasFusionPreview = Boolean(
     process.env.FUSION_ENVIRONMENT ||
     process.env.FUSION_ENV_ORIGIN ||
@@ -117,6 +116,10 @@ function isHostedWorkspaceRuntime(): boolean {
 
 function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();
+  // Builder workspace previews can run with NODE_ENV=development and their DB
+  // detection can look local during early startup. Once a real signed-in user
+  // is present, hosted workspace flags are enough to make deployment-level
+  // Builder keys unsafe as an identity fallback.
   if (email && isHostedWorkspaceRuntime()) return false;
   return canUseDeployCredentialFallbackForRequest();
 }

@@ -95,7 +95,7 @@ describe("useBuilderConnectFlow", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens the signed Builder cli-auth URL directly", async () => {
+  it("opens a blank web popup and navigates to a freshly fetched cli-auth URL", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
     openSpy.mockReturnValue(popup);
@@ -108,14 +108,16 @@ describe("useBuilderConnectFlow", () => {
 
     await act(async () => {
       container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      signedCliAuthUrl,
+      "about:blank",
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe("");
+    expect(popup.location.href).toBe(signedCliAuthUrl);
     expect(container.textContent).not.toContain("Popup blocked");
   });
 
@@ -250,7 +252,7 @@ describe("useBuilderConnectFlow", () => {
     openSpy.mockReturnValue(popup);
     const signedConnectUrl =
       "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed";
-    vi.mocked(fetch).mockResolvedValue(
+    vi.mocked(fetch).mockImplementation(async () =>
       jsonResponse({
         configured: false,
         envManaged: true,
@@ -279,13 +281,16 @@ describe("useBuilderConnectFlow", () => {
 
     await act(async () => {
       container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      signedConnectUrl,
+      "about:blank",
       "_blank",
       "width=600,height=700",
     );
+    expect(popup.location.href).toBe(signedConnectUrl);
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain(
       "Private key does not match spaceId",
@@ -309,7 +314,7 @@ describe("useBuilderConnectFlow", () => {
     openSpy.mockReturnValue(popup);
     const signedConnectUrl =
       "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed";
-    vi.mocked(fetch).mockResolvedValue(
+    vi.mocked(fetch).mockImplementation(async () =>
       jsonResponse({
         configured: false,
         envManaged: false,
