@@ -472,6 +472,11 @@ export default function ShareRoute() {
                     return;
                   }
                   tracking.reportReaction(emoji);
+                  const liveCt = playerRef.current?.video?.currentTime;
+                  const liveMs =
+                    typeof liveCt === "number" && Number.isFinite(liveCt)
+                      ? Math.floor(liveCt * 1000)
+                      : currentMs;
                   fetch(
                     agentNativePath(
                       "/_agent-native/actions/react-to-recording",
@@ -482,7 +487,7 @@ export default function ShareRoute() {
                       body: JSON.stringify({
                         recordingId: recording.id,
                         emoji,
-                        videoTimestampMs: currentMs,
+                        videoTimestampMs: liveMs,
                       }),
                     },
                   )

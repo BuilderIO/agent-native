@@ -739,6 +739,11 @@ export default function RecordingPage() {
                     disabled={!recording.enableReactions}
                     onReact={(emoji) => {
                       tracking.reportReaction(emoji);
+                      const liveCt = playerRef.current?.video?.currentTime;
+                      const liveMs =
+                        typeof liveCt === "number" && Number.isFinite(liveCt)
+                          ? Math.floor(liveCt * 1000)
+                          : currentMs;
                       fetch(
                         agentNativePath(
                           "/_agent-native/actions/react-to-recording",
@@ -749,7 +754,7 @@ export default function RecordingPage() {
                           body: JSON.stringify({
                             recordingId: recording.id,
                             emoji,
-                            videoTimestampMs: currentMs,
+                            videoTimestampMs: liveMs,
                           }),
                         },
                       )
