@@ -104,6 +104,10 @@ export default function Templates() {
         }),
       );
     }
+    queryClient.setQueryData(["action", "get-design", { id }], {
+      ...design,
+      files: [],
+    });
 
     void (async () => {
       await createMutation.mutateAsync({
