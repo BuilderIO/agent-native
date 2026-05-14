@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.15.8
+
+### Patch Changes
+
+- 3084676: Handle Builder cli-auth callback fallback for preview hosts not in Builder's allow-list, surface rejected credentials on status / Settings, scope callback postMessage to the parent origin, and self-heal credential auth-failure markers after a successful gateway call.
+
 ## 0.15.7
 
 ### Patch Changes
