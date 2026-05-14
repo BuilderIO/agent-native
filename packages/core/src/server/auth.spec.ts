@@ -563,6 +563,36 @@ describe("server/auth", () => {
       ).resolves.toBeUndefined();
     });
 
+    it("lets Builder connect callbacks with signed callback state bypass the global auth guard", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
+      vi.stubEnv("APP_BASE_PATH", "/todays-priorities");
+      const { autoMountAuth } = await import("./auth.js");
+      const { BUILDER_STATE_PARAM, signBuilderCallbackState } = await import(
+        "./builder-browser.js"
+      );
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const state = signBuilderCallbackState("jameson@builder.io");
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/todays-priorities/_agent-native/builder/callback",
+            query: { [BUILDER_STATE_PARAM]: state },
+          }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
     it("lets signed integration processor routes bypass the global auth guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

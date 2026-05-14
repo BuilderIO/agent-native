@@ -15,6 +15,7 @@ import {
   signBuilderCallbackState,
   verifyBuilderConnectToken,
   verifyBuilderCallbackState,
+  verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
 } from "./builder-browser.js";
 
@@ -157,6 +158,14 @@ describe("Builder callback CSRF state", () => {
       expect(verifyBuilderCallbackState(token, "alice@example.com")).toBe(true);
     });
 
+    it("extracts the owner email from a valid callback state", () => {
+      const token = signBuilderCallbackState("alice@example.com");
+
+      expect(verifyBuilderCallbackStateAndGetOwner(token)).toBe(
+        "alice@example.com",
+      );
+    });
+
     it("rejects a token whose timestamp is far in the future", () => {
       const token = signBuilderCallbackState("alice@example.com");
       const [nonce, email, _ts, mac] = token.split(".");
@@ -257,12 +266,10 @@ describe("Builder callback CSRF state", () => {
   });
 
   describe("buildBuilderCliAuthUrl", () => {
-    // The connect flow switched to server-side pending state (stored in the
-    // settings table) rather than embedding a signed _an_state token in the
-    // redirect_url query string.  Builder's /cli-auth page was stripping the
-    // existing query params from redirect_url when it appended p-key/api-key,
-    // so _an_state was always null when the callback fired.  The connect route
-    // now calls buildBuilderCliAuthUrl(origin, null) — no state in the URL.
+    // The callback state is optional because legacy /builder/connect clients
+    // can still rely on the server-side pending-connect row. New clients get a
+    // ready-to-open /cli-auth URL from /builder/status with _an_state embedded
+    // in redirect_url so the popup can skip the app trampoline entirely.
     it("builds a clean redirect_url (no _an_state) when state is null", () => {
       const cliAuthUrl = buildBuilderCliAuthUrl(
         "https://alice.agent-native.com",
