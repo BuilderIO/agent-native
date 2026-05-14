@@ -28,6 +28,7 @@ import {
   resolveBuilderAuthHeader,
   resolveBuilderCredential,
   getBuilderGatewayBaseUrl,
+  recordBuilderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
 import {
   normalizeReasoningEffortForModel,
@@ -294,6 +295,7 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     return;
   }
   if (status === 401 || code === "unauthorized") {
+    await recordBuilderCredentialAuthFailure({ status, code, message });
     yield {
       type: "stop",
       reason: "error",
@@ -311,6 +313,7 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
       lowerMessage.includes("invalid_token") ||
       lowerMessage.includes("token invalid"))
   ) {
+    await recordBuilderCredentialAuthFailure({ status, code, message });
     yield {
       type: "stop",
       reason: "error",

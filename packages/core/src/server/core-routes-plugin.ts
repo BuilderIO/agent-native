@@ -33,6 +33,7 @@ import {
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
+  getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
@@ -627,10 +628,12 @@ export function createCoreRoutesPlugin(
           // instead of bouncing through the gateway. getOrigin(event) falls
           // back to the gateway on Builder preview hosts, which defeats the
           // whole preview-aware isolation goal of this PR.
-          const callbackOrigin = getBuilderBrowserOriginForEvent(event);
+          const previewOrigin = getBuilderBrowserOriginForEvent(event);
+          const callbackOrigin = getBuilderCliAuthCallbackOriginForEvent(event);
           const cliAuthUrl = buildBuilderCliAuthUrl(
             callbackOrigin,
             signBuilderCallbackState(userEmail),
+            { previewOrigin },
           );
           return {
             ...status,
@@ -703,12 +706,26 @@ export function createCoreRoutesPlugin(
             const {
               resolveBuilderCredentials,
               resolveBuilderCredentialSource,
+              getBuilderCredentialAuthFailure,
             } = await import("./credential-provider.js");
             const [creds, credentialSource] = await Promise.all([
               resolveBuilderCredentials(),
               resolveBuilderCredentialSource(),
             ]);
-            if (creds.privateKey) {
+            const authFailure = await getBuilderCredentialAuthFailure(creds);
+            if (authFailure) {
+              return withConnectToken({
+                ...requestStatus,
+                configured: false,
+                privateKeyConfigured: false,
+                publicKeyConfigured: false,
+                userId: undefined,
+                orgName: undefined,
+                orgKind: undefined,
+                credentialSource: credentialSource ?? undefined,
+              });
+            }
+            if (creds.privateKey && creds.publicKey) {
               return withConnectToken({
                 ...requestStatus,
                 configured: true,
@@ -943,8 +960,9 @@ export function createCoreRoutesPlugin(
         // clients, but still send it to Builder immediately and include signed
         // callback state so the callback does not depend on popup cookies.
         const cliAuthUrl = buildBuilderCliAuthUrl(
-          getBuilderBrowserOriginForEvent(event),
+          getBuilderCliAuthCallbackOriginForEvent(event),
           signBuilderCallbackState(ownerEmail),
+          { previewOrigin: getBuilderBrowserOriginForEvent(event) },
         );
         setResponseStatus(event, 302);
         setResponseHeader(event, "Location", cliAuthUrl);

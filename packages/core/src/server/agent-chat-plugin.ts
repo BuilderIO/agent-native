@@ -1050,10 +1050,15 @@ function createBuilderBrowserTool(deps: {
         },
       },
       run: async (args) => {
-        const { resolveBuilderCredentials } =
+        const { getBuilderCredentialAuthFailure, resolveBuilderCredentials } =
           await import("./credential-provider.js");
         const creds = await resolveBuilderCredentials();
-        const configured = !!(creds.privateKey && creds.publicKey);
+        const authFailure = await getBuilderCredentialAuthFailure(creds);
+        const configured = !!(
+          creds.privateKey &&
+          creds.publicKey &&
+          !authFailure
+        );
         const branchProjectId = await resolveBuilderBranchProjectId();
         const prompt = typeof args?.prompt === "string" ? args.prompt : "";
         const origin = deps.getOrigin();

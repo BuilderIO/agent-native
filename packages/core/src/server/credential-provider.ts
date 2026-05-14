@@ -18,6 +18,7 @@
  * (e.g. additional Builder-hosted services) without rewrites.
  */
 
+import { createHash } from "node:crypto";
 import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
 import { isLocalDatabase } from "../db/client.js";
 
@@ -280,6 +281,114 @@ export async function resolveBuilderCredentials(): Promise<{
   return { privateKey, publicKey, userId, orgName, orgKind };
 }
 
+const BUILDER_AUTH_FAILURE_SETTING_PREFIX = "builder-auth-failure:";
+
+export interface BuilderCredentialAuthFailure {
+  fingerprint: string;
+  message: string;
+  status?: number;
+  code?: string;
+  at: number;
+  ownerEmail?: string | null;
+  orgId?: string | null;
+}
+
+export function builderCredentialFingerprint(
+  privateKey?: string | null,
+  publicKey?: string | null,
+): string | null {
+  if (!privateKey || !publicKey) return null;
+  return createHash("sha256")
+    .update(privateKey)
+    .update("\0")
+    .update(publicKey)
+    .digest("hex")
+    .slice(0, 24);
+}
+
+function builderAuthFailureSettingKey(fingerprint: string): string {
+  return `${BUILDER_AUTH_FAILURE_SETTING_PREFIX}${fingerprint}`;
+}
+
+export async function getBuilderCredentialAuthFailure(
+  creds: {
+    privateKey?: string | null;
+    publicKey?: string | null;
+  } = {},
+): Promise<BuilderCredentialAuthFailure | null> {
+  const fingerprint = builderCredentialFingerprint(
+    creds.privateKey,
+    creds.publicKey,
+  );
+  if (!fingerprint) return null;
+  try {
+    const { getSetting } = await import("../settings/store.js");
+    const row = await getSetting(builderAuthFailureSettingKey(fingerprint));
+    if (!row) return null;
+    return {
+      fingerprint,
+      message:
+        typeof row.message === "string" && row.message
+          ? row.message
+          : "Builder rejected the connected credentials. Reconnect Builder.io.",
+      status: typeof row.status === "number" ? row.status : undefined,
+      code: typeof row.code === "string" ? row.code : undefined,
+      at: typeof row.at === "number" ? row.at : Date.now(),
+      ownerEmail:
+        typeof row.ownerEmail === "string" ? row.ownerEmail : undefined,
+      orgId: typeof row.orgId === "string" ? row.orgId : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function recordBuilderCredentialAuthFailure(details?: {
+  status?: number;
+  code?: string;
+  message?: string;
+}): Promise<void> {
+  try {
+    const creds = await resolveBuilderCredentials();
+    const fingerprint = builderCredentialFingerprint(
+      creds.privateKey,
+      creds.publicKey,
+    );
+    if (!fingerprint) return;
+    const { putSetting } = await import("../settings/store.js");
+    await putSetting(builderAuthFailureSettingKey(fingerprint), {
+      fingerprint,
+      message:
+        details?.message ||
+        "Builder rejected the connected credentials. Reconnect Builder.io.",
+      ...(typeof details?.status === "number" && { status: details.status }),
+      ...(details?.code && { code: details.code }),
+      at: Date.now(),
+      ownerEmail: getRequestUserEmail() ?? null,
+      orgId: getRequestOrgId() ?? null,
+    });
+  } catch {
+    // Best-effort marker only; the chat error is still returned to the user.
+  }
+}
+
+export async function clearBuilderCredentialAuthFailure(creds: {
+  privateKey?: string | null;
+  publicKey?: string | null;
+}): Promise<void> {
+  const fingerprint = builderCredentialFingerprint(
+    creds.privateKey,
+    creds.publicKey,
+  );
+  if (!fingerprint) return;
+  try {
+    const { deleteSetting } = await import("../settings/store.js");
+    await deleteSetting(builderAuthFailureSettingKey(fingerprint));
+  } catch {
+    // A stale failure marker should not block writing fresh credentials.
+  }
+}
+
 const BUILDER_CREDENTIAL_KEYS = [
   "BUILDER_PRIVATE_KEY",
   "BUILDER_PUBLIC_KEY",
@@ -376,6 +485,10 @@ export async function writeBuilderCredentials(
       }),
     ),
   );
+  await clearBuilderCredentialAuthFailure({
+    privateKey: creds.privateKey,
+    publicKey: creds.publicKey,
+  });
   return target;
 }
 

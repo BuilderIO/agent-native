@@ -12,7 +12,7 @@ export interface BuilderStatus {
    * and take precedence for that request.
    */
   envManaged?: boolean;
-  credentialSource?: "user" | "org" | "env";
+  credentialSource?: "user" | "org" | "workspace" | "env";
   connectUrl: string;
   cliAuthUrl?: string;
   appHost: string;
@@ -352,7 +352,7 @@ export function useBuilderConnectFlow(
         orgName?: string | null;
         connectUrl?: string;
         cliAuthUrl?: string;
-        credentialSource?: "user" | "org" | "env";
+        credentialSource?: "user" | "org" | "workspace" | "env";
         connectError?: { message: string; at: number };
       };
     } catch {
