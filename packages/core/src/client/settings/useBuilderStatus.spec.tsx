@@ -40,6 +40,9 @@ function createPopupStub() {
   } as unknown as Window;
 }
 
+const signedCliAuthUrl =
+  "https://builder.io/cli-auth?response_type=code&host=agent-native-browser&client_id=Agent%20Native%20Browser&redirect_url=https%3A%2F%2Fagent-workspace.builder.io%2Fdispatch%2F_agent-native%2Fbuilder%2Fcallback%3F_an_state%3Dsigned&preview_url=https%3A%2F%2Fagent-workspace.builder.io%2Fdispatch&framework=agent-native";
+
 describe("useBuilderConnectFlow", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -56,6 +59,7 @@ describe("useBuilderConnectFlow", () => {
           envManaged: false,
           builderEnabled: true,
           orgName: null,
+          cliAuthUrl: signedCliAuthUrl,
           connectUrl:
             "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
           appHost: "https://builder.io",
@@ -78,13 +82,15 @@ describe("useBuilderConnectFlow", () => {
     vi.unstubAllGlobals();
   });
 
-  it("refreshes the signed Builder connect URL inside a synchronously opened popup", async () => {
+  it("opens the signed Builder cli-auth URL directly", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
     openSpy.mockReturnValue(popup);
 
     await act(async () => {
       root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     await act(async () => {
@@ -92,19 +98,11 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      "about:blank",
+      signedCliAuthUrl,
       "_blank",
       "width=600,height=700",
     );
-
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(popup.location.href).toBe(
-      "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
-    );
+    expect(popup.location.href).toBe("");
     expect(container.textContent).not.toContain("Popup blocked");
   });
 
@@ -120,7 +118,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      expect.stringContaining("/_agent-native/builder/connect"),
+      signedCliAuthUrl,
       "_blank",
       "noopener,noreferrer",
     );
