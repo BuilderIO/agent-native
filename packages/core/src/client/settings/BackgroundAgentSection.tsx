@@ -73,6 +73,8 @@ export function BackgroundAgentSection() {
           {builderConnectUrl && (
             <a
               href={builderConnectUrl}
+              target="_blank"
+              rel="noreferrer"
               onClick={() => {
                 trackEvent("builder connect clicked", {
                   feature: "builder",
