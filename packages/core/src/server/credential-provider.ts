@@ -559,15 +559,13 @@ export function getBuilderProxyOrigin(): string {
     process.env.BUILDER_PROXY_ORIGIN ||
     process.env.AIR_HOST ||
     process.env.BUILDER_API_HOST ||
-    "https://ai-services.builder.io"
+    "https://api.builder.io"
   );
 }
 
 /**
- * Base URL for the public Builder LLM gateway (distinct from the internal
- * proxy origin above — the public gateway lives at
- * api.builder.io/agent-native/gateway, while the internal origin is
- * ai-services.builder.io).
+ * Base URL for the public Builder LLM gateway, which lives at
+ * api.builder.io/agent-native/gateway.
  * Override via BUILDER_GATEWAY_BASE_URL for staging / testing.
  */
 export function getBuilderGatewayBaseUrl(): string {
