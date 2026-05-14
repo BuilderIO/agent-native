@@ -104,10 +104,8 @@ import {
 import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import {
-  buildBuilderCliAuthUrl,
   getBuilderBrowserConnectUrl,
   resolveBuilderBranchProjectId,
-  signBuilderCallbackState,
 } from "./builder-browser.js";
 import { captureCliOutput } from "./cli-capture.js";
 import { withConfiguredAppBasePath } from "./app-base-path.js";
@@ -1058,17 +1056,12 @@ function createBuilderBrowserTool(deps: {
         const configured = !!(creds.privateKey && creds.publicKey);
         const branchProjectId = await resolveBuilderBranchProjectId();
         const prompt = typeof args?.prompt === "string" ? args.prompt : "";
-        const owner = deps.getOwner?.();
         const origin = deps.getOrigin();
-        const cliAuthUrl = owner
-          ? buildBuilderCliAuthUrl(origin, signBuilderCallbackState(owner))
-          : undefined;
         return JSON.stringify({
           kind: "connect-builder-card",
           configured,
           builderEnabled: !!branchProjectId,
           connectUrl: getBuilderBrowserConnectUrl(origin),
-          cliAuthUrl,
           orgName: creds.orgName || null,
           prompt,
         });

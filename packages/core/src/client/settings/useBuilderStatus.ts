@@ -479,9 +479,7 @@ export function useBuilderConnectFlow(
           (s?.connectUrl && hasSignedConnectToken(s.connectUrl)
             ? s.connectUrl
             : null) ??
-          cachedFreshUrl ??
-          signedCliPropUrl ??
-          signedPropUrl;
+          cachedFreshUrl;
         if (!freshUrl) {
           try {
             opened.close();

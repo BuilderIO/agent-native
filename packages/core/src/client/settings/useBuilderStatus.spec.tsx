@@ -17,8 +17,8 @@ function setUserAgent(userAgent: string) {
   });
 }
 
-function BuilderConnectProbe() {
-  const flow = useBuilderConnectFlow();
+function BuilderConnectProbe({ popupUrl }: { popupUrl?: string }) {
+  const flow = useBuilderConnectFlow({ popupUrl });
   return (
     <div>
       <button type="button" onClick={flow.start}>
@@ -42,6 +42,14 @@ function createPopupStub() {
 
 const signedCliAuthUrl =
   "https://builder.io/cli-auth?response_type=code&host=agent-native-browser&client_id=Agent%20Native%20Browser&redirect_url=https%3A%2F%2Fagent-workspace.builder.io%2Fdispatch%2F_agent-native%2Fbuilder%2Fcallback%3F_an_state%3Dsigned&preview_url=https%3A%2F%2Fagent-workspace.builder.io%2Fdispatch&framework=agent-native";
+const staleCliAuthUrl = signedCliAuthUrl.replace(
+  "_an_state%3Dsigned",
+  "_an_state%3Dstale",
+);
+const refreshedCliAuthUrl = signedCliAuthUrl.replace(
+  "_an_state%3Dsigned",
+  "_an_state%3Drefreshed",
+);
 
 describe("useBuilderConnectFlow", () => {
   let container: HTMLDivElement;
@@ -104,6 +112,53 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(popup.location.href).toBe("");
     expect(container.textContent).not.toContain("Popup blocked");
+  });
+
+  it("refreshes an un-timestamped signed prop URL before navigating web popups", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+
+    let resolveInitialFetch!: (response: Response) => void;
+    const initialFetch = new Promise<Response>((resolve) => {
+      resolveInitialFetch = resolve;
+    });
+    vi.mocked(fetch)
+      .mockReturnValueOnce(initialFetch)
+      .mockResolvedValue(
+        jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          cliAuthUrl: refreshedCliAuthUrl,
+          connectUrl:
+            "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+          appHost: "https://builder.io",
+          apiHost: "https://api.builder.io",
+          publicKeyConfigured: false,
+          privateKeyConfigured: false,
+        }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe popupUrl={staleCliAuthUrl} />);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "about:blank",
+      "_blank",
+      "width=600,height=700",
+    );
+    expect(popup.location.href).toBe(refreshedCliAuthUrl);
+
+    resolveInitialFetch(jsonResponse({ configured: false }));
   });
 
   it("does not replace the desktop webview when Electron reports a handled popup as null", async () => {

@@ -776,7 +776,10 @@ export function createCoreRoutesPlugin(
       const fetchSite = getHeader(event, "sec-fetch-site");
       if (fetchSite === "same-origin" || fetchSite === "none") return true;
       if (fetchSite) return false; // browser told us it's cross-site/same-site
-      const expected = getOrigin(event).replace(/\/+$/, "");
+      const expected = getBuilderBrowserOriginForEvent(event).replace(
+        /\/+$/,
+        "",
+      );
       const origin = getHeader(event, "origin");
       if (origin) return origin.replace(/\/+$/, "") === expected;
       const referer = getHeader(event, "referer");
@@ -829,7 +832,7 @@ export function createCoreRoutesPlugin(
 
         const requestUrl = new URL(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,
-          getOrigin(event),
+          getBuilderBrowserOriginForEvent(event),
         );
         const connectToken = requestUrl.searchParams.get(BUILDER_CONNECT_PARAM);
         const connectTokenOwner =
@@ -940,7 +943,7 @@ export function createCoreRoutesPlugin(
         // clients, but still send it to Builder immediately and include signed
         // callback state so the callback does not depend on popup cookies.
         const cliAuthUrl = buildBuilderCliAuthUrl(
-          getOrigin(event),
+          getBuilderBrowserOriginForEvent(event),
           signBuilderCallbackState(ownerEmail),
         );
         setResponseStatus(event, 302);

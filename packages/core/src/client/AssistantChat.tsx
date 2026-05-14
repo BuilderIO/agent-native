@@ -1476,7 +1476,10 @@ function ToolCallDisplay({
           <ConnectBuilderCard
             configured={!!parsed.configured}
             builderEnabled={parsed.builderEnabled !== false}
-            connectUrl={parsed.cliAuthUrl || parsed.connectUrl || ""}
+            // Ignore saved cliAuthUrl values from older tool results. They
+            // contain signed callback state and can expire while a chat sits
+            // open; the card's hook fetches a fresh signed URL on mount/click.
+            connectUrl={parsed.connectUrl || ""}
             orgName={parsed.orgName ?? null}
             prompt={typeof parsed.prompt === "string" ? parsed.prompt : ""}
           />
