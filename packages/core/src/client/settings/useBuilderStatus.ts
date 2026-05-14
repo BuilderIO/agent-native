@@ -248,7 +248,9 @@ function isTrustedBuilderConnectMessageOrigin(origin: string): boolean {
       hostname === "builderio.dev" ||
       hostname.endsWith(".builderio.dev") ||
       hostname === "builder.codes" ||
-      hostname.endsWith(".builder.codes")
+      hostname.endsWith(".builder.codes") ||
+      hostname === "agent-native.com" ||
+      hostname.endsWith(".agent-native.com")
     );
   } catch {
     return false;

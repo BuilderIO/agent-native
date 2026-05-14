@@ -25,8 +25,10 @@ import {
   engineToolsToAnthropic,
 } from "./translate-anthropic.js";
 import {
+  clearBuilderCredentialAuthFailure,
   resolveBuilderAuthHeader,
   resolveBuilderCredential,
+  resolveBuilderCredentials,
   getBuilderGatewayBaseUrl,
   recordBuilderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
@@ -219,6 +221,22 @@ class BuilderEngine implements AgentEngine {
       if (!response.ok) {
         yield* emitHttpError(response);
         return;
+      }
+
+      // A successful gateway call proves the connected credentials are valid
+      // again. Clear any prior auth-failure marker so status / chat-card
+      // surfaces stop flagging the connection as broken. This is the only
+      // self-healing path for workspace/env-managed credentials, which never
+      // flow through writeBuilderCredentials.
+      try {
+        const creds = await resolveBuilderCredentials();
+        await clearBuilderCredentialAuthFailure({
+          privateKey: creds.privateKey,
+          publicKey: creds.publicKey,
+        });
+      } catch {
+        // Marker clearing is best-effort; a stale marker just means the user
+        // sees "reconnect Builder" until the next successful call clears it.
       }
 
       const contentType = response.headers.get("content-type") ?? "";

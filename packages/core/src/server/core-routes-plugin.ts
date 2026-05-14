@@ -898,6 +898,7 @@ export function createCoreRoutesPlugin(
             body: "The connect popup did not include a valid signed link for this app.",
             closeHint:
               "Close this popup, refresh the app, and try Connect account again.",
+            parentOrigin: getBuilderBrowserOriginForEvent(event),
           });
         }
 
@@ -942,7 +943,9 @@ export function createCoreRoutesPlugin(
           }).catch(() => {});
           setResponseStatus(event, 503);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-          return createBuilderBrowserCallbackErrorPage(msg);
+          return createBuilderBrowserCallbackErrorPage(msg, {
+            parentOrigin: getBuilderBrowserOriginForEvent(event),
+          });
         }
         await trackBuilderLifecycle(
           event,
@@ -1161,7 +1164,9 @@ export function createCoreRoutesPlugin(
           }).catch(() => {});
           setResponseStatus(event, 503);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-          return createBuilderBrowserCallbackErrorPage(pendingError);
+          return createBuilderBrowserCallbackErrorPage(pendingError, {
+            parentOrigin: getBuilderBrowserOriginForEvent(event),
+          });
         }
 
         if (!pendingValid) {
@@ -1193,7 +1198,9 @@ export function createCoreRoutesPlugin(
           }
           setResponseStatus(event, 403);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-          return createBuilderBrowserCallbackErrorPage(msg);
+          return createBuilderBrowserCallbackErrorPage(msg, {
+            parentOrigin: getBuilderBrowserOriginForEvent(event),
+          });
         }
 
         const privateKey = requestUrl.searchParams.get("p-key");
@@ -1221,7 +1228,9 @@ export function createCoreRoutesPlugin(
           }).catch(() => {});
           setResponseStatus(event, 400);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-          return createBuilderBrowserCallbackErrorPage(msg);
+          return createBuilderBrowserCallbackErrorPage(msg, {
+            parentOrigin: getBuilderBrowserOriginForEvent(event),
+          });
         }
 
         const userId = requestUrl.searchParams.get("user-id");
@@ -1303,7 +1312,9 @@ export function createCoreRoutesPlugin(
           }
           setResponseStatus(event, 500);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-          return createBuilderBrowserCallbackErrorPage(writeError);
+          return createBuilderBrowserCallbackErrorPage(writeError, {
+            parentOrigin: getBuilderBrowserOriginForEvent(event),
+          });
         }
 
         // Clear any legacy disconnect flag and any prior connect-error row
@@ -1334,7 +1345,9 @@ export function createCoreRoutesPlugin(
           },
         );
         setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-        return createBuilderBrowserCallbackPage(previewUrl);
+        return createBuilderBrowserCallbackPage(previewUrl, {
+          parentOrigin: getBuilderBrowserOriginForEvent(event),
+        });
       }),
     );
 

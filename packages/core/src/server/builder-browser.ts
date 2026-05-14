@@ -774,8 +774,27 @@ const BUILDER_CALLBACK_BASE_CSS = `
   }
 `;
 
-export function createBuilderBrowserCallbackPage(previewUrl: string): string {
+function safeOriginFromUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+export function createBuilderBrowserCallbackPage(
+  previewUrl: string,
+  opts: { parentOrigin?: string } = {},
+): string {
   const escapedUrl = JSON.stringify(previewUrl);
+  const parentOrigin =
+    safeOriginFromUrl(opts.parentOrigin) ?? safeOriginFromUrl(previewUrl);
+  // postMessage requires a specific target origin for cross-origin opener
+  // delivery; only fall back to "*" when we have no usable origin (the
+  // BroadcastChannel path on the success page still works for same-origin
+  // openers in that case).
+  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -818,7 +837,7 @@ export function createBuilderBrowserCallbackPage(previewUrl: string): string {
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage(
             { type: "builder-connect-success" },
-            "*",
+            ${escapedTargetOrigin},
           );
         }
       } catch (e) {}
@@ -859,9 +878,12 @@ export function createBuilderBrowserCallbackErrorPage(
     title?: string;
     body?: string;
     closeHint?: string;
+    parentOrigin?: string;
   } = {},
 ): string {
   const escapedMessage = JSON.stringify(message);
+  const parentOrigin = safeOriginFromUrl(opts.parentOrigin);
+  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
   const title = opts.title ?? "Couldn't save Builder connection";
   const body =
     opts.body ??
@@ -912,7 +934,7 @@ export function createBuilderBrowserCallbackErrorPage(
           try {
             window.opener.postMessage(
               { type: "builder-connect-error", message: msg },
-              "*",
+              ${escapedTargetOrigin},
             );
           } catch (e) {}
         }
