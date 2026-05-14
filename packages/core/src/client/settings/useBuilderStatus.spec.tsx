@@ -24,6 +24,10 @@ function BuilderConnectProbe({ popupUrl }: { popupUrl?: string }) {
       <button type="button" onClick={flow.start}>
         Connect
       </button>
+      <output data-testid="status">
+        {flow.configured ? "configured" : "not-configured"}{" "}
+        {flow.connecting ? "connecting" : "idle"}
+      </output>
       <output>{flow.error ?? ""}</output>
     </div>
   );
@@ -159,6 +163,62 @@ describe("useBuilderConnectFlow", () => {
     expect(popup.location.href).toBe(refreshedCliAuthUrl);
 
     resolveInitialFetch(jsonResponse({ configured: false }));
+  });
+
+  it("refreshes status when a Builder preview callback posts success", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          cliAuthUrl: signedCliAuthUrl,
+          connectUrl:
+            "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+          appHost: "https://builder.io",
+          apiHost: "https://api.builder.io",
+          publicKeyConfigured: false,
+          privateKeyConfigured: false,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: "Builder space",
+          cliAuthUrl: signedCliAuthUrl,
+          connectUrl:
+            "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+          appHost: "https://builder.io",
+          apiHost: "https://api.builder.io",
+          publicKeyConfigured: true,
+          privateKeyConfigured: true,
+        }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin:
+            "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
+          data: { type: "builder-connect-success" },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("configured");
   });
 
   it("does not replace the desktop webview when Electron reports a handled popup as null", async () => {

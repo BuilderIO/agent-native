@@ -8,6 +8,7 @@ import {
   BUILDER_STATE_PARAM,
   getBuilderBranchProjectId,
   getBuilderBrowserConnectUrl,
+  getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   isBuilderBranchingEnabled,
   runBuilderAgent,
@@ -370,6 +371,27 @@ describe("Builder callback CSRF state", () => {
         "x-forwarded-proto": "https",
       });
 
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz/dispatch/_agent-native/builder/connect",
+      );
+    });
+
+    it("uses Fusion's public preview origin instead of a loopback gateway for Builder connect", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
+      process.env.FUSION_ENV_ORIGIN =
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz";
+      process.env.APP_BASE_PATH = "/dispatch";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+      });
+
+      expect(getBuilderBrowserOriginForEvent(event)).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
+      );
       expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
         "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz/dispatch/_agent-native/builder/connect",
       );
