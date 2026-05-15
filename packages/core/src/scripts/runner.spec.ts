@@ -7,8 +7,50 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
-const tsxBin = path.join(repoRoot, "node_modules", ".bin", "tsx");
 const runnerSource = path.resolve(__dirname, "runner.ts");
+
+// `tsx` is a transitive (not declared) dependency, so the hoisted
+// `node_modules/.bin/tsx` shim exists under a local non-strict install but
+// NOT under CI's `pnpm install --frozen-lockfile` strict layout — spawning
+// the missing shim returns `status: null` (ENOENT). Resolve the real CLI
+// entry from the pnpm virtual store (always present when tsx is locked) and
+// run it through `process.execPath` so the spec is layout-independent.
+function resolveTsxCli(): string {
+  const binCandidates = [
+    path.join(repoRoot, "node_modules", ".bin", "tsx"),
+    path.join(repoRoot, "packages", "core", "node_modules", ".bin", "tsx"),
+  ];
+  for (const candidate of binCandidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  const pnpmDir = path.join(repoRoot, "node_modules", ".pnpm");
+  if (fs.existsSync(pnpmDir)) {
+    const tsxEntry = fs
+      .readdirSync(pnpmDir)
+      .filter((name) => name.startsWith("tsx@"))
+      .sort()
+      .pop();
+    if (tsxEntry) {
+      const cli = path.join(
+        pnpmDir,
+        tsxEntry,
+        "node_modules",
+        "tsx",
+        "dist",
+        "cli.mjs",
+      );
+      if (fs.existsSync(cli)) return cli;
+    }
+  }
+  return binCandidates[0];
+}
+
+const tsxCli = resolveTsxCli();
+// A `.bin` shim is directly executable; a resolved `cli.mjs` must be run via
+// node. Normalize both into a (command, leadingArgs) pair.
+const tsxIsBinShim = !tsxCli.endsWith(".mjs") && !tsxCli.endsWith(".js");
+const tsxCommand = tsxIsBinShim ? tsxCli : process.execPath;
+const tsxLeadingArgs = tsxIsBinShim ? [] : [tsxCli];
 
 describe("runScript package actions", () => {
   let tmpDir: string;
@@ -46,14 +88,18 @@ describe("runScript package actions", () => {
   });
 
   it("lists package actions in help output", () => {
-    const result = spawnSync(tsxBin, ["actions/run.ts", "--help"], {
-      cwd: tmpDir,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        AGENT_USER_EMAIL: "owner@example.test",
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "--help"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
       },
-    });
+    );
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("Fixture package actions:");
@@ -62,8 +108,9 @@ describe("runScript package actions", () => {
 
   it("runs a package action when no local action exists", () => {
     const result = spawnSync(
-      tsxBin,
+      tsxCommand,
       [
+        ...tsxLeadingArgs,
         "actions/run.ts",
         "package-action",
         "--enabled",
