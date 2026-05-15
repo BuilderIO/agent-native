@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import {
+  readBrainAgentGuidance,
   searchKnowledgeRows,
   serializeKnowledge,
 } from "../server/lib/brain.js";
@@ -53,6 +54,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async ({ question }) => {
+    const { guidance } = await readBrainAgentGuidance();
     const seen = new Set<string>();
     const rows = [];
     for (const facet of facetsFromQuestion(question)) {
@@ -70,7 +72,11 @@ export default defineAction({
       (total, item) => total + `${item.summary} ${item.body}`.trim().length,
       0,
     );
-    if (!knowledge.length || knowledgeTextLength < 260) {
+    const allowRawCaptureFallback =
+      guidance.retrieval.rawCaptureFallback === "allowed-leads" ||
+      (guidance.retrieval.rawCaptureFallback === "thin-results" &&
+        (!knowledge.length || knowledgeTextLength < 260));
+    if (allowRawCaptureFallback) {
       const seenCaptures = new Set<string>();
       for (const facet of facetsFromQuestion(question)) {
         const matches = await searchEverythingRows({
@@ -90,11 +96,15 @@ export default defineAction({
     if (!knowledge.length && !captureFallback.length) {
       return {
         answer:
-          "I could not find approved Brain knowledge or matching raw captures for that question yet.",
+          guidance.retrieval.rawCaptureFallback === "never-answer"
+            ? "I could not find enough reviewed Brain knowledge for that question yet."
+            : "I could not find approved Brain knowledge or matching raw captures for that question yet.",
         citations: [],
         knowledge: [],
         captures: [],
         results: [],
+        policy: guidance.retrieval,
+        responseGuidance: guidance.response,
       };
     }
 
@@ -116,6 +126,19 @@ export default defineAction({
       url: item.sourceUrl,
     }));
     const answerParts = [];
+    const hasCitations = knowledgeCitations.length || captureCitations.length;
+    if (guidance.retrieval.requireCitations && !hasCitations) {
+      return {
+        answer:
+          "I found possible Brain context, but workspace settings require citations and these results did not include usable evidence.",
+        citations: [],
+        knowledge,
+        captures: captureFallback,
+        results: captureFallback,
+        policy: guidance.retrieval,
+        responseGuidance: guidance.response,
+      };
+    }
     if (knowledge.length) {
       answerParts.push(
         knowledge
@@ -139,11 +162,30 @@ export default defineAction({
     }
 
     return {
-      answer: answerParts.join("\n\n"),
+      answer: formatAnswer(answerParts.join("\n\n"), guidance),
       citations: [...knowledgeCitations, ...captureCitations],
       knowledge,
       captures: captureFallback,
       results: captureFallback,
+      policy: guidance.retrieval,
+      responseGuidance: guidance.response,
     };
   },
 });
+
+function formatAnswer(
+  answer: string,
+  guidance: Awaited<ReturnType<typeof readBrainAgentGuidance>>["guidance"],
+) {
+  switch (guidance.identity.tone) {
+    case "friendly":
+      return `Here's what ${guidance.identity.assistantName} found:\n\n${answer}`;
+    case "formal":
+      return `Based on ${guidance.identity.companyName ?? "the workspace"} Brain records:\n\n${answer}`;
+    case "technical":
+      return `Relevant ${guidance.identity.assistantName} records:\n\n${answer}`;
+    case "direct":
+    default:
+      return answer;
+  }
+}

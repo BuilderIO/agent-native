@@ -731,8 +731,27 @@ function getActiveWebviewContents() {
 }
 
 function toggleWebviewDevTools() {
+  if (activeAppId === CODE_AGENTS_SURFACE_ID) {
+    const target = mainWindow?.webContents;
+    if (!target || target.isDestroyed()) return;
+    if (target.isDevToolsOpened()) {
+      target.closeDevTools();
+    } else {
+      target.openDevTools({ mode: "detach" });
+    }
+    return;
+  }
   const target = getActiveWebviewContents();
-  if (!target) return;
+  if (!target) {
+    const shellTarget = mainWindow?.webContents;
+    if (!shellTarget || shellTarget.isDestroyed()) return;
+    if (shellTarget.isDevToolsOpened()) {
+      shellTarget.closeDevTools();
+    } else {
+      shellTarget.openDevTools({ mode: "detach" });
+    }
+    return;
+  }
   if (target.isDevToolsOpened()) {
     target.closeDevTools();
   } else {
@@ -1543,6 +1562,17 @@ function titleFromPrompt(prompt: string): string {
   return normalized.length > 72 ? `${normalized.slice(0, 69)}...` : normalized;
 }
 
+function formatCodeAgentModel(model: string, effort?: string): string {
+  const label = model
+    .replace(/^ai-sdk:/, "")
+    .replace(/-/g, " ")
+    .replace(/\bgpt\b/i, "GPT")
+    .replace(/\bclaude\b/i, "Claude")
+    .replace(/\bgemini\b/i, "Gemini");
+  if (!effort || effort === "auto") return label;
+  return `${label} / ${effort}`;
+}
+
 function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
   const payload = isObject(input) ? input : {};
   const prompt = firstStringValue(payload.prompt) ?? "";
@@ -1562,6 +1592,9 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
   const permissionMode =
     getCodeAgentPermissionMode(firstStringValue(payload.permissionMode)) ??
     DEFAULT_CODE_AGENT_PERMISSION_MODE;
+  const engine = firstStringValue(payload.engine);
+  const model = firstStringValue(payload.model);
+  const effort = firstStringValue(payload.effort);
   const title = titleFromPrompt(prompt);
   const run: CodeAgentRun = {
     id: runId,
@@ -1580,12 +1613,18 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
       { label: "Goal", value: goal.slashCommand },
       { label: "Working directory", value: cwd },
       { label: "Mode", value: permissionMode },
+      ...(model
+        ? [{ label: "Model", value: formatCodeAgentModel(model, effort) }]
+        : []),
     ],
     createdAt: now,
     updatedAt: now,
     metadata: {
       cwd,
       permissionMode,
+      engine,
+      model,
+      effort,
       source: "desktop",
       queued: true,
       initialPrompt: prompt,
@@ -1596,6 +1635,12 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
     ...run,
     cwd,
     permissionMode,
+    metadata: {
+      ...(run.metadata ?? {}),
+      engine,
+      model,
+      effort,
+    },
   };
   const runFile = codeAgentRunFilePath(runId);
   if (!runFile) {
@@ -1638,6 +1683,9 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
   const permissionMode = requestedPermissionMode
     ? getCodeAgentPermissionMode(requestedPermissionMode)
     : undefined;
+  const engine = firstStringValue(payload.engine);
+  const model = firstStringValue(payload.model);
+  const effort = firstStringValue(payload.effort);
   if (!runId) {
     return {
       ok: false,
@@ -1671,6 +1719,9 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
       metadata: {
         lastDesktopFollowUpAt: now,
         ...(permissionMode ? { permissionMode } : {}),
+        ...(engine ? { engine } : {}),
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
       },
     });
     if ((goalId ?? "task") === "task") {
@@ -1718,6 +1769,9 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   const permissionMode = requestedPermissionMode
     ? getCodeAgentPermissionMode(requestedPermissionMode)
     : undefined;
+  const engine = firstStringValue(payload.engine);
+  const model = firstStringValue(payload.model);
+  const effort = firstStringValue(payload.effort);
   if (requestedPermissionMode && !permissionMode) {
     return {
       ok: false,
@@ -1729,7 +1783,20 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   if (permissionMode) {
     touchCodeAgentRunRecord(runId, {
       permissionMode,
-      metadata: { permissionMode },
+      metadata: {
+        permissionMode,
+        ...(engine ? { engine } : {}),
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+      },
+    });
+  } else if (engine || model || effort) {
+    touchCodeAgentRunRecord(runId, {
+      metadata: {
+        ...(engine ? { engine } : {}),
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+      },
     });
   }
 

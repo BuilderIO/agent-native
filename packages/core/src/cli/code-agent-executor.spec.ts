@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("executeCodeAgentRun", () => {
-  it("runs a file-backed Code Agent session with a fake engine", async () => {
+  it("runs a file-backed Agent-Native Code session with a fake engine", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE =
       "I checked the workspace and found the issue.";

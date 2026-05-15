@@ -99,6 +99,142 @@ export async function writeBrainSettings(
   return next;
 }
 
+export interface BrainAgentGuidance {
+  identity: {
+    assistantName: string;
+    companyName: string | null;
+    tone: NonNullable<BrainSettings["assistantTone"]>;
+  };
+  retrieval: {
+    sourcePolicy: NonNullable<BrainSettings["sourcePolicy"]>;
+    requireCitations: boolean;
+    approvedKnowledgeFirst: boolean;
+    rawCaptureFallback: "never-answer" | "thin-results" | "allowed-leads";
+    instructions: string[];
+  };
+  distillation: {
+    defaultPublishTier: BrainPublishTier;
+    requireApprovalForCompanyKnowledge: boolean;
+    autoRedactEmails: boolean;
+    instructions: string;
+    rules: string[];
+  };
+  response: {
+    toneInstruction: string;
+    citationInstruction: string;
+  };
+}
+
+function toneInstruction(tone: NonNullable<BrainSettings["assistantTone"]>) {
+  switch (tone) {
+    case "friendly":
+      return "Use a warm, concise, helpful tone.";
+    case "formal":
+      return "Use a polished, formal tone suitable for company records.";
+    case "technical":
+      return "Use a precise technical tone and preserve implementation details.";
+    case "direct":
+    default:
+      return "Use a direct, concise tone.";
+  }
+}
+
+function retrievalPolicy(
+  sourcePolicy: NonNullable<BrainSettings["sourcePolicy"]>,
+) {
+  switch (sourcePolicy) {
+    case "strict":
+      return {
+        rawCaptureFallback: "never-answer" as const,
+        instructions: [
+          "Answer from reviewed Brain knowledge only.",
+          "Use raw captures for distillation and exact quote validation, not as answer support.",
+          "If reviewed knowledge is missing or thin, say Brain does not have enough reviewed support.",
+        ],
+      };
+    case "exploratory":
+      return {
+        rawCaptureFallback: "allowed-leads" as const,
+        instructions: [
+          "Start with reviewed Brain knowledge, then include accessible raw captures and source records as clearly labeled leads.",
+          "Never present raw capture matches as approved company memory.",
+          "Say when a result is unreviewed and needs distillation or review.",
+        ],
+      };
+    case "balanced":
+    default:
+      return {
+        rawCaptureFallback: "thin-results" as const,
+        instructions: [
+          "Prefer reviewed Brain knowledge.",
+          "Use accessible raw captures only when reviewed knowledge is missing or too thin, and label them as raw capture matches.",
+          "Do not invent facts beyond returned Brain results.",
+        ],
+      };
+  }
+}
+
+export function buildBrainAgentGuidance(
+  settings: BrainSettings,
+): BrainAgentGuidance {
+  const assistantName = settings.assistantName?.trim() || "Brain";
+  const companyName = settings.companyName?.trim() || null;
+  const tone = settings.assistantTone ?? "direct";
+  const sourcePolicy = settings.sourcePolicy ?? "balanced";
+  const retrieval = retrievalPolicy(sourcePolicy);
+  const requireCitations = settings.requireCitations !== false;
+  const distillationInstructions =
+    settings.distillationInstructions?.trim() ||
+    DEFAULT_BRAIN_SETTINGS.distillationInstructions;
+
+  return {
+    identity: {
+      assistantName,
+      companyName,
+      tone,
+    },
+    retrieval: {
+      sourcePolicy,
+      requireCitations,
+      approvedKnowledgeFirst: true,
+      rawCaptureFallback: retrieval.rawCaptureFallback,
+      instructions: retrieval.instructions,
+    },
+    distillation: {
+      defaultPublishTier: settings.defaultPublishTier,
+      requireApprovalForCompanyKnowledge:
+        settings.requireApprovalForCompanyKnowledge,
+      autoRedactEmails: settings.autoRedactEmails,
+      instructions: distillationInstructions,
+      rules: [
+        "Extract durable, reusable institutional knowledge only.",
+        "Preserve short exact quotes as evidence.",
+        `Use ${settings.defaultPublishTier} as the default publish tier unless the user or capture context clearly calls for another tier.`,
+        settings.requireApprovalForCompanyKnowledge
+          ? "Expect company-tier writes to route through review unless write-knowledge can safely publish them."
+          : "Company-tier writes may publish directly when write-knowledge accepts them.",
+        settings.autoRedactEmails
+          ? "Email addresses are auto-redacted by write-knowledge; still avoid adding unnecessary personal data."
+          : "Email auto-redaction is disabled; avoid including personal data unless it is essential evidence.",
+      ],
+    },
+    response: {
+      toneInstruction: toneInstruction(tone),
+      citationInstruction: requireCitations
+        ? "Cite Brain evidence or source URLs for factual claims; say when support is missing."
+        : "Include citations when helpful, but concise uncited summaries are allowed by workspace settings.",
+    },
+  };
+}
+
+export async function readBrainAgentGuidance() {
+  const settings = await readBrainSettings();
+  return {
+    settings,
+    guidance: buildBrainAgentGuidance(settings),
+  };
+}
+
 export function serializeSource(row: typeof schema.brainSources.$inferSelect) {
   return {
     id: row.id,
@@ -811,7 +947,12 @@ export async function searchKnowledgeRows(args: {
 export async function readBrainScreen() {
   const navigation = await readAppState("navigation").catch(() => null);
   const nav = navigation as any;
-  const screen: Record<string, unknown> = { navigation };
+  const { settings, guidance } = await readBrainAgentGuidance();
+  const screen: Record<string, unknown> = {
+    navigation,
+    settings,
+    guidance,
+  };
 
   if (nav?.sourceId) {
     const source = await resolveAccess("brain-source", nav.sourceId);

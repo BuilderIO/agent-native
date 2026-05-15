@@ -130,6 +130,7 @@ export default function SettingsRoute() {
         actions={
           <Button
             size="sm"
+            className="w-full sm:w-auto"
             disabled={saveSettings.isPending || !isDirty}
             onClick={() => saveSettings.mutate(settings)}
           >
@@ -143,7 +144,7 @@ export default function SettingsRoute() {
         }
       />
 
-      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-7">
+      <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-7">
         <main className="grid gap-5">
           <Card>
             <CardHeader>
@@ -536,14 +537,18 @@ function SettingSwitch({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between gap-4 rounded-md border border-border p-4">
-      <span>
+    <label className="flex flex-col items-start justify-between gap-4 rounded-md border border-border p-4 sm:flex-row sm:items-center">
+      <span className="min-w-0">
         <span className="block text-sm font-medium">{label}</span>
         <span className="mt-1 block text-xs leading-5 text-muted-foreground">
           {description}
         </span>
       </span>
-      <Switch checked={checked} onCheckedChange={onChange} />
+      <Switch
+        className="shrink-0"
+        checked={checked}
+        onCheckedChange={onChange}
+      />
     </label>
   );
 }
@@ -551,7 +556,7 @@ function SettingSwitch({
 function PolicyRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-muted-foreground">{label}</span>
       <span className="max-w-40 truncate text-right font-medium capitalize">
         {value.replace(/_/g, " ")}
       </span>

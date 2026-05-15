@@ -26,7 +26,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Sidebar />
       </div>
       <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-        <SheetContent side="left" className="w-[260px] p-0">
+        <SheetContent side="left" className="w-[min(18rem,88vw)] p-0">
           <SheetTitle className="sr-only">Brain navigation</SheetTitle>
           <SheetDescription className="sr-only">
             Navigate between Brain work surfaces.
@@ -51,7 +51,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </Button>
         <span className="text-sm font-semibold">Brain</span>
       </div>
-      <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+      <main className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
+        {children}
+      </main>
     </div>
   );
 

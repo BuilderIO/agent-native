@@ -606,6 +606,31 @@ export interface BrainSettings {
 
 export interface SettingsResponse {
   settings?: BrainSettings;
+  guidance?: {
+    identity: {
+      assistantName: string;
+      companyName: string | null;
+      tone: NonNullable<BrainSettings["assistantTone"]>;
+    };
+    retrieval: {
+      sourcePolicy: NonNullable<BrainSettings["sourcePolicy"]>;
+      requireCitations: boolean;
+      approvedKnowledgeFirst: boolean;
+      rawCaptureFallback: "never-answer" | "thin-results" | "allowed-leads";
+      instructions: string[];
+    };
+    distillation: {
+      defaultPublishTier: NonNullable<BrainSettings["defaultPublishTier"]>;
+      requireApprovalForCompanyKnowledge: boolean;
+      autoRedactEmails: boolean;
+      instructions: string;
+      rules: string[];
+    };
+    response: {
+      toneInstruction: string;
+      citationInstruction: string;
+    };
+  };
 }
 
 export interface DemoSeedResponse {

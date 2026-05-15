@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import {
+  readBrainAgentGuidance,
   searchKnowledgeRows,
   serializeKnowledge,
 } from "../server/lib/brain.js";
@@ -27,7 +28,13 @@ export default defineAction({
     isConsequential: false,
   },
   run: async (args) => {
+    const { guidance } = await readBrainAgentGuidance();
     const rows = await searchKnowledgeRows(args);
-    return { count: rows.length, knowledge: rows.map(serializeKnowledge) };
+    return {
+      count: rows.length,
+      policy: guidance.retrieval,
+      responseGuidance: guidance.response,
+      knowledge: rows.map(serializeKnowledge),
+    };
   },
 });

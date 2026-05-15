@@ -23,6 +23,10 @@ import type {
 import type { AgentChatEvent } from "../agent/types.js";
 import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
 import {
+  isReasoningEffort,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
+import {
   appendCodeAgentTranscriptEvent,
   getCodeAgentRunRecord,
   listCodeAgentTranscriptEvents,
@@ -37,6 +41,7 @@ export interface ExecuteCodeAgentRunOptions {
   appendUserEvent?: boolean;
   engine?: AgentEngine;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   stdout?: NodeJS.WritableStream;
   signal?: AbortSignal;
 }
@@ -72,7 +77,7 @@ export async function executeCodeAgentRun(
     appendCodeAgentTranscriptEvent({
       runId: existing.id,
       kind: "status",
-      message: "No prompt was found for this Code Agents run.",
+      message: "No prompt was found for this Agent-Native Code run.",
       metadata: { status: "errored", phase: "missing-prompt" },
     });
     return updateCodeAgentRunRecord(existing.id, {
@@ -113,11 +118,13 @@ export async function executeCodeAgentRun(
   appendCodeAgentTranscriptEvent({
     runId: existing.id,
     kind: "status",
-    message: "Code Agent run started.",
+    message: "Agent-Native Code run started.",
     metadata: { status: "running", phase: "executing" },
   });
 
-  const engine = options.engine ?? (await resolveExecutorEngine());
+  const requestedEngine = metadataString(existing, "engine");
+  const engine =
+    options.engine ?? (await resolveExecutorEngine(requestedEngine));
   if (!engine) {
     const message =
       "No LLM provider key was found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or another supported provider key and resume this run.";
@@ -143,9 +150,12 @@ export async function executeCodeAgentRun(
 
   const model =
     options.model ??
+    metadataString(existing, "model") ??
     process.env.AGENT_MODEL ??
     (await getStoredModelForEngine(engine).catch(() => undefined)) ??
     engine.defaultModel;
+  const reasoningEffort =
+    options.reasoningEffort ?? metadataReasoningEffort(existing);
   const cwd = existing.cwd || process.cwd();
   const permissionMode = existing.permissionMode ?? "full-auto";
   const actions = createLocalCodeAgentActions(cwd, permissionMode, existing.id);
@@ -218,6 +228,7 @@ export async function executeCodeAgentRun(
       send,
       signal: controller.signal,
       maxIterations: 12,
+      reasoningEffort,
     });
     if (assistantText.trim()) {
       options.stdout?.write("\n");
@@ -225,12 +236,17 @@ export async function executeCodeAgentRun(
         runId: existing.id,
         kind: "system",
         message: assistantText.trim(),
-        metadata: { role: "assistant", model, engine: engine.name },
+        metadata: {
+          role: "assistant",
+          model,
+          engine: engine.name,
+          reasoningEffort,
+        },
       });
     }
     const approvalPending = getPendingApproval(existing.id);
     if (approvalPending) {
-      const message = `Code Agent run paused for approval: ${approvalPending.reason}`;
+      const message = `Agent-Native Code run paused for approval: ${approvalPending.reason}`;
       options.stdout?.write(`\n${message}\n`);
       appendCodeAgentTranscriptEvent({
         runId: existing.id,
@@ -258,7 +274,7 @@ export async function executeCodeAgentRun(
     appendCodeAgentTranscriptEvent({
       runId: existing.id,
       kind: "status",
-      message: "Code Agent run completed.",
+      message: "Agent-Native Code run completed.",
       metadata: { status: "completed", phase: "complete" },
     });
     return updateCodeAgentRunRecord(existing.id, {
@@ -275,16 +291,17 @@ export async function executeCodeAgentRun(
         executionCompletedAt: new Date().toISOString(),
         engine: engine.name,
         model,
+        reasoningEffort,
         permissionMode,
       },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    options.stdout?.write(`\nCode Agent run failed: ${message}\n`);
+    options.stdout?.write(`\nAgent-Native Code run failed: ${message}\n`);
     appendCodeAgentTranscriptEvent({
       runId: existing.id,
       kind: "status",
-      message: `Code Agent run failed: ${message}`,
+      message: `Agent-Native Code run failed: ${message}`,
       metadata: { status: "errored", phase: "error" },
     });
     return updateCodeAgentRunRecord(existing.id, {
@@ -419,14 +436,33 @@ function latestUserPrompt(runId: string): string {
   return "";
 }
 
-async function resolveExecutorEngine(): Promise<AgentEngine | null> {
+function metadataString(
+  run: CodeAgentRunRecord,
+  key: string,
+): string | undefined {
+  const value = run.metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function metadataReasoningEffort(
+  run: CodeAgentRunRecord,
+): ReasoningEffort | undefined {
+  const value = run.metadata?.reasoningEffort ?? run.metadata?.effort;
+  return isReasoningEffort(value) && value !== "auto" ? value : undefined;
+}
+
+async function resolveExecutorEngine(
+  requestedEngine?: string,
+): Promise<AgentEngine | null> {
   const fakeText = process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE;
   if (fakeText !== undefined) {
     return createFakeCodeAgentEngine(fakeText || "Done.");
   }
   registerBuiltinEngines();
   if (!hasAnyProviderCredential()) return null;
-  return resolveEngine({ engineOption: process.env.AGENT_ENGINE });
+  return resolveEngine({
+    engineOption: requestedEngine ?? process.env.AGENT_ENGINE,
+  });
 }
 
 function hasAnyProviderCredential(): boolean {
@@ -440,7 +476,7 @@ function hasAnyProviderCredential(): boolean {
 function createFakeCodeAgentEngine(text: string): AgentEngine {
   return {
     name: "fake-code-agent",
-    label: "Fake Code Agent",
+    label: "Fake Agent-Native Code",
     defaultModel: "fake-code-agent",
     supportedModels: ["fake-code-agent"],
     capabilities: {
@@ -687,7 +723,7 @@ function createLocalCodeAgentActions(
         if (!command) return "Error: command is required.";
         const permission = classifyCodeAgentCommandPermission(command);
         if (permission.kind === "forbidden") {
-          return `Error: command is blocked by Code Agents policy: ${permission.reason}`;
+          return `Error: command is blocked by Agent-Native Code policy: ${permission.reason}`;
         }
         if (permission.kind === "approval-required") {
           const approval = requestCodeAgentApproval(runId, {
@@ -700,7 +736,7 @@ function createLocalCodeAgentActions(
             `Approval required before running this command: ${permission.reason}.`,
             `Approval id: ${approval.id}`,
             `Command: ${command}`,
-            "The run is paused; approve from the Code Agents UI/CLI if this command is intentional.",
+            "The run is paused; approve from the Agent-Native Code UI/CLI if this command is intentional.",
           ].join("\n");
         }
         const timeoutMs = Number(args.timeoutMs);

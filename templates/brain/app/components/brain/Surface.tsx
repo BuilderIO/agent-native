@@ -22,19 +22,21 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <header className="flex flex-col gap-4 border-b border-border bg-card px-5 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-7">
+    <header className="flex flex-col gap-4 border-b border-border bg-card px-4 py-5 sm:px-5 lg:flex-row lg:items-center lg:justify-between lg:px-7">
       <div className="min-w-0">
         <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
           {eyebrow}
         </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-normal text-foreground">
+        <h1 className="mt-1 text-2xl font-semibold tracking-normal text-foreground break-words">
           {title}
         </h1>
         <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
           {description}
         </p>
       </div>
-      {actions ? <div className="shrink-0">{actions}</div> : null}
+      {actions ? (
+        <div className="w-full min-w-0 shrink-0 sm:w-auto">{actions}</div>
+      ) : null}
     </header>
   );
 }
@@ -100,7 +102,7 @@ export function MetricCard({
           <span
             className={cn(
               "mb-1 h-2 w-2 rounded-full",
-              tone === "good" && "bg-emerald-500",
+              tone === "good" && "bg-primary",
               tone === "warning" && "bg-amber-500",
               tone === "danger" && "bg-destructive",
               tone === "neutral" && "bg-muted-foreground",
@@ -134,9 +136,9 @@ export function StatusBadge({ status }: { status: string }) {
     <Badge
       variant="outline"
       className={cn(
-        "gap-1.5 capitalize",
+        "max-w-full gap-1.5 capitalize",
         (normalized.includes("approved") || normalized.includes("healthy")) &&
-          "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+          "border-border bg-secondary text-secondary-foreground",
         (normalized.includes("review") ||
           normalized.includes("degraded") ||
           normalized.includes("stale")) &&

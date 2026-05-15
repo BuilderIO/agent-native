@@ -451,6 +451,15 @@ body {
   min-width: 0;
 }
 
+.code-agents-shell-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  min-width: 0;
+  min-height: 0;
+  background: var(--shell-bg);
+}
+
 /* ─── Webview slot ───────────────────────────────────────────── */
 /* Each slot is absolutely positioned so tabs stack on top of each
    other. Electron <webview> is a native guest surface on macOS, and
@@ -473,6 +482,13 @@ body {
 }
 
 .webview-slot--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-200vw, 0, 0);
+}
+
+.content-area--code-agents .webview-slot {
+  z-index: 0;
   opacity: 0;
   pointer-events: none;
   transform: translate3d(-200vw, 0, 0);

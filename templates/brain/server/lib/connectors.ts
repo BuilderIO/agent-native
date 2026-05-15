@@ -1,8 +1,8 @@
 import { and, desc, eq } from "drizzle-orm";
-import { resolveCredential } from "@agent-native/core/credentials";
 import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../db/index.js";
+import { resolveSourceCredential } from "./source-credentials.js";
 import {
   createCapture,
   nanoid,
@@ -592,6 +592,7 @@ function isFixtureConfig(config: Record<string, unknown>) {
 async function requireConnectorCredential(
   key: string,
   label: string,
+  provider: BrainSourceProvider,
 ): Promise<string> {
   const ctx = getCredentialContext();
   if (!ctx) {
@@ -599,7 +600,7 @@ async function requireConnectorCredential(
       `${label} sync requires an authenticated credential context`,
     );
   }
-  const value = await resolveCredential(key, ctx);
+  const value = await resolveSourceCredential({ provider, key, ctx });
   if (!value) {
     throw new Error(`${label} credential ${key} is not configured`);
   }
@@ -805,7 +806,11 @@ export async function testSlackConnection(
     resolveNames?: boolean;
   } = {},
 ) {
-  const token = await requireConnectorCredential("SLACK_BOT_TOKEN", "Slack");
+  const token = await requireConnectorCredential(
+    "SLACK_BOT_TOKEN",
+    "Slack",
+    "slack",
+  );
   const auth = await slackApi<SlackAuthTestResponse>(token, "auth.test");
   const channelRefs = Array.from(
     new Set(
@@ -1808,7 +1813,11 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
   };
 
   try {
-    const token = await requireConnectorCredential("SLACK_BOT_TOKEN", "Slack");
+    const token = await requireConnectorCredential(
+      "SLACK_BOT_TOKEN",
+      "Slack",
+      "slack",
+    );
     if (!channelRefs.length) {
       throw new Error(
         "Slack source must configure channelIds, channels, or allowedChannels",
@@ -2036,6 +2045,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
     const token = await requireConnectorCredential(
       "GRANOLA_API_KEY",
       "Granola",
+      "granola",
     );
     let nextPageCursor = cursor.cursor ?? undefined;
     let maxUpdatedAt = updatedAfter;
@@ -2278,7 +2288,11 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
   };
 
   try {
-    const token = await requireConnectorCredential("GITHUB_TOKEN", "GitHub");
+    const token = await requireConnectorCredential(
+      "GITHUB_TOKEN",
+      "GitHub",
+      "github",
+    );
     const linkedRefs = await githubRefsFromLinkedSources(config, {
       captureLimit: linkedCaptureLimit,
       refLimit: linkedRefLimit,

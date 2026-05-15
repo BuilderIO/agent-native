@@ -319,6 +319,7 @@ vi.mock("@agent-native/core/server", () => ({
     userEmail: mocks.userEmail,
     orgId: mocks.orgId,
   }),
+  resolveSecret: vi.fn(async () => null),
   readBody: vi.fn(async (event: { body?: unknown }) => event.body),
 }));
 
@@ -332,6 +333,15 @@ vi.mock("h3", () => ({
 
 vi.mock("@agent-native/core/credentials", () => ({
   resolveCredential: vi.fn(async () => "test-token"),
+}));
+
+vi.mock("@agent-native/core/workspace-connections", () => ({
+  listWorkspaceConnections: vi.fn(async () => []),
+  listWorkspaceConnectionGrants: vi.fn(async () => []),
+}));
+
+vi.mock("@agent-native/core/secrets", () => ({
+  readAppSecret: vi.fn(async () => null),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -393,6 +403,7 @@ import getCaptureAction from "../../actions/get-capture.js";
 import listCapturesAction from "../../actions/list-captures.js";
 import {
   applyRedactions,
+  buildBrainAgentGuidance,
   createCapture,
   serializeSource,
   sha256Hex,
@@ -479,6 +490,34 @@ function seedCapture(overrides: Row = {}) {
 beforeEach(resetMocks);
 
 describe("Brain memory quality gates", () => {
+  it("turns settings into retrieval and distillation guidance", () => {
+    const guidance = buildBrainAgentGuidance({
+      companyName: "Acme",
+      assistantName: "Atlas",
+      assistantTone: "technical",
+      sourcePolicy: "strict",
+      requireApprovalForCompanyKnowledge: true,
+      autoRedactEmails: false,
+      defaultPublishTier: "team",
+      distillationInstructions: "Only extract launch decisions.",
+      connectorPollMinutes: 30,
+      requireCitations: true,
+    });
+
+    expect(guidance.identity).toEqual({
+      assistantName: "Atlas",
+      companyName: "Acme",
+      tone: "technical",
+    });
+    expect(guidance.retrieval.rawCaptureFallback).toBe("never-answer");
+    expect(guidance.retrieval.requireCitations).toBe(true);
+    expect(guidance.distillation.defaultPublishTier).toBe("team");
+    expect(guidance.distillation.instructions).toBe(
+      "Only extract launch decisions.",
+    );
+    expect(guidance.response.toneInstruction).toContain("technical");
+  });
+
   it("rejects evidence quotes that are not exact capture substrings", async () => {
     seedSource();
     seedCapture();

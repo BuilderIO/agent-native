@@ -12,6 +12,7 @@ import {
   toUiTranscriptEvent,
   truncateForDisplay,
 } from "./_code-agent-ui.js";
+import type { CodeAgentReasoningEffort } from "@agent-native/code-agents-ui/types";
 
 export default defineAction({
   description:
@@ -20,12 +21,19 @@ export default defineAction({
     goalId: z.string().optional().default("task"),
     prompt: z.string().min(1),
     permissionMode: z.string().optional(),
+    engine: z.string().optional(),
+    model: z.string().optional(),
+    effort: z.string().optional(),
   }),
   run: async (args) => {
     const permissionMode =
       normalizeCodeAgentPermissionMode(args.permissionMode) ?? "full-auto";
     const prompt = args.prompt.trim();
     const goalId = args.goalId || "task";
+    const effort =
+      args.effort === "auto"
+        ? undefined
+        : (args.effort as CodeAgentReasoningEffort | undefined);
     const run = createCodeAgentRunRecord({
       goalId,
       title: titleFromPrompt(prompt),
@@ -47,12 +55,23 @@ export default defineAction({
           label: "Mode",
           value: permissionMode === "read-only" ? "Plan mode" : "Auto mode",
         },
+        ...(args.model
+          ? [
+              {
+                label: "Model",
+                value: `${args.model}${args.effort ? ` / ${args.effort}` : ""}`,
+              },
+            ]
+          : []),
       ],
       cwd: process.cwd(),
       metadata: {
         prompt,
         source: "code-template",
         permissionMode,
+        engine: args.engine,
+        model: args.model,
+        effort: args.effort,
       },
     });
     const event = appendCodeAgentTranscriptEvent({
@@ -74,6 +93,8 @@ export default defineAction({
       runId: run.id,
       prompt,
       appendUserEvent: false,
+      model: args.model,
+      reasoningEffort: effort,
     });
     return {
       ok: true,

@@ -1,11 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { readBrainSettings } from "../server/lib/brain.js";
+import { readBrainAgentGuidance } from "../server/lib/brain.js";
 
 export default defineAction({
-  description: "Get Brain template settings.",
+  description:
+    "Get Brain template settings plus the effective retrieval, citation, and distillation guidance agents should apply.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
-  run: async () => ({ settings: await readBrainSettings() }),
+  run: async () => readBrainAgentGuidance(),
 });

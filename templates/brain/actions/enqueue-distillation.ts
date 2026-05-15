@@ -8,6 +8,7 @@ import {
   nanoid,
   nowIso,
   parseJson,
+  readBrainAgentGuidance,
   serializeDistillationQueue,
   stableJson,
 } from "../server/lib/brain.js";
@@ -19,6 +20,7 @@ async function writeDistillationRequest(values: {
   sourceId: string;
   requestedAt: string;
   instructions?: string | null;
+  guidance: Awaited<ReturnType<typeof readBrainAgentGuidance>>["guidance"];
 }) {
   await writeAppState(`brain-distill-request-${values.captureId}`, {
     kind: "distill-capture",
@@ -27,8 +29,10 @@ async function writeDistillationRequest(values: {
     sourceId: values.sourceId,
     requestedAt: values.requestedAt,
     instructions: values.instructions ?? null,
+    guidance: values.guidance,
     message:
-      `Distill Brain capture ${values.captureId}. Use get-capture with ` +
+      `Distill Brain capture ${values.captureId} for ${values.guidance.identity.companyName ?? "this workspace"}. ` +
+      `Apply the Brain settings guidance in context. Use get-capture with ` +
       `includeRawContent=true when you need exact quote validation, extract ` +
       `only durable company knowledge with exact evidence quotes, ` +
       `call write-knowledge for supported entries or proposals, then call ` +
@@ -47,6 +51,7 @@ export default defineAction({
     payload: optionalJsonRecordSchema,
   }),
   run: async (args) => {
+    const { guidance } = await readBrainAgentGuidance();
     const access = await getAccessibleCapture(args.captureId);
     if (!access) throw new Error(`No access to capture ${args.captureId}`);
     if (
@@ -92,10 +97,12 @@ export default defineAction({
         sourceId: access.capture.sourceId,
         requestedAt: now,
         instructions: args.instructions ?? existingInstructions,
+        guidance,
       });
       return {
         queueItem: serializeDistillationQueue(existing),
         existing: true,
+        guidance: guidance.distillation,
       };
     }
     const id = nanoid();
@@ -126,6 +133,7 @@ export default defineAction({
       sourceId: access.capture.sourceId,
       requestedAt: now,
       instructions: args.instructions ?? null,
+      guidance,
     });
     return {
       queueItem: {
@@ -141,6 +149,7 @@ export default defineAction({
         updatedAt: now,
       },
       existing: false,
+      guidance: guidance.distillation,
     };
   },
 });

@@ -470,6 +470,7 @@ function AgentPanelInner({
   className,
   apiUrl,
   emptyStateText,
+  emptyStateAddon,
   suggestions,
   showHeader = true,
   onCollapse,
@@ -1341,6 +1342,7 @@ function AgentPanelInner({
             renderOverlay={undefined}
             contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}
+            emptyStateAddon={emptyStateAddon}
             suggestions={suggestions}
             onSwitchToCli={() => switchMode("cli")}
             execMode={execMode}

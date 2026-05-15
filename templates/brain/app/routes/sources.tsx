@@ -408,9 +408,9 @@ function grantStateDetail(
 function grantStateClass(state: BrainWorkspaceConnectionGrantState) {
   switch (state) {
     case "connected":
-      return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
+      return "border-border bg-secondary text-secondary-foreground";
     case "granted":
-      return "border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-400";
+      return "border-border bg-accent text-accent-foreground";
     case "needs_grant":
       return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400";
     case "not_connected":
@@ -438,9 +438,9 @@ function workspaceStatusLabel(status: BrainWorkspaceConnectionStatus) {
 function workspaceStatusClass(status: BrainWorkspaceConnectionStatus) {
   switch (status) {
     case "connected":
-      return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
+      return "border-border bg-secondary text-secondary-foreground";
     case "checking":
-      return "border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-400";
+      return "border-border bg-accent text-accent-foreground";
     case "needs_reauth":
       return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400";
     case "error":
@@ -511,7 +511,7 @@ function ProviderCatalog({
             credential store.
           </p>
         </div>
-        <Badge variant="outline">
+        <Badge variant="outline" className="w-fit max-w-full">
           {loading
             ? "Loading"
             : `${connectionProviders.length.toLocaleString()} providers`}
@@ -553,7 +553,7 @@ function ProviderCatalog({
                 key={provider.id}
                 className="grid gap-3 rounded-md border border-border bg-card p-4 shadow-none"
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex min-w-0 items-start gap-3">
                     <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/40">
                       <Icon className="size-4 text-muted-foreground" />
@@ -569,7 +569,7 @@ function ProviderCatalog({
                   </div>
                   <Badge
                     variant="outline"
-                    className={grantStateClass(grantState)}
+                    className={`${grantStateClass(grantState)} w-fit max-w-full`}
                   >
                     <GrantIcon className="mr-1 size-3" />
                     {grantStateLabel(grantState)}
@@ -590,13 +590,17 @@ function ProviderCatalog({
 
                 <dl className="grid grid-cols-3 gap-2 rounded-md bg-muted/25 p-2 text-xs">
                   <div>
-                    <dt className="text-muted-foreground">Connections</dt>
+                    <dt className="truncate text-muted-foreground">
+                      Connections
+                    </dt>
                     <dd className="mt-1 font-medium">
                       {(workspace?.connectionCount ?? 0).toLocaleString()}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground">Brain grants</dt>
+                    <dt className="truncate text-muted-foreground">
+                      Brain grants
+                    </dt>
                     <dd className="mt-1 font-medium">
                       {(
                         workspace?.grantedConnectionCount ?? 0
@@ -604,7 +608,7 @@ function ProviderCatalog({
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground">Sources</dt>
+                    <dt className="truncate text-muted-foreground">Sources</dt>
                     <dd className="mt-1 font-medium">
                       {provider.configuredSourceCount.toLocaleString()}
                     </dd>
@@ -747,7 +751,7 @@ function ProviderCatalog({
                   </div>
                 ) : null}
 
-                <div className="flex flex-wrap justify-end gap-2">
+                <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
                   <Button
                     size="sm"
                     variant="ghost"
@@ -1327,9 +1331,9 @@ export default function SourcesRoute() {
         title="Source configuration"
         description="Connect approved Slack channels, Granola notes, GitHub repos, Clips exports, and signed transcript feeds."
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="grid w-full gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:justify-end">
             <Select value={type} onValueChange={updateType}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-full sm:w-44">
                 <SelectValue placeholder="Source type" />
               </SelectTrigger>
               <SelectContent>
@@ -1361,7 +1365,7 @@ export default function SourcesRoute() {
         }
       />
 
-      <div className="grid gap-5 p-5 lg:grid-cols-3 lg:p-7">
+      <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-3 lg:p-7">
         <ProviderCatalog
           providers={connectionProviders}
           loading={connectionProvidersQuery.isLoading}
@@ -1382,7 +1386,7 @@ export default function SourcesRoute() {
             return (
               <Card key={source.id} className="overflow-hidden shadow-none">
                 <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex min-w-0 items-start gap-3">
                       <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/40">
                         <Icon className="size-4 text-muted-foreground" />
@@ -1493,13 +1497,13 @@ export default function SourcesRoute() {
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between gap-3">
-                    <Badge variant="outline">
+                  <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+                    <Badge variant="outline" className="w-fit max-w-full">
                       {source.nextSyncAt
                         ? `Next ${shortDate(source.nextSyncAt)}`
                         : "Manual"}
                     </Badge>
-                    <div className="flex flex-wrap justify-end gap-2">
+                    <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
                       {source.provider === "slack" ? (
                         <>
                           <Button
@@ -2128,11 +2132,16 @@ export default function SourcesRoute() {
             </div>
           </div>
 
-          <SheetFooter className="mt-6">
-            <Button variant="outline" onClick={() => setSetupOpen(false)}>
+          <SheetFooter className="mt-6 gap-2 sm:justify-end">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setSetupOpen(false)}
+            >
               Cancel
             </Button>
             <Button
+              className="w-full sm:w-auto"
               onClick={submitSource}
               disabled={
                 createSource.isPending ||

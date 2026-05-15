@@ -1,7 +1,12 @@
 import { and, asc, eq, isNull, lte, or } from "drizzle-orm";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { getDb, schema } from "../server/db/index.js";
-import { nowIso, parseJson, stableJson } from "../server/lib/brain.js";
+import {
+  nowIso,
+  parseJson,
+  readBrainAgentGuidance,
+  stableJson,
+} from "../server/lib/brain.js";
 
 type QueueRow = typeof schema.brainIngestQueue.$inferSelect;
 type CaptureRow = typeof schema.brainRawCaptures.$inferSelect;
@@ -140,7 +145,10 @@ async function latestQueueRow(rowId: string) {
   return updated;
 }
 
-function buildDistillationMessage(context: DistillationAgentContext) {
+function buildDistillationMessage(
+  context: DistillationAgentContext,
+  guidance: Awaited<ReturnType<typeof readBrainAgentGuidance>>["guidance"],
+) {
   const instructions =
     typeof context.payload.instructions === "string"
       ? `\nAdditional extraction instructions:\n${context.payload.instructions}\n`
@@ -149,6 +157,19 @@ function buildDistillationMessage(context: DistillationAgentContext) {
     `Distill Brain capture ${context.capture.id}: ${context.capture.title}`,
     `Queue item: ${context.queue.id}`,
     `Source: ${context.source.title} (${context.source.provider})`,
+    `Assistant: ${guidance.identity.assistantName}`,
+    guidance.identity.companyName
+      ? `Company/workspace: ${guidance.identity.companyName}`
+      : "",
+    `Tone: ${guidance.response.toneInstruction}`,
+    `Citation policy: ${guidance.response.citationInstruction}`,
+    `Default publish tier: ${guidance.distillation.defaultPublishTier}`,
+    `Review policy: ${
+      guidance.distillation.requireApprovalForCompanyKnowledge
+        ? "company-tier knowledge normally requires review"
+        : "company-tier knowledge can publish directly when write-knowledge allows it"
+    }`,
+    `Workspace distillation instructions: ${guidance.distillation.instructions}`,
     instructions,
     "Required workflow:",
     "1. Call get-capture with includeRawContent=true for this capture id when exact quote validation is needed.",
@@ -161,6 +182,7 @@ function buildDistillationMessage(context: DistillationAgentContext) {
 }
 
 async function defaultDistillationRunner(context: DistillationAgentContext) {
+  const { guidance } = await readBrainAgentGuidance();
   const core = await import("@agent-native/core/server");
   const registry = await import("../.generated/actions-registry.js");
   const actions = core.loadActionsFromStaticRegistry(
@@ -187,7 +209,12 @@ async function defaultDistillationRunner(context: DistillationAgentContext) {
     await core.runAgentLoop({
       engine,
       model,
-      systemPrompt: HEADLESS_DISTILLATION_SYSTEM_PROMPT,
+      systemPrompt: [
+        HEADLESS_DISTILLATION_SYSTEM_PROMPT,
+        guidance.response.toneInstruction,
+        guidance.response.citationInstruction,
+        ...guidance.distillation.rules,
+      ].join("\n"),
       tools,
       messages: [
         {
@@ -195,7 +222,7 @@ async function defaultDistillationRunner(context: DistillationAgentContext) {
           content: [
             {
               type: "text",
-              text: buildDistillationMessage(context),
+              text: buildDistillationMessage(context, guidance),
             },
           ],
         },

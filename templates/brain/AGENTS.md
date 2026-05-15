@@ -63,20 +63,29 @@ JSON is stored in text columns. There is no vector database.
 
 When answering company-memory questions:
 
-1. Start with `search-everything` when it is available. It is the V1.5 universal
+1. Call `get-brain-settings` first when current settings are not already in
+   context, and apply its effective guidance. The settings control assistant
+   name, company name, tone, citation requirements, source policy, default
+   publish tier, redaction, and distillation instructions.
+2. Start with `search-everything` when it is available. It is the V1.5 universal
    search surface and should return candidate knowledge entries, raw captures,
    and sources the current user can access.
-2. Drill into promising results with `get-knowledge` for durable facts and
+3. Drill into promising results with `get-knowledge` for durable facts and
    `get-capture` for source context. `get-capture` is redacted by default; use
    `includeRawContent: true` only for editor-authorized distillation or exact
    quote validation. Use `search-knowledge` when only V1 distilled knowledge
    search is available.
-3. Cite source links from knowledge evidence or raw capture metadata. Prefer
+4. Follow `sourcePolicy`: `strict` means answer from reviewed Brain knowledge
+   only; `balanced` means use raw captures only when reviewed knowledge is
+   missing or thin and label them clearly; `exploratory` means raw captures and
+   source records can be included as clearly labeled leads, never as approved
+   company memory.
+5. Cite source links from knowledge evidence or raw capture metadata. Prefer
    direct source URLs/permalinks over generic source names.
-4. Distinguish reviewed knowledge from raw captures. Raw captures can provide
+6. Distinguish reviewed knowledge from raw captures. Raw captures can provide
    context, but do not present them as approved company memory unless they have
    been distilled and reviewed.
-5. If search does not find support, say so plainly. Do not invent an answer or
+7. If search does not find support, say so plainly. Do not invent an answer or
    imply Brain contains information it did not return.
 
 ## Knowledge Rules
@@ -131,6 +140,12 @@ knowledge or proposals with `write-knowledge`, and finish by calling
 `mark-capture-distilled`. That final action also marks active distillation queue
 rows done.
 
+Distillation must apply `get-brain-settings` guidance. Respect
+`distillationInstructions`, `defaultPublishTier`, `requireCitations`,
+`sourcePolicy`, `autoRedactEmails`, and
+`requireApprovalForCompanyKnowledge` when deciding what to extract, how to cite
+it, and whether a raw capture should become knowledge or be ignored.
+
 Use `list-distillation-queue` to inspect queued, processing, failed, and stale
 distillation handoffs. Use `retry-distillation` only for failed or stale
 processing rows; it access-checks the capture source, requeues the item, and
@@ -142,8 +157,9 @@ public API for accessible Team-space notes, then fetch each note with its
 transcript. Keep the Granola cursor and sync window in the source cursor/config
 JSON instead of process memory.
 
-GitHub sources are the first reusable connector proof for Brain. They use the
-scoped `GITHUB_TOKEN` credential and fetch bounded issue/PR context from
+GitHub sources are the first reusable connector proof for Brain. They resolve
+credentials from granted workspace connections first, then fall back to the
+scoped `GITHUB_TOKEN` credential, and fetch bounded issue/PR context from
 configured repositories through GitHub's REST API. Configure `repositories` or
 `repos` as `["owner/repo"]`, with optional `state`, `limit`, `includeIssues`,
 and `includePullRequests`. To enrich Slack pilots, configure
@@ -151,9 +167,7 @@ and `includePullRequests`. To enrich Slack pilots, configure
 PR and issue URLs found in accessible Slack Brain captures. Keep the bounded
 limits small with `linkedCaptureLimit`, `linkedRefLimit`, `linkedDetailLimit`,
 `commentLimit`, `reviewLimit`, and `repoDetailLimit`. Treat imported GitHub
-captures as ingestable company context, not full GitHub analytics. This
-connector can later move to Workspace Connections once that reusable connection
-layer is available.
+captures as ingestable company context, not full GitHub analytics.
 
 For new Brain source provider UI or agent guidance, prefer the shared provider
 catalog from `@agent-native/core/connections` for provider ids, labels,
@@ -170,7 +184,11 @@ inspect each provider's `workspaceConnection` summary. A `grantState` of
 been granted to Brain yet, so ask for the grant instead of a new secret when
 that is the user's intent. Existing Brain connectors remain backward
 compatible with scoped credentials such as `SLACK_BOT_TOKEN`, `GRANOLA_API_KEY`,
-and `GITHUB_TOKEN`.
+and `GITHUB_TOKEN`. Runtime connector sync resolves credentials in this order:
+granted `workspace_connections` / `workspace_connection_grants` credential refs
+for `appId=brain`, Brain-local credentials, registered secrets, then the legacy
+environment variable with the same key. Never include resolved credential values
+in action responses, stats, errors, or logs.
 
 Auto-sync is controlled per source with `config.autoSync` and
 `config.pollMinutes`. The background job is gated by `RUN_BACKGROUND_JOBS`; use

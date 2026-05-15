@@ -608,14 +608,20 @@ export default function App() {
           onCodeAgentsClick={handleCodeAgentsClick}
           onSettingsClick={() => setShowSettings(true)}
         />
-        <div className="content-area">
+        <div
+          className={`content-area${
+            isCodeAgentsActive ? " content-area--code-agents" : ""
+          }`}
+        >
           {isCodeAgentsActive && (
-            <CodeAgentsHub
-              apps={apps}
-              openRequest={codeAgentsOpenRequest}
-              refreshKey={refreshKey}
-              onOpenSettings={() => setShowSettings(true)}
-            />
+            <div className="code-agents-shell-surface">
+              <CodeAgentsHub
+                apps={apps}
+                openRequest={codeAgentsOpenRequest}
+                refreshKey={refreshKey}
+                onOpenSettings={() => setShowSettings(true)}
+              />
+            </div>
           )}
           {allWebviews.map(({ tab, app, appDef, isActive }) => (
             <AppWebview

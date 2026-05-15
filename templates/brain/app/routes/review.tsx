@@ -160,10 +160,12 @@ export default function ReviewRoute() {
         title="Proposal review"
         description="Inspect proposed company memories, tune the wording when needed, and record the review decision."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{summary}</Badge>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+            <Badge variant="outline" className="w-fit max-w-full">
+              {summary}
+            </Badge>
             <Select value={status} onValueChange={updateStatus}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-full sm:w-44">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -191,7 +193,7 @@ export default function ReviewRoute() {
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <CardTitle className="text-base">
+                          <CardTitle className="min-w-0 break-words text-base">
                             {proposal.title}
                           </CardTitle>
                           <StatusBadge status={proposal.status ?? "pending"} />
@@ -207,7 +209,12 @@ export default function ReviewRoute() {
                         </p>
                       </div>
                       {sourceUrl ? (
-                        <Button asChild size="sm" variant="outline">
+                        <Button
+                          asChild
+                          size="sm"
+                          variant="outline"
+                          className="w-full sm:w-auto"
+                        >
                           <a href={sourceUrl} target="_blank" rel="noreferrer">
                             <IconExternalLink className="size-4" />
                             Open source
@@ -344,7 +351,7 @@ export default function ReviewRoute() {
                           }
                         />
                       </div>
-                      <div className="flex flex-wrap justify-end gap-2">
+                      <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
                         <Button
                           size="sm"
                           variant="outline"

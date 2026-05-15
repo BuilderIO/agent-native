@@ -303,9 +303,9 @@ function QueueStatusBadge({ item }: { item: BrainOpsQueueItem }) {
       className={cn(
         "gap-1.5 capitalize",
         item.status === "done" &&
-          "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+          "border-border bg-secondary text-secondary-foreground",
         item.status === "processing" &&
-          "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+          "border-border bg-accent text-accent-foreground",
         item.status === "queued" &&
           "border-border bg-muted/35 text-muted-foreground",
       )}

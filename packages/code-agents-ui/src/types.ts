@@ -1,5 +1,43 @@
 import type { CodeAgentPermissionMode } from "./code-agents.js";
 
+export type CodeAgentReasoningEffort =
+  | "auto"
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export interface CodeAgentModelSelection {
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort;
+}
+
+export interface CodeAgentModelOption {
+  engine: string;
+  engineLabel: string;
+  model: string;
+  label: string;
+  description?: string;
+}
+
+export interface CodeAgentModelListResult {
+  status: "ok" | "unavailable";
+  models: CodeAgentModelOption[];
+  selected?: CodeAgentModelSelection;
+  error?: string;
+}
+
+export interface CodeAgentPromptAttachment {
+  name: string;
+  type?: string;
+  size?: number;
+  text?: string;
+}
+
 export type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -98,6 +136,10 @@ export interface CodeAgentCreateRunRequest {
   prompt: string;
   cwd?: string;
   permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort;
+  attachments?: CodeAgentPromptAttachment[];
 }
 
 export interface CodeAgentCreateRunResult {
@@ -114,6 +156,10 @@ export interface CodeAgentFollowUpRequest {
   runId: string;
   prompt: string;
   permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort;
+  attachments?: CodeAgentPromptAttachment[];
 }
 
 export interface CodeAgentFollowUpResult {
@@ -128,6 +174,9 @@ export interface CodeAgentUpdateRunRequest {
   goalId?: string;
   runId: string;
   permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort;
 }
 
 export interface CodeAgentUpdateRunResult {

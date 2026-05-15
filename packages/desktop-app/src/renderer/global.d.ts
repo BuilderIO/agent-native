@@ -115,6 +115,9 @@ type CodeAgentCreateRunRequest = {
   prompt: string;
   cwd?: string;
   permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: string;
 };
 
 type CodeAgentCreateRunResult = {
@@ -131,6 +134,9 @@ type CodeAgentFollowUpRequest = {
   runId: string;
   prompt: string;
   permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: string;
 };
 
 type CodeAgentFollowUpResult = {
@@ -145,6 +151,9 @@ type CodeAgentUpdateRunRequest = {
   goalId?: string;
   runId: string;
   permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: string;
 };
 
 type CodeAgentUpdateRunResult = {

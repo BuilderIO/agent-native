@@ -10,6 +10,7 @@ import {
   type CodeAgentTranscriptEvent as StoredTranscriptEvent,
 } from "@agent-native/core/code-agents";
 import type {
+  CodeAgentReasoningEffort,
   CodeAgentRun,
   CodeAgentTranscriptEvent,
 } from "@agent-native/code-agents-ui/types";
@@ -78,12 +79,17 @@ export function runCodeAgentInBackground(input: {
   runId: string;
   prompt?: string;
   appendUserEvent?: boolean;
+  model?: string;
+  reasoningEffort?: CodeAgentReasoningEffort;
 }): void {
   setTimeout(() => {
     void executeCodeAgentRun({
       runId: input.runId,
       prompt: input.prompt,
       appendUserEvent: input.appendUserEvent,
+      model: input.model,
+      reasoningEffort:
+        input.reasoningEffort === "auto" ? undefined : input.reasoningEffort,
     });
   }, 0);
 }
@@ -98,6 +104,9 @@ export function appendFollowUpAndRun(input: {
   runId: string;
   prompt: string;
   permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort;
 }): CodeAgentTranscriptEvent {
   const record = getCodeAgentRunRecord(input.runId);
   if (!record)
@@ -105,7 +114,20 @@ export function appendFollowUpAndRun(input: {
   if (input.permissionMode) {
     updateCodeAgentRunRecord(input.runId, {
       permissionMode: input.permissionMode,
-      metadata: { permissionMode: input.permissionMode },
+      metadata: {
+        permissionMode: input.permissionMode,
+        ...(input.engine ? { engine: input.engine } : {}),
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.effort ? { effort: input.effort } : {}),
+      },
+    });
+  } else if (input.engine || input.model || input.effort) {
+    updateCodeAgentRunRecord(input.runId, {
+      metadata: {
+        ...(input.engine ? { engine: input.engine } : {}),
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.effort ? { effort: input.effort } : {}),
+      },
     });
   }
   const event = appendCodeAgentTranscriptEvent({
@@ -115,12 +137,17 @@ export function appendFollowUpAndRun(input: {
     metadata: {
       source: "code-template-follow-up",
       permissionMode: input.permissionMode,
+      engine: input.engine,
+      model: input.model,
+      effort: input.effort,
     },
   });
   runCodeAgentInBackground({
     runId: input.runId,
     prompt: input.prompt,
     appendUserEvent: false,
+    model: input.model,
+    reasoningEffort: input.effort,
   });
   return toUiTranscriptEvent(event);
 }

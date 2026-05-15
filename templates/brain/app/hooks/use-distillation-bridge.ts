@@ -15,6 +15,7 @@ interface DistillationRequest {
   sourceId?: string;
   requestedAt?: string;
   instructions?: string | null;
+  guidance?: Record<string, unknown>;
   message?: string;
 }
 
@@ -137,6 +138,7 @@ export function useDistillationBridge(): void {
                 request,
                 capture: summarizeCapture(capture),
                 instructions: request.instructions ?? undefined,
+                guidance: request.guidance,
               },
               null,
               2,

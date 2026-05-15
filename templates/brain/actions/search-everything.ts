@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+import { readBrainAgentGuidance } from "../server/lib/brain.js";
 import { searchEverythingRows } from "../server/lib/search.js";
 
 export default defineAction({
@@ -27,10 +28,13 @@ export default defineAction({
     isConsequential: false,
   },
   run: async (args) => {
+    const { guidance } = await readBrainAgentGuidance();
     const results = await searchEverythingRows(args);
     return {
       query: args.query,
       count: results.length,
+      policy: guidance.retrieval,
+      responseGuidance: guidance.response,
       results,
     };
   },
