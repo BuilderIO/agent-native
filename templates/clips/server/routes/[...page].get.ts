@@ -6,6 +6,7 @@ import {
   type H3Event,
 } from "h3";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { getOrgContext } from "@agent-native/core/org";
 import { resolveAccess } from "@agent-native/core/sharing";
 import {
   MEDIA_CAPTURE_PERMISSIONS_POLICY,
@@ -46,14 +47,17 @@ async function redirectNonOwnerRecordingPath(
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return shareRedirect(recordingId, url.search);
 
+  const orgCtx = await getOrgContext(event).catch(() => null);
+  const orgId = orgCtx?.orgId ?? session.orgId ?? undefined;
+
   try {
     const access = await runWithRequestContext(
-      { userEmail: session.email, orgId: session.orgId },
+      { userEmail: session.email, orgId },
       () => resolveAccess("recording", recordingId),
     );
-    if (access.role === "owner") return null;
+    if (access?.role === "owner") return null;
   } catch {
-    // Treat missing/inaccessible recordings the same as non-owner access here;
+    // Treat missing/inaccessible recordings the same as no access here;
     // the share route can render the canonical public/not-found state.
   }
 

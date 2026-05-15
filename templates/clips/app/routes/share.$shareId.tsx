@@ -379,33 +379,37 @@ export default function ShareRoute() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2">
           <img
             src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
-            className="block h-4 w-auto dark:hidden"
+            className="block h-4 w-auto shrink-0 dark:hidden"
           />
           <img
             src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
-            className="hidden h-4 w-auto dark:block"
+            className="hidden h-4 w-auto shrink-0 dark:block"
           />
-          <span className="font-medium">Clips</span>
+          <span className="truncate font-medium">Clips</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full min-w-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
           {viewerCanEdit ? (
             <Button variant="ghost" size="sm" asChild>
-              <a href={appPath(`/r/${recording.id}`)} className="gap-1.5">
-                Open dashboard <IconExternalLink className="h-3.5 w-3.5" />
+              <a
+                href={appPath(`/r/${recording.id}`)}
+                className="min-w-0 gap-1.5"
+              >
+                <span className="truncate">Open dashboard</span>
+                <IconExternalLink className="h-3.5 w-3.5 shrink-0" />
               </a>
             </Button>
           ) : (
             <a
               href={appPath("/")}
-              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               Try Clips <IconExternalLink className="h-3 w-3" />
             </a>
@@ -417,7 +421,7 @@ export default function ShareRoute() {
               videoUrl={recording.videoUrl}
               animatedThumbnailUrl={recording.animatedThumbnailUrl}
             >
-              <Button size="sm" className="gap-1.5">
+              <Button size="sm" className="shrink-0 gap-1.5">
                 <IconShare3 className="h-4 w-4" />
                 Share
               </Button>
@@ -426,7 +430,7 @@ export default function ShareRoute() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-6xl px-4 pb-8 grid grid-cols-[1fr_360px] gap-6">
+      <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-5 px-4 pb-8 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6">
         <div className="min-w-0 space-y-4">
           <div className="aspect-video rounded-xl overflow-hidden bg-black">
             <VideoPlayer
@@ -448,48 +452,52 @@ export default function ShareRoute() {
             />
           </div>
 
-          <div className="flex items-start gap-3">
-            <div className="flex-1 min-w-0">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
+            <div className="min-w-0 flex-1">
               {showTitleSkeleton ? (
                 <Skeleton
                   aria-label="Generating title"
                   className="h-7 w-80 max-w-full"
                 />
               ) : (
-                <h1 className="text-xl font-semibold">{visibleTitle}</h1>
+                <h1 className="break-words text-lg font-semibold leading-tight sm:text-xl">
+                  {visibleTitle}
+                </h1>
               )}
               {recording.description ? (
-                <p className="text-sm text-foreground/70 mt-1 whitespace-pre-wrap">
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground/70">
                   {recording.description}
                 </p>
               ) : null}
             </div>
             {recording.enableReactions ? (
-              <ReactionsTray
-                onReact={(emoji) => {
-                  if (!session) {
-                    requireSignIn("react");
-                    return;
-                  }
-                  tracking.reportReaction(emoji);
-                  fetch(
-                    agentNativePath(
-                      "/_agent-native/actions/react-to-recording",
-                    ),
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        recordingId: recording.id,
-                        emoji,
-                        videoTimestampMs: currentMs,
-                      }),
-                    },
-                  )
-                    .then(() => dataQ.refetch())
-                    .catch(() => {});
-                }}
-              />
+              <div className="max-w-full self-start">
+                <ReactionsTray
+                  onReact={(emoji) => {
+                    if (!session) {
+                      requireSignIn("react");
+                      return;
+                    }
+                    tracking.reportReaction(emoji);
+                    fetch(
+                      agentNativePath(
+                        "/_agent-native/actions/react-to-recording",
+                      ),
+                      {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          recordingId: recording.id,
+                          emoji,
+                          videoTimestampMs: currentMs,
+                        }),
+                      },
+                    )
+                      .then(() => dataQ.refetch())
+                      .catch(() => {});
+                  }}
+                />
+              </div>
             ) : null}
           </div>
 
@@ -499,14 +507,14 @@ export default function ShareRoute() {
               size="sm"
               onClick={downloadRecording}
               disabled={downloading}
-              className="border-foreground/20 bg-muted/50 hover:bg-accent text-foreground"
+              className="w-full border-foreground/20 bg-muted/50 text-foreground hover:bg-accent sm:w-auto"
             >
               {downloading ? "Downloading..." : "Download MP4"}
             </Button>
           ) : null}
         </div>
 
-        <aside className="min-w-0">
+        <aside className="min-w-0 lg:sticky lg:top-4 lg:self-start">
           <Tabs defaultValue="transcript" className="flex flex-col">
             <TabsList className="w-full bg-muted/50">
               <TabsTrigger value="transcript" className="flex-1">
@@ -519,7 +527,7 @@ export default function ShareRoute() {
               ) : null}
             </TabsList>
             <TabsContent value="transcript" className="mt-3">
-              <div className="rounded-lg border border-border bg-muted/50 h-[600px] overflow-hidden">
+              <div className="h-[420px] overflow-hidden rounded-lg border border-border bg-muted/50 sm:h-[520px] lg:h-[600px]">
                 <TranscriptPanel
                   segments={transcriptSegments}
                   fullText={transcriptFullText}
@@ -534,7 +542,7 @@ export default function ShareRoute() {
             </TabsContent>
             {recording.enableComments ? (
               <TabsContent value="comments" className="mt-3">
-                <div className="rounded-lg border border-border bg-muted/50 h-[600px] overflow-hidden">
+                <div className="h-[420px] overflow-hidden rounded-lg border border-border bg-muted/50 sm:h-[520px] lg:h-[600px]">
                   <CommentsPanel
                     recordingId={recording.id}
                     comments={comments}
@@ -558,7 +566,7 @@ export default function ShareRoute() {
         </aside>
       </div>
 
-      <div className="mx-auto max-w-6xl px-4 pb-6 flex justify-center">
+      <div className="mx-auto flex max-w-6xl justify-center px-4 pb-6 sm:px-6">
         <PoweredByBadge />
       </div>
 

@@ -1,11 +1,14 @@
 /**
- * Serve the assembled video blob for a recording — dev-only fallback when no
- * file upload provider is configured. `finalize-recording` stashes the blob
- * in `application_state` under `recording-blob-:id` and points
- * `recordings.video_url` at this route.
+ * Serve recording media from same-origin.
  *
- * Production deployments register a real provider (Builder.io / R2 / S3) and
- * `video_url` points directly at that — this route never gets hit.
+ * Dev fallback: when no file upload provider is configured, `finalize-recording`
+ * stashes the assembled blob in `application_state` under
+ * `recording-blob-:id` and points `recordings.video_url` at this route.
+ *
+ * Production fallback: the editor can also hit this route as an authenticated
+ * media proxy for provider-hosted URLs (Builder.io / R2 / S3). This keeps
+ * browser-only consumers such as Web Audio waveform decoding from being blocked
+ * by cross-origin CDN fetches.
  *
  * Access rules (match `/api/public-recording.get.ts`):
  *   - public visibility: anyone can fetch, but a password (if set) must be
@@ -36,6 +39,11 @@ import {
   type H3Event,
 } from "h3";
 import { readAppState } from "@agent-native/core/application-state";
+import {
+  createSsrfSafeDispatcher,
+  isBlockedExtensionUrlWithDns,
+} from "@agent-native/core/extensions/url-safety";
+import { getOrgContext } from "@agent-native/core/org";
 import { resolveAccess } from "@agent-native/core/sharing";
 import {
   getSession,
@@ -46,7 +54,82 @@ import {
 interface RecordingRow {
   expiresAt?: string | null;
   password?: string | null;
+  videoUrl?: string | null;
   visibility?: string | null;
+}
+
+const PROXIED_HEADER_NAMES = [
+  "accept-ranges",
+  "content-length",
+  "content-range",
+  "content-type",
+  "etag",
+  "last-modified",
+] as const;
+
+function isRecursiveVideoRouteUrl(value: string, recordingId: string): boolean {
+  try {
+    const parsed = new URL(value, "http://local.test");
+    const expected = `/api/video/${encodeURIComponent(recordingId)}`;
+    return parsed.pathname === expected || parsed.pathname.endsWith(expected);
+  } catch {
+    return false;
+  }
+}
+
+async function fetchProviderMedia(
+  sourceUrl: string,
+  rangeHeader: string | undefined,
+): Promise<Response | { error: string; status: number }> {
+  let currentUrl = sourceUrl;
+  const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+
+  for (let redirects = 0; redirects <= 4; redirects++) {
+    if (await isBlockedExtensionUrlWithDns(currentUrl)) {
+      return {
+        status: 403,
+        error: "Recording media URL points to a private/internal address",
+      };
+    }
+
+    const headers = new Headers();
+    if (rangeHeader?.startsWith("bytes=")) headers.set("Range", rangeHeader);
+
+    const fetchOptions: RequestInit & { dispatcher?: unknown } = {
+      headers,
+      redirect: "manual",
+    };
+    if (dispatcher) fetchOptions.dispatcher = dispatcher;
+
+    const upstream = await fetch(currentUrl, fetchOptions);
+    if (upstream.status < 300 || upstream.status >= 400) return upstream;
+
+    const location = upstream.headers.get("location");
+    if (!location) return upstream;
+    currentUrl = new URL(location, currentUrl).href;
+  }
+
+  return { status: 508, error: "Too many media redirects" };
+}
+
+function providerResponse(upstream: Response): Response {
+  const headers = new Headers();
+  for (const name of PROXIED_HEADER_NAMES) {
+    const value = upstream.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/octet-stream");
+  }
+  headers.set("Cache-Control", "private, max-age=0, no-store");
+  headers.set("Referrer-Policy", "no-referrer");
+  headers.set("X-Content-Type-Options", "nosniff");
+
+  return new Response(upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers,
+  });
 }
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -57,9 +140,11 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const session = await getSession(event).catch(() => null);
+  const orgCtx = await getOrgContext(event).catch(() => null);
+  const orgId = orgCtx?.orgId ?? session?.orgId ?? undefined;
 
   return runWithRequestContext(
-    { userEmail: session?.email, orgId: session?.orgId },
+    { userEmail: session?.email, orgId },
     async () => {
       const access = await resolveAccess("recording", recordingId);
       if (!access) {
@@ -107,9 +192,28 @@ export default defineEventHandler(async (event: H3Event) => {
 
       const blob = await readAppState(`recording-blob-${recordingId}`);
       const b64 = typeof blob?.data === "string" ? blob.data : null;
+      const rangeHeader = getRequestHeader(event, "range");
+
       if (!b64) {
-        setResponseStatus(event, 404);
-        return { error: "Blob not found" };
+        const sourceUrl = rec.videoUrl ?? "";
+        if (!sourceUrl) {
+          setResponseStatus(event, 404);
+          return { error: "Blob not found" };
+        }
+        if (
+          sourceUrl.startsWith("/") ||
+          isRecursiveVideoRouteUrl(sourceUrl, recordingId)
+        ) {
+          setResponseStatus(event, 404);
+          return { error: "Blob not found" };
+        }
+
+        const upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+        if (!(upstream instanceof Response)) {
+          setResponseStatus(event, upstream.status);
+          return { error: upstream.error };
+        }
+        return providerResponse(upstream);
       }
       const mimeType =
         typeof blob?.mimeType === "string" ? blob.mimeType : "video/webm";
@@ -124,7 +228,6 @@ export default defineEventHandler(async (event: H3Event) => {
       // Referer of any outbound link rendered alongside the player.
       setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
-      const rangeHeader = getRequestHeader(event, "range");
       if (rangeHeader && rangeHeader.startsWith("bytes=")) {
         const spec = rangeHeader.slice(6).trim();
         let start: number;
