@@ -99,6 +99,11 @@ import {
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
+import {
+  analysisDetailPrefetchKey,
+  sqlDashboardPrefetchKey,
+  type PrefetchSnapshot,
+} from "@/lib/prefetch-keys";
 
 const SIDEBAR_PREVIEW_COUNT = 5;
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
@@ -956,8 +961,16 @@ async function fetchSqlDashboardForPrefetch(
   const res = await fetch(appApiPath(`/api/sql-dashboards/${id}`), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) return null;
-  const data = await res.json();
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Dashboard prefetch failed (${res.status})`);
+  }
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error("Dashboard prefetch returned invalid JSON");
+  }
   return {
     id,
     config: {
@@ -980,8 +993,15 @@ async function fetchAnalysisDetailForPrefetch(id: string): Promise<unknown> {
   const res = await fetch(appApiPath(`/api/analyses/${id}`), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) return null;
-  return res.json();
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Analysis prefetch failed (${res.status})`);
+  }
+  try {
+    return await res.json();
+  } catch {
+    throw new Error("Analysis prefetch returned invalid JSON");
+  }
 }
 
 function getQuerySnapshots<T>(queryClient: QueryClient, queryKey: QueryKey) {
@@ -1179,8 +1199,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const activeDashboardId = useMemo(() => {
     const match = location.pathname.match(/^\/adhoc\/([^/]+)/);
-    return match?.[1] ?? null;
-  }, [location.pathname]);
+    if (!match?.[1]) return null;
+    return new URLSearchParams(location.search).get("id") || match[1];
+  }, [location.pathname, location.search]);
 
   // Only the active dashboard can display saved views in the sidebar, so avoid
   // issuing one request per dashboard on every sidebar mount.
@@ -1196,11 +1217,19 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const prefetchDashboard = useCallback(
     (d: SidebarDashboard) => {
       if (d.source !== "sql") return;
+      const queryKey = sqlDashboardPrefetchKey(d.id);
+      const cached =
+        queryClient.getQueryData<
+          PrefetchSnapshot<PrefetchedSqlDashboard | null>
+        >(queryKey);
       void import("@/pages/adhoc/sql-dashboard");
       void queryClient.prefetchQuery({
-        queryKey: ["data", "sql-dashboard", d.id, dashboardsSync],
-        queryFn: () => fetchSqlDashboardForPrefetch(d.id),
-        staleTime: 30_000,
+        queryKey,
+        queryFn: async () => ({
+          data: await fetchSqlDashboardForPrefetch(d.id),
+          syncVersion: dashboardsSync,
+        }),
+        staleTime: cached?.syncVersion === dashboardsSync ? 30_000 : 0,
       });
     },
     [dashboardsSync, queryClient],
@@ -1208,11 +1237,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const prefetchAnalysis = useCallback(
     (id: string) => {
+      const queryKey = analysisDetailPrefetchKey(id);
+      const cached =
+        queryClient.getQueryData<PrefetchSnapshot<unknown | null>>(queryKey);
       void import("@/pages/analyses/AnalysisDetail");
       void queryClient.prefetchQuery({
-        queryKey: ["analysis-detail", id, analysesSync],
-        queryFn: () => fetchAnalysisDetailForPrefetch(id),
-        staleTime: 30_000,
+        queryKey,
+        queryFn: async () => ({
+          data: await fetchAnalysisDetailForPrefetch(id),
+          syncVersion: analysesSync,
+        }),
+        staleTime: cached?.syncVersion === analysesSync ? 30_000 : 0,
       });
     },
     [analysesSync, queryClient],
@@ -1304,6 +1339,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         if (!res.ok) {
           throw new Error(`Delete failed: ${res.status}`);
         }
+        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
         queryClient.invalidateQueries({ queryKey: activeKey });
         queryClient.invalidateQueries({ queryKey: archivedKey });
       } catch (err) {
@@ -1373,6 +1409,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (!res.ok) throw new Error(`${action} failed: ${res.status}`);
+        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
         queryClient.invalidateQueries({ queryKey: activeKey });
         queryClient.invalidateQueries({ queryKey: archivedKey });
         toast.success(
@@ -1415,6 +1452,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         await renameDashboard({ id: d.id, name: trimmed });
+        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
         queryClient.invalidateQueries({ queryKey });
         queryClient.invalidateQueries({
           queryKey: ["sql-dashboards-palette"],
@@ -1447,6 +1485,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         if (!res.ok) {
           throw new Error(`Delete failed: ${res.status}`);
         }
+        queryClient.removeQueries({
+          queryKey: analysisDetailPrefetchKey(a.id),
+        });
         queryClient.invalidateQueries({ queryKey });
         queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
       } catch (err) {
@@ -1490,6 +1531,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
       try {
         await renameAnalysis({ id: a.id, name: trimmed });
+        queryClient.removeQueries({
+          queryKey: analysisDetailPrefetchKey(a.id),
+        });
         queryClient.invalidateQueries({ queryKey: sidebarKey });
         queryClient.invalidateQueries({ queryKey: listKey });
         queryClient.invalidateQueries({ queryKey: detailKey });
@@ -1697,7 +1741,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     <SortableDashboardItem
                       key={d.id}
                       d={d}
-                      isActive={location.pathname === `/adhoc/${d.id}`}
+                      isActive={activeDashboardId === d.id}
                       location={location}
                       favoriteIds={favoriteIds}
                       onToggleFavorite={toggleFavorite}
