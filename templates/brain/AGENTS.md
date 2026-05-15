@@ -46,6 +46,7 @@ JSON is stored in text columns. There is no vector database.
 | `import-transcript`                                                                 | Import meeting transcripts                                                             |
 | `list-captures` / `get-capture`                                                     | Review raw captures by source/status, including distillation queue state               |
 | `enqueue-distillation`                                                              | Idempotently queue capture distillation                                                |
+| `claim-distillation`                                                                | Claim one queued distillation item before a browser or worker hands it to the agent    |
 | `mark-capture-distilled`                                                            | Mark a capture distilled or ignored                                                    |
 | `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior |
 | `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                    |
@@ -110,9 +111,12 @@ with `get-capture` when you need source context for distillation. Keep
 `autoSync: false` until the channel allow-list, review policy, and first
 distilled/proposed entries look right.
 
-When a Brain tab is open, the app shell bridges new distillation requests to the
-agent chat in the background. Re-running `enqueue-distillation` for an active
-queue item refreshes that handoff instead of duplicating queue rows. The agent
+Distillation has two worker paths. When a Brain tab is open, the app shell uses
+`claim-distillation` to claim a queued item and bridges it to the agent chat in
+the background. When no tab is open, the server `brain-distillation` sweep runs
+under `RUN_BACKGROUND_JOBS`, reclaims stale `processing` rows, and invokes the
+same agent loop headlessly. Re-running `enqueue-distillation` for an active
+queue item refreshes the handoff instead of duplicating queue rows. The agent
 should read the capture, apply the settings/extraction rules, write cited
 knowledge or proposals with `write-knowledge`, and finish by calling
 `mark-capture-distilled`. That final action also marks active distillation queue

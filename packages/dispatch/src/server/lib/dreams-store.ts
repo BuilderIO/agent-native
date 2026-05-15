@@ -645,10 +645,13 @@ function formatMetadataComparison(
     const expected = parseNumber(metadata[expectedKey]);
     if (actual == null || expected == null) continue;
     const rawMetric = key.replace(/^actual/i, "");
+    const normalizedMetric = rawMetric
+      .replace(/[^a-z0-9]+/gi, "")
+      .toLowerCase();
     const metric =
-      rawMetric.toLowerCase() === "ms"
+      normalizedMetric === "ms"
         ? "latency"
-        : /cx/i.test(rawMetric)
+        : normalizedMetric.includes("cx")
           ? "cost"
           : humanizeKey(rawMetric) || "value";
     const unit = /ms$/i.test(key) ? "ms" : "";
@@ -710,7 +713,8 @@ function formatEvalFailureEvidence(value: unknown): string {
 }
 
 function formatToolErrorEvidence(value: unknown): string {
-  const record = maybeJsonRecord(value) ?? {};
+  const record = maybeJsonRecord(value);
+  if (!record) return compactText(value);
   const event = isRecord(record.event) ? record.event : record;
   const parsedResult = safeJsonParse<Record<string, unknown> | null>(
     event.result,
@@ -721,6 +725,9 @@ function formatToolErrorEvidence(value: unknown): string {
   const message =
     firstString(source, ["error", "message", "reason", "result"]) ??
     firstString(event, ["error", "message", "reason", "result"]);
+  if (message && /^tool error\b/i.test(message.trim())) {
+    return compactText(message, 240);
+  }
   const prefix = code ? `Tool error (${code})` : "Tool error";
   return compactText(`${prefix}: ${message ?? compactText(value, 180)}`, 240);
 }
@@ -808,6 +815,11 @@ function addEvidence(
   bucket.push(normalized);
 }
 
+function stripInjectedUserContext(text: string): string {
+  const marker = text.search(/(?:^|\n)\s*<context>/i);
+  return (marker >= 0 ? text.slice(0, marker) : text).trim();
+}
+
 function isCorrectionSignal(lower: string): boolean {
   return (
     /\b(actually|wrong|not what i meant|you should)\b/.test(lower) ||
@@ -875,7 +887,7 @@ function analyzeThreadDebug(debug: any, sourceId: string): DreamCandidate {
   const messages = Array.isArray(debug.messages) ? debug.messages : [];
 
   for (const message of messages) {
-    const text = String(message?.text ?? "");
+    const text = stripInjectedUserContext(String(message?.text ?? ""));
     if (message?.role !== "user" || !text.trim()) continue;
     const lower = text.toLowerCase();
     const isRemember =
@@ -1359,11 +1371,11 @@ export async function listDreamCandidates(input: ListDreamCandidatesInput) {
     },
   );
   const aggregate = wantsAllDreamSources(input) || sources.length > 1;
-  const candidates = scanResults
-    .flatMap((result) => result.candidates)
-    .sort(
-      (a, b) => b.score - a.score || b.thread.updatedAt - a.thread.updatedAt,
-    );
+  const candidates = dedupeDreamCandidates(
+    scanResults.flatMap((result) => result.candidates),
+  ).sort(
+    (a, b) => b.score - a.score || b.thread.updatedAt - a.thread.updatedAt,
+  );
   const sourceHealth = scanResults.flatMap((result) => result.sources);
 
   return {
@@ -1450,6 +1462,23 @@ function collectCandidateEvidence(
   return evidence;
 }
 
+function dedupeDreamCandidates(candidates: DreamCandidate[]): DreamCandidate[] {
+  const byThread = new Map<string, DreamCandidate>();
+  for (const candidate of candidates) {
+    const key = `${candidate.thread.ownerEmail.trim().toLowerCase()}:${candidate.thread.id}`;
+    const existing = byThread.get(key);
+    if (
+      !existing ||
+      candidate.score > existing.score ||
+      (candidate.score === existing.score &&
+        candidate.thread.updatedAt > existing.thread.updatedAt)
+    ) {
+      byThread.set(key, candidate);
+    }
+  }
+  return [...byThread.values()];
+}
+
 function uniqueEvidenceThreads(evidence: DreamEvidence[]): Set<string> {
   return new Set(
     evidence
@@ -1497,10 +1526,113 @@ function looksLikeSingleAppUiWordingCorrection(
   });
 }
 
+const NON_DURABLE_FAILURE_TERMS =
+  /\b(credits[- ]?limit|daily ai credits|current plan|missing[_ -]?credentials|no llm provider|provider key|connect builder\.io|email[_ -]?verification[_ -]?required|verify their email|gateway)\b/i;
+
+function isDurableFailureEvidence(entry: DreamEvidence): boolean {
+  if (entry.kind === "eval-failure") return false;
+  if (entry.kind === "tool-error") {
+    return !NON_DURABLE_FAILURE_TERMS.test(entry.snippet);
+  }
+  if (entry.kind === "failed-run") {
+    const normalized = normalizeEvidenceQuote(entry.snippet);
+    return Boolean(
+      normalized && !["errored", "failed", "aborted"].includes(normalized),
+    );
+  }
+  return true;
+}
+
+function proposalFailureEvidence(
+  evidence: DreamEvidence[],
+  max = 10,
+): DreamEvidence[] {
+  const durable = evidence.filter(isDurableFailureEvidence);
+  const supporting = evidence.filter((entry) => entry.kind === "eval-failure");
+  return [...durable, ...supporting].slice(0, max);
+}
+
 function evidenceProvenance(date: string, evidence: DreamEvidence[]): string {
   const threads = [...uniqueEvidenceThreads(evidence)].slice(0, 8).join(", ");
   const sources = [...uniqueEvidenceSources(evidence)].slice(0, 8).join(", ");
   return `Provenance: Dispatch dream ${date}; source threads: ${threads || "none recorded"}${sources ? `; sources: ${sources}` : ""}`;
+}
+
+function addSuppressionNote(notes: string[], note: string) {
+  if (!notes.includes(note)) notes.push(note);
+}
+
+function noProposalSuppressionNotes(input: {
+  explicitEvidence: DreamEvidence[];
+  failureEvidence: DreamEvidence[];
+  durableFailureEvidence: DreamEvidence[];
+  successEvidence: DreamEvidence[];
+  personalMemoryAllowed: boolean;
+  personalMemoryBlockReason: string;
+}): string[] {
+  const notes: string[] = [];
+
+  if (input.explicitEvidence.length > 0) {
+    if (!input.personalMemoryAllowed) {
+      if (!evidenceSpansMultipleThreadsOrSources(input.explicitEvidence)) {
+        addSuppressionNote(
+          notes,
+          `Skipped explicit user-correction proposals because personal memory is blocked (${input.personalMemoryBlockReason}) and the remaining correction evidence did not span multiple threads or source apps.`,
+        );
+      } else if (input.explicitEvidence.length < 2) {
+        addSuppressionNote(
+          notes,
+          `Skipped explicit user-correction proposals because personal memory is blocked (${input.personalMemoryBlockReason}) and only one source-backed correction survived filtering.`,
+        );
+      }
+    }
+
+    if (looksLikeSingleAppUiWordingCorrection(input.explicitEvidence)) {
+      addSuppressionNote(
+        notes,
+        "Skipped workspace-instruction promotion for explicit corrections because the evidence looked like single-app UI wording rather than an all-app operating rule.",
+      );
+    }
+  }
+
+  if (input.failureEvidence.length > 0) {
+    if (input.durableFailureEvidence.length === 0) {
+      addSuppressionNote(
+        notes,
+        "Skipped failure proposals because the signals were eval-only noise or non-durable setup, quota, provider, or verification issues.",
+      );
+    } else if (input.durableFailureEvidence.length < 2) {
+      addSuppressionNote(
+        notes,
+        "Skipped failure proposals because fewer than two durable failure signals survived filtering.",
+      );
+    } else if (
+      !evidenceSpansMultipleThreadsOrSources(input.durableFailureEvidence)
+    ) {
+      addSuppressionNote(
+        notes,
+        "Skipped failure proposals because durable failure evidence did not span multiple threads or source apps.",
+      );
+    } else if (input.durableFailureEvidence.length < 4) {
+      addSuppressionNote(
+        notes,
+        "Skipped workspace-instruction promotion for failures because fewer than four durable failure signals survived filtering.",
+      );
+    }
+  }
+
+  if (
+    input.successEvidence.length > 0 &&
+    (input.successEvidence.length < 2 ||
+      !evidenceSpansMultipleThreadsOrSources(input.successEvidence))
+  ) {
+    addSuppressionNote(
+      notes,
+      "Skipped success-pattern proposals because successful checkpoint evidence did not repeat across multiple threads or source apps.",
+    );
+  }
+
+  return notes;
 }
 
 const STOP_WORDS = new Set([
@@ -1905,12 +2037,18 @@ export function buildProposalInputs(
     "low-satisfaction",
     "frustration",
   ]);
+  const durableFailureEvidence = failureEvidence.filter(
+    isDurableFailureEvidence,
+  );
+  const failureProposalEvidence = proposalFailureEvidence(failureEvidence, 10);
   const successEvidence = collectCandidateEvidence(candidates, [
     "verified-success",
   ]);
   const date = today();
   const explicitStrengthCount = evidenceStrengthCount(explicitEvidence);
-  const failureStrengthCount = evidenceStrengthCount(failureEvidence);
+  const durableFailureStrengthCount = evidenceStrengthCount(
+    durableFailureEvidence,
+  );
   const successStrengthCount = evidenceStrengthCount(successEvidence);
 
   if (explicitEvidence.length > 0) {
@@ -1935,7 +2073,10 @@ export function buildProposalInputs(
         confidence: Math.min(95, 70 + explicitEvidence.length * 5),
         risk: "low",
       });
-    } else {
+    } else if (
+      explicitEvidence.length >= 2 &&
+      evidenceSpansMultipleThreadsOrSources(explicitEvidence)
+    ) {
       routedPersonalMemory = true;
       proposals.push({
         targetType: "shared-learnings",
@@ -1959,8 +2100,8 @@ export function buildProposalInputs(
   }
 
   if (
-    failureEvidence.length >= 2 &&
-    evidenceSpansMultipleThreadsOrSources(failureEvidence)
+    durableFailureEvidence.length >= 2 &&
+    evidenceSpansMultipleThreadsOrSources(durableFailureEvidence)
   ) {
     proposals.push({
       targetType: "shared-learnings",
@@ -1973,10 +2114,10 @@ export function buildProposalInputs(
       content: [
         "Recent Dispatch dream review found recurring agent-run failure signals.",
         "",
-        evidenceSummary(failureEvidence, 8),
+        evidenceSummary(failureProposalEvidence, 8),
       ].join("\n"),
-      evidence: failureEvidence.slice(0, 8),
-      confidence: Math.min(85, 50 + failureStrengthCount * 10),
+      evidence: failureProposalEvidence.slice(0, 8),
+      confidence: Math.min(85, 50 + durableFailureStrengthCount * 10),
       risk: "medium",
     });
   }
@@ -2018,8 +2159,8 @@ export function buildProposalInputs(
   }
 
   if (
-    failureEvidence.length >= 4 &&
-    evidenceSpansMultipleThreadsOrSources(failureEvidence)
+    durableFailureEvidence.length >= 4 &&
+    evidenceSpansMultipleThreadsOrSources(durableFailureEvidence)
   ) {
     proposals.push({
       targetType: "workspace-instruction",
@@ -2036,7 +2177,7 @@ export function buildProposalInputs(
         "",
         "Recent agent runs contained recurring friction or failure signals:",
         "",
-        evidenceSummary(failureEvidence, 10),
+        evidenceSummary(failureProposalEvidence, 10),
         "",
         "Instruction draft:",
         "",
@@ -2044,10 +2185,10 @@ export function buildProposalInputs(
         "- Prefer small, verified changes with provenance over broad rewrites when responding to user frustration.",
         "- Convert repeated failures into a durable workspace resource only after evidence spans multiple threads or apps.",
         "",
-        evidenceProvenance(date, failureEvidence),
+        evidenceProvenance(date, failureProposalEvidence),
       ].join("\n"),
-      evidence: failureEvidence.slice(0, 10),
-      confidence: Math.min(85, 50 + failureStrengthCount * 8),
+      evidence: failureProposalEvidence.slice(0, 10),
+      confidence: Math.min(85, 50 + durableFailureStrengthCount * 8),
       risk: "medium",
     });
   }
@@ -2140,11 +2281,24 @@ export function buildProposalInputs(
     });
   }
 
+  const suppressionNotes = noProposalSuppressionNotes({
+    explicitEvidence,
+    failureEvidence,
+    durableFailureEvidence,
+    successEvidence,
+    personalMemoryAllowed,
+    personalMemoryBlockReason,
+  });
   const result = applyMemoryGuardrails(proposals, memoryContext);
   if (routedPersonalMemory) {
     result.guardrailNotes.unshift(
       `Routed personal-memory dream proposals to shared learnings because ${personalMemoryBlockReason}.`,
     );
+  }
+  if (result.proposals.length === 0) {
+    for (const note of suppressionNotes) {
+      addSuppressionNote(result.guardrailNotes, note);
+    }
   }
   return result;
 }

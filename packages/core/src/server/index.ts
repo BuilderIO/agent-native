@@ -118,6 +118,39 @@ export {
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
 export {
+  createBrowserSessionActionEntries,
+  type CreateBrowserSessionActionEntriesOptions,
+} from "../browser-sessions/actions.js";
+export {
+  DEFAULT_BROWSER_SESSION_REQUEST_POLL_MS,
+  DEFAULT_BROWSER_SESSION_REQUEST_TIMEOUT_MS,
+  DEFAULT_BROWSER_SESSION_TTL_MS,
+  callBrowserSession,
+  claimBrowserSessionRequest,
+  completeBrowserSessionRequest,
+  createBrowserSessionRequest,
+  disconnectBrowserSession,
+  getBrowserSession,
+  getBrowserSessionRequest,
+  listBrowserSessions,
+  registerBrowserSession,
+  waitForBrowserSessionRequest,
+} from "../browser-sessions/store.js";
+export {
+  mountBrowserSessionRoutes,
+  type MountBrowserSessionRoutesOptions,
+} from "../browser-sessions/routes.js";
+export type {
+  AgentNativeBrowserSession,
+  AgentNativeBrowserSessionAction,
+  AgentNativeBrowserSessionRecord,
+  AgentNativeBrowserSessionRequest,
+  AgentNativeBrowserSessionRequestStatus,
+  AgentNativeBrowserSessionRequestType,
+  CreateAgentNativeBrowserSessionRequestInput,
+  RegisterAgentNativeBrowserSessionInput,
+} from "../browser-sessions/types.js";
+export {
   createTerminalPlugin,
   defaultTerminalPlugin,
   type TerminalPluginOptions,

@@ -108,6 +108,7 @@ import { registerBuiltinEngines } from "../agent/engine/builtin.js";
 import { getOrgContext } from "../org/context.js";
 import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
+import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -548,6 +549,8 @@ export function createCoreRoutesPlugin(
         })),
       );
     }
+
+    mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
 
     type BuilderOwnerContext = {
       email: string | undefined;

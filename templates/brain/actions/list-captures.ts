@@ -7,6 +7,7 @@ import {
   latestDistillationQueuesForCaptures,
   parseJson,
 } from "../server/lib/brain.js";
+import { redactSensitiveText } from "../server/lib/search.js";
 import { captureKindSchema, sourceProviderSchema } from "./_schemas.js";
 
 const captureStatusSchema = z.enum([
@@ -33,7 +34,7 @@ function sourceUrlFromMetadata(metadata: Record<string, unknown>) {
 }
 
 function contentPreview(content: string, maxLength: number) {
-  const text = content.replace(/\s+/g, " ").trim();
+  const text = redactSensitiveText(content).replace(/\s+/g, " ").trim();
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength).trim()}...`;
 }

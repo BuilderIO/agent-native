@@ -128,11 +128,17 @@ queued records, opt into short previews only when needed, queue distillation,
 see whether a capture is waiting on the distillation worker, or mark non-company
 material ignored.
 
-When a Brain tab is open, queued distillation requests are delegated to the app
-agent in the background. Re-running `enqueue-distillation` for an active queue
-item refreshes that handoff instead of duplicating queue rows. The agent reads
-the capture, writes cited knowledge or review proposals, then calls
-`mark-capture-distilled`, which marks the active queue row done.
+Distillation has two worker paths. When a Brain tab is open, the app shell
+claims queued items with `claim-distillation` and delegates them to the app
+agent in the background. When no tab is open, the `brain-distillation` server
+sweep runs with `RUN_BACKGROUND_JOBS`, claims due queued rows, reclaims stale
+`processing` rows, and invokes the same agent loop headlessly. Re-running
+`enqueue-distillation` for an active queue item refreshes the handoff instead
+of duplicating queue rows. The agent reads the capture, writes cited knowledge
+or review proposals, then calls `mark-capture-distilled`, which marks the
+active queue row done. If the agent does not close the queue, the worker
+requeues the item with a short delay and eventually fails it after repeated
+attempts.
 
 ## Granola Polling
 
@@ -198,7 +204,7 @@ new workspace can show Brain's strongest use case immediately.
 The template follows the agent-native four-area contract:
 
 - **UI:** Ask, Knowledge, Review, Sources, and Settings routes.
-- **Actions:** imports, source management, distillation queueing, proposal review, cited search, and navigation/context actions.
+- **Actions:** imports, source management, distillation queueing/claiming, proposal review, cited search, and navigation/context actions.
 - **Skills/instructions:** Brain-specific guidance for distillation and retrieval.
 - **Application state:** route, filters, and selected IDs mirror into `application_state` for agent context.
 

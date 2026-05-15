@@ -136,6 +136,41 @@ const hostTools = createAgentNativeHostTools({
 });
 ```
 
+## Server-Mediated Tool Bridge
+
+For a CLAW-style coworker, the iframe can also register its live browser tab with the sidecar backend. The agent then gets normal backend tools that enqueue a request, the iframe claims it, the host page executes it, and the backend returns the result to the agent.
+
+In the sidecar app, start the browser-session bridge once when the iframe mounts:
+
+```tsx
+import { useEffect } from "react";
+import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client";
+
+export function SidecarRuntime() {
+  useEffect(() => {
+    const bridge = startAgentNativeBrowserSessionBridge({
+      hostOrigin: "https://app.example.com",
+      label: "Builder editor",
+    });
+    return () => bridge.stop();
+  }, []);
+
+  return null;
+}
+```
+
+The framework mounts `/_agent-native/browser-sessions` automatically. Once the bridge is running, the sidecar agent can use:
+
+| Tool                           | Purpose                                                         |
+| ------------------------------ | --------------------------------------------------------------- |
+| `list-browser-sessions`        | See connected host tabs for the current user.                   |
+| `view-browser-session`         | Ask a live tab for current page context and screen snapshot.    |
+| `list-browser-session-actions` | Ask a live tab for current client-side action manifests.        |
+| `run-browser-session-action`   | Run one current client action through the live tab.             |
+| `send-browser-session-command` | Ask the host to refresh, navigate, remount, reload, or approve. |
+
+This is the bridge to use when the agent is running on the backend, in Slack/Telegram/email, or as an A2A callee but still needs to touch the user's current browser tab when it is open. If the browser is closed, backend actions should still handle durable work and the browser-session tools will report that no active tab is connected.
+
 ## Actions
 
 There are two action classes:

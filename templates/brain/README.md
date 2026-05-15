@@ -46,9 +46,11 @@ pnpm --filter brain build
    `RawCapturePayload` to `/api/_agent-native/brain/ingest`.
 3. Review the raw capture inventory with `list-captures` or the Sources page,
    then queue durable-company-context captures with `enqueue-distillation`.
-4. When a Brain tab is open, the bridge hands queued distillation work to the
-   app agent. The agent reads the capture, writes cited knowledge or proposals
-   with `write-knowledge`, and closes the queue with `mark-capture-distilled`.
+4. Distillation runs through the app agent: the open-tab bridge claims queued
+   work immediately, and the `brain-distillation` background sweep handles
+   queued or stale work when `RUN_BACKGROUND_JOBS` is enabled. The agent reads
+   the capture, writes cited knowledge or proposals with `write-knowledge`, and
+   closes the queue with `mark-capture-distilled`.
 5. Review queued proposals in the Review route or with `approve-proposal`.
 6. Ask Brain or another workspace agent to search broadly with
    `search-everything` when the V1.5 search surface is available, then drill
@@ -144,11 +146,16 @@ The Sources page exposes the same review inventory from each source card. Open
 queue distillation for durable context, see whether a capture is waiting on the
 distillation worker, or mark non-company material ignored.
 
-When a Brain tab is open, queued distillation requests are handed to the app
-agent in the background. Re-running `enqueue-distillation` for an active queue
-item refreshes that handoff instead of duplicating queue rows. The agent reads
-the capture, writes cited knowledge or review proposals, then calls
-`mark-capture-distilled`, which marks the active queue row done.
+Distillation has two worker paths. When a Brain tab is open, the app shell
+claims queued items with `claim-distillation` and hands them to the app agent in
+the background. When no tab is open, the `brain-distillation` server sweep runs
+with `RUN_BACKGROUND_JOBS`, claims due queued rows, reclaims stale `processing`
+rows, and invokes the same agent loop headlessly. Re-running
+`enqueue-distillation` for an active queue item refreshes the handoff instead
+of duplicating queue rows. The agent reads the capture, writes cited knowledge
+or review proposals, then calls `mark-capture-distilled`, which marks the
+active queue row done. If the agent does not close the queue, the worker requeues
+the item with a short delay and eventually fails it after repeated attempts.
 
 ## Granola Source Config
 

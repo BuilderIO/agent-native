@@ -85,6 +85,17 @@ function cleanText(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
+export function redactSensitiveText(value: string): string {
+  return value
+    .replace(/<mailto:[^>|]+(?:\|[^>]+)?>/gi, "[redacted]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]")
+    .replace(/(?:\+?\d[\d\s().-]{7,}\d)/g, (match) =>
+      /https?:\/\//i.test(match) || /\d{4}-\d{2}-\d{2}/.test(match)
+        ? match
+        : "[redacted]",
+    );
+}
+
 export function buildSnippet(
   value: string,
   terms: string[],
@@ -227,9 +238,11 @@ async function searchKnowledgeResults(
     return {
       type: "knowledge" as const,
       id: row.id,
-      title: row.title,
-      snippet: buildSnippet(`${summary} ${row.body}`, terms),
-      summary,
+      title: redactSensitiveText(row.title),
+      snippet: redactSensitiveText(
+        buildSnippet(`${summary} ${row.body}`, terms),
+      ),
+      summary: redactSensitiveText(summary),
       status: row.status,
       provider: source?.provider ?? null,
       source: serializeSourceInfo(source),
@@ -237,8 +250,12 @@ async function searchKnowledgeResults(
       citation: citation
         ? {
             captureId: citation.captureId,
-            captureTitle: citation.captureTitle,
-            quote: citation.quote,
+            captureTitle: citation.captureTitle
+              ? redactSensitiveText(citation.captureTitle)
+              : citation.captureTitle,
+            quote: citation.quote
+              ? redactSensitiveText(citation.quote)
+              : citation.quote,
             sourceUrl,
           }
         : null,
@@ -283,12 +300,12 @@ async function searchCaptureResults(
     if (!source) return [];
     const metadata = parseJson<Record<string, unknown>>(row.metadataJson, {});
     const sourceUrl = sourceUrlFromMetadata(metadata);
-    const snippet = buildSnippet(row.content, terms);
+    const snippet = redactSensitiveText(buildSnippet(row.content, terms));
     return [
       {
         type: "capture" as const,
         id: row.id,
-        title: row.title,
+        title: redactSensitiveText(row.title),
         snippet,
         summary: snippet,
         status: row.status,

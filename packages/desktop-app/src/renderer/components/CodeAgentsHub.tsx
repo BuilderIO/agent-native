@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconAlertCircle,
-  IconCircleCheck,
+  IconArrowUp,
   IconClock,
   IconCode,
   IconExternalLink,
   IconListCheck,
+  IconPlus,
   IconPlayerPlay,
   IconRefresh,
   IconRoute,
@@ -36,15 +37,6 @@ interface CodeAgentsHubProps {
 }
 
 type RunListStatus = CodeAgentRunListResult["status"];
-type RunFilter = "all" | "active" | "approval" | "complete" | "issues";
-
-const RUN_FILTERS: Array<{ id: RunFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "active", label: "Active" },
-  { id: "approval", label: "Input" },
-  { id: "issues", label: "Issues" },
-  { id: "complete", label: "Done" },
-];
 
 export default function CodeAgentsHub({
   apps,
@@ -80,7 +72,6 @@ export default function CodeAgentsHub({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
-  const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [newPrompt, setNewPrompt] = useState("");
   const [creatingRun, setCreatingRun] = useState(false);
   const [transcriptEvents, setTranscriptEvents] = useState<
@@ -170,18 +161,8 @@ export default function CodeAgentsHub({
     void loadRuns(true);
   }, [loadRuns, openRequest]);
 
-  useEffect(() => {
-    if (selectedRunId || runs.length === 0) return;
-    setSelectedRunId(runs[0].id);
-  }, [runs, selectedRunId]);
-
-  const summary = useMemo(() => buildSummary(runs), [runs]);
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;
-  const visibleRuns = useMemo(
-    () => runs.filter((run) => matchesRunFilter(run, runFilter)),
-    [runFilter, runs],
-  );
   const workbenchUrlParams = selectedRunId ? { run: selectedRunId } : undefined;
   const selectedRunStoredPermissionMode = selectedRun
     ? getRunPermissionMode(selectedRun)
@@ -453,44 +434,10 @@ export default function CodeAgentsHub({
         aria-label="Code Agent goals and sessions"
       >
         <div className="code-agents-rail__header">
-          <div className="code-agents-mark">
-            <IconCode size={18} strokeWidth={1.8} />
-          </div>
           <div className="code-agents-title-block">
             <h1>Code</h1>
-            <p>Coding sessions</p>
+            <p>{runs.length} sessions</p>
           </div>
-        </div>
-
-        <div className="code-agents-goal-list" aria-label="Code Agent goals">
-          {CODE_AGENT_GOALS.map((goal) => (
-            <button
-              key={goal.id}
-              type="button"
-              className={`code-agents-goal${
-                goal.id === selectedGoal.id ? " code-agents-goal--active" : ""
-              }`}
-              onClick={() => {
-                setSelectedGoalId(goal.id);
-                setSelectedRunId(null);
-                setWorkbenchOpen(false);
-              }}
-            >
-              <span>{goal.slashCommand}</span>
-              <strong>{goal.label}</strong>
-            </button>
-          ))}
-        </div>
-
-        <div className="code-agents-rail__actions">
-          <button
-            type="button"
-            className="code-agents-button code-agents-button--primary"
-            onClick={openSelectedGoal}
-          >
-            <IconRoute size={14} strokeWidth={1.8} />
-            {selectedGoal.primaryActionLabel}
-          </button>
           <button
             type="button"
             className="code-agents-icon-button"
@@ -506,36 +453,47 @@ export default function CodeAgentsHub({
           </button>
         </div>
 
+        <button
+          type="button"
+          className="code-agents-new-session-link"
+          onClick={openSelectedGoal}
+        >
+          <IconPlus size={15} strokeWidth={1.8} />
+          New session
+        </button>
+
+        <div className="code-agents-goal-list" aria-label="Code commands">
+          <p className="code-agents-rail-label">Commands</p>
+          {CODE_AGENT_GOALS.map((goal) => (
+            <button
+              key={goal.id}
+              type="button"
+              className={`code-agents-goal${
+                goal.id === selectedGoal.id ? " code-agents-goal--active" : ""
+              }`}
+              onClick={() => {
+                setSelectedGoalId(goal.id);
+                setSelectedRunId(null);
+                setWorkbenchOpen(false);
+              }}
+            >
+              <strong>{goal.label}</strong>
+              <span>{goal.slashCommand}</span>
+            </button>
+          ))}
+        </div>
+
         <div className="code-agents-run-list">
-          <div className="code-agents-filter" aria-label="Session filters">
-            {RUN_FILTERS.map((filter) => (
-              <button
-                key={filter.id}
-                type="button"
-                className={`code-agents-filter__item${
-                  runFilter === filter.id
-                    ? " code-agents-filter__item--active"
-                    : ""
-                }`}
-                onClick={() => setRunFilter(filter.id)}
-              >
-                {filter.label}
-              </button>
-            ))}
-          </div>
+          <p className="code-agents-rail-label">Recents</p>
           {loading ? (
             <RunListSkeleton />
-          ) : visibleRuns.length === 0 ? (
+          ) : runs.length === 0 ? (
             <div className="code-agents-empty-rail">
               <IconClock size={18} strokeWidth={1.7} />
-              <p>
-                {runs.length === 0
-                  ? `No ${selectedGoal.slashCommand} sessions yet.`
-                  : "No sessions match this filter."}
-              </p>
+              <p>No sessions yet.</p>
             </div>
           ) : (
-            visibleRuns.map((run) => (
+            runs.map((run) => (
               <RunRailItem
                 key={run.id}
                 run={run}
@@ -605,36 +563,6 @@ export default function CodeAgentsHub({
           </div>
         ) : (
           <div className="code-agents-overview">
-            <div className="code-agents-overview__header">
-              <div>
-                <p className="code-agents-kicker">Native Code app</p>
-                <h2>Coding sessions</h2>
-                <p>
-                  Start a coding task, review the transcript, and attach
-                  follow-ups to the same session. Migration and audit are
-                  slash-command goals in the same queue.
-                </p>
-              </div>
-              <div className="code-agents-toolbar-actions">
-                <button
-                  type="button"
-                  className="code-agents-button"
-                  onClick={() => setWorkbenchOpen(true)}
-                >
-                  <IconExternalLink size={14} strokeWidth={1.8} />
-                  Open {selectedGoal.surfaceLabel}
-                </button>
-                <button
-                  type="button"
-                  className="code-agents-button"
-                  onClick={openTerminal}
-                >
-                  <IconTerminal2 size={14} strokeWidth={1.8} />
-                  Open Terminal
-                </button>
-              </div>
-            </div>
-
             {status !== "ok" && (
               <div
                 className={`code-agents-callout code-agents-callout--${status}`}
@@ -649,94 +577,79 @@ export default function CodeAgentsHub({
               </div>
             )}
 
-            <NewSessionComposer
-              goal={selectedGoal}
-              prompt={newPrompt}
-              inputRef={newPromptRef}
-              creating={creatingRun}
-              permissionMode={newRunPermissionMode}
-              onPromptChange={setNewPrompt}
-              onPermissionModeChange={setNewRunPermissionMode}
-              onSubmit={createRunFromPrompt}
-            />
-
-            <div className="code-agents-status-grid">
-              <StatusCard
-                icon={<IconListCheck size={17} strokeWidth={1.8} />}
-                label="Sessions"
-                value={String(summary.total)}
-                tone="neutral"
+            {selectedRun ? (
+              <RunDetailCard
+                run={selectedRun}
+                selectedRunId={selectedRunId}
+                goal={selectedGoal}
+                transcriptEvents={transcriptEvents}
+                transcriptLoading={transcriptLoading}
+                transcriptError={transcriptError}
+                followUpPrompt={followUpPrompt}
+                submittingFollowUp={submittingFollowUp}
+                permissionMode={selectedPermissionMode}
+                updatingPermissionMode={updatingPermissionMode}
+                onFollowUpPromptChange={setFollowUpPrompt}
+                onPermissionModeChange={changeSelectedPermissionMode}
+                onSubmitFollowUp={submitFollowUp}
+                onOpenWorkbench={() => setWorkbenchOpen(true)}
+                onOpenTerminal={openTerminal}
+                onResume={() => controlRun("resume")}
+                onRefreshStatus={() => controlRun("status")}
+                onStop={() => controlRun("stop")}
+                onOpenSettings={onOpenSettings}
               />
-              <StatusCard
-                icon={<IconPlayerPlay size={17} strokeWidth={1.8} />}
-                label="Active"
-                value={String(summary.inProgress)}
-                tone="active"
-              />
-              <StatusCard
-                icon={<IconAlertCircle size={17} strokeWidth={1.8} />}
-                label="Waiting"
-                value={String(summary.needsApproval)}
-                tone="warning"
-              />
-              <StatusCard
-                icon={<IconCircleCheck size={17} strokeWidth={1.8} />}
-                label="Complete"
-                value={String(summary.complete)}
-                tone="success"
-              />
-            </div>
-
-            <RunDetailCard
-              run={selectedRun}
-              selectedRunId={selectedRunId}
-              goal={selectedGoal}
-              transcriptEvents={transcriptEvents}
-              transcriptLoading={transcriptLoading}
-              transcriptError={transcriptError}
-              followUpPrompt={followUpPrompt}
-              submittingFollowUp={submittingFollowUp}
-              permissionMode={selectedPermissionMode}
-              updatingPermissionMode={updatingPermissionMode}
-              onFollowUpPromptChange={setFollowUpPrompt}
-              onPermissionModeChange={changeSelectedPermissionMode}
-              onSubmitFollowUp={submitFollowUp}
-              onOpenWorkbench={() => setWorkbenchOpen(true)}
-              onOpenTerminal={openTerminal}
-              onResume={() => controlRun("resume")}
-              onRefreshStatus={() => controlRun("status")}
-              onStop={() => controlRun("stop")}
-              onOpenSettings={onOpenSettings}
-            />
+            ) : (
+              <div className="code-agents-start">
+                <h2>What should we work on?</h2>
+                <NewSessionComposer
+                  goal={selectedGoal}
+                  prompt={newPrompt}
+                  inputRef={newPromptRef}
+                  creating={creatingRun}
+                  permissionMode={newRunPermissionMode}
+                  onPromptChange={setNewPrompt}
+                  onPermissionModeChange={setNewRunPermissionMode}
+                  onSubmit={createRunFromPrompt}
+                />
+                <div className="code-agents-suggestions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedGoalId("task");
+                      setNewPrompt("Review the current changes");
+                      newPromptRef.current?.focus();
+                    }}
+                  >
+                    Review the current changes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedGoalId("migrate");
+                      setNewPrompt("/migrate ");
+                      newPromptRef.current?.focus();
+                    }}
+                  >
+                    Migrate an existing app
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedGoalId("audit");
+                      setNewPrompt("/audit ");
+                      newPromptRef.current?.focus();
+                    }}
+                  >
+                    Audit a web app
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
     </section>
-  );
-}
-
-function buildSummary(runs: CodeAgentRun[]) {
-  return runs.reduce(
-    (acc, run) => {
-      acc.total += 1;
-      if (run.status === "completed" || run.phase === "complete") {
-        acc.complete += 1;
-      } else {
-        acc.inProgress += 1;
-      }
-      if (hasPendingApproval(run)) {
-        acc.needsApproval += 1;
-      }
-      acc.failedTasks += getRunFailedCount(run);
-      return acc;
-    },
-    {
-      total: 0,
-      inProgress: 0,
-      needsApproval: 0,
-      complete: 0,
-      failedTasks: 0,
-    },
   );
 }
 
@@ -770,32 +683,32 @@ function NewSessionComposer({
 }) {
   return (
     <form className="code-agents-new-session" onSubmit={onSubmit}>
-      <div className="code-agents-new-session__header">
-        <div>
-          <p className="code-agents-kicker">{goal.slashCommand}</p>
-          <h3>New coding session</h3>
-        </div>
-        <button
-          type="submit"
-          className="code-agents-button code-agents-button--primary"
-          disabled={creating || prompt.trim().length === 0}
-        >
-          <IconPlayerPlay size={14} strokeWidth={1.8} />
-          {creating ? "Starting" : "Start Session"}
-        </button>
-      </div>
       <textarea
         ref={inputRef}
         className="code-agents-composer"
         value={prompt}
         onChange={(event) => onPromptChange(event.target.value)}
-        placeholder="Describe the coding task..."
-        rows={3}
+        placeholder="Describe a task or ask a question"
+        rows={4}
       />
-      <PermissionModeSelector
-        value={permissionMode}
-        onChange={onPermissionModeChange}
-      />
+      <div className="code-agents-composer-bar">
+        <div className="code-agents-composer-meta">
+          <span>{goal.slashCommand}</span>
+          <PermissionModeSelector
+            value={permissionMode}
+            onChange={onPermissionModeChange}
+            compact
+          />
+        </div>
+        <button
+          type="submit"
+          className="code-agents-send-button"
+          disabled={creating || prompt.trim().length === 0}
+          aria-label={creating ? "Starting session" : "Start session"}
+        >
+          <IconArrowUp size={17} strokeWidth={1.9} />
+        </button>
+      </div>
     </form>
   );
 }
@@ -805,19 +718,27 @@ function PermissionModeSelector({
   onChange,
   disabled = false,
   title = "Permission mode",
+  compact = false,
 }: {
   value: CodeAgentPermissionMode;
   onChange: (value: CodeAgentPermissionMode) => void;
   disabled?: boolean;
   title?: string;
+  compact?: boolean;
 }) {
   const selected = getCodeAgentPermissionModeDefinition(value);
   return (
-    <fieldset className="code-agents-permission">
-      <legend className="code-agents-permission__header">
-        <span>{title}</span>
-        <em>{selected.description}</em>
-      </legend>
+    <fieldset
+      className={`code-agents-permission${
+        compact ? " code-agents-permission--compact" : ""
+      }`}
+    >
+      {!compact && (
+        <legend className="code-agents-permission__header">
+          <span>{title}</span>
+          <em>{selected.description}</em>
+        </legend>
+      )}
       <div className="code-agents-permission__options">
         {CODE_AGENT_PERMISSION_MODES.map((mode) => (
           <button
@@ -831,8 +752,8 @@ function PermissionModeSelector({
             title={mode.description}
             onClick={() => onChange(mode.id)}
           >
-            <strong>{mode.shortLabel}</strong>
-            <span>{mode.label}</span>
+            <strong>{compact ? mode.label : mode.shortLabel}</strong>
+            {!compact && <span>{mode.label}</span>}
           </button>
         ))}
       </div>
@@ -851,22 +772,8 @@ function NativeGoalSurface({
     <div className="code-agents-native-surface">
       <div className="code-agents-detail code-agents-detail--empty">
         <IconCode size={30} strokeWidth={1.5} />
-        <h3>{goal.slashCommand} session surface</h3>
-        <p>
-          {goal.description} Transcript events, queued prompts, status updates,
-          artifacts, and terminal handoffs live directly in this native Code
-          surface.
-        </p>
-        <div className="code-agents-feedback-list">
-          <span>
-            <IconListCheck size={14} strokeWidth={1.8} />
-            Findings and task progress stay attached to the session.
-          </span>
-          <span>
-            <IconAlertCircle size={14} strokeWidth={1.8} />
-            Approval or follow-up prompts appear as coding-agent feedback.
-          </span>
-        </div>
+        <h3>{goal.label}</h3>
+        <p>{goal.description}</p>
         <div className="code-agents-command-line">
           {exampleCommandForGoal(goal)}
         </div>
@@ -891,20 +798,6 @@ function exampleCommandForGoal(goal: CodeAgentGoalDefinition): string {
     return "agent-native code /migrate ./legacy-app --out ../migrated-app";
   }
   return `agent-native code ${goal.slashCommand} --url https://example.com`;
-}
-
-function matchesRunFilter(run: CodeAgentRun, filter: RunFilter) {
-  if (filter === "all") return true;
-  if (filter === "complete") {
-    return run.status === "completed" || run.phase === "complete";
-  }
-  if (filter === "approval") {
-    return hasPendingApproval(run);
-  }
-  if (filter === "issues") {
-    return run.status === "errored" || getRunFailedCount(run) > 0;
-  }
-  return run.status !== "completed" && run.phase !== "complete";
 }
 
 function isRunActive(run: CodeAgentRun): boolean {
@@ -1326,28 +1219,6 @@ function transcriptEventLabel(type: CodeAgentTranscriptEventType): string {
   return "System";
 }
 
-function StatusCard({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  tone: "neutral" | "active" | "warning" | "success";
-}) {
-  return (
-    <div className={`code-agents-status code-agents-status--${tone}`}>
-      <div className="code-agents-status__icon">{icon}</div>
-      <div>
-        <p>{label}</p>
-        <strong>{value}</strong>
-      </div>
-    </div>
-  );
-}
-
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="code-agents-field">
@@ -1398,12 +1269,6 @@ function getRunProgressLabel(run: CodeAgentRun): string {
   }
   if (isMigrationRun(run)) return `${run.taskCount} tasks`;
   return run.status;
-}
-
-function getRunFailedCount(run: CodeAgentRun): number {
-  if (typeof run.progress?.failed === "number") return run.progress.failed;
-  if (isMigrationRun(run)) return run.failedTaskCount;
-  return run.status === "errored" ? 1 : 0;
 }
 
 function hasMissingCredentialSignal(

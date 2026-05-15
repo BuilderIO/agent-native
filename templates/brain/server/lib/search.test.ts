@@ -3,6 +3,7 @@ import {
   buildSnippet,
   escapeLikeTerm,
   normalizeSearchTerms,
+  redactSensitiveText,
   scoreSearchText,
   sourceUrlFromMetadata,
 } from "./search.js";
@@ -33,6 +34,14 @@ describe("Brain universal search helpers", () => {
     );
     expect(snippet).toContain("policy requires approvals");
     expect(snippet.startsWith("...")).toBe(true);
+  });
+
+  it("redacts emails and Slack mailto tokens from snippets", () => {
+    expect(
+      redactSensitiveText(
+        "Email: <mailto:ava@example.com|ava@example.com> call +1 415 555 1212",
+      ),
+    ).toBe("Email: [redacted] call [redacted]");
   });
 
   it("scores title matches higher than body-only matches", () => {

@@ -132,6 +132,22 @@ export {
   type SendAgentNativeHostCommandToolInput,
 } from "./host-tools.js";
 export {
+  createAgentNativeBrowserSessionBridge,
+  startAgentNativeBrowserSessionBridge,
+  type AgentNativeBrowserSessionBridge,
+  type AgentNativeBrowserSessionBridgeOptions,
+} from "./browser-session-bridge.js";
+export type {
+  AgentNativeBrowserSession,
+  AgentNativeBrowserSessionAction,
+  AgentNativeBrowserSessionRecord,
+  AgentNativeBrowserSessionRequest,
+  AgentNativeBrowserSessionRequestStatus,
+  AgentNativeBrowserSessionRequestType,
+  CreateAgentNativeBrowserSessionRequestInput,
+  RegisterAgentNativeBrowserSessionInput,
+} from "../browser-sessions/types.js";
+export {
   NewWorkspaceAppFlow,
   type NewWorkspaceAppFlowProps,
   type VaultSecretOption,

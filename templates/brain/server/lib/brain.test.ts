@@ -757,6 +757,103 @@ describe("Brain memory quality gates", () => {
     });
     expect(typeof mocks.rows.ingestQueue[0].runAfter).toBe("string");
   });
+
+  it("runs headless distillation and treats mark-capture completion as processed", async () => {
+    const now = "2026-05-15T12:00:00.000Z";
+    const source = seedSource();
+    const capture = seedCapture({ status: "distilling" });
+    mocks.rows.ingestQueue.push({
+      id: "queue-1",
+      sourceId: source.id,
+      captureId: capture.id,
+      operation: "distill",
+      status: "queued",
+      priority: 50,
+      attempts: 0,
+      payloadJson: JSON.stringify({ instructions: "Prefer decisions." }),
+      error: "waiting",
+      runAfter: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const seen: Row[] = [];
+    const result = await processBrainIngestQueueOnce({
+      limit: 1,
+      runDistillation: true,
+      distillationRunner: async (context) => {
+        seen.push({
+          queueId: context.queue.id,
+          captureId: context.capture.id,
+          sourceId: context.source.id,
+          instructions: context.payload.instructions,
+        });
+        Object.assign(mocks.rows.ingestQueue[0], {
+          status: "done",
+          error: null,
+          updatedAt: "2026-05-15T12:01:00.000Z",
+        });
+      },
+    });
+
+    expect(result).toMatchObject({
+      processed: ["queue-1"],
+      deferred: [],
+      failed: [],
+    });
+    expect(seen).toEqual([
+      {
+        queueId: "queue-1",
+        captureId: "capture-1",
+        sourceId: "source-1",
+        instructions: "Prefer decisions.",
+      },
+    ]);
+    expect(mocks.rows.ingestQueue[0]).toMatchObject({
+      status: "done",
+      attempts: 1,
+      error: null,
+    });
+  });
+
+  it("requeues headless distillation when the agent does not close the capture", async () => {
+    const now = "2026-05-15T12:00:00.000Z";
+    const source = seedSource();
+    const capture = seedCapture({ status: "distilling" });
+    mocks.rows.ingestQueue.push({
+      id: "queue-1",
+      sourceId: source.id,
+      captureId: capture.id,
+      operation: "distill",
+      status: "queued",
+      priority: 50,
+      attempts: 0,
+      payloadJson: "{}",
+      error: null,
+      runAfter: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await processBrainIngestQueueOnce({
+      limit: 1,
+      runDistillation: true,
+      distillationRunner: async () => {},
+    });
+
+    expect(result).toMatchObject({
+      processed: [],
+      deferred: ["queue-1"],
+      failed: [],
+    });
+    expect(mocks.rows.ingestQueue[0]).toMatchObject({
+      status: "queued",
+      attempts: 1,
+      error:
+        "Headless distillation agent did not mark this capture distilled or ignored.",
+    });
+    expect(typeof mocks.rows.ingestQueue[0].runAfter).toBe("string");
+  });
 });
 
 describe("Brain connector smoke coverage", () => {

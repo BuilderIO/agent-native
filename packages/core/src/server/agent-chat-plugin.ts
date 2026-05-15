@@ -1866,7 +1866,7 @@ On the user's first interaction, check \`readAppState("personalization")\`. If i
 
 ### Extended Capabilities
 
-You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, and browser automation (\`activate-browser\` to provision a real Chrome). Call \`get-framework-context\` to read detailed instructions for any of these when needed.
+You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, live embedded browser sessions (\`list-browser-sessions\`, \`view-browser-session\`, \`run-browser-session-action\`, \`send-browser-session-command\`), and browser automation (\`activate-browser\` to provision a real Chrome). Call \`get-framework-context\` to read detailed instructions for any of these when needed.
 
 For brand-consistent raster image generation, use the first-party Images agent via \`call-agent\` with agent "images" when another app needs generated heroes, diagrams, product shots, thumbnails, or design imagery. If this app has a native image-generation action, prefer that action because it may attach the image to the local document/deck/design.
 `;
@@ -3174,6 +3174,14 @@ export function createAgentChatPlugin(
           await import("../extensions/actions.js");
         toolActions = createExtensionActionEntries();
       } catch {}
+      let browserSessionTools: Record<string, ActionEntry> = {};
+      try {
+        const { createBrowserSessionActionEntries } =
+          await import("../browser-sessions/actions.js");
+        browserSessionTools = createBrowserSessionActionEntries({
+          getOwnerEmail: () => requireCurrentRunOwner("use browser sessions"),
+        });
+      } catch {}
 
       const resolveExtraContext = async (
         event: any,
@@ -3211,6 +3219,7 @@ export function createAgentChatPlugin(
               ...progressTools,
               ...fetchTool,
               ...toolActions,
+              ...browserSessionTools,
               ...browserTools,
               ...devScriptsForA2A,
             }
@@ -3230,6 +3239,7 @@ export function createAgentChatPlugin(
               ...progressTools,
               ...fetchTool,
               ...toolActions,
+              ...browserSessionTools,
               ...browserTools,
               ...devScriptsForA2A,
             },
@@ -3425,6 +3435,7 @@ export function createAgentChatPlugin(
                   ...urlTools,
                   ...chatScripts,
                   ...toolActions,
+                  ...browserSessionTools,
                   ...browserTools,
                   ...devScriptsForA2A,
                 }
@@ -3438,6 +3449,7 @@ export function createAgentChatPlugin(
                   ...urlTools,
                   ...chatScripts,
                   ...toolActions,
+                  ...browserSessionTools,
                   ...browserTools,
                 },
           );
@@ -4146,6 +4158,7 @@ export function createAgentChatPlugin(
         ...progressTools,
         ...fetchTool,
         ...toolActions,
+        ...browserSessionTools,
         ...browserTools,
         ...mcpActionEntries,
       });
@@ -4409,6 +4422,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
                   ...progressTools,
                   ...fetchTool,
                   ...toolActions,
+                  ...browserSessionTools,
                   ...browserTools,
                   ...mcpActionEntries,
                   ...(await createDevScriptRegistry()),

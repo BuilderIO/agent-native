@@ -608,6 +608,46 @@ describe("listDreamCandidates", () => {
 
     expect(result.candidateCount).toBe(0);
   });
+
+  it("ignores injected context when detecting user corrections", async () => {
+    mocks.searchAgentThreads.mockResolvedValue({
+      source: { id: "videos" },
+      access: { mode: "local" },
+      query: null,
+      threads: [{ id: "thread-context" }],
+    });
+    mocks.getAgentThreadDebug.mockResolvedValue({
+      thread: {
+        id: "thread-context",
+        ownerEmail: "owner@example.test",
+        title: "einstein shaking head",
+        preview: "composition request",
+        messageCount: 1,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      messages: [
+        {
+          role: "user",
+          text: "einstein shaking head\n\n<context>\nUse the Videos app flow. Do not route this as source-code generation.</context>",
+          index: 0,
+          createdAt: 1,
+        },
+      ],
+      runs: [],
+      feedback: [],
+      evals: [],
+      satisfaction: [],
+      checkpoints: [],
+    });
+
+    const result = await listDreamCandidates({
+      sourceId: "videos",
+      limit: 5,
+    });
+
+    expect(result.candidateCount).toBe(0);
+  });
 });
 
 describe("buildProposalInputs", () => {
@@ -707,7 +747,18 @@ describe("buildProposalInputs", () => {
 
   it("routes personal-memory proposals to shared learnings when the owner scope is not personal", () => {
     const result = buildProposalInputs(
-      [candidateWithEvidence([explicitEvidence()])],
+      [
+        candidateWithEvidence([explicitEvidence({ threadId: "thread-1" })]),
+        candidateWithEvidence(
+          [
+            explicitEvidence({
+              threadId: "thread-2",
+              snippet: "Remember to keep dream proposals reviewable",
+            }),
+          ],
+          "mail",
+        ),
+      ],
       {
         personalIndex: "# Memory Index\n",
         personalNotes: [],
@@ -839,6 +890,14 @@ describe("buildProposalInputs", () => {
         candidateWithEvidence(
           [
             {
+              kind: "failed-run",
+              label: "Run failed or aborted",
+              snippet: "failed: Notion import exceeded retry budget",
+              threadId: "thread-a",
+              threadTitle: "Slow dream run A",
+              runId: "run-a",
+            },
+            {
               kind: "eval-failure",
               label: "Evaluation failed or scored low",
               snippet: {
@@ -860,6 +919,14 @@ describe("buildProposalInputs", () => {
         ),
         candidateWithEvidence(
           [
+            {
+              kind: "failed-run",
+              label: "Run failed or aborted",
+              snippet: "failed: Notion import exceeded retry budget",
+              threadId: "thread-b",
+              threadTitle: "Slow dream run B",
+              runId: "run-b",
+            },
             {
               kind: "eval-failure",
               label: "Evaluation failed or scored low",
@@ -899,12 +966,123 @@ describe("buildProposalInputs", () => {
     expect(content).not.toContain("{");
   });
 
+  it("does not create durable proposals from eval-only or account setup failures", () => {
+    const result = buildProposalInputs(
+      [
+        candidateWithEvidence(
+          [
+            {
+              kind: "eval-failure",
+              label: "Evaluation failed or scored low",
+              snippet: {
+                name: "cost_efficiency",
+                score: 0,
+                passed: false,
+                metadata: JSON.stringify({
+                  actualCx100: 4160,
+                  expectedCx100: 300,
+                }),
+              } as any,
+              threadId: "thread-a",
+              threadTitle: "Costly run",
+            },
+            {
+              kind: "tool-error",
+              label: "Tool call reported an error",
+              snippet:
+                "Tool error (credits-limit-daily): You've reached the daily AI credits limit for your current plan.",
+              threadId: "thread-a",
+              threadTitle: "Costly run",
+            },
+          ],
+          "mail",
+        ),
+        candidateWithEvidence(
+          [
+            {
+              kind: "eval-failure",
+              label: "Evaluation failed or scored low",
+              snippet: {
+                name: "latency_score",
+                score: 0,
+                passed: false,
+                metadata: JSON.stringify({
+                  actual_ms: 61_250,
+                  expected_ms: 30_000,
+                }),
+              } as any,
+              threadId: "thread-b",
+              threadTitle: "Slow run",
+            },
+            {
+              kind: "tool-error",
+              label: "Tool call reported an error",
+              snippet:
+                "Tool error (missing_credentials): No LLM provider is connected.",
+              threadId: "thread-b",
+              threadTitle: "Slow run",
+            },
+          ],
+          "content",
+        ),
+      ],
+      {
+        personalIndex: "",
+        personalNotes: [],
+        sharedLearnings: "",
+      },
+    );
+
+    expect(result.proposals).toEqual([]);
+    expect(result.guardrailNotes.join("\n")).toContain(
+      "Skipped failure proposals because the signals were eval-only noise",
+    );
+  });
+
+  it("explains why admin-visible one-off corrections produce no proposal", () => {
+    const result = buildProposalInputs(
+      [
+        candidateWithEvidence(
+          [
+            explicitEvidence({
+              threadId: "thread-forms",
+              threadTitle: "Recording answer",
+              snippet:
+                "Actually this Forms screen should say record instead of upload",
+              sourceId: "forms",
+            }),
+          ],
+          "forms",
+        ),
+      ],
+      {
+        personalIndex: "",
+        personalNotes: [],
+        sharedLearnings: "",
+      },
+      {
+        personalMemoryAllowed: false,
+        personalMemoryBlockReason:
+          "source evidence includes a thread owned by another user",
+      },
+    );
+
+    expect(result.proposals).toEqual([]);
+    const notes = result.guardrailNotes.join("\n");
+    expect(notes).toContain(
+      "Skipped explicit user-correction proposals because personal memory is blocked",
+    );
+    expect(notes).toContain(
+      "Skipped workspace-instruction promotion for explicit corrections",
+    );
+  });
+
   it("requires workspace instruction evidence to span threads or source apps", () => {
     const sameThreadFailures: DreamEvidence[] = [
       {
         kind: "failed-run",
         label: "Run failed or aborted",
-        snippet: "failed: production dream source timed out",
+        snippet: "failed: resource sync wrote an invalid workspace resource",
         threadId: "thread-a",
         threadTitle: "Production timeout",
         sourceId: "dispatch-prod",
@@ -913,7 +1091,7 @@ describe("buildProposalInputs", () => {
         kind: "tool-error",
         label: "Tool call reported an error",
         snippet:
-          "Tool error (credits-limit-daily): daily credits limit reached",
+          "Tool error (schema-mismatch): resource grant failed validation",
         threadId: "thread-a",
         threadTitle: "Production timeout",
         sourceId: "dispatch-prod",
@@ -930,6 +1108,14 @@ describe("buildProposalInputs", () => {
         kind: "frustration",
         label: "User expressed friction or repeated failure",
         snippet: "This keeps failing again",
+        threadId: "thread-a",
+        threadTitle: "Production timeout",
+        sourceId: "dispatch-prod",
+      },
+      {
+        kind: "negative-feedback",
+        label: "Negative feedback was recorded",
+        snippet: "User said the workspace sync fix did not work",
         threadId: "thread-a",
         threadTitle: "Production timeout",
         sourceId: "dispatch-prod",
