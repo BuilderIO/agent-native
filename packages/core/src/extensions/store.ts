@@ -295,6 +295,13 @@ async function extensionChangeTargetsForId(
   return row ? extensionChangeTargetsForRow(row) : [];
 }
 
+export async function getExtensionChangeTargets(
+  id: string,
+): Promise<ExtensionChangeTarget[]> {
+  await ensureExtensionsTables();
+  return extensionChangeTargetsForId(id);
+}
+
 function dedupeExtensionChangeTargets(
   targets: ExtensionChangeTarget[],
 ): ExtensionChangeTarget[] {
@@ -333,6 +340,17 @@ async function notifyExtensionChanged(
       );
     }),
   );
+}
+
+export async function notifyExtensionChangeForResource(
+  id: string,
+  beforeTargets: ExtensionChangeTarget[] = [],
+): Promise<void> {
+  await ensureExtensionsTables();
+  await notifyExtensionChanged([
+    ...beforeTargets,
+    ...(await extensionChangeTargetsForId(id)),
+  ]);
 }
 
 export interface ListExtensionsOptions {

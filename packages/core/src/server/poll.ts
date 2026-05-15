@@ -205,14 +205,10 @@ function recordExtensionChanges(targets: ExtensionChangeTarget[]): void {
   }
 }
 
-async function readExtensionTargetsForRow(
-  db: {
-    execute: (
-      query: string | { sql: string; args?: unknown[] },
-    ) => Promise<{ rows: Array<Record<string, unknown>> }>;
-  },
+function extensionTargetsForRow(
   row: Record<string, unknown>,
-): Promise<ExtensionChangeTarget[]> {
+  shareRows: Array<Record<string, unknown>>,
+): ExtensionChangeTarget[] {
   const targets = new Map<string, ExtensionChangeTarget>();
   const owner = typeof row.owner_email === "string" ? row.owner_email : "";
   const orgId = typeof row.org_id === "string" ? row.org_id : "";
@@ -222,30 +218,60 @@ async function readExtensionTargetsForRow(
   if (owner) addExtensionTarget(targets, { owner });
   if (visibility === "org" && orgId) addExtensionTarget(targets, { orgId });
 
-  const extensionId = typeof row.id === "string" ? row.id : "";
-  if (extensionId) {
+  for (const share of shareRows) {
+    const principalType =
+      typeof share.principal_type === "string" ? share.principal_type : "";
+    const principalId =
+      typeof share.principal_id === "string" ? share.principal_id : "";
+    if (principalType === "user" && principalId) {
+      addExtensionTarget(targets, { owner: principalId });
+    } else if (principalType === "org" && principalId) {
+      addExtensionTarget(targets, { orgId: principalId });
+    }
+  }
+
+  return Array.from(targets.values());
+}
+
+async function readExtensionTargetsForRows(
+  db: {
+    execute: (
+      query: string | { sql: string; args?: unknown[] },
+    ) => Promise<{ rows: Array<Record<string, unknown>> }>;
+  },
+  rows: Array<Record<string, unknown>>,
+): Promise<ExtensionChangeTarget[][]> {
+  const ids = rows
+    .map((row) => (typeof row.id === "string" ? row.id : ""))
+    .filter(Boolean);
+  const sharesByResourceId = new Map<string, Array<Record<string, unknown>>>();
+
+  if (ids.length > 0) {
     try {
+      const placeholders = ids.map(() => "?").join(", ");
       const shareResult = await db.execute({
-        sql: "SELECT principal_type, principal_id FROM tool_shares WHERE resource_id = ?",
-        args: [extensionId],
+        sql: `SELECT resource_id, principal_type, principal_id FROM tool_shares WHERE resource_id IN (${placeholders})`,
+        args: ids,
       });
       for (const share of shareResult.rows) {
-        const principalType =
-          typeof share.principal_type === "string" ? share.principal_type : "";
-        const principalId =
-          typeof share.principal_id === "string" ? share.principal_id : "";
-        if (principalType === "user" && principalId) {
-          addExtensionTarget(targets, { owner: principalId });
-        } else if (principalType === "org" && principalId) {
-          addExtensionTarget(targets, { orgId: principalId });
-        }
+        const resourceId =
+          typeof share.resource_id === "string" ? share.resource_id : "";
+        if (!resourceId) continue;
+        const bucket = sharesByResourceId.get(resourceId) ?? [];
+        bucket.push(share);
+        sharesByResourceId.set(resourceId, bucket);
       }
     } catch {
       // Sharing tables are optional during early app initialization.
     }
   }
 
-  return Array.from(targets.values());
+  return rows.map((row) =>
+    extensionTargetsForRow(
+      row,
+      sharesByResourceId.get(typeof row.id === "string" ? row.id : "") ?? [],
+    ),
+  );
 }
 
 /** Get all changes after a given version. */
@@ -450,9 +476,11 @@ async function checkExternalDbChanges(): Promise<void> {
         _lastExtensionsTs,
       );
       if (_lastExtensionsTs > 0) {
-        for (const row of extensionResult.rows) {
-          recordExtensionChanges(await readExtensionTargetsForRow(db, row));
-        }
+        const targetsByRow = await readExtensionTargetsForRows(
+          db,
+          extensionResult.rows,
+        );
+        for (const targets of targetsByRow) recordExtensionChanges(targets);
       }
       _lastExtensionsTs = extensionsTs;
     }
