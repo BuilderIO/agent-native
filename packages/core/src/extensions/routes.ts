@@ -8,7 +8,6 @@ import {
 } from "h3";
 import { readBody } from "../server/h3-helpers.js";
 import { getSession } from "../server/auth.js";
-import { recordChange } from "../server/poll.js";
 import {
   runWithRequestContext,
   getRequestOrgId,
@@ -156,7 +155,6 @@ async function dispatch(
       return { error: "name is required" };
     }
     const extension = await createExtension(body);
-    recordChange({ source: "action", type: "change" });
     setResponseStatus(event, 201);
     return extension;
   }
@@ -221,7 +219,6 @@ async function dispatch(
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
-    recordChange({ source: "action", type: "change" });
     return { ok: true, hidden: true };
   }
 
@@ -232,7 +229,6 @@ async function dispatch(
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
-    recordChange({ source: "action", type: "change" });
     return { ok: true, hidden: false };
   }
 
@@ -264,7 +260,6 @@ async function dispatch(
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
-    recordChange({ source: "action", type: "change" });
     return result;
   }
 
@@ -275,7 +270,6 @@ async function dispatch(
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
-    recordChange({ source: "action", type: "change" });
     return { ok: true };
   }
 

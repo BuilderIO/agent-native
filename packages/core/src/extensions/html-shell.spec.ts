@@ -105,6 +105,16 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain('body:has(> [data-extension-padding="none"])');
     expect(html).toContain("body:has(> .agent-native-extension-bleed)");
   });
+
+  it("keeps runtime error toasts dismissible after a fix request", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain('id="__extension-error-dismiss"');
+    expect(html).toContain("agent-native-extension-error-fix");
+    expect(
+      html.match(/__extension-error-toast'\)\.style\.display = 'none'/g),
+    ).toHaveLength(2);
+  });
 });
 
 describe("extension iframe sandbox attribute (CI guard)", () => {

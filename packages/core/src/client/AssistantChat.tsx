@@ -2660,6 +2660,16 @@ function isProviderQueryRunError(info: RunErrorInfo): boolean {
   );
 }
 
+function isConnectionRecoveryRunError(info: RunErrorInfo): boolean {
+  const code = (info.errorCode ?? "").toLowerCase();
+  const message = info.message.toLowerCase();
+  return (
+    code === "connection_error" ||
+    message.includes("connection kept failing") ||
+    message.includes("automatic recovery attempts")
+  );
+}
+
 function getMessageText(message: unknown): string {
   const msg = (message as { message?: unknown })?.message ?? message;
   const content = (msg as { content?: unknown })?.content;
@@ -2698,6 +2708,7 @@ function RunErrorRecoveryCard({
     builderReconnect.hasFetchedStatus &&
     builderReconnect.configured;
   const isQueryError = isProviderQueryRunError(info);
+  const isConnectionRecoveryError = isConnectionRecoveryRunError(info);
   const copyLabel =
     info.runId || info.errorCode || info.details ? "Copy debug" : "Copy";
   const copyDetails = useCallback(() => {
@@ -2713,6 +2724,10 @@ function RunErrorRecoveryCard({
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   }, [info]);
+  const startNewChat = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
+    onDismiss();
+  }, [onDismiss]);
 
   useEffect(() => {
     if (builderReconnectResolved) {
@@ -2739,6 +2754,12 @@ function RunErrorRecoveryCard({
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               The current Builder.io or model-provider credential was rejected.
               Reconnect Builder.io, then retry this message.
+            </p>
+          )}
+          {isConnectionRecoveryError && (
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              If retry lands on the same error, start a new chat session and
+              continue from what already changed.
             </p>
           )}
           {(info.runId || info.errorCode || info.details) && (
@@ -2816,7 +2837,17 @@ function RunErrorRecoveryCard({
             </button>
           </>
         )}
-        {canRecover && onFork && (
+        {canRecover && isConnectionRecoveryError && (
+          <button
+            type="button"
+            onClick={startNewChat}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
+          >
+            <IconPlus size={13} />
+            New chat
+          </button>
+        )}
+        {canRecover && onFork && !isConnectionRecoveryError && (
           <button
             type="button"
             onClick={onFork}
