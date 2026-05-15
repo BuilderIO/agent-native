@@ -212,7 +212,7 @@ export const TEMPLATES: TemplateMeta[] = [
     icon: "Route",
     color: "#0F766E",
     colorRgb: "15 118 110",
-    devPort: 8100,
+    devPort: 8101,
     defaultMode: "dev",
     hidden: true,
     requiredPackages: ["migrate"],

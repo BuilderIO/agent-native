@@ -95,10 +95,20 @@ export const meta = () => [
   { property: "og:site_name", content: "Agent-Native" },
 ];
 
+// Aliases that serve the same content under multiple paths. Both surfaces
+// link rel=canonical to the primary path so search engines don't see them
+// as duplicates. Keep in sync with the alias mapping in
+// `packages/docs/server/routes/[...page].get.ts` (currently /docs serves
+// docs/getting-started.md, so /docs/getting-started canonicalizes to /docs).
+const CANONICAL_ALIASES: Record<string, string> = {
+  "/docs/getting-started": "/docs",
+};
+
 function CanonicalLink() {
   const location = useLocation();
   const path = location.pathname.replace(/\/$/, "") || "/";
-  const canonical = `${SITE_URL}${path}`;
+  const canonicalPath = CANONICAL_ALIASES[path] ?? path;
+  const canonical = `${SITE_URL}${canonicalPath}`;
   return <link rel="canonical" href={canonical} />;
 }
 
