@@ -1,12 +1,8 @@
 import { Suspense, lazy, useEffect } from "react";
-import { useParams, useSearchParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useParams } from "react-router";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getIdToken } from "@/lib/auth";
 import { dashboardComponents } from "./registry";
-import BlankDashboard from "./BlankDashboard";
-import { appApiPath } from "@agent-native/core/client";
 import { incrementItemView } from "@/lib/item-popularity";
 
 const SqlDashboardPage = lazy(() => import("./sql-dashboard"));
@@ -34,22 +30,7 @@ function DashboardSkeleton() {
   );
 }
 
-function SqlDashboardLoader({ id }: { id: string }) {
-  const { data: exists, isLoading } = useQuery({
-    queryKey: ["sql-dashboard-exists", id],
-    queryFn: async () => {
-      const token = await getIdToken();
-      const res = await fetch(appApiPath(`/api/sql-dashboards/${id}`), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      return res.ok;
-    },
-    staleTime: 30_000,
-  });
-
-  if (isLoading) return <DashboardSkeleton />;
-  if (!exists) return <BlankDashboard />;
-
+function SqlDashboardLoader() {
   return (
     <Suspense fallback={<DashboardSkeleton />}>
       <SqlDashboardPage />
@@ -59,7 +40,6 @@ function SqlDashboardLoader({ id }: { id: string }) {
 
 export default function AdhocRouter() {
   const { id = "default" } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
   const Component = dashboardComponents[id];
 
   useEffect(() => {
@@ -76,8 +56,5 @@ export default function AdhocRouter() {
     );
   }
 
-  // Check for SQL dashboard (id passed via URL param, or use the route id)
-  const sqlId = searchParams.get("id") || id;
-
-  return <SqlDashboardLoader id={sqlId} />;
+  return <SqlDashboardLoader />;
 }

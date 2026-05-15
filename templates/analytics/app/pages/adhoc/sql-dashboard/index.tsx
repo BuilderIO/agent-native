@@ -69,6 +69,7 @@ import {
 import { interpolate } from "./interpolate";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { ViewsMenu } from "./ViewsMenu";
+import BlankDashboard from "../BlankDashboard";
 import {
   clampDashboardColumns,
   clampPanelWidth,
@@ -115,6 +116,7 @@ async function fetchWithAuth(url: string, options?: RequestInit) {
 }
 
 type FetchedDashboard = {
+  id: string;
   config: SqlDashboardConfig;
   archivedAt: string | null;
 };
@@ -124,6 +126,7 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   if (!res.ok) return null;
   const data = await res.json();
   return {
+    id,
     config: {
       name: data.name ?? "Untitled Dashboard",
       description: data.description,
@@ -191,7 +194,7 @@ export default function SqlDashboardPage() {
       if (!dashboardId) return null;
       return fetchDashboard(dashboardId);
     },
-    staleTime: 2_000,
+    staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
 
@@ -299,11 +302,8 @@ export default function SqlDashboardPage() {
   useEffect(() => {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
     const fetched = dashboardQuery.data;
-    const next = fetched?.config ?? {
-      name: "Untitled Dashboard",
-      panels: [],
-    };
-    setDashboard(next);
+    if (fetched && fetched.id !== dashboardId) return;
+    setDashboard(fetched?.config ?? null);
     setArchivedAt(fetched?.archivedAt ?? null);
     setLoaded(true);
     if (fetched && viewedDashboardIdRef.current !== dashboardId) {
@@ -904,7 +904,7 @@ export default function SqlDashboardPage() {
     );
   }
 
-  if (!dashboard) return null;
+  if (!dashboard) return <BlankDashboard />;
 
   return (
     <div className="space-y-4">
