@@ -36,6 +36,28 @@ the shared package (`@{{APP_NAME}}/shared`).
 The workspace root also links `.agents/skills` to the shared package so coding
 agents launched from the root can discover the same workspace-wide skills.
 
+Runtime-editable global resources live in Dispatch, not in `packages/shared`.
+Use Dispatch **Resources** for company context and guardrails that admins should
+change without a code deploy:
+
+- `AGENTS.md` or `instructions/<slug>.md` for instructions every app agent loads
+- `skills/<slug>/SKILL.md` for workspace skills
+- `context/<slug>.md` for personas, positioning, messaging, company facts, and brand guidelines
+- `agents/<slug>.md` for reusable custom agent profiles
+
+Set those resources to **All apps** when every workspace app should receive
+them; use selected-app grants for app-specific packs.
+
+Starter global resources:
+
+```text
+context/company.md              # company overview, ICP, products, canonical links
+context/brand.md                # brand voice, visual identity, spelling, terms to avoid
+context/messaging.md            # positioning, value props, proof points, objections
+instructions/guardrails.md      # compliance, escalation, and approval rules
+skills/company-voice/SKILL.md   # copywriting/review guidance for customer-facing work
+```
+
 ## Getting started
 
 ```bash
@@ -55,6 +77,8 @@ localhost or dev ports because the active gateway origin owns the port.
 Dispatch vault keys are workspace-wide by default: every saved vault key is
 available to every workspace app and can be synced from Dispatch. Switch the
 Vault page to manual access only when you need explicit per-app key grants.
+Dispatch resources follow the same shape: All-app resources are global, while
+selected resources need grants and a resource sync to the target app.
 
 ## Workspace org identity
 

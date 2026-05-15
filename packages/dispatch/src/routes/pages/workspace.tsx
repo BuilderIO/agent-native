@@ -58,30 +58,54 @@ const KIND_CONFIG = {
     label: "Skill",
     icon: IconCode,
     pathPrefix: "skills/",
-    description: "Agent skills — detailed guidance for patterns and workflows",
+    description:
+      "Agent skills - on-demand guidance available across workspace apps",
   },
   instruction: {
     label: "Instruction",
     icon: IconBook,
-    pathPrefix: "",
-    description:
-      "Agent instructions — operational rules and behavioral guidance",
+    pathPrefix: "instructions/",
+    description: "Global instructions - guardrails loaded by every app agent",
   },
   agent: {
     label: "Agent",
     icon: IconUser,
     pathPrefix: "agents/",
     description:
-      "Reusable agent profiles — specialist agents shared across apps",
+      "Reusable agent profiles - specialist agents shared across apps",
   },
   knowledge: {
     label: "Knowledge",
     icon: IconFileText,
     pathPrefix: "context/",
     description:
-      "Knowledge packs — reusable GTM, product, and domain context for apps",
+      "Reference resources - brand, positioning, persona, and domain context",
   },
 } as const;
+
+function resourceSlug(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function defaultResourcePath(kind: string, name: string): string {
+  const slug = resourceSlug(name) || "example";
+  if (kind === "skill") return `skills/${slug}/SKILL.md`;
+  if (kind === "instruction") return `instructions/${slug}.md`;
+  if (kind === "agent") return `agents/${slug}.md`;
+  if (kind === "knowledge") return `context/${slug}.md`;
+  return `${slug}.md`;
+}
+
+function isAutoLoadedInstruction(resource: any): boolean {
+  return (
+    resource.kind === "instruction" &&
+    (resource.path === "AGENTS.md" ||
+      String(resource.path).startsWith("instructions/"))
+  );
+}
 
 function AddResourceDialog() {
   const [open, setOpen] = useState(false);
@@ -106,8 +130,6 @@ function AddResourceDialog() {
     onError: (err) => toast.error(String(err)),
   });
 
-  const kindInfo = KIND_CONFIG[kind as keyof typeof KIND_CONFIG];
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -120,8 +142,8 @@ function AddResourceDialog() {
         <DialogHeader>
           <DialogTitle>Add workspace resource</DialogTitle>
           <DialogDescription>
-            Create a skill, instruction, or agent profile that can be shared
-            across workspace apps.
+            Create a skill, instruction, agent profile, or reference resource
+            that can be shared across workspace apps.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -172,14 +194,15 @@ function AddResourceDialog() {
           <div className="space-y-2">
             <Label>Path</Label>
             <Input
-              placeholder={`${kindInfo?.pathPrefix || ""}${name.toLowerCase().replace(/\s+/g, "-") || "example"}.md`}
+              placeholder={defaultResourcePath(kind, name)}
               value={path}
               onChange={(e) => setPath(e.target.value)}
               className="font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              Resource path in target apps. Skills go in skills/, agents in
-              agents/, knowledge packs in context/.
+              Skills use skills/name/SKILL.md. Guardrails in AGENTS.md or
+              instructions/ auto-load in app chat. Reference resources in
+              context/ are indexed so agents can read them when relevant.
             </p>
           </div>
           <div className="space-y-2">
@@ -200,7 +223,7 @@ function AddResourceDialog() {
                     ? "---\nname: Research Specialist\ndescription: Handles research tasks\n---\n\n# Instructions\n\n..."
                     : kind === "knowledge"
                       ? "# Core GTM Messaging\n\n## Positioning\n\n## ICP\n\n## Proof points\n\n## Source\n\n"
-                      : "# Instructions\n\nBehavioral rules and guidance for agents across apps..."
+                      : "# Instructions\n\nAlways-on guardrails for agents across apps..."
               }
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -216,9 +239,7 @@ function AddResourceDialog() {
                 kind: kind as "skill" | "instruction" | "agent" | "knowledge",
                 name,
                 description: description || undefined,
-                path:
-                  path ||
-                  `${kindInfo?.pathPrefix || ""}${name.toLowerCase().replace(/\s+/g, "-")}.md`,
+                path: path || defaultResourcePath(kind, name),
                 content,
                 scope: scope as "all" | "selected",
               })
@@ -322,7 +343,7 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
   const activeGrants = grants.filter((g) => g.status === "active");
 
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="rounded-lg border bg-card">
       <button
         type="button"
         className="flex w-full items-center gap-3 px-4 py-3 text-left cursor-pointer"
@@ -352,6 +373,11 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
             >
               {resource.scope === "all" ? "All apps" : "Selected"}
             </Badge>
+            {isAutoLoadedInstruction(resource) && (
+              <Badge variant="outline" className="text-xs">
+                Auto-loaded
+              </Badge>
+            )}
           </div>
           <div className="mt-0.5 font-mono text-xs text-muted-foreground">
             {resource.path}
@@ -463,8 +489,8 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
                   <AlertDialogTitle>Delete this resource?</AlertDialogTitle>
                   <AlertDialogDescription>
                     Removing "{resource.name}" revokes all of its grants. Apps
-                    that depended on this resource will lose access on the next
-                    sync. This cannot be undone.
+                    that already received this resource keep their current copy
+                    until it is removed from those apps. This cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -535,7 +561,7 @@ export default function WorkspaceRoute() {
           {Array.from({ length: 3 }).map((_, index) => (
             <div
               key={index}
-              className="rounded-2xl border bg-card px-5 py-4 space-y-2"
+              className="rounded-lg border bg-card px-5 py-4 space-y-2"
             >
               <Skeleton className="h-4 w-1/3" />
               <Skeleton className="h-3 w-2/3" />
@@ -546,7 +572,7 @@ export default function WorkspaceRoute() {
     }
     if (items.length === 0) {
       return (
-        <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
           {emptyText}
         </div>
       );
@@ -567,7 +593,7 @@ export default function WorkspaceRoute() {
   return (
     <DispatchShell
       title="Workspace Resources"
-      description="Share skills, instructions, agent profiles, and knowledge packs across workspace apps. Scope to all apps or grant per-app."
+      description="Share global skills, guardrail instructions, agent profiles, and reference resources across workspace apps. Scope to all apps or grant per-app."
     >
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">

@@ -10,10 +10,15 @@ import {
   approveMigrationRun,
   createMigrationRun,
   discoverMigration,
+  discoverMigrationWithAgent,
+  discoverMigrationWithAgentIntrospection,
   migrationContext,
   planMigration,
   verifyMigration,
 } from "./runtime.js";
+import { selectSourceAdapter } from "./adapters/source-registry.js";
+import type { SourceAdapter } from "./types.js";
+import { createBrowserVerifier } from "./verifiers/browser.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -102,5 +107,93 @@ describe("migration runtime", () => {
       new Set([...firstPlan.tasks, ...secondPlan.tasks].map((task) => task.id))
         .size,
     ).toBe(firstPlan.tasks.length + secondPlan.tasks.length);
+  });
+
+  it("writes fallback discovery artifacts and plans from skeleton IR", async () => {
+    const tmp = await fs.mkdtemp(
+      path.join(os.tmpdir(), "an-migrate-fallback-"),
+    );
+    const run = await createMigrationRun({
+      sourceRoot: "A private dashboard for invoices and approval workflows",
+      inputKind: "description",
+      outputRoot: path.join(tmp, "migrated-app"),
+      artifactRoot: path.join(tmp, "artifacts"),
+      id: "mig_fallback",
+    });
+
+    const discovered = await discoverMigrationWithAgentIntrospection(run);
+    const irJson = JSON.parse(
+      await fs.readFile(path.join(run.artifactDir, "ir.json"), "utf-8"),
+    );
+
+    expect(discovered.run.phase).toBe("plan");
+    expect(irJson.site.metadata.needsAgentIntrospection).toBe(true);
+    await expect(fs.stat(discovered.assessmentPath)).resolves.toBeTruthy();
+
+    const planned = await planMigration(discovered.run, discovered.ir);
+    expect(planned.tasks.map((task) => task.recipeName)).toEqual(
+      expect.arrayContaining([
+        "mutations-to-optimistic-actions",
+        "logged-in-pages-to-client-app-shell",
+      ]),
+    );
+  });
+
+  it("selects matching deterministic adapters from a registry", async () => {
+    const adapter: SourceAdapter = {
+      id: "legacy-description",
+      label: "Legacy Description",
+      kind: "deterministic",
+      inputKinds: ["description"],
+      async detect(sourceRoot) {
+        return sourceRoot.includes("legacy portal");
+      },
+      async introspect(sourceRoot) {
+        const discovered = await discoverMigrationWithAgent(
+          await createMigrationRun({
+            sourceRoot,
+            inputKind: "description",
+            outputRoot: "/tmp/unused-output",
+            artifactRoot: await fs.mkdtemp(
+              path.join(os.tmpdir(), "an-migrate-adapter-"),
+            ),
+          }),
+        );
+        return discovered.ir;
+      },
+    };
+
+    await expect(
+      selectSourceAdapter({
+        sourceRoot: "legacy portal with reports",
+        inputKind: "description",
+        registry: [adapter],
+      }),
+    ).resolves.toBe(adapter);
+    await expect(
+      selectSourceAdapter({
+        sourceRoot: "legacy portal with reports",
+        inputKind: "path",
+        registry: [adapter],
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("browser verifier records a skipped artifact without baseUrl", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "an-migrate-browser-"));
+    const run = await createMigrationRun({
+      sourceRoot: "https://example.com",
+      inputKind: "url",
+      outputRoot: path.join(tmp, "out"),
+      artifactRoot: path.join(tmp, "artifacts"),
+    });
+    const discovered = await discoverMigrationWithAgent(run);
+    const verifier = createBrowserVerifier();
+    const result = await verifier.run(
+      migrationContext(discovered.run, discovered.ir, []),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.severity).toBe("info");
+    await expect(fs.stat(result.artifactPaths[0]!)).resolves.toBeTruthy();
   });
 });

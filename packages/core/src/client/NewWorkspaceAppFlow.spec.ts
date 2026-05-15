@@ -216,6 +216,9 @@ describe("NewWorkspaceAppFlow", () => {
       "- Core GTM Messaging (knowledge, context/core-gtm-messaging.md)",
     );
     expect(message).toContain(
+      "Dispatch workspace resources with scope=all are global.",
+    );
+    expect(message).toContain(
       "After the app exists, grant the selected Dispatch vault keys",
     );
     expect(message).toContain(

@@ -5,15 +5,25 @@ import {
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 import { artifactRoot, assertSafeOutputRoot, normalizePath } from "./_utils.js";
-import { createMigrationRun } from "@agent-native/migrate";
+import {
+  createMigrationRun,
+  inferMigrationInputKind,
+} from "@agent-native/migrate";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Create a Migration Workbench run. This only records source/output paths; it does not mutate the source or generated output.",
+    "Create a Migration Workbench run. This records a path, URL, or description input; it does not mutate the source or generated output.",
   schema: z.object({
     name: z.string().optional().describe("Human-readable run name"),
-    sourceRoot: z.string().describe("Existing Next.js app path"),
+    sourceRoot: z
+      .string()
+      .describe("Source input: local path, URL, or prose description"),
+    inputKind: z.enum(["path", "url", "description"]).optional(),
+    inputDescription: z
+      .string()
+      .optional()
+      .describe("Optional human description or extra context"),
     outputRoot: z
       .string()
       .optional()
@@ -21,15 +31,23 @@ export default defineAction({
     target: z.string().optional().default("agent-native"),
   }),
   run: async (args) => {
-    const sourceRoot = normalizePath(args.sourceRoot);
+    const inputKind =
+      args.inputKind ?? inferMigrationInputKind(args.sourceRoot);
+    const sourceRoot =
+      inputKind === "path"
+        ? normalizePath(args.sourceRoot)
+        : args.sourceRoot.trim();
     const outputRoot = normalizePath(args.outputRoot ?? "../migrated-app");
-    assertSafeOutputRoot(sourceRoot, outputRoot);
+    if (!sourceRoot) throw new Error("Source input is required.");
+    if (inputKind === "path") assertSafeOutputRoot(sourceRoot, outputRoot);
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("No authenticated user");
     const orgId = getRequestOrgId();
 
     const run = await createMigrationRun({
       sourceRoot,
+      inputKind,
+      inputDescription: args.inputDescription,
       outputRoot,
       artifactRoot: artifactRoot(),
       target: args.target,
@@ -40,6 +58,8 @@ export default defineAction({
       id: run.id,
       name: args.name || `Migration ${run.id}`,
       sourceRoot,
+      inputKind: run.inputKind,
+      inputDescription: run.inputDescription,
       outputRoot,
       target: run.target,
       phase: run.phase,

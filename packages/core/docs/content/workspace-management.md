@@ -181,16 +181,16 @@ When reviewing PRs in this environment:
 
 The [Dispatch](/docs/dispatch) app is the workspace's runtime control plane. It complements git-level governance with runtime governance:
 
-| Concern                         | Git / GitHub                  | Dispatch                                   |
-| ------------------------------- | ----------------------------- | ------------------------------------------ |
-| Who can change code             | CODEOWNERS, branch protection | —                                          |
-| Who can access secrets          | —                             | Vault policy, grants, request workflow     |
-| What instructions agents follow | —                             | Workspace resources (skills, instructions) |
-| Which agents are shared         | —                             | Workspace agent profiles                   |
-| Integration inventory           | —                             | Integrations catalog                       |
-| Runtime change approval         | —                             | Dispatch approval flow                     |
-| Audit trail                     | `git log` / `git blame`       | Vault audit + dispatch audit logs          |
-| Messaging & routing             | —                             | Slack / Telegram integration               |
+| Concern                         | Git / GitHub                  | Dispatch                                                     |
+| ------------------------------- | ----------------------------- | ------------------------------------------------------------ |
+| Who can change code             | CODEOWNERS, branch protection | —                                                            |
+| Who can access secrets          | —                             | Vault policy, grants, request workflow                       |
+| What instructions agents follow | —                             | Global workspace resources (AGENTS.md, instructions, skills) |
+| Which agents are shared         | —                             | Workspace agent profiles                                     |
+| Integration inventory           | —                             | Integrations catalog                                         |
+| Runtime change approval         | —                             | Dispatch approval flow                                       |
+| Audit trail                     | `git log` / `git blame`       | Vault audit + dispatch audit logs                            |
+| Messaging & routing             | —                             | Slack / Telegram integration                                 |
 
 **Git handles code governance. Dispatch handles runtime governance.** Don't try to replicate git workflows inside dispatch or vice versa. They cover different surfaces.
 
@@ -198,7 +198,7 @@ The [Dispatch](/docs/dispatch) app is the workspace's runtime control plane. It 
 
 - **Vault** — store credentials centrally and sync on demand. The default policy makes all vault keys available to all workspace apps; manual mode requires specific app grants. Non-admins can request access; admins approve.
 - **Integrations catalog** — see which credentials each app needs, what's configured, what's missing, what's granted from the vault.
-- **Workspace resources** — share skills, behavioral instructions, and reusable agent profiles across apps. Scope to all apps or grant per-app.
+- **Workspace resources** — share global skills, always-on guardrail instructions, reusable agent profiles, and reference resources across apps. Use `AGENTS.md` or `instructions/<slug>.md` for instructions loaded every turn, `skills/<slug>/SKILL.md` for on-demand skills, and `context/<slug>.md` for brand/company/product knowledge. Scope to all apps or grant per-app.
 - **Approvals** — require review before runtime changes (destinations, settings) take effect.
 - **Audit** — full history of secret access, grants, syncs, and changes.
 
@@ -253,7 +253,7 @@ For a new workspace, after running `agent-native create`:
 - [ ] Add shared secrets to the vault (API keys, OAuth credentials, etc.)
 - [ ] Keep the default all-apps vault policy or switch to manual per-app grants
 - [ ] Sync vault secrets to push them to apps
-- [ ] Add workspace-wide skills and instructions via the Resources page
+- [ ] Add workspace-wide skills, guardrail instructions, and brand/company reference resources via the Resources page: `context/company.md`, `context/brand.md`, `context/messaging.md`, `instructions/guardrails.md`, and `skills/company-voice/SKILL.md`
 - [ ] Configure the approval policy and approver emails
 - [ ] Set up SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) for admin notifications
 - [ ] Connect Slack or Telegram for workspace messaging

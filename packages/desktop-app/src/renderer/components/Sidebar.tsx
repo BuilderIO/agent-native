@@ -51,6 +51,8 @@ interface SidebarProps {
   activeAppId: string;
   onTabChange: (appId: string) => void;
   onAddAppClick?: () => void;
+  isCodeAgentsActive?: boolean;
+  onCodeAgentsClick?: () => void;
   onSettingsClick?: () => void;
 }
 
@@ -59,6 +61,8 @@ export default function Sidebar({
   activeAppId,
   onTabChange,
   onAddAppClick,
+  isCodeAgentsActive = false,
+  onCodeAgentsClick,
   onSettingsClick,
 }: SidebarProps) {
   const pinnedBottomOrder = ["dispatch"];
@@ -108,6 +112,21 @@ export default function Sidebar({
       {/* Footer: update indicator (when relevant) + settings */}
       <div className="sidebar-footer">
         <UpdateIndicator />
+        {onCodeAgentsClick && (
+          <button
+            className={`sidebar-item${isCodeAgentsActive ? " sidebar-item--active" : ""}`}
+            tabIndex={-1}
+            onClick={onCodeAgentsClick}
+            title="Code Agents"
+            aria-label="Code Agents"
+            aria-current={isCodeAgentsActive ? "page" : undefined}
+          >
+            <span className="icon-wrapper">
+              <IconCode size={18} strokeWidth={1.75} />
+            </span>
+            <span className="item-label item-label--two-line">Code Agents</span>
+          </button>
+        )}
         {onSettingsClick && (
           <button
             className="sidebar-item"

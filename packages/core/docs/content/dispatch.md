@@ -47,7 +47,38 @@ The behavioral rule lives in the dispatch agent's instructions: domain work belo
 
 ### Workspace resources
 
-Skills, agent profiles, and instructions can be authored once in Dispatch and granted out to the rest of the workspace. `sync-workspace-resources-to-all` pushes them to every app's `.agents/` directory so every agent in every app picks them up. This is how a team-wide change ("always use British English in customer-facing replies") propagates without editing ten repos.
+Skills, guardrail instructions, agent profiles, and reference resources can be authored once in Dispatch and shared with the rest of the workspace. Resources with **All apps** scope are global: in same-database workspaces Dispatch materializes them into the shared SQL resource store immediately, and `sync-workspace-resources-to-all` can also push them into each reachable app's resource store. Selected resources use explicit per-app grants.
+
+Use the canonical paths to control how agents consume them:
+
+- `AGENTS.md` or `instructions/<slug>.md` for always-on guardrails loaded by every app agent
+- `skills/<slug>/SKILL.md` for on-demand skills available through `/` commands and the prompt skill index
+- `context/<slug>.md` for brand, persona, positioning, messaging, company facts, and other reference material the agent reads when relevant
+- `agents/<slug>.md` for reusable custom agent profiles
+
+Starter global resources usually look like:
+
+```text
+context/company.md
+context/brand.md
+context/messaging.md
+instructions/guardrails.md
+skills/company-voice/SKILL.md
+```
+
+Set these to **All apps** when every app should inherit the same company facts, brand rules, messaging, safety constraints, and customer-facing writing style. Use selected-app grants only for resources that are genuinely app-specific.
+
+This is how a team-wide change ("always use British English in customer-facing replies") or a shared brand guideline propagates without editing ten repos.
+
+### Dreams
+
+Dispatch Dreams review prior agent runs, feedback, evals, and repeated failures to propose durable improvements. A dream report is a review surface, not a silent rewrite: it can suggest personal memory updates, stale-memory cleanup, shared resource edits, skill graduations, or recurring jobs, and each proposal links back to the runs that justify it. Shared instructions and team-wide resources require review before they are applied, especially when the evidence came from inbound Slack, email, Telegram, WhatsApp, or web content.
+
+Before proposing a write, Dreams compare the evidence against the personal memory index, existing `memory/*.md` notes, and shared `LEARNINGS.md`. If a lesson is already captured, the report records that it was skipped; if a related personal memory looks stale, the proposal targets that existing note instead of creating a duplicate.
+
+Use Dreams as the workspace's offline reflection loop: "what did agents keep getting wrong this week?", "what should we remember?", and "which repeated workflow should become a skill or scheduled job?"
+
+Start from the **Dreams** tab in Dispatch. Run a manual pass first, inspect each source-backed proposal, then apply only the changes you want to keep. Once the reports are consistently useful, Dispatch can create a recurring dream job that keeps producing proposals without auto-applying shared or instruction-level changes.
 
 ### Approval flow
 
@@ -83,7 +114,7 @@ Three short steps:
 2. **Connect messaging.** Open **Settings → Messaging** in Dispatch and click connect for Slack, Email, Telegram, or WhatsApp. The form fields match the env vars in the [Messaging](/docs/messaging) doc — refer there for what each platform needs.
 3. **Add other apps.** Run `npx @agent-native/core add-app` from the workspace root for each domain app. They auto-appear as A2A peers in Dispatch's `list-workspace-apps` — no manual registration, no agent-card editing. Dispatch will start delegating to them as soon as their agent cards are reachable.
 
-Then add credentials to the vault, sync them to apps, and (optionally) author workspace skills under **Resources** and sync them out. If you need per-app secret isolation, switch the vault access setting to manual before granting individual apps.
+Then add credentials to the vault, sync them to apps, and (optionally) author global workspace resources under **Resources**. If you need per-app secret isolation, switch the vault access setting to manual before granting individual apps.
 
 ## See also {#see-also}
 

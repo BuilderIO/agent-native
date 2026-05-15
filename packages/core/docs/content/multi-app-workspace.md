@@ -134,6 +134,47 @@ Everything cross-cutting you customize lives in `packages/shared/`. Export an `a
 
 Because the shared package is a `workspace:*` dependency, pnpm symlinks it into each app's `node_modules/`. You never build or publish it — the apps bundle whatever they need from it at build time.
 
+## Runtime global resources {#runtime-global-resources}
+
+Use `packages/shared` for code-level defaults that should ship with the repo: plugins, shared actions, shared React code, filesystem `AGENTS.md`, and filesystem skills. Use Dispatch workspace resources for runtime-editable global context that admins want to manage without a code change.
+
+Dispatch resources support two scopes:
+
+- **All apps** — global resources for every app in the workspace. In same-database workspaces they are materialized into the shared SQL resource store immediately; `sync-workspace-resources-to-all` also pushes them to reachable app resource endpoints.
+- **Selected apps** — resources granted per app, then pushed with `sync-workspace-resources-to-app`.
+
+Canonical paths control behavior:
+
+| Runtime resource        | Path                                    | How agents use it                               |
+| ----------------------- | --------------------------------------- | ----------------------------------------------- |
+| Guardrail instructions  | `AGENTS.md` or `instructions/<slug>.md` | Loaded every turn in every app that receives it |
+| Global skills           | `skills/<slug>/SKILL.md`                | Listed as workspace skills and read on demand   |
+| Brand/company resources | `context/<slug>.md`                     | Indexed every turn, read when relevant          |
+| Custom agent profiles   | `agents/<slug>.md`                      | Available as reusable local agent profiles      |
+
+This is the right home for core personas, positioning, messaging, company facts, brand guidelines, support policies, or other shared knowledge that many apps should benefit from.
+
+For a starter workspace, create these Dispatch resources and scope them to **All apps**:
+
+```text
+context/company.md              # company overview, ICP, products, canonical links
+context/brand.md                # brand voice, visual identity, spelling, terms to avoid
+context/messaging.md            # value props, product pillars, proof points, objections
+instructions/guardrails.md      # rules that must be loaded every turn
+skills/company-voice/SKILL.md   # copywriting and review workflow for brand voice
+```
+
+Example `skills/company-voice/SKILL.md`:
+
+```markdown
+---
+name: company-voice
+description: Rewrite or review customer-facing copy using the workspace brand and messaging resources.
+---
+
+Before writing, read `context/brand.md` and `context/messaging.md`. Keep claims grounded in those resources, preserve required terminology, and flag missing proof instead of inventing it.
+```
+
 ## Authentication and RBAC {#auth-and-rbac}
 
 Every agent-native app already ships with [Better Auth](/docs/authentication) and its organizations plugin — users, organizations, members, and the `owner` / `admin` / `member` roles are all first-class, shared across every template. In a workspace, you get that for free in every app, backed by the same database.

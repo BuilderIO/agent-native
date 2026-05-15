@@ -17,6 +17,89 @@ type UpdateStatus =
   | { state: "downloaded"; version: string; releaseNotes?: string }
   | { state: "error"; message: string };
 
+type CodeAgentRunStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "needs-approval"
+  | "completed"
+  | "errored"
+  | "unknown";
+
+type CodeAgentRunProgress = {
+  label?: string;
+  completed: number;
+  total: number;
+  failed?: number;
+  percent: number;
+};
+
+type CodeAgentRunDetail = {
+  label: string;
+  value: string;
+};
+
+type CodeAgentRun = {
+  id: string;
+  goalId: string;
+  title: string;
+  subtitle?: string;
+  status: CodeAgentRunStatus;
+  phase?: string;
+  needsApproval?: boolean;
+  progress?: CodeAgentRunProgress;
+  details?: CodeAgentRunDetail[];
+  surfaceUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown>;
+};
+
+type CodeAgentMigrationRun = CodeAgentRun & {
+  name: string;
+  sourceRoot: string;
+  outputRoot: string;
+  target: string;
+  phase: string;
+  approved: boolean;
+  taskCount: number;
+  passedTaskCount: number;
+  failedTaskCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CodeAgentRunListResult<TRun extends CodeAgentRun = CodeAgentMigrationRun> =
+  {
+    status: "ok" | "unauthorized" | "unavailable";
+    goalId?: string;
+    runs: TRun[];
+    workbenchUrl?: string;
+    error?: string;
+  };
+
+type CodeAgentTerminalResult = {
+  ok: boolean;
+  cwd: string;
+  error?: string;
+};
+
+type CodeAgentControlCommand = "resume" | "status" | "stop";
+
+type CodeAgentControlResult = {
+  ok: boolean;
+  command: CodeAgentControlCommand;
+  action?: "open-ui" | "refresh" | "none";
+  message: string;
+  error?: string;
+};
+
+type DesktopOpenRequest = {
+  app?: string;
+  goalId?: string;
+  runId?: string;
+};
+
 /** Electron APIs exposed to the renderer via the preload contextBridge */
 interface ElectronAPI {
   platform: string;
@@ -71,6 +154,18 @@ interface ElectronAPI {
     install(): void;
     getStatus(): Promise<UpdateStatus>;
     onStatusChange(cb: (status: UpdateStatus) => void): () => void;
+  };
+
+  codeAgents: {
+    listRuns(goalId?: string): Promise<CodeAgentRunListResult>;
+    controlRun(
+      goalId: string,
+      runId: string,
+      command: CodeAgentControlCommand,
+    ): Promise<CodeAgentControlResult>;
+    listMigrationRuns(): Promise<CodeAgentRunListResult>;
+    openTerminal(): Promise<CodeAgentTerminalResult>;
+    onOpenRequest(cb: (request: DesktopOpenRequest) => void): () => void;
   };
 
   appConfig: {

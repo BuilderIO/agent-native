@@ -1,0 +1,93 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+
+@source "./**/*.{ts,tsx}";
+
+:root {
+  --background: 210 18% 98%;
+  --foreground: 216 24% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 216 24% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 216 24% 10%;
+  --primary: 172 57% 26%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 214 22% 92%;
+  --secondary-foreground: 216 24% 14%;
+  --muted: 214 18% 92%;
+  --muted-foreground: 217 11% 43%;
+  --accent: 187 34% 90%;
+  --accent-foreground: 196 42% 16%;
+  --destructive: 0 70% 48%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 214 20% 86%;
+  --input: 214 20% 86%;
+  --ring: 172 57% 30%;
+  --radius: 0.5rem;
+  --sidebar-background: 216 24% 12%;
+  --sidebar-foreground: 210 16% 78%;
+  --sidebar-primary: 172 57% 46%;
+  --sidebar-primary-foreground: 216 24% 10%;
+  --sidebar-accent: 216 20% 18%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-border: 216 18% 20%;
+  --sidebar-ring: 172 57% 46%;
+}
+
+.dark {
+  --background: 216 24% 7%;
+  --foreground: 210 20% 92%;
+  --card: 216 22% 9%;
+  --card-foreground: 210 20% 92%;
+  --popover: 216 22% 9%;
+  --popover-foreground: 210 20% 92%;
+  --primary: 172 57% 48%;
+  --primary-foreground: 216 24% 7%;
+  --secondary: 216 16% 15%;
+  --secondary-foreground: 210 20% 92%;
+  --muted: 216 15% 13%;
+  --muted-foreground: 216 10% 64%;
+  --accent: 196 30% 18%;
+  --accent-foreground: 187 34% 88%;
+  --destructive: 0 62% 48%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 216 15% 17%;
+  --input: 216 15% 17%;
+  --ring: 172 57% 48%;
+  --sidebar-background: 216 28% 5%;
+  --sidebar-foreground: 216 10% 64%;
+  --sidebar-primary: 172 57% 48%;
+  --sidebar-primary-foreground: 216 24% 7%;
+  --sidebar-accent: 216 17% 12%;
+  --sidebar-accent-foreground: 210 20% 92%;
+  --sidebar-border: 216 17% 13%;
+  --sidebar-ring: 172 57% 48%;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}

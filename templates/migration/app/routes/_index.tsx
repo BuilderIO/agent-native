@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import {
   IconCheck,
   IconFileText,
@@ -29,6 +30,8 @@ type RunSummary = {
   id: string;
   name: string;
   sourceRoot: string;
+  inputKind?: string;
+  inputDescription?: string;
   outputRoot: string;
   target: string;
   phase: string;
@@ -39,21 +42,50 @@ type RunSummary = {
   updatedAt: string;
 };
 
+type GoalResult = {
+  status: string;
+  approvalRequired: boolean;
+  criticDecision: string | null;
+  nextAction: string;
+  taskSummary: {
+    total: number;
+    pending: number;
+    running: number;
+    passed: number;
+    failed: number;
+    manual: number;
+  };
+  verification: {
+    ok: boolean | null;
+    results: Array<{
+      id: string;
+      ok: boolean;
+      severity: string;
+      summary: string;
+    }>;
+  };
+};
+
+type GoalBadgeVariant = "default" | "secondary" | "destructive" | "outline";
+
 export function meta() {
   return [
     { title: "Migration Workbench" },
     {
       name: "description",
       content:
-        "Migrate existing Next.js apps to agent-native with assessment, approval, and deterministic verification.",
+        "Migrate existing apps, URLs, or described products to agent-native with assessment, approval, and deterministic verification.",
     },
   ];
 }
 
 export default function MigrationWorkbenchPage() {
   useSetPageTitle("Migration Workbench");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const runIdFromUrl = searchParams.get("run");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [name, setName] = useState("Next.js migration");
+  const [goalResult, setGoalResult] = useState<GoalResult | null>(null);
+  const [name, setName] = useState("Agent-native migration");
   const [sourceRoot, setSourceRoot] = useState("");
   const [outputRoot, setOutputRoot] = useState("../migrated-app");
   const runsQuery = useActionQuery("list-migration-runs", {});
@@ -61,8 +93,11 @@ export default function MigrationWorkbenchPage() {
   const runs = ((runsQuery.data as { runs?: RunSummary[] } | undefined)?.runs ??
     []) as RunSummary[];
   const selectedRun = useMemo(
-    () => runs.find((run) => run.id === selectedRunId) ?? runs[0],
-    [runs, selectedRunId],
+    () =>
+      runs.find((run) => run.id === runIdFromUrl) ??
+      runs.find((run) => run.id === selectedRunId) ??
+      runs[0],
+    [runs, runIdFromUrl, selectedRunId],
   );
   const runQuery = useActionQuery(
     "get-migration-run",
@@ -75,15 +110,35 @@ export default function MigrationWorkbenchPage() {
   const plan = useActionMutation("generate-migration-plan");
   const approve = useActionMutation("approve-migration-plan");
   const runTask = useActionMutation("run-migration-task");
+  const runGoal = useActionMutation("run-migration-goal");
   const verify = useActionMutation("verify-migration");
+
+  useEffect(() => {
+    if (!runIdFromUrl) return;
+    setSelectedRunId(runIdFromUrl);
+    setGoalResult(null);
+  }, [runIdFromUrl]);
 
   useEffect(() => {
     const seed = (seedQuery.data as { seed?: any } | undefined)?.seed;
     if (!seed || sourceRoot) return;
-    if (typeof seed.sourceRoot === "string") setSourceRoot(seed.sourceRoot);
+    const seededSource =
+      seed.source?.value ??
+      seed.sourceRoot ??
+      seed.sourceUrl ??
+      seed.sourceDescription;
+    if (typeof seededSource === "string") setSourceRoot(seededSource);
     if (typeof seed.outputRoot === "string") setOutputRoot(seed.outputRoot);
     if (typeof seed.name === "string") setName(seed.name);
   }, [seedQuery.data, sourceRoot]);
+
+  function selectRun(id: string) {
+    setSelectedRunId(id);
+    setGoalResult(null);
+    const next = new URLSearchParams(searchParams);
+    next.set("run", id);
+    setSearchParams(next);
+  }
 
   async function create() {
     if (!sourceRoot.trim()) return;
@@ -92,9 +147,21 @@ export default function MigrationWorkbenchPage() {
       sourceRoot,
       outputRoot,
       target: "agent-native",
+      inputDescription: (seedQuery.data as { seed?: any } | undefined)?.seed
+        ?.sourceDescription,
     } as any)) as { run?: { id: string } };
-    if (result.run?.id) setSelectedRunId(result.run.id);
+    if (result.run?.id) selectRun(result.run.id);
     setSourceRoot("");
+  }
+
+  async function runSelectedGoal() {
+    if (!selectedRun) return;
+    const result = (await runGoal.mutateAsync({
+      id: selectedRun.id,
+      maxTasks: 1,
+      verify: true,
+    } as any)) as GoalResult;
+    setGoalResult(result);
   }
 
   const detail = runQuery.data as
@@ -125,6 +192,16 @@ export default function MigrationWorkbenchPage() {
             100,
         )
       : 0;
+  const goalState = selectedRun
+    ? describeGoalState(
+        detail?.run ?? selectedRun,
+        tasks,
+        detail?.verifierResults ?? [],
+      )
+    : null;
+  const selectedRunApproved = Boolean(
+    detail?.run?.approved ?? selectedRun?.approved,
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-6 lg:px-8">
@@ -134,8 +211,9 @@ export default function MigrationWorkbenchPage() {
             <CardHeader>
               <CardTitle className="text-base">New run</CardTitle>
               <CardDescription>
-                Point at an existing Next.js app. The Workbench reads source and
-                writes generated output somewhere else.
+                Start from a local path, URL, or description. The Workbench
+                treats source as read-only and writes generated output somewhere
+                else.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -147,7 +225,7 @@ export default function MigrationWorkbenchPage() {
               <Textarea
                 value={sourceRoot}
                 onChange={(event) => setSourceRoot(event.target.value)}
-                placeholder="/absolute/path/to/next-app"
+                placeholder="/path/to/app, https://example.com, or a short migration brief"
                 className="min-h-20"
               />
               <Input
@@ -187,7 +265,7 @@ export default function MigrationWorkbenchPage() {
                 runs.map((run) => (
                   <button
                     key={run.id}
-                    onClick={() => setSelectedRunId(run.id)}
+                    onClick={() => selectRun(run.id)}
                     className={`w-full rounded-lg border p-3 text-left transition-colors ${
                       selectedRun?.id === run.id
                         ? "border-primary bg-primary/5"
@@ -201,6 +279,7 @@ export default function MigrationWorkbenchPage() {
                       </Badge>
                     </div>
                     <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {run.inputKind ? `${run.inputKind}: ` : ""}
                       {run.sourceRoot}
                     </p>
                     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -224,15 +303,26 @@ export default function MigrationWorkbenchPage() {
                   <div>
                     <CardTitle>{selectedRun.name}</CardTitle>
                     <CardDescription className="mt-1">
+                      {selectedRun.inputKind
+                        ? `${selectedRun.inputKind}: `
+                        : ""}
                       {selectedRun.sourceRoot}
                     </CardDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button
+                      onClick={runSelectedGoal}
+                      disabled={runGoal.isPending}
+                    >
+                      <IconRoute className="h-4 w-4" />
+                      {runGoal.isPending ? "Running goal" : "Run Goal"}
+                    </Button>
+                    <Button
                       variant="outline"
-                      onClick={() =>
-                        assess.mutate({ id: selectedRun.id } as any)
-                      }
+                      onClick={() => {
+                        setGoalResult(null);
+                        assess.mutate({ id: selectedRun.id } as any);
+                      }}
                       disabled={assess.isPending}
                     >
                       <IconFileText className="h-4 w-4" />
@@ -240,7 +330,10 @@ export default function MigrationWorkbenchPage() {
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={() => plan.mutate({ id: selectedRun.id } as any)}
+                      onClick={() => {
+                        setGoalResult(null);
+                        plan.mutate({ id: selectedRun.id } as any);
+                      }}
                       disabled={plan.isPending}
                     >
                       <IconListCheck className="h-4 w-4" />
@@ -248,28 +341,32 @@ export default function MigrationWorkbenchPage() {
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={() =>
-                        approve.mutate({ id: selectedRun.id } as any)
-                      }
-                      disabled={approve.isPending || selectedRun.approved}
+                      onClick={() => {
+                        setGoalResult(null);
+                        approve.mutate({ id: selectedRun.id } as any);
+                      }}
+                      disabled={approve.isPending || selectedRunApproved}
                     >
                       <IconCheck className="h-4 w-4" />
                       Approve
                     </Button>
                     <Button
-                      onClick={() =>
-                        runTask.mutate({ id: selectedRun.id } as any)
-                      }
-                      disabled={runTask.isPending || !selectedRun.approved}
+                      variant="outline"
+                      onClick={() => {
+                        setGoalResult(null);
+                        runTask.mutate({ id: selectedRun.id } as any);
+                      }}
+                      disabled={runTask.isPending || !selectedRunApproved}
                     >
                       <IconPlayerPlay className="h-4 w-4" />
                       Run task
                     </Button>
                     <Button
                       variant="secondary"
-                      onClick={() =>
-                        verify.mutate({ id: selectedRun.id } as any)
-                      }
+                      onClick={() => {
+                        setGoalResult(null);
+                        verify.mutate({ id: selectedRun.id } as any);
+                      }}
                       disabled={verify.isPending}
                     >
                       <IconShieldCheck className="h-4 w-4" />
@@ -279,6 +376,43 @@ export default function MigrationWorkbenchPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-5">
+                {goalState ? (
+                  <div className="rounded-lg border border-border bg-muted/30 p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium">Migration goal</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {goalState.description}
+                        </p>
+                      </div>
+                      <Badge variant={goalState.variant}>
+                        {goalState.label}
+                      </Badge>
+                    </div>
+                    {goalResult ? (
+                      <div className="mt-3 rounded-md border border-border bg-background p-3 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline">{goalResult.status}</Badge>
+                          {goalResult.criticDecision ? (
+                            <span className="text-muted-foreground">
+                              Critic: {goalResult.criticDecision}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-2 text-muted-foreground">
+                          {goalResult.nextAction}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {goalResult.taskSummary.passed} passed,{" "}
+                          {goalResult.taskSummary.pending} pending,{" "}
+                          {goalResult.verification.results.length} verifier
+                          result(s)
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <div className="grid gap-3 md:grid-cols-3">
                   <Metric
                     label="Phase"
@@ -372,6 +506,71 @@ export default function MigrationWorkbenchPage() {
   );
 }
 
+function describeGoalState(
+  run: any,
+  tasks: Array<{ status: string }>,
+  verifierResults: Array<{ ok: boolean }>,
+): { label: string; variant: GoalBadgeVariant; description: string } {
+  const pending = tasks.filter((task) => task.status === "pending").length;
+  const running = tasks.filter((task) => task.status === "running").length;
+  const failedTasks = tasks.filter((task) => task.status === "failed").length;
+  const failedVerifiers = verifierResults.filter((result) => !result.ok).length;
+
+  if (!run?.assessmentPath && !run?.ir) {
+    return {
+      label: "Ready",
+      variant: "secondary",
+      description:
+        "Run Goal will assess the source and create a plan without writing generated output.",
+    };
+  }
+  if (!run?.planPath) {
+    return {
+      label: "Plan next",
+      variant: "secondary",
+      description:
+        "Run Goal will generate the migration plan and stop before output writes.",
+    };
+  }
+  if (!run?.approved) {
+    return {
+      label: "Approval needed",
+      variant: "outline",
+      description:
+        "Review and approve the plan before Run Goal can write generated output.",
+    };
+  }
+  if (failedTasks > 0 || failedVerifiers > 0) {
+    return {
+      label: "Needs follow-up",
+      variant: "destructive",
+      description:
+        "Run Goal will verify again, but the failed task or verifier needs review.",
+    };
+  }
+  if (pending + running > 0) {
+    return {
+      label: "Ready to advance",
+      variant: "default",
+      description: `${pending + running} task(s) remain. Run Goal advances a bounded sweep and verifies the result.`,
+    };
+  }
+  if (run?.phase === "complete") {
+    return {
+      label: "Complete",
+      variant: "default",
+      description:
+        "The migration goal is complete and the latest report is available.",
+    };
+  }
+  return {
+    label: "Verify",
+    variant: "secondary",
+    description:
+      "All tasks are advanced. Run Goal will refresh deterministic verification.",
+  };
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-lg border border-border p-3">
@@ -393,9 +592,9 @@ function EmptyState() {
         </p>
         <Separator className="my-5 max-w-xs" />
         <p className="max-w-md text-xs text-muted-foreground">
-          V1 supports Next.js to standalone agent-native. Builder Publish and
-          AEM modes are designed into the adapter contracts for the enterprise
-          path.
+          Deterministic adapters accelerate known sources. When no adapter
+          matches, the agent builds an auditable IR from the available evidence
+          before output writes are allowed.
         </p>
       </CardContent>
     </Card>

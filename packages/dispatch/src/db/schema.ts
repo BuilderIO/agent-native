@@ -73,6 +73,49 @@ export const dispatchAuditEvents = table("dispatch_audit_events", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const dispatchDreams = table("dispatch_dreams", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  sourceId: text("source_id").notNull(),
+  title: text("title").notNull(),
+  status: text("status").notNull(),
+  query: text("query"),
+  report: text("report"),
+  summary: text("summary"),
+  candidateCount: integer("candidate_count").notNull(),
+  inspectedThreadCount: integer("inspected_thread_count").notNull(),
+  createdBy: text("created_by").notNull(),
+  error: text("error"),
+  startedAt: integer("started_at").notNull(),
+  completedAt: integer("completed_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const dispatchDreamProposals = table("dispatch_dream_proposals", {
+  id: text("id").primaryKey(),
+  dreamId: text("dream_id").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  targetType: text("target_type").notNull(),
+  targetPath: text("target_path").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  rationale: text("rationale").notNull(),
+  content: text("content").notNull(),
+  evidence: text("evidence").notNull(),
+  confidence: integer("confidence").notNull(),
+  risk: text("risk").notNull(),
+  status: text("status").notNull(),
+  appliedBy: text("applied_by"),
+  appliedAt: integer("applied_at"),
+  rejectedBy: text("rejected_by"),
+  rejectedAt: integer("rejected_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 // ─── Vault: workspace-wide secret management ───────────────────────
 
 export const vaultSecrets = table("vault_secrets", {

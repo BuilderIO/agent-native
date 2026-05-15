@@ -28,7 +28,18 @@ import {
   resolveEngine,
   createAnthropicEngine,
   getStoredModelForEngine,
+  getAgentEngineEntry,
+  isStoredEngineUsableForRequest,
+  listAgentEngines,
+  registerBuiltinEngines,
 } from "../agent/engine/index.js";
+import {
+  canUpdateAgentAppModelDefaultSettings,
+  normalizeAgentAppModelDefaultAppId,
+  readAgentAppModelDefaultSettings,
+  resetAgentAppModelDefaultSettings,
+  writeAgentAppModelDefaultSettings,
+} from "../agent/app-model-defaults.js";
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import type {
   AgentChatAttachment,
@@ -128,6 +139,206 @@ async function lazyFs(): Promise<typeof import("fs")> {
     _fs = await import("node:fs");
   }
   return _fs;
+}
+
+const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
+const SHARED_RESOURCE_INDEX_LIMIT = 40;
+
+function normalizeResourcePathForPrompt(path: string): string {
+  return path.replace(/^\/+/, "").trim();
+}
+
+function escapeXmlAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function truncatePromptResourceContent(
+  content: string,
+  path: string,
+  maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
+): string {
+  const trimmed = content.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  const omitted = trimmed.length - maxChars;
+  return `${trimmed.slice(0, maxChars)}\n\n[Resource ${path} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted. Use resource-read --path "${path}" --scope shared for the full content.]`;
+}
+
+function promptResourceBlock(input: {
+  name: string;
+  scope: string;
+  content: string;
+  path?: string;
+  maxChars?: number;
+}): string | null {
+  const normalizedPath = input.path
+    ? normalizeResourcePathForPrompt(input.path)
+    : undefined;
+  const content = truncatePromptResourceContent(
+    input.content,
+    normalizedPath ?? input.name,
+    input.maxChars,
+  );
+  if (!content) return null;
+  const pathAttr = normalizedPath
+    ? ` path="${escapeXmlAttribute(normalizedPath)}"`
+    : "";
+  return `<resource name="${escapeXmlAttribute(input.name)}" scope="${escapeXmlAttribute(input.scope)}"${pathAttr}>\n${content}\n</resource>`;
+}
+
+function isAutoLoadedInstructionPath(path: string): boolean {
+  const normalized = normalizeResourcePathForPrompt(path);
+  return normalized.startsWith("instructions/") && normalized.endsWith(".md");
+}
+
+function isSpecialPromptResourcePath(path: string): boolean {
+  const normalized = normalizeResourcePathForPrompt(path);
+  return (
+    normalized === "AGENTS.md" ||
+    normalized === "LEARNINGS.md" ||
+    normalized.startsWith("instructions/") ||
+    normalized.startsWith("skills/") ||
+    normalized.startsWith("agents/") ||
+    normalized.startsWith("remote-agents/") ||
+    normalized.startsWith("jobs/") ||
+    normalized.startsWith("memory/")
+  );
+}
+
+function isTextLikeResource(mimeType: string): boolean {
+  return (
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType === "application/yaml" ||
+    mimeType === "application/x-yaml"
+  );
+}
+
+function getResourceSummaryFromContent(content: string): string | null {
+  const frontmatter = parseFrontmatter(content);
+  const title =
+    getFrontmatterValue(frontmatter, "title") ||
+    getFrontmatterValue(frontmatter, "name");
+  const description = getFrontmatterValue(frontmatter, "description");
+  if (title && description) return `${title}: ${description}`;
+  if (title) return title;
+  if (description) return description;
+
+  const heading = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^#{1,3}\s+\S/.test(line));
+  if (heading) return heading.replace(/^#{1,3}\s+/, "").trim();
+  return null;
+}
+
+async function loadSharedAgentsResourceForPrompt(): Promise<string | null> {
+  try {
+    const sharedAgents = await resourceGetByPath(SHARED_OWNER, "AGENTS.md");
+    if (!sharedAgents?.content?.trim()) return null;
+    return promptResourceBlock({
+      name: "AGENTS.md",
+      scope: "shared",
+      path: "AGENTS.md",
+      content: sharedAgents.content,
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function loadSharedInstructionResourcesForPrompt(): Promise<string[]> {
+  try {
+    const resources = await resourceList(SHARED_OWNER, "instructions/");
+    const blocks: string[] = [];
+    const sorted = resources
+      .filter((resource) => isAutoLoadedInstructionPath(resource.path))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    for (const resource of sorted) {
+      const full = await resourceGet(resource.id).catch(() => null);
+      if (!full?.content?.trim()) continue;
+      const block = promptResourceBlock({
+        name: resource.path,
+        scope: "shared-instruction",
+        path: resource.path,
+        content: full.content,
+      });
+      if (block) blocks.push(block);
+    }
+    return blocks;
+  } catch {
+    return [];
+  }
+}
+
+async function loadResourceSkillsPromptBlock(
+  owner: string,
+): Promise<string | null> {
+  try {
+    const resources =
+      owner === SHARED_OWNER
+        ? await resourceList(SHARED_OWNER, "skills/")
+        : await resourceListAccessible(owner, "skills/");
+    const sorted = resources.sort((a, b) => {
+      const ownerOrder =
+        (a.owner === owner ? 0 : 1) - (b.owner === owner ? 0 : 1);
+      if (ownerOrder !== 0) return ownerOrder;
+      return a.path.localeCompare(b.path);
+    });
+    const seen = new Set<string>();
+    const lines: string[] = [];
+    for (const resource of sorted) {
+      const full = await resourceGet(resource.id).catch(() => null);
+      if (!full?.content) continue;
+      const meta = parseSkillFrontmatter(full.content);
+      if (meta.userInvocable === false) continue;
+      const name = meta.name || getSkillNameFromPath(resource.path);
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      const scope = resource.owner === SHARED_OWNER ? "shared" : "personal";
+      const description = meta.description || "(no description)";
+      lines.push(
+        `- \`${name}\` at resource \`${resource.path}\` (${scope}) - ${description}. Read it with \`resource-read --path "${resource.path}" --scope ${scope}\` before starting a task it applies to.`,
+      );
+    }
+    if (lines.length === 0) return null;
+    return `<resource-skills>\nThe following SQL-backed workspace skills are available in addition to codebase skills. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
+  } catch {
+    return null;
+  }
+}
+
+async function loadSharedWorkspaceResourceIndexForPrompt(): Promise<
+  string | null
+> {
+  try {
+    const resources = (await resourceList(SHARED_OWNER))
+      .filter(
+        (resource) =>
+          !isSpecialPromptResourcePath(resource.path) &&
+          isTextLikeResource(resource.mimeType),
+      )
+      .sort((a, b) => a.path.localeCompare(b.path));
+    if (resources.length === 0) return null;
+
+    const listed = resources.slice(0, SHARED_RESOURCE_INDEX_LIMIT);
+    const lines: string[] = [];
+    for (const resource of listed) {
+      const full = await resourceGet(resource.id).catch(() => null);
+      const summary = full?.content
+        ? getResourceSummaryFromContent(full.content)
+        : null;
+      lines.push(`- \`${resource.path}\`${summary ? ` - ${summary}` : ""}`);
+    }
+    if (resources.length > listed.length) {
+      lines.push(
+        `- ...${resources.length - listed.length} more shared resources. Use \`resource-list --scope shared\` to inspect them.`,
+      );
+    }
+
+    return `<workspace-resources>\nShared workspace reference resources are available for company, brand, positioning, persona, product, or domain context. Use \`resource-read --path <path> --scope shared\` when a task may depend on them; do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -977,14 +1188,24 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
  * Creates the consolidated manage-agent-engine tool (list / set / test).
  * Let the agent inspect and configure the active LLM engine.
  */
-async function createAgentEngineScriptEntries(): Promise<
-  Record<string, ActionEntry>
-> {
+async function createAgentEngineScriptEntries(
+  appId?: string,
+): Promise<Record<string, ActionEntry>> {
   try {
     const mod = await import("../scripts/agent-engines/manage-agent-engine.js");
 
     return {
-      "manage-agent-engine": { tool: mod.tool, run: mod.run },
+      "manage-agent-engine": {
+        tool: mod.tool,
+        run: (args) =>
+          mod.run({
+            ...args,
+            appId:
+              typeof args.appId === "string" && args.appId.trim()
+                ? args.appId
+                : (appId ?? ""),
+          }),
+      },
     };
   } catch {
     return {};
@@ -2087,24 +2308,27 @@ ${FRAMEWORK_CORE_COMPACT}`;
 const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
 
 /**
- * Pre-load the agent's context: AGENTS.md (template instructions), the skills
- * index, shared LEARNINGS.md (team notes), and memory/MEMORY.md (personal
- * structured memory index). These all get appended to the system prompt so
- * the agent has everything it needs from the first turn.
+ * Pre-load the agent's context: AGENTS.md (workspace/template/runtime
+ * instructions), the skills index, shared LEARNINGS.md (team notes), a shared
+ * resource index, and memory/MEMORY.md (personal structured memory index).
+ * These all get appended to the system prompt so the agent has everything it
+ * needs from the first turn.
  *
  * Four sources are layered:
  *
  *   1. `<workspace>` — AGENTS.md from the enterprise workspace core.
  *   2. `<template>` — AGENTS.md + skills index from the Vite plugin bundle.
- *   3. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
- *   4. `<personal>` — memory/MEMORY.md from the SQL personal scope. The
+ *   3. `<shared>` — SQL shared AGENTS.md and instructions/*.md. Runtime
+ *      workspace guardrails that can be managed from Dispatch/resources.
+ *   4. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
+ *   5. `<personal>` — memory/MEMORY.md from the SQL personal scope. The
  *      current user's structured memory index.
  *
  * Each source is read independently — no copying between them. Editing
  * AGENTS.md and restarting the server is all it takes; Vite HMR invalidates
  * the bundle in dev so changes land instantly.
  */
-async function loadResourcesForPrompt(
+export async function loadResourcesForPrompt(
   owner: string,
   compact = false,
   selfAppId?: string,
@@ -2148,6 +2372,14 @@ async function loadResourcesForPrompt(
     }
   } catch {}
 
+  // 3. Runtime shared AGENTS.md + global instruction resources from SQL.
+  const sharedAgents = await loadSharedAgentsResourceForPrompt();
+  if (sharedAgents) sections.push(sharedAgents);
+  sections.push(...(await loadSharedInstructionResourcesForPrompt()));
+
+  const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner);
+  if (resourceSkillsBlock) sections.push(resourceSkillsBlock);
+
   if (compact) {
     // In compact mode, skip learnings and memory in the prompt.
     // The agent can access them via resource-read when needed.
@@ -2179,6 +2411,9 @@ async function loadResourcesForPrompt(
       } catch {}
     }
   }
+
+  const sharedResourceIndex = await loadSharedWorkspaceResourceIndexForPrompt();
+  if (sharedResourceIndex) sections.push(sharedResourceIndex);
 
   try {
     const agents = (await discoverAgents(selfAppId)).slice(0, 30);
@@ -2582,7 +2817,9 @@ export function createAgentChatPlugin(
       const leanPrompt = options?.leanPrompt === true;
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
       const urlTools = createUrlTools();
-      const engineScripts = await createAgentEngineScriptEntries();
+      const engineScripts = await createAgentEngineScriptEntries(
+        options?.appId,
+      );
       const loopSettingsScripts = await createAgentLoopSettingsScriptEntries();
       const chatScripts = {
         ...(await createChatScriptEntries()),
@@ -3036,6 +3273,7 @@ export function createAgentChatPlugin(
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
             apiKey: options?.apiKey,
+            appId: options?.appId,
           });
 
           // Use the same handler (dev or prod) that the interactive chat uses
@@ -3061,7 +3299,9 @@ export function createAgentChatPlugin(
 
           const model =
             options?.model ??
-            (await getStoredModelForEngine(a2aEngine)) ??
+            (await getStoredModelForEngine(a2aEngine, {
+              appId: options?.appId,
+            })) ??
             a2aEngine.defaultModel;
 
           // Build tools — same as interactive handler but WITHOUT call-agent
@@ -3240,10 +3480,13 @@ export function createAgentChatPlugin(
           const mcpEngine = await resolveEngine({
             engineOption: options?.engine,
             apiKey: options?.apiKey,
+            appId: options?.appId,
           });
           const model =
             options?.model ??
-            (await getStoredModelForEngine(mcpEngine)) ??
+            (await getStoredModelForEngine(mcpEngine, {
+              appId: options?.appId,
+            })) ??
             mcpEngine.defaultModel;
 
           // Same actions as A2A — without call-agent to prevent loops.
@@ -3947,6 +4190,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
           );
         },
         model: options?.model,
+        appId: options?.appId,
         apiKey: options?.apiKey,
         runSoftTimeoutMs: options?.runSoftTimeoutMs,
         finalResponseGuard: options?.finalResponseGuard,
@@ -3990,6 +4234,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
                 );
               },
               model: options?.model,
+              appId: options?.appId,
               apiKey: options?.apiKey,
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
               finalResponseGuard: options?.finalResponseGuard,
@@ -4092,6 +4337,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             );
           },
           model: options?.model,
+          appId: options?.appId,
           apiKey: options?.apiKey,
           runSoftTimeoutMs: options?.runSoftTimeoutMs,
           finalResponseGuard: options?.finalResponseGuard,
@@ -4161,6 +4407,179 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             return { devMode: currentDevMode, canToggle };
           }
           return { devMode: currentDevMode, canToggle };
+        }),
+      );
+
+      const modelDefaultsAppId =
+        normalizeAgentAppModelDefaultAppId(
+          options?.appId ??
+            process.env.AGENT_NATIVE_APP_ID ??
+            process.env.VITE_AGENT_NATIVE_TEMPLATE ??
+            "app",
+        ) ?? "app";
+
+      const resolveModelDefaultsContext = async (event: any) => {
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          return {
+            ok: false as const,
+            status: 401,
+            error: "Authentication required",
+          };
+        }
+
+        let orgCtx: {
+          orgId?: string | null;
+          orgName?: string | null;
+          role?: string | null;
+        } | null = null;
+        try {
+          const { getOrgContext } = await import("../org/context.js");
+          orgCtx = await getOrgContext(event);
+        } catch {
+          orgCtx = null;
+        }
+
+        const orgId =
+          (options?.resolveOrgId
+            ? await options.resolveOrgId(event)
+            : (orgCtx?.orgId ?? session.orgId ?? null)) ?? null;
+        const canUpdate = await canUpdateAgentAppModelDefaultSettings(
+          session.email,
+          orgId,
+        );
+
+        return {
+          ok: true as const,
+          userEmail: session.email,
+          orgId,
+          orgName: orgCtx?.orgId === orgId ? (orgCtx.orgName ?? null) : null,
+          role: orgCtx?.orgId === orgId ? (orgCtx.role ?? null) : null,
+          canUpdate,
+        };
+      };
+
+      const listModelDefaultEngineOptions = async (ctx: {
+        userEmail?: string;
+        orgId?: string | null;
+      }) => {
+        registerBuiltinEngines();
+        return runWithRequestContext(
+          {
+            userEmail: ctx.userEmail,
+            orgId: ctx.orgId ?? undefined,
+          },
+          () =>
+            Promise.all(
+              listAgentEngines().map(async (entry) => ({
+                name: entry.name,
+                label: entry.label,
+                description: entry.description,
+                defaultModel: entry.defaultModel,
+                supportedModels: entry.supportedModels,
+                requiredEnvVars: entry.requiredEnvVars,
+                configured: await isStoredEngineUsableForRequest(
+                  { engine: entry.name, model: entry.defaultModel },
+                  entry,
+                ).catch(() => false),
+              })),
+            ),
+        );
+      };
+
+      const buildModelDefaultsPayload = async (event: any, appId: string) => {
+        const ctx = await resolveModelDefaultsContext(event);
+        if (!ctx.ok) return ctx;
+        const settings = await readAgentAppModelDefaultSettings(
+          { userEmail: ctx.userEmail, orgId: ctx.orgId },
+          appId,
+        );
+        return {
+          ok: true as const,
+          ...settings,
+          canUpdate: ctx.canUpdate,
+          orgId: ctx.orgId,
+          orgName: ctx.orgName,
+          role: ctx.role,
+          engines: await listModelDefaultEngineOptions(ctx),
+        };
+      };
+
+      // GET/PUT/DELETE /_agent-native/agent-model-defaults — org-scoped
+      // per-app default engine/model used when a chat request does not carry
+      // an explicit composer model selection.
+      getH3App(nitroApp).use(
+        "/_agent-native/agent-model-defaults",
+        defineEventHandler(async (event) => {
+          const method = getMethod(event);
+          const query = getQuery(event);
+          const queryAppId =
+            typeof query.appId === "string" ? query.appId : undefined;
+          const appId =
+            normalizeAgentAppModelDefaultAppId(queryAppId) ??
+            modelDefaultsAppId;
+
+          if (method === "GET") {
+            const payload = await buildModelDefaultsPayload(event, appId);
+            if (payload.ok === false) {
+              setResponseStatus(event, payload.status);
+              return { error: payload.error };
+            }
+            return payload;
+          }
+
+          if (method !== "PUT" && method !== "DELETE") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+
+          const ctx = await resolveModelDefaultsContext(event);
+          if (ctx.ok === false) {
+            setResponseStatus(event, ctx.status);
+            return { error: ctx.error };
+          }
+          if (!ctx.canUpdate) {
+            setResponseStatus(event, 403);
+            return {
+              error: ctx.orgId
+                ? "Only organization owners and admins can change app model defaults."
+                : "You cannot change app model defaults.",
+            };
+          }
+
+          if (method === "DELETE") {
+            await resetAgentAppModelDefaultSettings(
+              { userEmail: ctx.userEmail, orgId: ctx.orgId },
+              appId,
+            );
+            return buildModelDefaultsPayload(event, appId);
+          }
+
+          const body = await readBody(event).catch(() => ({}));
+          const bodyAppId =
+            typeof body?.appId === "string" ? body.appId : undefined;
+          const targetAppId =
+            normalizeAgentAppModelDefaultAppId(bodyAppId) ?? appId;
+          const engine =
+            typeof body?.engine === "string" ? body.engine.trim() : "";
+          const model =
+            typeof body?.model === "string" ? body.model.trim() : "";
+          if (!engine || !model) {
+            setResponseStatus(event, 400);
+            return { error: "engine and model are required" };
+          }
+          const entry = getAgentEngineEntry(engine);
+          if (!entry) {
+            setResponseStatus(event, 400);
+            return { error: `Unknown engine: ${engine}` };
+          }
+
+          await writeAgentAppModelDefaultSettings(
+            { userEmail: ctx.userEmail, orgId: ctx.orgId },
+            targetAppId,
+            { engine, model, updatedBy: ctx.userEmail },
+          );
+          return buildModelDefaultsPayload(event, targetAppId);
         }),
       );
 
@@ -5340,7 +5759,8 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
-          model: resolvedModel,
+          model: options?.model,
+          appId: options?.appId,
         };
 
         // Start after a 10-second delay to let the server fully initialize
@@ -5387,7 +5807,8 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
-          model: resolvedModel,
+          model: options?.model,
+          appId: options?.appId,
         });
         if (process.env.DEBUG)
           console.log("[triggers] Trigger dispatcher initialized");

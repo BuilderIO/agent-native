@@ -40,6 +40,8 @@ export function rowToRun(
   return {
     id: row.id,
     sourceRoot: row.sourceRoot,
+    inputKind: row.inputKind,
+    inputDescription: row.inputDescription,
     outputRoot: row.outputRoot,
     target: row.target,
     phase: row.phase as MigrationRun["phase"],

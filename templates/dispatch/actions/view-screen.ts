@@ -7,7 +7,22 @@ import { listDispatchUsageMetricsScoped } from "../server/lib/usage-metrics.js";
 async function runDispatchAction(name: string, args: Record<string, unknown>) {
   const action = dispatchActions[name];
   if (!action) throw new Error(`Dispatch action not found: ${name}`);
-  return action.run(args as any);
+  return action.run(stripUndefined(args) as any);
+}
+
+function stripUndefined(args: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(args).filter(([, value]) => value !== undefined),
+  );
+}
+
+async function getDreamDetail(dreamId: unknown) {
+  try {
+    return await runDispatchAction("get-dream", { dreamId });
+  } catch (error) {
+    if (!dreamId) throw error;
+    return runDispatchAction("get-dream", { id: dreamId });
+  }
 }
 
 export default defineAction({
@@ -129,6 +144,35 @@ export default defineAction({
         }
       } catch (error) {
         screen.threadDebugError =
+          error instanceof Error ? error.message : String(error);
+      }
+    }
+    if (navigation?.view === "dreams") {
+      try {
+        const nav = navigation as Record<string, any>;
+        const [sources, candidates, dreams] = await Promise.all([
+          runDispatchAction("list-agent-thread-sources", {}),
+          runDispatchAction("list-dream-candidates", {
+            sourceId: nav.sourceId,
+            ownerEmail: nav.ownerEmail,
+            sinceDays: nav.sinceDays,
+            limit: 10,
+          }),
+          runDispatchAction("list-dreams", {
+            status: nav.status,
+            limit: 10,
+          }),
+        ]);
+        screen.dreamSources = sources;
+        screen.dreamCandidates = candidates;
+        screen.latestDreams = dreams;
+
+        const dreamId = nav.dreamId ?? nav.id;
+        if (dreamId) {
+          screen.dreamDetail = await getDreamDetail(dreamId);
+        }
+      } catch (error) {
+        screen.dreamsError =
           error instanceof Error ? error.message : String(error);
       }
     }

@@ -1,0 +1,66 @@
+---
+title: "Brain"
+description: "A public first-party template for cited whole-company institutional memory."
+---
+
+# Brain
+
+Brain is a first-party template for whole-company institutional memory. It ingests approved Slack channels, Clips recordings, Granola exports, and generic transcript/webhook payloads, then turns that material into cited, reviewable knowledge an agent can search.
+
+Use Brain when your team wants agents to answer questions like “why did we make this product decision?”, “how does this in-development feature work?”, or “what changed in this process?” with links back to the source conversation or meeting.
+
+## What It Includes
+
+- **Approved sources.** Configure manual, generic webhook, Clips, Slack, and Granola source records. Slack is channel-oriented by design; DMs and MPIMs are not a scan target.
+- **Raw captures.** Store transcripts, channel exports, notes, and webhook imports in portable SQL with dedupe keys and source metadata.
+- **Distilled knowledge.** Write atomic entries with kind, topic, entities, confidence, exact evidence quotes, and supersede links.
+- **Review gating.** High-confidence non-sensitive entries can publish immediately; company-tier or sensitive entries can queue as proposals for approval.
+- **Cited retrieval.** `search-knowledge` and `get-knowledge` are exposed as public-agent-safe read actions so Dispatch and other apps can delegate company-memory questions.
+- **Ambient context.** Canonical approved entries can mirror into workspace resources under `context/company-brain/...` for cross-app context.
+
+Brain intentionally uses SQL text search and agentic query expansion for v1. There is no vector database requirement, so the template stays portable across SQLite, Postgres, Neon, D1, Turso, and similar hosts.
+
+## Scaffolding
+
+```bash
+pnpm dlx @agent-native/core create my-brain --template brain --standalone
+```
+
+Then open the app, add sources, import a transcript, and ask the agent to distill cited memories from the raw capture.
+
+## Generic Ingest
+
+Brain exposes a signed webhook at:
+
+```txt
+/api/_agent-native/brain/ingest
+```
+
+Create a source with a `sourceKey` to receive a bearer token, then send a `RawCapturePayload`:
+
+```json
+{
+  "sourceKey": "clips",
+  "externalId": "meeting-123",
+  "title": "Pricing decision review",
+  "participants": ["Ada", "Grace"],
+  "occurredAt": "2026-05-15T15:00:00.000Z",
+  "transcript": "We decided to keep annual pricing because...",
+  "sourceUrl": "https://example.com/share/meeting-123",
+  "tags": ["pricing", "product"],
+  "raw": {}
+}
+```
+
+Set `Authorization: Bearer <ingestToken>` on the request. Clips can export to that endpoint without Brain reading the Clips database directly.
+
+## Developer Notes
+
+The template follows the agent-native four-area contract:
+
+- **UI:** Ask, Knowledge, Review, Sources, and Settings routes.
+- **Actions:** imports, source management, distillation queueing, proposal review, cited search, and navigation/context actions.
+- **Skills/instructions:** Brain-specific guidance for distillation and retrieval.
+- **Application state:** route, filters, and selected IDs mirror into `application_state` for agent context.
+
+See [Dispatch](/docs/templates/dispatch) for the workspace control plane, [Workspace](/docs/workspace) for shared resources, and [A2A Protocol](/docs/a2a-protocol) for cross-app delegation.

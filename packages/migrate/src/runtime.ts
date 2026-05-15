@@ -1,6 +1,16 @@
 import fs from "fs/promises";
 import path from "path";
 import { nanoid } from "nanoid";
+import {
+  createSkeletonProjectIR,
+  describeMigrationInput,
+  inferMigrationInputKind,
+  normalizeMigrationSourceRoot,
+} from "./adapters/agent-introspection.js";
+import {
+  selectSourceAdapter,
+  type SourceAdapterRegistry,
+} from "./adapters/source-registry.js";
 import { createAgentNativeRecipes } from "./recipes/agent-native.js";
 import type {
   CriticDecision,
@@ -16,10 +26,23 @@ import type {
 
 export interface CreateMigrationRunOptions {
   sourceRoot: string;
+  inputKind?: string;
+  inputDescription?: string;
   outputRoot: string;
   artifactRoot: string;
   target?: string;
   id?: string;
+}
+
+export interface DiscoverMigrationOptions {
+  sourceAdapter?: SourceAdapter;
+  registry?: SourceAdapterRegistry;
+  allowAgentIntrospectionFallback?: boolean;
+}
+
+export interface AgentIntrospectionDiscoveryOptions {
+  ir?: ProjectIR;
+  inputDescription?: string;
 }
 
 export async function createMigrationRun(
@@ -28,10 +51,20 @@ export async function createMigrationRun(
   const now = new Date().toISOString();
   const id = options.id ?? `mig_${nanoid(10)}`;
   const artifactDir = path.resolve(options.artifactRoot, id);
+  const inputKind =
+    options.inputKind ?? inferMigrationInputKind(options.sourceRoot);
+  const sourceRoot = normalizeMigrationSourceRoot(
+    options.sourceRoot,
+    inputKind,
+  );
   await fs.mkdir(artifactDir, { recursive: true });
   const run: MigrationRun = {
     id,
-    sourceRoot: path.resolve(options.sourceRoot),
+    sourceRoot,
+    inputKind,
+    inputDescription:
+      options.inputDescription ??
+      describeMigrationInput(options.sourceRoot, inputKind),
     outputRoot: path.resolve(options.outputRoot),
     target: options.target ?? "agent-native",
     phase: "discover",
@@ -57,17 +90,51 @@ export function artifactPaths(run: MigrationRun): MigrationArtifacts {
 
 export async function discoverMigration(
   run: MigrationRun,
-  sourceAdapter: SourceAdapter,
+  sourceAdapterOrOptions?: SourceAdapter | DiscoverMigrationOptions,
 ): Promise<{ run: MigrationRun; ir: ProjectIR; assessmentPath: string }> {
+  const options = normalizeDiscoverOptions(sourceAdapterOrOptions);
+  const sourceAdapter =
+    options.sourceAdapter ??
+    (await selectSourceAdapter({
+      sourceRoot: run.sourceRoot,
+      inputKind: run.inputKind,
+      inputDescription: run.inputDescription,
+      registry: options.registry,
+    }));
+
+  if (!sourceAdapter) {
+    if (options.allowAgentIntrospectionFallback === false) {
+      throw new Error(
+        `No deterministic source adapter detected for ${run.inputKind} input: ${run.inputDescription}`,
+      );
+    }
+    return discoverMigrationWithAgentIntrospection(run);
+  }
+
   const ir = await sourceAdapter.introspect(run.sourceRoot);
-  const updated = touch({ ...run, phase: "plan" as const, ir });
-  const artifacts = artifactPaths(updated);
-  await fs.mkdir(artifacts.runDir, { recursive: true });
-  await writeJson(artifacts.irPath, ir);
-  await fs.writeFile(artifacts.assessmentPath, renderAssessment(updated, ir));
-  await writeJson(path.join(updated.artifactDir, "run.json"), updated);
-  return { run: updated, ir, assessmentPath: artifacts.assessmentPath };
+  return writeDiscoveryArtifacts(run, ir);
 }
+
+export async function discoverMigrationWithAgentIntrospection(
+  run: MigrationRun,
+  options: AgentIntrospectionDiscoveryOptions = {},
+): Promise<{ run: MigrationRun; ir: ProjectIR; assessmentPath: string }> {
+  const runWithDescription = options.inputDescription
+    ? { ...run, inputDescription: options.inputDescription }
+    : run;
+  const ir =
+    options.ir ??
+    createSkeletonProjectIR({
+      sourceRoot: runWithDescription.sourceRoot,
+      inputKind: runWithDescription.inputKind,
+      inputDescription: runWithDescription.inputDescription,
+    });
+
+  return writeDiscoveryArtifacts(runWithDescription, ir);
+}
+
+export const discoverMigrationWithAgent =
+  discoverMigrationWithAgentIntrospection;
 
 export async function planMigration(
   run: MigrationRun,
@@ -149,11 +216,23 @@ export function chooseCriticDecision(args: {
   return "rollback-generated-output";
 }
 
+export function renderMigrationAssessment(
+  run: MigrationRun,
+  ir: ProjectIR,
+): string {
+  return renderAssessment(run, ir);
+}
+
 function renderAssessment(run: MigrationRun, ir: ProjectIR): string {
   const routes = ir.site.routes;
+  const inputKind = run.inputKind ?? inferMigrationInputKind(run.sourceRoot);
+  const inputDescription =
+    run.inputDescription ?? describeMigrationInput(run.sourceRoot, inputKind);
   return `# Migration Assessment
 
 Source: \`${run.sourceRoot}\`
+Input kind: \`${inputKind}\`
+Input: ${inputDescription}
 Output: \`${run.outputRoot}\`
 Target: \`${run.target}\`
 
@@ -228,6 +307,43 @@ ${report.verifierResults.map((result) => `- ${result.ok ? "PASS" : "FAIL"} ${res
 function touch<T extends { updatedAt: string }>(value: T): T {
   value.updatedAt = new Date().toISOString();
   return value;
+}
+
+async function writeDiscoveryArtifacts(
+  run: MigrationRun,
+  ir: ProjectIR,
+): Promise<{ run: MigrationRun; ir: ProjectIR; assessmentPath: string }> {
+  const updated = touch({
+    ...withRunInputDefaults(run),
+    phase: "plan" as const,
+    ir,
+  });
+  const artifacts = artifactPaths(updated);
+  await fs.mkdir(artifacts.runDir, { recursive: true });
+  await writeJson(artifacts.irPath, ir);
+  await fs.writeFile(artifacts.assessmentPath, renderAssessment(updated, ir));
+  await writeJson(path.join(updated.artifactDir, "run.json"), updated);
+  return { run: updated, ir, assessmentPath: artifacts.assessmentPath };
+}
+
+function withRunInputDefaults(run: MigrationRun): MigrationRun {
+  const inputKind = run.inputKind ?? inferMigrationInputKind(run.sourceRoot);
+  return {
+    ...run,
+    inputKind,
+    inputDescription:
+      run.inputDescription ?? describeMigrationInput(run.sourceRoot, inputKind),
+  };
+}
+
+function normalizeDiscoverOptions(
+  sourceAdapterOrOptions?: SourceAdapter | DiscoverMigrationOptions,
+): DiscoverMigrationOptions {
+  if (!sourceAdapterOrOptions) return {};
+  if ("introspect" in sourceAdapterOrOptions) {
+    return { sourceAdapter: sourceAdapterOrOptions };
+  }
+  return sourceAdapterOrOptions;
 }
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {

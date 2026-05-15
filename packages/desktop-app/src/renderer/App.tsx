@@ -11,6 +11,12 @@ import TabBar from "./components/TabBar.js";
 import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
+import CodeAgentsHub from "./components/CodeAgentsHub.js";
+import {
+  CODE_AGENTS_SURFACE_ID,
+  MIGRATION_APP_ID,
+  getCodeAgentGoal,
+} from "@shared/code-agents";
 
 export interface Tab {
   id: string;
@@ -72,6 +78,11 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showAddApp, setShowAddApp] = useState(false);
+  const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
+    goalId?: string;
+    runId?: string;
+    nonce: number;
+  }>();
 
   // Load apps from persistent store
   useEffect(() => {
@@ -143,6 +154,7 @@ export default function App() {
 
   useEffect(() => {
     if (!activeSidebarAppId) return;
+    if (activeSidebarAppId === CODE_AGENTS_SURFACE_ID) return;
     setMountedAppIds((prev) => {
       if (prev.has(activeSidebarAppId)) return prev;
       const next = new Set(prev);
@@ -180,6 +192,13 @@ export default function App() {
 
   const handleSidebarTabChange = useCallback((appId: string) => {
     setActiveSidebarAppId(appId);
+    setShowSettings(false);
+  }, []);
+
+  const handleCodeAgentsClick = useCallback(() => {
+    setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
+    setShowSettings(false);
+    setShowAddApp(false);
   }, []);
 
   const handleTabSelect = useCallback(
@@ -406,6 +425,24 @@ export default function App() {
     );
   }, [handleShortcut]);
 
+  useEffect(() => {
+    if (!window.electronAPI?.codeAgents?.onOpenRequest) return;
+    return window.electronAPI.codeAgents.onOpenRequest((request) => {
+      const goal = getCodeAgentGoal(request.goalId);
+      if (!goal && request.app && request.app !== MIGRATION_APP_ID) return;
+      setCodeAgentsOpenRequest({
+        goalId:
+          goal?.id ??
+          (request.app === MIGRATION_APP_ID ? "migrate" : undefined),
+        runId: request.runId,
+        nonce: Date.now(),
+      });
+      setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
+      setShowSettings(false);
+      setShowAddApp(false);
+    });
+  }, []);
+
   // Report the active app to main process so DevTools targets the right webview
   useEffect(() => {
     if (activeSidebarAppId && window.electronAPI?.setActiveApp) {
@@ -454,6 +491,8 @@ export default function App() {
       </div>
     );
   }
+
+  const isCodeAgentsActive = activeSidebarAppId === CODE_AGENTS_SURFACE_ID;
 
   // Keep app webviews warm once visited so switching apps feels like browser
   // tabs: the guest page remains alive offscreen and keeps its runtime state.
@@ -537,22 +576,39 @@ export default function App() {
           </button>
         </div>
       )}
-      <TabBar
-        tabs={currentAppTabs?.tabs ?? []}
-        activeTabId={currentAppTabs?.activeTabId ?? ""}
-        onTabSelect={handleTabSelect}
-        onTabClose={handleTabClose}
-        onNewTab={handleNewTab}
-      />
+      {isCodeAgentsActive ? (
+        <div className="tabbar tabbar--shell">
+          <div className="tab tab--active tab--locked">
+            <span className="tab-label">Code Agents</span>
+          </div>
+        </div>
+      ) : (
+        <TabBar
+          tabs={currentAppTabs?.tabs ?? []}
+          activeTabId={currentAppTabs?.activeTabId ?? ""}
+          onTabSelect={handleTabSelect}
+          onTabClose={handleTabClose}
+          onNewTab={handleNewTab}
+        />
+      )}
       <div className="shell-body">
         <Sidebar
           apps={appDefs}
           activeAppId={activeSidebarAppId}
           onTabChange={handleSidebarTabChange}
           onAddAppClick={() => setShowAddApp(true)}
+          isCodeAgentsActive={isCodeAgentsActive}
+          onCodeAgentsClick={handleCodeAgentsClick}
           onSettingsClick={() => setShowSettings(true)}
         />
         <div className="content-area">
+          {isCodeAgentsActive && (
+            <CodeAgentsHub
+              apps={apps}
+              openRequest={codeAgentsOpenRequest}
+              refreshKey={refreshKey}
+            />
+          )}
           {allWebviews.map(({ tab, app, appDef, isActive }) => (
             <AppWebview
               key={tab.id}

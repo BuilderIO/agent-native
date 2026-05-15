@@ -15,6 +15,8 @@ export type MigrationTaskStatus =
 
 export type MigrationConfidence = "high" | "medium" | "low";
 
+export type MigrationInputKind = "path" | "url" | "description";
+
 export type RouteKind =
   | "marketing"
   | "docs"
@@ -98,6 +100,8 @@ export interface ProjectIR {
 export interface MigrationRun {
   id: string;
   sourceRoot: string;
+  inputKind: MigrationInputKind | string;
+  inputDescription: string;
   outputRoot: string;
   target: "agent-native" | "agent-native-builder" | string;
   phase: MigrationPhase;
@@ -149,6 +153,8 @@ export interface MigrationArtifacts {
 export interface SourceAdapter {
   id: string;
   label: string;
+  kind?: "deterministic" | "agent";
+  inputKinds?: Array<MigrationInputKind | string>;
   detect(sourceRoot: string): Promise<boolean>;
   introspect(sourceRoot: string): Promise<ProjectIR>;
 }

@@ -32,20 +32,23 @@ The **Workspace** tab in the agent sidebar is where you and the agent share pers
 - Create files with the `+` menu. Upload with the upload button. Edit inline (visual or code view).
 - **Personal** is just you. **Shared** is your team/org.
 - The agent can read, write, and rename any of these files as part of a conversation.
-- Special files the agent preloads: shared `AGENTS.md`, shared `LEARNINGS.md`, and personal structured memory at `memory/MEMORY.md`.
+- Special files the agent preloads: shared `AGENTS.md`, shared `instructions/*.md`, shared `LEARNINGS.md`, and personal structured memory at `memory/MEMORY.md`.
+- Shared reference resources such as `context/brand-guidelines.md` are indexed for the agent; it reads the relevant file when a task may depend on company, brand, positioning, persona, product, or domain context.
 
 ## What goes in here? {#what-goes-in-here}
 
-| File / path                 | What it's for                                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `AGENTS.md` (Shared)        | Team instructions the agent reads every turn — tone, rules, domain context, skill references.          |
-| `LEARNINGS.md` (Shared)     | Shared corrections, conventions, and durable project memory the agent preloads.                        |
-| `memory/MEMORY.md`          | Personal structured memory the chat preloads for the current user.                                     |
-| `skills/<name>.md`          | Focused domain guidance the agent pulls in on demand (invoked with `/` slash commands).                |
-| `agents/<name>.md`          | **Custom agents** — reusable sub-agent profiles the agent can delegate to (invoked with `@` mentions). |
-| `remote-agents/<name>.json` | A2A manifests for connected remote agents — edited via a form, not raw JSON.                           |
-| `jobs/<name>.md`            | Scheduled tasks that run on a cron (see the recurring-jobs docs).                                      |
-| Anything else               | Notes, prompts, config, dataset snippets — any text file.                                              |
+| File / path                 | What it's for                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `AGENTS.md` (Shared)        | Team instructions the agent reads every turn — tone, rules, domain context, skill references.           |
+| `instructions/<name>.md`    | Additional always-on shared guardrails loaded every turn. Good for compliance, brand voice, and policy. |
+| `LEARNINGS.md` (Shared)     | Shared corrections, conventions, and durable project memory the agent preloads.                         |
+| `memory/MEMORY.md`          | Personal structured memory the chat preloads for the current user.                                      |
+| `skills/<name>/SKILL.md`    | Focused domain guidance the agent pulls in on demand (invoked with `/` slash commands).                 |
+| `agents/<name>.md`          | **Custom agents** — reusable sub-agent profiles the agent can delegate to (invoked with `@` mentions).  |
+| `remote-agents/<name>.json` | A2A manifests for connected remote agents — edited via a form, not raw JSON.                            |
+| `jobs/<name>.md`            | Scheduled tasks that run on a cron (see the recurring-jobs docs).                                       |
+| `context/<name>.md`         | Shared reference material: brand guidelines, personas, positioning, product facts, messaging, etc.      |
+| Anything else               | Notes, prompts, config, dataset snippets — any text file.                                               |
 
 ## Overview {#overview}
 
@@ -108,7 +111,7 @@ At the start of every conversation, the agent automatically reads:
 
 A shared resource seeded by default. It contains custom instructions, preferences, and skill references. Edit this to change how the agent behaves for all users — tone, rules, domain context, and which skills to use.
 
-```markdown
+```text
 # Agent Instructions
 
 ## Tone
@@ -122,9 +125,94 @@ Be concise. Lead with the answer.
 
 ## Skills
 
-| Skill         | Path                      | Description                 |
-| ------------- | ------------------------- | --------------------------- |
-| data-analysis | `skills/data-analysis.md` | BigQuery and data workflows |
+| Skill         | Path                            | Description                 |
+| ------------- | ------------------------------- | --------------------------- |
+| data-analysis | `skills/data-analysis/SKILL.md` | BigQuery and data workflows |
+```
+
+### Global Instructions {#global-instructions}
+
+Use shared `AGENTS.md` for the main workspace-wide instruction layer. Use shared files under `instructions/` for separate guardrail documents that should also apply every turn, such as compliance rules, customer-facing tone, escalation policy, or brand voice.
+
+For example:
+
+```text
+AGENTS.md
+instructions/customer-support-guardrails.md
+instructions/legal-review-policy.md
+```
+
+Both normal chat and integration-triggered agent runs load these shared instruction resources before responding.
+
+### Reference Resources {#reference-resources}
+
+Put reusable company context under `context/`: personas, positioning, messaging, product facts, customer proof points, brand guidelines, competitive notes, and similar material. The agent sees an index of shared reference resources and reads the relevant file with `resource-read` when a task may depend on it.
+
+Examples:
+
+```text
+context/core-positioning.md
+context/buyer-personas.md
+context/brand-guidelines.md
+context/company-facts.md
+```
+
+For a new workspace, a useful starter pack is:
+
+```text
+context/company.md              # what the company does, ICP, products, links
+context/brand.md                # voice, visual identity, spelling, forbidden usage
+context/messaging.md            # positioning, value props, proof points, objections
+instructions/guardrails.md      # compliance, escalation, and approval rules
+skills/company-voice/SKILL.md   # on-demand guidance for customer-facing writing
+```
+
+Keep `context/` files factual and easy to skim. Put rules that must apply every turn in `instructions/guardrails.md`. Use `skills/company-voice/SKILL.md` when the agent should deliberately transform or review copy in the company's voice.
+
+Example contents:
+
+```text
+<!-- context/company.md -->
+
+# Company
+
+- Company: Example Co
+- Product: Agent-native workspace for internal teams
+- ICP: Operations, support, and GTM teams managing many small tools
+- Canonical links: https://example.com, https://docs.example.com
+
+<!-- context/brand.md -->
+
+# Brand
+
+- Voice: direct, warm, concrete
+- Use: "workspace", "agent", "team"
+- Avoid: unsupported superlatives and vague AI claims
+
+<!-- context/messaging.md -->
+
+# Messaging
+
+- Positioning: one control plane for every app agent
+- Value props: shared context, shared credentials, cross-app delegation
+- Proof points: fewer duplicated Slack bots, one vault, one policy surface
+
+<!-- instructions/guardrails.md -->
+
+# Guardrails
+
+- Do not invent customer names, metrics, or legal claims.
+- Ask for approval before changing shared instructions or All-app resources.
+- Escalate security, billing, and data-loss concerns to an admin.
+
+<!-- skills/company-voice/SKILL.md -->
+
+---
+name: company-voice
+description: Rewrite or review customer-facing copy using the workspace brand and messaging resources.
+---
+
+Read `context/brand.md` and `context/messaging.md` before writing. Keep claims grounded in those files, preserve approved terminology, and flag missing proof instead of inventing it.
 ```
 
 ### Memory {#memory}
@@ -158,18 +246,20 @@ The resource system also seeds a personal `LEARNINGS.md` for compatibility with 
 
 **Where it fits.**
 
-| Surface            | Scope    | Written by                | Read when                    |
-| ------------------ | -------- | ------------------------- | ---------------------------- |
-| `AGENTS.md`        | Shared   | Humans / agent on request | Every turn                   |
-| `LEARNINGS.md`     | Shared   | Humans / agent on request | Every turn                   |
-| `memory/MEMORY.md` | Personal | Agent / humans            | Every turn                   |
-| `skills/…`         | Shared   | Humans / agent on request | On demand (`/slash` command) |
+| Surface            | Scope    | Written by                | Read when                              |
+| ------------------ | -------- | ------------------------- | -------------------------------------- |
+| `AGENTS.md`        | Shared   | Humans / agent on request | Every turn                             |
+| `LEARNINGS.md`     | Shared   | Humans / agent on request | Every turn                             |
+| `memory/MEMORY.md` | Personal | Agent / humans            | Every turn                             |
+| `instructions/…`   | Shared   | Humans / agent on request | Every turn                             |
+| `skills/…`         | Shared   | Humans / agent on request | On demand (`/slash` command)           |
+| `context/…`        | Shared   | Humans / agent on request | Indexed every turn, read when relevant |
 
 Users can edit these memory files directly in the Workspace tab — they're regular resources. Delete lines the agent got wrong, keep personal preferences in `memory/MEMORY.md`, or promote team-wide rules into `AGENTS.md`.
 
 ## Skills {#skills}
 
-Skills are Markdown resource files that give the agent deep domain knowledge for specific tasks. They live under the `skills/` path prefix in resources (e.g. `skills/data-analysis.md`, `skills/code-review.md`).
+Skills are Markdown resource files that give the agent deep domain knowledge for specific tasks. They live under the `skills/` path prefix in resources, preferably as `skills/<name>/SKILL.md` (e.g. `skills/data-analysis/SKILL.md`, `skills/code-review/SKILL.md`). Flat `skills/<name>.md` files still work for compatibility.
 
 When the agent encounters a task that matches a skill, it reads the skill file and follows its guidance. Skills referenced in `AGENTS.md` are discovered automatically.
 
@@ -177,7 +267,7 @@ When the agent encounters a task that matches a skill, it reads the skill file a
 
 There are two ways to add skills:
 
-1. **Via Workspace tab** — Create a new resource with a path like `skills/my-skill.md`. This works in both dev and production.
+1. **Via Workspace tab** — Create a new resource with a path like `skills/my-skill/SKILL.md`. This works in both dev and production.
 2. **Via code (dev only)** — Add a Markdown file to `.agents/skills/` in your project. These are available when the app runs in dev mode.
 
 ## Custom Agents {#custom-agents}
@@ -328,7 +418,7 @@ The agent uses these built-in actions. You can also call them from your own acti
 pnpm action resource-list --scope all
 
 # Read a resource
-pnpm action resource-read --path "skills/my-skill.md"
+pnpm action resource-read --path "skills/my-skill/SKILL.md"
 
 # Write a resource
 pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes..."

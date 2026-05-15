@@ -10,6 +10,8 @@ export interface MigrationRunSummary {
   id: string;
   name: string;
   sourceRoot: string;
+  inputKind: string;
+  inputDescription: string;
   outputRoot: string;
   target: string;
   phase: MigrationPhase;

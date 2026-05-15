@@ -486,6 +486,8 @@ export interface ProductionAgentOptions {
     | { name: string; config: Record<string, unknown> };
   /** Model to use. Defaults to the resolved engine's default model. */
   model?: string;
+  /** App/template id used for org-scoped per-app model defaults. */
+  appId?: string;
   /** Default reasoning effort for requests that do not supply an override. */
   reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
@@ -1934,10 +1936,12 @@ export function createProductionAgentHandler(
         engineOption: requestEngine ?? options.engine,
         apiKey: effectiveApiKey,
         model: configuredModel,
+        appId: options.appId,
       });
     } catch {
       engine = await resolveEngine({
         apiKey: effectiveApiKey,
+        appId: options.appId,
       });
     }
 
@@ -1949,7 +1953,7 @@ export function createProductionAgentHandler(
     const model =
       requestModel ??
       configuredModel ??
-      (await getStoredModelForEngine(engine)) ??
+      (await getStoredModelForEngine(engine, { appId: options.appId })) ??
       engine.defaultModel;
     const reasoningEffort = normalizeReasoningEffortForModel(
       model,

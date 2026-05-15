@@ -27,6 +27,12 @@ agent should know.
   notes, scripts, task plans, or intermediate outputs, but should promote them
   to normal workspace visibility only when the user explicitly asks to keep or
   manage the file.
+- Runtime-editable global resources can be managed from Dispatch Resources.
+  Use `AGENTS.md` or `instructions/<slug>.md` for always-on guardrails,
+  `skills/<slug>/SKILL.md` for workspace skills, `context/<slug>.md` for
+  personas/positioning/messaging/company facts/brand guidelines, and
+  `agents/<slug>.md` for custom agent profiles. Scope them to All apps when
+  every workspace app should inherit them.
 
 ## Adding Apps
 

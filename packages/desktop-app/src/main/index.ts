@@ -10,16 +10,29 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
+import { spawn } from "node:child_process";
 import path from "path";
 import { autoUpdater } from "electron-updater";
 import {
   IPC,
   type ActiveWebviewTarget,
+  type CodeAgentControlCommand,
+  type CodeAgentControlResult,
+  type CodeAgentMigrationRun,
+  type CodeAgentRunListResult,
+  type CodeAgentTerminalResult,
+  type DesktopOpenRequest,
   type InterAppMessage,
   type UpdateStatus,
 } from "@shared/ipc-channels";
 import { FRAME_PORT, getTemplateGatewayAppUrl } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
+import {
+  CODE_AGENT_GOALS,
+  getCodeAgentAppConfig,
+  getCodeAgentGoal,
+  MIGRATION_APP_ID,
+} from "@shared/code-agents";
 import * as AppStore from "./app-store";
 
 const IS_DEV = !app.isPackaged;
@@ -47,6 +60,7 @@ if (IS_DEV) {
 
 let pendingDeepLink: string | null = null;
 let mainWindow: BrowserWindow | null = null;
+const pendingOpenRequests: DesktopOpenRequest[] = [];
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 function isDeepLinkArg(arg: string): boolean {
@@ -117,13 +131,28 @@ function getCookieNameForApp(id: string | null | undefined): string {
   return slug ? `an_session_${slug}` : "an_session";
 }
 
-function getAppOrigin(appConfig: AppConfig): string | null {
+function resolveAppBaseUrl(appConfig: AppConfig): string | null {
   const isProdMode = appConfig.mode !== "dev";
-  const rawUrl = isProdMode
-    ? appConfig.url
-    : getTemplateGatewayAppUrl(appConfig.id) ||
+  if (isProdMode && appConfig.url) return appConfig.url;
+  if (!isProdMode) {
+    return (
+      getTemplateGatewayAppUrl(appConfig.id) ||
       appConfig.devUrl ||
-      `http://localhost:${appConfig.devPort}`;
+      (appConfig.devPort ? `http://localhost:${appConfig.devPort}` : null) ||
+      appConfig.url ||
+      null
+    );
+  }
+  return (
+    appConfig.url ||
+    appConfig.devUrl ||
+    (appConfig.devPort ? `http://localhost:${appConfig.devPort}` : null) ||
+    null
+  );
+}
+
+function getAppOrigin(appConfig: AppConfig): string | null {
+  const rawUrl = resolveAppBaseUrl(appConfig);
   if (!rawUrl) return null;
   try {
     return new URL(rawUrl).origin;
@@ -132,12 +161,25 @@ function getAppOrigin(appConfig: AppConfig): string | null {
   }
 }
 
+function withCodeAgentApps(apps: AppConfig[]): AppConfig[] {
+  let next = apps;
+  try {
+    for (const goal of CODE_AGENT_GOALS) {
+      if (next.some((appConfig) => appConfig.id === goal.appId)) continue;
+      next = [...next, getCodeAgentAppConfig(goal, next)];
+    }
+    return next;
+  } catch {
+    return apps;
+  }
+}
+
 function loadAppsForAuthContext(): AppConfig[] {
   try {
-    return AppStore.loadApps();
+    return withCodeAgentApps(AppStore.loadApps());
   } catch (err) {
     console.error("[main] failed to load apps for auth context:", err);
-    return [];
+    return withCodeAgentApps([]);
   }
 }
 
@@ -223,7 +265,15 @@ function consumeOAuthState(state: string | null): OAuthInjectionTarget | null {
   return pending;
 }
 
-function focusMainWindow() {
+function flushPendingOpenRequests(win = mainWindow) {
+  if (!win || win.isDestroyed() || win.webContents.isLoading()) return;
+  while (pendingOpenRequests.length > 0) {
+    const request = pendingOpenRequests.shift();
+    if (request) win.webContents.send(IPC.DEEP_LINK_OPEN, request);
+  }
+}
+
+function focusMainWindow(): BrowserWindow | null {
   const win =
     mainWindow && !mainWindow.isDestroyed()
       ? mainWindow
@@ -232,10 +282,20 @@ function focusMainWindow() {
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
-    return;
+    return win;
   }
 
-  if (app.isReady()) createWindow();
+  if (app.isReady()) return createWindow();
+  return null;
+}
+
+function sendOpenRequestToRenderer(request: DesktopOpenRequest) {
+  const win = focusMainWindow();
+  if (!win || win.isDestroyed() || win.webContents.isLoading()) {
+    pendingOpenRequests.push(request);
+    return;
+  }
+  win.webContents.send(IPC.DEEP_LINK_OPEN, request);
 }
 
 async function handleDeepLink(url: string) {
@@ -275,7 +335,25 @@ async function handleDeepLink(url: string) {
     }
 
     if (parsed.host === "open") {
-      focusMainWindow();
+      const targetApp = parsed.searchParams.get("app") ?? undefined;
+      const goalParam =
+        parsed.searchParams.get("goal") ??
+        parsed.searchParams.get("command") ??
+        undefined;
+      const goalId = goalParam?.replace(/^\//, "");
+      const runId = parsed.searchParams.get("run") ?? undefined;
+      const targetGoal =
+        getCodeAgentGoal(goalId) ??
+        (targetApp === MIGRATION_APP_ID ? getCodeAgentGoal("migrate") : null);
+      if (targetGoal) {
+        sendOpenRequestToRenderer({
+          app: targetApp ?? targetGoal.appId,
+          goalId: targetGoal.id,
+          runId,
+        });
+      } else {
+        focusMainWindow();
+      }
     }
   } catch {
     // Malformed URL — ignore
@@ -542,6 +620,7 @@ function createWindow(): BrowserWindow {
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
+  win.webContents.on("did-finish-load", () => flushPendingOpenRequests(win));
 
   // In dev, load from the Vite dev server; in prod, load built files
   if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
@@ -648,6 +727,304 @@ function resetActiveWebviewZoom() {
   target.setZoomLevel(0);
 }
 
+function buildAppEndpointUrl(appConfig: AppConfig, endpointPath: string) {
+  const baseUrl = resolveAppBaseUrl(appConfig);
+  if (!baseUrl) return null;
+  try {
+    const url = new URL(baseUrl);
+    const basePath = url.pathname.replace(/\/$/, "");
+    const endpoint = endpointPath.startsWith("/")
+      ? endpointPath
+      : `/${endpointPath}`;
+    url.pathname = `${basePath}${endpoint}`;
+    url.search = "";
+    url.hash = "";
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+async function getCookieHeaderForApp(
+  appConfig: AppConfig,
+  url: URL,
+): Promise<string> {
+  const sess = session.fromPartition(`persist:app-${appConfig.id}`);
+  const cookies = await sess.cookies.get({ url: url.toString() });
+  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+}
+
+function normalizeMigrationRun(raw: unknown): CodeAgentMigrationRun | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  const id = typeof row.id === "string" ? row.id : "";
+  if (!id) return null;
+  const phase = typeof row.phase === "string" ? row.phase : "discover";
+  const approved = Boolean(row.approved);
+  const taskCount = Number(row.taskCount ?? 0);
+  const passedTaskCount = Number(row.passedTaskCount ?? 0);
+  const failedTaskCount = Number(row.failedTaskCount ?? 0);
+  const createdAt =
+    typeof row.createdAt === "string"
+      ? row.createdAt
+      : new Date().toISOString();
+  const updatedAt =
+    typeof row.updatedAt === "string"
+      ? row.updatedAt
+      : new Date().toISOString();
+  const sourceRoot = typeof row.sourceRoot === "string" ? row.sourceRoot : "";
+  const outputRoot = typeof row.outputRoot === "string" ? row.outputRoot : "";
+  const target = typeof row.target === "string" ? row.target : "agent-native";
+  const progressPercent =
+    taskCount > 0 ? Math.round((passedTaskCount / taskCount) * 100) : 0;
+  return {
+    id,
+    goalId: "migrate",
+    title: typeof row.name === "string" && row.name ? row.name : id,
+    subtitle: sourceRoot || undefined,
+    status: mapMigrationPhaseToCodeAgentStatus(phase, approved),
+    needsApproval: phase === "approve" && !approved,
+    progress: {
+      label: "Task sweep",
+      completed: passedTaskCount,
+      total: taskCount,
+      failed: failedTaskCount,
+      percent: progressPercent,
+    },
+    details: [
+      { label: "Source", value: sourceRoot },
+      { label: "Output", value: outputRoot },
+      { label: "Target", value: target },
+    ].filter((detail) => detail.value.length > 0),
+    metadata: {
+      sourceRoot,
+      outputRoot,
+      target,
+      taskCount,
+      passedTaskCount,
+      failedTaskCount,
+    },
+    name: typeof row.name === "string" && row.name ? row.name : id,
+    sourceRoot,
+    outputRoot,
+    target,
+    phase,
+    approved,
+    taskCount,
+    passedTaskCount,
+    failedTaskCount,
+    createdAt,
+    updatedAt,
+  };
+}
+
+function mapMigrationPhaseToCodeAgentStatus(
+  phase: string,
+  approved: boolean,
+): CodeAgentMigrationRun["status"] {
+  if (phase === "complete") return "completed";
+  if (phase === "approve" && !approved) return "needs-approval";
+  if (phase === "verify" || phase === "sweep" || phase === "scaffold") {
+    return "running";
+  }
+  return "queued";
+}
+
+async function listMigrationRunsForCodeAgents(): Promise<
+  CodeAgentRunListResult<CodeAgentMigrationRun>
+> {
+  let appConfig: AppConfig;
+  const migrationGoal = getCodeAgentGoal("migrate") ?? CODE_AGENT_GOALS[0];
+  try {
+    appConfig = getCodeAgentAppConfig(migrationGoal, loadAppsForAuthContext());
+  } catch (err) {
+    return {
+      status: "unavailable",
+      runs: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  const endpoint = buildAppEndpointUrl(
+    appConfig,
+    `/_agent-native/actions/${migrationGoal.listRunsAction}`,
+  );
+  if (!endpoint) {
+    return {
+      status: "unavailable",
+      runs: [],
+      error: "Migration Workbench URL is not configured.",
+    };
+  }
+
+  try {
+    const cookie = await getCookieHeaderForApp(appConfig, endpoint);
+    const res = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        ...(cookie ? { Cookie: cookie } : {}),
+      },
+    });
+    if (res.status === 401 || res.status === 403) {
+      return {
+        status: "unauthorized",
+        runs: [],
+        workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
+      };
+    }
+    if (!res.ok) {
+      return {
+        status: "unavailable",
+        runs: [],
+        workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
+        error: `Migration Workbench returned ${res.status}.`,
+      };
+    }
+
+    const contentType = res.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      return {
+        status: "unauthorized",
+        runs: [],
+        workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
+        error: "Migration Workbench did not return JSON.",
+      };
+    }
+
+    const data = (await res.json()) as { runs?: unknown[] };
+    const runs = Array.isArray(data.runs)
+      ? data.runs
+          .map((run) => normalizeMigrationRun(run))
+          .filter((run): run is CodeAgentMigrationRun => run !== null)
+      : [];
+    return {
+      status: "ok",
+      runs,
+      workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
+    };
+  } catch (err) {
+    return {
+      status: "unavailable",
+      runs: [],
+      workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function spawnDetached(
+  command: string,
+  args: string[],
+  cwd: string,
+): CodeAgentTerminalResult {
+  try {
+    const child = spawn(command, args, {
+      cwd,
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    return { ok: true, cwd };
+  } catch (err) {
+    return {
+      ok: false,
+      cwd,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function openTerminalForCodeAgents(): CodeAgentTerminalResult {
+  const cwd = process.cwd();
+  if (process.platform === "darwin") {
+    return spawnDetached("open", ["-a", "Terminal", cwd], cwd);
+  }
+  if (process.platform === "win32") {
+    return spawnDetached(
+      "cmd.exe",
+      ["/c", "start", "", "cmd.exe", "/K", "cd", "/d", cwd],
+      cwd,
+    );
+  }
+  if (process.platform === "linux") {
+    return spawnDetached(
+      "x-terminal-emulator",
+      ["--working-directory", cwd],
+      cwd,
+    );
+  }
+  return {
+    ok: false,
+    cwd,
+    error: `Opening a terminal is not supported on ${process.platform}.`,
+  };
+}
+
+function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
+  const payload = input && typeof input === "object" ? input : {};
+  const record = payload as Record<string, unknown>;
+  const command = record.command as CodeAgentControlCommand | undefined;
+  const runId = typeof record.runId === "string" ? record.runId : "";
+  const goal = getCodeAgentGoal(
+    typeof record.goalId === "string" ? record.goalId : "migrate",
+  );
+
+  if (!goal) {
+    return {
+      ok: false,
+      command: command ?? "status",
+      action: "none",
+      message: "Unknown Code Agents goal.",
+      error: "Unknown Code Agents goal.",
+    };
+  }
+
+  if (!runId) {
+    return {
+      ok: false,
+      command: command ?? "status",
+      action: "none",
+      message: "Select a run first.",
+      error: "Missing run id.",
+    };
+  }
+
+  if (command === "resume") {
+    return {
+      ok: true,
+      command,
+      action: "open-ui",
+      message: `Opening ${goal.surfaceLabel} for this run.`,
+    };
+  }
+  if (command === "status") {
+    return {
+      ok: true,
+      command,
+      action: "refresh",
+      message: "Status refreshed.",
+    };
+  }
+  if (command === "stop") {
+    return {
+      ok: true,
+      command,
+      action: "none",
+      message:
+        "This goal is not daemonized by Desktop yet. Stop the terminal or dev-all process that owns the run.",
+    };
+  }
+
+  return {
+    ok: false,
+    command: "status",
+    action: "none",
+    message: "Unsupported Code Agents command.",
+    error: "Unsupported Code Agents command.",
+  };
+}
+
 ipcMain.handle(
   IPC.CLIPBOARD_WRITE_TEXT,
   (_event: IpcMainInvokeEvent, text: unknown): boolean => {
@@ -656,6 +1033,51 @@ ipcMain.handle(
     return true;
   },
 );
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_LIST_RUNS,
+  (
+    _event: IpcMainInvokeEvent,
+    goalId?: string,
+  ): Promise<CodeAgentRunListResult> => {
+    const goal = getCodeAgentGoal(goalId ?? "migrate");
+    if (!goal) {
+      return Promise.resolve({
+        status: "unavailable",
+        goalId,
+        runs: [],
+        error: `Unknown Code Agents goal: ${goalId}`,
+      });
+    }
+    if (goal.id === "migrate") {
+      return listMigrationRunsForCodeAgents().then((result) => ({
+        ...result,
+        goalId: goal.id,
+      }));
+    }
+    return Promise.resolve({
+      status: "unavailable",
+      goalId: goal.id,
+      runs: [],
+      error: `${goal.label} is not available in this build yet.`,
+    });
+  },
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_CONTROL_RUN,
+  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentControlResult =>
+    controlCodeAgentRun(input),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_LIST_MIGRATION_RUNS,
+  (): Promise<CodeAgentRunListResult> => listMigrationRunsForCodeAgents(),
+);
+
+ipcMain.handle(IPC.CODE_AGENTS_OPEN_TERMINAL, (): CodeAgentTerminalResult => {
+  return openTerminalForCodeAgents();
+});
 
 // ---------- Native context menus ----------
 // Electron does not provide Chromium's standard right-click menu by default,
@@ -1533,7 +1955,7 @@ app.whenReady().then(() => {
   // the first request fires. Each partition knows its own app id.
   let initialApps: AppConfig[] = [];
   try {
-    initialApps = AppStore.loadApps();
+    initialApps = loadAppsForAuthContext();
   } catch (err) {
     console.error("[main] failed to load apps for session setup:", err);
   }

@@ -18,9 +18,18 @@
     "provenance": true
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./source-nextjs": "./dist/source-nextjs.js",
-    "./target-agent-native": "./dist/target-agent-native.js"
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./source-nextjs": {
+      "types": "./src/source-nextjs.ts",
+      "default": "./dist/source-nextjs.js"
+    },
+    "./target-agent-native": {
+      "types": "./src/target-agent-native.ts",
+      "default": "./dist/target-agent-native.js"
+    }
   },
   "files": [
     "dist",

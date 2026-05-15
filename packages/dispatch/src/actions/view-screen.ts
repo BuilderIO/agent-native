@@ -27,6 +27,35 @@ import {
   searchAgentThreads,
 } from "../server/lib/thread-debug-store.js";
 
+async function runLocalDispatchAction(
+  name: string,
+  args: Record<string, unknown>,
+) {
+  const modulePath = `./${name}.js`;
+  const module = (await import(/* @vite-ignore */ modulePath)) as {
+    default?: {
+      run: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+    };
+  };
+  if (!module.default) throw new Error(`Dispatch action not found: ${name}`);
+  return module.default.run(stripUndefined(args));
+}
+
+function stripUndefined(args: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(args).filter(([, value]) => value !== undefined),
+  );
+}
+
+async function getDreamDetail(dreamId: unknown) {
+  try {
+    return await runLocalDispatchAction("get-dream", { dreamId });
+  } catch (error) {
+    if (!dreamId) throw error;
+    return runLocalDispatchAction("get-dream", { id: dreamId });
+  }
+}
+
 export default defineAction({
   description:
     "See what the user is currently looking at in the dispatch UI, including navigation state and a compact operational summary.",
@@ -133,6 +162,35 @@ export default defineAction({
         }
       } catch (error) {
         screen.threadDebugError =
+          error instanceof Error ? error.message : String(error);
+      }
+    }
+    if (navigation?.view === "dreams") {
+      try {
+        const nav = navigation as Record<string, any>;
+        const [sources, candidates, dreams] = await Promise.all([
+          listThreadDebugSources(),
+          runLocalDispatchAction("list-dream-candidates", {
+            sourceId: nav.sourceId,
+            ownerEmail: nav.ownerEmail,
+            sinceDays: nav.sinceDays,
+            limit: 10,
+          }),
+          runLocalDispatchAction("list-dreams", {
+            status: nav.status,
+            limit: 10,
+          }),
+        ]);
+        screen.dreamSources = sources;
+        screen.dreamCandidates = candidates;
+        screen.latestDreams = dreams;
+
+        const dreamId = nav.dreamId ?? nav.id;
+        if (dreamId) {
+          screen.dreamDetail = await getDreamDetail(dreamId);
+        }
+      } catch (error) {
+        screen.dreamsError =
           error instanceof Error ? error.message : String(error);
       }
     }

@@ -580,6 +580,13 @@ switch (command) {
     break;
   }
 
+  case "code": {
+    import("./code.js")
+      .then((m) => m.runCode(args))
+      .catch(handleScaffoldImportError);
+    break;
+  }
+
   case "create-workspace": {
     // Deprecated alias for `create` (since workspace is now the default).
     const parsed = parseScaffoldArgs(args);
@@ -658,6 +665,10 @@ Usage:
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
                                 for a single-app scaffold.
+  agent-native code /migrate    Run a coding-agent goal; migration is the first
+                                built-in slash goal.
+  agent-native migrate <source> Scaffold a local Migration Workbench, or use
+                                --emit to create a Code Agent/Desktop dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
@@ -674,6 +685,8 @@ Options:
                                 (mail,calendar,analytics,...) — or
                                 github:user/repo for community templates
   --standalone                  Scaffold a single standalone app (no workspace)
+  --emit [dir]                  With migrate, emit an own-agent dossier
+  --describe <text>             With migrate, describe URL/prose-only sources
   --preset <name>               Workspace deploy preset:
                                 cloudflare_pages (default), netlify, or vercel
   --build-only                  Build workspace deploy artifacts without publishing

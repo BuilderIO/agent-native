@@ -4,7 +4,7 @@ import { createWorkspaceResource } from "../server/lib/workspace-resources-store
 
 export default defineAction({
   description:
-    'Create a workspace-wide skill, instruction, agent profile, or knowledge pack. Set scope to "all" to push to every app, or "selected" to grant per-app.',
+    'Create a workspace-wide skill, instruction, agent profile, or reference resource. Set scope to "all" to push to every app, or "selected" to grant per-app.',
   schema: z.object({
     kind: z
       .enum(["skill", "instruction", "agent", "knowledge"])
@@ -14,7 +14,7 @@ export default defineAction({
     path: z
       .string()
       .describe(
-        'Resource path, e.g. "skills/designer.md", "agents/researcher.md", "context/gtm-messaging.md", or "remote-agents/researcher.json"',
+        'Resource path in target apps. Use "skills/<name>/SKILL.md" for skills, "AGENTS.md" or "instructions/<name>.md" for always-on guardrails, "context/<name>.md" for reference resources, and "agents/<name>.md" for custom agents.',
       ),
     content: z
       .string()

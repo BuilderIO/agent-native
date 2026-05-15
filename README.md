@@ -164,6 +164,17 @@ Want a single app, no monorepo? Use `--standalone`:
 npx @agent-native/core create my-app --standalone --template mail
 ```
 
+Migrating an existing app? Start a local Migration Workbench from any source path, URL, or description:
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate ./my-next-app --emit ../migration-dossier
+npx @agent-native/core@latest code resume --last
+```
+
+`agent-native migrate` still works as a direct shortcut; `code /migrate` is the generic Code Agents entrypoint for long-running coding goals.
+Use `--emit` when you want to hand a portable migration dossier to Codex, Claude Code, Cursor, or another coding agent instead of opening the Workbench first.
+
 ## Workspaces (Monorepo)
 
 A workspace is the default shape of an agent-native project. Every app sits under `apps/`, and `packages/shared/` is available for the small amount of code, instructions, skills, or branding that should truly apply to every app.

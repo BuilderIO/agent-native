@@ -26,8 +26,10 @@ If you're running an [multi-app workspace](/docs/multi-app-workspace) with many 
 - **Central inbox.** Slack DMs, Telegram messages, email notifications, A2A requests from other agents — all land in one place. The Dispatch agent triages and either handles them itself or delegates. See [Messaging](/docs/messaging) for how to wire Slack, email, and Telegram into your workspace.
 - **Orchestrator, not specialist.** Dispatch does _not_ try to be the email app or the analytics app. When someone asks "summarize last week's signups," Dispatch calls the analytics agent over A2A and returns the answer. When someone asks "draft a reply to Alice," Dispatch calls the mail agent.
 - **Secrets vault.** A central store for API keys, OAuth tokens, and shared credentials. Apps in the workspace resolve secrets from Dispatch instead of duplicating them in every `.env`. Requests + approvals for sensitive access.
+- **Workspace resources.** Global skills, guardrail instructions, custom agent profiles, and reference resources can be created once in Dispatch and shared to every app or granted to selected apps.
 - **Integrations catalog.** One page showing every third-party integration — Slack, Telegram, SendGrid, Apollo, etc. — with a "configured / not configured / pending approval" status per app.
 - **Scheduled jobs hub.** Cross-app [recurring jobs](/docs/recurring-jobs) live here: "every weekday at 7, pull yesterday's key metrics from analytics and draft a morning summary email."
+- **Dreams.** Dispatch can review recent agent runs, failures, feedback, and successful patterns to propose memory, skill, job, and instruction improvements before anything durable is applied.
 - **Approval flow.** Destructive or external actions (sending money, shipping an outbound email, posting to Slack at scale) can require an admin OK before they fire. Dispatch owns the queue.
 
 ## When to use it {#when-to-use}
@@ -48,6 +50,7 @@ Day-to-day, Dispatch is the place admins and ops folks open to keep the workspac
 - **Connect Slack, email, and Telegram** so people can message your agent from wherever they already work. See [Messaging](/docs/messaging) for the wiring steps.
 - **Save shared secrets once.** API keys, OAuth tokens, and service credentials live in the vault and the other apps in your workspace pull from there instead of every team member juggling their own `.env`.
 - **Set up recurring jobs.** "Every Monday at 7am, ask the analytics agent for last week's signups and email me a summary." See [Recurring Jobs](/docs/recurring-jobs).
+- **Review dream proposals.** Dispatch Dreams inspect prior agent runs and create source-backed proposals for what the workspace should remember, which stale notes should be cleaned up, and which repeated lessons should become skills or jobs.
 - **Approve outbound actions before they fire.** Sending money, mass-emailing customers, or posting to a public Slack channel can be gated behind an admin OK.
 - **See who has access to what.** Per-app grants, request queue, and an audit log of who used which secret when.
 - **Route messages to the right specialist.** A Slack DM about analytics goes to the analytics agent; one about email goes to the mail agent — Dispatch picks.
@@ -61,6 +64,21 @@ _How it works under the hood (for developers)._
 - **Vault schema.** Drizzle tables for secrets, grants, requests, approvals, and audit logs. See `server/db/schema.ts` in the template.
 - **Slack / Telegram plugins.** Server plugins that register webhooks and forward incoming messages to the orchestrator agent.
 - **MCP hub mode.** Dispatch can act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list.
+
+## Dreams {#dreams}
+
+Dreams are Dispatch's review loop for agent memory. A dream pass looks over existing agent runs, thread debug data, feedback, evals, and repeated tool failures, then writes a report with proposed changes. The proposals can target personal memory, shared workspace resources, skills, recurring jobs, or agent instructions, but shared and instruction-level changes stay reviewable rather than being applied silently.
+
+Dream proposals are checked against the personal memory index, existing `memory/*.md` files, and shared `LEARNINGS.md` before they are saved. Duplicate lessons are skipped in the report, while likely stale personal memories are updated in place instead of producing parallel notes.
+
+Use Dreams when you want to answer questions like "what did agents keep getting wrong this week?", "what should we remember?", or "which repeated lesson deserves a skill?" Inbound Slack, email, Telegram, WhatsApp, and web-derived evidence is treated as untrusted input, so proposals from those sources require review and provenance before they affect shared memory.
+
+In the Dispatch UI, open **Dreams** to run a manual pass, review candidate threads, inspect the report, and apply or reject each proposal. Agents use the same workflow through actions:
+
+- `list-dream-candidates` finds recent threads with grounded signals such as explicit user corrections, failed runs, tool errors, feedback, eval failures, and successful checkpointed workflows.
+- `create-dream-report` creates the report and pending proposals.
+- `get-dream`, `apply-dream-proposal`, and `reject-dream-proposal` handle review.
+- `ensure-dream-job` creates the safe recurring dream job once manual reports are useful.
 
 ## Scaffolding {#scaffolding}
 

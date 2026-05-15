@@ -49,6 +49,7 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
 }
 
 export default createAgentChatPlugin({
+  appId: "analytics",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   finalResponseGuard: realDataFinalGuard,
   resolveOrgId: async (event) => {

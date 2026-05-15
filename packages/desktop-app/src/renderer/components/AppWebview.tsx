@@ -33,6 +33,8 @@ interface AppWebviewProps {
   /** Full app config with URL overrides (optional for backward compat) */
   appConfig?: AppConfig;
   isActive: boolean;
+  /** Query parameters to merge into the resolved app URL. */
+  urlParams?: Record<string, string | null | undefined>;
   /** Increment to trigger a webview reload (Cmd+R) */
   refreshKey?: number;
   onAppsChanged?: (apps: AppConfig[]) => void;
@@ -79,12 +81,33 @@ function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
   return getAppUrl(app);
 }
 
+function withUrlParams(
+  rawUrl: string,
+  params?: Record<string, string | null | undefined>,
+): string {
+  if (!params) return rawUrl;
+  try {
+    const url = new URL(rawUrl);
+    for (const [key, value] of Object.entries(params)) {
+      if (value == null || value === "") {
+        url.searchParams.delete(key);
+      } else {
+        url.searchParams.set(key, value);
+      }
+    }
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
   (
     {
       app,
       appConfig,
       isActive,
+      urlParams,
       refreshKey = 0,
       onAppsChanged,
     }: AppWebviewProps,
@@ -95,7 +118,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isLoading, setIsLoading] = useState(true);
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const url = resolveUrl(app, appConfig);
+    const url = withUrlParams(resolveUrl(app, appConfig), urlParams);
     const isDevMode = appConfig?.mode === "dev";
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);

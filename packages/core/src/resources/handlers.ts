@@ -391,12 +391,17 @@ export async function handleCreateResource(event: any) {
     }
   }
 
-  const resource = await resourcePut(
-    owner,
-    body.path,
-    body.content ?? "",
-    body.mimeType,
-  );
+  const writeOptions =
+    body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+  const resource = writeOptions
+    ? await resourcePut(
+        owner,
+        body.path,
+        body.content ?? "",
+        body.mimeType,
+        writeOptions,
+      )
+    : await resourcePut(owner, body.path, body.content ?? "", body.mimeType);
 
   setResponseStatus(event, 201);
   return resource;
@@ -434,12 +439,22 @@ export async function handleUpdateResource(event: any) {
   }
 
   // Update content/mimeType by re-putting
-  const resource = await resourcePut(
-    existing.owner,
-    body.path ?? existing.path,
-    body.content ?? existing.content,
-    body.mimeType ?? existing.mimeType,
-  );
+  const writeOptions =
+    body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+  const resource = writeOptions
+    ? await resourcePut(
+        existing.owner,
+        body.path ?? existing.path,
+        body.content ?? existing.content,
+        body.mimeType ?? existing.mimeType,
+        writeOptions,
+      )
+    : await resourcePut(
+        existing.owner,
+        body.path ?? existing.path,
+        body.content ?? existing.content,
+        body.mimeType ?? existing.mimeType,
+      );
 
   return resource;
 }

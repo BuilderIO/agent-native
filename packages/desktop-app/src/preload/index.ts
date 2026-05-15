@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC,
   type ActiveWebviewTarget,
+  type CodeAgentControlCommand,
+  type CodeAgentControlResult,
+  type CodeAgentRunListResult,
+  type CodeAgentTerminalResult,
+  type DesktopOpenRequest,
   type InterAppMessage,
   type UpdateStatus,
 } from "@shared/ipc-channels";
@@ -97,6 +102,36 @@ const electronAPI = {
       ipcRenderer.on(IPC.UPDATE_STATUS_CHANGED, handler);
       return () =>
         ipcRenderer.removeListener(IPC.UPDATE_STATUS_CHANGED, handler);
+    },
+  },
+
+  /** Native Code Agents hub helpers */
+  codeAgents: {
+    listRuns: (goalId?: string): Promise<CodeAgentRunListResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_RUNS, goalId),
+    controlRun: (
+      goalId: string,
+      runId: string,
+      command: CodeAgentControlCommand,
+    ): Promise<CodeAgentControlResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_CONTROL_RUN, {
+        goalId,
+        runId,
+        command,
+      }),
+    listMigrationRuns: (): Promise<CodeAgentRunListResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MIGRATION_RUNS),
+    openTerminal: (): Promise<CodeAgentTerminalResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_TERMINAL),
+    onOpenRequest: (
+      cb: (request: DesktopOpenRequest) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        request: DesktopOpenRequest,
+      ) => cb(request);
+      ipcRenderer.on(IPC.DEEP_LINK_OPEN, handler);
+      return () => ipcRenderer.removeListener(IPC.DEEP_LINK_OPEN, handler);
     },
   },
 

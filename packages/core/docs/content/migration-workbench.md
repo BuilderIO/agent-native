@@ -1,37 +1,156 @@
 ---
 title: "Migration Workbench"
-description: "Use a local agent-native Workbench to migrate existing apps into agent-native with assessment, approval, generated output, and verification."
+description: "Migrate existing apps, URLs, or described products into agent-native with a local Workbench or an own-agent dossier."
 ---
 
 # Migration Workbench
 
-Migration Workbench is a local agent-native app for moving existing applications into the agent-native framework. It is designed for migrations where an agent can do useful work, but every important step should be auditable and verified.
+Start with the npx command:
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+```
+
+Migration Workbench is the first built-in **Code Agents** goal. It uses the same long-running harness as the desktop Code Agents hub and the CLI `code` command, so migration behaves like a slash command rather than a separate one-off tool. The input can be a local codebase, a URL, or a prose description. The first output is not blind generated code; it is an auditable migration surface with assessment, planning, approval, generated output, and verification.
 
 The product promise is: **let the agent run, but prove it**.
 
-V1 focuses on **Next.js to standalone agent-native**. Builder.io Publish and AEM exits are designed into the adapter interfaces, but are intended as follow-on enterprise adapters rather than the first shipped path.
-
-## How It Works
-
-Run:
+The direct `migrate` command remains a shortcut:
 
 ```bash
-agent-native migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app
 ```
 
-The command scaffolds the hidden `migration` template and writes a seed file with the source and output paths. The Workbench UI then guides the run:
+## Input Shapes
 
-1. **Discover** reads the source project and creates `01-assessment.md`.
+Use a local source path when you have code:
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+```
+
+Use a URL when the first artifact is a live site or product surface:
+
+```bash
+npx @agent-native/core@latest code /migrate https://example.com --describe "marketing site plus logged-in dashboard"
+```
+
+Use a description when the migration starts from requirements, screenshots, or a handoff brief:
+
+```bash
+npx @agent-native/core@latest code /migrate --describe "A Rails admin app with reports, approvals, and CSV imports" --emit
+```
+
+For local paths, the source is read-only. Generated output must live outside the source tree.
+
+## Workbench Flow
+
+The normal command scaffolds the hidden `migration` template and writes `data/migration-source.json` with source metadata. Then run the Workbench:
+
+```bash
+cd migration
+pnpm install
+pnpm dev
+```
+
+The Workbench URL is the local dev URL printed by Vite. In first-party dev setups it is usually:
+
+```text
+http://localhost:8101/
+```
+
+Inside the app, the flow is:
+
+1. **Discover** reads the source and creates `01-assessment.md`.
 2. **Plan** creates recipe tasks and writes `02-plan.md` plus `03-tasks.md`.
 3. **Approve** unlocks generated output writes.
 4. **Sweep** runs migration tasks against the generated output project.
 5. **Verify** runs deterministic checks and writes `04-report.md`.
 
-The source project is read-only. Generated output is written to a separate `outputRoot`.
+Useful CLI helpers:
+
+```bash
+npx @agent-native/core@latest code status --last
+npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code ui --last
+npx @agent-native/core@latest code stop --last
+```
+
+`stop` does not kill an unknown background process. It reminds you to stop the terminal or Desktop/dev-all process that owns the Workbench server.
+
+## Long-Running Goals
+
+The Workbench has a goal action named `run-migration-goal`. It advances a run in bounded iterations:
+
+- before approval, it can assess and plan but cannot write generated output
+- after approval, it scaffolds once, advances pending tasks, verifies, and records verifier results
+- if verification fails, the critic policy returns `retry-with-more-context`, `tune-recipe`, `manual-decision-needed`, `rollback-generated-output`, or `accept`
+
+That gives the flow Claude Code `/goal`-style semantics without making migration a one-shot rewrite. The app state and disk artifacts let you resume after restarts, long pauses, or manual decisions.
+
+## Credentials
+
+Migration reuses the same credentials system as agent-native. There is no migration-specific key store and no `MIGRATION_*` secret namespace.
+
+In the Workbench or Desktop, connect providers through the normal settings and onboarding surfaces. For headless CLI use, existing provider environment variables are detected, including `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, and other provider env vars supported by the framework. Secret values are never copied into migration artifacts.
+
+## Code Agents
+
+Agent-Native Desktop includes a **Code Agents** hub for long-running coding-agent sessions. Migration is the first built-in goal there, registered as `/migrate`: the hub can show runs, filter by active, approval, issues, or complete status, open the goal surface for a selected run, and handle links like:
+
+```text
+agentnative://open?goal=migrate&run=<runId>
+```
+
+The legacy app-style deep link still works:
+
+```text
+agentnative://open?app=migration&run=<runId>
+```
+
+The hub exposes the same generic run controls the CLI does: resume opens the goal surface, status refreshes the run list, and stop reports how to stop the owning terminal or `dev-all` process for goals that are not daemonized yet. Browser/Desktop approval remains the trust gate for generated output writes. Future coding goals can reuse the same CLI and desktop shell by registering another slash goal.
+
+## Emit Mode
+
+Use `--emit` when you want Codex, Claude Code, another code agent, or Agent-Native Desktop to do the next phase without first running the Workbench UI:
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --emit ../migration-dossier
+```
+
+The dossier is always written outside `sourceRoot`. It includes:
+
+- `AGENTS.md` with migration-specific instructions
+- `.agents/skills/migration*/SKILL.md` when migration skills are available from the template
+- `MIGRATION_PLAYBOOK.md`
+- `01-assessment.md`
+- `ir.json` when file-level inventory is available
+
+Hand the dossier to your preferred coding agent with a prompt like:
+
+```text
+Use this migration dossier. Follow AGENTS.md and MIGRATION_PLAYBOOK.md, keep the source read-only, write the agent-native output outside the source tree, and record verification evidence before calling the migration complete.
+```
+
+When `@agent-native/migrate` helpers are installed, `--emit` uses them for Next.js assessment and IR. If they are not available, the CLI falls back to a safe local inventory pass. URL-only and description-only dossiers still include the playbook and assessment, but they do not claim file-level IR until an agent inspects source.
+
+## Instruction Packs
+
+Migration is driven by instruction packs instead of one source-specific path.
+
+| Pack             | What it tells the agent to do                                       |
+| ---------------- | ------------------------------------------------------------------- |
+| Source intake    | Normalize path, URL, or prose input into an assessment              |
+| Agent-native map | Convert operations to actions, SQL, app state, sharing, and SSR     |
+| Output safety    | Keep generated code outside sourceRoot and require approval gates   |
+| Verification     | Use deterministic checks and record manual gaps                     |
+| Platform exits   | Add source-specific guidance for systems such as AEM or CMS exports |
+
+Builder.io, AEM, crawls, package exports, and CMS APIs are optional instruction-pack concerns, not top-level assumptions. Builder Publish can be a target for marketing, docs, landing, and content surfaces. Transactional SaaS state, dashboards, app-owned data, and workflows stay in agent-native SQL/actions.
 
 ## Agent-Native Mapping
 
-The V1 recipes are named after the framework contracts they enforce:
+The recipes are named after the framework contracts they enforce:
 
 | Source pattern              | Agent-native target                                               |
 | --------------------------- | ----------------------------------------------------------------- |
@@ -46,57 +165,18 @@ The V1 recipes are named after the framework contracts they enforce:
 
 This is the difference between porting React code and actually migrating to agent-native.
 
-## Adapter Model
-
-`@agent-native/migrate` exposes a reusable engine:
-
-- `SourceAdapter` detects and inventories existing projects.
-- `TargetAdapter` scaffolds and verifies output.
-- `MigrationRecipe` turns IR graph inventory into tasks.
-- `Verifier` returns structured migration evidence.
-
-The intermediate representation is split into four graphs:
-
-- `SiteGraph`: routes, redirects, public/private classification, metadata.
-- `ComponentGraph`: reusable UI components and design tokens.
-- `ContentGraph`: CMS models, static content, and assets.
-- `BehaviorGraph`: API endpoints, data stores, auth, jobs, client state, and LLM calls.
-
-## Builder.io And AEM
-
-Builder.io is a target decision, not a source assumption. Builder Publish should be used for marketing, docs, landing, and content surfaces. Transactional SaaS state, dashboards, app-owned data, and workflows stay in agent-native SQL/actions.
-
-AEM support should be implemented as a source adapter family:
-
-- `crawl`: URLs, sitemap, screenshots, SEO, redirects.
-- `api`: AEM GraphQL Content Fragments and DAM metadata.
-- `package`: Vault/JCR package parsing.
-- `code`: HTL components, dialogs, templates, and policies.
-- `enterprise`: combines available modes and emits confidence/gap reports.
-
-AEM output is two-pipeline: content extraction into Builder or SQL, plus frontend regeneration and component mapping into agent-native UI.
-
-## Verification
-
-The default verifier path is deterministic:
-
-- output file smoke checks
-- route inventory parity artifacts
-- agent-native conformance checks
-- future Playwright smoke tests
-- future visual, a11y, Lighthouse, SEO, and redirect checks
-
-AI browser tools can help generate or repair flows, but deterministic Playwright-style checks should remain the truth oracle.
-
 ## Package Exports
 
-Use the engine directly when building adapters or custom migration workflows:
+`@agent-native/migrate` exposes a reusable engine for adapters and custom workflows:
 
 ```ts
 import {
   createMigrationRun,
   discoverMigration,
   planMigration,
+  selectSourceAdapter,
+  createSkeletonProjectIR,
+  createBrowserVerifier,
   nextjsSourceAdapter,
   agentNativeTargetAdapter,
 } from "@agent-native/migrate";
@@ -108,3 +188,5 @@ Subpath exports are available for first-party V1 adapters:
 import { nextjsSourceAdapter } from "@agent-native/migrate/source-nextjs";
 import { agentNativeTargetAdapter } from "@agent-native/migrate/target-agent-native";
 ```
+
+The intermediate representation is split into four graphs: site, components, content, and behavior. Verification starts with deterministic checks and can grow to Playwright, visual, accessibility, Lighthouse, SEO, and redirect checks.

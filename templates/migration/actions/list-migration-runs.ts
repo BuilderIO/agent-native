@@ -48,6 +48,8 @@ export default defineAction({
         id: run.id,
         name: run.name,
         sourceRoot: run.sourceRoot,
+        inputKind: run.inputKind,
+        inputDescription: run.inputDescription,
         outputRoot: run.outputRoot,
         target: run.target,
         phase: run.phase,

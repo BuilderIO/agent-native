@@ -12,7 +12,10 @@ import {
   getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { createAnthropicEngine } from "../agent/engine/index.js";
+import {
+  getStoredModelForEngine,
+  resolveEngine,
+} from "../agent/engine/index.js";
 import type { AgentEngine } from "../agent/engine/types.js";
 import { createThread } from "../chat-threads/store.js";
 import type { AgentChatEvent } from "../agent/types.js";
@@ -122,10 +125,12 @@ export function buildJobContent(meta: JobFrontmatter, body: string): string {
 export interface SchedulerDeps {
   getActions: () => Record<string, ActionEntry>;
   getSystemPrompt: (owner: string) => Promise<string>;
-  /** Optional engine override. Defaults to AnthropicEngine using apiKey or ANTHROPIC_API_KEY. */
+  /** Optional engine override. Defaults to the resolved request engine. */
   engine?: AgentEngine;
   apiKey?: string;
-  model: string;
+  model?: string;
+  /** App/template id used for org-scoped per-app model defaults. */
+  appId?: string;
 }
 
 let _isRunning = false;
@@ -377,7 +382,14 @@ async function executeJob(
         const userApiKey = await getOwnerActiveApiKey(jobUserEmail);
         const engine =
           deps.engine ??
-          createAnthropicEngine({ apiKey: userApiKey ?? deps.apiKey });
+          (await resolveEngine({
+            apiKey: userApiKey ?? deps.apiKey,
+            appId: deps.appId,
+          }));
+        const model =
+          deps.model ??
+          (await getStoredModelForEngine(engine, { appId: deps.appId })) ??
+          engine.defaultModel;
 
         // Create a chat thread for this run
         const threadTitle = `Job: ${jobName} — ${now.toLocaleDateString()}`;
@@ -403,7 +415,7 @@ async function executeJob(
         try {
           await runAgentLoop({
             engine,
-            model: deps.model,
+            model,
             systemPrompt,
             tools,
             messages,

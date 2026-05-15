@@ -1,6 +1,6 @@
 # {{APP_NAME}} — Agent Guide
 
-This is the Migration Workbench. It migrates existing apps to agent-native through a resumable flow: discover, plan, approve, sweep, verify, report. The source project must be read-only. Generated output goes to the run's `outputRoot`, usually a sibling folder such as `../migrated-app`.
+This is the Migration Workbench. It migrates existing apps to agent-native through a resumable flow: discover, plan, approve, sweep, verify, report. A migration source can be a local path, a URL, or a human description; adapters turn that source evidence into an inventory before any output work begins. The source project must be read-only. Generated output goes to the run's `outputRoot`, usually a sibling folder such as `../migrated-app`.
 
 ## Core Rules
 
@@ -12,38 +12,51 @@ This is the Migration Workbench. It migrates existing apps to agent-native throu
 
 ## Application State
 
-| State Key    | Purpose                                                |
-| ------------ | ------------------------------------------------------ |
-| `navigation` | Current Workbench view and selected run context        |
-| `navigate`   | One-shot command for the UI to open the Workbench view |
+| State Key    | Purpose                                                     |
+| ------------ | ----------------------------------------------------------- |
+| `navigation` | Current Workbench view, path, `?run=<id>`, and goal context |
+| `navigate`   | One-shot command for the UI to open the Workbench view      |
 
-The current screen state is auto-injected into chat. Use `view-screen` when you need a richer snapshot of the selected run and task list.
+The current screen state is auto-injected into chat. Use `view-screen` when you need a richer snapshot of the selected run, goal state, task list, and verifier results. Use `navigate --runId <id>` to open `/?run=<id>` in the Workbench UI.
+
+## Source Model
+
+Treat source input abstractly:
+
+- **Path** — a local immutable source such as a Next.js app root. V1 can introspect local Next.js paths directly.
+- **URL** — a live site, sitemap, AEM endpoint, or crawl seed. Capture URL evidence and adapter mode before planning.
+- **Description** — a human-entered brief for enterprise migrations where code, CMS, or credentials are incomplete. Convert it into explicit assumptions and manual mapping tasks.
+
+Do not pretend a URL or description has the same confidence as a local source path. Record gaps in the plan and verifier report.
 
 ## Migration Flow
 
-1. `create-migration-run` records source/output paths. It does not write output.
-2. `assess-migration` reads the Next.js source and writes `01-assessment.md`.
+1. `create-migration-run` records path, URL, or description input plus output path. It does not write output.
+2. `assess-migration` uses the first matching source adapter, or agent-introspection fallback, and writes `01-assessment.md`.
 3. `generate-migration-plan` creates recipes/tasks and writes `02-plan.md` and `03-tasks.md`.
 4. `approve-migration-plan` unlocks generated output writes.
 5. `run-migration-task` performs the V1 sweep/scaffold step and marks task status.
 6. `verify-migration` runs deterministic verifiers and writes `04-report.md`.
 
+Prefer `run-migration-goal` for goal-driven operation. It is idempotent and bounded: it safely performs missing assessment/planning, stops for approval before generated output writes, scaffolds once after approval, advances at most `maxTasks` pending tasks, verifies, persists verifier results/report paths, returns `criticDecision`, and tells you the next action.
+
 ## Actions
 
-| Action                    | Args                                         | Purpose                                   |
-| ------------------------- | -------------------------------------------- | ----------------------------------------- |
-| `list-migration-runs`     |                                              | List runs and task counts                 |
-| `get-migration-run`       | `--id <runId>`                               | Get run details, tasks, verifiers         |
-| `create-migration-run`    | `--sourceRoot <path> [--outputRoot <path>]`  | Create a run                              |
-| `assess-migration`        | `--id <runId>`                               | Build IR and assessment artifacts         |
-| `generate-migration-plan` | `--id <runId>`                               | Build plan and task artifacts             |
-| `approve-migration-plan`  | `--id <runId>`                               | Approve generated output writes           |
-| `run-migration-task`      | `--id <runId> [--taskId <taskId>]`           | Run the next migration task               |
-| `verify-migration`        | `--id <runId>`                               | Run deterministic verification            |
-| `read-migration-artifact` | `--id <runId> --file <artifact.md>`          | Read assessment, plan, tasks, report      |
-| `get-migration-seed`      |                                              | Read CLI seed from `agent-native migrate` |
-| `view-screen`             |                                              | See current UI/run context                |
-| `navigate`                | `--view <name>`, `--runId <id>`, or `--path` | Navigate the UI                           |
+| Action                    | Args                                                           | Purpose                                   |
+| ------------------------- | -------------------------------------------------------------- | ----------------------------------------- |
+| `list-migration-runs`     |                                                                | List runs and task counts                 |
+| `get-migration-run`       | `--id <runId>`                                                 | Get run details, tasks, verifiers         |
+| `create-migration-run`    | `--sourceRoot <path-url-or-description> [--outputRoot <path>]` | Create a run                              |
+| `assess-migration`        | `--id <runId>`                                                 | Build IR and assessment artifacts         |
+| `generate-migration-plan` | `--id <runId>`                                                 | Build plan and task artifacts             |
+| `approve-migration-plan`  | `--id <runId>`                                                 | Approve generated output writes           |
+| `run-migration-task`      | `--id <runId> [--taskId <taskId>]`                             | Run the next migration task               |
+| `run-migration-goal`      | `--id <runId> [--maxTasks 1] [--verify true]`                  | Safely advance the migration goal         |
+| `verify-migration`        | `--id <runId>`                                                 | Run deterministic verification            |
+| `read-migration-artifact` | `--id <runId> --file <artifact.md>`                            | Read assessment, plan, tasks, report      |
+| `get-migration-seed`      |                                                                | Read CLI seed from `agent-native migrate` |
+| `view-screen`             |                                                                | See current UI/run context                |
+| `navigate`                | `--view <name>`, `--runId <id>`, or `--path`                   | Navigate the UI                           |
 
 ## Agent-Native Mapping Rules
 
@@ -62,12 +75,16 @@ Recipe names mirror the migration contract:
 
 Read these before changing the Workbench itself:
 
-| Skill               | When to read                                               |
-| ------------------- | ---------------------------------------------------------- |
-| `adding-a-feature`  | Any Workbench feature must keep UI/action/app-state parity |
-| `actions`           | Before adding or changing Workbench actions                |
-| `storing-data`      | Before changing migration SQL tables                       |
-| `context-awareness` | Before changing navigation or `view-screen`                |
-| `security`          | Before changing path handling, source reads, or access     |
-| `frontend-design`   | Before changing the dashboard UI                           |
-| `shadcn-ui`         | Before adding UI primitives                                |
+| Skill                      | When to read                                                |
+| -------------------------- | ----------------------------------------------------------- |
+| `migration`                | Before creating, advancing, verifying, or reporting a run   |
+| `migration-source-nextjs`  | Before assessing or planning a local Next.js source         |
+| `migration-source-aem`     | Before modeling AEM crawl/API/package/code/enterprise input |
+| `migration-target-builder` | Before planning Builder-managed routes or content           |
+| `adding-a-feature`         | Any Workbench feature must keep UI/action/app-state parity  |
+| `actions`                  | Before adding or changing Workbench actions                 |
+| `storing-data`             | Before changing migration SQL tables                        |
+| `context-awareness`        | Before changing navigation or `view-screen`                 |
+| `security`                 | Before changing path handling, source reads, or access      |
+| `frontend-design`          | Before changing the dashboard UI                            |
+| `shadcn-ui`                | Before adding UI primitives                                 |

@@ -115,6 +115,7 @@ function buildNewWorkspaceAppPrompt(input: {
     `If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.`,
     grantRequest,
     `Requested Dispatch workspace resources for this app:\n${resourceList}`,
+    `Dispatch workspace resources with scope=all are global. After the app exists, sync workspace resources to appId "${input.appId}" so global skills, guardrail instructions, and reference resources reach the new app even when no per-app resources were selected.`,
     ``,
     `Pick a starter template that fits the user's prompt — analytics, calendar, content, design, dispatch, forms, mail, slides, clips, or starter when none of the others fit.`,
     `Use the workspace app layout: create it under apps/${input.appId}, mount it at /${input.appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
@@ -131,8 +132,8 @@ function buildNewWorkspaceAppPrompt(input: {
         ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
         : `Do not grant any Dispatch vault keys unless the user asks later.`,
     input.selectedResources.length
-      ? `After the app exists, grant the selected Dispatch workspace resources to appId "${input.appId}" and sync them once the app server is available. Add a short note to apps/${input.appId}/AGENTS.md telling the app agent to read relevant shared resources under context/ or the selected resource paths before doing GTM/domain work.`
-      : `Do not grant any Dispatch workspace resources unless the user asks later.`,
+      ? `After the app exists, grant the selected Dispatch workspace resources to appId "${input.appId}", then sync workspace resources once the app server is available.`
+      : `Do not grant any selected-only Dispatch workspace resources unless the user asks later.`,
     ``,
     `App readiness requirements before handing off:`,
     `- Ensure apps/${input.appId}/package.json exists with displayName/name and a concise description so Dispatch and the workspace gateway discover it from the filesystem. There is no separate workspace app registry to edit.`,

@@ -18,6 +18,8 @@ const CODE_EXTENSIONS = ["ts", "tsx", "js", "jsx"];
 export const nextjsSourceAdapter: SourceAdapter = {
   id: "nextjs",
   label: "Next.js",
+  kind: "deterministic",
+  inputKinds: ["path"],
   detect: detectNextJsSource,
   introspect: extractNextJsProject,
 };
@@ -86,7 +88,7 @@ async function extractSiteGraph(sourceRoot: string): Promise<SiteGraph> {
 }
 
 function routeFromFile(filePath: string): SiteRoute | null {
-  const normalized = filePath.replaceAll(path.sep, "/");
+  const normalized = filePath.split(path.sep).join("/");
   const router = normalized.startsWith("app/") ? "next-app" : "next-pages";
   const isAppRoute = router === "next-app";
   const isApi =

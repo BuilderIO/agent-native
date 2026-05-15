@@ -35,7 +35,12 @@ import {
   processA2AContinuationById,
   processDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
-import { resourceGetByPath, SHARED_OWNER } from "../resources/store.js";
+import {
+  resourceGet,
+  resourceGetByPath,
+  resourceList,
+  SHARED_OWNER,
+} from "../resources/store.js";
 import { getTaskQueueStats } from "./task-queue-stats.js";
 import { getSession } from "../server/auth.js";
 import { getOrgContext } from "../org/context.js";
@@ -146,6 +151,44 @@ async function loadResourcesForPrompt(owner: string): Promise<string> {
       } catch {}
     }
   }
+
+  try {
+    const instructions = (await resourceList(SHARED_OWNER, "instructions/"))
+      .filter((resource) => resource.path.endsWith(".md"))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    for (const resource of instructions) {
+      const full = await resourceGet(resource.id).catch(() => null);
+      if (full?.content?.trim()) {
+        sections.push(
+          `<resource name="${resource.path}" scope="shared-instruction">\n${full.content.trim()}\n</resource>`,
+        );
+      }
+    }
+  } catch {}
+
+  try {
+    const resources = (await resourceList(SHARED_OWNER))
+      .filter((resource) => {
+        if (resource.path === "AGENTS.md" || resource.path === "LEARNINGS.md") {
+          return false;
+        }
+        return ![
+          "instructions/",
+          "skills/",
+          "agents/",
+          "remote-agents/",
+          "jobs/",
+          "memory/",
+        ].some((prefix) => resource.path.startsWith(prefix));
+      })
+      .sort((a, b) => a.path.localeCompare(b.path))
+      .slice(0, 40);
+    if (resources.length > 0) {
+      sections.push(
+        `<workspace-resources>\nShared workspace reference resources are available. Use resource-read --path <path> --scope shared when a task may depend on company, brand, positioning, persona, product, or domain context.\n\n${resources.map((resource) => `- \`${resource.path}\``).join("\n")}\n</workspace-resources>`,
+      );
+    }
+  } catch {}
 
   if (sections.length === 0) return "";
   return (
@@ -618,6 +661,7 @@ export function createIntegrationsPlugin(
             model,
             apiKey: getApiKey(),
             engine: options?.engine,
+            appId: options?.appId,
             ownerEmail: owner,
             beforeProcess: options?.beforeProcess,
             incoming,

@@ -183,6 +183,14 @@ You can create skill files to give the agent specialized knowledge for specific 
 
 The agent will read the relevant skill file when performing that type of task.
 
+## Global instructions
+
+Put always-on guardrails in this shared \`AGENTS.md\`. For separate policy files that should also apply every turn, create shared resources under \`instructions/<name>.md\`. These are loaded automatically with this file.
+
+## Shared reference resources
+
+Put company, brand, positioning, persona, product, or messaging context in shared resources under paths like \`context/core-positioning.md\` or \`context/brand-guidelines.md\`. The agent sees an index of shared reference resources and reads the relevant files when a task may depend on them.
+
 ## Workspace files
 
 Workspace resources are for files users intentionally add, edit, or manage. Agents may create hidden \`agent_scratch\` resources for temporary working notes, scripts, or intermediate results; only promote those files into workspace visibility when a user explicitly asks to keep them.

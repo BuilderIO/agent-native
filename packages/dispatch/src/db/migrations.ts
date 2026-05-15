@@ -162,4 +162,57 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
       );
     `,
   },
+  {
+    version: 3,
+    sql: `
+      CREATE TABLE IF NOT EXISTS dispatch_dreams (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        source_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        query TEXT,
+        report TEXT,
+        summary TEXT,
+        candidate_count INTEGER NOT NULL,
+        inspected_thread_count INTEGER NOT NULL,
+        created_by TEXT NOT NULL,
+        error TEXT,
+        started_at INTEGER NOT NULL,
+        completed_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS dispatch_dream_proposals (
+        id TEXT PRIMARY KEY,
+        dream_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        target_type TEXT NOT NULL,
+        target_path TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        rationale TEXT NOT NULL,
+        content TEXT NOT NULL,
+        evidence TEXT NOT NULL,
+        confidence INTEGER NOT NULL,
+        risk TEXT NOT NULL,
+        status TEXT NOT NULL,
+        applied_by TEXT,
+        applied_at INTEGER,
+        rejected_by TEXT,
+        rejected_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS dispatch_dreams_owner_updated_idx
+        ON dispatch_dreams (owner_email, org_id, updated_at);
+
+      CREATE INDEX IF NOT EXISTS dispatch_dream_proposals_dream_status_idx
+        ON dispatch_dream_proposals (dream_id, status);
+    `,
+  },
 ];
