@@ -1149,17 +1149,21 @@ function isActiveDesktopCodeAgentRun(
   const phase = getRecordString(record, "phase");
   return Boolean(
     status === "queued" ||
-      status === "running" ||
-      status === "needs-approval" ||
-      phase === "queued" ||
-      phase === "executing" ||
-      phase === "approval-required",
+    status === "running" ||
+    status === "needs-approval" ||
+    phase === "queued" ||
+    phase === "executing" ||
+    phase === "approval-required",
   );
 }
 
-function readDesktopPendingFollowUps(value: unknown): Record<string, unknown>[] {
+function readDesktopPendingFollowUps(
+  value: unknown,
+): Record<string, unknown>[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is Record<string, unknown> => isObject(item));
+  return value.filter((item): item is Record<string, unknown> =>
+    isObject(item),
+  );
 }
 
 function countQueuedCodeAgentRuns(goalId: string): number {
@@ -1989,7 +1993,8 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
       ? runRecord.metadata
       : {};
     const runIsActive =
-      activeCodeAgentProcesses.has(runId) || isActiveDesktopCodeAgentRun(runRecord);
+      activeCodeAgentProcesses.has(runId) ||
+      isActiveDesktopCodeAgentRun(runRecord);
     const cwd =
       getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
     const steering = buildCodeAgentSteeringMetadata({
@@ -2470,7 +2475,9 @@ function listCodeAgentProjectPacks(): CodeAgentCodePackResult {
       : [];
     const skills = fs.existsSync(skillsRoot)
       ? walkMarkdownFiles(skillsRoot)
-          .filter((filePath) => path.basename(filePath).toLowerCase() === "skill.md")
+          .filter(
+            (filePath) => path.basename(filePath).toLowerCase() === "skill.md",
+          )
           .map((filePath) => {
             const raw = fs.readFileSync(filePath, "utf-8");
             const parsed = parseSimpleFrontmatter(raw);
@@ -2542,8 +2549,9 @@ function parseSimpleFrontmatter(raw: string): {
         index += 1;
         block.push(lines[index].trim());
       }
-      data[key] =
-        value.startsWith("|") ? block.join("\n").trim() : block.join(" ").trim();
+      data[key] = value.startsWith("|")
+        ? block.join("\n").trim()
+        : block.join(" ").trim();
       continue;
     }
     data[key] = value.replace(/^["']|["']$/g, "").trim();
