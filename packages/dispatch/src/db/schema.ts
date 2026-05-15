@@ -83,6 +83,7 @@ export const dispatchDreams = table("dispatch_dreams", {
   query: text("query"),
   report: text("report"),
   summary: text("summary"),
+  sourceHealth: text("source_health"),
   candidateCount: integer("candidate_count").notNull(),
   inspectedThreadCount: integer("inspected_thread_count").notNull(),
   createdBy: text("created_by").notNull(),

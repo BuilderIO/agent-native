@@ -142,6 +142,162 @@ function isAutoLoadedInstruction(resource: any): boolean {
   );
 }
 
+function formatTimestamp(value?: number | null): string {
+  if (!value) return "Not present";
+  return new Date(value).toLocaleString();
+}
+
+function availabilityLabel(value?: string): string {
+  switch (value) {
+    case "all-apps":
+      return "Inherited by all apps";
+    case "selected-granted":
+      return "Granted to selected app";
+    case "selected-not-granted":
+      return "Not granted to this app";
+    case "selected-no-app":
+      return "Select an app to check grant";
+    case "path-not-managed":
+      return "Path is not a Dispatch resource";
+    default:
+      return "Checking availability";
+  }
+}
+
+function layerState(layer: any): {
+  label: string;
+  className: string;
+} {
+  if (layer.effective) {
+    return {
+      label: "Active",
+      className: "border-green-500/30 bg-green-500/10 text-green-700",
+    };
+  }
+  if (layer.overridden) {
+    return {
+      label: "Overridden",
+      className: "border-amber-500/30 bg-amber-500/10 text-amber-700",
+    };
+  }
+  return {
+    label: "Missing",
+    className: "text-muted-foreground",
+  };
+}
+
+function isApprovalRequest(result: any): boolean {
+  return (
+    result?.status === "pending" &&
+    typeof result?.changeType === "string" &&
+    result.changeType.startsWith("workspace-resource.")
+  );
+}
+
+function workspaceResourceMutationMessage(
+  result: any,
+  fallback: string,
+): string {
+  return isApprovalRequest(result) ? "Approval requested" : fallback;
+}
+
+function ImpactPreview({
+  operation,
+  resourceId,
+  path,
+  scope,
+  enabled = true,
+}: {
+  operation: "create" | "update" | "delete";
+  resourceId?: string;
+  path?: string;
+  scope?: "all" | "selected";
+  enabled?: boolean;
+}) {
+  const { data: impact, isLoading } = useActionQuery(
+    "preview-workspace-resource-change",
+    {
+      operation,
+      resourceId,
+      path,
+      scope,
+    },
+    { enabled: enabled && Boolean(resourceId || path) },
+  );
+
+  if (!enabled || (!resourceId && !path)) return null;
+
+  if (isLoading) {
+    return (
+      <div className="rounded-lg border bg-muted/30 p-3">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="mt-2 h-3 w-72" />
+      </div>
+    );
+  }
+
+  const data = impact as any;
+  if (!data) return null;
+  const affectsAllApps = data.affectsAllApps === true;
+  const appCount = data.affectedApps?.count;
+  const overrides = data.overrides ?? { count: 0, items: [] };
+  const willRequestApproval = data.approval?.willRequestApproval === true;
+
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={affectsAllApps ? "secondary" : "outline"}>
+          {affectsAllApps ? "All apps impact" : "Selected only"}
+        </Badge>
+        {willRequestApproval ? (
+          <Badge
+            variant="outline"
+            className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          >
+            Approval required
+          </Badge>
+        ) : null}
+        {overrides.count > 0 ? (
+          <Badge variant="outline">
+            {overrides.count} override{overrides.count === 1 ? "" : "s"}
+          </Badge>
+        ) : null}
+      </div>
+      <p className="mt-2 leading-relaxed text-muted-foreground">
+        {affectsAllApps
+          ? `This change applies to every workspace app${typeof appCount === "number" ? ` (${appCount} discovered)` : ""}.`
+          : "This change only applies to explicitly granted apps."}{" "}
+        {willRequestApproval
+          ? "It will be queued for approval before it takes effect."
+          : "It will take effect immediately when saved."}
+      </p>
+      {overrides.count > 0 ? (
+        <div className="mt-2 space-y-1">
+          {overrides.items.slice(0, 4).map((override: any) => (
+            <div
+              key={`${override.scope}:${override.owner}`}
+              className="flex items-center justify-between gap-3 rounded-md border bg-background px-2 py-1.5"
+            >
+              <span className="min-w-0 truncate text-muted-foreground">
+                {override.label}
+              </span>
+              <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                {formatTimestamp(override.updatedAt)}
+              </span>
+            </div>
+          ))}
+          {overrides.count > 4 ? (
+            <div className="text-muted-foreground">
+              +{overrides.count - 4} more override
+              {overrides.count - 4 === 1 ? "" : "s"}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function EditResourceDialog({
   resource,
   trigger,
@@ -164,8 +320,10 @@ function EditResourceDialog({
   }, [open, resource]);
 
   const update = useActionMutation("update-workspace-resource", {
-    onSuccess: () => {
-      toast.success("Resource updated");
+    onSuccess: (result: any) => {
+      toast.success(
+        workspaceResourceMutationMessage(result, "Resource updated"),
+      );
       setOpen(false);
     },
     onError: (err) => toast.error(String(err)),
@@ -232,6 +390,12 @@ function EditResourceDialog({
               className="font-mono text-sm"
             />
           </div>
+          <ImpactPreview
+            operation="update"
+            resourceId={resource.id}
+            scope={scope as "all" | "selected"}
+            enabled={open}
+          />
         </div>
         <DialogFooter>
           <Button
@@ -264,8 +428,10 @@ function AddResourceDialog() {
   const [scope, setScope] = useState<string>("all");
 
   const create = useActionMutation("create-workspace-resource", {
-    onSuccess: () => {
-      toast.success("Resource created");
+    onSuccess: (result: any) => {
+      toast.success(
+        workspaceResourceMutationMessage(result, "Resource created"),
+      );
       setOpen(false);
       setKind("skill");
       setName("");
@@ -378,6 +544,12 @@ function AddResourceDialog() {
               className="font-mono text-sm"
             />
           </div>
+          <ImpactPreview
+            operation="create"
+            path={path || defaultResourcePath(kind, name)}
+            scope={scope as "all" | "selected"}
+            enabled={open && Boolean(name.trim())}
+          />
         </div>
         <DialogFooter>
           <Button
@@ -468,11 +640,146 @@ function GrantDialog({
   );
 }
 
+function EffectiveContextPreview({ resource }: { resource: any }) {
+  const [appId, setAppId] = useState("__any__");
+  const [userEmail, setUserEmail] = useState("");
+  const selectedAppId = appId === "__any__" ? undefined : appId;
+  const normalizedUserEmail = userEmail.trim() || undefined;
+  const { data: apps } = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+  });
+  const { data: context, isLoading } = useActionQuery(
+    "get-workspace-resource-effective-context",
+    {
+      resourceId: resource.id,
+      appId: selectedAppId,
+      userEmail: normalizedUserEmail,
+    },
+  );
+
+  const visibleApps = ((apps || []) as any[]).filter(
+    (app) => !app.isDispatch && app.status !== "pending",
+  );
+  const layers = ((context as any)?.layers || []) as any[];
+  const active = (context as any)?.effectiveResource;
+  const availability = (context as any)?.availability;
+
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h4 className="text-xs font-semibold uppercase text-muted-foreground">
+            Effective in app
+          </h4>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Preview the runtime stack for this path: workspace default,
+            organization/app override, then personal override.
+          </p>
+        </div>
+        <Badge variant="outline">{availabilityLabel(availability)}</Badge>
+      </div>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor={`resource-app-${resource.id}`}>App</Label>
+          <Select value={appId} onValueChange={setAppId}>
+            <SelectTrigger id={`resource-app-${resource.id}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__any__">Any app</SelectItem>
+              {visibleApps.map((app) => (
+                <SelectItem key={app.id} value={app.id}>
+                  {app.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`resource-user-${resource.id}`}>User email</Label>
+          <Input
+            id={`resource-user-${resource.id}`}
+            value={userEmail}
+            onChange={(event) => setUserEmail(event.target.value)}
+            placeholder="Current Dispatch user"
+          />
+        </div>
+      </div>
+
+      {resource.scope === "selected" ? (
+        <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:text-amber-200">
+          Selected resources are app-specific exceptions. Use All apps for
+          company-wide context that should be inherited everywhere without copy
+          or sync.
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Skeleton key={index} className="h-28 rounded-lg" />
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {layers.map((layer) => {
+            const state = layerState(layer);
+            return (
+              <div key={layer.scope} className="rounded-lg border p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-sm font-medium text-foreground">
+                    {layer.label}
+                  </span>
+                  <Badge variant="outline" className={state.className}>
+                    {state.label}
+                  </Badge>
+                </div>
+                <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground">
+                  {layer.owner}
+                </div>
+                {layer.resource ? (
+                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    <div className="truncate font-mono">
+                      {layer.resource.path}
+                    </div>
+                    <div>{formatTimestamp(layer.resource.updatedAt)}</div>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    No resource exists at this layer.
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="mt-3 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        {active ? (
+          <>
+            Active file:{" "}
+            <span className="font-mono text-foreground">
+              {active.owner}/{active.path}
+            </span>
+          </>
+        ) : (
+          "No active resource exists for this path yet."
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
   const [expanded, setExpanded] = useState(false);
 
   const deleteResource = useActionMutation("delete-workspace-resource", {
-    onSuccess: () => toast.success("Resource deleted"),
+    onSuccess: (result: any) =>
+      toast.success(
+        workspaceResourceMutationMessage(result, "Resource deleted"),
+      ),
     onError: (err) => toast.error(String(err)),
   });
   const revokeGrant = useActionMutation("revoke-workspace-resource-grant", {
@@ -548,6 +855,8 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
               {resource.content}
             </pre>
           </div>
+
+          <EffectiveContextPreview resource={resource} />
 
           {resource.scope === "selected" && (
             <div className="space-y-2">
@@ -625,6 +934,11 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
                       cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
+                  <ImpactPreview
+                    operation="delete"
+                    resourceId={resource.id}
+                    enabled
+                  />
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction

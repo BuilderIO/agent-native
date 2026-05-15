@@ -106,6 +106,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Creating Templates", to: "/docs/creating-templates" as const },
       { label: "Frames", to: "/docs/frames" as const },
+      { label: "Embedding SDK", to: "/docs/embedding-sdk" as const },
       {
         label: "Migration Workbench",
         to: "/docs/migration-workbench" as const,

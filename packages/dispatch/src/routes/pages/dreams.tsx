@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { toast } from "sonner";
 import {
   IconAlertTriangle,
   IconBrain,
+  IconCalendarTime,
   IconCheck,
   IconCircleDashed,
   IconClock,
   IconDatabase,
+  IconFileDiff,
   IconPlayerPlay,
   IconRefresh,
+  IconSettings,
   IconX,
 } from "@tabler/icons-react";
 import { DispatchShell } from "@/components/dispatch-shell";
@@ -22,8 +26,22 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -33,7 +51,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import {
+  dreamSettingsToDraft,
+  dreamSettingsUpdateFromDraft,
+  splitSourceIds,
+  type DreamSettings,
+  type DreamSettingsDraft,
+} from "./dream-settings";
 
 export function meta() {
   return [{ title: "Dreams — Dispatch" }];
@@ -68,6 +94,7 @@ interface DreamPass {
   proposalCounts?: Record<string, number> | null;
   appliedCount?: number | null;
   rejectedCount?: number | null;
+  sourceHealth?: DreamSourceHealth[] | null;
 }
 
 interface DreamEvidence {
@@ -150,10 +177,14 @@ interface DreamSourceHealth {
   sourceId: string;
   label?: string | null;
   status: "ok" | "timed_out" | "error" | string;
+  startedAt?: number | string | null;
+  completedAt?: number | string | null;
   durationMs: number;
+  timeoutMs?: number | null;
   inspectedThreadCount: number;
   candidateCount: number;
   errorCount: number;
+  threadErrorCount?: number | null;
   message?: string | null;
 }
 
@@ -196,6 +227,10 @@ interface CreateDreamReportParams {
   ownerEmail?: string;
   limit?: number;
   sourceTimeoutMs?: number;
+  sourceConcurrency?: number;
+  sourceStartStaggerMs?: number;
+  threadConcurrency?: number;
+  threadTimeoutMs?: number;
   title?: string;
 }
 
@@ -207,6 +242,25 @@ interface CreateDreamReportResult {
 
 interface ProposalMutationParams {
   id: string;
+  reason?: string;
+}
+
+interface DreamProposalPreview {
+  operation?: "create" | "update" | "append" | string;
+  targetExists?: boolean;
+  currentContent?: string | null;
+  proposedContent?: string | null;
+  target?: {
+    type?: string | null;
+    path?: string | null;
+    kind?: string | null;
+    resourceId?: string | null;
+  };
+  approval?: {
+    required?: boolean;
+    policyEnabled?: boolean;
+    willRequestApproval?: boolean;
+  };
 }
 
 function normalizeArray<T>(value: unknown, keys: readonly string[]): T[] {
@@ -398,11 +452,12 @@ function SourceHealthPanel({ sources }: { sources: DreamSourceHealth[] }) {
               className="gap-1"
               title={
                 source.message ||
-                `${source.inspectedThreadCount} inspected, ${source.candidateCount} candidates`
+                `${source.inspectedThreadCount} inspected, ${source.candidateCount} candidates, ${source.durationMs}ms of ${source.timeoutMs ?? "n/a"}ms`
               }
             >
               {source.label || source.sourceId}:{" "}
-              {String(source.status).replace(/_/g, " ")}
+              {String(source.status).replace(/_/g, " ")} · {source.durationMs}
+              ms
             </Badge>
           ))}
         </div>
@@ -510,6 +565,270 @@ function StatTile({
   );
 }
 
+function DreamSettingsSheet({
+  open,
+  onOpenChange,
+  draft,
+  onDraftChange,
+  onSave,
+  saving,
+  loading,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  draft: DreamSettingsDraft;
+  onDraftChange: (draft: DreamSettingsDraft) => void;
+  onSave: () => void;
+  saving: boolean;
+  loading: boolean;
+}) {
+  const sourceIds = splitSourceIds(draft.sourceIdsText);
+  const canSave = draft.schedule.trim().length > 0;
+
+  function update<K extends keyof DreamSettingsDraft>(
+    key: K,
+    value: DreamSettingsDraft[K],
+  ) {
+    onDraftChange({ ...draft, [key]: value });
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetTrigger asChild>
+        <Button variant="outline" disabled={loading}>
+          <IconSettings size={15} className="mr-1.5" />
+          Settings
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="flex w-full flex-col p-0 sm:max-w-2xl">
+        <SheetHeader className="border-b px-5 py-4">
+          <div className="flex flex-wrap items-center gap-2 pr-8">
+            <Badge variant={draft.enabled ? "default" : "secondary"}>
+              {draft.enabled ? "Enabled" : "Paused"}
+            </Badge>
+            <Badge variant="outline" className="font-mono">
+              {draft.schedule || "No schedule"}
+            </Badge>
+          </div>
+          <SheetTitle className="mt-2 text-base">Dream settings</SheetTitle>
+          <SheetDescription>
+            Configure recurring dream scope, schedule, and scan limits.
+          </SheetDescription>
+        </SheetHeader>
+
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="space-y-6 p-5">
+            <section className="space-y-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Schedule
+              </div>
+              <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/20 px-3 py-3">
+                <div>
+                  <Label htmlFor="dream-enabled">Recurring dreams</Label>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Saved setting used by dream jobs.
+                  </div>
+                </div>
+                <Switch
+                  id="dream-enabled"
+                  checked={draft.enabled}
+                  onCheckedChange={(checked) => update("enabled", checked)}
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_180px]">
+                <div className="space-y-2">
+                  <Label htmlFor="dream-schedule">Cron schedule</Label>
+                  <Input
+                    id="dream-schedule"
+                    value={draft.schedule}
+                    onChange={(event) => update("schedule", event.target.value)}
+                    placeholder="0 9 * * 1"
+                    className="font-mono"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dream-min-candidates">Min candidates</Label>
+                  <Input
+                    id="dream-min-candidates"
+                    type="number"
+                    min={0}
+                    max={50}
+                    value={draft.minCandidateCount}
+                    onChange={(event) =>
+                      update("minCandidateCount", event.target.value)
+                    }
+                  />
+                </div>
+              </div>
+            </section>
+
+            <Separator />
+
+            <section className="space-y-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Sources
+              </div>
+              <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/20 px-3 py-3">
+                <div>
+                  <Label htmlFor="dream-all-sources">All sources</Label>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Scan every connected thread-debug source.
+                  </div>
+                </div>
+                <Switch
+                  id="dream-all-sources"
+                  checked={draft.allSources}
+                  onCheckedChange={(checked) => update("allSources", checked)}
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="dream-source-id">Source ID</Label>
+                  <Input
+                    id="dream-source-id"
+                    value={draft.sourceId}
+                    onChange={(event) => update("sourceId", event.target.value)}
+                    disabled={draft.allSources || sourceIds.length > 0}
+                    placeholder="current"
+                    className="font-mono"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dream-query">Query</Label>
+                  <Input
+                    id="dream-query"
+                    value={draft.query}
+                    onChange={(event) => update("query", event.target.value)}
+                    placeholder="Optional search term"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="dream-source-ids">Explicit source IDs</Label>
+                <Textarea
+                  id="dream-source-ids"
+                  value={draft.sourceIdsText}
+                  onChange={(event) =>
+                    update("sourceIdsText", event.target.value)
+                  }
+                  disabled={draft.allSources}
+                  rows={3}
+                  placeholder="One source ID per line"
+                  className="font-mono"
+                />
+              </div>
+            </section>
+
+            <Separator />
+
+            <section className="space-y-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Scan Limits
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="dream-limit">Candidate limit</Label>
+                  <Input
+                    id="dream-limit"
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={draft.limit}
+                    onChange={(event) => update("limit", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dream-source-timeout">
+                    Source timeout ms
+                  </Label>
+                  <Input
+                    id="dream-source-timeout"
+                    type="number"
+                    min={1000}
+                    max={60000}
+                    value={draft.sourceTimeoutMs}
+                    onChange={(event) =>
+                      update("sourceTimeoutMs", event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dream-source-concurrency">
+                    Source concurrency
+                  </Label>
+                  <Input
+                    id="dream-source-concurrency"
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={draft.sourceConcurrency}
+                    onChange={(event) =>
+                      update("sourceConcurrency", event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dream-start-stagger">Start stagger ms</Label>
+                  <Input
+                    id="dream-start-stagger"
+                    type="number"
+                    min={0}
+                    max={5000}
+                    value={draft.sourceStartStaggerMs}
+                    onChange={(event) =>
+                      update("sourceStartStaggerMs", event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dream-thread-concurrency">
+                    Thread concurrency
+                  </Label>
+                  <Input
+                    id="dream-thread-concurrency"
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={draft.threadConcurrency}
+                    onChange={(event) =>
+                      update("threadConcurrency", event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dream-thread-timeout">
+                    Thread timeout ms
+                  </Label>
+                  <Input
+                    id="dream-thread-timeout"
+                    type="number"
+                    min={1000}
+                    max={30000}
+                    value={draft.threadTimeoutMs}
+                    onChange={(event) =>
+                      update("threadTimeoutMs", event.target.value)
+                    }
+                  />
+                </div>
+              </div>
+            </section>
+          </div>
+        </ScrollArea>
+
+        <SheetFooter className="gap-2 border-t px-5 py-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+          <Button disabled={!canSave || saving} onClick={onSave}>
+            {saving ? <Spinner className="mr-1.5 size-3.5" /> : null}
+            Save settings
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 function ProposalCard({
   proposal,
   applying,
@@ -521,14 +840,22 @@ function ProposalCard({
   applying: boolean;
   rejecting: boolean;
   onApply: () => void;
-  onReject: () => void;
+  onReject: (reason?: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   const evidence = proposal.evidence ?? [];
   const sourceRunIds = proposal.sourceRunIds ?? [];
   const status = String(proposal.status || "pending").toLowerCase();
   const canAct = status === "pending";
   const needsApproval =
     proposal.targetType != null && proposal.targetType !== "personal-memory";
+  const previewQuery = useActionQuery<DreamProposalPreview>(
+    "preview-dream-proposal",
+    { id: proposal.id },
+    { enabled: open, staleTime: 0 },
+  );
+  const preview = previewQuery.data;
 
   return (
     <div className="rounded-lg border bg-card">
@@ -555,31 +882,232 @@ function ProposalCard({
           ) : null}
         </div>
         <div className="flex shrink-0 gap-2">
-          <Button
-            size="sm"
-            disabled={!canAct || applying || rejecting}
-            onClick={onApply}
-          >
-            {applying ? (
-              <Spinner className="mr-1.5 size-3.5" />
-            ) : (
-              <IconCheck size={14} className="mr-1.5" />
-            )}
-            {needsApproval ? "Request approval" : "Apply"}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!canAct || applying || rejecting}
-            onClick={onReject}
-          >
-            {rejecting ? (
-              <Spinner className="mr-1.5 size-3.5" />
-            ) : (
-              <IconX size={14} className="mr-1.5" />
-            )}
-            Reject
-          </Button>
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetTrigger asChild>
+              <Button size="sm" variant={canAct ? "default" : "outline"}>
+                <IconFileDiff size={14} className="mr-1.5" />
+                Review
+              </Button>
+            </SheetTrigger>
+            <SheetContent className="flex w-full flex-col p-0 sm:max-w-3xl">
+              <SheetHeader className="border-b px-5 py-4">
+                <div className="flex flex-wrap items-center gap-2 pr-8">
+                  <StatusBadge status={proposal.status} />
+                  <Badge variant="outline" className="font-mono">
+                    {preview?.target?.path || proposalTarget(proposal)}
+                  </Badge>
+                  <Badge variant="secondary" className="capitalize">
+                    {preview?.operation || "review"}
+                  </Badge>
+                  {preview?.approval?.willRequestApproval ? (
+                    <Badge variant="secondary">Approval request</Badge>
+                  ) : null}
+                </div>
+                <SheetTitle className="mt-2 text-base">
+                  {proposal.title || proposal.summary || proposal.id}
+                </SheetTitle>
+                <SheetDescription>
+                  {proposal.summary ||
+                    "Review the target, evidence, and proposed content before applying this dream proposal."}
+                </SheetDescription>
+              </SheetHeader>
+
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="space-y-5 p-5">
+                  {previewQuery.error ? (
+                    <QueryState
+                      error={previewQuery.error}
+                      label="Could not preview proposal"
+                    />
+                  ) : null}
+                  {previewQuery.isLoading ? <ProposalSkeleton /> : null}
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border bg-muted/20 p-3">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Target
+                      </div>
+                      <div className="mt-1 break-all font-mono text-xs text-foreground">
+                        {preview?.target?.path || proposalTarget(proposal)}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <Badge variant="outline">
+                          {preview?.target?.type ||
+                            proposal.targetType ||
+                            "memory"}
+                        </Badge>
+                        {preview?.targetExists ? (
+                          <Badge variant="secondary">Existing target</Badge>
+                        ) : (
+                          <Badge variant="secondary">New target</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/20 p-3">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Review gate
+                      </div>
+                      <div className="mt-1 text-xs leading-relaxed text-foreground">
+                        {preview?.approval?.willRequestApproval
+                          ? "Applying will create a Dispatch approval request."
+                          : needsApproval
+                            ? "Applying writes a shared/workspace resource because approvals are disabled."
+                            : "Applying writes personal memory directly."}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {proposal.risk ? (
+                          <Badge variant="outline" className="capitalize">
+                            {proposal.risk} risk
+                          </Badge>
+                        ) : null}
+                        {proposal.confidence != null ? (
+                          <Badge variant="outline">
+                            {proposal.confidence}% confidence
+                          </Badge>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  {proposal.rationale ? (
+                    <div>
+                      <div className="text-xs font-medium text-foreground">
+                        Rationale
+                      </div>
+                      <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        {proposal.rationale}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <Separator />
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div>
+                      <div className="mb-2 text-xs font-medium text-foreground">
+                        Current target
+                      </div>
+                      {preview?.currentContent ? (
+                        <RawBlock value={preview.currentContent} />
+                      ) : (
+                        <EmptyPanel
+                          title="No existing content"
+                          description="This proposal would create a new target or append to an empty target."
+                        />
+                      )}
+                    </div>
+                    <div>
+                      <div className="mb-2 text-xs font-medium text-foreground">
+                        Proposed content
+                      </div>
+                      <RawBlock
+                        value={preview?.proposedContent || proposal.content}
+                      />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div>
+                    <div className="mb-2 text-xs font-medium text-foreground">
+                      Evidence
+                    </div>
+                    {sourceRunIds.length > 0 ? (
+                      <div className="mb-2 flex flex-wrap gap-1.5">
+                        {sourceRunIds.map((id) => (
+                          <Badge
+                            key={id}
+                            variant="outline"
+                            className="font-mono"
+                          >
+                            {id}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                    {evidence.length > 0 ? (
+                      <div className="space-y-2">
+                        {evidence.map((item, index) => (
+                          <div
+                            key={item.id || `${proposal.id}-review-${index}`}
+                            className="rounded-md border bg-muted/20 px-3 py-2"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-xs font-medium text-foreground">
+                                {evidenceLabel(item, index)}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground">
+                                {formatDate(item.createdAt)}
+                              </div>
+                            </div>
+                            <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                              {item.quote ||
+                                item.snippet ||
+                                item.summary ||
+                                "No text"}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyPanel
+                        title="No structured evidence"
+                        description="The proposal did not include compact evidence records."
+                      />
+                    )}
+                  </div>
+
+                  {canAct ? (
+                    <div className="space-y-2">
+                      <Label htmlFor={`reject-${proposal.id}`}>
+                        Rejection reason
+                      </Label>
+                      <Textarea
+                        id={`reject-${proposal.id}`}
+                        value={rejectReason}
+                        onChange={(event) =>
+                          setRejectReason(event.target.value)
+                        }
+                        placeholder="Optional note for the audit log"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </ScrollArea>
+
+              <SheetFooter className="gap-2 border-t px-5 py-4">
+                <Button
+                  variant="outline"
+                  disabled={!canAct || applying || rejecting}
+                  onClick={() => {
+                    onReject(rejectReason.trim() || undefined);
+                    setOpen(false);
+                  }}
+                >
+                  {rejecting ? (
+                    <Spinner className="mr-1.5 size-3.5" />
+                  ) : (
+                    <IconX size={14} className="mr-1.5" />
+                  )}
+                  Reject
+                </Button>
+                <Button
+                  disabled={!canAct || applying || rejecting}
+                  onClick={() => {
+                    onApply();
+                    setOpen(false);
+                  }}
+                >
+                  {applying ? (
+                    <Spinner className="mr-1.5 size-3.5" />
+                  ) : (
+                    <IconCheck size={14} className="mr-1.5" />
+                  )}
+                  {needsApproval ? "Request approval" : "Apply"}
+                </Button>
+              </SheetFooter>
+            </SheetContent>
+          </Sheet>
         </div>
       </div>
 
@@ -642,7 +1170,14 @@ function ProposalCard({
 }
 
 export default function DreamsRoute() {
-  const [selectedDreamId, setSelectedDreamId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedDreamId, setSelectedDreamId] = useState<string | null>(
+    searchParams.get("dreamId"),
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsDraft, setSettingsDraft] = useState<DreamSettingsDraft>(() =>
+    dreamSettingsToDraft(null),
+  );
 
   const dreamsQuery = useActionQuery<ListDreamsResponse>(
     "list-dreams",
@@ -651,8 +1186,20 @@ export default function DreamsRoute() {
   );
   const candidatesQuery = useActionQuery<ListCandidatesResponse>(
     "list-dream-candidates",
-    { limit: 25, sourceTimeoutMs: 15_000 },
+    {
+      limit: 25,
+      sourceTimeoutMs: 30_000,
+      sourceConcurrency: 2,
+      sourceStartStaggerMs: 250,
+      threadConcurrency: 3,
+      threadTimeoutMs: 8_000,
+    },
     { staleTime: 15_000 },
+  );
+  const dreamSettingsQuery = useActionQuery<DreamSettings>(
+    "get-dream-settings",
+    {},
+    { staleTime: 30_000 },
   );
   const dreamDetailQuery = useActionQuery<GetDreamResponse>(
     "get-dream",
@@ -684,10 +1231,28 @@ export default function DreamsRoute() {
   );
 
   useEffect(() => {
+    const urlDreamId = searchParams.get("dreamId");
+    if (urlDreamId && urlDreamId !== selectedDreamId) {
+      setSelectedDreamId(urlDreamId);
+      return;
+    }
     if (selectedDreamId && dreams.some((dream) => dream.id === selectedDreamId))
       return;
-    setSelectedDreamId(dreams[0]?.id ?? null);
-  }, [dreams, selectedDreamId]);
+    const nextId = dreams[0]?.id ?? null;
+    setSelectedDreamId(nextId);
+    if (nextId && nextId !== urlDreamId) {
+      const next = new URLSearchParams(searchParams);
+      next.set("dreamId", nextId);
+      setSearchParams(next, { replace: true });
+    }
+  }, [dreams, searchParams, selectedDreamId, setSearchParams]);
+
+  function selectDream(dreamId: string) {
+    setSelectedDreamId(dreamId);
+    const next = new URLSearchParams(searchParams);
+    next.set("dreamId", dreamId);
+    setSearchParams(next, { replace: true });
+  }
 
   const createDream = useActionMutation<
     CreateDreamReportResult,
@@ -695,7 +1260,7 @@ export default function DreamsRoute() {
   >("create-dream-report", {
     onSuccess: (result) => {
       const nextId = resultDreamId(result);
-      if (nextId) setSelectedDreamId(nextId);
+      if (nextId) selectDream(nextId);
       toast.success("Dream report created");
     },
     onError: (err) => toast.error(String(err)),
@@ -704,12 +1269,15 @@ export default function DreamsRoute() {
   const applyProposal = useActionMutation<unknown, ProposalMutationParams>(
     "apply-dream-proposal",
     {
-      onSuccess: (result) =>
+      onSuccess: (result) => {
         toast.success(
           isApprovalRequestResult(result)
             ? "Approval requested"
             : "Proposal applied",
-        ),
+        );
+        dreamDetailQuery.refetch();
+        dreamsQuery.refetch();
+      },
       onError: (err) => toast.error(String(err)),
     },
   );
@@ -717,16 +1285,45 @@ export default function DreamsRoute() {
   const rejectProposal = useActionMutation<unknown, ProposalMutationParams>(
     "reject-dream-proposal",
     {
-      onSuccess: () => toast.success("Proposal rejected"),
+      onSuccess: () => {
+        toast.success("Proposal rejected");
+        dreamDetailQuery.refetch();
+        dreamsQuery.refetch();
+      },
       onError: (err) => toast.error(String(err)),
     },
   );
+  const ensureDreamSchedule = useActionMutation<
+    unknown,
+    Partial<DreamSettings>
+  >("ensure-dream-job", {
+    onSuccess: () => {
+      toast.success("Dream schedule updated");
+      dreamSettingsQuery.refetch();
+    },
+    onError: (err) => toast.error(String(err)),
+  });
+  const saveDreamSettings = useActionMutation<
+    DreamSettings,
+    Partial<DreamSettings>
+  >("set-dream-settings", {
+    onSuccess: (settings) => {
+      toast.success("Dream settings saved");
+      setSettingsDraft(dreamSettingsToDraft(settings));
+      setSettingsOpen(false);
+      dreamSettingsQuery.refetch();
+      candidatesQuery.refetch();
+    },
+    onError: (err) => toast.error(String(err)),
+  });
 
   const detail = dreamDetailQuery.data ?? null;
+  const dreamSettings = dreamSettingsQuery.data ?? null;
   const selectedDream =
     detail?.dream ?? dreams.find((dream) => dream.id === selectedDreamId);
   const proposals = detail?.proposals ?? [];
   const inspectedRuns = detail?.inspectedRuns ?? detail?.candidates ?? [];
+  const selectedSourceHealth = selectedDream?.sourceHealth ?? [];
   const pendingProposalCount = proposals.filter(
     (proposal) =>
       String(proposal.status || "pending").toLowerCase() === "pending",
@@ -734,6 +1331,28 @@ export default function DreamsRoute() {
   const appliedProposalCount = proposals.filter(
     (proposal) => String(proposal.status || "").toLowerCase() === "applied",
   ).length;
+
+  useEffect(() => {
+    if (dreamSettings && !settingsOpen) {
+      setSettingsDraft(dreamSettingsToDraft(dreamSettings));
+    }
+  }, [dreamSettings, settingsOpen]);
+
+  function handleSettingsOpenChange(open: boolean) {
+    if (open) {
+      setSettingsDraft(dreamSettingsToDraft(dreamSettings));
+    }
+    setSettingsOpen(open);
+  }
+
+  function saveSettings() {
+    const update = dreamSettingsUpdateFromDraft(settingsDraft);
+    if (!update.schedule) {
+      toast.error("Add a cron schedule before saving");
+      return;
+    }
+    saveDreamSettings.mutate(update);
+  }
 
   function runDream(scanAllSources = false) {
     createDream.mutate({
@@ -744,7 +1363,28 @@ export default function DreamsRoute() {
         : candidates.length > 0
           ? candidates.length
           : 20,
-      sourceTimeoutMs: 15_000,
+      sourceTimeoutMs: dreamSettings?.sourceTimeoutMs ?? 30_000,
+      sourceConcurrency: dreamSettings?.sourceConcurrency ?? 2,
+      sourceStartStaggerMs: dreamSettings?.sourceStartStaggerMs ?? 250,
+      threadConcurrency: dreamSettings?.threadConcurrency ?? 3,
+      threadTimeoutMs: dreamSettings?.threadTimeoutMs ?? 8_000,
+    });
+  }
+
+  function ensureSchedule() {
+    ensureDreamSchedule.mutate({
+      schedule: dreamSettings?.schedule,
+      sourceId: dreamSettings?.sourceId ?? "all",
+      sourceIds: dreamSettings?.sourceIds,
+      allSources: dreamSettings?.allSources ?? true,
+      query: dreamSettings?.query ?? undefined,
+      limit: dreamSettings?.limit ?? 8,
+      sourceTimeoutMs: dreamSettings?.sourceTimeoutMs ?? 30_000,
+      sourceConcurrency: dreamSettings?.sourceConcurrency ?? 2,
+      sourceStartStaggerMs: dreamSettings?.sourceStartStaggerMs ?? 250,
+      threadConcurrency: dreamSettings?.threadConcurrency ?? 3,
+      threadTimeoutMs: dreamSettings?.threadTimeoutMs ?? 8_000,
+      minCandidateCount: dreamSettings?.minCandidateCount ?? 1,
     });
   }
 
@@ -777,7 +1417,25 @@ export default function DreamsRoute() {
               icon={IconCheck}
             />
           </div>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {dreamSettings ? (
+              <Badge variant="outline" className="h-9 px-3">
+                {dreamSettings.enabled ? "Enabled" : "Paused"} ·{" "}
+                {dreamSettings.allSources
+                  ? "All sources"
+                  : dreamSettings.sourceId}{" "}
+                · {dreamSettings.schedule}
+              </Badge>
+            ) : null}
+            <DreamSettingsSheet
+              open={settingsOpen}
+              onOpenChange={handleSettingsOpenChange}
+              draft={settingsDraft}
+              onDraftChange={setSettingsDraft}
+              onSave={saveSettings}
+              saving={saveDreamSettings.isPending}
+              loading={dreamSettingsQuery.isLoading}
+            />
             <Button
               variant="outline"
               onClick={() => {
@@ -788,6 +1446,18 @@ export default function DreamsRoute() {
             >
               <IconRefresh size={15} className="mr-1.5" />
               Refresh
+            </Button>
+            <Button
+              variant="outline"
+              onClick={ensureSchedule}
+              disabled={ensureDreamSchedule.isPending}
+            >
+              {ensureDreamSchedule.isPending ? (
+                <Spinner className="mr-1.5 size-3.5" />
+              ) : (
+                <IconCalendarTime size={15} className="mr-1.5" />
+              )}
+              Ensure schedule
             </Button>
             <Button
               variant="outline"
@@ -840,7 +1510,7 @@ export default function DreamsRoute() {
                         <button
                           key={dream.id}
                           type="button"
-                          onClick={() => setSelectedDreamId(dream.id)}
+                          onClick={() => selectDream(dream.id)}
                           className={cn(
                             "w-full rounded-lg border px-3 py-3 text-left transition-colors",
                             selected
@@ -964,9 +1634,10 @@ export default function DreamsRoute() {
                                 id: proposal.id,
                               })
                             }
-                            onReject={() =>
+                            onReject={(reason) =>
                               rejectProposal.mutate({
                                 id: proposal.id,
+                                reason,
                               })
                             }
                           />
@@ -992,6 +1663,11 @@ export default function DreamsRoute() {
                   </TabsContent>
 
                   <TabsContent value="sources" className="mt-4">
+                    {selectedSourceHealth.length > 0 ? (
+                      <div className="mb-4">
+                        <SourceHealthPanel sources={selectedSourceHealth} />
+                      </div>
+                    ) : null}
                     {inspectedRuns.length > 0 || detail?.evidence?.length ? (
                       <Accordion type="multiple" className="rounded-lg border">
                         {inspectedRuns.map((run, index) => (

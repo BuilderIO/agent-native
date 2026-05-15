@@ -649,12 +649,19 @@ switch (command) {
     break;
   }
 
+  case undefined:
+    import("./code.js")
+      .then((m) => m.runCode([]))
+      .catch(handleScaffoldImportError);
+    break;
+
   case "--help":
   case "-h":
-  case undefined:
     console.log(`agent-native v${_version}
 
 Usage:
+  agent-native                  Launch Code Agents workspace
+  agent-native "fix tests"      Start a Code Agents coding session
   agent-native dev              Start development server
                                 (or the workspace gateway at a workspace root)
   agent-native build            Build for production (client + server)
@@ -665,8 +672,8 @@ Usage:
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
                                 for a single-app scaffold.
-  agent-native code /migrate    Run a coding-agent goal. Built-ins include
-                                /migrate and /audit.
+  agent-native code             Launch Code Agents workspace. Type a task or
+                                use goals like /task, /migrate, and /audit.
   agent-native migrate <source> Create a Code Agents /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace
@@ -698,6 +705,12 @@ Bugs:      ${BUGS_URL}`);
     break;
 
   default:
+    if (command && !command.startsWith("-")) {
+      import("./code.js")
+        .then((m) => m.runCode([command, ...args]))
+        .catch(handleScaffoldImportError);
+      break;
+    }
     console.error(`Unknown command: ${command}`);
     console.error('Run "agent-native --help" for usage.');
     console.error(`Bugs: ${BUGS_URL}`);

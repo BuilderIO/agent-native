@@ -33,7 +33,11 @@ function configuredPollMinutes(source: SourceRow): number {
 function isAutoSyncEnabled(source: SourceRow): boolean {
   const config = parseJson<Record<string, unknown>>(source.configJson, {});
   if (config.autoSync === false) return false;
-  return source.provider === "slack" || source.provider === "granola";
+  return (
+    source.provider === "slack" ||
+    source.provider === "granola" ||
+    source.provider === "github"
+  );
 }
 
 function retryAfterAt(source: SourceRow): number | null {

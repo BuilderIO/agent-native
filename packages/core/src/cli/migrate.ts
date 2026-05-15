@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
+  appendCodeAgentTranscriptEvent,
   codeAgentRunArtifactsDir,
   createCodeAgentRunRecord,
   getLastCodeAgentRunRecord,
@@ -439,6 +440,22 @@ async function createMigrationCodeAgentSession(
       target: opts.target ?? DEFAULT_TARGET,
     },
   });
+  appendCodeAgentTranscriptEvent({
+    runId: run.id,
+    kind: "user",
+    message: `Migrate ${formatSourceForDisplay(source)} to ${opts.target ?? DEFAULT_TARGET}.`,
+    metadata: {
+      source,
+      outputRoot,
+      target: opts.target ?? DEFAULT_TARGET,
+    },
+  });
+  appendCodeAgentTranscriptEvent({
+    runId: run.id,
+    kind: "status",
+    message: "Preparing migration dossier.",
+    metadata: { status: "needs-approval", phase: "intake" },
+  });
   const artifactRoot = codeAgentRunArtifactsDir(run.id);
   const dossierRoot = path.join(artifactRoot, "migration-dossier");
   const dossier = await emitOwnAgentDossier(
@@ -468,6 +485,29 @@ async function createMigrationCodeAgentSession(
     updatedAt: new Date().toISOString(),
   };
   writeCodeAgentRunRecord(updated);
+  appendCodeAgentTranscriptEvent({
+    runId: run.id,
+    kind: "artifact",
+    message: "Migration dossier created.",
+    metadata: {
+      path: dossierRoot,
+      files: dossier.files,
+      usedMigrateHelpers: dossier.usedMigrateHelpers,
+    },
+  });
+  appendCodeAgentTranscriptEvent({
+    runId: run.id,
+    kind: "note",
+    message:
+      "Use the dossier with Codex, Claude Code, Cursor, or another coding agent; no migration agent process has been started by the CLI.",
+    metadata: { source: "migration-dossier" },
+  });
+  appendCodeAgentTranscriptEvent({
+    runId: run.id,
+    kind: "status",
+    message: "Migration session is ready and waiting for approval.",
+    metadata: { status: "needs-approval", phase: "intake" },
+  });
 
   console.log(renderCodeAgentMigrationSession(updated, dossier));
 }

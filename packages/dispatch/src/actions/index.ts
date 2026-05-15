@@ -17,8 +17,10 @@ import ensureDreamJob from "./ensure-dream-job.js";
 import getAppCreationSettings from "./get-app-creation-settings.js";
 import getAgentThreadDebug from "./get-agent-thread-debug.js";
 import getDream from "./get-dream.js";
+import getDreamSettings from "./get-dream-settings.js";
 import getDispatchSettings from "./get-dispatch-settings.js";
 import getVaultAccessSettings from "./get-vault-access-settings.js";
+import getWorkspaceResourceEffectiveContext from "./get-workspace-resource-effective-context.js";
 import getWorkspaceInfo from "./get-workspace-info.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
@@ -46,6 +48,8 @@ import listWorkspaceResourcesForApp from "./list-workspace-resources-for-app.js"
 import listWorkspaceResources from "./list-workspace-resources.js";
 import navigate from "./navigate.js";
 import applyDreamProposal from "./apply-dream-proposal.js";
+import previewDreamProposal from "./preview-dream-proposal.js";
+import previewWorkspaceResourceChange from "./preview-workspace-resource-change.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
 import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
@@ -58,6 +62,7 @@ import searchAgentThreads from "./search-agent-threads.js";
 import sendPlatformMessage from "./send-platform-message.js";
 import setAppCreationSettings from "./set-app-creation-settings.js";
 import setDispatchApprovalPolicy from "./set-dispatch-approval-policy.js";
+import setDreamSettings from "./set-dream-settings.js";
 import setVaultAccessSettings from "./set-vault-access-settings.js";
 import startWorkspaceAppCreation from "./start-workspace-app-creation.js";
 import syncVaultToApp from "./sync-vault-to-app.js";
@@ -95,8 +100,11 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "get-app-creation-settings": getAppCreationSettings,
   "get-agent-thread-debug": getAgentThreadDebug,
   "get-dream": getDream,
+  "get-dream-settings": getDreamSettings,
   "get-dispatch-settings": getDispatchSettings,
   "get-vault-access-settings": getVaultAccessSettings,
+  "get-workspace-resource-effective-context":
+    getWorkspaceResourceEffectiveContext,
   "get-workspace-info": getWorkspaceInfo,
   "grant-workspace-resources-to-app": grantWorkspaceResourcesToApp,
   "grant-vault-secrets-to-app": grantVaultSecretsToApp,
@@ -124,6 +132,8 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-workspace-resources": listWorkspaceResources,
   navigate: navigate,
   "apply-dream-proposal": applyDreamProposal,
+  "preview-dream-proposal": previewDreamProposal,
+  "preview-workspace-resource-change": previewWorkspaceResourceChange,
   "reject-dispatch-change": rejectDispatchChange,
   "reject-dream-proposal": rejectDreamProposal,
   "remove-pending-workspace-app": removePendingWorkspaceApp,
@@ -136,6 +146,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "send-platform-message": sendPlatformMessage,
   "set-app-creation-settings": setAppCreationSettings,
   "set-dispatch-approval-policy": setDispatchApprovalPolicy,
+  "set-dream-settings": setDreamSettings,
   "set-vault-access-settings": setVaultAccessSettings,
   "start-workspace-app-creation": startWorkspaceAppCreation,
   "sync-vault-to-app": syncVaultToApp,

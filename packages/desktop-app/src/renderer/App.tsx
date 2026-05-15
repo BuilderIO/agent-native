@@ -607,6 +607,7 @@ export default function App() {
               apps={apps}
               openRequest={codeAgentsOpenRequest}
               refreshKey={refreshKey}
+              onOpenSettings={() => setShowSettings(true)}
             />
           )}
           {allWebviews.map(({ tab, app, appDef, isActive }) => (

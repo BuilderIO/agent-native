@@ -3,10 +3,16 @@ import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
 import {
   resourceDeleteByPath,
+  resourceEffectiveContext,
   resourceGetByPath,
+  resourceListAllOwners,
   resourcePut,
   SHARED_OWNER,
   WORKSPACE_OWNER,
+  type EffectiveResourceContext,
+  type EffectiveResourceLayer,
+  type ResourceInheritanceScope,
+  type ResourceMeta,
 } from "@agent-native/core/resources/store";
 import {
   getOrgSetting,
@@ -17,8 +23,10 @@ import {
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { getDb, schema } from "../../db/index.js";
 import {
+  createApprovalRequest,
   currentOwnerEmail,
   currentOrgId,
+  getApprovalPolicy,
   recordAudit,
 } from "./dispatch-store.js";
 
@@ -205,6 +213,67 @@ export interface WorkspaceResourceForApp extends WorkspaceResourceOption {
   autoLoaded: boolean;
   grantId: string | null;
   syncedAt: number | null;
+}
+
+export type WorkspaceResourceAvailability =
+  | "all-apps"
+  | "selected-granted"
+  | "selected-not-granted"
+  | "selected-no-app"
+  | "path-not-managed";
+
+export interface WorkspaceResourceEffectiveLayer extends Omit<
+  EffectiveResourceLayer,
+  "scope"
+> {
+  scope: ResourceInheritanceScope;
+  resource: ResourceMeta | null;
+}
+
+export interface WorkspaceResourceEffectiveContext {
+  appId: string | null;
+  userEmail: string;
+  path: string;
+  workspaceResource: WorkspaceResourceOption | null;
+  availability: WorkspaceResourceAvailability;
+  availableToApp: boolean;
+  activeGrantId: string | null;
+  effectiveScope: ResourceInheritanceScope | null;
+  effectiveResource: ResourceMeta | null;
+  layers: WorkspaceResourceEffectiveLayer[];
+}
+
+export type WorkspaceResourceChangeOperation = "create" | "update" | "delete";
+
+export interface WorkspaceResourceOverrideImpact {
+  scope: "shared" | "personal";
+  owner: string;
+  label: string;
+  updatedAt: number;
+}
+
+export interface WorkspaceResourceChangeImpact {
+  operation: WorkspaceResourceChangeOperation;
+  path: string | null;
+  resourceId: string | null;
+  beforeScope: WorkspaceResourceScope | null;
+  afterScope: WorkspaceResourceScope | null;
+  affectsAllApps: boolean;
+  affectedApps: {
+    label: string;
+    count: number | null;
+    apps: Array<{ id: string; name: string }>;
+  };
+  overrides: {
+    count: number;
+    sharedCount: number;
+    personalCount: number;
+    items: WorkspaceResourceOverrideImpact[];
+  };
+  approval: {
+    policyEnabled: boolean;
+    willRequestApproval: boolean;
+  };
 }
 
 const STARTER_RESOURCES_VERSION = 2;
@@ -701,6 +770,237 @@ export async function listWorkspaceResourcesForApp(appId: string): Promise<{
   };
 }
 
+function workspaceResourceOption(
+  resource: MaterializableWorkspaceResource,
+): WorkspaceResourceOption {
+  return {
+    id: resource.id,
+    kind: resource.kind as WorkspaceResourceKind,
+    name: resource.name,
+    description: resource.description,
+    path: resource.path,
+    scope: resource.scope as WorkspaceResourceScope,
+    updatedAt: resource.updatedAt,
+  };
+}
+
+function effectiveAvailability(input: {
+  resource: WorkspaceResourceOption | null;
+  appId: string | null;
+  activeGrantId: string | null;
+}): Pick<WorkspaceResourceEffectiveContext, "availability" | "availableToApp"> {
+  if (!input.resource) {
+    return { availability: "path-not-managed", availableToApp: false };
+  }
+  if (input.resource.scope === "all") {
+    return { availability: "all-apps", availableToApp: true };
+  }
+  if (!input.appId) {
+    return { availability: "selected-no-app", availableToApp: false };
+  }
+  if (input.activeGrantId) {
+    return { availability: "selected-granted", availableToApp: true };
+  }
+  return { availability: "selected-not-granted", availableToApp: false };
+}
+
+function affectsAllAppsScope(
+  beforeScope: string | null | undefined,
+  afterScope: string | null | undefined,
+) {
+  return beforeScope === "all" || afterScope === "all";
+}
+
+async function shouldRequestAllAppResourceApproval(input: {
+  beforeScope?: string | null;
+  afterScope?: string | null;
+}) {
+  if (!affectsAllAppsScope(input.beforeScope, input.afterScope)) return false;
+  const policy = await getApprovalPolicy();
+  return policy.enabled;
+}
+
+function mergedWorkspaceResourceAfter(
+  before: MaterializableWorkspaceResource,
+  input: Partial<
+    Pick<WorkspaceResourceInput, "name" | "description" | "content" | "scope">
+  >,
+): WorkspaceResourceOption & {
+  content: string;
+} {
+  return {
+    id: before.id,
+    kind: before.kind as WorkspaceResourceKind,
+    name: input.name ?? before.name,
+    description:
+      input.description === undefined
+        ? before.description
+        : input.description || null,
+    path: before.path,
+    content: input.content ?? before.content,
+    scope: (input.scope ?? before.scope) as WorkspaceResourceScope,
+    updatedAt: before.updatedAt,
+  };
+}
+
+async function listOverrideImpactForPath(
+  resourcePath: string,
+): Promise<WorkspaceResourceOverrideImpact[]> {
+  const resources = await resourceListAllOwners(resourcePath).catch(() => []);
+  return resources
+    .filter(
+      (resource) =>
+        resource.path === resourcePath && resource.owner !== WORKSPACE_OWNER,
+    )
+    .map((resource): WorkspaceResourceOverrideImpact => {
+      const shared = resource.owner === SHARED_OWNER;
+      return {
+        scope: shared ? "shared" : "personal",
+        owner: resource.owner,
+        label: shared
+          ? "Organization/app override"
+          : `Personal override (${resource.owner})`,
+        updatedAt: resource.updatedAt,
+      };
+    })
+    .sort((a, b) => {
+      const scopeOrder =
+        (a.scope === "shared" ? 0 : 1) - (b.scope === "shared" ? 0 : 1);
+      if (scopeOrder !== 0) return scopeOrder;
+      return b.updatedAt - a.updatedAt;
+    });
+}
+
+async function affectedAllAppTargets() {
+  const agents = await discoverAgents("dispatch").catch(() => []);
+  const apps = agents
+    .filter((agent) => agent.id !== "dispatch")
+    .map((agent) => ({
+      id: agent.id,
+      name: agent.name || agent.id,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return {
+    label: apps.length > 0 ? "All workspace apps" : "All workspace apps",
+    count: apps.length,
+    apps,
+  };
+}
+
+export async function previewWorkspaceResourceChange(input: {
+  operation?: WorkspaceResourceChangeOperation;
+  resourceId?: string;
+  path?: string;
+  scope?: WorkspaceResourceScope;
+}): Promise<WorkspaceResourceChangeImpact> {
+  const operation = input.operation ?? (input.resourceId ? "update" : "create");
+  const ctx = requireWorkspaceResourceCtx();
+  const existing = input.resourceId
+    ? await getWorkspaceResource(input.resourceId, ctx)
+    : null;
+  const path = input.path?.trim() || existing?.path || null;
+  const beforeScope = existing?.scope
+    ? (existing.scope as WorkspaceResourceScope)
+    : null;
+  const afterScope =
+    operation === "delete"
+      ? null
+      : ((input.scope ??
+          existing?.scope ??
+          null) as WorkspaceResourceScope | null);
+  const affectsAllApps = affectsAllAppsScope(beforeScope, afterScope);
+  const [policy, overrides, affectedApps] = await Promise.all([
+    getApprovalPolicy(),
+    path ? listOverrideImpactForPath(path) : Promise.resolve([]),
+    affectsAllApps
+      ? affectedAllAppTargets()
+      : Promise.resolve({
+          label: "Selected apps only",
+          count: null,
+          apps: [] as Array<{ id: string; name: string }>,
+        }),
+  ]);
+
+  return {
+    operation,
+    path,
+    resourceId: existing?.id ?? input.resourceId ?? null,
+    beforeScope,
+    afterScope,
+    affectsAllApps,
+    affectedApps,
+    overrides: {
+      count: overrides.length,
+      sharedCount: overrides.filter((override) => override.scope === "shared")
+        .length,
+      personalCount: overrides.filter(
+        (override) => override.scope === "personal",
+      ).length,
+      items: overrides,
+    },
+    approval: {
+      policyEnabled: policy.enabled,
+      willRequestApproval: policy.enabled && affectsAllApps,
+    },
+  };
+}
+
+export async function getWorkspaceResourceEffectiveContext(input: {
+  resourceId?: string;
+  path?: string;
+  appId?: string | null;
+  userEmail?: string | null;
+}): Promise<WorkspaceResourceEffectiveContext> {
+  const ctx = requireWorkspaceResourceCtx();
+  const appId = input.appId?.trim() || null;
+  const userEmail = input.userEmail?.trim() || ctx.ownerEmail;
+
+  let row: MaterializableWorkspaceResource | null = null;
+  if (input.resourceId) {
+    row = await getWorkspaceResource(input.resourceId, ctx);
+  }
+  const path = input.path?.trim() || row?.path;
+  if (!path) {
+    throw new Error("Provide a workspace resource id or path.");
+  }
+  if (!row) {
+    row = await getWorkspaceResourceByPath(path, ctx);
+  }
+
+  if (row?.scope === "all") {
+    await materializeGlobalResource(row);
+  }
+
+  const coreContext: EffectiveResourceContext = await resourceEffectiveContext(
+    userEmail,
+    path,
+  );
+  const resource = row ? workspaceResourceOption(row) : null;
+  const activeGrant =
+    resource?.scope === "selected" && appId
+      ? (await listResourceGrants({ resourceId: resource.id, appId })).find(
+          (grant) => grant.status === "active",
+        )
+      : null;
+  const availability = effectiveAvailability({
+    resource,
+    appId,
+    activeGrantId: activeGrant?.id ?? null,
+  });
+
+  return {
+    appId,
+    userEmail,
+    path,
+    workspaceResource: resource,
+    ...availability,
+    activeGrantId: activeGrant?.id ?? null,
+    effectiveScope: coreContext.effectiveScope,
+    effectiveResource: coreContext.effectiveResource,
+    layers: coreContext.layers,
+  };
+}
+
 export async function getWorkspaceResource(
   resourceId: string,
   ctx: WorkspaceResourceCtx = requireWorkspaceResourceCtx(),
@@ -719,16 +1019,19 @@ export async function getWorkspaceResource(
   return row ?? null;
 }
 
-export async function createWorkspaceResource(input: WorkspaceResourceInput) {
+export async function applyWorkspaceResourceCreate(
+  input: WorkspaceResourceInput,
+  actor = currentOwnerEmail(),
+  ctx: WorkspaceResourceCtx = requireWorkspaceResourceCtx(),
+) {
   const db = getDb();
   const timestamp = now();
   const resourceId = id();
-  const actor = currentOwnerEmail();
 
   await db.insert(schema.workspaceResources).values({
     id: resourceId,
-    ownerEmail: actor,
-    orgId: currentOrgId(),
+    ownerEmail: ctx.ownerEmail,
+    orgId: ctx.orgId,
     kind: input.kind,
     name: input.name,
     description: input.description || null,
@@ -745,21 +1048,45 @@ export async function createWorkspaceResource(input: WorkspaceResourceInput) {
     targetType: `workspace-${input.kind}`,
     targetId: resourceId,
     summary: `Created workspace ${input.kind} "${input.name}" (${input.path})`,
+    actor,
+    ownerEmail: ctx.ownerEmail,
+    orgId: ctx.orgId,
   });
 
-  const created = await getWorkspaceResource(resourceId);
+  const created = await getWorkspaceResource(resourceId, ctx);
   if (created) await materializeGlobalResource(created);
   return created;
 }
 
-export async function updateWorkspaceResource(
+export async function createWorkspaceResource(input: WorkspaceResourceInput) {
+  if (
+    await shouldRequestAllAppResourceApproval({
+      beforeScope: null,
+      afterScope: input.scope,
+    })
+  ) {
+    return createApprovalRequest({
+      changeType: "workspace-resource.create",
+      targetType: `workspace-${input.kind}`,
+      targetId: null,
+      summary: `Create All-app workspace ${input.kind} "${input.name}"`,
+      payload: { input },
+      beforeValue: null,
+      afterValue: input,
+    });
+  }
+  return applyWorkspaceResourceCreate(input);
+}
+
+export async function applyWorkspaceResourceUpdate(
   resourceId: string,
   input: Partial<
     Pick<WorkspaceResourceInput, "name" | "description" | "content" | "scope">
   >,
+  actor = currentOwnerEmail(),
+  ctx: WorkspaceResourceCtx = requireWorkspaceResourceCtx(),
 ) {
   const db = getDb();
-  const ctx = requireWorkspaceResourceCtx();
   const existing = await getWorkspaceResource(resourceId, ctx);
   if (!existing) throw new Error("Workspace resource not found");
 
@@ -785,6 +1112,9 @@ export async function updateWorkspaceResource(
     targetType: `workspace-${existing.kind}`,
     targetId: resourceId,
     summary: `Updated workspace ${existing.kind} "${input.name || existing.name}"`,
+    actor,
+    ownerEmail: ctx.ownerEmail,
+    orgId: ctx.orgId,
   });
 
   const updated = await getWorkspaceResource(resourceId, ctx);
@@ -792,9 +1122,41 @@ export async function updateWorkspaceResource(
   return updated;
 }
 
-export async function deleteWorkspaceResource(resourceId: string) {
-  const db = getDb();
+export async function updateWorkspaceResource(
+  resourceId: string,
+  input: Partial<
+    Pick<WorkspaceResourceInput, "name" | "description" | "content" | "scope">
+  >,
+) {
   const ctx = requireWorkspaceResourceCtx();
+  const existing = await getWorkspaceResource(resourceId, ctx);
+  if (!existing) throw new Error("Workspace resource not found");
+  const after = mergedWorkspaceResourceAfter(existing, input);
+  if (
+    await shouldRequestAllAppResourceApproval({
+      beforeScope: existing.scope,
+      afterScope: after.scope,
+    })
+  ) {
+    return createApprovalRequest({
+      changeType: "workspace-resource.update",
+      targetType: `workspace-${existing.kind}`,
+      targetId: resourceId,
+      summary: `Update All-app workspace ${existing.kind} "${after.name}"`,
+      payload: { id: resourceId, input },
+      beforeValue: existing,
+      afterValue: after,
+    });
+  }
+  return applyWorkspaceResourceUpdate(resourceId, input);
+}
+
+export async function applyWorkspaceResourceDelete(
+  resourceId: string,
+  actor = currentOwnerEmail(),
+  ctx: WorkspaceResourceCtx = requireWorkspaceResourceCtx(),
+) {
+  const db = getDb();
   const existing = await getWorkspaceResource(resourceId, ctx);
   if (!existing) throw new Error("Workspace resource not found");
 
@@ -822,9 +1184,35 @@ export async function deleteWorkspaceResource(resourceId: string) {
     targetType: `workspace-${existing.kind}`,
     targetId: resourceId,
     summary: `Deleted workspace ${existing.kind} "${existing.name}" (${existing.path})`,
+    actor,
+    ownerEmail: ctx.ownerEmail,
+    orgId: ctx.orgId,
   });
 
   return existing;
+}
+
+export async function deleteWorkspaceResource(resourceId: string) {
+  const ctx = requireWorkspaceResourceCtx();
+  const existing = await getWorkspaceResource(resourceId, ctx);
+  if (!existing) throw new Error("Workspace resource not found");
+  if (
+    await shouldRequestAllAppResourceApproval({
+      beforeScope: existing.scope,
+      afterScope: null,
+    })
+  ) {
+    return createApprovalRequest({
+      changeType: "workspace-resource.delete",
+      targetType: `workspace-${existing.kind}`,
+      targetId: resourceId,
+      summary: `Delete All-app workspace ${existing.kind} "${existing.name}"`,
+      payload: { id: resourceId },
+      beforeValue: existing,
+      afterValue: null,
+    });
+  }
+  return applyWorkspaceResourceDelete(resourceId);
 }
 
 // ─── Grants ──────────────────────────────────────────────────────

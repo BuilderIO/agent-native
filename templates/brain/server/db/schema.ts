@@ -11,7 +11,7 @@ export const brainSources = table("brain_sources", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   provider: text("provider", {
-    enum: ["manual", "generic", "clips", "slack", "granola"],
+    enum: ["manual", "generic", "clips", "slack", "granola", "github"],
   })
     .notNull()
     .default("manual"),

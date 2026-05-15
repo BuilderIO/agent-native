@@ -2,10 +2,16 @@ import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC,
   type ActiveWebviewTarget,
+  type CodeAgentCreateRunRequest,
+  type CodeAgentCreateRunResult,
+  type CodeAgentFollowUpRequest,
+  type CodeAgentFollowUpResult,
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
   type CodeAgentMigrationRun,
   type CodeAgentRunListResult,
+  type CodeAgentTranscriptRequest,
+  type CodeAgentTranscriptResult,
   type CodeAgentTerminalRequest,
   type CodeAgentTerminalResult,
   type DesktopOpenRequest,
@@ -111,6 +117,18 @@ const electronAPI = {
   codeAgents: {
     listRuns: (goalId?: string): Promise<CodeAgentRunListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_RUNS, goalId),
+    createRun: (
+      request: CodeAgentCreateRunRequest,
+    ): Promise<CodeAgentCreateRunResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_CREATE_RUN, request),
+    readTranscript: (
+      request: CodeAgentTranscriptRequest,
+    ): Promise<CodeAgentTranscriptResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_READ_TRANSCRIPT, request),
+    appendFollowUp: (
+      request: CodeAgentFollowUpRequest,
+    ): Promise<CodeAgentFollowUpResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_APPEND_FOLLOW_UP, request),
     controlRun: (
       goalId: string,
       runId: string,

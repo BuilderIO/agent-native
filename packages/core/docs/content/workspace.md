@@ -60,11 +60,11 @@ Resources have three runtime scopes:
 - **Shared / organization** — visible to all users in the app or organization. Good for app/team instructions, skills, and shared config.
 - **Workspace** — inherited global defaults managed from Dispatch Resources. Good for company facts, positioning, brand guidelines, global guardrails, and workspace-wide skills. Apps read these at runtime; they are not copied into each app.
 
-The in-app Workspace panel edits personal and shared/organization resources. Workspace-scope resources are edited centrally from Dispatch so every app sees the same canonical files.
+The in-app Workspace panel shows all three scopes. Personal and shared/organization resources are editable there. Workspace-scope resources are read-only in app panels and edited centrally from Dispatch, so every app sees the same canonical files without a sync step.
 
 ## Workspace Panel {#workspace-panel}
 
-The agent panel includes a **Workspace** tab alongside Chat and CLI. This panel lets users browse, create, edit, and delete workspace resources. It displays a tree view of all resources organized by folder path.
+The agent panel includes a **Workspace** tab alongside Chat and CLI. This panel lets users browse workspace resources, create/edit/delete personal or organization resources, and view inherited workspace defaults. It displays a tree view of all resources organized by folder path.
 
 Resources can be any text file — Markdown, JSON, YAML, plain text. The panel includes an inline editor for viewing and modifying resource content directly.
 
@@ -75,10 +75,23 @@ The `+` menu in Workspace supports typed creation flows for:
 - **Agents** — custom sub-agent profiles under `agents/*.md`
 - **Scheduled Tasks** — recurring jobs under `jobs/`
 
-Workspace resources come in two scopes:
+Workspace resources appear in three scopes:
 
+- **Workspace** — inherited from Dispatch by every app; read-only in app panels
+- **Organization** — visible across the team/org
 - **Personal** — visible only to the current user
-- **Shared** — visible across the team/org
+
+When you open a resource, the editor shows an **Effective context** strip with the precedence stack:
+
+```text
+workspace default -> organization/app override -> personal override
+```
+
+If the same path exists at multiple levels, the later level wins. For example, `instructions/guardrails.md` in Personal overrides the organization version, which overrides the workspace default. Workspace resources are still visible in the stack so users can see what was inherited and why an override is active.
+
+Dispatch shows the same model from the control-plane side. On the **Resources** page, expand a resource and use **Effective in app** to choose an app and optional user email. The preview reports whether the resource is inherited by all apps or selected-only, and which layer is active for that exact path. From an app card's **Context** dialog, expand **Stack** on any resource row to see the same winner/override chain for that app.
+
+When Dispatch approval policy is enabled, creating, updating, or deleting an **All apps** resource queues an approval request instead of applying immediately. The create/edit/delete dialogs show an impact preview before save: whether the change reaches all apps, whether approval is required, and whether the same path is overridden at the organization/app or personal layer.
 
 Click the `?` icon in the Workspace toolbar to jump back to these docs at any time.
 
@@ -106,13 +119,13 @@ Change how the agent behaves, in 60 seconds.
 
 ## How the Agent Uses Resources {#how-the-agent-uses-resources}
 
-The agent has built-in tools for managing resources: `resource-list`, `resource-read`, `resource-write`, and `resource-delete`. These are available in both dev and production modes.
+The agent has built-in tools for managing resources: `resource-list`, `resource-read`, `resource-effective`, `resource-write`, and `resource-delete`. These are available in both dev and production modes.
 
 At the start of every conversation, the agent automatically reads:
 
 ### AGENTS.md {#agents-md}
 
-A shared resource seeded by default. It contains custom instructions, preferences, and skill references. Edit this to change how the agent behaves for all users — tone, rules, domain context, and which skills to use.
+An instruction resource seeded by default. The agent loads `AGENTS.md` from workspace, shared/organization, and personal scopes in that order. Edit the workspace version from Dispatch for company-wide defaults, the shared/app version for team or app-specific rules, and the personal version for per-user preferences.
 
 ```text
 # Agent Instructions
@@ -135,7 +148,7 @@ Be concise. Lead with the answer.
 
 ### Global Instructions {#global-instructions}
 
-Use shared `AGENTS.md` for the main workspace-wide instruction layer. Use shared files under `instructions/` for separate guardrail documents that should also apply every turn, such as compliance rules, customer-facing tone, escalation policy, or brand voice.
+Use workspace `AGENTS.md` for company-wide defaults, shared `AGENTS.md` for app/team rules, and personal `AGENTS.md` for per-user preferences. Use files under `instructions/` for separate guardrail documents that should also apply every turn, such as compliance rules, customer-facing tone, escalation policy, or brand voice. These files use the same workspace -> organization/app -> personal precedence.
 
 For example:
 
@@ -145,11 +158,11 @@ instructions/customer-support-guardrails.md
 instructions/legal-review-policy.md
 ```
 
-Both normal chat and integration-triggered agent runs load these shared instruction resources before responding.
+Both normal chat and integration-triggered agent runs load these instruction resources before responding.
 
 ### Reference Resources {#reference-resources}
 
-Put reusable company context under `context/`: personas, positioning, messaging, product facts, customer proof points, brand guidelines, competitive notes, and similar material. The agent sees an index of shared reference resources and reads the relevant file with `resource-read` when a task may depend on it.
+Put reusable company context under `context/`: personas, positioning, messaging, product facts, customer proof points, brand guidelines, competitive notes, and similar material. The agent sees an index of workspace and shared reference resources and reads the relevant file with `resource-read` when a task may depend on it. Use `resource-effective --path "context/brand.md"` when you need to see whether a workspace default is overridden by an organization/app or personal resource.
 
 Examples:
 
@@ -171,6 +184,14 @@ skills/company-voice/SKILL.md   # on-demand guidance for customer-facing writing
 ```
 
 Keep `context/` files factual and easy to skim. Put rules that must apply every turn in `instructions/guardrails.md`. Use `skills/company-voice/SKILL.md` when the agent should deliberately transform or review copy in the company's voice.
+
+To override a global default for one app or team, create a shared/organization resource in that app with the same path. To override it for one person, create a personal resource with the same path. Do not copy the workspace file into every app; the runtime resolves the stack on read:
+
+```text
+workspace context/brand.md
+-> shared/app context/brand.md
+-> personal context/brand.md
+```
 
 Example contents:
 
@@ -259,6 +280,20 @@ The resource system also seeds a personal `LEARNINGS.md` for compatibility with 
 | `context/…`        | Shared   | Humans / agent on request | Indexed every turn, read when relevant |
 
 Users can edit these memory files directly in the Workspace tab — they're regular resources. Delete lines the agent got wrong, keep personal preferences in `memory/MEMORY.md`, or promote team-wide rules into `AGENTS.md`.
+
+## Workspace Connections {#workspace-connections}
+
+Workspace Connections are the reusable integration metadata layer for apps that
+need the same third-party account. A connection records the provider, account
+label, status, scopes, allowed app slugs, and credential references in portable
+SQL. Secrets stay in the scoped credential store; connection records should only
+point at credential keys such as `SLACK_BOT_TOKEN` or `GITHUB_TOKEN`.
+
+This is the foundation for “connect once, use everywhere”: Brain can ingest
+approved repositories, Analytics can analyze the same provider later, and
+Dispatch can remain the control plane for sharing credentials and policy. The
+initial API lives in `@agent-native/core/workspace-connections` and is scoped by
+the active request user/org.
 
 ## Skills {#skills}
 
@@ -402,16 +437,17 @@ Resources can be managed from server code, actions, or the REST API.
 
 REST endpoints mounted automatically:
 
-| Method   | Endpoint                                   | Description                        |
-| -------- | ------------------------------------------ | ---------------------------------- |
-| `GET`    | `/_agent-native/resources?scope=all`       | List resources                     |
-| `GET`    | `/_agent-native/resources?scope=workspace` | List inherited workspace resources |
-| `GET`    | `/_agent-native/resources/tree?scope=all`  | Get folder tree                    |
-| `POST`   | `/_agent-native/resources`                 | Create a resource                  |
-| `GET`    | `/_agent-native/resources/:id`             | Get resource with content          |
-| `PUT`    | `/_agent-native/resources/:id`             | Update a resource                  |
-| `DELETE` | `/_agent-native/resources/:id`             | Delete a resource                  |
-| `POST`   | `/_agent-native/resources/upload`          | Upload a file as resource          |
+| Method   | Endpoint                                      | Description                          |
+| -------- | --------------------------------------------- | ------------------------------------ |
+| `GET`    | `/_agent-native/resources?scope=all`          | List resources                       |
+| `GET`    | `/_agent-native/resources?scope=workspace`    | List inherited workspace resources   |
+| `GET`    | `/_agent-native/resources/tree?scope=all`     | Get folder tree                      |
+| `GET`    | `/_agent-native/resources/effective?path=...` | Show the effective inheritance stack |
+| `POST`   | `/_agent-native/resources`                    | Create a resource                    |
+| `GET`    | `/_agent-native/resources/:id`                | Get resource with content            |
+| `PUT`    | `/_agent-native/resources/:id`                | Update a resource                    |
+| `DELETE` | `/_agent-native/resources/:id`                | Delete a resource                    |
+| `POST`   | `/_agent-native/resources/upload`             | Upload a file as resource            |
 
 ### Action API {#script-api}
 
@@ -426,6 +462,9 @@ pnpm action resource-read --path "skills/my-skill/SKILL.md"
 
 # Read inherited workspace context managed by Dispatch
 pnpm action resource-read --scope workspace --path "context/brand.md"
+
+# Show workspace -> organization/app -> personal precedence for a path
+pnpm action resource-effective --path "context/brand.md"
 
 # Write a resource
 pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes..."

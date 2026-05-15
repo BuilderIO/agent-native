@@ -1,9 +1,28 @@
 # Agent-Native Brain
 
-Brain is a public first-party template for whole-company institutional memory.
-It ingests approved Slack channels, Clips recordings, Granola meeting notes, and
-generic transcript/webhook payloads, then distills them into cited, reviewable
-SQL-backed knowledge.
+Brain is a public first-party template for Company Brain: whole-company
+institutional memory for agents and humans. V1 ingests approved Slack channels,
+Clips recordings, Granola meeting notes, and generic transcript/webhook
+payloads, then distills them into cited, reviewable SQL-backed knowledge.
+
+The product direction is intentionally Glean-shaped, but the shipped V1 is not a
+full enterprise search replacement. Brain starts with open-source company memory
+over distilled knowledge, then expands toward universal, permission-aware
+workspace search.
+
+## Version Direction
+
+- **V1 Company Brain:** SQL-backed search over reviewed, distilled knowledge
+  with exact evidence quotes and source links.
+- **V1.5 Search:** a Search route and `search-everything` action for searching
+  distilled knowledge, raw captures, and source records together. Agents should
+  use it as the broad first pass, then open records with `get-knowledge` or
+  `get-capture`.
+- **V2 platform direction:** reusable workspace connections, federated search
+  across apps and sources, permission-aware result ranking, and an expertise
+  graph as a future/platform layer.
+- **Portability:** V1 uses portable SQL text search and agentic query expansion.
+  There is no vector database requirement.
 
 ## Start
 
@@ -27,8 +46,24 @@ pnpm --filter brain build
    `RawCapturePayload` to `/api/_agent-native/brain/ingest`.
 3. Ask the agent to distill the capture with `write-knowledge`.
 4. Review queued proposals in the Review route or with `approve-proposal`.
-5. Ask Brain or another workspace agent to call `search-knowledge` and
-   `get-knowledge` for cited answers.
+5. Ask Brain or another workspace agent to search broadly with
+   `search-everything` when the V1.5 search surface is available, then drill
+   into `get-knowledge` / `get-capture` for cited answers. In V1-only
+   workspaces, use `search-knowledge` and `get-knowledge`.
+
+## Agent Retrieval Pattern
+
+Agents should treat Brain as cited company memory, not a guess engine:
+
+- Start with `search-everything` for broad questions so knowledge, raw captures,
+  and sources can all be considered.
+- Use `get-knowledge` for reviewed facts, decisions, policies, and durable
+  summaries.
+- Use `get-capture` when the answer needs source context, exact quote checking,
+  or a direct link back to a meeting/transcript/message.
+- Cite links from evidence or capture metadata whenever available.
+- If Brain does not contain supporting results, say that the answer was not
+  found instead of filling in from general knowledge.
 
 ## Slack Source Config
 
@@ -64,6 +99,28 @@ pnpm --filter brain action test-slack-connection \
 This calls Slack `auth.test` and optional channel metadata checks only. It never
 calls `conversations.history`.
 
+For a fuller rollout report, use the Slack pilot workflow:
+
+```bash
+pnpm --filter brain action run-slack-pilot \
+  --sourceId <source-id>
+```
+
+The default pilot validates credentials and allow-listed channels, summarizes
+guardrails, privacy exclusions, current knowledge/proposal counts, and next
+steps, and still reads no history. Only run a tiny sample sync when explicitly
+requested:
+
+```bash
+pnpm --filter brain action run-slack-pilot \
+  --sourceId <source-id> \
+  --readHistory true
+```
+
+Pilot sync caps reads to two validated channels, one history page per channel,
+ten messages per page, ten permalinks, `autoSync: false`, and a recent default
+history window.
+
 ## Granola Source Config
 
 Granola uses the scoped `GRANOLA_API_KEY` credential and polls
@@ -81,6 +138,30 @@ pnpm --filter brain action create-source \
 Brain persists Granola cursors in the source cursor JSON and normalizes note
 summary, transcript, attendees, calendar metadata, and `web_url` into raw
 captures.
+
+## GitHub Source Config
+
+GitHub is Brain's first reusable connector proof. It uses the scoped
+`GITHUB_TOKEN` credential and imports bounded issue/PR context from configured
+repositories through GitHub's REST API. This is company context for Brain
+ingestion, not full GitHub analytics, and can later consume Workspace
+Connections when that platform layer is available.
+
+```bash
+pnpm --filter brain action create-source \
+  --title "GitHub product repos" \
+  --provider github \
+  --visibility org \
+  --config '{"repositories":["owner/repo"],"state":"all","limit":25}'
+```
+
+Useful config keys:
+
+- `repositories` or `repos`: repository slugs like `owner/repo`.
+- `state`: `open`, `closed`, or `all`; defaults to `all`.
+- `limit`: bounded page size per repository, capped by the connector.
+- `includeIssues` / `includePullRequests`: disable either side when a source
+  should capture only issues or only PRs.
 
 ## Scheduled Sync
 

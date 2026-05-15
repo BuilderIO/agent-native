@@ -129,6 +129,21 @@ export {
   type UsageRecentEntry,
 } from "./usage/store.js";
 
+// Workspace-scoped third-party connection metadata
+export {
+  deleteWorkspaceConnection,
+  getWorkspaceConnection,
+  listWorkspaceConnections,
+  serializeWorkspaceConnection,
+  upsertWorkspaceConnection,
+  type ListWorkspaceConnectionsOptions,
+  type SerializedWorkspaceConnection,
+  type UpsertWorkspaceConnectionInput,
+  type WorkspaceConnection,
+  type WorkspaceConnectionCredentialRef,
+  type WorkspaceConnectionStatus,
+} from "./workspace-connections/index.js";
+
 // Scripts
 export {
   runScript,

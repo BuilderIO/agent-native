@@ -1,17 +1,22 @@
 ---
-title: "Code Agents /migrate Goal"
-description: "Use the built-in Code Agents /migrate goal to assess, plan, approve, and verify app migrations."
+title: "Code Agents Workspace and /migrate"
+description: "Use the open-source Code Agents workspace for coding sessions, including the built-in /migrate capability."
 ---
 
-# Code Agents /migrate Goal
+# Code Agents Workspace and /migrate
 
-Start migration through **Code Agents**:
+Start from **Code Agents**:
 
 ```bash
+npx @agent-native/core@latest
+npx @agent-native/core@latest "fix the failing auth tests"
+npx @agent-native/core@latest code
+npx @agent-native/core@latest code "fix the failing auth tests"
+npx @agent-native/core@latest code attach --last
 npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 ```
 
-**Code Agents** is the product surface for long-running coding work. `/migrate` is a built-in Code Agents goal for moving an existing app, URL, or described product into agent-native. It uses the same long-running harness as the desktop Code Agents hub and the CLI `code` command, so migration behaves like a goal you can resume, inspect, and stop rather than a separate one-off product.
+**Code Agents** is the open-source Claude Code/Codex-like workspace for coding work in Agent-Native. `agent-native` or `agent-native code` launches it with no prompt required, and a bare prompt starts a generic coding task directly. `/migrate` is one built-in capability for moving an existing app, URL, or described product into agent-native. It uses the same session store, transcript, and desktop hub as the CLI `code` command, so migration behaves like a goal you can resume, attach to, inspect, and stop rather than a separate one-off product.
 
 By default `/migrate` creates a generic Code Agents session plus a portable migration dossier. The hidden `migration` app is now a legacy/internal detail surface, available with `--app-surface` when a run needs a richer assessment/approval/task/verifier dashboard. It is not the migration product and should not be scaffolded as a normal app/template.
 
@@ -20,6 +25,39 @@ The direct `migrate` command remains a shortcut into the same goal:
 ```bash
 npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app
 ```
+
+## Code Workspace
+
+`agent-native code` opens the interactive Code Agents shell for coding-agent work. You do not need to pass an initial prompt:
+
+```bash
+npx @agent-native/core@latest code
+```
+
+Inside the shell, type a task or use slash goals as commands:
+
+```text
+code> fix the failing auth tests
+code> /task fix the failing auth tests
+code> /migrate ./my-next-app --out ../migrated-app
+code> /audit --url https://example.com
+```
+
+The same goals can run directly from the command line:
+
+```bash
+npx @agent-native/core@latest "fix the failing auth tests"
+npx @agent-native/core@latest code "fix the failing auth tests"
+npx @agent-native/core@latest code exec "fix the failing auth tests"
+npx @agent-native/core@latest code -p "fix the failing auth tests"
+npx @agent-native/core@latest code /task "fix the failing auth tests"
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /audit --url https://example.com
+```
+
+Run `agent-native code goals` to see the goals registered in your checkout. `/task` starts a local coding-agent session for open-ended code work, streams the run, records transcript/status/tool events, and accepts follow-up prompts through the same run record.
+
+Bare `agent-native` launches the Code Agents workspace in this branch, and `agent-native "prompt"` starts a generic Code Agents task directly, matching the Codex/Claude Code habit of treating unknown text as a coding prompt. If an installed version does not include that top-level entrypoint yet, run `agent-native code` directly.
 
 ## Input Shapes
 
@@ -74,12 +112,19 @@ Useful CLI helpers:
 
 ```bash
 npx @agent-native/core@latest code status --last
+npx @agent-native/core@latest code list
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
 npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code --continue "check the auth edge cases next"
+npx @agent-native/core@latest code resume --last "check the auth edge cases next"
 npx @agent-native/core@latest code ui --last
 npx @agent-native/core@latest code stop --last
 ```
 
-`stop` does not kill an unknown background process. It reminds you to stop the terminal or Desktop/dev-all process that owns the internal run surface.
+`attach --last` follows a live transcript until the run reaches a terminal state, while `logs --last` prints the transcript once. `resume --last` reopens the latest run handoff. Passing a quoted prompt, or using `--continue "prompt"`, records it as a follow-up transcript event and, for executable goals such as `/task`, immediately runs that follow-up against the same session context.
+
+`stop` marks the run paused and sends SIGTERM when the run has a tracked Desktop/CLI runner process id. If the active work belongs to another terminal or external agent, stop that owner directly.
 
 ## Long-Running Goals
 
@@ -99,7 +144,7 @@ In Code Agents, Desktop, or the internal run surface, connect providers through 
 
 ## Code Agents
 
-Agent-Native Desktop includes a **Code Agents** hub for long-running coding-agent sessions. `/migrate` is a built-in goal there: the hub can show runs, filter by active, approval, issues, or complete status, open the goal surface for a selected run, and handle links like:
+Agent-Native Desktop includes a **Code Agents** hub for long-running coding-agent sessions. It is the general Code app/surface in Desktop, and it pairs with the `agent-native code` shell as the primary CLI/Desktop coding experience. `/task` is the generic executable coding session, and `/migrate` is one specialized capability there: the hub can show runs, filter by active, approval, issues, or complete status, tail transcripts, render tool events, send follow-up prompts, stop tracked runners, open a terminal in the run workspace, and handle links like:
 
 ```text
 agentnative://open?goal=migrate&run=<runId>
@@ -117,7 +162,7 @@ The hub also includes `/audit`, a lightweight native goal backed by `agent-nativ
 npx @agent-native/core@latest code /audit --url https://example.com
 ```
 
-The hub exposes the same generic run controls the CLI does: resume opens the goal surface, status refreshes the run list, and stop reports how to stop the owning terminal or `dev-all` process for goals that are not daemonized yet. Browser/Desktop approval remains the trust gate for generated output writes. Future coding goals can reuse the same CLI and desktop shell by registering another slash goal.
+The hub exposes the same generic run controls the CLI does: resume opens the goal surface or reattaches to the run, a quoted resume prompt records and executes follow-up feedback for executable goals, status refreshes the run list, and stop reports or stops the owning process when one is known. Browser/Desktop approval remains the trust gate for generated output writes. Future coding goals can reuse the same CLI and desktop shell by registering another slash goal.
 
 ## Emit Mode
 

@@ -215,4 +215,10 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         ON dispatch_dream_proposals (dream_id, status);
     `,
   },
+  {
+    version: 4,
+    sql: `
+      ALTER TABLE dispatch_dreams ADD COLUMN source_health TEXT;
+    `,
+  },
 ];

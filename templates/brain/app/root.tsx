@@ -100,6 +100,7 @@ function DbSyncSetup() {
     queryClient: qc,
     queryKeys: [
       "action",
+      "search-everything",
       "search-knowledge",
       "list-proposals",
       "review-proposal",
@@ -138,6 +139,9 @@ function AppContent() {
         <CommandMenu.Group heading="Navigate">
           <CommandMenu.Item onSelect={() => navigate("/")}>
             Ask Brain
+          </CommandMenu.Item>
+          <CommandMenu.Item onSelect={() => navigate("/search")}>
+            Search
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/knowledge")}>
             Knowledge

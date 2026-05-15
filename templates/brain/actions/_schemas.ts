@@ -6,6 +6,7 @@ export const sourceProviderSchema = z.enum([
   "clips",
   "slack",
   "granola",
+  "github",
 ]);
 
 export const captureKindSchema = z.enum([

@@ -13,6 +13,13 @@ const mocks = vi.hoisted(() => ({
   resourceGetByPath: vi.fn(),
   resourceList: vi.fn(),
   resourcePut: vi.fn(),
+  getOrgSetting: vi.fn(),
+  getUserSetting: vi.fn(),
+  putOrgSetting: vi.fn(),
+  putUserSetting: vi.fn(),
+  createWorkspaceResource: vi.fn(),
+  listWorkspaceResources: vi.fn(),
+  updateWorkspaceResource: vi.fn(),
 }));
 
 vi.mock("../../db/index.js", async () => {
@@ -48,13 +55,29 @@ vi.mock("@agent-native/core/resources/store", () => ({
   resourcePut: mocks.resourcePut,
 }));
 
+vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: mocks.getOrgSetting,
+  getUserSetting: mocks.getUserSetting,
+  putOrgSetting: mocks.putOrgSetting,
+  putUserSetting: mocks.putUserSetting,
+}));
+
+vi.mock("./workspace-resources-store.js", () => ({
+  createWorkspaceResource: mocks.createWorkspaceResource,
+  listWorkspaceResources: mocks.listWorkspaceResources,
+  updateWorkspaceResource: mocks.updateWorkspaceResource,
+}));
+
 import { schema } from "../../db/index.js";
 import {
   applyApprovedDreamProposal,
   applyDreamProposal,
   buildProposalInputs,
   ensureDreamJob,
+  getDreamSettings,
   listDreamCandidates,
+  previewDreamProposal,
+  setDreamSettings,
   type DreamCandidate,
   type DreamEvidence,
 } from "./dreams-store.js";
@@ -241,6 +264,34 @@ beforeEach(() => {
       mimeType = "text/markdown",
     ) => resourceWithMime(path, content, owner, mimeType),
   );
+  mocks.getOrgSetting.mockResolvedValue(null);
+  mocks.getUserSetting.mockResolvedValue(null);
+  mocks.putOrgSetting.mockResolvedValue(undefined);
+  mocks.putUserSetting.mockResolvedValue(undefined);
+  mocks.listWorkspaceResources.mockResolvedValue([]);
+  mocks.createWorkspaceResource.mockImplementation(async (input) => ({
+    id: `workspace-${input.path}`,
+    ownerEmail: "owner@example.test",
+    orgId: null,
+    createdBy: "owner@example.test",
+    createdAt: 1,
+    updatedAt: 2,
+    ...input,
+  }));
+  mocks.updateWorkspaceResource.mockImplementation(
+    async (resourceId, input) => ({
+      id: resourceId,
+      ownerEmail: "owner@example.test",
+      orgId: null,
+      kind: "instruction",
+      path: "instructions/existing.md",
+      scope: "all",
+      createdBy: "owner@example.test",
+      createdAt: 1,
+      updatedAt: 2,
+      ...input,
+    }),
+  );
   mocks.getDb.mockReturnValue(createDbMock());
 });
 
@@ -297,7 +348,12 @@ describe("listDreamCandidates", () => {
 
     expect(result.candidateCount).toBe(1);
     expect(result.errors).toEqual([
-      { threadId: "thread-2", message: "debug unavailable" },
+      expect.objectContaining({
+        threadId: "thread-2",
+        sourceId: "current",
+        message: "debug unavailable",
+        timedOut: false,
+      }),
     ]);
     const candidate = result.candidates[0]!;
     expect(candidate.evidenceCounts.rememberRequests).toBe(1);
@@ -391,6 +447,7 @@ describe("listDreamCandidates", () => {
       allSources: true,
       limit: 5,
       sourceTimeoutMs: 5,
+      sourceStartStaggerMs: 0,
     });
 
     expect(result.source).toMatchObject({ id: "all" });
@@ -401,12 +458,15 @@ describe("listDreamCandidates", () => {
         expect.objectContaining({
           sourceId: "voice",
           status: "ok",
+          timeoutMs: 5,
+          threadErrorCount: 0,
           inspectedThreadCount: 1,
           candidateCount: 1,
         }),
         expect.objectContaining({
           sourceId: "mail",
           status: "timed_out",
+          timeoutMs: 5,
           inspectedThreadCount: 0,
           candidateCount: 0,
         }),
@@ -419,6 +479,70 @@ describe("listDreamCandidates", () => {
           message: "Timed out after 5ms",
         }),
       ]),
+    );
+  });
+
+  it("keeps source scans partial when one thread debug read times out", async () => {
+    mocks.searchAgentThreads.mockResolvedValue({
+      source: { id: "current", label: "Current Dispatch DB" },
+      access: { mode: "local" },
+      query: null,
+      threads: [{ id: "thread-ok" }, { id: "thread-hangs" }],
+    });
+    mocks.getAgentThreadDebug.mockImplementation(async ({ threadId }) => {
+      if (threadId === "thread-hangs") {
+        await new Promise(() => undefined);
+      }
+      return {
+        thread: {
+          id: "thread-ok",
+          ownerEmail: "owner@example.test",
+          title: "Remember correction",
+          preview: "remember",
+          messageCount: 1,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        messages: [
+          {
+            role: "user",
+            text: "Remember that source scans should keep partial thread results.",
+            index: 0,
+            createdAt: 1,
+          },
+        ],
+        runs: [],
+        feedback: [],
+        evals: [],
+        satisfaction: [],
+        checkpoints: [],
+      };
+    });
+
+    const result = await listDreamCandidates({
+      limit: 5,
+      sourceTimeoutMs: 50,
+      threadTimeoutMs: 5,
+    });
+
+    expect(result.candidateCount).toBe(1);
+    expect(result.inspectedThreadCount).toBe(2);
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        threadId: "thread-hangs",
+        sourceId: "current",
+        timedOut: true,
+        message: "Timed out after 5ms",
+      }),
+    ]);
+    expect(result.sources[0]).toEqual(
+      expect.objectContaining({
+        sourceId: "current",
+        status: "ok",
+        inspectedThreadCount: 2,
+        candidateCount: 1,
+        threadErrorCount: 1,
+      }),
     );
   });
 
@@ -606,9 +730,104 @@ describe("buildProposalInputs", () => {
       "Routed personal-memory dream proposals to shared learnings",
     );
   });
+
+  it("proposes workspace instructions from repeated corrections", () => {
+    const result = buildProposalInputs(
+      [
+        candidateWithEvidence([
+          explicitEvidence({
+            threadId: "thread-1",
+            snippet: "Actually use actions first",
+          }),
+        ]),
+        candidateWithEvidence([
+          explicitEvidence({
+            threadId: "thread-2",
+            snippet:
+              "Remember to use workspace resources for shared instructions",
+          }),
+          explicitEvidence({
+            threadId: "thread-2",
+            snippet: "From now on, keep dream proposals reviewable",
+          }),
+        ]),
+      ],
+      {
+        personalIndex: "",
+        personalNotes: [],
+        sharedLearnings: "",
+      },
+    );
+
+    expect(result.proposals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetType: "workspace-instruction",
+          targetPath: expect.stringMatching(
+            /^instructions\/dream-corrections-/,
+          ),
+          risk: "medium",
+        }),
+      ]),
+    );
+  });
 });
 
 describe("applyDreamProposal", () => {
+  it("previews workspace proposal target content and approval behavior", async () => {
+    mocks.getApprovalPolicy.mockResolvedValue({
+      enabled: true,
+      approverEmails: ["admin@example.test"],
+    });
+    mocks.getDb.mockReturnValue(
+      createDbMock(
+        pendingProposal({
+          targetType: "workspace-instruction",
+          targetPath: "instructions/dream-corrections.md",
+          title: "Create workspace instruction from repeated corrections",
+          summary:
+            "Repeated corrections should become a workspace instruction.",
+          content: "# Proposed instruction\n\nUse reviewed guidance.",
+        }),
+      ),
+    );
+    mocks.listWorkspaceResources.mockResolvedValue([
+      {
+        id: "workspace-existing",
+        ownerEmail: "owner@example.test",
+        orgId: null,
+        kind: "instruction",
+        name: "Existing instruction",
+        description: "Existing",
+        path: "instructions/dream-corrections.md",
+        content: "# Existing instruction\n",
+        scope: "all",
+        createdBy: "owner@example.test",
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ]);
+
+    const preview = await previewDreamProposal("proposal-1");
+
+    expect(preview).toMatchObject({
+      operation: "update",
+      targetExists: true,
+      currentContent: "# Existing instruction\n",
+      proposedContent: expect.stringContaining("Proposed instruction"),
+      target: {
+        kind: "instruction",
+        resourceId: "workspace-existing",
+        path: "instructions/dream-corrections.md",
+      },
+      approval: {
+        required: true,
+        policyEnabled: true,
+        willRequestApproval: true,
+      },
+    });
+  });
+
   it("writes personal memory and updates the memory index before auditing", async () => {
     mocks.getDb.mockReturnValue(createDbMock(pendingProposal()));
     mocks.resourceGetByPath.mockImplementation(async (_owner, path) => {
@@ -728,6 +947,44 @@ describe("applyDreamProposal", () => {
       }),
     );
   });
+
+  it("creates all-scope workspace resources for approved workspace proposals", async () => {
+    mocks.getDb.mockReturnValue(
+      createDbMock(
+        pendingProposal({
+          status: "approval_requested",
+          targetType: "workspace-instruction",
+          targetPath: "instructions/dream-corrections.md",
+          title: "Create workspace instruction from repeated corrections",
+          summary:
+            "Repeated corrections should become a workspace instruction.",
+          content: "# Dream instruction\n\nUse reviewed workspace guidance.",
+        }),
+      ),
+    );
+
+    const result = await applyApprovedDreamProposal(
+      "proposal-1",
+      "admin@example.test",
+      { ownerEmail: "owner@example.test", orgId: null },
+    );
+
+    expect(mocks.createWorkspaceResource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "instruction",
+        path: "instructions/dream-corrections.md",
+        scope: "all",
+        content: expect.stringContaining("Dream instruction"),
+      }),
+    );
+    expect(result.proposal.status).toBe("applied");
+    expect(mocks.recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "dream.proposal.applied",
+        actor: "admin@example.test",
+      }),
+    );
+  });
 });
 
 describe("ensureDreamJob", () => {
@@ -746,13 +1003,21 @@ describe("ensureDreamJob", () => {
       "text/markdown",
       expect.objectContaining({
         createdBy: "agent",
-        metadata: { sourceId: "current", query: "memory", limit: 12 },
+        metadata: expect.objectContaining({
+          sourceId: "current",
+          query: "memory",
+          limit: 12,
+          sourceTimeoutMs: 30000,
+        }),
       }),
     );
     expect(result).toMatchObject({
       path: "jobs/dispatch-dream.md",
       schedule: "0 10 * * 2",
       runAs: "creator",
+      sourceId: "current",
+      query: "memory",
+      limit: 12,
     });
   });
 
@@ -761,5 +1026,72 @@ describe("ensureDreamJob", () => {
       "Invalid cron expression",
     );
     expect(mocks.resourcePut).not.toHaveBeenCalled();
+  });
+
+  it("persists recurring dream settings", async () => {
+    mocks.getUserSetting.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      enabled: true,
+      schedule: "0 8 * * 1",
+      sourceId: "all",
+      allSources: true,
+      limit: 9,
+      sourceTimeoutMs: 45000,
+      minCandidateCount: 3,
+    });
+
+    const result = await setDreamSettings({
+      enabled: true,
+      schedule: "0 8 * * 1",
+      sourceId: "all",
+      allSources: true,
+      limit: 9,
+      sourceTimeoutMs: 45000,
+      minCandidateCount: 3,
+    });
+
+    expect(mocks.putUserSetting).toHaveBeenCalledWith(
+      "owner@example.test",
+      "dispatch-dream-settings",
+      expect.objectContaining({
+        enabled: true,
+        schedule: "0 8 * * 1",
+        sourceId: "all",
+        allSources: true,
+        limit: 9,
+        sourceTimeoutMs: 45000,
+        minCandidateCount: 3,
+      }),
+    );
+    expect(result).toMatchObject({
+      enabled: true,
+      schedule: "0 8 * * 1",
+      sourceId: "all",
+      allSources: true,
+      limit: 9,
+      sourceTimeoutMs: 45000,
+      minCandidateCount: 3,
+    });
+  });
+
+  it("reads persisted recurring dream settings", async () => {
+    mocks.getUserSetting.mockResolvedValue({
+      enabled: true,
+      schedule: "0 8 * * 1",
+      sourceId: "voice",
+      allSources: false,
+      limit: 7,
+      sourceTimeoutMs: 20000,
+      minCandidateCount: 2,
+    });
+
+    await expect(getDreamSettings()).resolves.toMatchObject({
+      enabled: true,
+      schedule: "0 8 * * 1",
+      sourceId: "voice",
+      allSources: false,
+      limit: 7,
+      sourceTimeoutMs: 20000,
+      minCandidateCount: 2,
+    });
   });
 });

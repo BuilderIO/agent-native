@@ -29,6 +29,7 @@ import { serializeFrontmatter } from "../../resources/metadata.js";
 import {
   useResourceTree,
   useResource,
+  useEffectiveResourceContext,
   useCreateResource,
   useUpdateResource,
   useDeleteResource,
@@ -37,6 +38,7 @@ import {
   withAgentScratchFolder,
   type ResourceScope,
   type ResourceMeta,
+  type EffectiveResourceContext,
 } from "./use-resources.js";
 import {
   formatMcpServerError,
@@ -966,6 +968,83 @@ Create skill files under \`skills/<name>/SKILL.md\` to give the agent specialize
 Workspace resources are for files users intentionally add, edit, or manage. Agents may create hidden \`agent_scratch\` resources for temporary working notes, scripts, or intermediate results; only promote those files into workspace visibility when a user explicitly asks to keep them.
 `;
 
+const WORKSPACE_RESOURCE_OWNER = "__workspace__";
+const SHARED_RESOURCE_OWNER = "__shared__";
+
+function EffectiveContextPanel({
+  context,
+  isLoading,
+}: {
+  context?: EffectiveResourceContext;
+  isLoading: boolean;
+}) {
+  if (isLoading && !context) {
+    return (
+      <div className="border-b border-border bg-muted/20 px-3 py-2">
+        <div className="h-3 w-40 animate-pulse rounded bg-muted-foreground/10" />
+      </div>
+    );
+  }
+
+  if (!context) return null;
+
+  return (
+    <div className="border-b border-border bg-muted/20 px-3 py-2">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+          Effective context
+        </span>
+        <span className="truncate text-[11px] text-muted-foreground/60">
+          Active: {context.effectiveScope ?? "none"}
+        </span>
+      </div>
+      <div className="grid gap-1 sm:grid-cols-3">
+        {context.layers.map((layer) => {
+          const state = layer.effective
+            ? "Active"
+            : layer.overridden
+              ? "Overridden"
+              : layer.exists
+                ? "Available"
+                : "No file";
+          return (
+            <div
+              key={layer.scope}
+              className={cn(
+                "rounded-md border px-2 py-1.5",
+                layer.effective
+                  ? "border-foreground/20 bg-background"
+                  : "border-border/70 bg-background/50",
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-[11px] font-medium text-foreground">
+                  {layer.label}
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 text-[10px]",
+                    layer.effective
+                      ? "text-foreground"
+                      : layer.overridden
+                        ? "text-muted-foreground"
+                        : "text-muted-foreground/60",
+                  )}
+                >
+                  {state}
+                </span>
+              </div>
+              <div className="mt-0.5 truncate text-[10px] text-muted-foreground/60">
+                {layer.resource?.path ?? context.path}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // BuilderBrowserCard moved to settings/BrowserSection.tsx
 
 export function ResourcesPanel() {
@@ -1008,6 +1087,7 @@ export function ResourcesPanel() {
   const personalTreeQuery = useResourceTree("personal", {
     includeAgentScratch: showAgentScratch,
   });
+  const workspaceTreeQuery = useResourceTree("workspace");
   const mcpServersQuery = useMcpServers();
   const createMcpServer = useCreateMcpServer();
   const deleteMcpServer = useDeleteMcpServer();
@@ -1031,6 +1111,7 @@ export function ResourcesPanel() {
     ),
     { show: showAgentScratch },
   );
+  const workspaceTree = workspaceTreeQuery.data ?? [];
 
   const orgRole = mcpServersQuery.data?.role ?? org?.role ?? null;
   const hasOrgForMcp = !!(mcpServersQuery.data?.orgId ?? org?.orgId);
@@ -1065,10 +1146,17 @@ export function ResourcesPanel() {
       ? selectedResourceId
       : null,
   );
+  const effectiveContextQuery = useEffectiveResourceContext(
+    resourceQuery.data?.path ?? null,
+  );
   const createResource = useCreateResource();
   const updateResource = useUpdateResource();
   const deleteResource = useDeleteResource();
   const uploadResource = useUploadResource();
+  const selectedResourceReadOnly =
+    !!resourceQuery.data &&
+    (resourceQuery.data.owner === WORKSPACE_RESOURCE_OWNER ||
+      (resourceQuery.data.owner === SHARED_RESOURCE_OWNER && !canEditOrg));
 
   // Ensure AGENTS.md exists in the organization scope when the panel opens.
   // The server also seeds it on table init; this is a safety net. Only attempt
@@ -1092,7 +1180,6 @@ export function ResourcesPanel() {
 
   // Are we viewing a file (editor) or the tree?
   const isEditing = selectedResourceId !== null;
-  const isMcpSelected = !!selectedMcpServer;
 
   const handleSelect = useCallback((resource: ResourceMeta) => {
     setSelectedResourceId(resource.id);
@@ -1200,9 +1287,10 @@ export function ResourcesPanel() {
   const handleSave = useCallback(
     (content: string) => {
       if (!selectedResourceId) return;
+      if (selectedResourceReadOnly) return;
       updateResource.mutate({ id: selectedResourceId, content });
     },
-    [updateResource, selectedResourceId],
+    [updateResource, selectedResourceId, selectedResourceReadOnly],
   );
 
   const handleUploadFiles = useCallback(
@@ -1284,11 +1372,13 @@ export function ResourcesPanel() {
                 aria-live="polite"
                 className="mr-1 w-16 text-right text-[11px] text-muted-foreground/60"
               >
-                {saveStatus === "saving"
-                  ? "Saving..."
-                  : saveStatus === "saved"
-                    ? "Saved"
-                    : ""}
+                {selectedResourceReadOnly
+                  ? "Read only"
+                  : saveStatus === "saving"
+                    ? "Saving..."
+                    : saveStatus === "saved"
+                      ? "Saved"
+                      : ""}
               </span>
             )}
             {!selectedMcpServer &&
@@ -1334,40 +1424,42 @@ export function ResourcesPanel() {
                   </TooltipProvider>
                 </div>
               )}
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => {
-                      if (!selectedResourceId) return;
-                      if (toolbarDeleteConfirmId === selectedResourceId) {
-                        handleDelete(selectedResourceId);
-                        setToolbarDeleteConfirmId(null);
-                      } else {
-                        setToolbarDeleteConfirmId(selectedResourceId);
+            {!selectedResourceReadOnly && (
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => {
+                        if (!selectedResourceId) return;
+                        if (toolbarDeleteConfirmId === selectedResourceId) {
+                          handleDelete(selectedResourceId);
+                          setToolbarDeleteConfirmId(null);
+                        } else {
+                          setToolbarDeleteConfirmId(selectedResourceId);
+                        }
+                      }}
+                      aria-label={
+                        toolbarDeleteConfirmId === selectedResourceId
+                          ? "Confirm delete resource"
+                          : "Delete resource"
                       }
-                    }}
-                    aria-label={
-                      toolbarDeleteConfirmId === selectedResourceId
-                        ? "Confirm delete resource"
-                        : "Delete resource"
-                    }
-                    className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-accent/50",
-                      toolbarDeleteConfirmId === selectedResourceId &&
-                        "bg-destructive/10 text-destructive",
-                    )}
-                  >
-                    <IconTrash className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {toolbarDeleteConfirmId === selectedResourceId
-                    ? "Click again to delete"
-                    : "Delete resource"}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+                      className={cn(
+                        "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-accent/50",
+                        toolbarDeleteConfirmId === selectedResourceId &&
+                          "bg-destructive/10 text-destructive",
+                      )}
+                    >
+                      <IconTrash className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {toolbarDeleteConfirmId === selectedResourceId
+                      ? "Click again to delete"
+                      : "Delete resource"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
           </div>
         </div>
       ) : (
@@ -1462,7 +1554,11 @@ export function ResourcesPanel() {
               <McpServerDetail server={selectedMcpServer} />
             </div>
           ) : selectedResourceId && resourceQuery.data ? (
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+              <EffectiveContextPanel
+                context={effectiveContextQuery.data}
+                isLoading={effectiveContextQuery.isLoading}
+              />
               <ResourceEditor
                 resource={resourceQuery.data}
                 onSave={handleSave}
@@ -1470,6 +1566,7 @@ export function ResourcesPanel() {
                 onViewChange={setEditorView}
                 onSaveStatusChange={setSaveStatus}
                 hideToolbar
+                readOnly={selectedResourceReadOnly}
               />
             </div>
           ) : resourceQuery.isError ? (
@@ -1485,6 +1582,8 @@ export function ResourcesPanel() {
           <div className="flex-1 min-h-0 overflow-y-auto">
             {!personalTreeQuery.isLoading &&
               !sharedTreeQuery.isLoading &&
+              !workspaceTreeQuery.isLoading &&
+              workspaceTree.length === 0 &&
               (personalTreeQuery.data ?? []).length === 0 &&
               (sharedTreeQuery.data ?? []).length === 0 && (
                 <div className="mx-2 mt-2 rounded-md border border-border bg-muted/30 p-2.5 text-[11px] text-muted-foreground">
@@ -1493,15 +1592,18 @@ export function ResourcesPanel() {
                   </p>
                   <p className="mb-1.5 leading-snug">
                     Files the agent reads and writes — notes, instructions,
-                    skills, custom agents, scheduled jobs. They live in the
-                    database, so they persist across sessions and deploys.
+                    skills, custom agents, scheduled jobs, and inherited
+                    workspace context. They live in the database, so they
+                    persist across sessions and deploys.
                   </p>
                   <p className="mb-2 leading-snug">
-                    <span className="text-foreground">Personal</span> is just
-                    for you.{" "}
+                    <span className="text-foreground">Workspace</span> is
+                    inherited from Dispatch.{" "}
                     <span className="text-foreground">Organization</span> is
                     visible to everyone in your organization
-                    {org?.orgId ? " — only admins can edit." : "."}
+                    {org?.orgId ? " — only admins can edit. " : ". "}
+                    <span className="text-foreground">Personal</span> is just
+                    for you.
                   </p>
                   <a
                     href={WORKSPACE_DOCS_URL}
@@ -1515,8 +1617,8 @@ export function ResourcesPanel() {
                 </div>
               )}
             <ResourceTree
-              tree={personalTree}
-              isLoading={personalTreeQuery.isLoading}
+              tree={workspaceTree}
+              isLoading={workspaceTreeQuery.isLoading}
               deletingId={
                 deleteResource.isPending
                   ? (deleteResource.variables as string)
@@ -1526,17 +1628,15 @@ export function ResourcesPanel() {
               }
               selectedId={selectedResourceId}
               onSelect={handleSelect}
-              onCreateFile={(parentPath, name) =>
-                handleCreateFile(parentPath, name, "personal")
-              }
-              onCreateFolder={(parentPath, name) =>
-                handleCreateFolder(parentPath, name, "personal")
-              }
-              onDelete={handleDelete}
-              onRename={handleRename}
-              onDrop={handleUploadFiles}
-              title="Personal"
-              titleTooltip="Files visible only to you"
+              onCreateFile={() => {}}
+              onCreateFolder={() => {}}
+              onDelete={() => {}}
+              onRename={() => {}}
+              onDrop={() => {}}
+              title="Workspace"
+              titleTooltip="Global resources inherited from Dispatch by every app. Read-only here."
+              readOnly
+              headingHint="Inherited"
             />
             <ResourceTree
               tree={sharedTree}
@@ -1567,6 +1667,30 @@ export function ResourcesPanel() {
               }
               readOnly={!canEditOrg}
               headingHint={!canEditOrg ? "Read only" : undefined}
+            />
+            <ResourceTree
+              tree={personalTree}
+              isLoading={personalTreeQuery.isLoading}
+              deletingId={
+                deleteResource.isPending
+                  ? (deleteResource.variables as string)
+                  : deleteMcpServer.isPending
+                    ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
+                    : null
+              }
+              selectedId={selectedResourceId}
+              onSelect={handleSelect}
+              onCreateFile={(parentPath, name) =>
+                handleCreateFile(parentPath, name, "personal")
+              }
+              onCreateFolder={(parentPath, name) =>
+                handleCreateFolder(parentPath, name, "personal")
+              }
+              onDelete={handleDelete}
+              onRename={handleRename}
+              onDrop={handleUploadFiles}
+              title="Personal"
+              titleTooltip="Files visible only to you"
             />
           </div>
         )}

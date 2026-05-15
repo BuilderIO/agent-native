@@ -81,6 +81,7 @@ import {
   getMethod,
   getQuery,
   getHeader,
+  type H3Event,
 } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
 import { getSession } from "./auth.js";
@@ -895,15 +896,17 @@ async function createResourceScriptEntries(): Promise<
   Record<string, ActionEntry>
 > {
   try {
-    const [list, read, write, del, saveMem, delMem, store] = await Promise.all([
-      import("../scripts/resources/list.js"),
-      import("../scripts/resources/read.js"),
-      import("../scripts/resources/write.js"),
-      import("../scripts/resources/delete.js"),
-      import("../scripts/resources/save-memory.js"),
-      import("../scripts/resources/delete-memory.js"),
-      import("../resources/store.js"),
-    ]);
+    const [list, read, effective, write, del, saveMem, delMem, store] =
+      await Promise.all([
+        import("../scripts/resources/list.js"),
+        import("../scripts/resources/read.js"),
+        import("../scripts/resources/effective.js"),
+        import("../scripts/resources/write.js"),
+        import("../scripts/resources/delete.js"),
+        import("../scripts/resources/save-memory.js"),
+        import("../scripts/resources/delete-memory.js"),
+        import("../resources/store.js"),
+      ]);
 
     // Wrap each CLI runner so it captures stdout and converts args properly
     const listEntry = wrapCliScript(
@@ -929,6 +932,14 @@ async function createResourceScriptEntries(): Promise<
       },
       write.default,
     );
+    const effectiveEntry = wrapCliScript(
+      {
+        description: "",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      effective.default,
+      { readOnly: true },
+    );
     const deleteEntry = wrapCliScript(
       {
         description: "",
@@ -941,14 +952,21 @@ async function createResourceScriptEntries(): Promise<
       resources: {
         tool: {
           description:
-            'Manage workspace resources. Actions: "list" (browse visible files), "read" (get contents), "write" (create/update), "promote" (make agent scratch visible), "delete" (remove). Agent scratch writes are hidden from the Workspace view by default; use visibility="workspace" only for files the user explicitly wants to keep/manage.',
+            'Manage workspace resources. Actions: "list" (browse visible files), "read" (get contents), "effective" (show workspace -> organization/app -> personal inheritance for a path), "write" (create/update personal or shared), "promote" (make agent scratch visible), "delete" (remove personal or shared). Agent scratch writes are hidden from the Workspace view by default; use visibility="workspace" only for files the user explicitly wants to keep/manage.',
           parameters: {
             type: "object",
             properties: {
               action: {
                 type: "string",
                 description: "The operation to perform",
-                enum: ["list", "read", "write", "promote", "delete"],
+                enum: [
+                  "list",
+                  "read",
+                  "effective",
+                  "write",
+                  "promote",
+                  "delete",
+                ],
               },
               path: {
                 type: "string",
@@ -962,8 +980,8 @@ async function createResourceScriptEntries(): Promise<
               scope: {
                 type: "string",
                 description:
-                  "personal, shared, or all (default varies by action)",
-                enum: ["personal", "shared", "all"],
+                  "personal, shared, workspace, or all (default varies by action). Workspace is read-only and inherited from Dispatch.",
+                enum: ["personal", "shared", "workspace", "all"],
               },
               prefix: {
                 type: "string",
@@ -1002,6 +1020,10 @@ async function createResourceScriptEntries(): Promise<
             if (!rest.path) return "Error: path is required for read";
             return readEntry.run(rest);
           }
+          if (a === "effective") {
+            if (!rest.path) return "Error: path is required for effective";
+            return effectiveEntry.run(rest);
+          }
           if (a === "write") {
             if (
               !rest.path ||
@@ -1022,6 +1044,9 @@ async function createResourceScriptEntries(): Promise<
           if (a === "promote") {
             if (!rest.path) return "Error: path is required for promote";
             const scope = rest.scope ?? "personal";
+            if (scope === "workspace" || scope === "all") {
+              return "Error: promote supports personal or shared scope only";
+            }
             const owner =
               scope === "shared"
                 ? store.SHARED_OWNER
@@ -1827,7 +1852,8 @@ const FRAMEWORK_CORE_COMPACT = `
 
 ### Resources
 
-Use resource-list, resource-read, resource-write, resource-delete for persistent notes and context files.
+Use resource-list, resource-read, resource-effective, resource-write, resource-delete for persistent notes and context files.
+Resources have three levels: workspace defaults inherited from Dispatch, shared organization/app overrides, and personal overrides. Use resource-effective before editing when you need to explain or inspect which level is active for a path.
 Workspace resources are user-facing by default. If you need temporary working files, write them as agent scratch (\`visibility: "agent_scratch"\`); scratch is hidden from the Workspace view by default and expires. Use \`visibility: "workspace"\` only when the user explicitly asked to save/manage that file, or for durable AGENTS.md, LEARNINGS.md, memory, skills, jobs, or custom agents.
 
 ### Navigation Rule
@@ -2030,8 +2056,8 @@ const FRAMEWORK_CORE = `
 ### Resources
 
 You have access to a Resources system for persistent notes and context files.
-Use resource-list, resource-read, resource-write, resource-delete to manage resources.
-Resources can be personal (per-user) or shared (team-wide). By default, resources are personal.
+Use resource-list, resource-read, resource-effective, resource-write, resource-delete to manage resources.
+Resources can be workspace defaults inherited from Dispatch, shared organization/app overrides, or personal overrides. By default, resources are personal. Workspace-scope resources are read-only from app agents; create shared or personal resources to override or narrow them.
 
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
 
@@ -2436,6 +2462,19 @@ export async function loadResourcesForPrompt(
       "shared-instruction",
     )),
   );
+
+  // 5. Personal SQL resources. These come last in the instruction stack so a
+  // user can narrow or override organization/app and workspace defaults.
+  if (owner !== SHARED_OWNER && owner !== WORKSPACE_OWNER) {
+    const personalAgents = await loadAgentsResourceForPrompt(owner, "personal");
+    if (personalAgents) sections.push(personalAgents);
+    sections.push(
+      ...(await loadInstructionResourcesForPrompt(
+        owner,
+        "personal-instruction",
+      )),
+    );
+  }
 
   const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner);
   if (resourceSkillsBlock) sections.push(resourceSkillsBlock);
@@ -5524,25 +5563,41 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             : {}),
         };
       };
+      const parseThreadRoute = (event: H3Event) => {
+        const candidates = [event.path, event.node?.req?.url].filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0,
+        );
+        for (const candidate of candidates) {
+          const path = candidate.split("?")[0];
+          const parts = path.replace(/^\/+/, "").split("/").filter(Boolean);
+          const threadsIndex = parts.lastIndexOf("threads");
+          if (threadsIndex >= 0) {
+            const encodedId = parts[threadsIndex + 1];
+            if (!encodedId) continue;
+            return {
+              threadId: decodeURIComponent(encodedId),
+              tail: parts.slice(threadsIndex + 2),
+            };
+          }
+          if (parts.length > 0) {
+            return {
+              threadId: decodeURIComponent(parts[0]),
+              tail: parts.slice(1),
+            };
+          }
+        }
+        return { threadId: null, tail: [] as string[] };
+      };
       getH3App(nitroApp).use(
         `${routePath}/threads`,
         defineEventHandler(async (event) => {
           const owner = await getOwnerFromEvent(event);
           const method = getMethod(event);
 
-          // Determine if this is a specific-thread request.
-          // h3's use() strips the mount prefix, so event.path contains
-          // only the remainder after /threads — e.g., "/thread-abc" or "/".
-          // We also check the original URL as a fallback.
-          const remainder = (event.path || "").replace(/^\/+/, "");
-          const fromUrl = (event.node?.req?.url || "").match(
-            /\/threads\/([^/?]+)/,
-          );
-          const threadId = remainder
-            ? decodeURIComponent(remainder.split("?")[0].split("/")[0])
-            : fromUrl
-              ? decodeURIComponent(fromUrl[1])
-              : null;
+          const { threadId, tail: threadTail } = parseThreadRoute(event);
+          const isThreadSubroute = (subroute: string) =>
+            threadTail[0] === subroute;
 
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
@@ -5614,12 +5669,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             // when the user adds/removes/dequeues a queued message. Keeps
             // queued messages durable across reloads without piggybacking
             // on full-thread saves.
-            if (
-              method === "POST" &&
-              /\/threads\/[^/?]+\/queued/.test(
-                event.node?.req?.url || event.path || "",
-              )
-            ) {
+            if (method === "POST" && isThreadSubroute("queued")) {
               const thread = await getThread(threadId);
               if (!thread || thread.ownerEmail !== owner) {
                 setResponseStatus(event, 404);
@@ -5634,12 +5684,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             }
 
             // POST /threads/:id/fork — duplicate a thread with all its messages
-            if (
-              method === "POST" &&
-              /\/threads\/[^/?]+\/fork/.test(
-                event.node?.req?.url || event.path || "",
-              )
-            ) {
+            if (method === "POST" && isThreadSubroute("fork")) {
               const body = await readBody(event);
               const forked = await forkThread(threadId, owner, {
                 id: body?.id,

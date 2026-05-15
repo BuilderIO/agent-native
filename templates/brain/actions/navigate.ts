@@ -10,6 +10,7 @@ export default defineAction({
       .enum([
         "home",
         "ask",
+        "search",
         "sources",
         "source",
         "capture",
@@ -24,6 +25,10 @@ export default defineAction({
     knowledgeId: z.string().optional(),
     proposalId: z.string().optional(),
     query: z.string().optional(),
+    type: z.enum(["knowledge", "capture", "source", "all"]).optional(),
+    provider: z.string().optional(),
+    status: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
   }),
   http: false,
   run: async (args) => {

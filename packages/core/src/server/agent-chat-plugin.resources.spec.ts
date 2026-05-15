@@ -48,6 +48,26 @@ const resourcesById = new Map([
     },
   ],
   [
+    "shared_instructions_guardrails",
+    {
+      id: "shared_instructions_guardrails",
+      path: "instructions/guardrails.md",
+      owner: "__shared__",
+      mimeType: "text/markdown",
+      content: "# Organization Guardrails\n\nNarrow workspace guardrails.",
+    },
+  ],
+  [
+    "personal_instructions_guardrails",
+    {
+      id: "personal_instructions_guardrails",
+      path: "instructions/guardrails.md",
+      owner: "user@example.test",
+      mimeType: "text/markdown",
+      content: "# Personal Guardrails\n\nPrefer concise local overrides.",
+    },
+  ],
+  [
     "context_brand",
     {
       id: "context_brand",
@@ -77,7 +97,29 @@ const resourcesById = new Map([
       owner: "__workspace__",
       mimeType: "text/markdown",
       content:
-        "---\nname: company-voice\ndescription: Use the company voice for customer-facing copy.\n---\n\n# Company Voice",
+        "---\nname: company-voice\ndescription: Workspace voice default.\n---\n\n# Company Voice",
+    },
+  ],
+  [
+    "shared_skills_company_voice",
+    {
+      id: "shared_skills_company_voice",
+      path: "skills/company-voice/SKILL.md",
+      owner: "__shared__",
+      mimeType: "text/markdown",
+      content:
+        "---\nname: company-voice\ndescription: Organization voice override.\n---\n\n# Company Voice",
+    },
+  ],
+  [
+    "personal_skills_company_voice",
+    {
+      id: "personal_skills_company_voice",
+      path: "skills/company-voice/SKILL.md",
+      owner: "user@example.test",
+      mimeType: "text/markdown",
+      content:
+        "---\nname: company-voice\ndescription: Personal voice override.\n---\n\n# Company Voice",
     },
   ],
 ]);
@@ -98,6 +140,11 @@ beforeEach(() => {
     if (owner === "__shared__" && path === "AGENTS.md") {
       return {
         content: "# Organization Instructions\n\nOverride workspace defaults.",
+      };
+    }
+    if (owner === "user@example.test" && path === "AGENTS.md") {
+      return {
+        content: "# Personal Instructions\n\nOverride organization defaults.",
       };
     }
     if (owner === "__shared__" && path === "LEARNINGS.md") {
@@ -129,19 +176,36 @@ beforeEach(() => {
         meta("context_messaging"),
       ];
     }
+    if (owner === "user@example.test") {
+      if (prefix === "instructions/") {
+        return [meta("personal_instructions_guardrails")];
+      }
+      if (prefix === "skills/") {
+        return [meta("personal_skills_company_voice")];
+      }
+      return [
+        { id: "personal_agents", path: "AGENTS.md", mimeType: "text/markdown" },
+        meta("personal_instructions_guardrails"),
+        meta("personal_skills_company_voice"),
+      ];
+    }
     if (owner !== "__shared__") return [];
     if (prefix === "instructions/") {
-      return [];
+      return [meta("shared_instructions_guardrails")];
     }
     if (prefix === "skills/") {
-      return [];
+      return [meta("shared_skills_company_voice")];
     }
     return [
       { id: "shared_agents", path: "AGENTS.md", mimeType: "text/markdown" },
+      meta("shared_instructions_guardrails"),
+      meta("shared_skills_company_voice"),
     ];
   });
   mocks.resourceListAccessible.mockResolvedValue([
     meta("skills_company_voice"),
+    meta("shared_skills_company_voice"),
+    meta("personal_skills_company_voice"),
   ]);
   mocks.resourceGet.mockImplementation(async (id) => resourcesById.get(id));
 });
@@ -155,13 +219,34 @@ describe("loadResourcesForPrompt", () => {
     );
     expect(prompt).toContain('<resource name="AGENTS.md" scope="workspace"');
     expect(prompt).toContain('<resource name="AGENTS.md" scope="shared"');
+    expect(prompt).toContain('<resource name="AGENTS.md" scope="personal"');
     expect(prompt).toContain(
       '<resource name="instructions/guardrails.md" scope="workspace-instruction"',
     );
+    expect(prompt).toContain(
+      '<resource name="instructions/guardrails.md" scope="shared-instruction"',
+    );
+    expect(prompt).toContain(
+      '<resource name="instructions/guardrails.md" scope="personal-instruction"',
+    );
     expect(prompt).toContain("Protect customer data.");
+    expect(prompt.indexOf('scope="workspace"')).toBeLessThan(
+      prompt.indexOf('scope="shared"'),
+    );
+    expect(prompt.indexOf('scope="shared"')).toBeLessThan(
+      prompt.indexOf('scope="personal"'),
+    );
+    expect(prompt.indexOf("Workspace Guardrails")).toBeLessThan(
+      prompt.indexOf("Organization Guardrails"),
+    );
+    expect(prompt.indexOf("Organization Guardrails")).toBeLessThan(
+      prompt.indexOf("Personal Guardrails"),
+    );
     expect(prompt).toContain("<resource-skills>");
     expect(prompt).toContain("`company-voice` at resource");
-    expect(prompt).toContain("(workspace)");
+    expect(prompt).toContain("(personal) - Personal voice override.");
+    expect(prompt).not.toContain("Workspace voice default.");
+    expect(prompt).not.toContain("Organization voice override.");
     expect(prompt).toContain('<workspace-resources scope="workspace">');
     expect(prompt).toContain("`context/brand.md` - Brand Guidelines");
     expect(prompt).toContain(

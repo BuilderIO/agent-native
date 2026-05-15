@@ -164,15 +164,29 @@ Want a single app, no monorepo? Use `--standalone`:
 npx @agent-native/core create my-app --standalone --template mail
 ```
 
-Migrating an existing app? Use the built-in Code Agents `/migrate` goal with a source path, URL, or description:
+Need a coding agent workspace? `agent-native` or `agent-native code` opens an open-source Claude Code/Codex-like Code workspace with no prompt required. From there, type a task, run slash goals interactively, or call them directly from your shell:
 
 ```bash
+npx @agent-native/core@latest
+npx @agent-native/core@latest "fix the failing auth tests"
+npx @agent-native/core@latest code
+npx @agent-native/core@latest code "fix the failing auth tests"
+npx @agent-native/core@latest code exec "fix the failing auth tests"
+npx @agent-native/core@latest code -p "fix the failing auth tests"
+npx @agent-native/core@latest code /task "fix the failing auth tests"
 npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 npx @agent-native/core@latest code /migrate ./my-next-app --emit ../migration-dossier
+npx @agent-native/core@latest code list
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
 npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code --continue "check the auth edge cases next"
+npx @agent-native/core@latest code resume --last "check the auth edge cases next"
 ```
 
-`agent-native migrate` still works as a direct shortcut; `code /migrate` is the Code Agents entrypoint for the migration goal. By default it creates a Code Agents session and portable migration dossier, not a scaffolded app/template. Use `--app-surface` only when you want the legacy hidden migration detail app for assessment, approval, tasks, artifacts, and verification.
+Slash goals can run from the interactive shell or directly from the command line, and `agent-native code goals` shows the goals registered in your checkout. `/task` starts a local coding-agent session, streams work, records transcript/status/tool events, and accepts follow-up prompts; `/migrate` is one specialized capability inside that general Code workspace. Bare `agent-native` launches the Code workspace in builds with the top-level entrypoint, while a bare prompt such as `agent-native "fix tests"` starts a Code Agents task directly.
+
+`agent-native migrate` still works as a direct shortcut; `code /migrate` is the Code Agents entrypoint for the migration goal. By default it creates a Code Agents session and portable migration dossier, not a scaffolded app/template. `resume --last` reopens the latest run handoff; adding a quoted prompt records it as a follow-up transcript event for that run so the next active Code Agent can pick it up. Use `--app-surface` only when you want the legacy hidden migration detail app for assessment, approval, tasks, artifacts, and verification.
 Use `--emit` when you want only the portable dossier for Codex, Claude Code, Cursor, or another coding agent.
 Code Agents also includes lightweight goals such as `/audit`:
 

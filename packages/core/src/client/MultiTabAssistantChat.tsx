@@ -1673,7 +1673,7 @@ export function MultiTabAssistantChat({
       const sourceSnapshot =
         chatRefs.current.get(sourceThreadId)?.exportThreadSnapshot() ?? null;
       const forkedId = await forkThread(sourceThreadId, sourceSnapshot);
-      if (!forkedId) return;
+      if (!forkedId) return false;
       setOpenTabIds((prev) => {
         const idx = prev.indexOf(sourceThreadId);
         if (idx !== -1) {
@@ -1684,6 +1684,7 @@ export function MultiTabAssistantChat({
         return [...prev, forkedId];
       });
       switchThread(forkedId);
+      return true;
     },
     [forkThread, switchThread],
   );

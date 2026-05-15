@@ -2,7 +2,10 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { listCodeAgentRunRecords } from "./code-agent-runs.js";
+import {
+  listCodeAgentRunRecords,
+  listCodeAgentTranscriptEvents,
+} from "./code-agent-runs.js";
 import {
   emitOwnAgentDossier,
   isExpectedMigrationCliError,
@@ -109,6 +112,9 @@ describe("parseMigrateArgs", () => {
       true,
     );
     expect(fs.existsSync(path.join(root, "migration"))).toBe(false);
+    expect(
+      listCodeAgentTranscriptEvents(runs[0].id).map((event) => event.kind),
+    ).toEqual(["user", "status", "artifact", "note", "status"]);
     expect(log.mock.calls.join("\n")).toContain(
       "Code Agents /migrate session created.",
     );

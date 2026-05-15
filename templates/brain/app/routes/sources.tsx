@@ -3,19 +3,22 @@ import { useSearchParams } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
+  IconBrandGithub,
   IconBrandSlack,
   IconDatabaseImport,
   IconFileText,
+  IconHistory,
   IconNotes,
   IconPlayerPlay,
   IconRefresh,
   IconSettings2,
+  IconShieldCheck,
   IconVideo,
   IconWebhook,
 } from "@tabler/icons-react";
 import {
   type BrainSource,
-  type SlackConnectionResponse,
+  type SlackPilotReport,
   type SourcesResponse,
   formatPercent,
   sourceAutoSync,
@@ -58,7 +61,7 @@ import {
   StatusBadge,
 } from "@/components/brain/Surface";
 
-type Provider = "manual" | "generic" | "clips" | "slack" | "granola";
+type Provider = "manual" | "generic" | "clips" | "slack" | "granola" | "github";
 
 interface SourceFormState {
   title: string;
@@ -67,6 +70,11 @@ interface SourceFormState {
   historyLimit: string;
   granolaPageSize: string;
   granolaUpdatedAfter: string;
+  githubRepos: string;
+  githubLimit: string;
+  githubState: "open" | "closed" | "all";
+  githubIncludeIssues: boolean;
+  githubIncludePullRequests: boolean;
   pollMinutes: string;
   sourceKey: string;
   autoSync: boolean;
@@ -90,6 +98,12 @@ const providers: Array<{
     label: "Granola",
     detail: "Enterprise API Team-space notes",
     icon: IconNotes,
+  },
+  {
+    value: "github",
+    label: "GitHub",
+    detail: "Approved repository issues and PRs",
+    icon: IconBrandGithub,
   },
   {
     value: "clips",
@@ -117,6 +131,8 @@ function defaultTitle(provider: Provider) {
       return "Slack knowledge channels";
     case "granola":
       return "Granola team notes";
+    case "github":
+      return "GitHub product repos";
     case "clips":
       return "Clips exports";
     case "generic":
@@ -135,9 +151,15 @@ function defaultForm(provider: Provider): SourceFormState {
     historyLimit: "15",
     granolaPageSize: "10",
     granolaUpdatedAfter: "",
+    githubRepos: "",
+    githubLimit: "25",
+    githubState: "all",
+    githubIncludeIssues: true,
+    githubIncludePullRequests: true,
     pollMinutes: "60",
     sourceKey: provider === "generic" || provider === "clips" ? provider : "",
-    autoSync: provider === "slack" || provider === "granola",
+    autoSync:
+      provider === "slack" || provider === "granola" || provider === "github",
     reviewRequired: true,
   };
 }
@@ -167,6 +189,17 @@ function formFromSource(source: BrainSource): SourceFormState {
         : "10",
     granolaUpdatedAfter:
       typeof config.updatedAfter === "string" ? config.updatedAfter : "",
+    githubRepos: listValue(config.repositories ?? config.repos),
+    githubLimit:
+      typeof config.limit === "number" || typeof config.limit === "string"
+        ? String(config.limit)
+        : "25",
+    githubState:
+      config.state === "open" || config.state === "closed"
+        ? config.state
+        : "all",
+    githubIncludeIssues: config.includeIssues !== false,
+    githubIncludePullRequests: config.includePullRequests !== false,
     pollMinutes:
       typeof config.pollMinutes === "number" ||
       typeof config.pollMinutes === "string"
@@ -212,6 +245,13 @@ function buildConfig(form: SourceFormState) {
       config.updatedAfter = form.granolaUpdatedAfter.trim();
     }
   }
+  if (form.provider === "github") {
+    config.repositories = splitLines(form.githubRepos);
+    config.state = form.githubState;
+    config.limit = numberValue(form.githubLimit, 25, 1, 100);
+    config.includeIssues = form.githubIncludeIssues;
+    config.includePullRequests = form.githubIncludePullRequests;
+  }
   if (form.sourceKey.trim()) config.sourceKey = form.sourceKey.trim();
   return config;
 }
@@ -245,14 +285,131 @@ function syncDetail(source: BrainSource) {
   return sourceAutoSync(source) ? "Waiting for first sync" : "Manual sync";
 }
 
+function metricValue(value: unknown) {
+  if (typeof value === "number") return value.toLocaleString();
+  if (typeof value === "string" && value.trim()) return value;
+  return "0";
+}
+
+function SlackPilotReportCard({ report }: { report: SlackPilotReport }) {
+  const visibleChannels = report.channelValidation.channels.slice(0, 3);
+  const stats = report.sync?.stats ?? {};
+  return (
+    <div className="rounded-md border border-border bg-background p-3 text-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-medium">
+            {report.status === "synced"
+              ? "Pilot sync complete"
+              : report.status === "validated"
+                ? "Pilot validated"
+                : report.status === "blocked"
+                  ? "Pilot blocked"
+                  : "Pilot needs attention"}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {report.credential.ok
+              ? `Slack ${report.credential.team ?? "workspace"} checked`
+              : report.credential.error}
+          </p>
+        </div>
+        <Badge variant={report.ok ? "secondary" : "outline"}>
+          {report.historyRead ? "History read" : "No history"}
+        </Badge>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+        <div className="rounded-md bg-muted/40 p-2">
+          <p className="text-muted-foreground">Channels OK</p>
+          <p className="mt-1 font-medium">{report.channelValidation.ok}</p>
+        </div>
+        <div className="rounded-md bg-muted/40 p-2">
+          <p className="text-muted-foreground">Captures</p>
+          <p className="mt-1 font-medium">{report.capturesCreated}</p>
+        </div>
+        <div className="rounded-md bg-muted/40 p-2">
+          <p className="text-muted-foreground">Pending</p>
+          <p className="mt-1 font-medium">{report.proposals.pending}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2">
+        {visibleChannels.length ? (
+          visibleChannels.map((channel) => (
+            <div
+              key={`${channel.ref}-${channel.id ?? channel.status}`}
+              className="flex items-start justify-between gap-3 rounded-md bg-muted/30 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium">
+                  {channel.name ? `#${channel.name}` : channel.ref}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {channel.message}
+                </p>
+              </div>
+              <Badge
+                variant={channel.status === "ok" ? "secondary" : "outline"}
+              >
+                {channel.status}
+              </Badge>
+            </div>
+          ))
+        ) : (
+          <p className="text-xs leading-5 text-muted-foreground">
+            Add channel IDs to the source allow-list before a pilot sync.
+          </p>
+        )}
+      </div>
+
+      {report.historyRead ? (
+        <div className="mt-3 grid gap-2 rounded-md border border-border p-3 text-xs">
+          <div className="grid grid-cols-3 gap-2">
+            <span>
+              Seen{" "}
+              <strong className="font-medium">
+                {metricValue(stats.messagesSeen)}
+              </strong>
+            </span>
+            <span>
+              Scanned{" "}
+              <strong className="font-medium">
+                {metricValue(stats.scannedChannels)}
+              </strong>
+            </span>
+            <span>
+              Limit{" "}
+              <strong className="font-medium">
+                {report.guardrails.historyLimit}
+              </strong>
+            </span>
+          </div>
+          <p className="leading-5 text-muted-foreground">
+            {report.sync?.message ?? "Pilot sync finished."}
+          </p>
+        </div>
+      ) : null}
+
+      <div className="mt-3 grid gap-1 text-xs leading-5 text-muted-foreground">
+        {report.privacyExclusions.slice(0, 2).map((item) => (
+          <p key={item}>{item}</p>
+        ))}
+        {report.nextSteps.slice(0, 2).map((item) => (
+          <p key={item}>{item}</p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function SourcesRoute() {
   const [params, setParams] = useSearchParams();
   const type = params.get("type") ?? "all";
   const [setupOpen, setSetupOpen] = useState(false);
   const [editingSource, setEditingSource] = useState<BrainSource | null>(null);
   const [form, setForm] = useState<SourceFormState>(() => defaultForm("slack"));
-  const [slackTestResult, setSlackTestResult] =
-    useState<SlackConnectionResponse | null>(null);
+  const [slackPilotReport, setSlackPilotReport] =
+    useState<SlackPilotReport | null>(null);
 
   const sourcesQuery = useActionQuery<SourcesResponse>(
     "list-sources" as any,
@@ -286,10 +443,10 @@ export default function SourcesRoute() {
   const syncDueSources = useActionMutation<unknown, { limit: number }>(
     "sync-due-sources" as any,
   );
-  const testSlackConnection = useActionMutation<
-    SlackConnectionResponse,
-    { sourceId: string; resolveNames: boolean }
-  >("test-slack-connection" as any);
+  const runSlackPilot = useActionMutation<
+    SlackPilotReport,
+    { sourceId: string; readHistory: boolean; resolveNames: boolean }
+  >("run-slack-pilot" as any);
 
   const sources = sourcesQuery.data?.sources ?? [];
   const sourceTypes = useMemo(
@@ -320,6 +477,7 @@ export default function SourcesRoute() {
       provider ??
       (type === "slack" ||
       type === "granola" ||
+      type === "github" ||
       type === "clips" ||
       type === "manual" ||
       type === "generic"
@@ -362,12 +520,16 @@ export default function SourcesRoute() {
     setSetupOpen(false);
   }
 
-  async function runSlackCredentialTest(source: BrainSource) {
-    const result = await testSlackConnection.mutateAsync({
+  async function runSlackPilotReport(
+    source: BrainSource,
+    readHistory: boolean,
+  ) {
+    const result = await runSlackPilot.mutateAsync({
       sourceId: source.id,
+      readHistory,
       resolveNames: false,
     });
-    setSlackTestResult(result);
+    setSlackPilotReport(result);
   }
 
   return (
@@ -375,7 +537,7 @@ export default function SourcesRoute() {
       <PageHeader
         eyebrow="Sources"
         title="Source configuration"
-        description="Connect approved Slack channels, Granola notes, Clips exports, and signed transcript feeds."
+        description="Connect approved Slack channels, Granola notes, GitHub repos, Clips exports, and signed transcript feeds."
         actions={
           <div className="flex flex-wrap gap-2">
             <Select value={type} onValueChange={updateType}>
@@ -540,17 +702,28 @@ export default function SourcesRoute() {
                         ? `Next ${shortDate(source.nextSyncAt)}`
                         : "Manual"}
                     </Badge>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       {source.provider === "slack" ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={testSlackConnection.isPending}
-                          onClick={() => runSlackCredentialTest(source)}
-                        >
-                          <IconBrandSlack className="size-4" />
-                          Test
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={runSlackPilot.isPending}
+                            onClick={() => runSlackPilotReport(source, false)}
+                          >
+                            <IconShieldCheck className="size-4" />
+                            Pilot
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={runSlackPilot.isPending}
+                            onClick={() => runSlackPilotReport(source, true)}
+                          >
+                            <IconHistory className="size-4" />
+                            Pilot sync
+                          </Button>
+                        </>
                       ) : null}
                       <Button
                         size="sm"
@@ -574,53 +747,8 @@ export default function SourcesRoute() {
                     </div>
                   </div>
 
-                  {slackTestResult?.sourceId === source.id ? (
-                    <div className="rounded-md border border-border bg-background p-3 text-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-medium">
-                          Slack token OK
-                          {slackTestResult.team
-                            ? ` for ${slackTestResult.team}`
-                            : ""}
-                        </p>
-                        <Badge variant="secondary">No history read</Badge>
-                      </div>
-                      <div className="mt-3 grid gap-2">
-                        {slackTestResult.channels.length ? (
-                          slackTestResult.channels.map((channel) => (
-                            <div
-                              key={channel.ref}
-                              className="flex items-start justify-between gap-3 rounded-md bg-muted/40 px-3 py-2"
-                            >
-                              <div className="min-w-0">
-                                <p className="truncate font-medium">
-                                  {channel.name
-                                    ? `#${channel.name}`
-                                    : channel.ref}
-                                </p>
-                                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                  {channel.message}
-                                </p>
-                              </div>
-                              <Badge
-                                variant={
-                                  channel.status === "ok"
-                                    ? "secondary"
-                                    : "outline"
-                                }
-                              >
-                                {channel.status}
-                              </Badge>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-xs leading-5 text-muted-foreground">
-                            Credential smoke only. Add channel IDs to validate
-                            allow-list safety.
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                  {slackPilotReport?.sourceId === source.id ? (
+                    <SlackPilotReportCard report={slackPilotReport} />
                   ) : null}
                 </CardContent>
               </Card>
@@ -632,7 +760,7 @@ export default function SourcesRoute() {
               title="Connect Brain's first source"
               detail="Start with Slack channels for product decisions, Granola Team-space notes, Clips exports, or a signed webhook."
             />
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {providers.map((provider) => {
                 const Icon = provider.icon;
                 return (
@@ -659,7 +787,7 @@ export default function SourcesRoute() {
         createSource.isError ||
         syncSource.isError ||
         syncDueSources.isError ||
-        testSlackConnection.isError ? (
+        runSlackPilot.isError ? (
           <div className="lg:col-span-3">
             <EmptyActionState
               title="Source action failed"
@@ -813,6 +941,95 @@ export default function SourcesRoute() {
                     Granola Enterprise API returns Team-space notes; private
                     notes are outside the API scope.
                   </p>
+                </div>
+              </div>
+            )}
+
+            {form.provider === "github" && (
+              <div className="grid gap-4 rounded-md border border-border p-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="github-repos">Approved repositories</Label>
+                  <Textarea
+                    id="github-repos"
+                    value={form.githubRepos}
+                    onChange={(event) =>
+                      updateForm({ githubRepos: event.target.value })
+                    }
+                    placeholder={"owner/repo\nhttps://github.com/owner/repo"}
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Brain imports bounded issue and pull request context from
+                    these repositories using the workspace GitHub credential.
+                  </p>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="github-state">State</Label>
+                    <Select
+                      value={form.githubState}
+                      onValueChange={(githubState) =>
+                        updateForm({
+                          githubState:
+                            githubState as SourceFormState["githubState"],
+                        })
+                      }
+                    >
+                      <SelectTrigger id="github-state">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="open">Open</SelectItem>
+                        <SelectItem value="closed">Closed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="github-limit">Items per repo</Label>
+                    <Input
+                      id="github-limit"
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={form.githubLimit}
+                      onChange={(event) =>
+                        updateForm({ githubLimit: event.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="github-poll-minutes">Poll minutes</Label>
+                    <Input
+                      id="github-poll-minutes"
+                      type="number"
+                      min={5}
+                      max={1440}
+                      value={form.pollMinutes}
+                      onChange={(event) =>
+                        updateForm({ pollMinutes: event.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-3 rounded-md bg-muted/30 p-3">
+                  <label className="flex items-center justify-between gap-3 text-sm">
+                    <span>Include issues</span>
+                    <Switch
+                      checked={form.githubIncludeIssues}
+                      onCheckedChange={(githubIncludeIssues) =>
+                        updateForm({ githubIncludeIssues })
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 text-sm">
+                    <span>Include pull requests</span>
+                    <Switch
+                      checked={form.githubIncludePullRequests}
+                      onCheckedChange={(githubIncludePullRequests) =>
+                        updateForm({ githubIncludePullRequests })
+                      }
+                    />
+                  </label>
                 </div>
               </div>
             )}

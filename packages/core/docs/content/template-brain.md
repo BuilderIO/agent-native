@@ -1,24 +1,49 @@
 ---
 title: "Brain"
-description: "A public first-party template for cited whole-company institutional memory."
+description: "A public first-party template for cited Company Brain memory and the foundation for universal workspace search."
 ---
 
 # Brain
 
-Brain is a first-party template for whole-company institutional memory. It ingests approved Slack channels, Clips recordings, Granola meeting notes, and generic transcript/webhook payloads, then turns that material into cited, reviewable knowledge an agent can search.
+Brain is a first-party template for Company Brain: whole-company institutional memory that agents and humans can search. V1 ingests approved Slack channels, Clips recordings, Granola meeting notes, and generic transcript/webhook payloads, then turns that material into cited, reviewable knowledge an agent can search.
 
 Use Brain when your team wants agents to answer questions like “why did we make this product decision?”, “how does this in-development feature work?”, or “what changed in this process?” with links back to the source conversation or meeting.
 
+Brain is intentionally on an open-source, Glean-shaped path, but it is not a
+complete Glean replacement today. V1 focuses on distilled company memory. V1.5
+adds a universal search surface for Brain's own knowledge, captures, and
+sources. V2 points toward reusable workspace connections, federated app/source
+search, permission-aware results, and an expertise graph as a future platform
+layer.
+
 ## What It Includes
 
-- **Approved sources.** Configure manual, generic webhook, Clips, Slack, and Granola source records. Slack is channel-oriented by design; DMs and MPIMs are not a scan target.
+- **Approved sources.** Configure manual, generic webhook, Clips, Slack, Granola, and GitHub source records. Slack is channel-oriented by design; DMs and MPIMs are not a scan target.
 - **Raw captures.** Store transcripts, channel exports, notes, and webhook imports in portable SQL with dedupe keys and source metadata.
 - **Distilled knowledge.** Write atomic entries with kind, topic, entities, confidence, exact evidence quotes, and supersede links.
 - **Review gating.** High-confidence non-sensitive entries can publish immediately; company-tier or sensitive entries can queue as proposals for approval.
-- **Cited retrieval.** `search-knowledge` and `get-knowledge` are exposed as public-agent-safe read actions so Dispatch and other apps can delegate company-memory questions.
+- **Cited retrieval.** V1 exposes `search-knowledge` and `get-knowledge` for distilled company memory. The V1.5 expansion adds a Search route and `search-everything` action for searching knowledge, raw captures, and source records together, then drilling into `get-knowledge` / `get-capture`.
 - **Ambient context.** Canonical approved entries can mirror into workspace resources under `context/company-brain/...` for cross-app context.
 
 Brain intentionally uses SQL text search and agentic query expansion for v1. There is no vector database requirement, so the template stays portable across SQLite, Postgres, Neon, D1, Turso, and similar hosts.
+
+## Search Model
+
+Brain search has three layers:
+
+- **V1 Company Brain search:** answer from reviewed, distilled knowledge first.
+  This is the trustworthy memory layer for decisions, policies, product facts,
+  processes, and durable summaries.
+- **V1.5 universal Brain search:** use `search-everything` as the broad first
+  pass across knowledge, raw captures, and sources. Then call `get-knowledge`
+  for reviewed entries or `get-capture` for exact source context and links.
+- **V2 federated workspace search:** reuse workspace connections and search
+  across apps/sources with permission-aware result filtering and ranking. The
+  expertise graph belongs to this future/platform layer.
+
+Agents should cite evidence links or source URLs whenever available. If Brain
+does not return support for a question, the agent should report that honestly
+instead of implying the company memory contains an answer.
 
 ## Scaffolding
 
@@ -75,6 +100,14 @@ Use `test-slack-connection` before a production backfill. It validates the
 Slack bot token with `auth.test` and, when channel refs are provided, checks
 channel metadata without reading message history.
 
+Use `run-slack-pilot` for a safer first-pass rollout report. The default action
+validates the Slack credential and allow-listed channels, reports guardrails,
+privacy exclusions, current knowledge/proposal counts, and next steps, and does
+not call `conversations.history`. Only pass `readHistory: true` when the user
+explicitly wants a tiny sample sync; the pilot caps the read to two validated
+channels, one page per channel, ten messages per page, ten permalinks,
+`autoSync: false`, and a recent default history window.
+
 ## Granola Polling
 
 Brain uses the scoped `GRANOLA_API_KEY` credential and polls Granola's public API
@@ -92,12 +125,32 @@ Granola Enterprise API keys expose Team-space notes, not private notes or
 private folders. Brain stores the note summary, transcript, attendees, calendar
 metadata, and source URL as a raw capture before distillation.
 
+## GitHub Connector
+
+GitHub is Brain's first reusable connector proof. It uses the scoped
+`GITHUB_TOKEN` credential and imports bounded issue and pull request context
+from approved repositories:
+
+```bash
+pnpm --filter brain action create-source \
+  --title "GitHub product repos" \
+  --provider github \
+  --visibility org \
+  --config '{"repositories":["owner/repo"],"state":"all","limit":25}'
+```
+
+The connector accepts `repositories` or `repos`, optional `state`, `limit`,
+`includeIssues`, and `includePullRequests`. Imported items become raw captures
+with stable source URLs and can be distilled like Slack or meeting context. This
+is intentionally Brain context ingestion, not a replacement for Analytics-style
+GitHub reporting.
+
 ## Scheduled Sync
 
-The Sources page includes a setup sheet for Slack, Granola, Clips, generic
-webhooks, and manual imports. Slack and Granola sources can opt into
-`autoSync` with a `pollMinutes` cadence. Use `sync-source` for a single source,
-`sync-due-sources` for all due accessible sources, or enable
+The Sources page includes a setup sheet for Slack, Granola, GitHub, Clips,
+generic webhooks, and manual imports. Slack, Granola, and GitHub sources can
+opt into `autoSync` with a `pollMinutes` cadence. Use `sync-source` for a
+single source, `sync-due-sources` for all due accessible sources, or enable
 `RUN_BACKGROUND_JOBS=1` locally to let the Brain background job poll due sources
 from the Nitro process.
 

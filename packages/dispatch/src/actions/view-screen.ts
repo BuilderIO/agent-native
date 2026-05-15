@@ -101,7 +101,6 @@ export default defineAction({
                   kind: resource.kind,
                   source: resource.source,
                   autoLoaded: resource.autoLoaded,
-                  syncedAt: resource.syncedAt,
                 })),
               };
             }),
@@ -146,6 +145,16 @@ export default defineAction({
     }
     if (navigation?.view === "workspace" || navigation?.view === "new-app") {
       screen.workspaceResources = await listWorkspaceResourceOptions();
+      screen.workspaceResourceEffectiveContext = {
+        action: "get-workspace-resource-effective-context",
+        description:
+          "Preview workspace -> organization/app -> personal precedence for a resource path and optional app/user. All-app resources are inherited at runtime; selected resources are app-specific exceptions.",
+      };
+      screen.workspaceResourceImpactPreview = {
+        action: "preview-workspace-resource-change",
+        description:
+          "Preview All-app reach, overrides, and approval behavior before creating, updating, or deleting a workspace resource.",
+      };
     }
     if (navigation?.view === "thread-debug") {
       try {
@@ -186,7 +195,7 @@ export default defineAction({
     if (navigation?.view === "dreams") {
       try {
         const nav = navigation as Record<string, any>;
-        const [sources, candidates, dreams] = await Promise.all([
+        const [sources, candidates, dreams, settings] = await Promise.all([
           listThreadDebugSources(),
           runLocalDispatchAction("list-dream-candidates", {
             sourceId: nav.sourceId,
@@ -197,10 +206,12 @@ export default defineAction({
             status: nav.status,
             limit: 10,
           }),
+          runLocalDispatchAction("get-dream-settings", {}),
         ]);
         screen.dreamSources = sources;
         screen.dreamCandidates = candidates;
         screen.latestDreams = dreams;
+        screen.dreamSettings = settings;
 
         const dreamId = nav.dreamId ?? nav.id;
         if (dreamId) {

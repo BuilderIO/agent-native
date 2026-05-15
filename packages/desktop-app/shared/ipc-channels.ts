@@ -46,6 +46,9 @@ export const IPC = {
 
   /** Code Agents hub (renderer ↔ main) */
   CODE_AGENTS_LIST_RUNS: "code-agents:list-runs",
+  CODE_AGENTS_CREATE_RUN: "code-agents:create-run",
+  CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",
+  CODE_AGENTS_APPEND_FOLLOW_UP: "code-agents:append-follow-up",
   CODE_AGENTS_CONTROL_RUN: "code-agents:control-run",
   CODE_AGENTS_LIST_MIGRATION_RUNS: "code-agents:list-migration-runs",
   CODE_AGENTS_OPEN_TERMINAL: "code-agents:open-terminal",
@@ -142,6 +145,66 @@ export interface CodeAgentRunListResult<
   goalId?: string;
   runs: TRun[];
   workbenchUrl?: string;
+  error?: string;
+}
+
+export type CodeAgentTranscriptEventType =
+  | "user"
+  | "system"
+  | "artifact"
+  | "status";
+
+export interface CodeAgentTranscriptEvent {
+  id: string;
+  runId: string;
+  type: CodeAgentTranscriptEventType;
+  title?: string;
+  text: string;
+  createdAt: string;
+  artifactPath?: string;
+  artifactUrl?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CodeAgentTranscriptRequest {
+  goalId?: string;
+  runId: string;
+}
+
+export interface CodeAgentTranscriptResult {
+  status: "ok" | "unavailable";
+  runId?: string;
+  events: CodeAgentTranscriptEvent[];
+  eventFile?: string;
+  error?: string;
+}
+
+export interface CodeAgentCreateRunRequest {
+  goalId?: string;
+  prompt: string;
+  cwd?: string;
+}
+
+export interface CodeAgentCreateRunResult {
+  ok: boolean;
+  run?: CodeAgentRun;
+  event?: CodeAgentTranscriptEvent;
+  eventFile?: string;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentFollowUpRequest {
+  goalId?: string;
+  runId: string;
+  prompt: string;
+}
+
+export interface CodeAgentFollowUpResult {
+  ok: boolean;
+  event?: CodeAgentTranscriptEvent;
+  eventFile?: string;
+  message: string;
   error?: string;
 }
 

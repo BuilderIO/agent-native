@@ -10,6 +10,7 @@ const mockResourceDeleteByPath = vi.fn();
 const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
 const mockResourceMove = vi.fn();
+const mockResourceEffectiveContext = vi.fn();
 const mockEnsurePersonalDefaults = vi.fn();
 
 vi.mock("./store.js", () => ({
@@ -24,6 +25,8 @@ vi.mock("./store.js", () => ({
   resourceListAccessible: (...args: any[]) =>
     mockResourceListAccessible(...args),
   resourceMove: (...args: any[]) => mockResourceMove(...args),
+  resourceEffectiveContext: (...args: any[]) =>
+    mockResourceEffectiveContext(...args),
   ensurePersonalDefaults: (...args: any[]) =>
     mockEnsurePersonalDefaults(...args),
 }));
@@ -64,6 +67,7 @@ import { getSession } from "../server/auth.js";
 import {
   handleListResources,
   handleGetResourceTree,
+  handleGetEffectiveResourceContext,
   handleGetResource,
   handleCreateResource,
   handleUpdateResource,
@@ -156,6 +160,40 @@ describe("resource handlers", () => {
         undefined,
         { includeAgentScratch: true },
       );
+    });
+  });
+
+  describe("handleGetEffectiveResourceContext", () => {
+    it("returns the inheritance stack for a path", async () => {
+      const context = {
+        path: "instructions/guardrails.md",
+        effectiveScope: "shared",
+        layers: [
+          { scope: "workspace", exists: true, effective: false },
+          { scope: "shared", exists: true, effective: true },
+          { scope: "personal", exists: false, effective: false },
+        ],
+      };
+      mockResourceEffectiveContext.mockResolvedValue(context);
+
+      const result = await handleGetEffectiveResourceContext({
+        _query: { path: "instructions/guardrails.md" },
+      });
+
+      expect(mockEnsurePersonalDefaults).toHaveBeenCalledWith("test@test.com");
+      expect(mockResourceEffectiveContext).toHaveBeenCalledWith(
+        "test@test.com",
+        "instructions/guardrails.md",
+      );
+      expect(result).toEqual(context);
+    });
+
+    it("returns 400 when path is missing", async () => {
+      const result = await handleGetEffectiveResourceContext({ _query: {} });
+
+      expect(lastStatus).toBe(400);
+      expect(result).toEqual({ error: "path is required" });
+      expect(mockResourceEffectiveContext).not.toHaveBeenCalled();
     });
   });
 

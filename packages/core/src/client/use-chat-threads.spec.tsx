@@ -97,4 +97,92 @@ describe("useChatThreads", () => {
       source: { ...snapshot, scope: sourceThread.scope },
     });
   });
+
+  it("creates a fork from the client snapshot when the fork endpoint cannot find the source", async () => {
+    const sourceThread: ChatThreadSummary = {
+      id: "source-thread",
+      title: "Pipeline",
+      preview: "make this slide better",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: { type: "deck", id: "deck-1", label: "Pipeline deck" },
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [sourceThread] });
+      }
+      if (url === "/chat/threads/source-thread/fork") {
+        return new Response(JSON.stringify({ error: "Thread not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url === "/chat/threads" && init?.method === "POST") {
+        return jsonResponse({
+          id: "forked-thread",
+          title: "Pipeline (fork)",
+          preview: "",
+          messageCount: 0,
+          createdAt: 3,
+          updatedAt: 3,
+          scope: sourceThread.scope,
+        });
+      }
+      if (url === "/chat/threads/forked-thread" && init?.method === "PUT") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "fork-test");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const snapshot: ChatThreadSnapshot = {
+      threadData: JSON.stringify({ messages: [{ message: { id: "m1" } }] }),
+      title: "Pipeline",
+      preview: "make this slide better",
+      messageCount: 1,
+    };
+
+    let forkedId: string | null = null;
+    await act(async () => {
+      forkedId = await hook!.forkThread("source-thread", snapshot);
+    });
+
+    expect(forkedId).toBe("forked-thread");
+    const createCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/chat/threads" && init?.method === "POST",
+    );
+    expect(createCall).toBeDefined();
+    expect(JSON.parse(createCall![1]!.body as string)).toEqual({
+      id: "forked-thread",
+      title: "Pipeline (fork)",
+      scope: sourceThread.scope,
+    });
+    const saveCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        url === "/chat/threads/forked-thread" && init?.method === "PUT",
+    );
+    expect(saveCall).toBeDefined();
+    expect(JSON.parse(saveCall![1]!.body as string)).toEqual({
+      threadData: snapshot.threadData,
+      title: "Pipeline (fork)",
+      preview: snapshot.preview,
+      messageCount: snapshot.messageCount,
+      scope: sourceThread.scope,
+    });
+  });
 });

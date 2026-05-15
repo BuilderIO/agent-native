@@ -5,6 +5,8 @@ const mockResourcePut = vi.fn();
 const mockResourceDeleteByPath = vi.fn();
 const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
+const mockResourceEffectiveContext = vi.fn();
+const mockEnsurePersonalDefaults = vi.fn();
 
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
@@ -15,6 +17,10 @@ vi.mock("./store.js", () => ({
   resourceList: (...args: any[]) => mockResourceList(...args),
   resourceListAccessible: (...args: any[]) =>
     mockResourceListAccessible(...args),
+  resourceEffectiveContext: (...args: any[]) =>
+    mockResourceEffectiveContext(...args),
+  ensurePersonalDefaults: (...args: any[]) =>
+    mockEnsurePersonalDefaults(...args),
 }));
 
 import {
@@ -23,6 +29,7 @@ import {
   deleteResource,
   listResources,
   listAllResources,
+  getEffectiveResourceContext,
 } from "./script-helpers.js";
 
 describe("resources script-helpers", () => {
@@ -31,6 +38,7 @@ describe("resources script-helpers", () => {
   beforeEach(() => {
     originalEnv = { ...process.env };
     vi.clearAllMocks();
+    mockEnsurePersonalDefaults.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -293,6 +301,29 @@ describe("resources script-helpers", () => {
         "Resource access requires an authenticated request context or AGENT_USER_EMAIL env var",
       );
       expect(mockResourceListAccessible).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getEffectiveResourceContext", () => {
+    it("returns the workspace to personal inheritance stack for the current user", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const context = {
+        path: "instructions/guardrails.md",
+        effectiveScope: "shared",
+        layers: [],
+      };
+      mockResourceEffectiveContext.mockResolvedValue(context);
+
+      const result = await getEffectiveResourceContext(
+        "instructions/guardrails.md",
+      );
+
+      expect(mockEnsurePersonalDefaults).toHaveBeenCalledWith("alice@test.com");
+      expect(mockResourceEffectiveContext).toHaveBeenCalledWith(
+        "alice@test.com",
+        "instructions/guardrails.md",
+      );
+      expect(result).toBe(context);
     });
   });
 });

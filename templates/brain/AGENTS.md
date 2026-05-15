@@ -1,9 +1,27 @@
 # Agent-Native Brain
 
-Brain is a whole-company institutional memory template. It turns raw captures
-(Slack channel messages, Clips recordings, Granola notes, transcripts,
-documents, and generic text) into reviewed, searchable knowledge with source
-quotes preserved as evidence.
+Brain is a Company Brain template: whole-company institutional memory for
+agents and humans. V1 turns raw captures (Slack channel messages, Clips
+recordings, Granola notes, transcripts, documents, and generic text) into
+reviewed, searchable, SQL-backed knowledge with source quotes preserved as
+evidence.
+
+Brain is not a full Glean replacement today. Position it honestly as an
+open-source, Glean-shaped foundation: durable company memory first, then a
+broader permission-aware workspace search layer over time.
+
+## Product Direction
+
+- **V1 Company Brain:** search over distilled knowledge. Agents should answer
+  from reviewed, cited entries whenever possible.
+- **V1.5 universal search:** add a Search route and `search-everything` action
+  that search knowledge, raw captures, and source records together, then let
+  agents drill into specific knowledge/capture records for citations.
+- **V2 platform layer:** reusable workspace connections, federated app/source
+  search, permission-aware results, and an expertise graph. Treat the expertise
+  graph as future platform direction, not a shipped V1 claim.
+- **Portability:** V1 uses portable SQL text search and agentic query expansion.
+  There is no vector database requirement in V1.
 
 ## Data Model
 
@@ -23,17 +41,37 @@ JSON is stored in text columns. There is no vector database.
 | `create-source` / `update-source` / `delete-source` / `get-source` / `list-sources` | Manage source configuration                                                            |
 | `sync-source` / `sync-due-sources`                                                  | Run one source immediately or run due auto-sync sources                                |
 | `test-slack-connection`                                                             | Test Slack credentials/channel allow-lists without reading message history             |
+| `run-slack-pilot`                                                                   | Produce a guarded Slack pilot report; reads no history unless `readHistory: true`      |
 | `import-capture`                                                                    | Import arbitrary raw text                                                              |
 | `import-transcript`                                                                 | Import meeting transcripts                                                             |
 | `get-capture`                                                                       | Read a raw capture if its source is accessible                                         |
 | `enqueue-distillation`                                                              | Queue capture distillation                                                             |
 | `mark-capture-distilled`                                                            | Mark a capture distilled or ignored                                                    |
 | `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior |
-| `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search knowledge                                                              |
+| `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                    |
+| `search-everything`                                                                 | V1.5 search across knowledge, raw captures, and source records                         |
 | `list-proposals` / `approve-proposal` / `reject-proposal`                           | Review company-tier or forced proposals                                                |
 | `seed-demo-data` / `run-demo-eval`                                                  | Seed and evaluate the product-decision demo corpus                                     |
 | `get-settings` / `set-settings`                                                     | Read/update Brain settings                                                             |
 | `navigate` / `view-screen`                                                          | Keep agent and UI context in sync                                                      |
+
+## Retrieval Rules
+
+When answering company-memory questions:
+
+1. Start with `search-everything` when it is available. It is the V1.5 universal
+   search surface and should return candidate knowledge entries, raw captures,
+   and sources the current user can access.
+2. Drill into promising results with `get-knowledge` for durable facts and
+   `get-capture` for source context or exact quotes. Use `search-knowledge`
+   when only V1 distilled knowledge search is available.
+3. Cite source links from knowledge evidence or raw capture metadata. Prefer
+   direct source URLs/permalinks over generic source names.
+4. Distinguish reviewed knowledge from raw captures. Raw captures can provide
+   context, but do not present them as approved company memory unless they have
+   been distilled and reviewed.
+5. If search does not find support, say so plainly. Do not invent an answer or
+   imply Brain contains information it did not return.
 
 ## Knowledge Rules
 
@@ -56,10 +94,26 @@ Use `test-slack-connection` before production backfills. It calls Slack
 `auth.test` and optional channel metadata checks only; it never calls
 `conversations.history`.
 
+Use `run-slack-pilot` for first-time Slack rollout checks. By default it returns
+a report with credential status, allow-list validation, guardrails, privacy
+exclusions, current knowledge/proposal counts, and next steps without reading
+history. Only pass `readHistory: true` when the user explicitly asks for a tiny
+pilot sync; the action caps the read to at most two validated channels, one
+history page per channel, ten messages per page, ten permalinks, `autoSync:
+false`, and a recent default history window.
+
 Granola sources use the scoped `GRANOLA_API_KEY` credential and poll Granola's
 public API for accessible Team-space notes, then fetch each note with its
 transcript. Keep the Granola cursor and sync window in the source cursor/config
 JSON instead of process memory.
+
+GitHub sources are the first reusable connector proof for Brain. They use the
+scoped `GITHUB_TOKEN` credential and fetch bounded issue/PR context from
+configured repositories through GitHub's REST API. Configure `repositories` or
+`repos` as `["owner/repo"]`, with optional `state`, `limit`, `includeIssues`,
+and `includePullRequests`. Treat imported GitHub captures as ingestable company
+context, not full GitHub analytics. This connector can later move to Workspace
+Connections once that reusable connection layer is available.
 
 Auto-sync is controlled per source with `config.autoSync` and
 `config.pollMinutes`. The background job is gated by `RUN_BACKGROUND_JOBS`; use

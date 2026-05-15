@@ -1,8 +1,15 @@
-import { describe, expect, it } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { Readable, Writable } from "node:stream";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createCodeAgentRunRecord,
+  listCodeAgentRunRecords,
+  listCodeAgentTranscriptEvents,
+} from "./code-agent-runs.js";
 import {
   CODE_AGENT_CLI_GOALS,
-  codeShellFreeTextMessage,
   codeUsage,
   handleCodeShellLine,
   parseCodeShellArgs,
@@ -10,6 +17,17 @@ import {
   runCode,
   type CodeAgentGoalId,
 } from "./code.js";
+
+const tmpRoots: string[] = [];
+
+afterEach(() => {
+  delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+  delete process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE;
+  vi.restoreAllMocks();
+  for (const root of tmpRoots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 describe("resolveCodeCommand", () => {
   it("opens the shell when no goal is provided", () => {
@@ -22,7 +40,19 @@ describe("resolveCodeCommand", () => {
 
   it("lists available goals", () => {
     expect(resolveCodeCommand(["goals"])).toEqual({ kind: "list-goals" });
-    expect(resolveCodeCommand(["list"])).toEqual({ kind: "list-goals" });
+  });
+
+  it("lists sessions through Codex-style session commands", () => {
+    expect(resolveCodeCommand(["list"])).toEqual({
+      kind: "control",
+      subcommand: "list",
+      args: ["list"],
+    });
+    expect(resolveCodeCommand(["ps"])).toEqual({
+      kind: "control",
+      subcommand: "ps",
+      args: ["ps"],
+    });
   });
 
   it("forwards slash goals to their backing command", () => {
@@ -32,6 +62,27 @@ describe("resolveCodeCommand", () => {
       kind: "run-goal",
       goalId: "migrate",
       forwardedArgs: ["./source", "--out", "../migrated"],
+    });
+  });
+
+  it("forwards task goals", () => {
+    expect(resolveCodeCommand(["/task", "fix", "the", "tests"])).toEqual({
+      kind: "run-goal",
+      goalId: "task",
+      forwardedArgs: ["fix", "the", "tests"],
+    });
+  });
+
+  it("accepts exec and print aliases for generic tasks", () => {
+    expect(resolveCodeCommand(["exec", "fix", "the", "tests"])).toEqual({
+      kind: "run-goal",
+      goalId: "task",
+      forwardedArgs: ["fix", "the", "tests"],
+    });
+    expect(resolveCodeCommand(["-p", "fix", "the", "tests"])).toEqual({
+      kind: "run-goal",
+      goalId: "task",
+      forwardedArgs: ["fix", "the", "tests"],
     });
   });
 
@@ -53,19 +104,56 @@ describe("resolveCodeCommand", () => {
     });
   });
 
-  it("keeps resume/status/ui/stop as default-goal conveniences", () => {
+  it("handles resume/status/ui/stop at the generic Code Agents layer", () => {
     expect(resolveCodeCommand(["resume", "--last"])).toEqual({
-      kind: "run-goal",
-      goalId: "migrate",
-      forwardedArgs: ["resume", "--last"],
+      kind: "control",
+      subcommand: "resume",
+      args: ["resume", "--last"],
     });
   });
 
-  it("treats freeform input as the default goal source", () => {
-    expect(resolveCodeCommand(["./legacy-app", "--emit"])).toEqual({
+  it("supports continue and resume flag aliases", () => {
+    expect(resolveCodeCommand(["--continue"])).toEqual({
+      kind: "control",
+      subcommand: "resume",
+      args: ["resume", "--last"],
+    });
+    expect(resolveCodeCommand(["-c", "please continue"])).toEqual({
+      kind: "record-follow-up",
+      prompt: "please continue",
+    });
+    expect(resolveCodeCommand(["--resume", "task-123"])).toEqual({
+      kind: "control",
+      subcommand: "resume",
+      args: ["resume", "task-123"],
+    });
+  });
+
+  it("can execute an existing run by id", () => {
+    expect(resolveCodeCommand(["run", "task-123"])).toEqual({
+      kind: "execute-existing-run",
+      runId: "task-123",
+    });
+  });
+
+  it("records resume follow-up prompts against the last run", () => {
+    expect(resolveCodeCommand(["resume", "--last", "please continue"])).toEqual(
+      {
+        kind: "record-follow-up",
+        prompt: "please continue",
+      },
+    );
+    expect(resolveCodeCommand(["resume", "--last", "--", "--fix-it"])).toEqual({
+      kind: "record-follow-up",
+      prompt: "--fix-it",
+    });
+  });
+
+  it("treats freeform input as a generic task", () => {
+    expect(resolveCodeCommand(["please", "refactor", "the", "app"])).toEqual({
       kind: "run-goal",
-      goalId: "migrate",
-      forwardedArgs: ["./legacy-app", "--emit"],
+      goalId: "task",
+      forwardedArgs: ["please", "refactor", "the", "app"],
     });
   });
 });
@@ -73,8 +161,13 @@ describe("resolveCodeCommand", () => {
 describe("codeUsage", () => {
   it("documents migrate as a slash goal", () => {
     expect(codeUsage()).toContain("agent-native code\n");
+    expect(codeUsage()).toContain('agent-native code "fix the failing');
+    expect(codeUsage()).toContain("agent-native code exec");
+    expect(codeUsage()).toContain("agent-native code -p");
+    expect(codeUsage()).toContain("agent-native code /task");
     expect(codeUsage()).toContain("agent-native code /audit --url");
     expect(codeUsage()).toContain("agent-native code /migrate <source>");
+    expect(codeUsage()).toContain("agent-native code attach --last");
     expect(codeUsage()).toContain("/migrate");
   });
 });
@@ -114,7 +207,12 @@ describe("handleCodeShellLine", () => {
     expect(output.read()).toBe("");
   });
 
-  it("keeps migration compatibility shortcuts available in the shell", async () => {
+  it("handles status shortcuts without running a goal", async () => {
+    useTempCodeAgentsHome();
+    createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Existing task",
+    });
     const output = createStringOutput();
     const calls: Array<{ goalId: CodeAgentGoalId; forwardedArgs: string[] }> =
       [];
@@ -126,9 +224,32 @@ describe("handleCodeShellLine", () => {
       },
     });
 
-    expect(calls).toEqual([
-      { goalId: "migrate", forwardedArgs: ["status", "--last"] },
-    ]);
+    expect(calls).toEqual([]);
+    expect(output.read()).toContain("Code Agents status");
+    expect(output.read()).toContain("Existing task");
+  });
+
+  it("prints transcript logs without running a goal", async () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Existing task",
+      status: "completed",
+      phase: "complete",
+    });
+    const output = createStringOutput();
+    const calls: Array<{ goalId: CodeAgentGoalId; forwardedArgs: string[] }> =
+      [];
+
+    await handleCodeShellLine("logs --last", {
+      output: output.stream,
+      runGoal: async (goalId, forwardedArgs) => {
+        calls.push({ goalId, forwardedArgs });
+      },
+    });
+
+    expect(calls).toEqual([]);
+    expect(output.read()).toContain(`Code Agents logs: ${run.id}`);
   });
 
   it("answers shell-only slash commands without running a goal", async () => {
@@ -167,7 +288,7 @@ describe("handleCodeShellLine", () => {
     ).resolves.toBe("exit");
   });
 
-  it("explains that arbitrary coding chat is not wired yet", async () => {
+  it("records bare shell prompts as generic tasks", async () => {
     const output = createStringOutput();
     const calls: Array<{ goalId: CodeAgentGoalId; forwardedArgs: string[] }> =
       [];
@@ -179,8 +300,137 @@ describe("handleCodeShellLine", () => {
       },
     });
 
+    expect(calls).toEqual([
+      {
+        goalId: "task",
+        forwardedArgs: ["please", "refactor", "the", "app"],
+      },
+    ]);
+    expect(output.read()).toBe("");
+  });
+
+  it("records shell resume follow-up prompts without running a goal", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Follow-up done.";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Existing task",
+    });
+    const output = createStringOutput();
+    const calls: Array<{ goalId: CodeAgentGoalId; forwardedArgs: string[] }> =
+      [];
+
+    await handleCodeShellLine('resume --last "add regression tests"', {
+      output: output.stream,
+      runGoal: async (goalId, forwardedArgs) => {
+        calls.push({ goalId, forwardedArgs });
+      },
+    });
+
+    const events = listCodeAgentTranscriptEvents(run.id);
     expect(calls).toEqual([]);
-    expect(output.read()).toContain(codeShellFreeTextMessage());
+    expect(output.read()).toContain("Running follow-up prompt");
+    expect(output.read()).toContain("Follow-up done.");
+    expect(events[0]).toMatchObject({
+      kind: "user",
+      message: "add regression tests",
+      metadata: { source: "resume-follow-up" },
+    });
+    expect(events.map((event) => event.kind)).toContain("system");
+  });
+});
+
+describe("generic task sessions", () => {
+  it("runs a task session with transcript events", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Task complete.";
+    const output = createStringOutput();
+
+    await runCode(["/task", "fix", "the", "tests"], {
+      output: output.stream,
+    });
+
+    const runs = listCodeAgentRunRecords("task");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      goalId: "task",
+      title: "fix the tests",
+      status: "completed",
+      phase: "complete",
+      metadata: {
+        prompt: "fix the tests",
+        source: "agent-native code /task",
+      },
+    });
+    expect(
+      listCodeAgentTranscriptEvents(runs[0].id).map((event) => event.kind),
+    ).toEqual(["user", "status", "status", "system", "status"]);
+    expect(output.read()).toContain("Code Agents /task session started.");
+    expect(output.read()).toContain("Task complete.");
+  });
+
+  it("runs direct CLI follow-up prompts on the last run", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Follow-up done.";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Existing task",
+    });
+    const output = createStringOutput();
+
+    await runCode(["resume", "--last", "please continue"], {
+      output: output.stream,
+    });
+
+    const events = listCodeAgentTranscriptEvents(run.id);
+    expect(output.read()).toContain("Running follow-up prompt");
+    expect(output.read()).toContain("Follow-up done.");
+    expect(events[0]).toMatchObject({
+      kind: "user",
+      message: "please continue",
+    });
+    expect(events.map((event) => event.kind)).toContain("system");
+  });
+
+  it("shows generic Code Agents status for the last run", async () => {
+    useTempCodeAgentsHome();
+    createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Existing task",
+      status: "paused",
+      phase: "review",
+    });
+    const output = createStringOutput();
+
+    await runCode(["status", "--last"], { output: output.stream });
+
+    const text = output.read();
+    expect(text).toContain("Code Agents status");
+    expect(text).toContain("Existing task");
+    expect(text).toContain("paused (review)");
+  });
+
+  it("does not rewrite completed runs when stop is requested", async () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Finished task",
+      status: "completed",
+      phase: "complete",
+      progress: { completed: 1, total: 1, percent: 100 },
+    });
+    const output = createStringOutput();
+
+    await runCode(["stop", "--last"], { output: output.stream });
+
+    const [updated] = listCodeAgentRunRecords("task");
+    expect(output.read()).toContain("already finished");
+    expect(updated).toMatchObject({
+      id: run.id,
+      status: "completed",
+      phase: "complete",
+      progress: { completed: 1, total: 1, percent: 100 },
+    });
   });
 });
 
@@ -204,6 +454,13 @@ describe("runCode shell", () => {
 
 describe("CODE_AGENT_CLI_GOALS", () => {
   it("keeps slash goals mapped through an explicit backing command", () => {
+    expect(CODE_AGENT_CLI_GOALS).toContainEqual(
+      expect.objectContaining({
+        id: "task",
+        slashCommand: "/task",
+        backingCommand: "task",
+      }),
+    );
     expect(CODE_AGENT_CLI_GOALS).toContainEqual(
       expect.objectContaining({
         id: "migrate",
@@ -236,4 +493,11 @@ function createStringOutput(): {
     stream,
     read: () => text,
   };
+}
+
+function useTempCodeAgentsHome(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-code-"));
+  tmpRoots.push(root);
+  process.env.AGENT_NATIVE_CODE_AGENTS_HOME = path.join(root, "code-agents");
+  return root;
 }

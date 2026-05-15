@@ -11,6 +11,7 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -19,11 +20,16 @@ import { autoUpdater } from "electron-updater";
 import {
   IPC,
   type ActiveWebviewTarget,
+  type CodeAgentCreateRunResult,
+  type CodeAgentFollowUpResult,
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
   type CodeAgentMigrationRun,
   type CodeAgentRun,
   type CodeAgentRunListResult,
+  type CodeAgentTranscriptEvent,
+  type CodeAgentTranscriptEventType,
+  type CodeAgentTranscriptResult,
   type CodeAgentTerminalRequest,
   type CodeAgentTerminalResult,
   type DesktopOpenRequest,
@@ -843,8 +849,40 @@ function codeAgentStoreRoot(): string {
   );
 }
 
+function codeAgentRunsDir(): string {
+  return path.join(codeAgentStoreRoot(), "runs");
+}
+
+function codeAgentEventsDir(): string {
+  return path.join(codeAgentStoreRoot(), "transcripts");
+}
+
+function timestampSlug(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 14);
+}
+
+function normalizeCodeAgentRunId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 160) return null;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function codeAgentRunFilePath(runId: string): string | null {
+  const safeRunId = normalizeCodeAgentRunId(runId);
+  if (!safeRunId) return null;
+  return path.join(codeAgentRunsDir(), `${safeRunId}.json`);
+}
+
+function codeAgentEventFilePath(runId: string): string | null {
+  const safeRunId = normalizeCodeAgentRunId(runId);
+  if (!safeRunId) return null;
+  return path.join(codeAgentEventsDir(), `${safeRunId}.jsonl`);
+}
+
 function listFileBackedCodeAgentRuns(goalId?: string): CodeAgentRun[] {
-  const runsDir = path.join(codeAgentStoreRoot(), "runs");
+  const runsDir = codeAgentRunsDir();
   if (!fs.existsSync(runsDir)) return [];
   return fs
     .readdirSync(runsDir)
@@ -856,10 +894,9 @@ function listFileBackedCodeAgentRuns(goalId?: string): CodeAgentRun[] {
 }
 
 function readFileBackedCodeAgentRun(filePath: string): CodeAgentRun | null {
+  const row = readJsonObjectFile(filePath);
+  if (!row) return null;
   try {
-    const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
-    if (!raw || typeof raw !== "object") return null;
-    const row = raw as Record<string, unknown>;
     const id = typeof row.id === "string" ? row.id : "";
     const goalId = typeof row.goalId === "string" ? row.goalId : "";
     const title = typeof row.title === "string" ? row.title : id;
@@ -874,6 +911,13 @@ function readFileBackedCodeAgentRun(filePath: string): CodeAgentRun | null {
     const updatedAt =
       typeof row.updatedAt === "string" ? row.updatedAt : createdAt;
     if (!id || !goalId || !title) return null;
+    const metadata = isObject(row.metadata)
+      ? { ...(row.metadata as Record<string, unknown>) }
+      : {};
+    if (typeof row.cwd === "string") metadata.cwd = row.cwd;
+    if (typeof row.artifactRoot === "string") {
+      metadata.artifactRoot = row.artifactRoot;
+    }
     return {
       id,
       goalId,
@@ -891,13 +935,26 @@ function readFileBackedCodeAgentRun(filePath: string): CodeAgentRun | null {
         typeof row.surfaceUrl === "string" ? row.surfaceUrl : undefined,
       createdAt,
       updatedAt,
-      metadata: isObject(row.metadata)
-        ? (row.metadata as Record<string, unknown>)
-        : undefined,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     };
   } catch {
     return null;
   }
+}
+
+function readJsonObjectFile(filePath: string): Record<string, unknown> | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
+    return isObject(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function readCodeAgentRunRecord(runId: string): Record<string, unknown> | null {
+  const filePath = codeAgentRunFilePath(runId);
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  return readJsonObjectFile(filePath);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -924,6 +981,623 @@ function normalizeCodeAgentProgress(value: unknown): CodeAgentRun["progress"] {
     failed: Number.isFinite(failed) ? failed : undefined,
     percent,
   };
+}
+
+function firstStringValue(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function textFromUnknown(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (!isObject(item)) return "";
+        return firstStringValue(item.text, item.content, item.message) ?? "";
+      })
+      .map((part) => part.trim())
+      .filter(Boolean);
+    return parts.length > 0 ? parts.join("\n") : undefined;
+  }
+  if (isObject(value)) {
+    return firstStringValue(value.text, value.content, value.message);
+  }
+  return undefined;
+}
+
+function firstTextValue(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const text = textFromUnknown(value);
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function getRecordString(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+): string | undefined {
+  if (!record) return undefined;
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeTranscriptEventType(
+  value: unknown,
+  row: Record<string, unknown>,
+): CodeAgentTranscriptEventType {
+  const raw = typeof value === "string" ? value.toLowerCase() : "";
+  const artifact = isObject(row.artifact) ? row.artifact : undefined;
+  if (raw === "user" || raw === "human" || raw === "prompt") return "user";
+  if (
+    raw.includes("artifact") ||
+    raw === "file" ||
+    raw === "output" ||
+    firstStringValue(
+      row.artifactPath,
+      row.artifactUrl,
+      row.filePath,
+      row.path,
+      artifact?.path,
+      artifact?.url,
+    )
+  ) {
+    return "artifact";
+  }
+  if (
+    raw.includes("status") ||
+    raw.includes("progress") ||
+    raw.includes("state") ||
+    raw === "queued" ||
+    raw === "running" ||
+    raw === "completed" ||
+    raw === "errored" ||
+    typeof row.status === "string" ||
+    typeof row.phase === "string"
+  ) {
+    return "status";
+  }
+  return "system";
+}
+
+function normalizeEventTimestamp(value: unknown, fallback: string): string {
+  const candidate = firstStringValue(value);
+  if (!candidate) return fallback;
+  const time = new Date(candidate).getTime();
+  return Number.isFinite(time) ? new Date(time).toISOString() : fallback;
+}
+
+function normalizeCodeAgentTranscriptEvent(
+  value: unknown,
+  runId: string,
+  fallback: { createdAt: string; idSuffix: string; source?: string },
+): CodeAgentTranscriptEvent | null {
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return null;
+    return {
+      id: `${runId}-${fallback.idSuffix}`,
+      runId,
+      type: "system",
+      text,
+      createdAt: fallback.createdAt,
+      metadata: fallback.source ? { source: fallback.source } : undefined,
+    };
+  }
+
+  if (!isObject(value)) return null;
+  const row = value;
+  const artifact = isObject(row.artifact) ? row.artifact : undefined;
+  const type = normalizeTranscriptEventType(
+    row.type ?? row.kind ?? row.role ?? row.category ?? row.event,
+    row,
+  );
+  const artifactPath = firstStringValue(
+    row.artifactPath,
+    row.filePath,
+    row.path,
+    row.file,
+    artifact?.path,
+    artifact?.filePath,
+  );
+  const artifactUrl = firstStringValue(row.artifactUrl, row.url, artifact?.url);
+  const statusText = firstStringValue(row.status, row.state, row.phase);
+  const title = firstStringValue(
+    row.title,
+    row.label,
+    row.name,
+    type === "status" ? statusText : undefined,
+    type === "artifact" ? "Artifact" : undefined,
+  );
+  const text =
+    firstTextValue(
+      row.text,
+      row.content,
+      row.message,
+      row.body,
+      row.summary,
+      row.description,
+    ) ??
+    statusText ??
+    artifactPath ??
+    artifactUrl ??
+    title;
+  if (!text) return null;
+
+  const metadata = isObject(row.metadata)
+    ? { ...(row.metadata as Record<string, unknown>) }
+    : {};
+  if (fallback.source) metadata.source = fallback.source;
+
+  return {
+    id:
+      firstStringValue(row.id, row.eventId) ?? `${runId}-${fallback.idSuffix}`,
+    runId: firstStringValue(row.runId) ?? runId,
+    type,
+    title,
+    text,
+    createdAt: normalizeEventTimestamp(
+      row.createdAt ?? row.timestamp ?? row.time ?? row.date,
+      fallback.createdAt,
+    ),
+    artifactPath,
+    artifactUrl,
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+  };
+}
+
+function readInlineCodeAgentTranscriptEvents(
+  runId: string,
+  runRecord: Record<string, unknown> | null,
+): CodeAgentTranscriptEvent[] {
+  if (!runRecord) return [];
+  const createdAt =
+    getRecordString(runRecord, "createdAt") ?? new Date().toISOString();
+  const eventSources = [
+    runRecord.events,
+    runRecord.transcript,
+    runRecord.timeline,
+  ];
+  const events: CodeAgentTranscriptEvent[] = [];
+  for (const source of eventSources) {
+    if (!Array.isArray(source)) continue;
+    source.forEach((entry, index) => {
+      const event = normalizeCodeAgentTranscriptEvent(entry, runId, {
+        createdAt,
+        idSuffix: `inline-${events.length}-${index}`,
+        source: "run-record",
+      });
+      if (event) events.push(event);
+    });
+  }
+  return events;
+}
+
+function readJsonlCodeAgentTranscriptEvents(
+  filePath: string,
+  runId: string,
+): CodeAgentTranscriptEvent[] {
+  if (!fs.existsSync(filePath)) return [];
+  const createdAt = new Date().toISOString();
+  return fs
+    .readFileSync(filePath, "utf-8")
+    .split(/\r?\n/)
+    .map((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed) return null;
+      let parsed: unknown = trimmed;
+      try {
+        parsed = JSON.parse(trimmed) as unknown;
+      } catch {
+        parsed = trimmed;
+      }
+      return normalizeCodeAgentTranscriptEvent(parsed, runId, {
+        createdAt,
+        idSuffix: `jsonl-${index}`,
+        source: filePath,
+      });
+    })
+    .filter((event): event is CodeAgentTranscriptEvent => Boolean(event));
+}
+
+function codeAgentTranscriptFileCandidates(
+  runId: string,
+  runRecord: Record<string, unknown> | null,
+): string[] {
+  const metadata = isObject(runRecord?.metadata) ? runRecord.metadata : null;
+  const artifactRoot =
+    getRecordString(runRecord, "artifactRoot") ??
+    getRecordString(metadata, "artifactRoot");
+  const candidates = [
+    codeAgentEventFilePath(runId),
+    path.join(codeAgentStoreRoot(), "events", `${runId}.jsonl`),
+    path.join(codeAgentRunsDir(), `${runId}.events.jsonl`),
+    path.join(codeAgentRunsDir(), `${runId}.transcript.jsonl`),
+    path.join(codeAgentStoreRoot(), "artifacts", runId, "events.jsonl"),
+    path.join(codeAgentStoreRoot(), "artifacts", runId, "transcript.jsonl"),
+    artifactRoot ? path.join(artifactRoot, "events.jsonl") : null,
+    artifactRoot ? path.join(artifactRoot, "transcript.jsonl") : null,
+  ].filter((filePath): filePath is string => Boolean(filePath));
+  return [...new Set(candidates)];
+}
+
+function sortTranscriptEvents(
+  events: CodeAgentTranscriptEvent[],
+): CodeAgentTranscriptEvent[] {
+  const seen = new Set<string>();
+  return events
+    .map((event, index) => ({ event, index }))
+    .filter(({ event }) => {
+      const key = `${event.id}:${event.createdAt}:${event.text}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => {
+      const aTime = new Date(a.event.createdAt).getTime();
+      const bTime = new Date(b.event.createdAt).getTime();
+      if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) {
+        return aTime - bTime;
+      }
+      return a.index - b.index;
+    })
+    .map(({ event }) => event);
+}
+
+function readCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
+  const record: Record<string, unknown> =
+    typeof input === "string" ? { runId: input } : isObject(input) ? input : {};
+  const runId = normalizeCodeAgentRunId(record.runId);
+  if (!runId) {
+    return {
+      status: "unavailable",
+      events: [],
+      error: "Missing or invalid run id.",
+    };
+  }
+
+  const runRecord = readCodeAgentRunRecord(runId);
+  const events = [
+    ...readInlineCodeAgentTranscriptEvents(runId, runRecord),
+    ...codeAgentTranscriptFileCandidates(runId, runRecord).flatMap((filePath) =>
+      readJsonlCodeAgentTranscriptEvents(filePath, runId),
+    ),
+  ];
+  return {
+    status: "ok",
+    runId,
+    events: sortTranscriptEvents(events),
+    eventFile: codeAgentEventFilePath(runId) ?? undefined,
+  };
+}
+
+function createDesktopUserTranscriptEvent(
+  runId: string,
+  prompt: string,
+  goalId?: string,
+): CodeAgentTranscriptEvent {
+  const now = new Date().toISOString();
+  return {
+    id: `event-${timestampSlug(now)}-${randomUUID().slice(0, 8)}`,
+    runId,
+    type: "user",
+    title: "User prompt",
+    text: prompt,
+    createdAt: now,
+    metadata: {
+      source: "desktop",
+      queued: true,
+      ...(goalId ? { goalId } : {}),
+    },
+  };
+}
+
+function appendCodeAgentTranscriptEvent(
+  event: CodeAgentTranscriptEvent,
+): string {
+  const eventFile = codeAgentEventFilePath(event.runId);
+  if (!eventFile) throw new Error("Invalid run id.");
+  fs.mkdirSync(path.dirname(eventFile), { recursive: true });
+  fs.appendFileSync(
+    eventFile,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      role: event.type,
+      ...event,
+      kind: event.type,
+      message: event.text,
+    })}\n`,
+  );
+  return eventFile;
+}
+
+const activeCodeAgentProcesses = new Map<string, { pid?: number }>();
+
+function appendCodeAgentStatusEvent(
+  runId: string,
+  message: string,
+  metadata: Record<string, unknown> = {},
+): void {
+  appendCodeAgentTranscriptEvent({
+    id: `event-${timestampSlug(new Date().toISOString())}-${randomUUID().slice(0, 8)}`,
+    runId,
+    type: "status",
+    title: "Status",
+    text: message,
+    createdAt: new Date().toISOString(),
+    metadata,
+  });
+}
+
+function spawnCodeAgentRunner(runId: string, cwd: string): void {
+  if (activeCodeAgentProcesses.has(runId)) return;
+  const repoRoot = resolveRepositoryRoot(cwd);
+  const localCli = path.join(repoRoot, "packages/core/dist/cli/index.js");
+  const command = fs.existsSync(localCli) ? "node" : "pnpm";
+  const args = fs.existsSync(localCli)
+    ? [path.relative(repoRoot, localCli), "code", "run", runId]
+    : [
+        "--filter",
+        "@agent-native/core",
+        "exec",
+        "node",
+        "dist/cli/index.js",
+        "code",
+        "run",
+        runId,
+      ];
+  try {
+    const child = spawn(command, args, {
+      cwd: repoRoot,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+      },
+    });
+    activeCodeAgentProcesses.set(runId, { pid: child.pid });
+    touchCodeAgentRunRecord(runId, {
+      status: "running",
+      phase: "executing",
+      metadata: {
+        runnerPid: child.pid,
+        runnerCommand: `${command} ${args.join(" ")}`,
+        runnerStartedAt: new Date().toISOString(),
+      },
+    });
+    child.stdout?.on("data", (chunk) => {
+      appendCodeAgentStatusEvent(runId, chunk.toString().trim(), {
+        source: "runner-stdout",
+      });
+    });
+    child.stderr?.on("data", (chunk) => {
+      appendCodeAgentStatusEvent(runId, chunk.toString().trim(), {
+        source: "runner-stderr",
+      });
+    });
+    child.on("exit", (code, signal) => {
+      activeCodeAgentProcesses.delete(runId);
+      appendCodeAgentStatusEvent(
+        runId,
+        code === 0
+          ? "Code Agent process exited."
+          : `Code Agent process exited with ${signal ?? code}.`,
+        { source: "desktop-runner", code, signal },
+      );
+      touchCodeAgentRunRecord(runId, {
+        updatedAt: new Date().toISOString(),
+        metadata: {
+          runnerExitedAt: new Date().toISOString(),
+          runnerExitCode: code,
+          runnerExitSignal: signal,
+        },
+      });
+    });
+    child.unref();
+  } catch (err) {
+    appendCodeAgentStatusEvent(runId, "Could not start Code Agent process.", {
+      source: "desktop-runner",
+      error: err instanceof Error ? err.message : String(err),
+    });
+    touchCodeAgentRunRecord(runId, {
+      status: "errored",
+      phase: "runner-error",
+      metadata: {
+        runnerError: err instanceof Error ? err.message : String(err),
+      },
+    });
+  }
+}
+
+function resolveRepositoryRoot(cwd: string): string {
+  const candidates = [
+    process.env.AGENT_NATIVE_FRAMEWORK_ROOT,
+    process.env.INIT_CWD,
+    process.env.PWD,
+    IS_DEV ? path.resolve(".") : undefined,
+    cwd,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const root = resolveUsableDirectory(candidate);
+    if (root && fs.existsSync(path.join(root, "pnpm-workspace.yaml"))) {
+      return root;
+    }
+  }
+  return cwd;
+}
+
+function touchCodeAgentRunRecord(
+  runId: string,
+  updates: Record<string, unknown>,
+): void {
+  const filePath = codeAgentRunFilePath(runId);
+  if (!filePath || !fs.existsSync(filePath)) return;
+  const record = readJsonObjectFile(filePath);
+  if (!record) return;
+  const metadata = isObject(record.metadata)
+    ? { ...(record.metadata as Record<string, unknown>) }
+    : {};
+  const updateMetadata = isObject(updates.metadata) ? updates.metadata : {};
+  fs.writeFileSync(
+    filePath,
+    `${JSON.stringify(
+      {
+        ...record,
+        ...updates,
+        metadata: { ...metadata, ...updateMetadata },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+function titleFromPrompt(prompt: string): string {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  if (!normalized) return "Coding task";
+  return normalized.length > 72 ? `${normalized.slice(0, 69)}...` : normalized;
+}
+
+function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
+  const payload = isObject(input) ? input : {};
+  const prompt = firstStringValue(payload.prompt) ?? "";
+  if (!prompt) {
+    return {
+      ok: false,
+      message: "Enter a prompt to start a coding session.",
+      error: "Missing prompt.",
+    };
+  }
+
+  const goal =
+    getCodeAgentGoal(firstStringValue(payload.goalId)) ?? CODE_AGENT_GOALS[0];
+  const now = new Date().toISOString();
+  const runId = `${goal.id}-${timestampSlug(now)}-${randomUUID().slice(0, 8)}`;
+  const cwd = resolveCodeAgentsTerminalCwd({ cwd: payload.cwd });
+  const title = titleFromPrompt(prompt);
+  const run: CodeAgentRun = {
+    id: runId,
+    goalId: goal.id,
+    title,
+    subtitle: "Queued from Desktop",
+    status: "queued",
+    phase: "queued",
+    progress: {
+      label: "Queued",
+      completed: 0,
+      total: 1,
+      percent: 0,
+    },
+    details: [
+      { label: "Goal", value: goal.slashCommand },
+      { label: "Working directory", value: cwd },
+    ],
+    createdAt: now,
+    updatedAt: now,
+    metadata: {
+      cwd,
+      source: "desktop",
+      queued: true,
+      initialPrompt: prompt,
+    },
+  };
+  const record = {
+    schemaVersion: 1,
+    ...run,
+    cwd,
+  };
+  const runFile = codeAgentRunFilePath(runId);
+  if (!runFile) {
+    return {
+      ok: false,
+      message: "Could not create a session id.",
+      error: "Invalid generated run id.",
+    };
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(runFile), { recursive: true });
+    fs.writeFileSync(runFile, `${JSON.stringify(record, null, 2)}\n`);
+    const event = createDesktopUserTranscriptEvent(runId, prompt, goal.id);
+    const eventFile = appendCodeAgentTranscriptEvent(event);
+    if (goal.id === "task") {
+      spawnCodeAgentRunner(runId, cwd);
+    }
+    return {
+      ok: true,
+      run,
+      event,
+      eventFile,
+      message: "Coding session recorded.",
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: "Could not record the coding session.",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
+  const payload = isObject(input) ? input : {};
+  const runId = normalizeCodeAgentRunId(payload.runId);
+  const prompt = firstStringValue(payload.prompt) ?? "";
+  if (!runId) {
+    return {
+      ok: false,
+      message: "Select a session first.",
+      error: "Missing or invalid run id.",
+    };
+  }
+  if (!prompt) {
+    return {
+      ok: false,
+      message: "Enter a follow-up prompt.",
+      error: "Missing prompt.",
+    };
+  }
+
+  try {
+    const goalId = firstStringValue(payload.goalId);
+    const event = createDesktopUserTranscriptEvent(runId, prompt, goalId);
+    const eventFile = appendCodeAgentTranscriptEvent(event);
+    const now = new Date().toISOString();
+    touchCodeAgentRunRecord(runId, {
+      updatedAt: now,
+      metadata: { lastDesktopFollowUpAt: now },
+    });
+    if ((goalId ?? "task") === "task") {
+      const record = readCodeAgentRunRecord(runId);
+      const cwd =
+        getRecordString(record, "cwd") ?? resolveCodeAgentsTerminalCwd({});
+      spawnCodeAgentRunner(runId, cwd);
+    }
+    return {
+      ok: true,
+      event,
+      eventFile,
+      message: "Follow-up recorded.",
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: "Could not record the follow-up.",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 async function listMigrationRunsForCodeAgents(): Promise<CodeAgentRunListResult> {
@@ -1175,8 +1849,9 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
   const record = payload as Record<string, unknown>;
   const command = record.command as CodeAgentControlCommand | undefined;
   const runId = typeof record.runId === "string" ? record.runId : "";
+  const defaultGoalId = CODE_AGENT_GOALS[0]?.id ?? "task";
   const goal = getCodeAgentGoal(
-    typeof record.goalId === "string" ? record.goalId : "migrate",
+    typeof record.goalId === "string" ? record.goalId : defaultGoalId,
   );
 
   if (!goal) {
@@ -1199,6 +1874,23 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
     };
   }
 
+  if (command === "resume" && goal.id === "task") {
+    const runRecord = readCodeAgentRunRecord(runId);
+    const cwd =
+      getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
+    appendCodeAgentStatusEvent(runId, "Resume requested from Desktop.", {
+      source: "desktop",
+      command: "resume",
+    });
+    spawnCodeAgentRunner(runId, cwd);
+    return {
+      ok: true,
+      command,
+      action: "refresh",
+      message: "Code Agent runner started.",
+    };
+  }
+
   if (command === "resume") {
     return {
       ok: true,
@@ -1216,12 +1908,65 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
     };
   }
   if (command === "stop") {
+    const active = activeCodeAgentProcesses.get(runId);
+    const record = readCodeAgentRunRecord(runId);
+    const status = getRecordString(record, "status");
+    const phase = getRecordString(record, "phase");
+    if (
+      status === "completed" ||
+      status === "errored" ||
+      phase === "complete" ||
+      phase === "error"
+    ) {
+      return {
+        ok: true,
+        command,
+        action: "refresh",
+        message: "This Code Agent run is already finished.",
+      };
+    }
+    const metadata = isObject(record?.metadata) ? record.metadata : null;
+    const pid = active?.pid ?? Number(metadata?.runnerPid);
+    if (Number.isFinite(pid) && pid > 0) {
+      try {
+        process.kill(pid, "SIGTERM");
+        activeCodeAgentProcesses.delete(runId);
+        appendCodeAgentStatusEvent(
+          runId,
+          "Stop requested for Code Agent run.",
+          {
+            source: "desktop",
+            pid,
+          },
+        );
+        touchCodeAgentRunRecord(runId, {
+          status: "paused",
+          phase: "stopped",
+          metadata: {
+            runnerStoppedAt: new Date().toISOString(),
+          },
+        });
+        return {
+          ok: true,
+          command,
+          action: "refresh",
+          message: "Stop requested for this Code Agent run.",
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          command,
+          action: "none",
+          message: "Could not stop this Code Agent process.",
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
     return {
       ok: true,
       command,
       action: "none",
-      message:
-        "This goal is not daemonized by Desktop yet. Stop the terminal or dev-all process that owns the run.",
+      message: "No active Code Agent process is registered for this run.",
     };
   }
 
@@ -1249,7 +1994,7 @@ ipcMain.handle(
     _event: IpcMainInvokeEvent,
     goalId?: string,
   ): Promise<CodeAgentRunListResult> => {
-    const goal = getCodeAgentGoal(goalId ?? "migrate");
+    const goal = getCodeAgentGoal(goalId ?? CODE_AGENT_GOALS[0]?.id ?? "task");
     if (!goal) {
       return Promise.resolve({
         status: "unavailable",
@@ -1271,6 +2016,24 @@ ipcMain.handle(
       runs,
     });
   },
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_CREATE_RUN,
+  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentCreateRunResult =>
+    createCodeAgentRun(input),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_READ_TRANSCRIPT,
+  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentTranscriptResult =>
+    readCodeAgentTranscript(input),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_APPEND_FOLLOW_UP,
+  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentFollowUpResult =>
+    appendCodeAgentFollowUp(input),
 );
 
 ipcMain.handle(

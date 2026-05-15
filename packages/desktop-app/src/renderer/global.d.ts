@@ -77,6 +77,62 @@ type CodeAgentRunListResult<TRun extends CodeAgentRun = CodeAgentRun> = {
   error?: string;
 };
 
+type CodeAgentTranscriptEventType = "user" | "system" | "artifact" | "status";
+
+type CodeAgentTranscriptEvent = {
+  id: string;
+  runId: string;
+  type: CodeAgentTranscriptEventType;
+  title?: string;
+  text: string;
+  createdAt: string;
+  artifactPath?: string;
+  artifactUrl?: string;
+  metadata?: Record<string, unknown>;
+};
+
+type CodeAgentTranscriptRequest = {
+  goalId?: string;
+  runId: string;
+};
+
+type CodeAgentTranscriptResult = {
+  status: "ok" | "unavailable";
+  runId?: string;
+  events: CodeAgentTranscriptEvent[];
+  eventFile?: string;
+  error?: string;
+};
+
+type CodeAgentCreateRunRequest = {
+  goalId?: string;
+  prompt: string;
+  cwd?: string;
+};
+
+type CodeAgentCreateRunResult = {
+  ok: boolean;
+  run?: CodeAgentRun;
+  event?: CodeAgentTranscriptEvent;
+  eventFile?: string;
+  message: string;
+  error?: string;
+};
+
+type CodeAgentFollowUpRequest = {
+  goalId?: string;
+  runId: string;
+  prompt: string;
+};
+
+type CodeAgentFollowUpResult = {
+  ok: boolean;
+  event?: CodeAgentTranscriptEvent;
+  eventFile?: string;
+  message: string;
+  error?: string;
+};
+
 type CodeAgentTerminalRequest = {
   cwd?: string;
   sourceRoot?: string;
@@ -163,6 +219,15 @@ interface ElectronAPI {
 
   codeAgents: {
     listRuns(goalId?: string): Promise<CodeAgentRunListResult>;
+    createRun(
+      request: CodeAgentCreateRunRequest,
+    ): Promise<CodeAgentCreateRunResult>;
+    readTranscript(
+      request: CodeAgentTranscriptRequest,
+    ): Promise<CodeAgentTranscriptResult>;
+    appendFollowUp(
+      request: CodeAgentFollowUpRequest,
+    ): Promise<CodeAgentFollowUpResult>;
     controlRun(
       goalId: string,
       runId: string,

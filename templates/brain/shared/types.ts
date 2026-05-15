@@ -3,7 +3,8 @@ export type BrainSourceProvider =
   | "generic"
   | "clips"
   | "slack"
-  | "granola";
+  | "granola"
+  | "github";
 export type BrainSourceStatus = "active" | "paused" | "archived" | "error";
 export type BrainCaptureKind =
   | "transcript"

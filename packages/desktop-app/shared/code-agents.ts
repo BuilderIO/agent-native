@@ -7,7 +7,7 @@ import {
 export const CODE_AGENTS_SURFACE_ID = "code-agents";
 export const MIGRATION_APP_ID = "migration";
 
-export type CodeAgentGoalId = "migrate" | "audit";
+export type CodeAgentGoalId = "task" | "migrate" | "audit";
 
 export interface CodeAgentGoalDefinition {
   id: CodeAgentGoalId;
@@ -25,6 +25,18 @@ export interface CodeAgentGoalDefinition {
 }
 
 export const CODE_AGENT_GOALS: CodeAgentGoalDefinition[] = [
+  {
+    id: "task",
+    label: "Coding task",
+    slashCommand: "/task",
+    description:
+      "Start a general coding session from a prompt, then keep transcript events and follow-ups attached to the same run.",
+    cliCommand: "task",
+    runNoun: "coding session",
+    surfaceLabel: "Native transcript",
+    primaryActionLabel: "New Session",
+    surfaceKind: "native",
+  },
   {
     id: "migrate",
     label: "App migration",

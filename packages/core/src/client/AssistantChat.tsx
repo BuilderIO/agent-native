@@ -2065,7 +2065,7 @@ const CheckpointContext = React.createContext<{
 } | null>(null);
 
 const MessageActionsContext = React.createContext<{
-  onForkChat?: () => void;
+  onForkChat?: () => void | boolean | Promise<void | boolean>;
 } | null>(null);
 
 function MessageActionsMenu({
@@ -2683,11 +2683,13 @@ function RunErrorRecoveryCard({
   info: RunErrorInfo;
   onContinue: () => void;
   onRetry: () => void;
-  onFork?: () => void;
+  onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [forking, setForking] = useState(false);
+  const [forkError, setForkError] = useState<string | null>(null);
   const builderReconnect = useBuilderConnectFlow({
     trackingSource: "assistant_chat_reconnect_error",
   });
@@ -2713,6 +2715,22 @@ function RunErrorRecoveryCard({
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   }, [info]);
+
+  const handleFork = useCallback(async () => {
+    if (!onFork || forking) return;
+    setForking(true);
+    setForkError(null);
+    try {
+      const result = await onFork();
+      if (result === false) {
+        setForkError("Could not fork this chat. Try starting a new chat.");
+      }
+    } catch {
+      setForkError("Could not fork this chat. Try starting a new chat.");
+    } finally {
+      setForking(false);
+    }
+  }, [forking, onFork]);
 
   useEffect(() => {
     if (builderReconnectResolved) {
@@ -2819,13 +2837,18 @@ function RunErrorRecoveryCard({
         {canRecover && onFork && (
           <button
             type="button"
-            onClick={onFork}
+            onClick={handleFork}
+            disabled={forking}
             title="Fork this conversation into a separate chat thread."
             aria-label="Fork this conversation into a separate chat thread"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-70"
           >
-            <IconGitFork size={13} />
-            Fork chat
+            {forking ? (
+              <IconLoader2 size={13} className="animate-spin" />
+            ) : (
+              <IconGitFork size={13} />
+            )}
+            {forking ? "Forking..." : "Fork chat"}
           </button>
         )}
         <button
@@ -2841,6 +2864,9 @@ function RunErrorRecoveryCard({
         <p className="mt-2 text-xs leading-relaxed text-red-500">
           {builderReconnect.error}
         </p>
+      )}
+      {forkError && (
+        <p className="mt-2 text-xs leading-relaxed text-red-500">{forkError}</p>
       )}
     </div>
   );
@@ -3167,7 +3193,7 @@ export interface AssistantChatProps {
   /** Callback when user picks a reasoning effort from the picker */
   onEffortChange?: (effort: ReasoningEffort) => void;
   /** Callback when user clicks "Fork Chat" in the message actions menu */
-  onForkChat?: () => void;
+  onForkChat?: () => void | boolean | Promise<void | boolean>;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";

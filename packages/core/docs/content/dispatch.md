@@ -68,25 +68,27 @@ skills/company-voice/SKILL.md
 
 Set these to **All apps** when every app should inherit the same company facts, brand rules, messaging, safety constraints, and customer-facing writing style. Use selected-app grants only for resources that are genuinely app-specific.
 
-The **Resources** page highlights this starter pack in a Global context section so admins can quickly see which files exist, whether they are scoped to all apps, restore missing starter files without overwriting existing ones, and edit their contents. Each app card also has a **Context** view that shows exactly what that app receives: inherited workspace resources, selected grants, and auto-loaded instructions.
+The **Resources** page highlights this starter pack in a Global context section so admins can quickly see which files exist, whether they are scoped to all apps, restore missing starter files without overwriting existing ones, and edit their contents. Expand any resource to preview its effective runtime stack for a selected app/user: workspace default, organization/app override, then personal override. Each app card also has a **Context** view that shows exactly what that app receives: inherited workspace resources, selected grants, and auto-loaded instructions. Use a resource row's **Stack** control to inspect which layer wins for that app.
 
 This is how a team-wide change ("always use British English in customer-facing replies") or a shared brand guideline propagates without editing ten repos.
 
 ### Dreams
 
-Dispatch Dreams review prior agent runs, feedback, evals, and repeated failures to propose durable improvements. A dream report is a review surface, not a silent rewrite: it can suggest personal memory updates, stale-memory cleanup, shared resource edits, skill graduations, or recurring jobs, and each proposal links back to the runs that justify it. Shared instructions and team-wide resources require review before they are applied, especially when the evidence came from inbound Slack, email, Telegram, WhatsApp, or web content.
+Dispatch Dreams review prior agent runs, feedback, evals, and repeated failures to propose durable improvements. A dream report is a review surface, not a silent rewrite: it can suggest personal memory updates, stale-memory cleanup, shared `LEARNINGS.md` edits, workspace instruction/skill/knowledge/agent resources, or recurring jobs, and each proposal links back to the runs that justify it. Shared instructions and team-wide resources require review before they are applied, especially when the evidence came from inbound Slack, email, Telegram, WhatsApp, or web content.
 
 Before proposing a write, Dreams compare the evidence against the personal memory index, existing `memory/*.md` notes, and shared `LEARNINGS.md`. If a lesson is already captured, the report records that it was skipped; if a related personal memory looks stale, the proposal targets that existing note instead of creating a duplicate.
 
 Use Dreams as the workspace's offline reflection loop: "what did agents keep getting wrong this week?", "what should we remember?", and "which repeated workflow should become a skill or scheduled job?"
 
-Start from the **Dreams** tab in Dispatch. Run a manual pass first, inspect each source-backed proposal, then apply only the changes you want to keep. Once the reports are consistently useful, Dispatch can create a recurring dream job that keeps producing proposals without auto-applying shared or instruction-level changes.
+Start from the **Dreams** tab in Dispatch. Run a manual pass first, open a proposal review sheet to compare the current target with the proposed content and source evidence, then apply only the changes you want to keep. Once the reports are consistently useful, Dispatch can create a recurring dream job that keeps producing proposals without auto-applying shared or instruction-level changes.
 
-When a workspace has several thread-debug sources, Dreams can scan them together with `sourceId: "all"` or an explicit `sourceIds` list. Each source gets its own timeout and health row, so a slow or unavailable production database produces a partial result instead of blocking the whole dream pass.
+When a workspace has several thread-debug sources, Dreams can scan them together with `sourceId: "all"` or an explicit `sourceIds` list. Each source gets its own timeout, start stagger, concurrency cap, per-thread timeout, and persisted health row, so a slow or unavailable production database produces a partial result instead of blocking the whole dream pass.
+
+Recurring dream settings are stored at user or org scope and can be edited from the Dreams settings sheet. They control the cron schedule, source selection, per-source timeout, source concurrency, source start stagger, per-thread timeout, candidate limit, and minimum candidate threshold. The default recurring shape is a weekly all-source review that writes proposals only; applying shared or workspace-resource proposals still goes through review and approval.
 
 ### Approval flow
 
-Dispatch can gate sensitive runtime changes behind admin review. Today this covers **saved destinations** (the Slack channels and email addresses the agent can proactively send to), shared/team **dream proposals**, and **dispatch approval policy** itself. When the policy is enabled, the change is queued and the agent surfaces an inline approval preview directly in chat — admins approve or reject without leaving the conversation. Broader resource-wide approval interception is planned separately.
+Dispatch can gate sensitive runtime changes behind admin review. Today this covers **saved destinations** (the Slack channels and email addresses the agent can proactively send to), shared/team **dream proposals**, All-app **workspace resource** creates/updates/deletes, and **dispatch approval policy** itself. When the policy is enabled, the change is queued and the agent surfaces an inline approval preview directly in chat — admins approve or reject without leaving the conversation.
 
 ## How a Slack message flows through Dispatch {#flow}
 

@@ -4,6 +4,10 @@ import {
   searchKnowledgeRows,
   serializeKnowledge,
 } from "../server/lib/brain.js";
+import {
+  searchEverythingRows,
+  type UniversalSearchResult,
+} from "../server/lib/search.js";
 
 const STOPWORDS = new Set([
   "about",
@@ -40,7 +44,7 @@ function facetsFromQuestion(question: string) {
 
 export default defineAction({
   description:
-    "Answer a company-memory question from published Brain knowledge with citations.",
+    "Answer a company-memory question from published Brain knowledge, falling back to cited raw capture matches when approved knowledge is thin.",
   schema: z.object({
     question: z.string().min(1),
     mode: z.enum(["cited"]).default("cited"),
@@ -61,16 +65,40 @@ export default defineAction({
       if (rows.length >= 6) break;
     }
     const knowledge = rows.map(serializeKnowledge);
-    if (!knowledge.length) {
+    const captureFallback: UniversalSearchResult[] = [];
+    const knowledgeTextLength = knowledge.reduce(
+      (total, item) => total + `${item.summary} ${item.body}`.trim().length,
+      0,
+    );
+    if (!knowledge.length || knowledgeTextLength < 260) {
+      const seenCaptures = new Set<string>();
+      for (const facet of facetsFromQuestion(question)) {
+        const matches = await searchEverythingRows({
+          query: facet,
+          type: "capture",
+          limit: 6,
+        });
+        for (const match of matches) {
+          if (seenCaptures.has(match.id)) continue;
+          seenCaptures.add(match.id);
+          captureFallback.push(match);
+        }
+        if (captureFallback.length >= 4) break;
+      }
+    }
+
+    if (!knowledge.length && !captureFallback.length) {
       return {
         answer:
-          "I could not find approved Brain knowledge for that question yet.",
+          "I could not find approved Brain knowledge or matching raw captures for that question yet.",
         citations: [],
         knowledge: [],
+        captures: [],
+        results: [],
       };
     }
 
-    const citations = knowledge.flatMap((item) =>
+    const knowledgeCitations = knowledge.flatMap((item) =>
       item.evidence.slice(0, 2).map((evidence, index) => ({
         id: `${item.id}-${index}`,
         title: item.title,
@@ -80,13 +108,42 @@ export default defineAction({
         url: evidence.sourceUrl ?? evidence.url ?? null,
       })),
     );
+    const captureCitations = captureFallback.map((item) => ({
+      id: item.id,
+      title: item.title,
+      sourceName: item.source?.title ?? item.title,
+      excerpt: item.snippet,
+      url: item.sourceUrl,
+    }));
+    const answerParts = [];
+    if (knowledge.length) {
+      answerParts.push(
+        knowledge
+          .map((item) => `${item.title}: ${item.summary || item.body}`)
+          .join("\n\n"),
+      );
+    }
+    if (captureFallback.length) {
+      const prefix = knowledge.length
+        ? "Related raw capture matches:"
+        : "I could not find approved Brain knowledge, but I found matching raw captures:";
+      answerParts.push(
+        [
+          prefix,
+          ...captureFallback.map(
+            (item) =>
+              `${item.title}${item.source?.title ? ` (${item.source.title})` : ""}: ${item.snippet}`,
+          ),
+        ].join("\n\n"),
+      );
+    }
 
     return {
-      answer: knowledge
-        .map((item) => `${item.title}: ${item.summary || item.body}`)
-        .join("\n\n"),
-      citations,
+      answer: answerParts.join("\n\n"),
+      citations: [...knowledgeCitations, ...captureCitations],
       knowledge,
+      captures: captureFallback,
+      results: captureFallback,
     };
   },
 });

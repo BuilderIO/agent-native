@@ -15,7 +15,10 @@ export interface NavigationState {
   query?: string;
   source?: string;
   sourceType?: string;
+  type?: string;
+  provider?: string;
   status?: string;
+  limit?: number;
   priority?: string;
   sourceId?: string;
   selectedKnowledgeId?: string;
@@ -38,7 +41,10 @@ export function useNavigationState() {
       query: params.get("q") || undefined,
       source: params.get("source") || undefined,
       sourceType: params.get("type") || undefined,
+      type: params.get("type") || undefined,
+      provider: params.get("provider") || undefined,
       status: params.get("status") || undefined,
+      limit: parseLimit(params.get("limit")),
       priority: params.get("priority") || undefined,
       sourceId: params.get("sourceId") || undefined,
       selectedKnowledgeId: params.get("knowledgeId") || undefined,
@@ -86,8 +92,12 @@ export function useNavigationState() {
     const params = new URLSearchParams();
     if (navCommand.query) params.set("q", navCommand.query);
     if (navCommand.source) params.set("source", navCommand.source);
-    if (navCommand.sourceType) params.set("type", navCommand.sourceType);
+    if (navCommand.type || navCommand.sourceType) {
+      params.set("type", navCommand.type ?? navCommand.sourceType ?? "");
+    }
+    if (navCommand.provider) params.set("provider", navCommand.provider);
     if (navCommand.status) params.set("status", navCommand.status);
+    if (navCommand.limit) params.set("limit", String(navCommand.limit));
     if (navCommand.priority) params.set("priority", navCommand.priority);
     if (navCommand.sourceId) params.set("sourceId", navCommand.sourceId);
     if (navCommand.selectedKnowledgeId) {
@@ -104,6 +114,12 @@ export function useNavigationState() {
     navigate(`${path}${params.size ? `?${params.toString()}` : ""}`);
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
+}
+
+function parseLimit(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function routerPath(path: string): string {

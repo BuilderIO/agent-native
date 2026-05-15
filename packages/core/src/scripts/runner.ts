@@ -18,9 +18,20 @@ import { closeDbExec } from "../db/client.js";
 import { loadEnv } from "./utils.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveDevUserEmail } from "./dev-session.js";
+import type { ActionEntry } from "../agent/production-agent.js";
 
 // Load .env from cwd so DATABASE_URL and other vars are available to all actions.
 loadEnv();
+
+export interface RunScriptOptions {
+  /**
+   * Actions contributed by packages rather than the app's local `actions/`
+   * directory. Local app actions still win on name collision.
+   */
+  packageActions?: Record<string, ActionEntry>;
+  /** Help-section label for package actions. */
+  packageActionLabel?: string;
+}
 
 async function runAppDbPluginIfPresent(): Promise<void> {
   const dbPluginPath = path.resolve(process.cwd(), "server/plugins/db.ts");
@@ -39,7 +50,7 @@ async function runAppDbPluginIfPresent(): Promise<void> {
  *   import { runScript } from "@agent-native/core";
  *   runScript();
  */
-export async function runScript(): Promise<void> {
+export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   const actionName = process.argv[2];
 
   if (!actionName || actionName === "--help") {
@@ -60,6 +71,14 @@ export async function runScript(): Promise<void> {
         for (const name of locals) {
           console.log(`  ${name}`);
         }
+      }
+    }
+
+    const packageActionNames = Object.keys(options.packageActions ?? {}).sort();
+    if (packageActionNames.length > 0) {
+      console.log(`\n${options.packageActionLabel ?? "Package actions"}:`);
+      for (const name of packageActionNames) {
+        console.log(`  ${name}`);
       }
     }
 
@@ -101,13 +120,69 @@ export async function runScript(): Promise<void> {
   const orgId = process.env.AGENT_ORG_ID || undefined;
 
   return runWithRequestContext({ userEmail, orgId }, () =>
-    dispatchAction(actionName, args),
+    dispatchAction(actionName, args, options),
   );
+}
+
+function coerceCliValue(
+  value: string,
+  coerceBooleans: boolean,
+): string | boolean {
+  if (!coerceBooleans) return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}
+
+function setParsedArg(
+  parsed: Record<string, unknown>,
+  key: string,
+  value: unknown,
+) {
+  const existing = parsed[key];
+  if (existing === undefined) {
+    parsed[key] = value;
+    return;
+  }
+  parsed[key] = Array.isArray(existing)
+    ? [...existing, value]
+    : [existing, value];
+}
+
+function parseActionArgs(
+  args: string[],
+  options: { coerceBooleans?: boolean } = {},
+): Record<string, unknown> {
+  const parsed: Record<string, unknown> = {};
+  const coerceBooleans = options.coerceBooleans ?? false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg.startsWith("--")) continue;
+    const eqIdx = arg.indexOf("=");
+    if (eqIdx > 0) {
+      setParsedArg(
+        parsed,
+        arg.slice(2, eqIdx),
+        coerceCliValue(arg.slice(eqIdx + 1), coerceBooleans),
+      );
+    } else {
+      const key = arg.slice(2);
+      const next = args[i + 1];
+      if (next && !next.startsWith("--")) {
+        setParsedArg(parsed, key, coerceCliValue(next, coerceBooleans));
+        i++;
+      } else {
+        setParsedArg(parsed, key, coerceBooleans ? true : "true");
+      }
+    }
+  }
+  return parsed;
 }
 
 async function dispatchAction(
   actionName: string,
   args: string[],
+  options: RunScriptOptions,
 ): Promise<void> {
   // 1. Try local app action first (actions/ then scripts/ for backwards compat)
   const actionsPath = path.resolve(
@@ -135,25 +210,7 @@ async function dispatchAction(
         typeof handler === "object" &&
         typeof handler.run === "function"
       ) {
-        // Parse --key=value and --key value pairs into a Record
-        const parsed: Record<string, string> = {};
-        for (let i = 0; i < args.length; i++) {
-          const arg = args[i];
-          if (!arg.startsWith("--")) continue;
-          const eqIdx = arg.indexOf("=");
-          if (eqIdx > 0) {
-            parsed[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
-          } else {
-            const key = arg.slice(2);
-            const next = args[i + 1];
-            if (next && !next.startsWith("--")) {
-              parsed[key] = next;
-              i++;
-            } else {
-              parsed[key] = "true";
-            }
-          }
-        }
+        const parsed = parseActionArgs(args, { coerceBooleans: true });
         const result = await handler.run(parsed);
         if (result) console.log(result);
       } else if (typeof handler === "function") {
@@ -173,7 +230,24 @@ async function dispatchAction(
     }
   }
 
-  // 2. Fall back to core scripts
+  // 2. Try package-contributed actions (e.g. @agent-native/dispatch)
+  const packageAction = options.packageActions?.[actionName];
+  if (packageAction) {
+    try {
+      await runAppDbPluginIfPresent();
+      const parsed = parseActionArgs(args, { coerceBooleans: true });
+      const result = await packageAction.run(parsed as Record<string, string>);
+      if (result) console.log(result);
+      await closeDbExec().catch(() => {});
+      process.exit(0);
+    } catch (err: any) {
+      await closeDbExec().catch(() => {});
+      console.error(`Action "${actionName}" failed:`, err.message || err);
+      process.exit(1);
+    }
+  }
+
+  // 3. Fall back to core scripts
   const coreScript = coreScripts[actionName];
   if (coreScript) {
     try {
@@ -187,7 +261,7 @@ async function dispatchAction(
     }
   }
 
-  // 3. Not found anywhere
+  // 4. Not found anywhere
   console.error(
     `Error: Action "${actionName}" not found. Run "pnpm action --help" for available actions.`,
   );

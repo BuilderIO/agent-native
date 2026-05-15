@@ -74,6 +74,25 @@ export interface TreeNode {
 }
 
 export type ResourceScope = "personal" | "shared" | "workspace" | "all";
+export type EffectiveResourceScope = "workspace" | "shared" | "personal";
+
+export interface EffectiveResourceLayer {
+  scope: EffectiveResourceScope;
+  label: string;
+  owner: string;
+  resource: ResourceMeta | null;
+  exists: boolean;
+  effective: boolean;
+  overridden: boolean;
+  canWrite: boolean;
+}
+
+export interface EffectiveResourceContext {
+  path: string;
+  effectiveResource: ResourceMeta | null;
+  effectiveScope: EffectiveResourceScope | null;
+  layers: EffectiveResourceLayer[];
+}
 
 /**
  * Inject a virtual `mcp-servers/` folder into a scope's resource tree.
@@ -246,6 +265,19 @@ export function useResource(id: string | null) {
     queryKey: ["resource", id],
     queryFn: () => fetchJson(agentNativePath(`/_agent-native/resources/${id}`)),
     enabled: !!id,
+  });
+}
+
+export function useEffectiveResourceContext(path: string | null) {
+  return useQuery<EffectiveResourceContext>({
+    queryKey: ["resources", "effective", path],
+    queryFn: async () => {
+      const query = new URLSearchParams({ path: path ?? "" });
+      return fetchJson<EffectiveResourceContext>(
+        agentNativePath(`/_agent-native/resources/effective?${query}`),
+      );
+    },
+    enabled: !!path,
   });
 }
 

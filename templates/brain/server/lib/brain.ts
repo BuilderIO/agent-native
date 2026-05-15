@@ -765,6 +765,33 @@ export async function readBrainScreen() {
     const capture = await getAccessibleCapture(nav.captureId);
     if (capture) screen.capture = serializeCapture(capture.capture);
   }
+  if (nav?.view === "search" && typeof nav.query === "string" && nav.query) {
+    const { searchEverythingRows } = await import("./search.js");
+    screen.search = {
+      query: nav.query,
+      type: nav.type,
+      provider: nav.provider,
+      status: nav.status,
+      results: await searchEverythingRows({
+        query: nav.query,
+        type: ["knowledge", "capture", "source", "all"].includes(nav.type)
+          ? nav.type
+          : undefined,
+        provider:
+          typeof nav.provider === "string" && nav.provider !== "all"
+            ? nav.provider
+            : undefined,
+        status:
+          typeof nav.status === "string" && nav.status !== "all"
+            ? nav.status
+            : undefined,
+        limit:
+          typeof nav.limit === "number"
+            ? Math.min(Math.max(nav.limit, 1), 25)
+            : 10,
+      }),
+    };
+  }
 
   const db = getDb();
   const sources = await db

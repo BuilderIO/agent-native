@@ -5,10 +5,17 @@ import {
   IconDatabase,
   IconFileText,
   IconMessageQuestion,
+  IconSearch,
   IconSettings,
 } from "@tabler/icons-react";
 
-export type BrainView = "ask" | "knowledge" | "review" | "sources" | "settings";
+export type BrainView =
+  | "ask"
+  | "search"
+  | "knowledge"
+  | "review"
+  | "sources"
+  | "settings";
 
 export type KnowledgeStatus = "approved" | "needs_review" | "draft" | "stale";
 export type SourceHealth = "healthy" | "degraded" | "paused" | "error";
@@ -110,6 +117,50 @@ export interface KnowledgeResponse {
     sourceTypes?: string[];
     sources?: string[];
     statuses?: KnowledgeStatus[];
+  };
+}
+
+export type SearchResultType = "knowledge" | "capture" | "source" | string;
+
+export interface SearchEverythingResult {
+  id: string;
+  type: SearchResultType;
+  title: string;
+  snippet?: string | null;
+  summary?: string | null;
+  provider?: string | null;
+  source?: {
+    id: string;
+    title: string;
+    provider: string;
+    status?: string | null;
+  } | null;
+  sourceTitle?: string | null;
+  sourceProvider?: string | null;
+  sourceUrl?: string | null;
+  citation?: {
+    captureId?: string | null;
+    captureTitle?: string | null;
+    quote?: string | null;
+    sourceUrl?: string | null;
+  } | null;
+  status?: string | null;
+  url?: string | null;
+  confidence?: number | null;
+  updatedAt?: string | null;
+  score?: number | null;
+}
+
+export interface SearchEverythingResponse {
+  count?: number;
+  results?: SearchEverythingResult[];
+  items?: SearchEverythingResult[];
+  rows?: SearchEverythingResult[];
+  knowledge?: KnowledgeRow[];
+  facets?: {
+    types?: string[];
+    providers?: string[];
+    statuses?: string[];
   };
 }
 
@@ -268,6 +319,7 @@ export const navItems: Array<{
   icon: Icon;
 }> = [
   { view: "ask", label: "Ask", href: "/", icon: IconMessageQuestion },
+  { view: "search", label: "Search", href: "/search", icon: IconSearch },
   {
     view: "knowledge",
     label: "Knowledge",
@@ -421,6 +473,7 @@ export const defaultSettings: BrainSettings = {
 };
 
 export function viewFromPath(pathname: string): BrainView {
+  if (pathname.startsWith("/search")) return "search";
   if (pathname.startsWith("/knowledge")) return "knowledge";
   if (pathname.startsWith("/review")) return "review";
   if (pathname.startsWith("/sources")) return "sources";
@@ -430,6 +483,8 @@ export function viewFromPath(pathname: string): BrainView {
 
 export function pathFromView(view?: string): string {
   switch (view) {
+    case "search":
+      return "/search";
     case "knowledge":
       return "/knowledge";
     case "review":
@@ -469,6 +524,8 @@ export function sourceDescription(source: BrainSource) {
       return "Approved Slack channels for product decisions, launches, support signals, and operating context.";
     case "granola":
       return "Granola Team-space notes and transcripts imported through the Enterprise API.";
+    case "github":
+      return "GitHub repository issues and pull requests imported as company context.";
     case "clips":
       return "Meeting recordings and transcripts exported from Clips into Brain.";
     case "generic":
@@ -505,7 +562,11 @@ export function sourceReviewRequired(source: BrainSource) {
 export function sourceAutoSync(source: BrainSource) {
   const value = source.config?.autoSync;
   if (typeof value === "boolean") return value;
-  return source.provider === "slack" || source.provider === "granola";
+  return (
+    source.provider === "slack" ||
+    source.provider === "granola" ||
+    source.provider === "github"
+  );
 }
 
 export function sourceRetryAfter(source: BrainSource) {

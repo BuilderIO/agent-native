@@ -227,6 +227,47 @@ interface GranolaNote extends GranolaListNote {
   folder_membership?: unknown;
 }
 
+interface GitHubRepoCursor {
+  updatedAfter?: string;
+}
+
+interface GitHubSyncCursor {
+  repositories?: Record<string, GitHubRepoCursor>;
+  retry?: RetryCursor;
+  lastRunAt?: string;
+}
+
+interface GitHubLabel {
+  name?: string;
+  color?: string;
+  description?: string | null;
+}
+
+interface GitHubIssueOrPull {
+  id?: number;
+  number?: number;
+  title?: string;
+  body?: string | null;
+  html_url?: string;
+  state?: string;
+  locked?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  closed_at?: string | null;
+  user?: {
+    login?: string;
+    html_url?: string;
+  } | null;
+  labels?: Array<string | GitHubLabel>;
+  pull_request?: {
+    html_url?: string;
+    merged_at?: string | null;
+    diff_url?: string;
+    patch_url?: string;
+    url?: string;
+  };
+}
+
 class ConnectorRateLimitError extends Error {
   constructor(
     public provider: BrainSourceProvider,
@@ -1140,6 +1181,164 @@ async function granolaApi<T>(
   return (await response.json()) as T;
 }
 
+function githubRepoFromValue(value: string): string | null {
+  const trimmed = value.trim().replace(/\.git$/, "");
+  if (!trimmed) return null;
+  const withoutProtocol = trimmed
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/^git@github\.com:/i, "");
+  const [owner, repo] = withoutProtocol.split("/");
+  if (!owner || !repo) return null;
+  const cleanRepo = repo.split(/[?#]/)[0];
+  if (
+    !/^[A-Za-z0-9_.-]+$/.test(owner) ||
+    !/^[A-Za-z0-9_.-]+$/.test(cleanRepo)
+  ) {
+    return null;
+  }
+  return `${owner}/${cleanRepo}`;
+}
+
+function githubReposFromConfig(config: Record<string, unknown>): string[] {
+  return configuredList(config, ["repositories", "repos"], "github")
+    .map(githubRepoFromValue)
+    .filter((repo): repo is string => Boolean(repo));
+}
+
+function configuredBoolean(
+  config: Record<string, unknown>,
+  keys: string[],
+  fallback: boolean,
+  nestedKey?: string,
+): boolean {
+  const configs = nestedKey
+    ? [config, objectValue(config[nestedKey])]
+    : [config];
+  for (const itemConfig of configs) {
+    for (const key of keys) {
+      const raw = itemConfig[key];
+      if (typeof raw === "boolean") return raw;
+      if (typeof raw === "string") {
+        if (raw.toLowerCase() === "true") return true;
+        if (raw.toLowerCase() === "false") return false;
+      }
+    }
+  }
+  return fallback;
+}
+
+function githubStateFromConfig(config: Record<string, unknown>) {
+  const raw =
+    (typeof config.state === "string" ? config.state : undefined) ??
+    (typeof objectValue(config.github).state === "string"
+      ? String(objectValue(config.github).state)
+      : undefined);
+  return raw === "open" || raw === "closed" || raw === "all" ? raw : "all";
+}
+
+function githubRetryAfterSeconds(headers: Headers): number {
+  const retryAfter = retryAfterSeconds(headers);
+  if (retryAfter !== 60) return retryAfter;
+  const reset = headers.get("x-ratelimit-reset");
+  const resetMs = reset ? Number(reset) * 1000 : Number.NaN;
+  if (Number.isFinite(resetMs) && resetMs > Date.now()) {
+    return Math.ceil((resetMs - Date.now()) / 1000);
+  }
+  return retryAfter;
+}
+
+function githubLabels(labels: GitHubIssueOrPull["labels"]): string[] {
+  if (!Array.isArray(labels)) return [];
+  return labels
+    .map((label) => (typeof label === "string" ? label : label.name))
+    .filter((label): label is string => Boolean(label));
+}
+
+function normalizeGitHubIssue(repo: string, item: GitHubIssueOrPull) {
+  const isPullRequest = Boolean(item.pull_request);
+  const number = item.number ?? item.id ?? "unknown";
+  const labels = githubLabels(item.labels);
+  const sourceUrl = item.html_url ?? item.pull_request?.html_url ?? null;
+  const title =
+    item.title ??
+    `${repo} ${isPullRequest ? "pull request" : "issue"} #${number}`;
+  const author = item.user?.login ?? "unknown";
+  const header = [
+    `GitHub ${repo} ${isPullRequest ? "pull request" : "issue"} #${number}`,
+    `State: ${item.state ?? "unknown"}`,
+    `Author: ${author}`,
+    labels.length ? `Labels: ${labels.join(", ")}` : "",
+    item.created_at ? `Created: ${item.created_at}` : "",
+    item.updated_at ? `Updated: ${item.updated_at}` : "",
+    sourceUrl ? `URL: ${sourceUrl}` : "",
+  ].filter(Boolean);
+  return {
+    externalId: `github:${repo}:${isPullRequest ? "pull" : "issue"}:${number}`,
+    title,
+    kind: isPullRequest ? ("document" as const) : ("note" as const),
+    content: [header.join("\n"), "", title, item.body ?? ""].join("\n").trim(),
+    capturedAt: item.updated_at ?? item.created_at ?? nowIso(),
+    metadata: {
+      provider: "github",
+      connector: "github",
+      repository: repo,
+      number: item.number,
+      githubId: item.id,
+      type: isPullRequest ? "pull_request" : "issue",
+      state: item.state,
+      author,
+      authorUrl: item.user?.html_url,
+      labels,
+      sourceUrl,
+      htmlUrl: item.html_url,
+      createdAt: item.created_at,
+      updatedAt: item.updated_at,
+      closedAt: item.closed_at,
+      pullRequest: item.pull_request,
+      raw: item,
+    },
+  };
+}
+
+async function githubApi<T>(
+  token: string,
+  path: string,
+  params: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<T> {
+  const url = buildUrl(`https://api.github.com${path}`, params);
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "agent-native-brain",
+    },
+  });
+  const remaining = response.headers.get("x-ratelimit-remaining");
+  if (
+    response.status === 429 ||
+    (response.status === 403 &&
+      (remaining === "0" || response.headers.has("retry-after")))
+  ) {
+    throw new ConnectorRateLimitError(
+      "github",
+      path,
+      githubRetryAfterSeconds(response.headers),
+    );
+  }
+  if (!response.ok) {
+    let suffix = "";
+    try {
+      const data = (await response.json()) as { message?: string };
+      suffix = data.message ? `: ${data.message}` : "";
+    } catch {
+      suffix = "";
+    }
+    throw new Error(`GitHub ${path} failed (${response.status})${suffix}`);
+  }
+  return (await response.json()) as T;
+}
+
 async function createRun(source: SourceRow) {
   const db = getDb();
   const runId = nanoid();
@@ -1693,6 +1892,230 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
   }
 }
 
+async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
+  const config = parseJson<Record<string, unknown>>(source.configJson, {});
+  if (isFixtureConfig(config) || transcriptItems(config).length > 0) {
+    return syncFromConfiguredItems(
+      source,
+      "GitHub fixture source has no configured captures.",
+    );
+  }
+
+  const runId = await createRun(source);
+  const db = getDb();
+  const cursor = parseJson<GitHubSyncCursor>(source.cursorJson, {});
+  const nextCursor: GitHubSyncCursor = {
+    ...cursor,
+    repositories: { ...(cursor.repositories ?? {}) },
+    retry: undefined,
+    lastRunAt: nowIso(),
+  };
+  const repositories = githubReposFromConfig(config);
+  const state = githubStateFromConfig(config);
+  const limit = configuredNumber(config, ["limit", "pageSize", "perPage"], 25, {
+    min: 1,
+    max: 50,
+    nestedKey: "github",
+  });
+  const maxRepositories = configuredNumber(
+    config,
+    ["maxRepositories", "repoLimit"],
+    5,
+    { min: 1, max: 10, nestedKey: "github" },
+  );
+  const includeIssues = configuredBoolean(
+    config,
+    ["includeIssues"],
+    true,
+    "github",
+  );
+  const includePullRequests = configuredBoolean(
+    config,
+    ["includePullRequests", "includePRs"],
+    true,
+    "github",
+  );
+
+  const captures = [];
+  const stats: Record<string, unknown> = {
+    configuredRepositories: repositories.length,
+    scannedRepositories: 0,
+    itemsSeen: 0,
+    issuesSeen: 0,
+    pullRequestsSeen: 0,
+    capturesCreated: 0,
+    state,
+    includeIssues,
+    includePullRequests,
+    rateLimited: false,
+  };
+
+  try {
+    const token = await requireConnectorCredential("GITHUB_TOKEN", "GitHub");
+    if (!repositories.length) {
+      throw new Error(
+        "GitHub source must configure repositories or repos as owner/repo values",
+      );
+    }
+    if (!includeIssues && !includePullRequests) {
+      await finishRun(runId, "success", stats);
+      await db
+        .update(schema.brainSources)
+        .set({
+          cursorJson: stableJson(nextCursor),
+          lastSyncedAt: nowIso(),
+          lastError: null,
+          status: "active",
+          updatedAt: nowIso(),
+        })
+        .where(
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            eq(schema.brainSources.id, source.id),
+          ),
+        );
+      return {
+        runId,
+        sourceId: source.id,
+        provider: "github",
+        status: "success",
+        capturesCreated: 0,
+        captures,
+        stats,
+        message:
+          "GitHub sync skipped because includeIssues and includePullRequests are both false",
+      };
+    }
+
+    for (const repo of repositories.slice(0, maxRepositories)) {
+      stats.scannedRepositories = Number(stats.scannedRepositories) + 1;
+      const repoCursor = nextCursor.repositories?.[repo] ?? {};
+      const items = await githubApi<GitHubIssueOrPull[]>(
+        token,
+        `/repos/${repo}/issues`,
+        {
+          state,
+          sort: "updated",
+          direction: "desc",
+          per_page: limit,
+          since: repoCursor.updatedAfter,
+        },
+      );
+      stats.itemsSeen = Number(stats.itemsSeen) + items.length;
+
+      let maxUpdatedAt = repoCursor.updatedAfter;
+      for (const item of items) {
+        const isPullRequest = Boolean(item.pull_request);
+        if (isPullRequest) {
+          stats.pullRequestsSeen = Number(stats.pullRequestsSeen) + 1;
+          if (!includePullRequests) continue;
+        } else {
+          stats.issuesSeen = Number(stats.issuesSeen) + 1;
+          if (!includeIssues) continue;
+        }
+
+        const normalized = normalizeGitHubIssue(repo, item);
+        const capture = await createCapture({
+          sourceId: source.id,
+          externalId: normalized.externalId,
+          title: normalized.title,
+          kind: normalized.kind,
+          content: normalized.content,
+          capturedAt: normalized.capturedAt,
+          metadata: {
+            ...normalized.metadata,
+            syncRunId: runId,
+          },
+        });
+        captures.push(serializeCapture(capture));
+
+        const candidateUpdatedAt = item.updated_at;
+        if (
+          candidateUpdatedAt &&
+          (!maxUpdatedAt ||
+            Date.parse(candidateUpdatedAt) > Date.parse(maxUpdatedAt))
+        ) {
+          maxUpdatedAt = candidateUpdatedAt;
+        }
+      }
+      nextCursor.repositories[repo] = {
+        updatedAfter: maxUpdatedAt ?? nowIso(),
+      };
+    }
+
+    stats.capturesCreated = captures.length;
+    await finishRun(runId, "success", stats);
+    await db
+      .update(schema.brainSources)
+      .set({
+        cursorJson: stableJson(nextCursor),
+        lastSyncedAt: nowIso(),
+        lastError: null,
+        status: "active",
+        updatedAt: nowIso(),
+      })
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
+    return {
+      runId,
+      sourceId: source.id,
+      provider: "github",
+      status: "success",
+      capturesCreated: captures.length,
+      captures,
+      stats,
+      message: captures.length
+        ? `Imported ${captures.length} GitHub issues and pull requests`
+        : "GitHub sync completed with no new issues or pull requests",
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isRateLimit = err instanceof ConnectorRateLimitError;
+    const failedCursor: GitHubSyncCursor = {
+      ...cursor,
+      ...nextCursor,
+      retry: isRateLimit ? retryCursor(err, "github") : cursor.retry,
+      lastRunAt: nowIso(),
+    };
+    stats.capturesCreated = captures.length;
+    stats.rateLimited = isRateLimit;
+    await finishRun(
+      runId,
+      isRateLimit ? "success" : "error",
+      stats,
+      isRateLimit ? null : message,
+    );
+    await db
+      .update(schema.brainSources)
+      .set({
+        cursorJson: stableJson(failedCursor),
+        lastError: message,
+        status: isRateLimit ? "active" : "error",
+        updatedAt: nowIso(),
+      })
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
+    return {
+      runId,
+      sourceId: source.id,
+      provider: "github",
+      status: isRateLimit ? "success" : "error",
+      capturesCreated: captures.length,
+      captures,
+      stats,
+      message,
+    };
+  }
+}
+
 const manualConnector: Connector = {
   sync: (source) =>
     syncFromConfiguredItems(
@@ -1709,6 +2132,10 @@ const granolaConnector: Connector = {
   sync: syncGranola,
 };
 
+const githubConnector: Connector = {
+  sync: syncGitHub,
+};
+
 const clipsConnector: Connector = {
   sync: (source) =>
     syncFromConfiguredItems(
@@ -1723,6 +2150,7 @@ const connectors: Record<BrainSourceProvider, Connector> = {
   clips: clipsConnector,
   slack: slackConnector,
   granola: granolaConnector,
+  github: githubConnector,
 };
 
 export async function runConnectorSync(source: SourceRow) {

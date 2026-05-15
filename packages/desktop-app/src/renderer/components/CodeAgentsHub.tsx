@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconAlertCircle,
   IconCircleCheck,
@@ -27,6 +27,7 @@ interface CodeAgentsHubProps {
   apps: AppConfig[];
   openRequest?: { goalId?: string; runId?: string; nonce: number };
   refreshKey?: number;
+  onOpenSettings?: () => void;
 }
 
 type RunListStatus = CodeAgentRunListResult["status"];
@@ -44,9 +45,9 @@ export default function CodeAgentsHub({
   apps,
   openRequest,
   refreshKey = 0,
+  onOpenSettings,
 }: CodeAgentsHubProps) {
-  const [selectedGoalId, setSelectedGoalId] =
-    useState<CodeAgentGoalId>("migrate");
+  const [selectedGoalId, setSelectedGoalId] = useState<CodeAgentGoalId>("task");
   const selectedGoal =
     getCodeAgentGoal(selectedGoalId) ?? getDefaultCodeAgentGoal();
   const [runs, setRuns] = useState<CodeAgentRun[]>([]);
@@ -75,6 +76,16 @@ export default function CodeAgentsHub({
   const [refreshing, setRefreshing] = useState(false);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
+  const [newPrompt, setNewPrompt] = useState("");
+  const [creatingRun, setCreatingRun] = useState(false);
+  const [transcriptEvents, setTranscriptEvents] = useState<
+    CodeAgentTranscriptEvent[]
+  >([]);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const [followUpPrompt, setFollowUpPrompt] = useState("");
+  const [submittingFollowUp, setSubmittingFollowUp] = useState(false);
+  const newPromptRef = useRef<HTMLTextAreaElement | null>(null);
 
   const loadRuns = useCallback(
     async (busy = false) => {
@@ -103,11 +114,37 @@ export default function CodeAgentsHub({
     [selectedGoal.id],
   );
 
-  useEffect(() => {
-    void loadRuns();
-    const interval = window.setInterval(() => void loadRuns(), 10_000);
-    return () => window.clearInterval(interval);
-  }, [loadRuns]);
+  const loadTranscript = useCallback(
+    async (runId: string | null = selectedRunId, busy = false) => {
+      if (!runId) {
+        setTranscriptEvents([]);
+        setTranscriptError(null);
+        setTranscriptLoading(false);
+        return;
+      }
+      if (busy) setTranscriptLoading(true);
+      try {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.readTranscript) {
+          setTranscriptEvents([]);
+          setTranscriptError("Desktop bridge is not available.");
+          return;
+        }
+        const result = await api.readTranscript({
+          goalId: selectedGoal.id,
+          runId,
+        });
+        setTranscriptEvents(result.events);
+        setTranscriptError(result.error ?? null);
+      } catch (err) {
+        setTranscriptEvents([]);
+        setTranscriptError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setTranscriptLoading(false);
+      }
+    },
+    [selectedGoal.id, selectedRunId],
+  );
 
   useEffect(() => {
     if (refreshKey <= 0) return;
@@ -129,11 +166,32 @@ export default function CodeAgentsHub({
   }, [runs, selectedRunId]);
 
   const summary = useMemo(() => buildSummary(runs), [runs]);
+  const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
+  const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;
   const visibleRuns = useMemo(
     () => runs.filter((run) => matchesRunFilter(run, runFilter)),
     [runFilter, runs],
   );
   const workbenchUrlParams = selectedRunId ? { run: selectedRunId } : undefined;
+
+  useEffect(() => {
+    void loadRuns();
+    const interval = window.setInterval(
+      () => void loadRuns(),
+      hasActiveRuns ? 2_000 : 10_000,
+    );
+    return () => window.clearInterval(interval);
+  }, [hasActiveRuns, loadRuns]);
+
+  useEffect(() => {
+    void loadTranscript(selectedRunId, true);
+    if (!selectedRunId) return;
+    const interval = window.setInterval(
+      () => void loadTranscript(selectedRunId),
+      selectedRunIsActive ? 1_000 : 5_000,
+    );
+    return () => window.clearInterval(interval);
+  }, [loadTranscript, selectedRunId, selectedRunIsActive]);
 
   async function openTerminal() {
     const terminalRequest = selectedRun
@@ -152,8 +210,10 @@ export default function CodeAgentsHub({
   }
 
   function openSelectedGoal() {
-    setSelectedRunId(null);
-    setWorkbenchOpen(true);
+    setWorkbenchOpen(false);
+    window.requestAnimationFrame(() => {
+      newPromptRef.current?.focus();
+    });
   }
 
   async function controlRun(command: CodeAgentControlCommand) {
@@ -161,7 +221,7 @@ export default function CodeAgentsHub({
       toast("Select a session first", { duration: 1800 });
       return;
     }
-    if (command === "resume") {
+    if (command === "resume" && selectedRunUsesAppSurface) {
       setWorkbenchOpen(true);
     }
 
@@ -182,8 +242,113 @@ export default function CodeAgentsHub({
     });
   }
 
+  async function createRunFromPrompt(event: React.FormEvent) {
+    event.preventDefault();
+    const prompt = newPrompt.trim();
+    if (!prompt) {
+      toast("Enter a coding task first", { duration: 1800 });
+      return;
+    }
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.createRun) {
+      toast("Desktop bridge is not available", { duration: 2600 });
+      return;
+    }
+
+    setCreatingRun(true);
+    try {
+      const result = await api.createRun({
+        goalId: selectedGoal.id,
+        prompt,
+      });
+      if (!result.ok || !result.run) {
+        toast(result.message, {
+          description: result.error,
+          duration: 3600,
+        });
+        return;
+      }
+      setNewPrompt("");
+      setRuns((current) => [result.run!, ...current]);
+      setSelectedRunId(result.run.id);
+      setWorkbenchOpen(false);
+      if (result.event) setTranscriptEvents([result.event]);
+      toast(result.message, { duration: 2200 });
+      await loadRuns(true);
+      await loadTranscript(result.run.id, true);
+    } catch (err) {
+      toast("Could not start the session", {
+        description: err instanceof Error ? err.message : String(err),
+        duration: 3600,
+      });
+    } finally {
+      setCreatingRun(false);
+    }
+  }
+
+  async function submitFollowUp(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selectedRun) {
+      toast("Select a session first", { duration: 1800 });
+      return;
+    }
+    const prompt = followUpPrompt.trim();
+    if (!prompt) {
+      toast("Enter a follow-up prompt", { duration: 1800 });
+      return;
+    }
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.appendFollowUp) {
+      toast("Desktop bridge is not available", { duration: 2600 });
+      return;
+    }
+
+    const optimisticEvent: CodeAgentTranscriptEvent = {
+      id: `pending-${Date.now()}`,
+      runId: selectedRun.id,
+      type: "user",
+      title: "User prompt",
+      text: prompt,
+      createdAt: new Date().toISOString(),
+      metadata: { source: "desktop", queued: true, pending: true },
+    };
+    setFollowUpPrompt("");
+    setTranscriptEvents((current) => [...current, optimisticEvent]);
+    setSubmittingFollowUp(true);
+    try {
+      const result = await api.appendFollowUp({
+        goalId: selectedGoal.id,
+        runId: selectedRun.id,
+        prompt,
+      });
+      if (!result.ok) {
+        setTranscriptEvents((current) =>
+          current.filter((item) => item.id !== optimisticEvent.id),
+        );
+        toast(result.message, {
+          description: result.error,
+          duration: 3600,
+        });
+        return;
+      }
+      toast(result.message, { duration: 1800 });
+      await loadRuns(true);
+      await loadTranscript(selectedRun.id, true);
+    } catch (err) {
+      setTranscriptEvents((current) =>
+        current.filter((item) => item.id !== optimisticEvent.id),
+      );
+      toast("Could not record the follow-up", {
+        description: err instanceof Error ? err.message : String(err),
+        duration: 3600,
+      });
+    } finally {
+      setSubmittingFollowUp(false);
+    }
+  }
+
   return (
-    <section className="code-agents-surface" aria-label="Code Agents">
+    <section className="code-agents-surface" aria-label="Code">
       <aside
         className="code-agents-rail"
         aria-label="Code Agent goals and sessions"
@@ -193,8 +358,8 @@ export default function CodeAgentsHub({
             <IconCode size={18} strokeWidth={1.8} />
           </div>
           <div className="code-agents-title-block">
-            <h1>Code Agents</h1>
-            <p>Slash-command sessions</p>
+            <h1>Code</h1>
+            <p>Coding sessions</p>
           </div>
         </div>
 
@@ -343,13 +508,12 @@ export default function CodeAgentsHub({
           <div className="code-agents-overview">
             <div className="code-agents-overview__header">
               <div>
-                <p className="code-agents-kicker">Slash-command hub</p>
-                <h2>Code Agents</h2>
+                <p className="code-agents-kicker">Native Code app</p>
+                <h2>Coding sessions</h2>
                 <p>
-                  Start slash-command sessions, review coding-agent feedback,
-                  and jump into the right detail surface. Migration is the first
-                  app-backed goal here; the hub is the primary Desktop home for
-                  Code Agents.
+                  Start a coding task, review the transcript, and attach
+                  follow-ups to the same session. Migration and audit are
+                  slash-command goals in the same queue.
                 </p>
               </div>
               <div className="code-agents-toolbar-actions">
@@ -372,33 +536,6 @@ export default function CodeAgentsHub({
               </div>
             </div>
 
-            <div className="code-agents-status-grid">
-              <StatusCard
-                icon={<IconListCheck size={17} strokeWidth={1.8} />}
-                label="Sessions"
-                value={String(summary.total)}
-                tone="neutral"
-              />
-              <StatusCard
-                icon={<IconPlayerPlay size={17} strokeWidth={1.8} />}
-                label="Running"
-                value={String(summary.inProgress)}
-                tone="active"
-              />
-              <StatusCard
-                icon={<IconAlertCircle size={17} strokeWidth={1.8} />}
-                label="Needs input"
-                value={String(summary.needsApproval)}
-                tone="warning"
-              />
-              <StatusCard
-                icon={<IconCircleCheck size={17} strokeWidth={1.8} />}
-                label="Completed"
-                value={String(summary.complete)}
-                tone="success"
-              />
-            </div>
-
             {status !== "ok" && (
               <div
                 className={`code-agents-callout code-agents-callout--${status}`}
@@ -413,15 +550,59 @@ export default function CodeAgentsHub({
               </div>
             )}
 
+            <NewSessionComposer
+              goal={selectedGoal}
+              prompt={newPrompt}
+              inputRef={newPromptRef}
+              creating={creatingRun}
+              onPromptChange={setNewPrompt}
+              onSubmit={createRunFromPrompt}
+            />
+
+            <div className="code-agents-status-grid">
+              <StatusCard
+                icon={<IconListCheck size={17} strokeWidth={1.8} />}
+                label="Sessions"
+                value={String(summary.total)}
+                tone="neutral"
+              />
+              <StatusCard
+                icon={<IconPlayerPlay size={17} strokeWidth={1.8} />}
+                label="Active"
+                value={String(summary.inProgress)}
+                tone="active"
+              />
+              <StatusCard
+                icon={<IconAlertCircle size={17} strokeWidth={1.8} />}
+                label="Waiting"
+                value={String(summary.needsApproval)}
+                tone="warning"
+              />
+              <StatusCard
+                icon={<IconCircleCheck size={17} strokeWidth={1.8} />}
+                label="Complete"
+                value={String(summary.complete)}
+                tone="success"
+              />
+            </div>
+
             <RunDetailCard
               run={selectedRun}
               selectedRunId={selectedRunId}
               goal={selectedGoal}
+              transcriptEvents={transcriptEvents}
+              transcriptLoading={transcriptLoading}
+              transcriptError={transcriptError}
+              followUpPrompt={followUpPrompt}
+              submittingFollowUp={submittingFollowUp}
+              onFollowUpPromptChange={setFollowUpPrompt}
+              onSubmitFollowUp={submitFollowUp}
               onOpenWorkbench={() => setWorkbenchOpen(true)}
               onOpenTerminal={openTerminal}
               onResume={() => controlRun("resume")}
               onRefreshStatus={() => controlRun("status")}
               onStop={() => controlRun("stop")}
+              onOpenSettings={onOpenSettings}
             />
           </div>
         )}
@@ -468,6 +649,49 @@ function isMigrationRun(run: CodeAgentRun): run is CodeAgentMigrationRun {
   );
 }
 
+function NewSessionComposer({
+  goal,
+  prompt,
+  inputRef,
+  creating,
+  onPromptChange,
+  onSubmit,
+}: {
+  goal: CodeAgentGoalDefinition;
+  prompt: string;
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  creating: boolean;
+  onPromptChange: (value: string) => void;
+  onSubmit: (event: React.FormEvent) => void;
+}) {
+  return (
+    <form className="code-agents-new-session" onSubmit={onSubmit}>
+      <div className="code-agents-new-session__header">
+        <div>
+          <p className="code-agents-kicker">{goal.slashCommand}</p>
+          <h3>New coding session</h3>
+        </div>
+        <button
+          type="submit"
+          className="code-agents-button code-agents-button--primary"
+          disabled={creating || prompt.trim().length === 0}
+        >
+          <IconPlayerPlay size={14} strokeWidth={1.8} />
+          {creating ? "Starting" : "Start Session"}
+        </button>
+      </div>
+      <textarea
+        ref={inputRef}
+        className="code-agents-composer"
+        value={prompt}
+        onChange={(event) => onPromptChange(event.target.value)}
+        placeholder="Describe the coding task..."
+        rows={3}
+      />
+    </form>
+  );
+}
+
 function NativeGoalSurface({
   goal,
   onOpenTerminal,
@@ -479,10 +703,11 @@ function NativeGoalSurface({
     <div className="code-agents-native-surface">
       <div className="code-agents-detail code-agents-detail--empty">
         <IconCode size={30} strokeWidth={1.5} />
-        <h3>{goal.slashCommand} native feedback</h3>
+        <h3>{goal.slashCommand} session surface</h3>
         <p>
-          {goal.description} Native goals report status, findings, approval
-          prompts, and terminal handoffs directly in this Code Agents hub.
+          {goal.description} Transcript events, queued prompts, status updates,
+          artifacts, and terminal handoffs live directly in this native Code
+          surface.
         </p>
         <div className="code-agents-feedback-list">
           <span>
@@ -511,6 +736,9 @@ function NativeGoalSurface({
 }
 
 function exampleCommandForGoal(goal: CodeAgentGoalDefinition): string {
+  if (goal.id === "task") {
+    return 'agent-native code /task "Implement the settings polish"';
+  }
   if (goal.id === "migrate") {
     return "agent-native code /migrate ./legacy-app --out ../migrated-app";
   }
@@ -533,6 +761,19 @@ function matchesRunFilter(run: CodeAgentRun, filter: RunFilter) {
     return run.status === "errored" || getRunFailedCount(run) > 0;
   }
   return run.status !== "completed" && run.phase !== "complete";
+}
+
+function isRunActive(run: CodeAgentRun): boolean {
+  return !(
+    run.status === "completed" ||
+    run.status === "errored" ||
+    run.status === "paused" ||
+    run.phase === "complete" ||
+    run.phase === "error" ||
+    run.phase === "paused" ||
+    run.phase === "missing-credentials" ||
+    run.phase === "stopped"
+  );
 }
 
 function RunRailItem({
@@ -574,20 +815,36 @@ function RunDetailCard({
   run,
   selectedRunId,
   goal,
+  transcriptEvents,
+  transcriptLoading,
+  transcriptError,
+  followUpPrompt,
+  submittingFollowUp,
+  onFollowUpPromptChange,
+  onSubmitFollowUp,
   onOpenWorkbench,
   onOpenTerminal,
   onResume,
   onRefreshStatus,
   onStop,
+  onOpenSettings,
 }: {
   run: CodeAgentRun | null;
   selectedRunId: string | null;
   goal: CodeAgentGoalDefinition;
+  transcriptEvents: CodeAgentTranscriptEvent[];
+  transcriptLoading: boolean;
+  transcriptError: string | null;
+  followUpPrompt: string;
+  submittingFollowUp: boolean;
+  onFollowUpPromptChange: (value: string) => void;
+  onSubmitFollowUp: (event: React.FormEvent) => void;
   onOpenWorkbench: () => void;
   onOpenTerminal: () => void;
   onResume: () => void;
   onRefreshStatus: () => void;
   onStop: () => void;
+  onOpenSettings?: () => void;
 }) {
   if (!run) {
     return (
@@ -597,7 +854,7 @@ function RunDetailCard({
         <p>
           {selectedRunId
             ? `Open ${goal.surfaceLabel} to load the linked slash-command session.`
-            : `Start ${goal.slashCommand} or select a session to review source, output, task status, and coding-agent feedback.`}
+            : `Start ${goal.slashCommand} or select a session to review transcript events, artifacts, and follow-ups.`}
         </p>
         <button
           type="button"
@@ -613,6 +870,7 @@ function RunDetailCard({
 
   const progress = getRunProgressPercent(run);
   const details = getRunDetails(run, goal);
+  const hasCredentialGap = hasMissingCredentialSignal(run, transcriptEvents);
 
   return (
     <div className="code-agents-detail">
@@ -634,11 +892,44 @@ function RunDetailCard({
         </div>
       </div>
 
+      {hasCredentialGap && (
+        <div className="code-agents-credential-callout">
+          <IconAlertCircle size={16} strokeWidth={1.8} />
+          <div>
+            <strong>Credentials needed</strong>
+            <span>
+              Connect a provider in settings, or run from a terminal with
+              ANTHROPIC_API_KEY, OPENAI_API_KEY, or
+              GOOGLE_GENERATIVE_AI_API_KEY.
+            </span>
+          </div>
+          {onOpenSettings && (
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={onOpenSettings}
+            >
+              Settings
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="code-agents-detail-grid">
         {details.map((detail) => (
           <Field key={detail.label} label={detail.label} value={detail.value} />
         ))}
       </div>
+
+      <TranscriptPanel
+        events={transcriptEvents}
+        loading={transcriptLoading}
+        error={transcriptError}
+        followUpPrompt={followUpPrompt}
+        submitting={submittingFollowUp}
+        onFollowUpPromptChange={onFollowUpPromptChange}
+        onSubmitFollowUp={onSubmitFollowUp}
+      />
 
       <div className="code-agents-detail__footer">
         <button
@@ -682,6 +973,188 @@ function RunDetailCard({
       </div>
     </div>
   );
+}
+
+function TranscriptPanel({
+  events,
+  loading,
+  error,
+  followUpPrompt,
+  submitting,
+  onFollowUpPromptChange,
+  onSubmitFollowUp,
+}: {
+  events: CodeAgentTranscriptEvent[];
+  loading: boolean;
+  error: string | null;
+  followUpPrompt: string;
+  submitting: boolean;
+  onFollowUpPromptChange: (value: string) => void;
+  onSubmitFollowUp: (event: React.FormEvent) => void;
+}) {
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const timeline = timelineRef.current;
+    if (!timeline) return;
+    timeline.scrollTo({ top: timeline.scrollHeight, behavior: "smooth" });
+  }, [events.length]);
+
+  return (
+    <section className="code-agents-transcript" aria-label="Session transcript">
+      <div className="code-agents-transcript__header">
+        <div>
+          <p className="code-agents-kicker">Transcript</p>
+          <h4>Session events</h4>
+        </div>
+        {loading && (
+          <span className="code-agents-transcript__loading">
+            <IconRefresh
+              size={13}
+              strokeWidth={1.8}
+              className="code-agents-spin"
+            />
+            Loading
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <div className="code-agents-transcript__error">
+          <IconAlertCircle size={14} strokeWidth={1.8} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="code-agents-transcript__timeline" ref={timelineRef}>
+        {events.length === 0 ? (
+          <div className="code-agents-transcript__empty">
+            <IconClock size={18} strokeWidth={1.7} />
+            <p>No transcript events recorded for this session yet.</p>
+          </div>
+        ) : (
+          events.map((event) => (
+            <TranscriptEventItem key={event.id} event={event} />
+          ))
+        )}
+      </div>
+
+      <form className="code-agents-follow-up" onSubmit={onSubmitFollowUp}>
+        <textarea
+          className="code-agents-composer"
+          value={followUpPrompt}
+          onChange={(event) => onFollowUpPromptChange(event.target.value)}
+          placeholder="Add a follow-up prompt..."
+          rows={3}
+        />
+        <div className="code-agents-follow-up__actions">
+          <button
+            type="submit"
+            className="code-agents-button code-agents-button--primary"
+            disabled={submitting || followUpPrompt.trim().length === 0}
+          >
+            <IconRoute size={14} strokeWidth={1.8} />
+            {submitting ? "Recording" : "Send Follow-up"}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function TranscriptEventItem({ event }: { event: CodeAgentTranscriptEvent }) {
+  const toolName = getTranscriptToolName(event);
+  const toolInput = getMetadataPreview(event.metadata?.input);
+  const toolResult = getMetadataPreview(event.metadata?.result);
+  return (
+    <article className={`code-agents-transcript-event`}>
+      <div className={`code-agents-transcript-event__icon`}>
+        <TranscriptEventIcon type={event.type} />
+      </div>
+      <div className="code-agents-transcript-event__body">
+        <div className="code-agents-transcript-event__meta">
+          <span>{event.title ?? transcriptEventLabel(event.type)}</span>
+          <time dateTime={event.createdAt}>
+            {formatRelativeTime(event.createdAt)}
+          </time>
+        </div>
+        <p>{event.text}</p>
+        {toolName && (
+          <details className="code-agents-tool-event">
+            <summary>
+              <span>{toolName}</span>
+              <span>{toolEventLabel(event)}</span>
+            </summary>
+            {(toolInput || toolResult) && (
+              <div className="code-agents-tool-event__body">
+                {toolInput && (
+                  <pre>
+                    <strong>input</strong>
+                    {toolInput}
+                  </pre>
+                )}
+                {toolResult && (
+                  <pre>
+                    <strong>result</strong>
+                    {toolResult}
+                  </pre>
+                )}
+              </div>
+            )}
+          </details>
+        )}
+        {(event.artifactPath || event.artifactUrl) && (
+          <div className="code-agents-transcript-event__artifact">
+            {event.artifactPath && <code>{event.artifactPath}</code>}
+            {event.artifactUrl && (
+              <a href={event.artifactUrl} target="_blank" rel="noreferrer">
+                <IconExternalLink size={13} strokeWidth={1.8} />
+                Open artifact
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function getTranscriptToolName(event: CodeAgentTranscriptEvent): string | null {
+  const value = event.metadata?.tool;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function toolEventLabel(event: CodeAgentTranscriptEvent): string {
+  const value = event.metadata?.type;
+  if (value === "tool_start") return "started";
+  if (value === "tool_done") return "finished";
+  if (value === "activity") return "activity";
+  return "tool event";
+}
+
+function getMetadataPreview(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const text =
+    typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? "");
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  return trimmed.length > 1800 ? `${trimmed.slice(0, 1800)}\n...` : trimmed;
+}
+
+function TranscriptEventIcon({ type }: { type: CodeAgentTranscriptEventType }) {
+  if (type === "user") return <IconRoute size={14} strokeWidth={1.8} />;
+  if (type === "artifact") {
+    return <IconExternalLink size={14} strokeWidth={1.8} />;
+  }
+  if (type === "status") return <IconListCheck size={14} strokeWidth={1.8} />;
+  return <IconCode size={14} strokeWidth={1.8} />;
+}
+
+function transcriptEventLabel(type: CodeAgentTranscriptEventType): string {
+  if (type === "user") return "User prompt";
+  if (type === "artifact") return "Artifact";
+  if (type === "status") return "Status";
+  return "System";
 }
 
 function StatusCard({
@@ -764,6 +1237,16 @@ function getRunFailedCount(run: CodeAgentRun): number {
   if (typeof run.progress?.failed === "number") return run.progress.failed;
   if (isMigrationRun(run)) return run.failedTaskCount;
   return run.status === "errored" ? 1 : 0;
+}
+
+function hasMissingCredentialSignal(
+  run: CodeAgentRun,
+  transcriptEvents: CodeAgentTranscriptEvent[],
+): boolean {
+  if (run.phase === "missing-credentials") return true;
+  return transcriptEvents.some((event) =>
+    /No LLM provider key was found|Missing credentials/i.test(event.text),
+  );
 }
 
 function getRunTitle(run: CodeAgentRun | null): string | null {

@@ -63,6 +63,38 @@ export {
   type BuilderChatMessage,
 } from "./builder-frame.js";
 export {
+  AgentNativeFrame,
+  type AgentNativeFrameProps,
+} from "./AgentNativeFrame.js";
+export {
+  AGENT_NATIVE_HOST_BRIDGE_VERSION,
+  AGENT_NATIVE_HOST_MESSAGE_TYPES,
+  announceAgentNativeFrameReady,
+  createAgentNativeHostBridge,
+  defaultAgentNativeHostCommands,
+  onAgentNativeHostInit,
+  requestAgentNativeHostContext,
+  sendAgentNativeHostCommand,
+  type AgentNativeHostAuth,
+  type AgentNativeHostAuthPayload,
+  type AgentNativeHostBridge,
+  type AgentNativeHostBridgeEvent,
+  type AgentNativeHostBridgeOptions,
+  type AgentNativeHostCapabilities,
+  type AgentNativeHostCommandHandler,
+  type AgentNativeHostCommandHandlers,
+  type AgentNativeHostCommandRequest,
+  type AgentNativeHostContext,
+  type AgentNativeHostContextGetter,
+  type AgentNativeHostInit,
+  type AgentNativeHostMessageType,
+  type AgentNativeHostRequestOptions,
+  type AgentNativeHostResourceContext,
+  type AgentNativeHostRouteContext,
+  type AgentNativeHostSelectionContext,
+  type BuiltInAgentNativeHostCommand,
+} from "./host-bridge.js";
+export {
   NewWorkspaceAppFlow,
   type NewWorkspaceAppFlowProps,
   type VaultSecretOption,

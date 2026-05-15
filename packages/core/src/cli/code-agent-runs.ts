@@ -44,6 +44,23 @@ export interface CodeAgentRunRecord {
   metadata?: Record<string, unknown>;
 }
 
+export type CodeAgentTranscriptEventKind =
+  | "user"
+  | "system"
+  | "note"
+  | "artifact"
+  | "status";
+
+export interface CodeAgentTranscriptEvent {
+  schemaVersion: 1;
+  id: string;
+  runId: string;
+  kind: CodeAgentTranscriptEventKind;
+  message: string;
+  createdAt: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface CreateCodeAgentRunInput {
   goalId: string;
   title: string;
@@ -56,6 +73,14 @@ export interface CreateCodeAgentRunInput {
   artifactRoot?: string;
   surfaceUrl?: string;
   cwd?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AppendCodeAgentTranscriptEventInput {
+  runId: string;
+  kind: CodeAgentTranscriptEventKind;
+  message: string;
+  createdAt?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -74,6 +99,14 @@ export function codeAgentRunsDir(): string {
 
 export function codeAgentRunArtifactsDir(runId: string): string {
   return path.join(codeAgentStoreRoot(), "artifacts", runId);
+}
+
+export function codeAgentTranscriptsDir(): string {
+  return path.join(codeAgentStoreRoot(), "transcripts");
+}
+
+export function codeAgentRunTranscriptPath(runId: string): string {
+  return path.join(codeAgentTranscriptsDir(), `${runId}.jsonl`);
 }
 
 export function createCodeAgentRunRecord(
@@ -106,9 +139,37 @@ export function createCodeAgentRunRecord(
 export function writeCodeAgentRunRecord(record: CodeAgentRunRecord): void {
   fs.mkdirSync(codeAgentRunsDir(), { recursive: true });
   fs.writeFileSync(
-    path.join(codeAgentRunsDir(), `${record.id}.json`),
+    codeAgentRunRecordPath(record.id),
     `${JSON.stringify(record, null, 2)}\n`,
   );
+}
+
+export function getCodeAgentRunRecord(
+  runId: string,
+): CodeAgentRunRecord | null {
+  return readRunFile(codeAgentRunRecordPath(runId));
+}
+
+export function updateCodeAgentRunRecord(
+  runId: string,
+  updates:
+    | Partial<CodeAgentRunRecord>
+    | ((record: CodeAgentRunRecord) => Partial<CodeAgentRunRecord>),
+): CodeAgentRunRecord | null {
+  const record = getCodeAgentRunRecord(runId);
+  if (!record) return null;
+  const patch = typeof updates === "function" ? updates(record) : updates;
+  const next: CodeAgentRunRecord = {
+    ...record,
+    ...patch,
+    metadata: {
+      ...(record.metadata ?? {}),
+      ...(patch.metadata ?? {}),
+    },
+    updatedAt: patch.updatedAt ?? new Date().toISOString(),
+  };
+  writeCodeAgentRunRecord(next);
+  return next;
 }
 
 export function listCodeAgentRunRecords(goalId?: string): CodeAgentRunRecord[] {
@@ -127,6 +188,52 @@ export function getLastCodeAgentRunRecord(
   goalId?: string,
 ): CodeAgentRunRecord | null {
   return listCodeAgentRunRecords(goalId)[0] ?? null;
+}
+
+export function appendCodeAgentTranscriptEvent(
+  input: AppendCodeAgentTranscriptEventInput,
+): CodeAgentTranscriptEvent {
+  const createdAt = input.createdAt ?? new Date().toISOString();
+  const event: CodeAgentTranscriptEvent = {
+    schemaVersion: 1,
+    id: `evt-${timestampSlug(createdAt)}-${crypto.randomUUID().slice(0, 8)}`,
+    runId: input.runId,
+    kind: input.kind,
+    message: input.message,
+    createdAt,
+    metadata: input.metadata,
+  };
+
+  fs.mkdirSync(codeAgentTranscriptsDir(), { recursive: true });
+  fs.appendFileSync(
+    codeAgentRunTranscriptPath(input.runId),
+    `${JSON.stringify(event)}\n`,
+  );
+  touchCodeAgentRunRecord(input.runId, createdAt);
+  return event;
+}
+
+export function listCodeAgentTranscriptEvents(
+  runId: string,
+): CodeAgentTranscriptEvent[] {
+  const transcriptPath = codeAgentRunTranscriptPath(runId);
+  if (!fs.existsSync(transcriptPath)) return [];
+  return fs
+    .readFileSync(transcriptPath, "utf-8")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(readTranscriptLine)
+    .filter((event): event is CodeAgentTranscriptEvent => Boolean(event));
+}
+
+function codeAgentRunRecordPath(runId: string): string {
+  return path.join(codeAgentRunsDir(), `${runId}.json`);
+}
+
+function touchCodeAgentRunRecord(runId: string, updatedAt: string): void {
+  const record = readRunFile(codeAgentRunRecordPath(runId));
+  if (!record) return;
+  writeCodeAgentRunRecord({ ...record, updatedAt });
 }
 
 function readRunFile(filePath: string): CodeAgentRunRecord | null {
@@ -150,6 +257,70 @@ function readRunFile(filePath: string): CodeAgentRunRecord | null {
   } catch {
     return null;
   }
+}
+
+function readTranscriptLine(line: string): CodeAgentTranscriptEvent | null {
+  try {
+    const raw = JSON.parse(line) as unknown;
+    if (!raw || typeof raw !== "object") return null;
+    const event = raw as Partial<CodeAgentTranscriptEvent> & {
+      type?: unknown;
+      role?: unknown;
+      text?: unknown;
+      content?: unknown;
+    };
+    const kind = isTranscriptEventKind(event.kind)
+      ? event.kind
+      : normalizeTranscriptKind(event.type ?? event.role);
+    const message =
+      typeof event.message === "string"
+        ? event.message
+        : typeof event.text === "string"
+          ? event.text
+          : typeof event.content === "string"
+            ? event.content
+            : undefined;
+    if (
+      event.schemaVersion !== 1 ||
+      typeof event.id !== "string" ||
+      typeof event.runId !== "string" ||
+      !kind ||
+      typeof message !== "string" ||
+      typeof event.createdAt !== "string"
+    ) {
+      return null;
+    }
+    return {
+      ...(event as Partial<CodeAgentTranscriptEvent>),
+      kind,
+      message,
+    } as CodeAgentTranscriptEvent;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeTranscriptKind(
+  value: unknown,
+): CodeAgentTranscriptEventKind | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.toLowerCase();
+  if (normalized === "human" || normalized === "prompt") return "user";
+  if (normalized === "assistant") return "system";
+  if (isTranscriptEventKind(normalized)) return normalized;
+  return null;
+}
+
+function isTranscriptEventKind(
+  value: unknown,
+): value is CodeAgentTranscriptEventKind {
+  return (
+    value === "user" ||
+    value === "system" ||
+    value === "note" ||
+    value === "artifact" ||
+    value === "status"
+  );
 }
 
 function timestampSlug(value: string): string {

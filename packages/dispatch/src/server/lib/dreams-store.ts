@@ -6,6 +6,12 @@ import {
   resourcePut,
   SHARED_OWNER,
 } from "@agent-native/core/resources/store";
+import {
+  getOrgSetting,
+  getUserSetting,
+  putOrgSetting,
+  putUserSetting,
+} from "@agent-native/core/settings";
 import { getDb, schema } from "../../db/index.js";
 import {
   createApprovalRequest,
@@ -20,21 +26,43 @@ import {
   listThreadDebugSources,
   searchAgentThreads,
 } from "./thread-debug-store.js";
+import {
+  createWorkspaceResource,
+  listWorkspaceResources,
+  updateWorkspaceResource,
+  type WorkspaceResourceKind,
+  type WorkspaceResourceScope,
+} from "./workspace-resources-store.js";
 
 const DEFAULT_DREAM_LIMIT = 20;
 const MAX_DREAM_LIMIT = 50;
 const DEFAULT_SOURCE_TIMEOUT_MS = 15_000;
 const MAX_SOURCE_TIMEOUT_MS = 60_000;
+const DEFAULT_SOURCE_CONCURRENCY = 2;
+const MAX_SOURCE_CONCURRENCY = 8;
+const DEFAULT_SOURCE_START_STAGGER_MS = 250;
+const MAX_SOURCE_START_STAGGER_MS = 5_000;
+const DEFAULT_THREAD_CONCURRENCY = 3;
+const MAX_THREAD_CONCURRENCY = 10;
+const DEFAULT_THREAD_TIMEOUT_MS = 8_000;
+const MAX_THREAD_TIMEOUT_MS = 30_000;
 const MEMORY_INDEX_PATH = "memory/MEMORY.md";
 const DREAM_JOB_PATH = "jobs/dispatch-dream.md";
 const DEFAULT_DREAM_CRON = "0 9 * * 1";
+const DREAM_SETTINGS_KEY = "dispatch-dream-settings";
 
 type DreamRow = typeof schema.dispatchDreams.$inferSelect;
 type DreamProposalRow = typeof schema.dispatchDreamProposals.$inferSelect;
 
 type DreamStatus = "running" | "completed" | "failed";
 type ProposalStatus = "pending" | "approval_requested" | "applied" | "rejected";
-type ProposalTargetType = "personal-memory" | "shared-learnings";
+type ProposalTargetType =
+  | "personal-memory"
+  | "shared-learnings"
+  | "workspace-instruction"
+  | "workspace-skill"
+  | "workspace-knowledge"
+  | "workspace-agent";
 type ProposalRisk = "low" | "medium" | "high";
 type DreamSourceStatus = "ok" | "timed_out" | "error";
 
@@ -42,10 +70,14 @@ export interface DreamSourceHealth {
   sourceId: string;
   label?: string | null;
   status: DreamSourceStatus;
+  startedAt: number;
+  completedAt: number;
   durationMs: number;
+  timeoutMs: number;
   inspectedThreadCount: number;
   candidateCount: number;
   errorCount: number;
+  threadErrorCount: number;
   message?: string | null;
 }
 
@@ -106,6 +138,7 @@ export interface DreamMemoryContext {
   personalIndex: string;
   personalNotes: DreamMemoryNote[];
   sharedLearnings: string;
+  workspaceResources?: DreamMemoryNote[];
 }
 
 export interface DreamProposalBuildResult {
@@ -116,6 +149,24 @@ export interface DreamProposalBuildResult {
 export interface DreamProposalBuildOptions {
   personalMemoryAllowed?: boolean;
   personalMemoryBlockReason?: string | null;
+}
+
+export interface DreamSettings {
+  scope: "user" | "org";
+  scopeId: string;
+  enabled: boolean;
+  schedule: string;
+  sourceId: string;
+  sourceIds: string[];
+  allSources: boolean;
+  query: string | null;
+  limit: number;
+  sourceTimeoutMs: number;
+  sourceConcurrency: number;
+  sourceStartStaggerMs: number;
+  threadConcurrency: number;
+  threadTimeoutMs: number;
+  minCandidateCount: number;
 }
 
 function id() {
@@ -138,6 +189,176 @@ function clampSourceTimeoutMs(timeoutMs: number | undefined) {
   const parsed = Number(timeoutMs ?? DEFAULT_SOURCE_TIMEOUT_MS);
   if (!Number.isFinite(parsed)) return DEFAULT_SOURCE_TIMEOUT_MS;
   return Math.max(1, Math.min(MAX_SOURCE_TIMEOUT_MS, Math.floor(parsed)));
+}
+
+function clampSourceConcurrency(value: number | undefined) {
+  const parsed = Number(value ?? DEFAULT_SOURCE_CONCURRENCY);
+  if (!Number.isFinite(parsed)) return DEFAULT_SOURCE_CONCURRENCY;
+  return Math.max(1, Math.min(MAX_SOURCE_CONCURRENCY, Math.floor(parsed)));
+}
+
+function clampSourceStartStaggerMs(value: number | undefined) {
+  const parsed = Number(value ?? DEFAULT_SOURCE_START_STAGGER_MS);
+  if (!Number.isFinite(parsed)) return DEFAULT_SOURCE_START_STAGGER_MS;
+  return Math.max(0, Math.min(MAX_SOURCE_START_STAGGER_MS, Math.floor(parsed)));
+}
+
+function clampThreadConcurrency(value: number | undefined) {
+  const parsed = Number(value ?? DEFAULT_THREAD_CONCURRENCY);
+  if (!Number.isFinite(parsed)) return DEFAULT_THREAD_CONCURRENCY;
+  return Math.max(1, Math.min(MAX_THREAD_CONCURRENCY, Math.floor(parsed)));
+}
+
+function clampThreadTimeoutMs(
+  value: number | undefined,
+  sourceTimeoutMs: number,
+) {
+  const fallback = Math.min(
+    DEFAULT_THREAD_TIMEOUT_MS,
+    Math.max(1_000, Math.floor(sourceTimeoutMs * 0.6)),
+  );
+  const parsed = Number(value ?? fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(
+    1,
+    Math.min(MAX_THREAD_TIMEOUT_MS, sourceTimeoutMs, Math.floor(parsed)),
+  );
+}
+
+function clampMinCandidateCount(value: number | undefined) {
+  const parsed = Number(value ?? 1);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(0, Math.min(50, Math.floor(parsed)));
+}
+
+function dreamSettingsScope() {
+  const orgId = currentOrgId();
+  if (orgId) return { scope: "org" as const, scopeId: orgId };
+  return { scope: "user" as const, scopeId: currentOwnerEmail() };
+}
+
+function normalizeSourceIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => String(entry ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 50),
+    ),
+  );
+}
+
+function normalizeDreamSettings(
+  raw: Record<string, unknown> | null | undefined,
+): Omit<DreamSettings, "scope" | "scopeId"> {
+  const sourceIds = normalizeSourceIds(raw?.sourceIds);
+  const sourceId = String(raw?.sourceId ?? "").trim() || "all";
+  return {
+    enabled: raw?.enabled === true,
+    schedule:
+      typeof raw?.schedule === "string" && cronLooksValid(raw.schedule)
+        ? raw.schedule
+        : DEFAULT_DREAM_CRON,
+    sourceId,
+    sourceIds,
+    allSources:
+      raw?.allSources === true || sourceId === "all" || sourceIds.length > 0,
+    query:
+      typeof raw?.query === "string" && raw.query.trim()
+        ? raw.query.trim()
+        : null,
+    limit: clampLimit(Number(raw?.limit ?? 8)),
+    sourceTimeoutMs: clampSourceTimeoutMs(
+      Number(raw?.sourceTimeoutMs ?? 30_000),
+    ),
+    sourceConcurrency: clampSourceConcurrency(
+      Number(raw?.sourceConcurrency ?? DEFAULT_SOURCE_CONCURRENCY),
+    ),
+    sourceStartStaggerMs: clampSourceStartStaggerMs(
+      Number(raw?.sourceStartStaggerMs ?? DEFAULT_SOURCE_START_STAGGER_MS),
+    ),
+    threadConcurrency: clampThreadConcurrency(
+      Number(raw?.threadConcurrency ?? DEFAULT_THREAD_CONCURRENCY),
+    ),
+    threadTimeoutMs: clampThreadTimeoutMs(
+      Number(raw?.threadTimeoutMs ?? DEFAULT_THREAD_TIMEOUT_MS),
+      clampSourceTimeoutMs(Number(raw?.sourceTimeoutMs ?? 30_000)),
+    ),
+    minCandidateCount: clampMinCandidateCount(
+      Number(raw?.minCandidateCount ?? 1),
+    ),
+  };
+}
+
+export async function getDreamSettings(): Promise<DreamSettings> {
+  const scope = dreamSettingsScope();
+  const raw =
+    scope.scope === "org"
+      ? await getOrgSetting(scope.scopeId, DREAM_SETTINGS_KEY)
+      : await getUserSetting(scope.scopeId, DREAM_SETTINGS_KEY);
+  return {
+    ...scope,
+    ...normalizeDreamSettings(raw as Record<string, unknown> | null),
+  };
+}
+
+export async function setDreamSettings(
+  input: Partial<
+    Pick<
+      DreamSettings,
+      | "enabled"
+      | "schedule"
+      | "sourceId"
+      | "sourceIds"
+      | "allSources"
+      | "query"
+      | "limit"
+      | "sourceTimeoutMs"
+      | "sourceConcurrency"
+      | "sourceStartStaggerMs"
+      | "threadConcurrency"
+      | "threadTimeoutMs"
+      | "minCandidateCount"
+    >
+  >,
+): Promise<DreamSettings> {
+  if (input.schedule && !cronLooksValid(input.schedule)) {
+    throw new Error(
+      'Invalid cron expression. Use a standard five-field cron like "0 9 * * 1".',
+    );
+  }
+  const current = await getDreamSettings();
+  const next = normalizeDreamSettings({
+    ...current,
+    ...input,
+    sourceIds:
+      input.sourceIds !== undefined
+        ? normalizeSourceIds(input.sourceIds)
+        : current.sourceIds,
+    query:
+      input.query === undefined
+        ? current.query
+        : input.query?.trim()
+          ? input.query.trim()
+          : null,
+  });
+  const scope = dreamSettingsScope();
+  if (scope.scope === "org") {
+    await putOrgSetting(scope.scopeId, DREAM_SETTINGS_KEY, next);
+  } else {
+    await putUserSetting(scope.scopeId, DREAM_SETTINGS_KEY, next);
+  }
+  await recordAudit({
+    action: "dream.settings.updated",
+    targetType: "dream-settings",
+    targetId: DREAM_SETTINGS_KEY,
+    summary: next.enabled
+      ? "Updated and enabled recurring Dispatch dream settings"
+      : "Updated recurring Dispatch dream settings",
+    metadata: next,
+  });
+  return getDreamSettings();
 }
 
 class DreamSourceTimeoutError extends Error {
@@ -177,6 +398,11 @@ function isDreamSourceTimeout(error: unknown): boolean {
   );
 }
 
+function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function compactErrorMessage(error: unknown): string {
   return compactText((error as Error)?.message ?? error, 320);
 }
@@ -184,7 +410,7 @@ function compactErrorMessage(error: unknown): string {
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
-  worker: (item: T) => Promise<R>,
+  worker: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let nextIndex = 0;
@@ -194,7 +420,7 @@ async function mapWithConcurrency<T, R>(
       while (nextIndex < items.length) {
         const index = nextIndex;
         nextIndex += 1;
-        results[index] = await worker(items[index]!);
+        results[index] = await worker(items[index]!, index);
       }
     }),
   );
@@ -679,6 +905,10 @@ interface ListDreamCandidatesInput {
   ownerEmail?: string;
   limit?: number;
   sourceTimeoutMs?: number;
+  sourceConcurrency?: number;
+  sourceStartStaggerMs?: number;
+  threadConcurrency?: number;
+  threadTimeoutMs?: number;
 }
 
 interface DreamSourceRef {
@@ -732,8 +962,14 @@ async function dreamSourceRefs(
 async function inspectDreamSource(
   input: ListDreamCandidatesInput,
   sourceId: string,
+  sourceTimeoutMs: number,
 ): Promise<Omit<DreamSourceScanResult, "sources">> {
   const limit = clampLimit(input.limit);
+  const threadConcurrency = clampThreadConcurrency(input.threadConcurrency);
+  const threadTimeoutMs = clampThreadTimeoutMs(
+    input.threadTimeoutMs,
+    sourceTimeoutMs,
+  );
   const search = await searchAgentThreads({
     sourceId,
     query: input.query,
@@ -741,28 +977,44 @@ async function inspectDreamSource(
     limit,
   });
 
-  const inspected = await Promise.all(
-    search.threads.map(async (thread) => {
+  const inspected = await mapWithConcurrency(
+    search.threads,
+    threadConcurrency,
+    async (thread) => {
+      const startedAt = now();
       try {
-        const debug = await getAgentThreadDebug({
-          sourceId,
-          threadId: thread.id,
-          ownerEmail: input.ownerEmail,
-          maxRuns: 10,
-          maxEvents: 300,
-          maxTraceSpans: 200,
-        });
-        return { candidate: analyzeThreadDebug(debug, sourceId), error: null };
+        const debug = await withTimeout(
+          getAgentThreadDebug({
+            sourceId,
+            threadId: thread.id,
+            ownerEmail: input.ownerEmail,
+            maxRuns: 10,
+            maxEvents: 300,
+            maxTraceSpans: 200,
+          }),
+          `${sourceId}:${thread.id}`,
+          threadTimeoutMs,
+        );
+        return {
+          candidate: analyzeThreadDebug(debug, sourceId),
+          error: null,
+        };
       } catch (error) {
+        const timedOut = isDreamSourceTimeout(error);
         return {
           candidate: null,
           error: {
             threadId: thread.id,
-            message: String((error as Error)?.message ?? error),
+            sourceId,
+            durationMs: now() - startedAt,
+            timedOut,
+            message: timedOut
+              ? `Timed out after ${threadTimeoutMs}ms`
+              : String((error as Error)?.message ?? error),
           },
         };
       }
-    }),
+    },
   );
 
   const candidates = inspected
@@ -794,11 +1046,12 @@ async function scanDreamSource(
   const startedAt = now();
   try {
     const result = await withTimeout(
-      inspectDreamSource(input, source.id),
+      inspectDreamSource(input, source.id, timeoutMs),
       source.id,
       timeoutMs,
     );
-    const durationMs = now() - startedAt;
+    const completedAt = now();
+    const durationMs = completedAt - startedAt;
     const sourceInfo = result.source ?? {};
     const sourceId = String(sourceInfo.id ?? source.id);
     const label = String(sourceInfo.label ?? source.label ?? source.id);
@@ -809,15 +1062,20 @@ async function scanDreamSource(
           sourceId,
           label,
           status: "ok",
+          startedAt,
+          completedAt,
           durationMs,
+          timeoutMs,
           inspectedThreadCount: result.inspectedThreadCount,
           candidateCount: result.candidateCount,
           errorCount: result.errors.length,
+          threadErrorCount: result.errors.length,
         },
       ],
     };
   } catch (error) {
-    const durationMs = now() - startedAt;
+    const completedAt = now();
+    const durationMs = completedAt - startedAt;
     const timedOut = isDreamSourceTimeout(error);
     const message = timedOut
       ? `Timed out after ${timeoutMs}ms`
@@ -841,10 +1099,14 @@ async function scanDreamSource(
           sourceId: source.id,
           label: source.label ?? source.id,
           status,
+          startedAt,
+          completedAt,
           durationMs,
+          timeoutMs,
           inspectedThreadCount: 0,
           candidateCount: 0,
           errorCount: 1,
+          threadErrorCount: 0,
           message,
         },
       ],
@@ -855,8 +1117,19 @@ async function scanDreamSource(
 export async function listDreamCandidates(input: ListDreamCandidatesInput) {
   const timeoutMs = clampSourceTimeoutMs(input.sourceTimeoutMs);
   const sources = await dreamSourceRefs(input);
-  const scanResults = await mapWithConcurrency(sources, 4, (source) =>
-    scanDreamSource(input, source, timeoutMs),
+  const sourceConcurrency = clampSourceConcurrency(input.sourceConcurrency);
+  const sourceStartStaggerMs = clampSourceStartStaggerMs(
+    input.sourceStartStaggerMs,
+  );
+  const scanResults = await mapWithConcurrency(
+    sources,
+    sourceConcurrency,
+    async (source, index) => {
+      if (sources.length > 1 && sourceStartStaggerMs > 0) {
+        await sleep((index % sourceConcurrency) * sourceStartStaggerMs);
+      }
+      return scanDreamSource(input, source, timeoutMs);
+    },
   );
   const aggregate = wantsAllDreamSources(input) || sources.length > 1;
   const candidates = scanResults
@@ -976,6 +1249,7 @@ function emptyMemoryContext(): DreamMemoryContext {
     personalIndex: "",
     personalNotes: [],
     sharedLearnings: "",
+    workspaceResources: [],
   };
 }
 
@@ -1080,6 +1354,20 @@ function sharedLearningLooksCaptured(
   );
 }
 
+function workspaceResourceLooksCaptured(
+  memoryContext: DreamMemoryContext,
+  evidence: DreamEvidence[],
+): boolean {
+  const resources = memoryContext.workspaceResources ?? [];
+  if (resources.length === 0) return false;
+  return resources.some((resource) => {
+    if (hasExactSourceMatch(evidence, resource.content)) return true;
+    return (
+      containmentScore(evidenceSignalText(evidence), resource.content) >= 0.62
+    );
+  });
+}
+
 function personalIndexLooksCaptured(
   memoryContext: DreamMemoryContext,
   evidence: DreamEvidence[],
@@ -1101,6 +1389,9 @@ function proposalLooksCaptured(
   if (proposal.targetType === "shared-learnings") {
     return sharedLearningLooksCaptured(memoryContext, proposal.evidence);
   }
+  if (proposal.targetType.startsWith("workspace-")) {
+    return workspaceResourceLooksCaptured(memoryContext, proposal.evidence);
+  }
   if (personalIndexLooksCaptured(memoryContext, proposal.evidence)) {
     return true;
   }
@@ -1111,10 +1402,11 @@ function proposalLooksCaptured(
 async function loadDreamMemoryContext(
   owner: string,
 ): Promise<DreamMemoryContext> {
-  const [index, shared, personalMetas] = await Promise.all([
+  const [index, shared, personalMetas, workspaceResources] = await Promise.all([
     resourceGetByPath(owner, MEMORY_INDEX_PATH),
     resourceGetByPath(SHARED_OWNER, "LEARNINGS.md"),
     resourceList(owner, "memory/").catch(() => []),
+    listWorkspaceResources().catch(() => []),
   ]);
   const paths = personalMetas
     .map((entry) => entry.path)
@@ -1134,6 +1426,10 @@ async function loadDreamMemoryContext(
     personalIndex: index?.content ?? "",
     personalNotes,
     sharedLearnings: shared?.content ?? "",
+    workspaceResources: workspaceResources.map((resource) => ({
+      path: resource.path,
+      content: resource.content,
+    })),
   };
 }
 
@@ -1263,7 +1559,7 @@ function makeReport(input: {
 
   lines.push("", "## Proposals");
   if (input.proposals.length === 0) {
-    lines.push("", "No memory changes were proposed.");
+    lines.push("", "No durable changes were proposed.");
   } else {
     for (const proposal of input.proposals) {
       lines.push(
@@ -1316,6 +1612,12 @@ export function buildProposalInputs(
     candidate.evidence.filter((entry) => entry.kind === "verified-success"),
   );
   const date = today();
+  const explicitThreadCount = new Set(
+    explicitEvidence.map((entry) => entry.threadId),
+  ).size;
+  const successThreadCount = new Set(
+    successEvidence.map((entry) => entry.threadId),
+  ).size;
 
   if (explicitEvidence.length > 0) {
     const title = `Dispatch dream memory ${date}`;
@@ -1385,10 +1687,82 @@ export function buildProposalInputs(
     });
   }
 
+  if (explicitEvidence.length >= 3 && explicitThreadCount >= 2) {
+    proposals.push({
+      targetType: "workspace-instruction",
+      targetPath: `instructions/${slugify(`dream-corrections-${date}`)}.md`,
+      title: "Create workspace instruction from repeated user corrections",
+      summary:
+        "Repeated explicit user corrections or remember requests should become an all-app workspace instruction after review.",
+      rationale:
+        "Repeated corrections across more than one thread are stronger than one-off memory. A workspace instruction lets every app inherit the reviewed behavior.",
+      content: [
+        "# Dream-Derived Workspace Instruction",
+        "",
+        "Apply this only after reviewing the cited source threads.",
+        "",
+        "Recent agent runs contained repeated user-grounded corrections or remember requests:",
+        "",
+        evidenceSummary(explicitEvidence, 10),
+        "",
+        "Instruction draft:",
+        "",
+        "- Preserve explicit user corrections as durable behavior only when the evidence is user-authored and source-backed.",
+        "- Prefer existing workspace resources, skills, and app conventions before introducing a new pattern.",
+        "- If the same correction appears across apps or threads, treat it as a candidate for a workspace-level instruction instead of only personal memory.",
+        "",
+        `Provenance: Dispatch dream ${date}; source threads: ${[
+          ...new Set(explicitEvidence.map((entry) => entry.threadId)),
+        ]
+          .slice(0, 8)
+          .join(", ")}`,
+      ].join("\n"),
+      evidence: explicitEvidence.slice(0, 10),
+      confidence: Math.min(90, 60 + explicitThreadCount * 8),
+      risk: "medium",
+    });
+  }
+
+  if (failureEvidence.length >= 4 && failureThreadCount >= 3) {
+    proposals.push({
+      targetType: "workspace-instruction",
+      targetPath: `instructions/${slugify(`dream-run-reliability-${date}`)}.md`,
+      title: "Create workspace instruction for recurring agent-run friction",
+      summary:
+        "Recurring frustration and failure signals across threads should become a reviewed workspace reliability instruction.",
+      rationale:
+        "Repeated failure or frustration signals across multiple threads are useful as a shared guardrail, but they need review before they affect all app agents.",
+      content: [
+        "# Dream-Derived Agent Reliability Instruction",
+        "",
+        "Apply this only after reviewing the cited source threads.",
+        "",
+        "Recent agent runs contained recurring friction or failure signals:",
+        "",
+        evidenceSummary(failureEvidence, 10),
+        "",
+        "Instruction draft:",
+        "",
+        "- When a task repeats a prior failure mode, pause to inspect source context, previous attempts, and existing docs before changing code or data.",
+        "- Prefer small, verified changes with provenance over broad rewrites when responding to user frustration.",
+        "- Convert repeated failures into a durable workspace resource only after evidence spans multiple threads or apps.",
+        "",
+        `Provenance: Dispatch dream ${date}; source threads: ${[
+          ...new Set(failureEvidence.map((entry) => entry.threadId)),
+        ]
+          .slice(0, 8)
+          .join(", ")}`,
+      ].join("\n"),
+      evidence: failureEvidence.slice(0, 10),
+      confidence: Math.min(85, 50 + failureThreadCount * 8),
+      risk: "medium",
+    });
+  }
+
   if (
     proposals.length === 0 &&
     successEvidence.length >= 2 &&
-    new Set(successEvidence.map((entry) => entry.threadId)).size >= 2
+    successThreadCount >= 2
   ) {
     if (personalMemoryAllowed) {
       proposals.push({
@@ -1433,6 +1807,43 @@ export function buildProposalInputs(
     }
   }
 
+  if (successEvidence.length >= 2 && successThreadCount >= 2) {
+    proposals.push({
+      targetType: "workspace-skill",
+      targetPath: `skills/${slugify(`dispatch-success-patterns-${date}`)}/SKILL.md`,
+      title: "Create workspace skill from successful Dispatch patterns",
+      summary:
+        "Successful checkpointed workflows across multiple threads may deserve a reusable all-app skill.",
+      rationale:
+        "Repeated successful, checkpointed workflows are candidates for reusable skills when they can be stated as a repeatable procedure and reviewed by a human.",
+      content: [
+        "---",
+        `name: ${slugify(`dispatch-success-patterns-${date}`)}`,
+        "description: >-",
+        "  Use when a task resembles recent successful Dispatch workflows and the agent needs a reviewed repeatable procedure.",
+        "---",
+        "",
+        "# Dispatch Success Patterns",
+        "",
+        "This skill was drafted from a Dispatch dream report. Review and tighten it before applying broadly.",
+        "",
+        "## Source Evidence",
+        "",
+        evidenceSummary(successEvidence, 10),
+        "",
+        "## Procedure Draft",
+        "",
+        "1. Identify the source thread or workflow that most closely matches the current task.",
+        "2. Reuse the verified sequence of actions only after checking current app state and available actions.",
+        "3. Run the smallest relevant verification step before presenting the result.",
+        "4. Record any user correction as a new dream candidate rather than silently broadening the skill.",
+      ].join("\n"),
+      evidence: successEvidence.slice(0, 10),
+      confidence: Math.min(80, 50 + successThreadCount * 10),
+      risk: "medium",
+    });
+  }
+
   const result = applyMemoryGuardrails(proposals, memoryContext);
   if (routedPersonalMemory) {
     result.guardrailNotes.unshift(
@@ -1467,7 +1878,13 @@ function serializeProposal(row: DreamProposalRow) {
 }
 
 function serializeDream(row: DreamRow) {
-  return row;
+  return {
+    ...row,
+    sourceHealth: safeJsonParse<DreamSourceHealth[]>(
+      (row as DreamRow & { sourceHealth?: string | null }).sourceHealth,
+      [],
+    ),
+  };
 }
 
 async function getDreamRow(
@@ -1514,6 +1931,10 @@ export async function createDreamReport(input: {
   ownerEmail?: string;
   limit?: number;
   sourceTimeoutMs?: number;
+  sourceConcurrency?: number;
+  sourceStartStaggerMs?: number;
+  threadConcurrency?: number;
+  threadTimeoutMs?: number;
   title?: string;
 }) {
   const db = getDb();
@@ -1537,6 +1958,7 @@ export async function createDreamReport(input: {
     query,
     report: null,
     summary: null,
+    sourceHealth: null,
     candidateCount: 0,
     inspectedThreadCount: 0,
     createdBy: ownerEmail,
@@ -1556,6 +1978,10 @@ export async function createDreamReport(input: {
       ownerEmail: input.ownerEmail,
       limit: input.limit,
       sourceTimeoutMs: input.sourceTimeoutMs,
+      sourceConcurrency: input.sourceConcurrency,
+      sourceStartStaggerMs: input.sourceStartStaggerMs,
+      threadConcurrency: input.threadConcurrency,
+      threadTimeoutMs: input.threadTimeoutMs,
     });
     const memoryContext = await loadDreamMemoryContext(ownerEmail).catch(() =>
       emptyMemoryContext(),
@@ -1623,6 +2049,7 @@ export async function createDreamReport(input: {
         status: "completed" satisfies DreamStatus,
         report,
         summary,
+        sourceHealth: safeJson(result.sources),
         candidateCount: result.candidateCount,
         inspectedThreadCount: result.inspectedThreadCount,
         completedAt,
@@ -1740,9 +2167,7 @@ async function savePersonalMemory(proposal: DreamProposalRow) {
   if (owner !== currentOwnerEmail()) {
     throw new Error("Personal memory proposals can only be applied by owner");
   }
-  const targetPath = proposal.targetPath.startsWith("memory/")
-    ? proposal.targetPath
-    : `memory/${slugify(proposal.title)}.md`;
+  const targetPath = personalMemoryTargetPath(proposal);
   if (targetPath === MEMORY_INDEX_PATH || !targetPath.endsWith(".md")) {
     throw new Error("Personal memory proposals must target memory/<name>.md");
   }
@@ -1831,8 +2256,173 @@ async function appendSharedLearning(proposal: DreamProposalRow) {
   };
 }
 
+function workspaceResourceKindForTarget(
+  targetType: string,
+): WorkspaceResourceKind | null {
+  if (targetType === "workspace-instruction") return "instruction";
+  if (targetType === "workspace-skill") return "skill";
+  if (targetType === "workspace-knowledge") return "knowledge";
+  if (targetType === "workspace-agent") return "agent";
+  return null;
+}
+
+function workspaceResourceName(proposal: DreamProposalRow): string {
+  return proposal.title
+    .replace(/^Create workspace (instruction|skill|knowledge|agent) from /i, "")
+    .replace(/^Create workspace (instruction|skill|knowledge|agent) /i, "")
+    .trim()
+    .replace(/^./, (char) => char.toUpperCase());
+}
+
+function personalMemoryTargetPath(proposal: DreamProposalRow): string {
+  return proposal.targetPath.startsWith("memory/")
+    ? proposal.targetPath
+    : `memory/${slugify(proposal.title)}.md`;
+}
+
+function validateWorkspaceResourcePath(
+  kind: WorkspaceResourceKind,
+  path: string,
+) {
+  if (!path.trim() || path.includes("..") || path.startsWith("/")) {
+    throw new Error("Workspace resource proposal has an invalid target path");
+  }
+  if (kind === "instruction") {
+    if (path === "AGENTS.md" || path.startsWith("instructions/")) return;
+    throw new Error(
+      "Workspace instruction proposals must target AGENTS.md or instructions/<name>.md",
+    );
+  }
+  if (kind === "skill") {
+    if (path.startsWith("skills/") && path.endsWith("/SKILL.md")) return;
+    throw new Error(
+      "Workspace skill proposals must target skills/<name>/SKILL.md",
+    );
+  }
+  if (kind === "knowledge") {
+    if (path.startsWith("context/")) return;
+    throw new Error(
+      "Workspace knowledge proposals must target context/<name>.md",
+    );
+  }
+  if (kind === "agent") {
+    if (path.startsWith("agents/") && path.endsWith(".md")) return;
+    throw new Error("Workspace agent proposals must target agents/<name>.md");
+  }
+}
+
+async function applyWorkspaceResourceProposal(proposal: DreamProposalRow) {
+  const kind = workspaceResourceKindForTarget(proposal.targetType);
+  if (!kind)
+    throw new Error(`Unsupported workspace target: ${proposal.targetType}`);
+  validateWorkspaceResourcePath(kind, proposal.targetPath);
+  const scope: WorkspaceResourceScope = "all";
+  const resources = await listWorkspaceResources({ kind });
+  const existing = resources.find(
+    (resource) => resource.path === proposal.targetPath,
+  );
+  const name = workspaceResourceName(proposal);
+  const description = compactText(proposal.summary, 220);
+  if (existing) {
+    const updated = await updateWorkspaceResource(existing.id, {
+      name,
+      description,
+      content: proposal.content,
+      scope,
+    });
+    return {
+      action: "updated",
+      resourceId: updated?.id ?? existing.id,
+      resourcePath: proposal.targetPath,
+      kind,
+      scope,
+    };
+  }
+
+  const created = await createWorkspaceResource({
+    kind,
+    name,
+    description,
+    path: proposal.targetPath,
+    content: proposal.content,
+    scope,
+  });
+  return {
+    action: "created",
+    resourceId: created?.id ?? null,
+    resourcePath: proposal.targetPath,
+    kind,
+    scope,
+  };
+}
+
 function proposalRequiresApproval(proposal: DreamProposalRow): boolean {
   return proposal.targetType !== "personal-memory";
+}
+
+export async function previewDreamProposal(proposalId: string) {
+  const proposal = await getProposalRow(proposalId);
+  if (!proposal) throw new Error("Dream proposal not found");
+
+  let currentContent: string | null = null;
+  let targetExists = false;
+  let operation: "create" | "update" | "append" = "create";
+  let target = {
+    type: proposal.targetType,
+    path: proposal.targetPath,
+    kind: null as WorkspaceResourceKind | null,
+    resourceId: null as string | null,
+  };
+
+  if (proposal.targetType === "personal-memory") {
+    const targetPath = personalMemoryTargetPath(proposal);
+    const existing = await resourceGetByPath(proposal.ownerEmail, targetPath);
+    currentContent = existing?.content ?? null;
+    targetExists = Boolean(existing);
+    operation = targetExists ? "update" : "create";
+    target = { ...target, path: targetPath };
+  } else if (proposal.targetType === "shared-learnings") {
+    const existing = await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md");
+    currentContent = existing?.content ?? null;
+    targetExists = Boolean(existing);
+    operation = "append";
+    target = { ...target, path: "LEARNINGS.md" };
+  } else if (proposal.targetType.startsWith("workspace-")) {
+    const kind = workspaceResourceKindForTarget(proposal.targetType);
+    if (!kind) {
+      throw new Error(`Unsupported workspace target: ${proposal.targetType}`);
+    }
+    validateWorkspaceResourcePath(kind, proposal.targetPath);
+    const resources = await listWorkspaceResources({ kind });
+    const existing = resources.find(
+      (resource) => resource.path === proposal.targetPath,
+    );
+    currentContent = existing?.content ?? null;
+    targetExists = Boolean(existing);
+    operation = existing ? "update" : "create";
+    target = {
+      ...target,
+      kind,
+      resourceId: existing?.id ?? null,
+    };
+  }
+
+  const approvalPolicy = await getApprovalPolicy();
+  const requiresApproval = proposalRequiresApproval(proposal);
+
+  return {
+    proposal: serializeProposal(proposal),
+    target,
+    operation,
+    targetExists,
+    currentContent,
+    proposedContent: proposal.content,
+    approval: {
+      required: requiresApproval,
+      policyEnabled: approvalPolicy.enabled,
+      willRequestApproval: requiresApproval && approvalPolicy.enabled,
+    },
+  };
 }
 
 async function requestDreamProposalApproval(proposal: DreamProposalRow) {
@@ -1892,6 +2482,8 @@ async function applyDreamProposalDirect(
     result = await savePersonalMemory(proposal);
   } else if (proposal.targetType === "shared-learnings") {
     result = await appendSharedLearning(proposal);
+  } else if (proposal.targetType.startsWith("workspace-")) {
+    result = await applyWorkspaceResourceProposal(proposal);
   } else {
     throw new Error(
       `Unsupported dream proposal target: ${proposal.targetType}`,
@@ -2003,32 +2595,68 @@ function cronLooksValid(schedule: string): boolean {
   return parts.every((part) => /^[\d*/,\-]+$/.test(part));
 }
 
-function dreamJobBody(sourceId: string, query: string | null, limit: number) {
-  const queryLine = query
-    ? `- Use query "${query}" to focus the dream pass.`
+function dreamJobBody(settings: Omit<DreamSettings, "scope" | "scopeId">) {
+  const queryLine = settings.query
+    ? `- Use query "${settings.query}" to focus the dream pass.`
     : "- Review recent threads without a search query.";
+  const sourceLine =
+    settings.sourceIds.length > 0
+      ? `- sourceIds: ${JSON.stringify(settings.sourceIds)}`
+      : `- sourceId: "${settings.sourceId}"`;
   return `# Dispatch Dream
 
 Run a safe Dispatch dreaming pass.
 
-1. Call \`create-dream-report\` with:
-   - sourceId: "${sourceId}"
+1. Call \`list-dream-candidates\` with:
+   ${sourceLine}
+   - allSources: ${settings.allSources}
    ${queryLine}
-   - limit: ${limit}
-2. Review the returned proposals and evidence.
-3. Do not auto-apply shared/team changes, AGENTS.md changes, skills, or jobs.
-4. Only apply personal-memory proposals when the evidence is explicit user-grounded correction or a remember request.
-5. Leave all other proposals pending for a human to review.
+   - ownerEmail: "*"
+   - limit: ${settings.limit}
+   - sourceTimeoutMs: ${settings.sourceTimeoutMs}
+   - sourceConcurrency: ${settings.sourceConcurrency}
+   - sourceStartStaggerMs: ${settings.sourceStartStaggerMs}
+   - threadConcurrency: ${settings.threadConcurrency}
+   - threadTimeoutMs: ${settings.threadTimeoutMs}
+2. If fewer than ${settings.minCandidateCount} candidate thread(s) are found, stop without creating a report.
+3. Call \`create-dream-report\` with the same source/query/limit/timeout settings.
+4. Review the returned proposals and evidence.
+5. Do not auto-apply shared/team changes, workspace instructions, workspace skills, AGENTS.md changes, or jobs.
+6. Only apply personal-memory proposals when the evidence is explicit user-grounded correction or a remember request.
+7. Leave all other proposals pending for a human to review.
 `;
 }
 
 export async function ensureDreamJob(input: {
   schedule?: string;
   sourceId?: string;
+  sourceIds?: string[];
+  allSources?: boolean;
   query?: string;
   limit?: number;
+  sourceTimeoutMs?: number;
+  sourceConcurrency?: number;
+  sourceStartStaggerMs?: number;
+  threadConcurrency?: number;
+  threadTimeoutMs?: number;
+  minCandidateCount?: number;
 }) {
-  const schedule = input.schedule?.trim() || DEFAULT_DREAM_CRON;
+  const saved = await getDreamSettings();
+  const settings = normalizeDreamSettings({
+    ...saved,
+    ...input,
+    query:
+      input.query === undefined
+        ? saved.query
+        : input.query?.trim()
+          ? input.query.trim()
+          : null,
+    sourceIds:
+      input.sourceIds !== undefined
+        ? normalizeSourceIds(input.sourceIds)
+        : saved.sourceIds,
+  });
+  const schedule = input.schedule?.trim() || settings.schedule;
   if (!cronLooksValid(schedule)) {
     throw new Error(
       'Invalid cron expression. Use a standard five-field cron like "0 9 * * 1".',
@@ -2036,8 +2664,7 @@ export async function ensureDreamJob(input: {
   }
   const owner = currentOwnerEmail();
   const orgId = currentOrgId();
-  const sourceId = input.sourceId?.trim() || "current";
-  const limit = clampLimit(input.limit);
+  const jobSettings = { ...settings, schedule, enabled: true };
   const content = [
     "---",
     `schedule: "${schedule}"`,
@@ -2047,7 +2674,7 @@ export async function ensureDreamJob(input: {
     "runAs: creator",
     "---",
     "",
-    dreamJobBody(sourceId, input.query?.trim() || null, limit),
+    dreamJobBody(jobSettings),
   ].join("\n");
 
   const resource = await resourcePut(
@@ -2057,16 +2684,17 @@ export async function ensureDreamJob(input: {
     "text/markdown",
     {
       createdBy: "agent",
-      metadata: { sourceId, query: input.query?.trim() || null, limit },
+      metadata: jobSettings,
     },
   );
 
+  await setDreamSettings(jobSettings);
   await recordAudit({
     action: "dream.job.ensured",
     targetType: "job",
     targetId: DREAM_JOB_PATH,
     summary: "Ensured weekly Dispatch dream recurring job",
-    metadata: { schedule, sourceId, query: input.query?.trim() || null, limit },
+    metadata: jobSettings,
   });
 
   return {
@@ -2075,8 +2703,16 @@ export async function ensureDreamJob(input: {
     schedule,
     enabled: true,
     runAs: "creator",
-    sourceId,
-    query: input.query?.trim() || null,
-    limit,
+    sourceId: jobSettings.sourceId,
+    sourceIds: jobSettings.sourceIds,
+    allSources: jobSettings.allSources,
+    query: jobSettings.query,
+    limit: jobSettings.limit,
+    sourceTimeoutMs: jobSettings.sourceTimeoutMs,
+    sourceConcurrency: jobSettings.sourceConcurrency,
+    sourceStartStaggerMs: jobSettings.sourceStartStaggerMs,
+    threadConcurrency: jobSettings.threadConcurrency,
+    threadTimeoutMs: jobSettings.threadTimeoutMs,
+    minCandidateCount: jobSettings.minCandidateCount,
   };
 }

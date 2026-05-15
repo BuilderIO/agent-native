@@ -141,7 +141,7 @@ export default defineAction({
     if (navigation?.view === "dreams") {
       try {
         const nav = navigation as Record<string, any>;
-        const [sources, candidates, dreams] = await Promise.all([
+        const [sources, candidates, dreams, settings] = await Promise.all([
           runDispatchAction("list-agent-thread-sources", {}),
           runDispatchAction("list-dream-candidates", {
             sourceId: nav.sourceId,
@@ -152,10 +152,12 @@ export default defineAction({
             status: nav.status,
             limit: 10,
           }),
+          runDispatchAction("get-dream-settings", {}),
         ]);
         screen.dreamSources = sources;
         screen.dreamCandidates = candidates;
         screen.latestDreams = dreams;
+        screen.dreamSettings = settings;
 
         const dreamId = nav.dreamId ?? nav.id;
         if (dreamId) {

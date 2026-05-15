@@ -6,9 +6,84 @@ const mocks = vi.hoisted(() => ({
   isPostgres: vi.fn(() => false),
   currentOwnerEmail: vi.fn(() => "owner@example.test"),
   currentOrgId: vi.fn(() => "org_123"),
+  getApprovalPolicy: vi.fn(async () => ({
+    enabled: false,
+    approverEmails: [],
+  })),
+  createApprovalRequest: vi.fn(async (input: any) => ({
+    id: "approval_1",
+    status: "pending",
+    ...input,
+  })),
   recordAudit: vi.fn(async () => undefined),
   resourcePut: vi.fn(async () => undefined),
   resourceGetByPath: vi.fn(async () => null),
+  resourceListAllOwners: vi.fn(async () => []),
+  resourceEffectiveContext: vi.fn(async (_userEmail: string, path: string) => ({
+    path,
+    effectiveScope: "workspace",
+    effectiveResource: {
+      id: "resource_meta_1",
+      path,
+      owner: "__workspace__",
+      mimeType: "text/markdown",
+      size: 10,
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: "system",
+      visibility: "workspace",
+      threadId: null,
+      runId: null,
+      expiresAt: null,
+      metadata: null,
+    },
+    layers: [
+      {
+        scope: "workspace",
+        label: "Workspace default",
+        owner: "__workspace__",
+        resource: {
+          id: "resource_meta_1",
+          path,
+          owner: "__workspace__",
+          mimeType: "text/markdown",
+          size: 10,
+          createdAt: 1,
+          updatedAt: 2,
+          createdBy: "system",
+          visibility: "workspace",
+          threadId: null,
+          runId: null,
+          expiresAt: null,
+          metadata: null,
+        },
+        exists: true,
+        effective: true,
+        overridden: false,
+        canWrite: false,
+      },
+      {
+        scope: "shared",
+        label: "Organization/app override",
+        owner: "__shared__",
+        resource: null,
+        exists: false,
+        effective: false,
+        overridden: false,
+        canWrite: true,
+      },
+      {
+        scope: "personal",
+        label: "Personal override",
+        owner: "owner@example.test",
+        resource: null,
+        exists: false,
+        effective: false,
+        overridden: false,
+        canWrite: true,
+      },
+    ],
+  })),
   resourceDeleteByPath: vi.fn(async () => undefined),
   getOrgSetting: vi.fn(async () => null),
   getUserSetting: vi.fn(async () => null),
@@ -31,8 +106,11 @@ vi.mock("../../db/index.js", async () => {
 });
 
 vi.mock("./dispatch-store.js", () => ({
+  createApprovalRequest: (...args: any[]) =>
+    mocks.createApprovalRequest(...args),
   currentOwnerEmail: () => mocks.currentOwnerEmail(),
   currentOrgId: () => mocks.currentOrgId(),
+  getApprovalPolicy: () => mocks.getApprovalPolicy(),
   recordAudit: (...args: any[]) => mocks.recordAudit(...args),
 }));
 
@@ -41,6 +119,10 @@ vi.mock("@agent-native/core/resources/store", () => ({
   WORKSPACE_OWNER: "__workspace__",
   resourcePut: (...args: any[]) => mocks.resourcePut(...args),
   resourceGetByPath: (...args: any[]) => mocks.resourceGetByPath(...args),
+  resourceListAllOwners: (...args: any[]) =>
+    mocks.resourceListAllOwners(...args),
+  resourceEffectiveContext: (...args: any[]) =>
+    mocks.resourceEffectiveContext(...args),
   resourceDeleteByPath: (...args: any[]) => mocks.resourceDeleteByPath(...args),
 }));
 
@@ -59,7 +141,9 @@ import {
   ensureStarterWorkspaceResources,
   createWorkspaceResource,
   deleteWorkspaceResource,
+  getWorkspaceResourceEffectiveContext,
   listWorkspaceResourcesForApp,
+  previewWorkspaceResourceChange,
   restoreStarterWorkspaceResources,
   STARTER_GLOBAL_WORKSPACE_RESOURCES,
   updateWorkspaceResource,
@@ -191,6 +275,16 @@ beforeEach(() => {
   mocks.getDb.mockReturnValue(createFakeDb({ resources: [] }));
   mocks.getDbExec.mockReturnValue({ execute: vi.fn() });
   mocks.isPostgres.mockReturnValue(false);
+  mocks.getApprovalPolicy.mockResolvedValue({
+    enabled: false,
+    approverEmails: [],
+  });
+  mocks.createApprovalRequest.mockImplementation(async (input: any) => ({
+    id: "approval_1",
+    status: "pending",
+    ...input,
+  }));
+  mocks.resourceListAllOwners.mockResolvedValue([]);
   mocks.getOrgSetting.mockResolvedValue(null);
   mocks.getUserSetting.mockResolvedValue(null);
   mocks.putOrgSetting.mockResolvedValue(undefined);
@@ -565,5 +659,448 @@ describe("workspace resource materialization", () => {
         syncedAt: 123,
       }),
     );
+  });
+
+  it("previews all-app effective context without requiring a grant or sync", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ version: 2 });
+    const state = {
+      resources: [
+        {
+          id: "global_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "knowledge",
+          name: "Brand",
+          description: "Brand guidance",
+          path: "context/brand.md",
+          content: "# Brand",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+      grants: [],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+
+    const result = await getWorkspaceResourceEffectiveContext({
+      resourceId: "global_1",
+      appId: "analytics",
+      userEmail: "person@example.test",
+    });
+
+    expect(result.availability).toBe("all-apps");
+    expect(result.availableToApp).toBe(true);
+    expect(result.path).toBe("context/brand.md");
+    expect(result.workspaceResource).toEqual(
+      expect.objectContaining({
+        id: "global_1",
+        path: "context/brand.md",
+        scope: "all",
+      }),
+    );
+    expect(mocks.resourceEffectiveContext).toHaveBeenCalledWith(
+      "person@example.test",
+      "context/brand.md",
+    );
+    expect(mocks.resourcePut).toHaveBeenCalledWith(
+      "__workspace__",
+      "context/brand.md",
+      "# Brand",
+      "text/markdown",
+      expect.objectContaining({ createdBy: "system" }),
+    );
+  });
+
+  it("returns the winning layer from the runtime effective context stack", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ version: 2 });
+    mocks.resourceEffectiveContext.mockResolvedValueOnce({
+      path: "instructions/guardrails.md",
+      effectiveScope: "personal",
+      effectiveResource: {
+        id: "personal_meta",
+        path: "instructions/guardrails.md",
+        owner: "person@example.test",
+        mimeType: "text/markdown",
+        size: 24,
+        createdAt: 1,
+        updatedAt: 4,
+        createdBy: "user",
+        visibility: "workspace",
+        threadId: null,
+        runId: null,
+        expiresAt: null,
+        metadata: null,
+      },
+      layers: [
+        {
+          scope: "workspace",
+          label: "Workspace default",
+          owner: "__workspace__",
+          resource: {
+            id: "workspace_meta",
+            path: "instructions/guardrails.md",
+            owner: "__workspace__",
+            mimeType: "text/markdown",
+            size: 16,
+            createdAt: 1,
+            updatedAt: 2,
+            createdBy: "system",
+            visibility: "workspace",
+            threadId: null,
+            runId: null,
+            expiresAt: null,
+            metadata: null,
+          },
+          exists: true,
+          effective: false,
+          overridden: true,
+          canWrite: false,
+        },
+        {
+          scope: "shared",
+          label: "Organization/app override",
+          owner: "__shared__",
+          resource: {
+            id: "shared_meta",
+            path: "instructions/guardrails.md",
+            owner: "__shared__",
+            mimeType: "text/markdown",
+            size: 20,
+            createdAt: 1,
+            updatedAt: 3,
+            createdBy: "user",
+            visibility: "workspace",
+            threadId: null,
+            runId: null,
+            expiresAt: null,
+            metadata: null,
+          },
+          exists: true,
+          effective: false,
+          overridden: true,
+          canWrite: true,
+        },
+        {
+          scope: "personal",
+          label: "Personal override",
+          owner: "person@example.test",
+          resource: {
+            id: "personal_meta",
+            path: "instructions/guardrails.md",
+            owner: "person@example.test",
+            mimeType: "text/markdown",
+            size: 24,
+            createdAt: 1,
+            updatedAt: 4,
+            createdBy: "user",
+            visibility: "workspace",
+            threadId: null,
+            runId: null,
+            expiresAt: null,
+            metadata: null,
+          },
+          exists: true,
+          effective: true,
+          overridden: false,
+          canWrite: true,
+        },
+      ],
+    });
+    const state = {
+      resources: [
+        {
+          id: "global_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Guardrails",
+          description: null,
+          path: "instructions/guardrails.md",
+          content: "# Workspace guardrails",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+      grants: [],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+
+    const result = await getWorkspaceResourceEffectiveContext({
+      resourceId: "global_1",
+      appId: "analytics",
+      userEmail: "person@example.test",
+    });
+
+    expect(result.availability).toBe("all-apps");
+    expect(result.effectiveScope).toBe("personal");
+    expect(result.effectiveResource).toEqual(
+      expect.objectContaining({
+        id: "personal_meta",
+        owner: "person@example.test",
+      }),
+    );
+    expect(
+      result.layers.map((layer) => [layer.scope, layer.effective]),
+    ).toEqual([
+      ["workspace", false],
+      ["shared", false],
+      ["personal", true],
+    ]);
+  });
+
+  it("reports selected resources as app-specific exceptions", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ version: 2 });
+    const state = {
+      resources: [
+        {
+          id: "selected_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "knowledge",
+          name: "Analytics launch",
+          description: null,
+          path: "context/analytics-launch.md",
+          content: "# Launch",
+          scope: "selected",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+      grants: [
+        {
+          id: "grant_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          resourceId: "selected_1",
+          appId: "analytics",
+          status: "active",
+          syncedAt: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+
+    const result = await getWorkspaceResourceEffectiveContext({
+      resourceId: "selected_1",
+      appId: "analytics",
+    });
+
+    expect(result.availability).toBe("selected-granted");
+    expect(result.availableToApp).toBe(true);
+    expect(result.activeGrantId).toBe("grant_1");
+    expect(mocks.resourcePut).not.toHaveBeenCalled();
+    expect(mocks.resourceEffectiveContext).toHaveBeenCalledWith(
+      "owner@example.test",
+      "context/analytics-launch.md",
+    );
+  });
+
+  it("marks selected resources unavailable to apps without an active grant", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ version: 2 });
+    const state = {
+      resources: [
+        {
+          id: "selected_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "knowledge",
+          name: "Analytics launch",
+          description: null,
+          path: "context/analytics-launch.md",
+          content: "# Launch",
+          scope: "selected",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+      grants: [],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+
+    const result = await getWorkspaceResourceEffectiveContext({
+      resourceId: "selected_1",
+      appId: "analytics",
+    });
+
+    expect(result.availability).toBe("selected-not-granted");
+    expect(result.availableToApp).toBe(false);
+    expect(result.activeGrantId).toBeNull();
+  });
+
+  it("queues All-app updates for approval when approval policy is enabled", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ version: 2 });
+    mocks.getApprovalPolicy.mockResolvedValue({
+      enabled: true,
+      approverEmails: ["admin@example.test"],
+    });
+    const state = {
+      resources: [
+        {
+          id: "global_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Guardrails",
+          description: null,
+          path: "instructions/guardrails.md",
+          content: "# Guardrails",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+      grants: [],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+
+    const result = await updateWorkspaceResource("global_1", {
+      content: "# Updated guardrails",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "approval_1",
+        status: "pending",
+        changeType: "workspace-resource.update",
+        targetType: "workspace-instruction",
+        targetId: "global_1",
+      }),
+    );
+    expect(mocks.createApprovalRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changeType: "workspace-resource.update",
+        beforeValue: expect.objectContaining({
+          content: "# Guardrails",
+          scope: "all",
+        }),
+        afterValue: expect.objectContaining({
+          content: "# Updated guardrails",
+          scope: "all",
+        }),
+      }),
+    );
+    expect(state.resources[0].content).toBe("# Guardrails");
+    expect(mocks.resourcePut).not.toHaveBeenCalled();
+  });
+
+  it("updates selected-only resources directly when approval policy is enabled", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ version: 2 });
+    mocks.getApprovalPolicy.mockResolvedValue({
+      enabled: true,
+      approverEmails: ["admin@example.test"],
+    });
+    const state = {
+      resources: [
+        {
+          id: "selected_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "knowledge",
+          name: "Launch",
+          description: null,
+          path: "context/launch.md",
+          content: "# Launch",
+          scope: "selected",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+      grants: [],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+
+    const result = await updateWorkspaceResource("selected_1", {
+      content: "# Updated launch",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "selected_1",
+        content: "# Updated launch",
+      }),
+    );
+    expect(mocks.createApprovalRequest).not.toHaveBeenCalled();
+    expect(mocks.resourcePut).not.toHaveBeenCalled();
+  });
+
+  it("previews All-app impact, approval behavior, and overrides", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ version: 2 });
+    mocks.getApprovalPolicy.mockResolvedValue({
+      enabled: true,
+      approverEmails: ["admin@example.test"],
+    });
+    mocks.resourceListAllOwners.mockResolvedValue([
+      {
+        id: "workspace_meta",
+        owner: "__workspace__",
+        path: "context/brand.md",
+        updatedAt: 1,
+      },
+      {
+        id: "shared_meta",
+        owner: "__shared__",
+        path: "context/brand.md",
+        updatedAt: 2,
+      },
+      {
+        id: "personal_meta",
+        owner: "person@example.test",
+        path: "context/brand.md",
+        updatedAt: 3,
+      },
+    ]);
+    const state = {
+      resources: [
+        {
+          id: "global_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "knowledge",
+          name: "Brand",
+          description: null,
+          path: "context/brand.md",
+          content: "# Brand",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+      grants: [],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+
+    const result = await previewWorkspaceResourceChange({
+      operation: "update",
+      resourceId: "global_1",
+      scope: "all",
+    });
+
+    expect(result.affectsAllApps).toBe(true);
+    expect(result.approval).toEqual({
+      policyEnabled: true,
+      willRequestApproval: true,
+    });
+    expect(result.overrides).toEqual(
+      expect.objectContaining({
+        count: 2,
+        sharedCount: 1,
+        personalCount: 1,
+      }),
+    );
+    expect(result.overrides.items.map((item) => item.owner)).toEqual([
+      "__shared__",
+      "person@example.test",
+    ]);
   });
 });

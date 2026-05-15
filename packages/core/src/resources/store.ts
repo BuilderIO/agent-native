@@ -61,6 +61,26 @@ export interface ResourceListOptions {
   includeAgentScratch?: boolean;
 }
 
+export type ResourceInheritanceScope = "workspace" | "shared" | "personal";
+
+export interface EffectiveResourceLayer {
+  scope: ResourceInheritanceScope;
+  label: string;
+  owner: string;
+  resource: ResourceMeta | null;
+  exists: boolean;
+  effective: boolean;
+  overridden: boolean;
+  canWrite: boolean;
+}
+
+export interface EffectiveResourceContext {
+  path: string;
+  effectiveResource: ResourceMeta | null;
+  effectiveScope: ResourceInheritanceScope | null;
+  layers: EffectiveResourceLayer[];
+}
+
 let _initPromise: Promise<void> | undefined;
 let _lastScratchCleanupAt = 0;
 
@@ -672,6 +692,11 @@ function rowToMeta(row: any): ResourceMeta {
   };
 }
 
+function resourceToMeta(resource: Resource): ResourceMeta {
+  const { content: _content, ...meta } = resource;
+  return meta;
+}
+
 export async function resourceGet(id: string): Promise<Resource | null> {
   await ensureTable();
   const client = getDbExec();
@@ -916,6 +941,71 @@ export async function resourceListAccessible(
     args: [userEmail, SHARED_OWNER, WORKSPACE_OWNER],
   });
   return rows.map(rowToMeta);
+}
+
+export async function resourceEffectiveContext(
+  userEmail: string,
+  path: string,
+): Promise<EffectiveResourceContext> {
+  await ensureTable();
+
+  const workspace = await resourceGetByPath(WORKSPACE_OWNER, path);
+  const shared = await resourceGetByPath(SHARED_OWNER, path);
+  const personal = await resourceGetByPath(userEmail, path);
+  const effective = personal ?? shared ?? workspace ?? null;
+  const effectiveScope: ResourceInheritanceScope | null = personal
+    ? "personal"
+    : shared
+      ? "shared"
+      : workspace
+        ? "workspace"
+        : null;
+
+  const layerDefs: Array<{
+    scope: ResourceInheritanceScope;
+    label: string;
+    owner: string;
+    resource: Resource | null;
+    canWrite: boolean;
+  }> = [
+    {
+      scope: "workspace",
+      label: "Workspace default",
+      owner: WORKSPACE_OWNER,
+      resource: workspace,
+      canWrite: false,
+    },
+    {
+      scope: "shared",
+      label: "Organization/app override",
+      owner: SHARED_OWNER,
+      resource: shared,
+      canWrite: true,
+    },
+    {
+      scope: "personal",
+      label: "Personal override",
+      owner: userEmail,
+      resource: personal,
+      canWrite: true,
+    },
+  ];
+
+  return {
+    path,
+    effectiveResource: effective ? resourceToMeta(effective) : null,
+    effectiveScope,
+    layers: layerDefs.map((layer) => ({
+      scope: layer.scope,
+      label: layer.label,
+      owner: layer.owner,
+      resource: layer.resource ? resourceToMeta(layer.resource) : null,
+      exists: !!layer.resource,
+      effective: !!layer.resource && layer.resource.id === effective?.id,
+      overridden: !!layer.resource && layer.resource.id !== effective?.id,
+      canWrite: layer.canWrite,
+    })),
+  };
 }
 
 /**

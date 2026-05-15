@@ -14,7 +14,10 @@ import {
   resourceDeleteByPath,
   resourceList,
   resourceListAccessible,
+  resourceEffectiveContext,
+  ensurePersonalDefaults,
   type ResourceMeta,
+  type EffectiveResourceContext,
   type ResourceVisibility,
   type ResourceCreatedBy,
 } from "./store.js";
@@ -117,4 +120,12 @@ export async function listAllResources(
   return options?.includeAgentScratch
     ? resourceListAccessible(userEmail, prefix, { includeAgentScratch: true })
     : resourceListAccessible(userEmail, prefix);
+}
+
+export async function getEffectiveResourceContext(
+  path: string,
+): Promise<EffectiveResourceContext> {
+  const userEmail = getOwnerForScope("personal");
+  await ensurePersonalDefaults(userEmail);
+  return resourceEffectiveContext(userEmail, path);
 }

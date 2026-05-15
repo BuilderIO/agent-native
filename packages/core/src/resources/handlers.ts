@@ -16,6 +16,7 @@ import {
   resourceList,
   resourceListAccessible,
   resourceMove,
+  resourceEffectiveContext,
   ensurePersonalDefaults,
   SHARED_OWNER,
   WORKSPACE_OWNER,
@@ -252,6 +253,20 @@ export async function handleGetResourceTree(event: any) {
   await enrichTreeNodes(tree);
 
   return { tree };
+}
+
+/** GET /_agent-native/resources/effective?path=... — show inheritance stack */
+export async function handleGetEffectiveResourceContext(event: any) {
+  const query = getQuery(event);
+  const path = query.path;
+  if (typeof path !== "string" || path.trim().length === 0) {
+    setResponseStatus(event, 400);
+    return { error: "path is required" };
+  }
+
+  const email = await resolveEmail(event);
+  await ensurePersonalDefaults(email);
+  return resourceEffectiveContext(email, path);
 }
 
 /**

@@ -57,6 +57,40 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function parseApprovalValue(value: string | null | undefined): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function approvalValuePreview(value: unknown): string {
+  if (value === null || value === undefined) return "None";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value, null, 2);
+}
+
+function ApprovalValueBlock({
+  label,
+  value,
+}: {
+  label: string;
+  value: unknown;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="text-[11px] font-medium uppercase text-muted-foreground">
+        {label}
+      </div>
+      <pre className="max-h-40 overflow-auto rounded-lg border bg-background p-2 text-[11px] leading-relaxed text-foreground">
+        {approvalValuePreview(value)}
+      </pre>
+    </div>
+  );
+}
+
 export default function ApprovalPreviewRoute() {
   const [searchParams] = useSearchParams();
   const id = searchParams.get("id") ?? "";
@@ -168,10 +202,12 @@ export default function ApprovalPreviewRoute() {
   }
 
   const isPending = approval.status === "pending";
+  const beforeValue = parseApprovalValue(approval.beforeValue);
+  const afterValue = parseApprovalValue(approval.afterValue);
 
   return (
     <div className="flex min-h-screen items-start justify-center bg-background p-6">
-      <div className="w-full max-w-md space-y-4">
+      <div className="w-full max-w-2xl space-y-4">
         <div className="rounded-2xl border bg-card p-5">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border bg-muted text-foreground">
@@ -223,6 +259,13 @@ export default function ApprovalPreviewRoute() {
               </div>
             )}
           </div>
+
+          {(beforeValue !== null || afterValue !== null) && (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <ApprovalValueBlock label="Before" value={beforeValue} />
+              <ApprovalValueBlock label="After" value={afterValue} />
+            </div>
+          )}
 
           {isPending && (
             <div className="mt-4 flex gap-2">

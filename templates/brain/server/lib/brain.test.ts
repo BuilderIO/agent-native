@@ -396,6 +396,7 @@ import {
   isSlackDirectConversation,
   normalizeGranolaNote,
   runConnectorSync,
+  runSlackPilot,
   testSlackConnection,
 } from "./connectors.js";
 import { runBrainDemoEval } from "./demo.js";
@@ -810,6 +811,184 @@ describe("Brain connector smoke coverage", () => {
     ).toBe(false);
   });
 
+  it("runs a Slack pilot report without reading history by default", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/auth.test")) {
+        return Response.json({
+          ok: true,
+          team: "Acme",
+          team_id: "T123",
+          user: "brain-bot",
+          url: "https://acme.slack.com/",
+        });
+      }
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "C123",
+            name: "product-decisions",
+            is_channel: true,
+            is_archived: false,
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "should_not_call_history" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-source",
+      title: "Slack product",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["C123"] }),
+    });
+
+    const report = await runSlackPilot(source as never);
+
+    expect(report).toMatchObject({
+      sourceId: "slack-source",
+      ok: true,
+      status: "validated",
+      historyRead: false,
+      capturesCreated: 0,
+      channelValidation: {
+        requested: 1,
+        ok: 1,
+      },
+      guardrails: {
+        historyReadRequested: false,
+        maxChannels: 2,
+        historyLimit: 10,
+        pagesPerChannel: 1,
+        permalinkLimit: 10,
+        autoSync: false,
+      },
+    });
+    expect(mocks.rows.captures).toHaveLength(0);
+    expect(
+      fetchSpy.mock.calls.some((call) =>
+        String(call[0]).includes("conversations.history"),
+      ),
+    ).toBe(false);
+  });
+
+  it("caps a Slack pilot history sync and reports captures and stats", async () => {
+    const historyUrls: URL[] = [];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/auth.test")) {
+        return Response.json({
+          ok: true,
+          team: "Acme",
+          team_id: "T123",
+          user: "brain-bot",
+          url: "https://acme.slack.com/",
+        });
+      }
+      if (url.pathname.endsWith("/conversations.info")) {
+        const channel = url.searchParams.get("channel") ?? "C123";
+        return Response.json({
+          ok: true,
+          channel: {
+            id: channel,
+            name: `channel-${channel.slice(1)}`,
+            is_channel: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        historyUrls.push(url);
+        const channel = url.searchParams.get("channel") ?? "C123";
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              user: "U123",
+              text: `Decision from ${channel}`,
+              ts:
+                channel === "C123" ? "1770919200.000100" : "1770919300.000100",
+            },
+          ],
+          has_more: true,
+          response_metadata: { next_cursor: "next-page" },
+        });
+      }
+      if (url.pathname.endsWith("/chat.getPermalink")) {
+        return Response.json({
+          ok: true,
+          permalink: `https://example.slack.com/archives/${url.searchParams.get(
+            "channel",
+          )}/p${url.searchParams.get("message_ts")}`,
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-source",
+      title: "Slack product",
+      provider: "slack",
+      configJson: JSON.stringify({
+        channelIds: ["C123", "C456", "C789"],
+        historyLimit: 50,
+        pagesPerChannel: 5,
+        permalinkLimit: 50,
+        autoSync: true,
+      }),
+    });
+
+    const report = await runSlackPilot(source as never, {
+      readHistory: true,
+      historyLimit: 99,
+      maxChannels: 9,
+      permalinkLimit: 99,
+      recentDays: 90,
+    });
+
+    expect(report).toMatchObject({
+      sourceId: "slack-source",
+      ok: true,
+      status: "synced",
+      historyRead: true,
+      capturesCreated: 2,
+      guardrails: {
+        historyReadRequested: true,
+        maxChannels: 2,
+        historyLimit: 10,
+        pagesPerChannel: 1,
+        permalinkLimit: 10,
+        autoSync: false,
+      },
+      sync: {
+        status: "success",
+        stats: {
+          configuredChannels: 2,
+          scannedChannels: 2,
+          messagesSeen: 2,
+          capturesCreated: 2,
+        },
+      },
+      currentKnowledge: { total: 0 },
+      proposals: { pending: 0 },
+    });
+    expect(report.captures).toHaveLength(2);
+    expect(historyUrls).toHaveLength(2);
+    expect(historyUrls.map((url) => url.searchParams.get("channel"))).toEqual([
+      "C123",
+      "C456",
+    ]);
+    expect(
+      historyUrls.every((url) => url.searchParams.get("limit") === "10"),
+    ).toBe(true);
+    expect(historyUrls.every((url) => url.searchParams.has("oldest"))).toBe(
+      true,
+    );
+    expect(mocks.rows.captures).toHaveLength(2);
+  });
+
   it("structurally identifies Slack DMs and MPIMs as excluded conversations", () => {
     expect(isSlackDirectConversation({ id: "D123", is_im: true })).toBe(true);
     expect(isSlackDirectConversation({ id: "G123", is_mpim: true })).toBe(true);
@@ -1012,6 +1191,160 @@ describe("Brain connector smoke coverage", () => {
         connector: "granola",
         sourceUrl: "https://granola.example/notes/1",
         syncRunId: expect.any(String),
+      },
+    });
+  });
+
+  it("syncs GitHub issues and pull requests from configured repositories", async () => {
+    const fetchSpy = vi.fn(
+      async (input: RequestInfo | URL, _init?: RequestInit) => {
+        const url = new URL(String(input));
+        expect(url.pathname).toBe("/repos/acme/brain/issues");
+        expect(url.searchParams.get("state")).toBe("all");
+        expect(url.searchParams.get("per_page")).toBe("2");
+        return Response.json([
+          {
+            id: 101,
+            number: 7,
+            title: "Document onboarding source rules",
+            body: "Decision: keep source setup bounded to approved repos.",
+            html_url: "https://github.com/acme/brain/issues/7",
+            state: "open",
+            created_at: "2026-05-14T10:00:00Z",
+            updated_at: "2026-05-14T11:00:00Z",
+            user: {
+              login: "ada",
+              html_url: "https://github.com/ada",
+            },
+            labels: [{ name: "docs" }, { name: "brain" }],
+          },
+          {
+            id: 102,
+            number: 8,
+            title: "Add GitHub connector proof",
+            body: "Adds a small reusable connector proof for Brain.",
+            html_url: "https://github.com/acme/brain/pull/8",
+            state: "closed",
+            created_at: "2026-05-14T12:00:00Z",
+            updated_at: "2026-05-14T13:00:00Z",
+            user: { login: "grace" },
+            labels: ["connector"],
+            pull_request: {
+              html_url: "https://github.com/acme/brain/pull/8",
+              merged_at: "2026-05-14T14:00:00Z",
+            },
+          },
+        ]);
+      },
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "github-source",
+      title: "GitHub repos",
+      provider: "github",
+      configJson: JSON.stringify({
+        repositories: ["acme/brain"],
+        state: "all",
+        limit: 2,
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      provider: "github",
+      status: "success",
+      capturesCreated: 2,
+      stats: {
+        configuredRepositories: 1,
+        scannedRepositories: 1,
+        itemsSeen: 2,
+        issuesSeen: 1,
+        pullRequestsSeen: 1,
+      },
+    });
+    expect(result.captures).toEqual([
+      expect.objectContaining({
+        sourceId: "github-source",
+        externalId: "github:acme/brain:issue:7",
+        kind: "note",
+        metadata: expect.objectContaining({
+          provider: "github",
+          repository: "acme/brain",
+          type: "issue",
+          sourceUrl: "https://github.com/acme/brain/issues/7",
+          author: "ada",
+          labels: ["docs", "brain"],
+        }),
+      }),
+      expect.objectContaining({
+        sourceId: "github-source",
+        externalId: "github:acme/brain:pull:8",
+        kind: "document",
+        metadata: expect.objectContaining({
+          provider: "github",
+          repository: "acme/brain",
+          type: "pull_request",
+          sourceUrl: "https://github.com/acme/brain/pull/8",
+          author: "grace",
+          labels: ["connector"],
+        }),
+      }),
+    ]);
+    expect(result.captures[0].content).toContain(
+      "Decision: keep source setup bounded to approved repos.",
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({
+      headers: expect.objectContaining({
+        Authorization: "Bearer test-token",
+        Accept: "application/vnd.github+json",
+      }),
+    });
+  });
+
+  it("records GitHub rate limits as retryable connector state", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { message: "API rate limit exceeded" },
+          {
+            status: 403,
+            headers: {
+              "x-ratelimit-remaining": "0",
+              "x-ratelimit-reset": String(Math.ceil(Date.now() / 1000) + 120),
+            },
+          },
+        ),
+      ),
+    );
+    const source = seedSource({
+      id: "github-source",
+      title: "GitHub repos",
+      provider: "github",
+      configJson: JSON.stringify({ repos: ["acme/brain"], limit: 1 }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      provider: "github",
+      status: "success",
+      capturesCreated: 0,
+      stats: { rateLimited: true },
+    });
+    const updatedSource = mocks.rows.sources.find(
+      (row) => row.id === "github-source",
+    );
+    expect(updatedSource?.status).toBe("active");
+    expect(updatedSource?.lastError).toContain(
+      "github rate limited /repos/acme/brain/issues",
+    );
+    expect(JSON.parse(String(updatedSource?.cursorJson))).toMatchObject({
+      retry: {
+        provider: "github",
+        endpoint: "/repos/acme/brain/issues",
       },
     });
   });
