@@ -33,6 +33,7 @@ describe("poll handler", () => {
     let appStateTs = 1_000;
     let settingsTs = 900;
     let extensionsTs = 800;
+    let extensionMarkerTs = 0;
     let refreshTs = 500;
     let refreshValue = JSON.stringify({ scope: "initial" });
     let appStateRows = [
@@ -47,6 +48,13 @@ describe("poll handler", () => {
       const sql = typeof query === "string" ? query : query.sql;
       if (
         sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: extensionMarkerTs }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
         sql.includes("application_state")
       ) {
         return { rows: [{ max_ts: appStateTs }] };
@@ -56,6 +64,13 @@ describe("poll handler", () => {
       }
       if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
         return { rows: [{ max_ts: extensionsTs }] };
+      }
+      if (
+        sql.includes("FROM application_state") &&
+        sql.includes("key = ?") &&
+        sql.includes("updated_at > ?")
+      ) {
+        return { rows: [] };
       }
       if (
         sql.includes("SELECT session_id, key, updated_at") &&
@@ -68,6 +83,12 @@ describe("poll handler", () => {
       }
       if (sql.includes("WHERE key = ?")) {
         return { rows: [{ updated_at: refreshTs, value: refreshValue }] };
+      }
+      if (
+        sql.includes("SELECT id, owner_email") &&
+        sql.includes("FROM tools")
+      ) {
+        return { rows: [] };
       }
       return { rows: [] };
     });
@@ -82,6 +103,7 @@ describe("poll handler", () => {
     appStateTs = 2_000;
     settingsTs = 900;
     extensionsTs = 800;
+    extensionMarkerTs = 0;
     refreshTs = 2_000;
     refreshValue = JSON.stringify({ scope: "documents" });
     appStateRows = [
@@ -113,13 +135,22 @@ describe("poll handler", () => {
     );
   });
 
-  it("emits extension changes from the tools table for serverless fallback polling", async () => {
+  it("emits scoped extension changes from the tools table fallback", async () => {
     let appStateTs = 1_000;
     let settingsTs = 900;
     let extensionsTs = "2026-05-15T12:00:00.000Z";
+    let extensionMarkerTs = 700;
+    let extensionRows: Array<Record<string, unknown>> = [];
 
     mockExecute.mockImplementation(async (query: any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: extensionMarkerTs }] };
+      }
       if (
         sql.includes("MAX(updated_at)") &&
         sql.includes("application_state")
@@ -133,12 +164,33 @@ describe("poll handler", () => {
         return { rows: [{ max_ts: extensionsTs }] };
       }
       if (
+        sql.includes("FROM application_state") &&
+        sql.includes("key = ?") &&
+        sql.includes("updated_at > ?")
+      ) {
+        return { rows: [] };
+      }
+      if (
         sql.includes("SELECT session_id, key, updated_at") &&
         sql.includes("application_state")
       ) {
         return { rows: [] };
       }
       if (sql.includes("WHERE key = ?")) {
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT id, owner_email") &&
+        sql.includes("FROM tools")
+      ) {
+        const since = Number(query.args?.[0]) || 0;
+        return {
+          rows: extensionRows.filter(
+            (row) => Date.parse(String(row.updated_at)) > since,
+          ),
+        };
+      }
+      if (sql.includes("FROM tool_shares")) {
         return { rows: [] };
       }
       return { rows: [] };
@@ -152,6 +204,15 @@ describe("poll handler", () => {
 
     vi.setSystemTime(101_500);
     extensionsTs = "2026-05-15T12:00:01.250Z";
+    extensionRows = [
+      {
+        id: "ext-1",
+        owner_email: "test@example.com",
+        org_id: "org-1",
+        visibility: "private",
+        updated_at: extensionsTs,
+      },
+    ];
 
     const next = await handler({ query: { since: String(baseline.version) } });
 
@@ -161,6 +222,106 @@ describe("poll handler", () => {
         source: "extensions",
         type: "change",
         key: "*",
+        owner: "test@example.com",
+      }),
+    ]);
+  });
+
+  it("emits extension changes from durable markers for delete and hide fallback", async () => {
+    let appStateTs = 1_000;
+    let settingsTs = 900;
+    let extensionsTs = 800;
+    let extensionMarkerTs = 700;
+    let extensionMarkerRows: Array<Record<string, unknown>> = [];
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: extensionMarkerTs }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [{ max_ts: appStateTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
+        return { rows: [{ max_ts: settingsTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
+        return { rows: [{ max_ts: extensionsTs }] };
+      }
+      if (
+        sql.includes("FROM application_state") &&
+        sql.includes("key = ?") &&
+        sql.includes("updated_at > ?")
+      ) {
+        const since = Number(query.args?.[1]) || 0;
+        return {
+          rows: extensionMarkerRows.filter(
+            (row) => Number(row.updated_at) > since,
+          ),
+        };
+      }
+      if (
+        sql.includes("SELECT session_id, key, updated_at") &&
+        sql.includes("application_state")
+      ) {
+        const since = Number(query.args?.[0]) || 0;
+        return {
+          rows: extensionMarkerRows
+            .filter((row) => Number(row.updated_at) > since)
+            .map((row) => ({
+              session_id: row.session_id,
+              key: "__extensions_change__",
+              updated_at: row.updated_at,
+            })),
+        };
+      }
+      if (sql.includes("WHERE key = ?")) {
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT id, owner_email") &&
+        sql.includes("FROM tools")
+      ) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const baseline = await handler({ query: { since: "0" } });
+    expect(baseline.events).toEqual([]);
+
+    vi.setSystemTime(101_500);
+    appStateTs = 2_000;
+    extensionMarkerTs = 2_000;
+    extensionMarkerRows = [
+      {
+        session_id: "test@example.com",
+        value: JSON.stringify({
+          source: "extensions",
+          owner: "test@example.com",
+        }),
+        updated_at: 2_000,
+      },
+    ];
+
+    const next = await handler({ query: { since: String(baseline.version) } });
+
+    expect(next.events).toEqual([
+      expect.objectContaining({
+        source: "extensions",
+        type: "change",
+        key: "*",
+        owner: "test@example.com",
       }),
     ]);
   });

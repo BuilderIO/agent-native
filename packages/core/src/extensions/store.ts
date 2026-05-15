@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isPostgres, retryOnDdlRace } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
+import { recordChange } from "../server/poll.js";
 import {
   accessFilter,
   assertAccess,
@@ -38,6 +40,12 @@ import {
   EXTENSION_CONSENTS_CREATE_SQL_PG,
   EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
 } from "./schema.js";
+import {
+  EXTENSION_CHANGE_MARKER_KEY,
+  extensionChangeMarkerSession,
+  extensionChangeMarkerValue,
+  type ExtensionChangeTarget,
+} from "./change-marker.js";
 
 const getDb = createGetDb({ extensions, extensionShares, extensionHides });
 
@@ -232,6 +240,101 @@ export interface ExtensionRow {
   visibility: "private" | "org" | "public";
 }
 
+function targetKey(target: ExtensionChangeTarget): string | null {
+  if (target.owner) return `owner:${target.owner}`;
+  if (target.orgId) return `org:${target.orgId}`;
+  return null;
+}
+
+function addExtensionChangeTarget(
+  targets: Map<string, ExtensionChangeTarget>,
+  target: ExtensionChangeTarget,
+): void {
+  const key = targetKey(target);
+  if (key) targets.set(key, target);
+}
+
+async function extensionChangeTargetsForRow(
+  row: ExtensionRow,
+): Promise<ExtensionChangeTarget[]> {
+  const targets = new Map<string, ExtensionChangeTarget>();
+  addExtensionChangeTarget(targets, { owner: row.ownerEmail });
+  if (row.visibility === "org" && row.orgId) {
+    addExtensionChangeTarget(targets, { orgId: row.orgId });
+  }
+
+  const db = getDb();
+  const shares = (await db
+    .select({
+      principalType: extensionShares.principalType,
+      principalId: extensionShares.principalId,
+    })
+    .from(extensionShares)
+    .where(eq(extensionShares.resourceId, row.id))) as Array<{
+    principalType: "user" | "org";
+    principalId: string;
+  }>;
+
+  for (const share of shares) {
+    if (share.principalType === "user") {
+      addExtensionChangeTarget(targets, { owner: share.principalId });
+    } else if (share.principalType === "org") {
+      addExtensionChangeTarget(targets, { orgId: share.principalId });
+    }
+  }
+
+  return Array.from(targets.values());
+}
+
+async function extensionChangeTargetsForId(
+  id: string,
+): Promise<ExtensionChangeTarget[]> {
+  const db = getDb();
+  const rows = await db.select().from(extensions).where(eq(extensions.id, id));
+  const row = rows[0] as ExtensionRow | undefined;
+  return row ? extensionChangeTargetsForRow(row) : [];
+}
+
+function dedupeExtensionChangeTargets(
+  targets: ExtensionChangeTarget[],
+): ExtensionChangeTarget[] {
+  const unique = new Map<string, ExtensionChangeTarget>();
+  for (const target of targets) {
+    const key = targetKey(target);
+    if (key) unique.set(key, target);
+  }
+  return Array.from(unique.values());
+}
+
+async function notifyExtensionChanged(
+  targets: ExtensionChangeTarget[],
+): Promise<void> {
+  const uniqueTargets = dedupeExtensionChangeTargets(targets);
+  if (uniqueTargets.length === 0) return;
+
+  for (const target of uniqueTargets) {
+    recordChange({
+      source: "extensions",
+      type: "change",
+      key: "*",
+      ...(target.owner ? { owner: target.owner } : {}),
+      ...(target.orgId ? { orgId: target.orgId } : {}),
+    });
+  }
+
+  await Promise.allSettled(
+    uniqueTargets.map(async (target) => {
+      const sessionId = extensionChangeMarkerSession(target);
+      if (!sessionId) return;
+      await appStatePut(
+        sessionId,
+        EXTENSION_CHANGE_MARKER_KEY,
+        extensionChangeMarkerValue(target),
+      );
+    }),
+  );
+}
+
 export interface ListExtensionsOptions {
   includeHidden?: boolean;
 }
@@ -289,6 +392,7 @@ export async function createExtension(
     visibility: "private",
   };
   await db.insert(extensions).values(row);
+  await notifyExtensionChanged([{ owner: row.ownerEmail }]);
   return row;
 }
 
@@ -320,6 +424,7 @@ export async function updateExtension(
     );
   }
   const db = getDb();
+  const beforeTargets = await extensionChangeTargetsForId(id);
   const updates: Record<string, unknown> = {
     updatedAt: new Date().toISOString(),
   };
@@ -329,7 +434,14 @@ export async function updateExtension(
   if (data.visibility !== undefined) updates.visibility = data.visibility;
   await db.update(extensions).set(updates).where(eq(extensions.id, id));
   const rows = await db.select().from(extensions).where(eq(extensions.id, id));
-  return (rows[0] as ExtensionRow) ?? null;
+  const row = (rows[0] as ExtensionRow) ?? null;
+  if (row) {
+    await notifyExtensionChanged([
+      ...beforeTargets,
+      ...(await extensionChangeTargetsForRow(row)),
+    ]);
+  }
+  return row;
 }
 
 export interface UpdateExtensionContentOpts {
@@ -362,12 +474,20 @@ export async function updateExtensionContent(
     return null;
   }
 
+  const beforeTargets = await extensionChangeTargetsForId(id);
   await db
     .update(extensions)
     .set({ content: newContent, updatedAt: new Date().toISOString() })
     .where(eq(extensions.id, id));
   const rows = await db.select().from(extensions).where(eq(extensions.id, id));
-  return (rows[0] as ExtensionRow) ?? null;
+  const row = (rows[0] as ExtensionRow) ?? null;
+  if (row) {
+    await notifyExtensionChanged([
+      ...beforeTargets,
+      ...(await extensionChangeTargetsForRow(row)),
+    ]);
+  }
+  return row;
 }
 
 export async function deleteExtension(id: string): Promise<boolean> {
@@ -375,7 +495,9 @@ export async function deleteExtension(id: string): Promise<boolean> {
   await assertAccess("extension", id, "admin");
   const db = getDb();
   const rows = await db.select().from(extensions).where(eq(extensions.id, id));
-  if (!rows[0]) return false;
+  const row = rows[0] as ExtensionRow | undefined;
+  if (!row) return false;
+  const targets = await extensionChangeTargetsForRow(row);
   await db.delete(extensionShares).where(eq(extensionShares.resourceId, id));
   await db.delete(extensionHides).where(eq(extensionHides.extensionId, id));
   await getDbExec().execute({
@@ -385,6 +507,7 @@ export async function deleteExtension(id: string): Promise<boolean> {
   const { cascadeDeleteExtensionSlots } = await import("./slots/store.js");
   await cascadeDeleteExtensionSlots(id);
   await db.delete(extensions).where(eq(extensions.id, id));
+  await notifyExtensionChanged(targets);
   return true;
 }
 
@@ -416,6 +539,7 @@ export async function hideExtension(id: string): Promise<boolean> {
       ON CONFLICT (owner_email, tool_id) DO NOTHING`,
     args: [randomUUID(), id, userEmail, now],
   });
+  await notifyExtensionChanged([{ owner: userEmail }]);
   return true;
 }
 
@@ -428,5 +552,6 @@ export async function unhideExtension(id: string): Promise<boolean> {
     sql: `DELETE FROM tool_hidden_extensions WHERE tool_id = ? AND owner_email = ?`,
     args: [id, userEmail],
   });
+  await notifyExtensionChanged([{ owner: userEmail }]);
   return true;
 }
