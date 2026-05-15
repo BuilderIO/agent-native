@@ -1,5 +1,12 @@
 # @agent-native/frame
 
+## 0.1.80
+
+### Patch Changes
+
+- Updated dependencies [cbd1826]
+  - @agent-native/core@0.15.14
+
 ## 0.1.79
 
 ### Patch Changes

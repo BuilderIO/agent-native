@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.15.14
+
+### Patch Changes
+
+- cbd1826: Keep extension previews fresh after agent-side edits and clarify chat recovery after repeated connection failures.
+
 ## 0.15.13
 
 ### Patch Changes
