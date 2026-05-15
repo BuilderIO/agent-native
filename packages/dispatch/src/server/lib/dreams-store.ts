@@ -94,6 +94,7 @@ export interface DreamEvidence {
   snippet: string;
   threadId: string;
   threadTitle?: string;
+  sourceId?: string | null;
   runId?: string | null;
   messageIndex?: number;
   createdAt?: number | null;
@@ -577,11 +578,234 @@ function reason(
   return { code, label, score, evidenceCount };
 }
 
-function addEvidence(bucket: DreamEvidence[], input: DreamEvidence, max = 12) {
+type DreamEvidenceInput = Omit<DreamEvidence, "snippet"> & {
+  snippet: unknown;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function firstString(
+  record: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function firstNumber(
+  record: Record<string, unknown>,
+  keys: string[],
+): number | null {
+  for (const key of keys) {
+    const value = parseNumber(record[key]);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> {
+  if (isRecord(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return {};
+  const parsed = safeJsonParse<Record<string, unknown> | null>(value, null);
+  return isRecord(parsed) ? parsed : {};
+}
+
+function maybeJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (isRecord(value)) return value;
+  if (typeof value !== "string" || !value.trim().startsWith("{")) return null;
+  const parsed = safeJsonParse<Record<string, unknown> | null>(value, null);
+  return isRecord(parsed) ? parsed : null;
+}
+
+function humanizeKey(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function formatNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(3);
+}
+
+function formatMetadataComparison(
+  metadata: Record<string, unknown>,
+): string | null {
+  for (const [key, rawActual] of Object.entries(metadata)) {
+    if (!/^actual/i.test(key)) continue;
+    const expectedKey = key.replace(/^actual/i, "expected");
+    const actual = parseNumber(rawActual);
+    const expected = parseNumber(metadata[expectedKey]);
+    if (actual == null || expected == null) continue;
+    const rawMetric = key.replace(/^actual/i, "");
+    const metric =
+      rawMetric.toLowerCase() === "ms"
+        ? "latency"
+        : /cx/i.test(rawMetric)
+          ? "cost"
+          : humanizeKey(rawMetric) || "value";
+    const unit = /ms$/i.test(key) ? "ms" : "";
+    return `${metric}: actual ${formatNumber(actual)}${unit}, expected ${formatNumber(expected)}${unit}`;
+  }
+
+  const actualMs = firstNumber(metadata, [
+    "actualMs",
+    "actual_ms",
+    "durationMs",
+    "duration_ms",
+  ]);
+  const expectedMs = firstNumber(metadata, [
+    "expectedMs",
+    "expected_ms",
+    "maxMs",
+    "max_ms",
+    "thresholdMs",
+    "threshold_ms",
+  ]);
+  if (actualMs != null && expectedMs != null) {
+    return `latency: actual ${formatNumber(actualMs)}ms, expected ${formatNumber(expectedMs)}ms`;
+  }
+
+  return null;
+}
+
+function formatEvalFailureEvidence(value: unknown): string {
+  const record = maybeJsonRecord(value);
+  if (!record) return compactText(value);
+  const metadata = metadataRecord(record.metadata ?? record.details);
+  const name =
+    firstString(record, [
+      "name",
+      "criteria",
+      "criterion",
+      "evalName",
+      "eval_id",
+      "metric",
+      "type",
+    ]) ?? "evaluation";
+  const score = firstNumber(record, ["score", "value"]);
+  const status =
+    firstString(record, ["status", "result", "outcome"]) ??
+    (record.passed === false ? "failed" : null);
+  const message = firstString(record, [
+    "message",
+    "error",
+    "reason",
+    "summary",
+    "notes",
+  ]);
+  const comparison = formatMetadataComparison(metadata);
+  const pieces = [`${humanizeKey(name)}${status ? ` ${status}` : " failed"}`];
+  if (score != null) pieces.push(`score ${formatNumber(score)}`);
+  if (comparison) pieces.push(comparison);
+  if (message) pieces.push(compactText(message, 120));
+  return compactText(pieces.join("; "), 240);
+}
+
+function formatToolErrorEvidence(value: unknown): string {
+  const record = maybeJsonRecord(value) ?? {};
+  const event = isRecord(record.event) ? record.event : record;
+  const parsedResult = safeJsonParse<Record<string, unknown> | null>(
+    event.result,
+    null,
+  );
+  const source = isRecord(parsedResult) ? parsedResult : event;
+  const code = firstString(source, ["errorCode", "code", "status"]);
+  const message =
+    firstString(source, ["error", "message", "reason", "result"]) ??
+    firstString(event, ["error", "message", "reason", "result"]);
+  const prefix = code ? `Tool error (${code})` : "Tool error";
+  return compactText(`${prefix}: ${message ?? compactText(value, 180)}`, 240);
+}
+
+function formatFeedbackEvidence(kind: string, value: unknown): string {
+  const record = maybeJsonRecord(value);
+  if (!record) return compactText(value);
+  const rating = firstNumber(record, ["rating", "score", "satisfaction"]);
+  const message =
+    firstString(record, [
+      "feedback",
+      "comment",
+      "message",
+      "reason",
+      "text",
+      "body",
+    ]) ?? firstString(record, ["status", "result", "outcome"]);
+  const prefix =
+    kind === "low-satisfaction"
+      ? "Low satisfaction signal"
+      : "Negative feedback";
+  const ratingText = rating != null ? ` (score ${formatNumber(rating)})` : "";
+  return compactText(
+    `${prefix}${ratingText}: ${message ?? compactText(value, 180)}`,
+    240,
+  );
+}
+
+function formatSuccessEvidence(value: unknown): string {
+  const record = maybeJsonRecord(value);
+  if (!record) return compactText(value);
+  const label =
+    firstString(record, ["title", "name", "summary", "description", "path"]) ??
+    firstString(record, ["run_id", "id"]);
+  return compactText(`Successful checkpoint${label ? `: ${label}` : ""}`, 220);
+}
+
+function formatEvidenceSnippet(kind: string, value: unknown): string {
+  if (kind === "eval-failure") return formatEvalFailureEvidence(value);
+  if (kind === "tool-error") return formatToolErrorEvidence(value);
+  if (kind === "negative-feedback" || kind === "low-satisfaction") {
+    return formatFeedbackEvidence(kind, value);
+  }
+  if (kind === "verified-success") return formatSuccessEvidence(value);
+  return compactText(value);
+}
+
+function normalizeEvidenceQuote(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/g, " id ")
+    .replace(
+      /\b(?:run|thread|message|event)[_-]?id[:=]?\s*[a-z0-9._:-]+/gi,
+      " id ",
+    )
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function evidenceDedupeKey(entry: DreamEvidence): string {
+  return [
+    entry.threadId,
+    entry.kind,
+    normalizeEvidenceQuote(entry.snippet),
+  ].join("\u0000");
+}
+
+function normalizeEvidence(input: DreamEvidenceInput): DreamEvidence | null {
+  const snippet = formatEvidenceSnippet(input.kind, input.snippet);
+  if (!snippet.trim()) return null;
+  return { ...input, snippet };
+}
+
+function addEvidence(
+  bucket: DreamEvidence[],
+  input: DreamEvidenceInput,
+  max = 12,
+) {
+  const normalized = normalizeEvidence(input);
+  if (!normalized) return;
+  const key = evidenceDedupeKey(normalized);
+  if (bucket.some((entry) => evidenceDedupeKey(entry) === key)) return;
   if (bucket.length >= max) return;
-  const snippet = compactText(input.snippet);
-  if (!snippet.trim()) return;
-  bucket.push({ ...input, snippet });
+  bucket.push(normalized);
 }
 
 function isCorrectionSignal(lower: string): boolean {
@@ -892,7 +1116,10 @@ function analyzeThreadDebug(debug: any, sourceId: string): DreamCandidate {
     score,
     reasons,
     evidenceCounts: counts,
-    evidence,
+    evidence: evidence.map((entry) => ({
+      ...entry,
+      sourceId: entry.sourceId ?? sourceId,
+    })),
     latestRunStatus,
   };
 }
@@ -1199,6 +1426,81 @@ function evidenceSummary(evidence: DreamEvidence[], max = 6): string {
       return `- ${entry.label} in ${title} (${entry.threadId}): ${entry.snippet}`;
     })
     .join("\n");
+}
+
+function collectCandidateEvidence(
+  candidates: DreamCandidate[],
+  kinds: string[],
+): DreamEvidence[] {
+  const allowed = new Set(kinds);
+  const evidence: DreamEvidence[] = [];
+  for (const candidate of candidates) {
+    for (const entry of candidate.evidence) {
+      if (!allowed.has(entry.kind)) continue;
+      addEvidence(
+        evidence,
+        {
+          ...entry,
+          sourceId: entry.sourceId ?? candidate.sourceId,
+        },
+        80,
+      );
+    }
+  }
+  return evidence;
+}
+
+function uniqueEvidenceThreads(evidence: DreamEvidence[]): Set<string> {
+  return new Set(
+    evidence
+      .map((entry) => entry.threadId?.trim())
+      .filter((threadId): threadId is string => Boolean(threadId)),
+  );
+}
+
+function uniqueEvidenceSources(evidence: DreamEvidence[]): Set<string> {
+  return new Set(
+    evidence
+      .map((entry) => entry.sourceId?.trim())
+      .filter((sourceId): sourceId is string => Boolean(sourceId)),
+  );
+}
+
+function evidenceSpansMultipleThreadsOrSources(
+  evidence: DreamEvidence[],
+): boolean {
+  return (
+    uniqueEvidenceThreads(evidence).size >= 2 ||
+    uniqueEvidenceSources(evidence).size >= 2
+  );
+}
+
+function evidenceStrengthCount(evidence: DreamEvidence[]): number {
+  return Math.max(
+    uniqueEvidenceThreads(evidence).size,
+    uniqueEvidenceSources(evidence).size,
+  );
+}
+
+const UI_WORDING_TERMS =
+  /\b(ui|screen|page|view|button|label|copy|wording|modal|dialog|dropdown|menu|toolbar|sidebar|composer|sheet|tab|card|toast|form|field|layout|click|open|close)\b/i;
+
+function looksLikeSingleAppUiWordingCorrection(
+  evidence: DreamEvidence[],
+): boolean {
+  if (uniqueEvidenceSources(evidence).size > 1) return false;
+  return evidence.some((entry) => {
+    if (!["explicit-correction", "remember-request"].includes(entry.kind)) {
+      return false;
+    }
+    return UI_WORDING_TERMS.test(entry.snippet);
+  });
+}
+
+function evidenceProvenance(date: string, evidence: DreamEvidence[]): string {
+  const threads = [...uniqueEvidenceThreads(evidence)].slice(0, 8).join(", ");
+  const sources = [...uniqueEvidenceSources(evidence)].slice(0, 8).join(", ");
+  return `Provenance: Dispatch dream ${date}; source threads: ${threads || "none recorded"}${sources ? `; sources: ${sources}` : ""}`;
 }
 
 const STOP_WORDS = new Set([
@@ -1591,33 +1893,25 @@ export function buildProposalInputs(
     options.personalMemoryBlockReason?.trim() ||
     "source owner scope differs from the dream creator's personal scope";
   let routedPersonalMemory = false;
-  const explicitEvidence = candidates.flatMap((candidate) =>
-    candidate.evidence.filter((entry) =>
-      ["remember-request", "explicit-correction"].includes(entry.kind),
-    ),
-  );
-  const failureEvidence = candidates.flatMap((candidate) =>
-    candidate.evidence.filter((entry) =>
-      [
-        "failed-run",
-        "tool-error",
-        "negative-feedback",
-        "eval-failure",
-        "low-satisfaction",
-        "frustration",
-      ].includes(entry.kind),
-    ),
-  );
-  const successEvidence = candidates.flatMap((candidate) =>
-    candidate.evidence.filter((entry) => entry.kind === "verified-success"),
-  );
+  const explicitEvidence = collectCandidateEvidence(candidates, [
+    "remember-request",
+    "explicit-correction",
+  ]);
+  const failureEvidence = collectCandidateEvidence(candidates, [
+    "failed-run",
+    "tool-error",
+    "negative-feedback",
+    "eval-failure",
+    "low-satisfaction",
+    "frustration",
+  ]);
+  const successEvidence = collectCandidateEvidence(candidates, [
+    "verified-success",
+  ]);
   const date = today();
-  const explicitThreadCount = new Set(
-    explicitEvidence.map((entry) => entry.threadId),
-  ).size;
-  const successThreadCount = new Set(
-    successEvidence.map((entry) => entry.threadId),
-  ).size;
+  const explicitStrengthCount = evidenceStrengthCount(explicitEvidence);
+  const failureStrengthCount = evidenceStrengthCount(failureEvidence);
+  const successStrengthCount = evidenceStrengthCount(successEvidence);
 
   if (explicitEvidence.length > 0) {
     const title = `Dispatch dream memory ${date}`;
@@ -1664,30 +1958,34 @@ export function buildProposalInputs(
     }
   }
 
-  const failureThreadCount = new Set(
-    failureEvidence.map((entry) => entry.threadId),
-  ).size;
-  if (failureEvidence.length >= 2 && failureThreadCount >= 2) {
+  if (
+    failureEvidence.length >= 2 &&
+    evidenceSpansMultipleThreadsOrSources(failureEvidence)
+  ) {
     proposals.push({
       targetType: "shared-learnings",
       targetPath: "LEARNINGS.md",
       title: "Record recurring Dispatch agent-run failure patterns",
       summary:
-        "Multiple recent threads show failure, tool-error, eval, or satisfaction signals that should be reviewed as a team learning.",
+        "Multiple recent threads or source apps show failure, tool-error, eval, or satisfaction signals that should be reviewed as a team learning.",
       rationale:
-        "Repeated grounded failure signals across more than one thread are good candidates for shared learnings, but remain pending for review.",
+        "Repeated grounded failure signals across more than one thread or source app are good candidates for shared learnings, but remain pending for review.",
       content: [
         "Recent Dispatch dream review found recurring agent-run failure signals.",
         "",
         evidenceSummary(failureEvidence, 8),
       ].join("\n"),
       evidence: failureEvidence.slice(0, 8),
-      confidence: Math.min(85, 50 + failureThreadCount * 10),
+      confidence: Math.min(85, 50 + failureStrengthCount * 10),
       risk: "medium",
     });
   }
 
-  if (explicitEvidence.length >= 3 && explicitThreadCount >= 2) {
+  if (
+    explicitEvidence.length >= 3 &&
+    evidenceSpansMultipleThreadsOrSources(explicitEvidence) &&
+    !looksLikeSingleAppUiWordingCorrection(explicitEvidence)
+  ) {
     proposals.push({
       targetType: "workspace-instruction",
       targetPath: `instructions/${slugify(`dream-corrections-${date}`)}.md`,
@@ -1695,7 +1993,7 @@ export function buildProposalInputs(
       summary:
         "Repeated explicit user corrections or remember requests should become an all-app workspace instruction after review.",
       rationale:
-        "Repeated corrections across more than one thread are stronger than one-off memory. A workspace instruction lets every app inherit the reviewed behavior.",
+        "Repeated corrections across more than one thread or source app are stronger than one-off memory. A workspace instruction lets every app inherit the reviewed behavior.",
       content: [
         "# Dream-Derived Workspace Instruction",
         "",
@@ -1711,27 +2009,26 @@ export function buildProposalInputs(
         "- Prefer existing workspace resources, skills, and app conventions before introducing a new pattern.",
         "- If the same correction appears across apps or threads, treat it as a candidate for a workspace-level instruction instead of only personal memory.",
         "",
-        `Provenance: Dispatch dream ${date}; source threads: ${[
-          ...new Set(explicitEvidence.map((entry) => entry.threadId)),
-        ]
-          .slice(0, 8)
-          .join(", ")}`,
+        evidenceProvenance(date, explicitEvidence),
       ].join("\n"),
       evidence: explicitEvidence.slice(0, 10),
-      confidence: Math.min(90, 60 + explicitThreadCount * 8),
+      confidence: Math.min(90, 60 + explicitStrengthCount * 8),
       risk: "medium",
     });
   }
 
-  if (failureEvidence.length >= 4 && failureThreadCount >= 3) {
+  if (
+    failureEvidence.length >= 4 &&
+    evidenceSpansMultipleThreadsOrSources(failureEvidence)
+  ) {
     proposals.push({
       targetType: "workspace-instruction",
       targetPath: `instructions/${slugify(`dream-run-reliability-${date}`)}.md`,
       title: "Create workspace instruction for recurring agent-run friction",
       summary:
-        "Recurring frustration and failure signals across threads should become a reviewed workspace reliability instruction.",
+        "Recurring frustration and failure signals across threads or source apps should become a reviewed workspace reliability instruction.",
       rationale:
-        "Repeated failure or frustration signals across multiple threads are useful as a shared guardrail, but they need review before they affect all app agents.",
+        "Repeated failure or frustration signals across multiple threads or source apps are useful as a shared guardrail, but they need review before they affect all app agents.",
       content: [
         "# Dream-Derived Agent Reliability Instruction",
         "",
@@ -1747,14 +2044,10 @@ export function buildProposalInputs(
         "- Prefer small, verified changes with provenance over broad rewrites when responding to user frustration.",
         "- Convert repeated failures into a durable workspace resource only after evidence spans multiple threads or apps.",
         "",
-        `Provenance: Dispatch dream ${date}; source threads: ${[
-          ...new Set(failureEvidence.map((entry) => entry.threadId)),
-        ]
-          .slice(0, 8)
-          .join(", ")}`,
+        evidenceProvenance(date, failureEvidence),
       ].join("\n"),
       evidence: failureEvidence.slice(0, 10),
-      confidence: Math.min(85, 50 + failureThreadCount * 8),
+      confidence: Math.min(85, 50 + failureStrengthCount * 8),
       risk: "medium",
     });
   }
@@ -1762,7 +2055,7 @@ export function buildProposalInputs(
   if (
     proposals.length === 0 &&
     successEvidence.length >= 2 &&
-    successThreadCount >= 2
+    evidenceSpansMultipleThreadsOrSources(successEvidence)
   ) {
     if (personalMemoryAllowed) {
       proposals.push({
@@ -1807,7 +2100,10 @@ export function buildProposalInputs(
     }
   }
 
-  if (successEvidence.length >= 2 && successThreadCount >= 2) {
+  if (
+    successEvidence.length >= 2 &&
+    evidenceSpansMultipleThreadsOrSources(successEvidence)
+  ) {
     proposals.push({
       targetType: "workspace-skill",
       targetPath: `skills/${slugify(`dispatch-success-patterns-${date}`)}/SKILL.md`,
@@ -1839,7 +2135,7 @@ export function buildProposalInputs(
         "4. Record any user correction as a new dream candidate rather than silently broadening the skill.",
       ].join("\n"),
       evidence: successEvidence.slice(0, 10),
-      confidence: Math.min(80, 50 + successThreadCount * 10),
+      confidence: Math.min(80, 50 + successStrengthCount * 10),
       risk: "medium",
     });
   }

@@ -33,6 +33,7 @@ const TEMPLATES_DIR = path.join(ROOT, "templates");
 const CONFIG_PATH = path.join(ROOT, "packages/shared-app-config/templates.ts");
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";
 const DEFAULT_GATEWAY_PORT = 8080;
+const FRAME_PORT = 3334;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
@@ -64,6 +65,7 @@ Options:
   --apps=<names>       Same as --apps <names>
   --all                Expose every template in packages/shared-app-config
   --desktop            Also start the clips-desktop tray (Tauri)
+  --electron           Also start the Electron desktop shell and frame
   --eager              Start every exposed template immediately
   --open               Open the gateway URL in the browser on ready
   --no-open            (legacy / no-op — auto-open is off by default)
@@ -74,6 +76,7 @@ Options:
 Examples:
   pnpm dev:lazy
   pnpm dev:lazy -- --apps dispatch,mail,calendar
+  pnpm dev:electron:lazy
   pnpm dev:lazy:desktop`);
 }
 
@@ -146,6 +149,7 @@ if (requestedApps.length === 0) {
 const apps = requestedApps.sort(compareApps);
 const selectedById = new Map(apps.map((app) => [app.id, app]));
 const includeDesktop = hasFlag("--desktop");
+const includeElectron = hasFlag("--electron");
 const eager = hasFlag("--eager");
 const dryRun = hasFlag("--dry-run");
 const isHeadlessEnv =
@@ -832,6 +836,50 @@ function openBrowser(url: string): void {
   child.unref();
 }
 
+function ensureElectronBinary() {
+  try {
+    execSync(
+      `pnpm --filter @agent-native/desktop-app exec node -e "require('electron')"`,
+      { stdio: "ignore" },
+    );
+    return;
+  } catch {
+    console.log(
+      "[dev-lazy] Electron binary is missing; rebuilding the desktop dependency...",
+    );
+  }
+
+  try {
+    execSync("pnpm --filter @agent-native/desktop-app rebuild electron", {
+      stdio: "inherit",
+    });
+    execSync(
+      `pnpm --filter @agent-native/desktop-app exec node -e "require('electron')"`,
+      { stdio: "ignore" },
+    );
+  } catch (err) {
+    console.error(
+      "[dev-lazy] Electron is installed but its binary could not be prepared.",
+    );
+    console.error(
+      "Run this once and retry:\n  pnpm --filter @agent-native/desktop-app rebuild electron",
+    );
+    throw err;
+  }
+}
+
+function electronLazyEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    AGENT_NATIVE_TEMPLATE_GATEWAY_URL: gatewayUrl,
+    VITE_AGENT_NATIVE_TEMPLATE_GATEWAY_URL: gatewayUrl,
+    AGENT_NATIVE_USE_TEMPLATE_GATEWAY: "1",
+    VITE_AGENT_NATIVE_USE_TEMPLATE_GATEWAY: "1",
+    WORKSPACE_GATEWAY_URL: gatewayUrl,
+    VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
+  };
+}
+
 function startBackgroundProcess(
   name: string,
   command: string,
@@ -900,11 +948,23 @@ if (dryRun) {
   if (includeDesktop) {
     console.log("[dev-lazy] tray: clips-desktop dev (Tauri)");
   }
+  if (includeElectron) {
+    console.log(`[dev-lazy] frame: http://localhost:${FRAME_PORT}`);
+    console.log("[dev-lazy] electron: @agent-native/desktop-app dev");
+  }
   process.exit(0);
 }
 
+if (includeElectron) {
+  ensureElectronBinary();
+}
+
 if (shouldKill) {
-  const ports = [requestedGatewayPort, ...apps.map((app) => app.port)];
+  const ports = [
+    requestedGatewayPort,
+    ...(includeElectron ? [FRAME_PORT] : []),
+    ...apps.map((app) => app.port),
+  ];
   for (const port of ports) killPort(port);
 }
 
@@ -952,7 +1012,7 @@ function listen(port: number, attempts = 20): void {
 
     if (eager) {
       for (const app of apps) startApp(app);
-    } else {
+    } else if (!includeElectron) {
       const app = selectedById.get(defaultApp);
       if (app) startApp(app);
     }
@@ -967,6 +1027,22 @@ function listen(port: number, attempts = 20): void {
         "clips-desktop",
         "dev",
       ]);
+    }
+
+    if (includeElectron) {
+      const env = electronLazyEnv();
+      startBackgroundProcess(
+        "frame",
+        "pnpm",
+        ["--filter", "@agent-native/frame", "dev"],
+        env,
+      );
+      startBackgroundProcess(
+        "electron",
+        "pnpm",
+        ["--filter", "@agent-native/desktop-app", "dev"],
+        env,
+      );
     }
 
     openBrowser(`${gatewayUrl}/${defaultApp}`);

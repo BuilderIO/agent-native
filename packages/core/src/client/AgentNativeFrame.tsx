@@ -8,11 +8,13 @@ import React, {
 } from "react";
 import {
   createAgentNativeHostBridge,
+  type AgentNativeClientActions,
   type AgentNativeHostAuth,
   type AgentNativeHostBridge,
   type AgentNativeHostBridgeEvent,
   type AgentNativeHostCommandHandlers,
   type AgentNativeHostContextGetter,
+  type AgentNativeHostSession,
 } from "./host-bridge.js";
 
 export interface AgentNativeFrameProps extends Omit<
@@ -26,10 +28,14 @@ export interface AgentNativeFrameProps extends Omit<
    * Pass "*" only for local prototypes.
    */
   agentOrigin?: string;
+  /** Stable browser-session identity for multi-tab sidecars. */
+  session?: string | Partial<AgentNativeHostSession>;
   /** Return page, selection, resource, user/org, and host-specific context. */
   getContext?: AgentNativeHostContextGetter;
   /** Commands the iframe sidecar can ask the host app to run. */
   commands?: AgentNativeHostCommandHandlers;
+  /** Live browser-session actions the iframe sidecar can discover and call. */
+  actions?: AgentNativeClientActions;
   /** Optional auth payload sent to the trusted iframe sidecar. */
   auth?: AgentNativeHostAuth;
   onBridgeEvent?: (event: AgentNativeHostBridgeEvent) => void;
@@ -66,8 +72,10 @@ export const AgentNativeFrame = forwardRef<
   {
     agentUrl,
     agentOrigin,
+    session,
     getContext,
     commands,
+    actions,
     auth,
     onBridgeEvent,
     onBridgeReady,
@@ -91,8 +99,10 @@ export const AgentNativeFrame = forwardRef<
   useEffect(() => {
     const bridge = createAgentNativeHostBridge({
       agentOrigin: resolvedOrigin,
+      session,
       getContext,
       commands,
+      actions,
       auth,
       onEvent: onBridgeEvent,
       targetWindow: iframeRef.current?.contentWindow ?? null,
@@ -105,11 +115,13 @@ export const AgentNativeFrame = forwardRef<
     };
   }, [
     auth,
+    actions,
     commands,
     getContext,
     onBridgeEvent,
     onBridgeReady,
     resolvedOrigin,
+    session,
   ]);
 
   return (

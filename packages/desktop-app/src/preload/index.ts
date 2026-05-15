@@ -6,6 +6,8 @@ import {
   type CodeAgentCreateRunResult,
   type CodeAgentFollowUpRequest,
   type CodeAgentFollowUpResult,
+  type CodeAgentUpdateRunRequest,
+  type CodeAgentUpdateRunResult,
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
   type CodeAgentMigrationRun,
@@ -18,6 +20,7 @@ import {
   type InterAppMessage,
   type UpdateStatus,
 } from "@shared/ipc-channels";
+import type { CodeAgentPermissionMode } from "@shared/code-agents";
 
 /** The API surface exposed to the renderer via window.electronAPI */
 const electronAPI = {
@@ -129,15 +132,21 @@ const electronAPI = {
       request: CodeAgentFollowUpRequest,
     ): Promise<CodeAgentFollowUpResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_APPEND_FOLLOW_UP, request),
+    updateRun: (
+      request: CodeAgentUpdateRunRequest,
+    ): Promise<CodeAgentUpdateRunResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_UPDATE_RUN, request),
     controlRun: (
       goalId: string,
       runId: string,
       command: CodeAgentControlCommand,
+      permissionMode?: CodeAgentPermissionMode,
     ): Promise<CodeAgentControlResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_CONTROL_RUN, {
         goalId,
         runId,
         command,
+        permissionMode,
       }),
     listMigrationRuns: (): Promise<
       CodeAgentRunListResult<CodeAgentMigrationRun>

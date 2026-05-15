@@ -1,6 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { fileURLToPath } from "url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   listCodeAgentRunRecords,
@@ -13,6 +14,7 @@ import {
   runMigrate,
 } from "./migrate.js";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tmpRoots: string[] = [];
 
 afterEach(() => {
@@ -105,12 +107,31 @@ describe("parseMigrateArgs", () => {
       goalId: "migrate",
       status: "needs-approval",
       phase: "intake",
+      progress: {
+        label: "Dossier ready; waiting for approval",
+        completed: 1,
+        total: 2,
+        percent: 50,
+      },
     });
     const dossierRoot = runs[0].metadata?.dossierRoot;
     expect(typeof dossierRoot).toBe("string");
+    expect(runs[0].metadata).toMatchObject({
+      preferredCommand: "agent-native code /migrate",
+      resumeCommand: "agent-native code resume --last",
+      attachCommand: "agent-native code attach --last",
+      statusCommand: "agent-native code status --last",
+    });
     expect(fs.existsSync(path.join(String(dossierRoot), "AGENTS.md"))).toBe(
       true,
     );
+    expect(
+      fs.existsSync(path.join(String(dossierRoot), "MIGRATION_PLAYBOOK.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(String(dossierRoot), "01-assessment.md")),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(String(dossierRoot), "ir.json"))).toBe(true);
     expect(fs.existsSync(path.join(root, "migration"))).toBe(false);
     expect(
       listCodeAgentTranscriptEvents(runs[0].id).map((event) => event.kind),
@@ -118,6 +139,48 @@ describe("parseMigrateArgs", () => {
     expect(log.mock.calls.join("\n")).toContain(
       "Code Agents /migrate session created.",
     );
+    expect(log.mock.calls.join("\n")).toContain("Artifacts:");
+    expect(log.mock.calls.join("\n")).toContain(
+      "agent-native code attach --last",
+    );
+    expect(log.mock.calls.join("\n")).toContain(
+      "Migration stays in Code Agents. No hidden app/template was scaffolded.",
+    );
+  });
+
+  it("dogfoods a real Next.js fixture into a slash-command migration dossier", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-migrate-fixture-"));
+    tmpRoots.push(root);
+    process.env.AGENT_NATIVE_CODE_AGENTS_HOME = path.join(root, "code-agents");
+    const sourceRoot = path.resolve(
+      __dirname,
+      "../../../migrate/src/__fixtures__/next-pages",
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runMigrate([sourceRoot, "--out", path.join(root, "migrated")]);
+
+    const [run] = listCodeAgentRunRecords("migrate");
+    expect(typeof run?.metadata?.usedMigrateHelpers).toBe("boolean");
+    const dossierRoot = String(run?.metadata?.dossierRoot);
+    const assessment = fs.readFileSync(
+      path.join(dossierRoot, "01-assessment.md"),
+      "utf-8",
+    );
+    const ir = JSON.parse(
+      fs.readFileSync(path.join(dossierRoot, "ir.json"), "utf-8"),
+    );
+
+    expect(assessment).toContain("Framework: nextjs");
+    expect(ir.site.routes.map((route: { path: string }) => route.path)).toEqual(
+      expect.arrayContaining(["/", "/dashboard"]),
+    );
+    expect(ir.behavior.apiEndpoints[0]).toMatchObject({
+      path: "/api/hello",
+      recommendedRecipe: "api-routes-to-actions",
+    });
+    expect(fs.existsSync(path.join(root, "migration"))).toBe(false);
+    expect(log.mock.calls.join("\n")).toContain("Goal:    /migrate");
   });
 
   it("emits a dossier outside sourceRoot", async () => {
@@ -213,5 +276,20 @@ describe("parseMigrateArgs", () => {
       ),
     ).toBe(true);
     expect(isExpectedMigrationCliError(new Error("disk exploded"))).toBe(false);
+  });
+
+  it("status output points empty users at the Code Agents slash command", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-migrate-status-"));
+    tmpRoots.push(root);
+    process.env.AGENT_NATIVE_CODE_AGENTS_HOME = path.join(root, "code-agents");
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runMigrate(["status", "--last"]);
+
+    const output = log.mock.calls.join("\n");
+    expect(output).toContain("No /migrate sessions found.");
+    expect(output).toContain("agent-native code /migrate <source>");
+    expect(output).toContain("agent-native migrate status --last");
+    expect(output).toContain("Add --app-surface only");
   });
 });

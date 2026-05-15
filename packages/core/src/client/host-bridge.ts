@@ -6,6 +6,10 @@ export const AGENT_NATIVE_HOST_MESSAGE_TYPES = {
   GET_CONTEXT: "agentNative.host.getContext",
   CONTEXT: "agentNative.host.context",
   AUTH: "agentNative.host.auth",
+  LIST_ACTIONS: "agentNative.host.listActions",
+  ACTIONS: "agentNative.host.actions",
+  RUN_ACTION: "agentNative.host.runAction",
+  ACTION_RESULT: "agentNative.host.actionResult",
   COMMAND: "agentNative.host.command",
   COMMAND_RESULT: "agentNative.host.commandResult",
   ERROR: "agentNative.host.error",
@@ -26,6 +30,73 @@ export type BuiltInAgentNativeHostCommand =
   | "open-resource"
   | "requestApproval"
   | "request-approval";
+
+export type AgentNativeJsonSchema = Record<string, unknown>;
+
+export type AgentNativeActionAvailability =
+  | "browser-session"
+  | "current-page"
+  | "backend"
+  | "always";
+
+export interface AgentNativeActionManifestEntry {
+  name: string;
+  description: string;
+  schema?: AgentNativeJsonSchema;
+  /** Alias for schema for function-calling/tooling runtimes. */
+  parameters?: AgentNativeJsonSchema;
+  title?: string;
+  source?: "client" | "backend" | string;
+  availability?: AgentNativeActionAvailability | string;
+  destructive?: boolean;
+  requiresApproval?: boolean | AgentNativeClientActionApprovalConfig;
+  approval?: AgentNativeClientActionApprovalConfig;
+  [key: string]: unknown;
+}
+
+export interface AgentNativeClientActionApprovalConfig {
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
+  risk?: "low" | "medium" | "high" | string;
+  [key: string]: unknown;
+}
+
+export interface AgentNativeHostSession {
+  id: string;
+  label?: string;
+  connectedAt: string;
+  url?: string;
+  [key: string]: unknown;
+}
+
+export interface AgentNativeClientActionRuntime {
+  requestId?: string;
+  origin: string;
+  context: AgentNativeHostContext;
+  session: AgentNativeHostSession;
+  event: MessageEvent;
+  refresh(payload?: unknown): Promise<unknown>;
+  command(command: string, payload?: unknown): Promise<unknown>;
+}
+
+export interface AgentNativeClientAction<
+  TArgs = unknown,
+  TResult = unknown,
+> extends AgentNativeActionManifestEntry {
+  run(
+    args: TArgs,
+    runtime: AgentNativeClientActionRuntime,
+  ): TResult | Promise<TResult>;
+}
+
+export type AgentNativeClientActionGetter = () =>
+  | AgentNativeClientAction[]
+  | Promise<AgentNativeClientAction[]>;
+
+export type AgentNativeClientActions =
+  | AgentNativeClientAction[]
+  | AgentNativeClientActionGetter;
 
 export interface AgentNativeHostRouteContext {
   pathname?: string;
@@ -69,6 +140,8 @@ export interface AgentNativeHostContext {
   url?: string;
   title?: string;
   route?: AgentNativeHostRouteContext;
+  screen?: AgentNativeScreenSnapshot;
+  session?: AgentNativeHostSession;
   selection?: AgentNativeHostSelectionContext;
   resource?: AgentNativeHostResourceContext;
   user?: AgentNativeHostPrincipalContext;
@@ -125,6 +198,13 @@ export type AgentNativeHostBridgeEvent =
   | { type: "init"; requestId?: string; origin?: string }
   | { type: "context"; requestId?: string; origin?: string }
   | { type: "auth"; requestId?: string; origin?: string }
+  | { type: "actions"; requestId?: string; count: number; origin?: string }
+  | {
+      type: "action";
+      name: string;
+      requestId?: string;
+      origin: string;
+    }
   | {
       type: "command";
       command: string;
@@ -149,6 +229,8 @@ export interface AgentNativeHostBridgeOptions {
    * be trusted. Pass "*" only for local prototypes.
    */
   agentOrigin?: string;
+  /** Stable browser-session identity. Used by the sidecar to distinguish tabs. */
+  session?: string | Partial<AgentNativeHostSession>;
   /** Return current route, selected resource, user/org, and host-specific data. */
   getContext?: AgentNativeHostContextGetter;
   /**
@@ -161,6 +243,11 @@ export interface AgentNativeHostBridgeOptions {
    * postMessage to the trusted `agentOrigin`.
    */
   auth?: AgentNativeHostAuth;
+  /**
+   * Live browser-session actions. These can change per render/page context and
+   * are only callable while this host page is connected.
+   */
+  actions?: AgentNativeClientActions;
   onEvent?: (event: AgentNativeHostBridgeEvent) => void;
 }
 
@@ -173,6 +260,7 @@ export interface AgentNativeHostBridge {
   sendContext(requestId?: string): Promise<boolean>;
   refreshContext(): Promise<boolean>;
   sendAuth(requestId?: string): Promise<boolean>;
+  sendActions(requestId?: string): Promise<boolean>;
 }
 
 type IncomingHostMessage =
@@ -183,6 +271,17 @@ type IncomingHostMessage =
   | {
       type: typeof AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT;
       requestId?: string;
+    }
+  | {
+      type: typeof AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_ACTIONS;
+      requestId?: string;
+    }
+  | {
+      type: typeof AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION;
+      requestId?: string;
+      name?: string;
+      args?: unknown;
+      payload?: unknown;
     }
   | {
       type: typeof AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND;
@@ -231,6 +330,111 @@ function requestId(): string {
   return `host-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function sessionId(): string {
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createHostSession(
+  session: AgentNativeHostBridgeOptions["session"],
+): AgentNativeHostSession {
+  const now = new Date().toISOString();
+  const base =
+    typeof session === "string"
+      ? { id: session }
+      : session && typeof session === "object"
+        ? session
+        : {};
+  return {
+    id: base.id || sessionId(),
+    connectedAt: base.connectedAt || now,
+    url:
+      base.url ||
+      (typeof window !== "undefined" ? window.location.href : undefined),
+    ...base,
+  };
+}
+
+function attachSession(
+  context: AgentNativeHostContext,
+  session: AgentNativeHostSession,
+): AgentNativeHostContext {
+  return serializeForMessage(
+    {
+      ...context,
+      session: {
+        ...session,
+        ...(context.session ?? {}),
+      },
+    },
+    "Host context",
+  );
+}
+
+export interface AgentNativeScreenSnapshot {
+  url?: string;
+  title?: string;
+  route?: AgentNativeHostRouteContext;
+  selection?: AgentNativeHostSelectionContext;
+  visibleText?: string;
+  html?: string;
+  viewport?: {
+    width: number;
+    height: number;
+    scrollX: number;
+    scrollY: number;
+  };
+}
+
+export interface AgentNativeScreenSnapshotOptions {
+  /**
+   * Root element to read from. Defaults to document.body, then documentElement.
+   */
+  root?: Element | null | (() => Element | null | undefined);
+  /** Include textContent from the root element. Defaults to true. */
+  includeVisibleText?: boolean;
+  /** Include outerHTML from the root element. Defaults to false. */
+  includeDomHtml?: boolean;
+  /** Max characters of visible text to include. Defaults to 6000. */
+  maxTextLength?: number;
+  /** Max characters of DOM html to include. Defaults to 20000. */
+  maxHtmlLength?: number;
+}
+
+function truncate(
+  value: string | undefined,
+  maxLength: number,
+): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function resolveSnapshotRoot(
+  root: AgentNativeScreenSnapshotOptions["root"],
+): Element | null {
+  if (typeof document === "undefined") return null;
+  if (typeof root === "function") return root() ?? null;
+  return root ?? document.body ?? document.documentElement;
+}
+
+function readElementText(root: Element): string | undefined {
+  if (typeof document === "undefined") return root.textContent ?? undefined;
+  try {
+    const showText =
+      typeof NodeFilter === "undefined" ? 4 : NodeFilter.SHOW_TEXT;
+    const walker = document.createTreeWalker(root, showText);
+    const parts: string[] = [];
+    while (walker.nextNode()) {
+      const text = walker.currentNode.textContent?.trim();
+      if (text) parts.push(text);
+    }
+    return parts.join(" ");
+  } catch {
+    return root.textContent ?? undefined;
+  }
+}
+
 function defaultContext(): AgentNativeHostContext {
   if (typeof window === "undefined") return {};
   return {
@@ -240,6 +444,51 @@ function defaultContext(): AgentNativeHostContext {
       pathname: window.location.pathname,
       search: window.location.search,
       hash: window.location.hash,
+    },
+  };
+}
+
+export function readAgentNativeScreenContext(
+  options: AgentNativeScreenSnapshotOptions = {},
+): AgentNativeHostContext {
+  const base = defaultContext();
+  if (typeof window === "undefined") return base;
+
+  const root = resolveSnapshotRoot(options.root);
+  const selectionText =
+    typeof window.getSelection === "function"
+      ? window.getSelection()?.toString().trim() || undefined
+      : undefined;
+  const maxTextLength = options.maxTextLength ?? 6000;
+  const maxHtmlLength = options.maxHtmlLength ?? 20000;
+  const includeVisibleText = options.includeVisibleText ?? true;
+  const includeDomHtml = options.includeDomHtml ?? false;
+  const selection = selectionText
+    ? { ...(base.selection ?? {}), type: "text", text: selectionText }
+    : base.selection;
+
+  return {
+    ...base,
+    selection,
+    screen: {
+      url: base.url,
+      title: base.title,
+      route: base.route,
+      selection,
+      visibleText:
+        includeVisibleText && root
+          ? truncate(readElementText(root), maxTextLength)
+          : undefined,
+      html:
+        includeDomHtml && root
+          ? truncate(root.outerHTML ?? undefined, maxHtmlLength)
+          : undefined,
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+      },
     },
   };
 }
@@ -281,6 +530,46 @@ async function resolveHostAuth(
     { ...payload, headers },
     "Host auth payload",
   ) as AgentNativeHostAuthPayload;
+}
+
+async function resolveClientActions(
+  actions: AgentNativeClientActions | undefined,
+): Promise<AgentNativeClientAction[]> {
+  const value = typeof actions === "function" ? await actions() : actions;
+  return Array.isArray(value) ? value : [];
+}
+
+function toActionManifest(
+  action: AgentNativeClientAction,
+): AgentNativeActionManifestEntry | null {
+  if (!action?.name || !action.description) return null;
+  const { run: _run, ...manifest } = action;
+  return serializeForMessage(
+    {
+      source: "client",
+      availability: "browser-session",
+      ...manifest,
+      schema: manifest.schema ?? manifest.parameters,
+    },
+    "Client action manifest",
+  );
+}
+
+async function resolveActionManifest(
+  actions: AgentNativeClientActions | undefined,
+): Promise<AgentNativeActionManifestEntry[]> {
+  const resolved = await resolveClientActions(actions);
+  return resolved
+    .map(toActionManifest)
+    .filter(Boolean) as AgentNativeActionManifestEntry[];
+}
+
+async function findClientAction(
+  actions: AgentNativeClientActions | undefined,
+  name: string,
+): Promise<AgentNativeClientAction | undefined> {
+  const resolved = await resolveClientActions(actions);
+  return resolved.find((action) => action.name === name);
 }
 
 function dispatchHostEvent(
@@ -325,6 +614,8 @@ function isIncomingHostMessage(value: unknown): value is IncomingHostMessage {
   return (
     value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.READY ||
     value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT ||
+    value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_ACTIONS ||
+    value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION ||
     value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND
   );
 }
@@ -337,6 +628,7 @@ export function createAgentNativeHostBridge(
   const allowedOrigin = normalizeOrigin(options.agentOrigin);
   const targetOrigin =
     allowedOrigin && allowedOrigin !== "*" ? allowedOrigin : "*";
+  const session = createHostSession(options.session);
 
   function emit(event: AgentNativeHostBridgeEvent) {
     options.onEvent?.(event);
@@ -371,7 +663,11 @@ export function createAgentNativeHostBridge(
       requestId,
     };
     try {
-      message.context = await resolveHostContext(options.getContext);
+      message.session = session;
+      message.context = attachSession(
+        await resolveHostContext(options.getContext),
+        session,
+      );
     } catch (error) {
       message.contextError = messageError(error).message;
       emit({ type: "error", requestId, error: messageError(error) });
@@ -382,6 +678,12 @@ export function createAgentNativeHostBridge(
       message.authError = messageError(error).message;
       emit({ type: "error", requestId, error: messageError(error) });
     }
+    try {
+      message.actions = await resolveActionManifest(options.actions);
+    } catch (error) {
+      message.actionsError = messageError(error).message;
+      emit({ type: "error", requestId, error: messageError(error) });
+    }
     const sent = post(message);
     if (sent) emit({ type: "init", requestId });
     return sent;
@@ -389,7 +691,10 @@ export function createAgentNativeHostBridge(
 
   async function sendContext(requestId?: string): Promise<boolean> {
     try {
-      const context = await resolveHostContext(options.getContext);
+      const context = attachSession(
+        await resolveHostContext(options.getContext),
+        session,
+      );
       const sent = post({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.CONTEXT,
         ok: true,
@@ -433,6 +738,147 @@ export function createAgentNativeHostBridge(
     }
   }
 
+  async function sendActions(requestId?: string): Promise<boolean> {
+    try {
+      const actions = await resolveActionManifest(options.actions);
+      const sent = post({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTIONS,
+        ok: true,
+        requestId,
+        actions,
+      });
+      if (sent) emit({ type: "actions", requestId, count: actions.length });
+      return sent;
+    } catch (error) {
+      const err = messageError(error);
+      emit({ type: "error", requestId, error: err });
+      return post({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTIONS,
+        ok: false,
+        requestId,
+        error: err.message,
+      });
+    }
+  }
+
+  async function runHostCommand(
+    command: string,
+    payload: unknown,
+    requestId: string | undefined,
+    event: MessageEvent,
+  ): Promise<unknown> {
+    const handler =
+      options.commands?.[command] ?? defaultAgentNativeHostCommands[command];
+    if (!handler) {
+      throw new Error(`No host command handler registered for "${command}"`);
+    }
+    return handler(
+      {
+        command,
+        payload,
+        requestId,
+        origin: event.origin,
+      },
+      event,
+    );
+  }
+
+  function needsApproval(action: AgentNativeClientAction): boolean {
+    return (
+      action.destructive === true ||
+      action.requiresApproval === true ||
+      typeof action.requiresApproval === "object" ||
+      Boolean(action.approval)
+    );
+  }
+
+  function approvalConfig(
+    action: AgentNativeClientAction,
+  ): AgentNativeClientActionApprovalConfig | undefined {
+    if (action.approval) return action.approval;
+    return typeof action.requiresApproval === "object"
+      ? action.requiresApproval
+      : undefined;
+  }
+
+  async function assertActionApproved(
+    action: AgentNativeClientAction,
+    args: unknown,
+    context: AgentNativeHostContext,
+    requestId: string | undefined,
+    event: MessageEvent,
+  ): Promise<void> {
+    if (!needsApproval(action)) return;
+    const manifest = toActionManifest(action);
+    const response = await runHostCommand(
+      "requestApproval",
+      {
+        action: manifest,
+        args,
+        context,
+        session,
+        approval: approvalConfig(action),
+      },
+      requestId,
+      event,
+    );
+    const approved =
+      response === true ||
+      (isRecord(response) &&
+        (response.approved === true || response.ok === true));
+    if (!approved)
+      throw new Error(`Client action "${action.name}" was not approved`);
+  }
+
+  async function handleAction(
+    message: IncomingHostMessage,
+    event: MessageEvent,
+  ) {
+    if (message.type !== AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION) return;
+    const name = typeof message.name === "string" ? message.name : "";
+    const requestId = message.requestId;
+    const args = "args" in message ? message.args : message.payload;
+    try {
+      if (!name) throw new Error("Missing client action name");
+      const action = await findClientAction(options.actions, name);
+      if (!action) {
+        throw new Error(`No client action registered for "${name}"`);
+      }
+      const context = attachSession(
+        await resolveHostContext(options.getContext),
+        session,
+      );
+      await assertActionApproved(action, args, context, requestId, event);
+      emit({ type: "action", name, requestId, origin: event.origin });
+      const result = await action.run(args, {
+        requestId,
+        origin: event.origin,
+        context,
+        session,
+        event,
+        refresh: (payload) =>
+          runHostCommand("refreshData", payload, requestId, event),
+        command: (command, payload) =>
+          runHostCommand(command, payload, requestId, event),
+      });
+      post({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTION_RESULT,
+        ok: true,
+        requestId,
+        result: serializeForMessage(result, "Client action result"),
+      });
+    } catch (error) {
+      const err = messageError(error);
+      emit({ type: "error", requestId, error: err, origin: event.origin });
+      post({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTION_RESULT,
+        ok: false,
+        requestId,
+        error: err.message,
+      });
+    }
+  }
+
   async function handleCommand(
     message: IncomingHostMessage,
     event: MessageEvent,
@@ -442,19 +888,11 @@ export function createAgentNativeHostBridge(
     const requestId = message.requestId;
     try {
       if (!command) throw new Error("Missing host command");
-      const handler =
-        options.commands?.[command] ?? defaultAgentNativeHostCommands[command];
-      if (!handler) {
-        throw new Error(`No host command handler registered for "${command}"`);
-      }
       emit({ type: "command", command, requestId, origin: event.origin });
-      const result = await handler(
-        {
-          command,
-          payload: message.payload,
-          requestId,
-          origin: event.origin,
-        },
+      const result = await runHostCommand(
+        command,
+        message.payload,
+        requestId,
         event,
       );
       post({
@@ -492,6 +930,10 @@ export function createAgentNativeHostBridge(
       void sendInit(message.requestId);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT) {
       void sendContext(message.requestId);
+    } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_ACTIONS) {
+      void sendActions(message.requestId);
+    } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION) {
+      void handleAction(message, event);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND) {
       void handleCommand(message, event);
     } else {
@@ -519,6 +961,7 @@ export function createAgentNativeHostBridge(
     sendContext,
     refreshContext: sendContext,
     sendAuth,
+    sendActions,
   };
 
   return bridge;
@@ -597,9 +1040,9 @@ function requestFromHost<TValue>(
       if (event.data.requestId !== id) return;
 
       const response = pick(event.data);
-      if (response.ok) {
+      if (response.ok === true) {
         finish(() => resolve(response.value));
-      } else if ("error" in response) {
+      } else {
         const error = response.error;
         finish(() => reject(error));
       }
@@ -654,6 +1097,63 @@ export function requestAgentNativeHostContext(
   );
 }
 
+export function requestAgentNativeHostActions(
+  options: AgentNativeHostRequestOptions = {},
+): Promise<AgentNativeActionManifestEntry[]> {
+  return requestFromHost(
+    { type: AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_ACTIONS },
+    AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTIONS,
+    (message) => {
+      if (message.ok === false) {
+        return {
+          ok: false,
+          error: new Error(
+            typeof message.error === "string"
+              ? message.error
+              : "Host actions request failed",
+          ),
+        };
+      }
+      return {
+        ok: true,
+        value: Array.isArray(message.actions)
+          ? (message.actions as AgentNativeActionManifestEntry[])
+          : [],
+      };
+    },
+    options,
+  );
+}
+
+export function runAgentNativeHostAction<TArgs = unknown, TResult = unknown>(
+  name: string,
+  args?: TArgs,
+  options: AgentNativeHostRequestOptions = {},
+): Promise<TResult> {
+  return requestFromHost(
+    {
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION,
+      name,
+      args,
+    },
+    AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTION_RESULT,
+    (message) => {
+      if (message.ok === false) {
+        return {
+          ok: false,
+          error: new Error(
+            typeof message.error === "string"
+              ? message.error
+              : "Host action failed",
+          ),
+        };
+      }
+      return { ok: true, value: message.result as TResult };
+    },
+    options,
+  );
+}
+
 export function sendAgentNativeHostCommand<
   TPayload = unknown,
   TResult = unknown,
@@ -690,8 +1190,11 @@ export interface AgentNativeHostInit {
   version?: string;
   context?: AgentNativeHostContext;
   auth?: AgentNativeHostAuthPayload;
+  actions?: AgentNativeActionManifestEntry[];
+  session?: AgentNativeHostSession;
   contextError?: string;
   authError?: string;
+  actionsError?: string;
 }
 
 export function onAgentNativeHostInit(
@@ -720,6 +1223,12 @@ export function onAgentNativeHostInit(
       auth: isRecord(event.data.auth)
         ? (event.data.auth as AgentNativeHostAuthPayload)
         : undefined,
+      actions: Array.isArray(event.data.actions)
+        ? (event.data.actions as AgentNativeActionManifestEntry[])
+        : undefined,
+      session: isRecord(event.data.session)
+        ? (event.data.session as AgentNativeHostSession)
+        : undefined,
       contextError:
         typeof event.data.contextError === "string"
           ? event.data.contextError
@@ -727,6 +1236,10 @@ export function onAgentNativeHostInit(
       authError:
         typeof event.data.authError === "string"
           ? event.data.authError
+          : undefined,
+      actionsError:
+        typeof event.data.actionsError === "string"
+          ? event.data.actionsError
           : undefined,
     });
   }

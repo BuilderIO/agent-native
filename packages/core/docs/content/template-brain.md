@@ -108,6 +108,32 @@ explicitly wants a tiny sample sync; the pilot caps the read to two validated
 channels, one page per channel, ten messages per page, ten permalinks,
 `autoSync: false`, and a recent default history window.
 
+After a sample sync succeeds, list the imported inventory before opening raw
+message bodies:
+
+```bash
+pnpm --filter brain action list-captures \
+  --sourceId <source-id> \
+  --status queued
+```
+
+The listing omits raw capture content by default and includes each capture's
+latest distillation queue state. Use `get-capture` for one specific record when
+a reviewer or agent needs exact source context, then write only durable, cited
+knowledge. Keep `autoSync` disabled until the channel allow-list, review gate,
+and first distilled entries are validated.
+
+The Sources UI has the same flow: open **Captures** on a source card to review
+queued records, opt into short previews only when needed, queue distillation,
+see whether a capture is waiting on the distillation worker, or mark non-company
+material ignored.
+
+When a Brain tab is open, queued distillation requests are delegated to the app
+agent in the background. Re-running `enqueue-distillation` for an active queue
+item refreshes that handoff instead of duplicating queue rows. The agent reads
+the capture, writes cited knowledge or review proposals, then calls
+`mark-capture-distilled`, which marks the active queue row done.
+
 ## Granola Polling
 
 Brain uses the scoped `GRANOLA_API_KEY` credential and polls Granola's public API

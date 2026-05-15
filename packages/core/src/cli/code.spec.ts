@@ -19,8 +19,10 @@ import {
 } from "./code.js";
 
 const tmpRoots: string[] = [];
+const originalCwd = process.cwd();
 
 afterEach(() => {
+  process.chdir(originalCwd);
   delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
   delete process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE;
   vi.restoreAllMocks();
@@ -96,6 +98,25 @@ describe("resolveCodeCommand", () => {
     });
   });
 
+  it("routes project slash commands from .agents/commands", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-code-command-"));
+    tmpRoots.push(root);
+    fs.mkdirSync(path.join(root, ".agents", "commands"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "commands", "review-diff.md"),
+      "Review the current diff.",
+    );
+    process.chdir(root);
+
+    expect(resolveCodeCommand(["/review-diff", "--cached"])).toEqual({
+      kind: "run-project-command",
+      commandName: "review-diff",
+      forwardedArgs: ["--cached"],
+    });
+  });
+
   it("accepts bare goal aliases", () => {
     expect(resolveCodeCommand(["migration", "--describe", "old app"])).toEqual({
       kind: "run-goal",
@@ -109,6 +130,11 @@ describe("resolveCodeCommand", () => {
       kind: "control",
       subcommand: "resume",
       args: ["resume", "--last"],
+    });
+    expect(resolveCodeCommand(["approve", "--last"])).toEqual({
+      kind: "control",
+      subcommand: "approve",
+      args: ["approve", "--last"],
     });
   });
 
@@ -147,6 +173,36 @@ describe("resolveCodeCommand", () => {
       kind: "record-follow-up",
       prompt: "--fix-it",
     });
+    expect(
+      resolveCodeCommand([
+        "resume",
+        "task-20260515t120000z-deadbeef",
+        "please continue",
+      ]),
+    ).toEqual({
+      kind: "record-follow-up",
+      runId: "task-20260515t120000z-deadbeef",
+      prompt: "please continue",
+    });
+  });
+
+  it("lets built-in slash goals win over project command files", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-code-shadow-"));
+    tmpRoots.push(root);
+    fs.mkdirSync(path.join(root, ".agents", "commands"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "commands", "task.md"),
+      "Shadow the task command.",
+    );
+    process.chdir(root);
+
+    expect(resolveCodeCommand(["/task", "fix", "the", "tests"])).toEqual({
+      kind: "run-goal",
+      goalId: "task",
+      forwardedArgs: ["fix", "the", "tests"],
+    });
   });
 
   it("treats freeform input as a generic task", () => {
@@ -169,6 +225,40 @@ describe("codeUsage", () => {
     expect(codeUsage()).toContain("agent-native code /migrate <source>");
     expect(codeUsage()).toContain("agent-native code attach --last");
     expect(codeUsage()).toContain("/migrate");
+  });
+
+  it("lists visible project slash commands without reserved names", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-code-help-"));
+    tmpRoots.push(root);
+    fs.mkdirSync(path.join(root, ".agents", "commands"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "commands", "release-check.md"),
+      [
+        "---",
+        'description: "Run release checks"',
+        "argument-hint: <version>",
+        "---",
+        "Check release $ARGUMENTS.",
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(root, ".agents", "commands", "migrate.md"),
+      ["---", 'description: "Shadow migrate"', "---", "Do not show this."].join(
+        "\n",
+      ),
+    );
+    process.chdir(root);
+    const output = createStringOutput();
+
+    await runCode(["goals"], { output: output.stream });
+
+    const text = output.read();
+    expect(text).toContain("Project commands:");
+    expect(text).toContain("/release-check <version>");
+    expect(text).toContain("Run release checks");
+    expect(text).not.toContain("Shadow migrate");
   });
 });
 
@@ -250,6 +340,8 @@ describe("handleCodeShellLine", () => {
 
     expect(calls).toEqual([]);
     expect(output.read()).toContain(`Code Agents logs: ${run.id}`);
+    expect(output.read()).toContain("Existing task");
+    expect(output.read()).toContain("Events: 0");
   });
 
   it("answers shell-only slash commands without running a goal", async () => {
@@ -369,6 +461,69 @@ describe("generic task sessions", () => {
     expect(output.read()).toContain("Task complete.");
   });
 
+  it("stores permission mode on generic task sessions", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Read-only pass.";
+    const output = createStringOutput();
+
+    await runCode(["--permission-mode", "read-only", "explain", "repo"], {
+      output: output.stream,
+    });
+
+    const runs = listCodeAgentRunRecords("task");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      permissionMode: "read-only",
+      metadata: {
+        prompt: "explain repo",
+        permissionMode: "read-only",
+      },
+    });
+    expect(output.read()).toContain("Mode:   read-only");
+  });
+
+  it("runs project slash commands as generic task sessions", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-code-project-"));
+    tmpRoots.push(root);
+    process.chdir(root);
+    fs.mkdirSync(path.join(root, ".agents", "commands"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "commands", "review-diff.md"),
+      [
+        "---",
+        'description: "Review repository changes"',
+        "argument-hint: [--cached]",
+        "---",
+        "Review the diff for $ARGUMENTS.",
+      ].join("\n"),
+    );
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Project command done.";
+    const output = createStringOutput();
+
+    await runCode(["/review-diff", "--read-only", "--cached"], {
+      output: output.stream,
+    });
+
+    const runs = listCodeAgentRunRecords("task");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      subtitle: "Project command /review-diff",
+      permissionMode: "read-only",
+      metadata: {
+        commandName: "review-diff",
+        source: "agent-native code project-command",
+        permissionMode: "read-only",
+      },
+    });
+    expect(listCodeAgentTranscriptEvents(runs[0].id)[0]?.message).toContain(
+      "Review the diff for --cached.",
+    );
+    expect(output.read()).toContain("Project command done.");
+  });
+
   it("runs direct CLI follow-up prompts on the last run", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Follow-up done.";
@@ -390,6 +545,31 @@ describe("generic task sessions", () => {
       message: "please continue",
     });
     expect(events.map((event) => event.kind)).toContain("system");
+  });
+
+  it("runs direct CLI follow-up prompts on an explicit run", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Explicit done.";
+    const selectedRun = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Selected task",
+    });
+    const latestRun = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Latest task",
+    });
+    const output = createStringOutput();
+
+    await runCode(["resume", selectedRun.id, "continue selected"], {
+      output: output.stream,
+    });
+
+    expect(output.read()).toContain("Explicit done.");
+    expect(listCodeAgentTranscriptEvents(selectedRun.id)[0]).toMatchObject({
+      kind: "user",
+      message: "continue selected",
+    });
+    expect(listCodeAgentTranscriptEvents(latestRun.id)).toEqual([]);
   });
 
   it("shows generic Code Agents status for the last run", async () => {
@@ -431,6 +611,91 @@ describe("generic task sessions", () => {
       phase: "complete",
       progress: { completed: 1, total: 1, percent: 100 },
     });
+  });
+
+  it("approves a pending command and points back to resume", async () => {
+    const root = useTempCodeAgentsHome();
+    const cwd = path.join(root, "workspace");
+    fs.mkdirSync(cwd, { recursive: true });
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Approval task",
+      status: "needs-approval",
+      phase: "approval-required",
+      needsApproval: true,
+      cwd,
+      permissionMode: "ask-before-edit",
+      metadata: {
+        pendingApproval: {
+          id: "approval-test",
+          tool: "run_command",
+          command:
+            "node -e \"require('fs').writeFileSync('approved.txt', 'ok')\"",
+          reason: "destructive recursive delete",
+          requestedAt: new Date().toISOString(),
+          permissionMode: "ask-before-edit",
+        },
+      },
+    });
+    const output = createStringOutput();
+
+    await runCode(["approve", "--last"], { output: output.stream });
+
+    const [updated] = listCodeAgentRunRecords("task");
+    expect(fs.readFileSync(path.join(cwd, "approved.txt"), "utf-8")).toBe("ok");
+    expect(updated).toMatchObject({
+      id: run.id,
+      status: "paused",
+      phase: "approval-complete",
+      needsApproval: false,
+    });
+    expect(output.read()).toContain("Code Agents approve");
+    expect(output.read()).toContain(
+      "Approved command finished with exit code 0",
+    );
+    expect(output.read()).toContain(`agent-native code run ${run.id}`);
+  });
+
+  it("lists sessions with inspect commands", async () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Existing task",
+      permissionMode: "auto-edit",
+    });
+    const output = createStringOutput();
+
+    await runCode(["list"], { output: output.stream });
+
+    const text = output.read();
+    expect(text).toContain("Code Agents sessions");
+    expect(text).toContain(run.id);
+    expect(text).toContain("auto-edit");
+    expect(text).toContain("agent-native code status <runId>");
+    expect(text).toContain(
+      'agent-native code resume <runId> "follow-up prompt"',
+    );
+  });
+
+  it("shows resume commands for an explicit session", async () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Existing task",
+      permissionMode: "read-only",
+    });
+    const output = createStringOutput();
+
+    await runCode(["resume", run.id], { output: output.stream });
+
+    const text = output.read();
+    expect(text).toContain("Code Agents resume");
+    expect(text).toContain("Title:   Existing task");
+    expect(text).toContain("Mode:    read-only");
+    expect(text).toContain(`agent-native code run ${run.id}`);
+    expect(text).toContain(
+      `agent-native code resume ${run.id} "next instruction"`,
+    );
   });
 });
 

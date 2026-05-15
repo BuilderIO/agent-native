@@ -1,22 +1,29 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
+  IconArchive,
   IconBrandGithub,
   IconBrandSlack,
   IconDatabaseImport,
+  IconExternalLink,
+  IconFileSearch,
   IconFileText,
   IconHistory,
+  IconLoader2,
   IconNotes,
   IconPlayerPlay,
   IconRefresh,
+  IconSend,
   IconSettings2,
   IconShieldCheck,
   IconVideo,
   IconWebhook,
 } from "@tabler/icons-react";
 import {
+  type BrainCaptureReviewStatus,
+  type CapturesResponse,
   type BrainSource,
   type SlackPilotReport,
   type SourcesResponse,
@@ -62,6 +69,7 @@ import {
 } from "@/components/brain/Surface";
 
 type Provider = "manual" | "generic" | "clips" | "slack" | "granola" | "github";
+type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
 
 interface SourceFormState {
   title: string;
@@ -291,6 +299,53 @@ function metricValue(value: unknown) {
   return "0";
 }
 
+const captureStatusOptions: CaptureStatusFilter[] = [
+  "queued",
+  "distilling",
+  "distilled",
+  "ignored",
+  "all",
+];
+
+function captureStatusLabel(status: CaptureStatusFilter) {
+  switch (status) {
+    case "queued":
+      return "Queued";
+    case "distilling":
+      return "Distilling";
+    case "distilled":
+      return "Distilled";
+    case "ignored":
+      return "Ignored";
+    case "all":
+    default:
+      return "All captures";
+  }
+}
+
+function queueStatusLabel(status: string) {
+  switch (status) {
+    case "processing":
+      return "Processing";
+    case "done":
+      return "Done";
+    case "failed":
+      return "Failed";
+    case "queued":
+    default:
+      return "Queued";
+  }
+}
+
+function queueActionLabel(
+  queue: NonNullable<CapturesResponse["captures"]>[number]["distillationQueue"],
+) {
+  if (!queue) return "Queue distill";
+  if (queue.status === "failed") return "Retry distill";
+  if (queue.status === "done") return "Distilled";
+  return "Queued";
+}
+
 function SlackPilotReportCard({ report }: { report: SlackPilotReport }) {
   const visibleChannels = report.channelValidation.channels.slice(0, 3);
   const stats = report.sync?.stats ?? {};
@@ -407,6 +462,10 @@ export default function SourcesRoute() {
   const type = params.get("type") ?? "all";
   const [setupOpen, setSetupOpen] = useState(false);
   const [editingSource, setEditingSource] = useState<BrainSource | null>(null);
+  const [reviewSource, setReviewSource] = useState<BrainSource | null>(null);
+  const [captureStatus, setCaptureStatus] =
+    useState<CaptureStatusFilter>("queued");
+  const [showCapturePreview, setShowCapturePreview] = useState(false);
   const [form, setForm] = useState<SourceFormState>(() => defaultForm("slack"));
   const [slackPilotReport, setSlackPilotReport] =
     useState<SlackPilotReport | null>(null);
@@ -447,8 +506,27 @@ export default function SourcesRoute() {
     SlackPilotReport,
     { sourceId: string; readHistory: boolean; resolveNames: boolean }
   >("run-slack-pilot" as any);
+  const capturesQuery = useActionQuery<CapturesResponse>(
+    "list-captures" as any,
+    {
+      sourceId: reviewSource?.id,
+      status: captureStatus === "all" ? undefined : captureStatus,
+      includePreview: showCapturePreview,
+      limit: 25,
+    } as any,
+    { enabled: Boolean(reviewSource?.id), retry: false },
+  );
+  const enqueueDistillation = useActionMutation<
+    unknown,
+    { captureId: string; priority?: number }
+  >("enqueue-distillation" as any);
+  const markCaptureDistilled = useActionMutation<
+    unknown,
+    { captureId: string; status: "ignored" }
+  >("mark-capture-distilled" as any);
 
   const sources = sourcesQuery.data?.sources ?? [];
+  const selectedSourceId = params.get("sourceId");
   const sourceTypes = useMemo(
     () => [
       "all",
@@ -464,6 +542,15 @@ export default function SourcesRoute() {
   const visibleSources = sources.filter((source) =>
     type === "all" ? true : sourceType(source) === type,
   );
+
+  useEffect(() => {
+    if (!selectedSourceId) {
+      setReviewSource(null);
+      return;
+    }
+    const selected = sources.find((source) => source.id === selectedSourceId);
+    if (selected) setReviewSource(selected);
+  }, [selectedSourceId, sources]);
 
   function updateType(value: string) {
     const next = new URLSearchParams(params);
@@ -492,6 +579,21 @@ export default function SourcesRoute() {
     setEditingSource(source);
     setForm(formFromSource(source));
     setSetupOpen(true);
+  }
+
+  function openCaptureReview(source: BrainSource) {
+    setCaptureStatus("queued");
+    setShowCapturePreview(false);
+    const next = new URLSearchParams(params);
+    next.set("sourceId", source.id);
+    setParams(next, { replace: true });
+  }
+
+  function closeCaptureReview() {
+    const next = new URLSearchParams(params);
+    next.delete("sourceId");
+    setParams(next, { replace: true });
+    setReviewSource(null);
   }
 
   function updateForm(patch: Partial<SourceFormState>) {
@@ -728,6 +830,14 @@ export default function SourcesRoute() {
                       <Button
                         size="sm"
                         variant="outline"
+                        onClick={() => openCaptureReview(source)}
+                      >
+                        <IconFileSearch className="size-4" />
+                        Captures
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
                         disabled={syncSource.isPending}
                         onClick={() =>
                           syncSource.mutate({ sourceId: source.id })
@@ -796,6 +906,210 @@ export default function SourcesRoute() {
           </div>
         ) : null}
       </div>
+
+      <Sheet
+        open={Boolean(reviewSource)}
+        onOpenChange={(open) => {
+          if (!open) closeCaptureReview();
+        }}
+      >
+        <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+          <SheetHeader>
+            <SheetTitle>Review raw captures</SheetTitle>
+            <SheetDescription>
+              {reviewSource
+                ? `${sourceName(reviewSource)} inventory. Raw bodies stay hidden unless previews are enabled.`
+                : "Review imported raw material before distillation."}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="mt-6 grid gap-4">
+            <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+              <div className="grid gap-2 sm:max-w-56">
+                <Label htmlFor="capture-status-filter">Status</Label>
+                <Select
+                  value={captureStatus}
+                  onValueChange={(value) =>
+                    setCaptureStatus(value as CaptureStatusFilter)
+                  }
+                >
+                  <SelectTrigger id="capture-status-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {captureStatusOptions.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {captureStatusLabel(status)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span>
+                  Previews
+                  <span className="block text-xs text-muted-foreground">
+                    Show short snippets for intentional review
+                  </span>
+                </span>
+                <Switch
+                  checked={showCapturePreview}
+                  onCheckedChange={setShowCapturePreview}
+                />
+              </label>
+            </div>
+
+            {capturesQuery.isLoading ? (
+              <LoadingRows rows={3} />
+            ) : capturesQuery.isError ? (
+              <EmptyActionState
+                title="Capture inventory failed"
+                detail="Check source access and try again."
+              />
+            ) : (capturesQuery.data?.captures ?? []).length ? (
+              <div className="grid gap-3">
+                {(capturesQuery.data?.captures ?? []).map((capture) => {
+                  const queue = capture.distillationQueue;
+                  const queueIsActive =
+                    queue?.status === "queued" ||
+                    queue?.status === "processing";
+                  const terminal =
+                    capture.status === "distilled" ||
+                    capture.status === "ignored";
+                  const canQueue =
+                    !terminal && (!queue || queue.status === "failed");
+                  const isMutating =
+                    enqueueDistillation.isPending ||
+                    markCaptureDistilled.isPending;
+                  return (
+                    <div
+                      key={capture.id}
+                      className="grid gap-3 rounded-md border border-border bg-card p-4"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="secondary">{capture.kind}</Badge>
+                            <StatusBadge status={capture.status} />
+                            <span className="text-xs text-muted-foreground">
+                              {shortDate(capture.capturedAt) ??
+                                capture.capturedAt}
+                            </span>
+                          </div>
+                          <p className="mt-2 truncate text-sm font-medium">
+                            {capture.title}
+                          </p>
+                          {capture.preview ? (
+                            <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">
+                              {capture.preview}
+                            </p>
+                          ) : (
+                            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                              Raw content hidden. Enable previews or open the
+                              source when review requires context.
+                            </p>
+                          )}
+                          {queue ? (
+                            <div className="mt-3 rounded-md border border-border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge
+                                  variant={
+                                    queue.status === "failed"
+                                      ? "destructive"
+                                      : "outline"
+                                  }
+                                >
+                                  Distillation {queueStatusLabel(queue.status)}
+                                </Badge>
+                                {queue.attempts ? (
+                                  <span>
+                                    {queue.attempts}{" "}
+                                    {queue.attempts === 1
+                                      ? "attempt"
+                                      : "attempts"}
+                                  </span>
+                                ) : null}
+                                {queue.runAfter ? (
+                                  <span>
+                                    Next check{" "}
+                                    {shortDate(queue.runAfter) ??
+                                      queue.runAfter}
+                                  </span>
+                                ) : null}
+                              </div>
+                              {queue.error ? (
+                                <p className="mt-2">{queue.error}</p>
+                              ) : queueIsActive ? (
+                                <p className="mt-2">
+                                  Waiting for the Brain distillation worker to
+                                  write knowledge or send this capture to
+                                  review.
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {capture.sourceUrl ? (
+                          <Button asChild size="sm" variant="outline">
+                            <a
+                              href={capture.sourceUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <IconExternalLink className="size-4" />
+                              Source
+                            </a>
+                          </Button>
+                        ) : null}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!canQueue || isMutating}
+                          onClick={() =>
+                            enqueueDistillation.mutate({
+                              captureId: capture.id,
+                              priority: 60,
+                            })
+                          }
+                        >
+                          {enqueueDistillation.isPending ? (
+                            <IconLoader2 className="size-4 animate-spin" />
+                          ) : (
+                            <IconSend className="size-4" />
+                          )}
+                          {queueActionLabel(queue)}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={!canQueue || isMutating}
+                          onClick={() =>
+                            markCaptureDistilled.mutate({
+                              captureId: capture.id,
+                              status: "ignored",
+                            })
+                          }
+                        >
+                          <IconArchive className="size-4" />
+                          Ignore
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <EmptyActionState
+                title="No captures match this view"
+                detail="Try another status, run a source sync, or import a transcript."
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Sheet open={setupOpen} onOpenChange={setSetupOpen}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-xl">

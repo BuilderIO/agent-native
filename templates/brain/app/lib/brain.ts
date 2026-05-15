@@ -173,6 +173,51 @@ export interface SourcesResponse {
   sources?: BrainSource[];
 }
 
+export type BrainCaptureReviewStatus =
+  | "queued"
+  | "distilling"
+  | "distilled"
+  | "ignored";
+
+export interface BrainDistillationQueue {
+  id: string;
+  sourceId?: string | null;
+  captureId?: string | null;
+  status: "queued" | "processing" | "done" | "failed";
+  priority?: number;
+  attempts?: number;
+  error?: string | null;
+  runAfter?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface BrainCaptureReviewItem {
+  id: string;
+  sourceId: string;
+  source?: {
+    id: string;
+    title: string;
+    provider: string;
+    status: string;
+  };
+  externalId?: string | null;
+  title: string;
+  kind: string;
+  status: BrainCaptureReviewStatus;
+  capturedAt: string;
+  sourceUrl?: string | null;
+  distillationQueue?: BrainDistillationQueue | null;
+  preview?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface CapturesResponse {
+  count?: number;
+  captures?: BrainCaptureReviewItem[];
+}
+
 export interface SlackConnectionResponse {
   ok: boolean;
   sourceId?: string | null;

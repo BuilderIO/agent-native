@@ -1,19 +1,28 @@
 import { createInterface } from "node:readline";
 
 import {
+  CODE_AGENT_PERMISSION_MODES,
   appendCodeAgentTranscriptEvent,
   createCodeAgentRunRecord,
   getCodeAgentRunRecord,
   getLastCodeAgentRunRecord,
   listCodeAgentRunRecords,
   listCodeAgentTranscriptEvents,
+  normalizeCodeAgentPermissionMode,
   updateCodeAgentRunRecord,
+  type CodeAgentPermissionMode,
   type CodeAgentRunRecord,
   type CodeAgentTranscriptEvent,
 } from "./code-agent-runs.js";
 import {
+  findProjectSlashCommand,
+  listProjectSlashCommands,
+  renderProjectSlashCommandPrompt,
+} from "./code-agent-commands.js";
+import {
   executeCodeAgentRun,
   executeExistingCodeAgentRun,
+  executePendingCodeAgentApproval,
 } from "./code-agent-executor.js";
 import { runAuditAgentWeb } from "./audit-agent-web.js";
 import { runMigrate } from "./migrate.js";
@@ -34,7 +43,17 @@ export type CodeCliCommand =
   | { kind: "list-goals" }
   | { kind: "execute-existing-run"; runId: string }
   | { kind: "control"; subcommand: CodeAgentControlSubcommand; args: string[] }
-  | { kind: "record-follow-up"; prompt: string }
+  | {
+      kind: "record-follow-up";
+      prompt: string;
+      runId?: string;
+      permissionMode?: CodeAgentPermissionMode;
+    }
+  | {
+      kind: "run-project-command";
+      commandName: string;
+      forwardedArgs: string[];
+    }
   | {
       kind: "run-goal";
       goalId: CodeAgentGoalId;
@@ -68,6 +87,7 @@ export const CODE_AGENT_CLI_GOALS: CodeAgentCliGoal[] = [
 ];
 
 type CodeAgentControlSubcommand =
+  | "approve"
   | "attach"
   | "list"
   | "logs"
@@ -78,6 +98,7 @@ type CodeAgentControlSubcommand =
   | "ui";
 
 const CODE_AGENT_CONTROL_SUBCOMMANDS = new Set<CodeAgentControlSubcommand>([
+  "approve",
   "attach",
   "list",
   "logs",
@@ -102,6 +123,22 @@ type CodeGoalRunner = (
 ) => Promise<void>;
 
 type CodeShellLineResult = "continue" | "exit";
+
+interface ParsedTaskArgs {
+  prompt: string;
+  promptArgs: string[];
+  permissionMode: CodeAgentPermissionMode;
+  permissionModeExplicit?: boolean;
+  error?: string;
+}
+
+interface RunTaskOptions {
+  subtitle?: string;
+  source?: string;
+  commandName?: string;
+  commandPath?: string;
+  permissionMode?: CodeAgentPermissionMode;
+}
 
 export function resolveCodeCommand(argv: string[]): CodeCliCommand {
   const [rawFirst, ...rest] = argv;
@@ -135,9 +172,15 @@ export function resolveCodeCommand(argv: string[]): CodeCliCommand {
   }
 
   if (first === "--continue" || first === "-c") {
-    const prompt = rest.join(" ").trim();
-    return prompt
-      ? { kind: "record-follow-up", prompt }
+    const parsed = parseTaskArgs(rest);
+    return parsed.prompt
+      ? {
+          kind: "record-follow-up",
+          prompt: parsed.prompt,
+          ...(parsed.permissionModeExplicit
+            ? { permissionMode: parsed.permissionMode }
+            : {}),
+        }
       : {
           kind: "control",
           subcommand: "resume",
@@ -157,9 +200,16 @@ export function resolveCodeCommand(argv: string[]): CodeCliCommand {
     return { kind: "execute-existing-run", runId: rest[0] };
   }
 
-  const followUpPrompt = parseResumeFollowUpPrompt([rawFirst, ...rest]);
-  if (followUpPrompt) {
-    return { kind: "record-follow-up", prompt: followUpPrompt };
+  const followUp = parseResumeFollowUpPrompt([rawFirst, ...rest]);
+  if (followUp) {
+    return {
+      kind: "record-follow-up",
+      prompt: followUp.prompt,
+      runId: followUp.runId,
+      ...(followUp.permissionMode
+        ? { permissionMode: followUp.permissionMode }
+        : {}),
+    };
   }
 
   const goal = findGoal(first);
@@ -169,6 +219,17 @@ export function resolveCodeCommand(argv: string[]): CodeCliCommand {
       goalId: goal.id,
       forwardedArgs: rest,
     };
+  }
+
+  if (rawFirst.startsWith("/")) {
+    const projectCommand = findProjectSlashCommand(first);
+    if (projectCommand) {
+      return {
+        kind: "run-project-command",
+        commandName: projectCommand.name,
+        forwardedArgs: rest,
+      };
+    }
   }
 
   if (isCodeAgentControlSubcommand(first)) {
@@ -220,7 +281,21 @@ export async function runCode(
   }
 
   if (command.kind === "record-follow-up") {
-    await recordCodeAgentFollowUpPrompt(command.prompt, output);
+    await recordCodeAgentFollowUpPrompt(
+      command.prompt,
+      output,
+      command.permissionMode,
+      command.runId,
+    );
+    return;
+  }
+
+  if (command.kind === "run-project-command") {
+    await runProjectSlashCommand(
+      command.commandName,
+      command.forwardedArgs,
+      output,
+    );
     return;
   }
 
@@ -275,9 +350,14 @@ export async function handleCodeShellLine(
     return "continue";
   }
 
-  const followUpPrompt = parseResumeFollowUpPrompt(parsed.args);
-  if (followUpPrompt) {
-    await recordCodeAgentFollowUpPrompt(followUpPrompt, options.output);
+  const followUp = parseResumeFollowUpPrompt(parsed.args);
+  if (followUp) {
+    await recordCodeAgentFollowUpPrompt(
+      followUp.prompt,
+      options.output,
+      followUp.permissionMode,
+      followUp.runId,
+    );
     return "continue";
   }
 
@@ -304,6 +384,12 @@ export async function handleCodeShellLine(
       return "continue";
     }
 
+    const projectCommand = findProjectSlashCommand(first);
+    if (projectCommand) {
+      await runProjectSlashCommand(projectCommand.name, rest, options.output);
+      return "continue";
+    }
+
     writeLine(
       options.output,
       `Unknown slash command: ${rawFirst}\nTry /help to see available commands.`,
@@ -323,9 +409,15 @@ export async function handleCodeShellLine(
   }
 
   if (first === "--continue" || first === "-c") {
-    const prompt = rest.join(" ").trim();
-    if (prompt) {
-      await recordCodeAgentFollowUpPrompt(prompt, options.output);
+    const parsedTask = parseTaskArgs(rest);
+    if (parsedTask.prompt) {
+      await recordCodeAgentFollowUpPrompt(
+        parsedTask.prompt,
+        options.output,
+        parsedTask.permissionModeExplicit
+          ? parsedTask.permissionMode
+          : undefined,
+      );
     } else {
       await runCodeAgentControl("resume", ["resume", "--last"], options.output);
     }
@@ -361,12 +453,15 @@ Usage:
   agent-native code "fix the failing auth tests"
   agent-native code exec "fix the failing auth tests"
   agent-native code -p "fix the failing auth tests"
+  agent-native code --permission-mode read-only "explain this repo"
   agent-native code /task "fix the failing auth tests"
+  agent-native code /review-diff
   agent-native code /audit --url https://example.com
   agent-native code /migrate <source> [--out ../migrated-app]
   agent-native code /migrate --describe "what to build or migrate"
   agent-native code attach --last
   agent-native code logs --last
+  agent-native code approve --last
   agent-native code list
   agent-native code resume --last "follow-up prompt"
   agent-native code --continue "follow-up prompt"
@@ -382,18 +477,25 @@ Interactive shell:
   /task ...    Run a generic coding task
   /migrate ... Run the migration goal
   /audit ...   Run the web audit goal
+  /<project>   Run .agents/commands/<project>.md
   /exit        Leave the shell
 
 Session commands:
   list         List recent sessions
   attach ...   Attach to a run transcript, following active work
   logs ...     Print a run transcript once
+  approve ...  Run one pending approved command, then resume the session
   resume ...   Continue the latest or selected run
   status ...   Show run status
   stop ...     Stop a tracked Desktop/CLI runner
 
+Permission modes:
+  --permission-mode read-only|ask-before-edit|auto-edit|full-auto
+  --read-only, --ask-before-edit, --auto-edit, --full-auto
+
 Available goals:
 ${renderGoalRows()}
+${renderProjectCommandRows()}
 
 The existing shortcut still works:
   agent-native migrate <source> [options]`;
@@ -411,6 +513,7 @@ export function codeShellHelp(): string {
   /task ...    Run a generic coding task
   /migrate ... Move a source into agent-native
   /audit ...   Audit a public URL for agent-readable surfaces
+  /<project>   Run a project command from .agents/commands/*.md
   /exit        Leave the shell
   /quit        Leave the shell
 
@@ -421,6 +524,7 @@ Compatibility shortcuts:
   ps
   attach --last
   logs --last
+  approve --last
   resume --last "follow-up prompt"
   --continue "follow-up prompt"
   resume --last
@@ -504,13 +608,46 @@ export function parseCodeShellArgs(
 
 function renderGoalList(): string {
   return `Available Code Agents goals:
-${renderGoalRows()}`;
+${renderGoalRows()}
+${renderProjectCommandRows()}`;
 }
 
 function renderGoalRows(): string {
   return CODE_AGENT_CLI_GOALS.map(
     (goal) => `  ${goal.slashCommand.padEnd(12)} ${goal.summary}`,
   ).join("\n");
+}
+
+function renderProjectCommandRows(): string {
+  const commands = listVisibleProjectSlashCommands();
+  if (commands.length === 0) return "";
+  return [
+    "",
+    "Project commands:",
+    ...commands.map((command) => {
+      const args = command.argumentHint ? ` ${command.argumentHint}` : "";
+      const description = command.description ?? "Project slash command.";
+      return `  /${command.name}${args}`.padEnd(24) + description;
+    }),
+  ].join("\n");
+}
+
+function listVisibleProjectSlashCommands() {
+  return listProjectSlashCommands().filter(
+    (command) => !isReservedSlashName(command.name),
+  );
+}
+
+function isReservedSlashName(name: string): boolean {
+  const normalized = normalizeGoalToken(name);
+  return (
+    Boolean(findGoal(normalized)) ||
+    isCodeAgentControlSubcommand(normalized) ||
+    normalized === "help" ||
+    normalized === "exit" ||
+    normalized === "quit" ||
+    normalized === "goals"
+  );
 }
 
 function normalizeGoalToken(value: string): string {
@@ -535,55 +672,205 @@ function isCodeAgentControlSubcommand(
   );
 }
 
-function parseResumeFollowUpPrompt(args: string[]): string | null {
+function parseResumeFollowUpPrompt(args: string[]): {
+  prompt: string;
+  runId?: string;
+  permissionMode?: CodeAgentPermissionMode;
+} | null {
   const [rawFirst, ...rest] = args;
   if (normalizeGoalToken(rawFirst ?? "") !== "resume") return null;
-  if (!rest.includes("--last")) return null;
-
-  const promptArgs = rest.filter((arg) => arg !== "--last");
-  const hasSeparator = promptArgs[0] === "--";
-  const normalizedPromptArgs = hasSeparator ? promptArgs.slice(1) : promptArgs;
+  const selector = parseResumeSelectorAndPrompt(rest);
+  if (!selector) return null;
   if (
-    !hasSeparator &&
-    !normalizedPromptArgs.some((arg) => !arg.startsWith("-"))
+    !selector.hasSeparator &&
+    !selector.promptArgs.some((arg) => !arg.startsWith("-"))
   ) {
     return null;
   }
 
-  const prompt = normalizedPromptArgs.join(" ").trim();
-  return prompt || null;
+  const parsed = parseTaskArgs(selector.promptArgs);
+  return parsed.prompt
+    ? {
+        prompt: parsed.prompt,
+        runId: selector.runId,
+        permissionMode: parsed.permissionModeExplicit
+          ? parsed.permissionMode
+          : undefined,
+      }
+    : null;
+}
+
+function parseResumeSelectorAndPrompt(
+  args: string[],
+): { runId?: string; promptArgs: string[]; hasSeparator: boolean } | null {
+  const lastIndex = args.indexOf("--last");
+  if (lastIndex !== -1) {
+    const promptArgs = args.filter((_, index) => index !== lastIndex);
+    const separatorIndex = promptArgs.indexOf("--");
+    return {
+      promptArgs:
+        separatorIndex === -1
+          ? promptArgs
+          : promptArgs.slice(separatorIndex + 1),
+      hasSeparator: separatorIndex !== -1,
+    };
+  }
+
+  const [maybeRunId, ...rest] = args;
+  if (
+    !maybeRunId ||
+    maybeRunId.startsWith("-") ||
+    !looksLikeRunId(maybeRunId)
+  ) {
+    return null;
+  }
+  const separatorIndex = rest.indexOf("--");
+  return {
+    runId: maybeRunId,
+    promptArgs: separatorIndex === -1 ? rest : rest.slice(separatorIndex + 1),
+    hasSeparator: separatorIndex !== -1,
+  };
+}
+
+function looksLikeRunId(value: string): boolean {
+  return /^[a-z][a-z0-9-]*-(?:\d{14}|\d{8}t\d{6}z)-[a-f0-9]{8}$/i.test(value);
 }
 
 async function runCodeAgentControl(
   subcommand: CodeAgentControlSubcommand,
   args: string[],
   output: NodeJS.WritableStream,
+  allowPicker = true,
 ): Promise<void> {
   const runs = listCodeAgentRunRecords();
+  const effectiveArgs = await maybePickRunArgs(
+    subcommand,
+    runs,
+    args,
+    output,
+    allowPicker,
+  );
+  if (!effectiveArgs) {
+    writeLine(output, "No Code Agents session selected.");
+    return;
+  }
   switch (subcommand) {
+    case "approve":
+      await approveCodeAgentRun(runs, effectiveArgs, output);
+      return;
     case "attach":
-      await attachCodeAgentRun(runs, args, output);
+      await attachCodeAgentRun(runs, effectiveArgs, output);
       return;
     case "logs":
-      writeLine(output, renderCodeAgentLogs(runs, args));
+      writeLine(output, renderCodeAgentLogs(runs, effectiveArgs));
       return;
     case "list":
     case "ps":
-      writeLine(output, renderCodeAgentStatus(runs, ["status"]));
+      writeLine(output, renderCodeAgentSessionList(runs));
       return;
     case "status":
-      writeLine(output, renderCodeAgentStatus(runs, args));
+      writeLine(output, renderCodeAgentStatus(runs, effectiveArgs));
       return;
     case "resume":
-      writeLine(output, renderCodeAgentResume(runs, args));
+      writeLine(output, renderCodeAgentResume(runs, effectiveArgs));
       return;
     case "ui":
-      writeLine(output, renderCodeAgentUi(runs, args));
+      writeLine(output, renderCodeAgentUi(runs, effectiveArgs));
       return;
     case "stop":
-      writeLine(output, stopCodeAgentRun(runs, args));
+      writeLine(output, stopCodeAgentRun(runs, effectiveArgs));
       return;
   }
+}
+
+async function maybePickRunArgs(
+  subcommand: CodeAgentControlSubcommand,
+  runs: CodeAgentRunRecord[],
+  args: string[],
+  output: NodeJS.WritableStream,
+  allowPicker: boolean,
+): Promise<string[] | null> {
+  if (
+    !allowPicker ||
+    !["approve", "attach", "logs", "resume"].includes(subcommand) ||
+    args.includes("--last") ||
+    hasExplicitRunId(args) ||
+    runs.length === 0 ||
+    !isInteractiveTerminal(process.stdin, output)
+  ) {
+    return args;
+  }
+
+  const selected = await promptForRunSelection(runs, output);
+  return selected ? [subcommand, selected.id] : null;
+}
+
+async function promptForRunSelection(
+  runs: CodeAgentRunRecord[],
+  output: NodeJS.WritableStream,
+): Promise<CodeAgentRunRecord | null> {
+  const choices = runs.slice(0, 10);
+  writeLine(output, "");
+  writeLine(output, "Select a Code Agents session:");
+  choices.forEach((run, index) => {
+    writeLine(output, `  ${index + 1}. ${run.id}`);
+    writeLine(
+      output,
+      `     /${run.goalId} ${run.status}${run.phase ? ` (${run.phase})` : ""}  updated ${run.updatedAt}`,
+    );
+    writeLine(output, `     ${truncateForDisplay(run.title, 90)}`);
+  });
+  writeLine(output, "");
+
+  const rl = createInterface({
+    input: process.stdin,
+    output,
+    terminal: true,
+  });
+  const answer = await new Promise<string>((resolve) => {
+    rl.question("Run number or id (blank cancels): ", resolve);
+  });
+  rl.close();
+
+  const trimmed = answer.trim();
+  if (!trimmed) {
+    writeLine(output, "No run selected.");
+    return null;
+  }
+  const index = Number(trimmed);
+  if (Number.isInteger(index) && index >= 1 && index <= choices.length) {
+    return choices[index - 1] ?? null;
+  }
+  const matchingRun =
+    choices.find((run) => run.id === trimmed) ??
+    choices.find((run) => run.id.startsWith(trimmed));
+  if (matchingRun) return matchingRun;
+
+  writeLine(output, "No matching run selected.");
+  return null;
+}
+
+function renderCodeAgentSessionList(runs: CodeAgentRunRecord[]): string {
+  return [
+    "",
+    "Code Agents sessions",
+    "",
+    runs.length === 0
+      ? "  No Code Agents sessions found."
+      : `  ${runs.length} session${runs.length === 1 ? "" : "s"} found. Most recent first.`,
+    ...runs.slice(0, 10).map(renderCodeAgentRunListItem),
+    runs.length > 10 ? `  - ${runs.length - 10} more...` : "",
+    "",
+    runs.length > 0 ? "Inspect a session:" : "",
+    runs.length > 0 ? "  agent-native code status <runId>" : "",
+    runs.length > 0 ? "  agent-native code logs <runId>" : "",
+    runs.length > 0 ? "  agent-native code resume <runId>" : "",
+    runs.length > 0
+      ? '  agent-native code resume <runId> "follow-up prompt"'
+      : 'Start one with: agent-native code "what to change"',
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function renderCodeAgentStatus(
@@ -632,26 +919,29 @@ function renderCodeAgentResume(
 
   const transcriptEvents = listCodeAgentTranscriptEvents(run.id);
   const latestEvent = transcriptEvents.at(-1);
+  const followUpTarget = args.includes("--last") ? "--last" : run.id;
   return [
     "",
     "Code Agents resume",
     "",
     `  Run:     ${run.id}`,
     `  Goal:    /${run.goalId}`,
+    `  Title:   ${run.title}`,
     `  Status:  ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
+    run.permissionMode ? `  Mode:    ${run.permissionMode}` : "",
     `  Updated: ${run.updatedAt}`,
     latestEvent
       ? `  Last:    ${truncateForDisplay(latestEvent.message, 140)}`
       : "",
     "",
-    "Continue in the shell:",
-    "  agent-native code",
+    "Resume execution:",
+    `  agent-native code run ${run.id}`,
     "",
     "Attach to the live transcript:",
     `  agent-native code attach ${run.id}`,
     "",
-    "Or append a follow-up directly:",
-    '  agent-native code resume --last "next instruction"',
+    "Append and run a follow-up:",
+    `  agent-native code resume ${followUpTarget} "next instruction"`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -744,6 +1034,53 @@ function stopCodeAgentRun(runs: CodeAgentRunRecord[], args: string[]): string {
   ].join("\n");
 }
 
+async function approveCodeAgentRun(
+  runs: CodeAgentRunRecord[],
+  args: string[],
+  output: NodeJS.WritableStream,
+): Promise<void> {
+  const run = selectCodeAgentRun(runs, args, {
+    defaultToLast: args.includes("--last"),
+  });
+  if (!run) {
+    writeLine(
+      output,
+      [
+        "",
+        "Code Agents approve",
+        "",
+        "  No Code Agents session selected.",
+        "",
+        "Try: agent-native code approve --last",
+      ].join("\n"),
+    );
+    return;
+  }
+
+  writeLine(
+    output,
+    [
+      "",
+      "Code Agents approve",
+      "",
+      `  Run: ${run.id}`,
+      "",
+      "Running the pending approved command.",
+    ].join("\n"),
+  );
+  await executePendingCodeAgentApproval(run.id, { stdout: output });
+  writeLine(
+    output,
+    [
+      "",
+      "Approval step finished.",
+      "",
+      "Resume the Code Agent session:",
+      `  agent-native code run ${run.id}`,
+    ].join("\n"),
+  );
+}
+
 function renderCodeAgentLogs(
   runs: CodeAgentRunRecord[],
   args: string[],
@@ -764,6 +1101,9 @@ function renderCodeAgentLogs(
     "",
     `Code Agents logs: ${run.id}`,
     `/${run.goalId} ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
+    run.title,
+    `Updated: ${run.updatedAt}`,
+    `Events: ${events.length}`,
     "",
     events.length === 0
       ? "  No transcript events recorded yet."
@@ -902,6 +1242,7 @@ function renderCodeAgentRunDetail(
     `  Goal:       /${run.goalId}`,
     `  Title:      ${run.title}`,
     run.subtitle ? `  Subtitle:   ${run.subtitle}` : "",
+    run.permissionMode ? `  Permission: ${run.permissionMode}` : "",
     `  Status:     ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
     run.progress
       ? `  Progress:   ${run.progress.completed}/${run.progress.total} (${run.progress.percent}%)`
@@ -918,10 +1259,12 @@ function renderCodeAgentRunListItem(run: CodeAgentRunRecord): string {
   const progress = run.progress
     ? `, ${run.progress.completed}/${run.progress.total}`
     : "";
+  const permission = run.permissionMode ? `, ${run.permissionMode}` : "";
   return [
     `  - ${run.id}`,
-    `    /${run.goalId} ${run.status}${run.phase ? ` (${run.phase})` : ""}${progress}`,
+    `    /${run.goalId} ${run.status}${run.phase ? ` (${run.phase})` : ""}${progress}${permission}`,
     `    ${truncateForDisplay(run.title, 100)}`,
+    `    updated ${run.updatedAt}`,
   ].join("\n");
 }
 
@@ -970,19 +1313,27 @@ async function runCodeGoal(
 async function runTask(
   forwardedArgs: string[],
   output: NodeJS.WritableStream,
+  options: RunTaskOptions = {},
 ): Promise<void> {
-  const prompt = parseTaskPrompt(forwardedArgs);
-  if (!prompt) {
-    console.log(taskUsage());
+  const parsed = parseTaskArgs(forwardedArgs, options.permissionMode);
+  if (parsed.error) {
+    writeLine(output, parsed.error);
+    writeLine(output, taskUsage());
+    return;
+  }
+  if (!parsed.prompt) {
+    writeLine(output, taskUsage());
     return;
   }
 
+  const prompt = parsed.prompt;
   const run = createCodeAgentRunRecord({
     goalId: "task",
     title: titleFromPrompt(prompt),
-    subtitle: "Generic coding task",
+    subtitle: options.subtitle ?? "Generic coding task",
     status: "running",
     phase: "starting",
+    permissionMode: parsed.permissionMode,
     progress: {
       label: "Starting",
       completed: 0,
@@ -992,11 +1343,15 @@ async function runTask(
     details: [
       { label: "Prompt", value: truncateForDisplay(prompt, 160) },
       { label: "Agent", value: "Running locally" },
+      { label: "Permission", value: parsed.permissionMode },
     ],
     cwd: process.cwd(),
     metadata: {
       prompt,
-      source: "agent-native code /task",
+      source: options.source ?? "agent-native code /task",
+      commandName: options.commandName,
+      commandPath: options.commandPath,
+      permissionMode: parsed.permissionMode,
     },
   });
 
@@ -1025,17 +1380,51 @@ async function runTask(
   });
 }
 
+async function runProjectSlashCommand(
+  commandName: string,
+  forwardedArgs: string[],
+  output: NodeJS.WritableStream,
+): Promise<void> {
+  const command = findProjectSlashCommand(commandName);
+  if (!command) {
+    writeLine(
+      output,
+      `Project slash command not found: /${normalizeGoalToken(commandName)}`,
+    );
+    return;
+  }
+  const parsed = parseTaskArgs(forwardedArgs);
+  if (parsed.error) {
+    writeLine(output, parsed.error);
+    return;
+  }
+  const prompt = renderProjectSlashCommandPrompt(command, parsed.promptArgs);
+  await runTask([prompt], output, {
+    subtitle: `Project command /${command.name}`,
+    source: "agent-native code project-command",
+    commandName: command.name,
+    commandPath: command.path,
+    permissionMode: parsed.permissionMode,
+  });
+}
+
 async function recordCodeAgentFollowUpPrompt(
   prompt: string,
   output: NodeJS.WritableStream,
+  permissionMode?: CodeAgentPermissionMode,
+  runId?: string,
 ): Promise<void> {
-  const run = getLastCodeAgentRunRecord();
+  const run = runId
+    ? getCodeAgentRunRecord(runId)
+    : getLastCodeAgentRunRecord();
   if (!run) {
     writeLine(
       output,
       [
         "",
-        "No Code Agents runs found.",
+        runId
+          ? `Code Agents run not found: ${runId}`
+          : "No Code Agents runs found.",
         "",
         'Start one with: agent-native code /task "what to change"',
       ].join("\n"),
@@ -1043,25 +1432,98 @@ async function recordCodeAgentFollowUpPrompt(
     return;
   }
 
+  const activeRun = permissionMode
+    ? (updateCodeAgentRunRecord(run.id, { permissionMode }) ?? run)
+    : run;
   const event = appendCodeAgentTranscriptEvent({
-    runId: run.id,
+    runId: activeRun.id,
     kind: "user",
     message: prompt,
-    metadata: { source: "resume-follow-up" },
+    metadata: { source: "resume-follow-up", permissionMode },
   });
-  writeLine(output, renderFollowUpRecorded(run, event));
+  writeLine(output, renderFollowUpRecorded(activeRun, event));
   await executeCodeAgentRun({
-    runId: run.id,
+    runId: activeRun.id,
     prompt,
     appendUserEvent: false,
     stdout: output,
   });
 }
 
-function parseTaskPrompt(forwardedArgs: string[]): string {
-  const promptArgs =
-    forwardedArgs[0] === "--" ? forwardedArgs.slice(1) : forwardedArgs;
-  return promptArgs.join(" ").trim();
+function parseTaskArgs(
+  forwardedArgs: string[],
+  defaultPermissionMode: CodeAgentPermissionMode = "ask-before-edit",
+): ParsedTaskArgs {
+  const promptArgs: string[] = [];
+  let permissionMode: CodeAgentPermissionMode = defaultPermissionMode;
+  let permissionModeExplicit = false;
+  for (let index = 0; index < forwardedArgs.length; index += 1) {
+    const arg = forwardedArgs[index];
+    if (arg === "--") {
+      promptArgs.push(...forwardedArgs.slice(index + 1));
+      break;
+    }
+    if (arg === "--permission-mode") {
+      const value = forwardedArgs[index + 1];
+      const normalized = normalizeCodeAgentPermissionMode(value);
+      if (!normalized) {
+        return {
+          prompt: "",
+          promptArgs,
+          permissionMode,
+          error: `Invalid permission mode: ${value ?? "(missing)"}`,
+        };
+      }
+      permissionMode = normalized;
+      permissionModeExplicit = true;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--permission-mode=")) {
+      const normalized = normalizeCodeAgentPermissionMode(
+        arg.slice("--permission-mode=".length),
+      );
+      if (!normalized) {
+        return {
+          prompt: "",
+          promptArgs,
+          permissionMode,
+          error: `Invalid permission mode: ${arg.slice("--permission-mode=".length)}`,
+        };
+      }
+      permissionMode = normalized;
+      permissionModeExplicit = true;
+      continue;
+    }
+    const shorthand = parsePermissionModeFlag(arg);
+    if (shorthand) {
+      permissionMode = shorthand;
+      permissionModeExplicit = true;
+      continue;
+    }
+    promptArgs.push(arg);
+  }
+  return {
+    prompt: promptArgs.join(" ").trim(),
+    promptArgs,
+    permissionMode,
+    permissionModeExplicit,
+  };
+}
+
+function parsePermissionModeFlag(arg: string): CodeAgentPermissionMode | null {
+  switch (arg) {
+    case "--read-only":
+      return "read-only";
+    case "--ask-before-edit":
+      return "ask-before-edit";
+    case "--auto-edit":
+      return "auto-edit";
+    case "--full-auto":
+      return "full-auto";
+    default:
+      return null;
+  }
 }
 
 function titleFromPrompt(prompt: string): string {
@@ -1080,6 +1542,7 @@ function renderTaskStarted(run: CodeAgentRunRecord, prompt: string): string {
     "",
     `  Run:    ${run.id}`,
     `  Prompt: ${truncateForDisplay(prompt, 160)}`,
+    `  Mode:   ${run.permissionMode ?? "ask-before-edit"}`,
     "",
     "Streaming output below. The transcript is saved with this run.",
   ].join("\n");
@@ -1106,6 +1569,7 @@ function taskUsage(): string {
     "",
     "Usage:",
     '  agent-native code /task "what to change"',
+    `  agent-native code --permission-mode ${CODE_AGENT_PERMISSION_MODES.join("|")} "what to change"`,
     "",
     "The task goal starts a local Code Agent session, saves transcript events, and can be resumed with follow-up prompts.",
   ].join("\n");

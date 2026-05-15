@@ -12,7 +12,7 @@ export default defineAction({
       .default("all")
       .describe("Restrict results to one normalized result type."),
     provider: z
-      .enum(["manual", "generic", "clips", "slack", "granola"])
+      .enum(["manual", "generic", "clips", "slack", "granola", "github"])
       .optional()
       .describe("Restrict results to one Brain source provider."),
     status: z.string().optional().describe("Restrict results to one status."),

@@ -9,8 +9,13 @@ import {
   codeAgentRunTranscriptPath,
   getCodeAgentRunRecord,
   listCodeAgentTranscriptEvents,
+  updateCodeAgentRunRecord,
 } from "./code-agent-runs.js";
-import { executeCodeAgentRun } from "./code-agent-executor.js";
+import {
+  classifyCodeAgentCommandPermission,
+  executeCodeAgentRun,
+  executePendingCodeAgentApproval,
+} from "./code-agent-executor.js";
 
 const tmpRoots: string[] = [];
 const providerEnvKeys = [
@@ -133,6 +138,105 @@ describe("executeCodeAgentRun", () => {
     expect(listCodeAgentTranscriptEvents(run.id)[0]).toMatchObject({
       kind: "user",
       message: "fix desktop-started run",
+    });
+  });
+
+  it("records the run permission mode during execution", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Permission noted.";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Explain repo",
+      permissionMode: "read-only",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "explain repo",
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      metadata: {
+        permissionMode: "read-only",
+      },
+    });
+  });
+
+  it("executes an explicitly approved pending command and clears the approval", async () => {
+    const root = useTempCodeAgentsHome();
+    const cwd = path.join(root, "repo");
+    const target = path.join(cwd, "approval-target");
+    fs.mkdirSync(target, { recursive: true });
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Approved cleanup",
+      status: "needs-approval",
+      phase: "approval-required",
+      needsApproval: true,
+      cwd,
+    });
+    updateCodeAgentRunRecord(run.id, {
+      metadata: {
+        pendingApproval: {
+          id: "approval-test",
+          tool: "run_command",
+          command: "rm -rf approval-target",
+          reason: "destructive recursive delete",
+          requestedAt: new Date().toISOString(),
+          permissionMode: "ask-before-edit",
+        },
+      },
+    });
+    const output = createStringOutput();
+
+    await executePendingCodeAgentApproval(run.id, { stdout: output.stream });
+
+    const updated = getCodeAgentRunRecord(run.id);
+    expect(fs.existsSync(target)).toBe(false);
+    expect(updated).toMatchObject({
+      status: "paused",
+      phase: "approval-complete",
+      needsApproval: false,
+      metadata: {
+        lastApproval: {
+          id: "approval-test",
+          exitCode: 0,
+        },
+      },
+    });
+    expect(updated?.metadata?.pendingApproval).toBeUndefined();
+    expect(output.read()).toContain("Approved command finished");
+  });
+});
+
+describe("classifyCodeAgentCommandPermission", () => {
+  it("allows read-only inspection commands", () => {
+    expect(classifyCodeAgentCommandPermission("git status --short")).toEqual({
+      kind: "read",
+    });
+    expect(classifyCodeAgentCommandPermission("rg button src")).toEqual({
+      kind: "read",
+    });
+  });
+
+  it("classifies file-writing commands as write operations", () => {
+    expect(classifyCodeAgentCommandPermission("echo hi > notes.txt")).toEqual({
+      kind: "write",
+    });
+    expect(classifyCodeAgentCommandPermission("pnpm add left-pad")).toEqual({
+      kind: "write",
+    });
+  });
+
+  it("blocks forbidden git commands and requests approval for destructive commands", () => {
+    expect(
+      classifyCodeAgentCommandPermission("git reset --hard"),
+    ).toMatchObject({ kind: "forbidden" });
+    expect(classifyCodeAgentCommandPermission("rm -rf dist")).toMatchObject({
+      kind: "approval-required",
     });
   });
 });

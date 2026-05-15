@@ -18,12 +18,23 @@ npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 
 **Code Agents** is the open-source Claude Code/Codex-like workspace for coding work in Agent-Native. `agent-native` or `agent-native code` launches it with no prompt required, and a bare prompt starts a generic coding task directly. `/migrate` is one built-in capability for moving an existing app, URL, or described product into agent-native. It uses the same session store, transcript, and desktop hub as the CLI `code` command, so migration behaves like a goal you can resume, attach to, inspect, and stop rather than a separate one-off product.
 
-By default `/migrate` creates a generic Code Agents session plus a portable migration dossier. The hidden `migration` app is now a legacy/internal detail surface, available with `--app-surface` when a run needs a richer assessment/approval/task/verifier dashboard. It is not the migration product and should not be scaffolded as a normal app/template.
+By default `/migrate` creates a generic Code Agents session plus a portable migration dossier. Migration is a slash command in the Code workspace, not a normal template to scaffold. The hidden `migration` app is now a legacy/internal detail surface, available with `--app-surface` when a run needs a richer assessment/approval/task/verifier dashboard.
 
 The direct `migrate` command remains a shortcut into the same goal:
 
 ```bash
 npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app
+```
+
+Both forms print the same handoff: run id, source, output, dossier directory,
+important artifact files, and the exact Code Agents commands to inspect or
+resume the session:
+
+```bash
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code status --last
 ```
 
 ## Code Workspace
@@ -58,6 +69,43 @@ npx @agent-native/core@latest code /audit --url https://example.com
 Run `agent-native code goals` to see the goals registered in your checkout. `/task` starts a local coding-agent session for open-ended code work, streams the run, records transcript/status/tool events, and accepts follow-up prompts through the same run record.
 
 Bare `agent-native` launches the Code Agents workspace in this branch, and `agent-native "prompt"` starts a generic Code Agents task directly, matching the Codex/Claude Code habit of treating unknown text as a coding prompt. If an installed version does not include that top-level entrypoint yet, run `agent-native code` directly.
+
+## Sessions and Permissions
+
+The next Code Agents follow-up features make the workspace feel like a local Codex/Claude Code session manager instead of a one-shot command. The CLI and Desktop hub share the same run store, so you can start work in one place and continue it in the other:
+
+```bash
+npx @agent-native/core@latest code list
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code approve --last
+npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code resume --last "check the auth edge cases next"
+```
+
+`list` shows previous and active sessions for the current workspace. `attach` follows a live transcript. `logs` prints the transcript once. `resume` reopens a session with its prior context, and a quoted resume prompt records the next instruction against that same run. If a high-risk command pauses for approval, `approve --last` runs that one pending command and then points you back to resume the session. Desktop adds the visual session picker on top of the same data: choose a run, inspect status and tool events, then attach, resume, stop, or open the run workspace.
+
+Permission modes make editing policy explicit per run:
+
+| Mode              | Behavior                                                              |
+| ----------------- | --------------------------------------------------------------------- |
+| `read-only`       | Inspect, plan, and explain without writing files or running mutations |
+| `ask-before-edit` | Make routine edits, but pause for high-risk destructive operations    |
+| `auto-edit`       | Edit and run ordinary commands, but pause for destructive operations  |
+| `full-auto`       | Run the loop end-to-end when the workspace and command are trusted    |
+
+Use the lowest mode that fits the task. A migration assessment can often start in `read-only`; an approved implementation sweep usually wants `ask-before-edit` or `auto-edit`; `full-auto` is for trusted local work where the user expects the agent to keep going.
+
+## Project Slash Commands
+
+Built-in slash goals such as `/task`, `/migrate`, and `/audit` are framework commands. Projects can also define custom commands in `.agents/commands/*.md` using the same npx-first workflow:
+
+```bash
+npx @agent-native/core@latest code /release-check
+npx @agent-native/core@latest code /migrate-storefront ./legacy-shop --out ../agent-shop
+```
+
+Each Markdown file names the command and contains the prompt/instructions the Code Agent should run. This keeps team-specific workflows close to the repository: release checks, migration variants, framework upgrade playbooks, security audits, or customer-specific handoffs can be versioned without adding code. Source-specific systems such as AEM or Builder.io should stay as optional instruction-pack examples inside those commands, not top-level migration assumptions.
 
 ## Input Shapes
 
@@ -115,6 +163,7 @@ npx @agent-native/core@latest code status --last
 npx @agent-native/core@latest code list
 npx @agent-native/core@latest code attach --last
 npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code approve --last
 npx @agent-native/core@latest code resume --last
 npx @agent-native/core@latest code --continue "check the auth edge cases next"
 npx @agent-native/core@latest code resume --last "check the auth edge cases next"
@@ -122,7 +171,7 @@ npx @agent-native/core@latest code ui --last
 npx @agent-native/core@latest code stop --last
 ```
 
-`attach --last` follows a live transcript until the run reaches a terminal state, while `logs --last` prints the transcript once. `resume --last` reopens the latest run handoff. Passing a quoted prompt, or using `--continue "prompt"`, records it as a follow-up transcript event and, for executable goals such as `/task`, immediately runs that follow-up against the same session context.
+`attach --last` follows a live transcript until the run reaches a terminal state, while `logs --last` prints the transcript once. `resume --last` reopens the latest run handoff. Passing a quoted prompt, or using `--continue "prompt"`, records it as a follow-up transcript event and, for executable goals such as `/task`, immediately runs that follow-up against the same session context. `approve --last` is intentionally narrow: it only runs the pending approved command for a session that paused on a high-risk command, then tells you to resume.
 
 `stop` marks the run paused and sends SIGTERM when the run has a tracked Desktop/CLI runner process id. If the active work belongs to another terminal or external agent, stop that owner directly.
 
@@ -162,7 +211,7 @@ The hub also includes `/audit`, a lightweight native goal backed by `agent-nativ
 npx @agent-native/core@latest code /audit --url https://example.com
 ```
 
-The hub exposes the same generic run controls the CLI does: resume opens the goal surface or reattaches to the run, a quoted resume prompt records and executes follow-up feedback for executable goals, status refreshes the run list, and stop reports or stops the owning process when one is known. Browser/Desktop approval remains the trust gate for generated output writes. Future coding goals can reuse the same CLI and desktop shell by registering another slash goal.
+The hub exposes the same generic run controls the CLI does: the session picker opens past runs, `resume` opens the goal surface or reattaches to the run, a quoted resume prompt records and executes follow-up feedback for executable goals, status refreshes the run list, and stop reports or stops the owning process when one is known. Browser/Desktop approval remains the trust gate for generated output writes. Future coding goals can reuse the same CLI and desktop shell by registering another slash goal or a project command under `.agents/commands/*.md`.
 
 ## Emit Mode
 

@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { readAppState } from "@agent-native/core/application-state";
 import {
   getRequestOrgId,
@@ -134,6 +134,57 @@ export function serializeCapture(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+export type BrainDistillationQueueStatus =
+  | "queued"
+  | "processing"
+  | "done"
+  | "failed";
+
+export function serializeDistillationQueue(
+  row: typeof schema.brainIngestQueue.$inferSelect,
+) {
+  return {
+    id: row.id,
+    sourceId: row.sourceId,
+    captureId: row.captureId,
+    status: row.status as BrainDistillationQueueStatus,
+    priority: row.priority,
+    attempts: row.attempts,
+    error: row.error,
+    runAfter: row.runAfter,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export async function latestDistillationQueuesForCaptures(
+  captureIds: string[],
+) {
+  if (!captureIds.length) {
+    return new Map<string, ReturnType<typeof serializeDistillationQueue>>();
+  }
+  const rows = await getDb()
+    .select()
+    .from(schema.brainIngestQueue)
+    .where(
+      and(
+        inArray(schema.brainIngestQueue.captureId, captureIds),
+        eq(schema.brainIngestQueue.operation, "distill"),
+      ),
+    )
+    .orderBy(desc(schema.brainIngestQueue.updatedAt))
+    .limit(Math.max(captureIds.length * 4, 10));
+  const byCapture = new Map<
+    string,
+    ReturnType<typeof serializeDistillationQueue>
+  >();
+  for (const row of rows) {
+    if (!row.captureId || byCapture.has(row.captureId)) continue;
+    byCapture.set(row.captureId, serializeDistillationQueue(row));
+  }
+  return byCapture;
 }
 
 export function serializeKnowledge(
@@ -481,6 +532,15 @@ function slugify(value: string): string {
   );
 }
 
+function sourceUrlFromCaptureMetadata(metadataJson: string) {
+  const metadata = parseJson<Record<string, unknown>>(metadataJson, {});
+  for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
+    const value = metadata[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
+}
+
 async function publishKnowledgeResource(values: {
   id: string;
   title: string;
@@ -755,7 +815,30 @@ export async function readBrainScreen() {
 
   if (nav?.sourceId) {
     const source = await resolveAccess("brain-source", nav.sourceId);
-    if (source) screen.source = serializeSource(source.resource);
+    if (source) {
+      screen.source = serializeSource(source.resource);
+      const captures = await getDb()
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.sourceId, source.resource.id))
+        .orderBy(desc(schema.brainRawCaptures.capturedAt))
+        .limit(10);
+      const queueByCapture = await latestDistillationQueuesForCaptures(
+        captures.map((capture) => capture.id),
+      );
+      screen.sourceCaptures = captures.map((capture) => ({
+        id: capture.id,
+        sourceId: capture.sourceId,
+        title: capture.title,
+        kind: capture.kind,
+        status: capture.status,
+        capturedAt: capture.capturedAt,
+        sourceUrl: sourceUrlFromCaptureMetadata(capture.metadataJson),
+        distillationQueue: queueByCapture.get(capture.id) ?? null,
+        createdAt: capture.createdAt,
+        updatedAt: capture.updatedAt,
+      }));
+    }
   }
   if (nav?.knowledgeId) {
     const knowledge = await resolveAccess("brain-knowledge", nav.knowledgeId);

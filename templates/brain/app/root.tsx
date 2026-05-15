@@ -27,6 +27,7 @@ import { configureTracking } from "@agent-native/core/client";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useDistillationBridge } from "@/hooks/use-distillation-bridge";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
 import type { LinksFunction } from "react-router";
@@ -96,17 +97,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function DbSyncSetup() {
   const qc = useQueryClient();
   useNavigationState();
+  useDistillationBridge();
   useDbSync({
     queryClient: qc,
     queryKeys: [
       "action",
       "search-everything",
       "search-knowledge",
+      "list-captures",
       "list-proposals",
       "review-proposal",
       "list-sources",
       "update-source",
       "sync-source",
+      "enqueue-distillation",
+      "claim-distillation",
+      "mark-capture-distilled",
       "get-brain-settings",
       "update-brain-settings",
     ],

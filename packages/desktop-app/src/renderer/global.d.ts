@@ -26,6 +26,12 @@ type CodeAgentRunStatus =
   | "errored"
   | "unknown";
 
+type CodeAgentPermissionMode =
+  | "read-only"
+  | "ask-before-edit"
+  | "auto-edit"
+  | "full-auto";
+
 type CodeAgentRunProgress = {
   label?: string;
   completed: number;
@@ -108,6 +114,7 @@ type CodeAgentCreateRunRequest = {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  permissionMode?: CodeAgentPermissionMode;
 };
 
 type CodeAgentCreateRunResult = {
@@ -123,12 +130,26 @@ type CodeAgentFollowUpRequest = {
   goalId?: string;
   runId: string;
   prompt: string;
+  permissionMode?: CodeAgentPermissionMode;
 };
 
 type CodeAgentFollowUpResult = {
   ok: boolean;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
+  message: string;
+  error?: string;
+};
+
+type CodeAgentUpdateRunRequest = {
+  goalId?: string;
+  runId: string;
+  permissionMode?: CodeAgentPermissionMode;
+};
+
+type CodeAgentUpdateRunResult = {
+  ok: boolean;
+  run?: CodeAgentRun;
   message: string;
   error?: string;
 };
@@ -228,10 +249,14 @@ interface ElectronAPI {
     appendFollowUp(
       request: CodeAgentFollowUpRequest,
     ): Promise<CodeAgentFollowUpResult>;
+    updateRun(
+      request: CodeAgentUpdateRunRequest,
+    ): Promise<CodeAgentUpdateRunResult>;
     controlRun(
       goalId: string,
       runId: string,
       command: CodeAgentControlCommand,
+      permissionMode?: CodeAgentPermissionMode,
     ): Promise<CodeAgentControlResult>;
     listMigrationRuns(): Promise<CodeAgentRunListResult<CodeAgentMigrationRun>>;
     openTerminal(

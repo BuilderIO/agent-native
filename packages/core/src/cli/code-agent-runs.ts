@@ -12,6 +12,16 @@ export type CodeAgentRunStatus =
   | "errored"
   | "unknown";
 
+export const CODE_AGENT_PERMISSION_MODES = [
+  "read-only",
+  "ask-before-edit",
+  "auto-edit",
+  "full-auto",
+] as const;
+
+export type CodeAgentPermissionMode =
+  (typeof CODE_AGENT_PERMISSION_MODES)[number];
+
 export interface CodeAgentRunProgress {
   label?: string;
   completed: number;
@@ -35,6 +45,7 @@ export interface CodeAgentRunRecord {
   phase?: string;
   needsApproval?: boolean;
   progress?: CodeAgentRunProgress;
+  permissionMode?: CodeAgentPermissionMode;
   details?: CodeAgentRunDetail[];
   artifactRoot?: string;
   surfaceUrl?: string;
@@ -69,6 +80,7 @@ export interface CreateCodeAgentRunInput {
   phase?: string;
   needsApproval?: boolean;
   progress?: CodeAgentRunProgress;
+  permissionMode?: CodeAgentPermissionMode;
   details?: CodeAgentRunDetail[];
   artifactRoot?: string;
   surfaceUrl?: string;
@@ -124,6 +136,7 @@ export function createCodeAgentRunRecord(
     phase: input.phase,
     needsApproval: input.needsApproval,
     progress: input.progress,
+    permissionMode: input.permissionMode,
     details: input.details,
     artifactRoot: input.artifactRoot,
     surfaceUrl: input.surfaceUrl,
@@ -134,6 +147,17 @@ export function createCodeAgentRunRecord(
   };
   writeCodeAgentRunRecord(record);
   return record;
+}
+
+export function normalizeCodeAgentPermissionMode(
+  value: unknown,
+): CodeAgentPermissionMode | null {
+  if (typeof value !== "string") return null;
+  return CODE_AGENT_PERMISSION_MODES.includes(
+    value as CodeAgentPermissionMode,
+  )
+    ? (value as CodeAgentPermissionMode)
+    : null;
 }
 
 export function writeCodeAgentRunRecord(record: CodeAgentRunRecord): void {

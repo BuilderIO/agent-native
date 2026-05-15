@@ -58,12 +58,16 @@ export interface AppWebviewHandle {
  * Determine the URL to load for this app.
  *
  * Production mode (default): load the production URL (e.g. https://mail.agent-native.com).
- * Dev mode: honor an explicit devUrl/port override; otherwise first-party templates
- * fall back to the local dev frame (chat+CLI sidebar + app iframe).
+ * Dev mode: honor an explicit lazy gateway override or devUrl/port override;
+ * otherwise first-party templates fall back to the local dev frame.
  */
 function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
   if (appConfig?.mode === "dev") {
-    // User-edited dev URL always wins — even for first-party templates.
+    if (templateGatewayOverridesDevUrls()) {
+      const gatewayUrl = getTemplateGatewayAppUrl(appConfig.id);
+      if (gatewayUrl) return gatewayUrl;
+    }
+    // User-edited dev URL wins outside the explicit lazy gateway launcher.
     if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();
     // First-party templates without an explicit override go through the frame.
     if (getTemplate(appConfig.id)) return getAppUrl(app);
@@ -79,6 +83,32 @@ function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
 
   // Fallback for custom apps with no production URL.
   return getAppUrl(app);
+}
+
+function rendererEnvValue(name: string): string | undefined {
+  const viteEnv = (
+    typeof import.meta !== "undefined"
+      ? (
+          import.meta as unknown as {
+            env?: Record<string, string | undefined>;
+          }
+        ).env
+      : undefined
+  )?.[name];
+  if (viteEnv) return viteEnv;
+  const globalProcess = (
+    globalThis as unknown as {
+      process?: { env?: Record<string, string | undefined> };
+    }
+  ).process;
+  return globalProcess?.env?.[name];
+}
+
+function templateGatewayOverridesDevUrls(): boolean {
+  const value =
+    rendererEnvValue("VITE_AGENT_NATIVE_USE_TEMPLATE_GATEWAY") ||
+    rendererEnvValue("AGENT_NATIVE_USE_TEMPLATE_GATEWAY");
+  return value === "1" || value === "true";
 }
 
 function withUrlParams(

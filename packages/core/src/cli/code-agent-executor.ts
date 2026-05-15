@@ -27,6 +27,7 @@ import {
   getCodeAgentRunRecord,
   listCodeAgentTranscriptEvents,
   updateCodeAgentRunRecord,
+  type CodeAgentPermissionMode,
   type CodeAgentRunRecord,
 } from "./code-agent-runs.js";
 
@@ -45,6 +46,15 @@ interface CommandResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+}
+
+interface PendingCodeAgentApproval {
+  id: string;
+  tool: "run_command";
+  command: string;
+  reason: string;
+  requestedAt: string;
+  permissionMode: CodeAgentPermissionMode;
 }
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
@@ -137,7 +147,8 @@ export async function executeCodeAgentRun(
     (await getStoredModelForEngine(engine).catch(() => undefined)) ??
     engine.defaultModel;
   const cwd = existing.cwd || process.cwd();
-  const actions = createLocalCodeAgentActions(cwd);
+  const permissionMode = existing.permissionMode ?? "ask-before-edit";
+  const actions = createLocalCodeAgentActions(cwd, permissionMode, existing.id);
   const tools = actionsToEngineTools(actions);
   const messages = buildCodeAgentMessages(existing, prompt);
   const controller = new AbortController();
@@ -200,7 +211,7 @@ export async function executeCodeAgentRun(
     await runAgentLoop({
       engine,
       model,
-      systemPrompt: codeAgentSystemPrompt(cwd),
+      systemPrompt: codeAgentSystemPrompt(cwd, permissionMode),
       tools,
       actions,
       messages,
@@ -217,6 +228,33 @@ export async function executeCodeAgentRun(
         metadata: { role: "assistant", model, engine: engine.name },
       });
     }
+    const approvalPending = getPendingApproval(existing.id);
+    if (approvalPending) {
+      const message = `Code Agent run paused for approval: ${approvalPending.reason}`;
+      options.stdout?.write(`\n${message}\n`);
+      appendCodeAgentTranscriptEvent({
+        runId: existing.id,
+        kind: "status",
+        message,
+        metadata: {
+          status: "needs-approval",
+          phase: "approval-required",
+          pendingApprovalId: approvalPending.id,
+        },
+      });
+      return updateCodeAgentRunRecord(existing.id, {
+        status: "needs-approval",
+        phase: "approval-required",
+        needsApproval: true,
+        progress: {
+          label: "Approval required",
+          completed: 0,
+          total: 1,
+          percent: 50,
+        },
+      });
+    }
+
     appendCodeAgentTranscriptEvent({
       runId: existing.id,
       kind: "status",
@@ -237,6 +275,7 @@ export async function executeCodeAgentRun(
         executionCompletedAt: new Date().toISOString(),
         engine: engine.name,
         model,
+        permissionMode,
       },
     });
   } catch (err) {
@@ -274,6 +313,101 @@ export async function executeExistingCodeAgentRun(
   options: Omit<ExecuteCodeAgentRunOptions, "runId"> = {},
 ): Promise<CodeAgentRunRecord | null> {
   return executeCodeAgentRun({ ...options, runId, appendUserEvent: false });
+}
+
+export async function executePendingCodeAgentApproval(
+  runId: string,
+  options: { stdout?: NodeJS.WritableStream } = {},
+): Promise<CodeAgentRunRecord | null> {
+  const record = getCodeAgentRunRecord(runId);
+  if (!record) return null;
+  const approval = getPendingApproval(runId);
+  if (!approval) {
+    options.stdout?.write("No pending approval was found for this run.\n");
+    return record;
+  }
+
+  const permission = classifyCodeAgentCommandPermission(approval.command);
+  if (permission.kind === "forbidden") {
+    const message = `Approval cannot run forbidden command: ${permission.reason}`;
+    options.stdout?.write(`${message}\n`);
+    appendCodeAgentTranscriptEvent({
+      runId,
+      kind: "status",
+      message,
+      metadata: {
+        status: "needs-approval",
+        phase: "approval-forbidden",
+        approvalId: approval.id,
+      },
+    });
+    return updateCodeAgentRunRecord(runId, {
+      status: "needs-approval",
+      phase: "approval-forbidden",
+      needsApproval: true,
+    });
+  }
+
+  appendCodeAgentTranscriptEvent({
+    runId,
+    kind: "status",
+    message: `Approved command ${approval.id}; running now.`,
+    metadata: {
+      status: "running",
+      phase: "approval-running",
+      approvalId: approval.id,
+      command: approval.command,
+    },
+  });
+  const result = await runCommand(
+    approval.command,
+    record.cwd || process.cwd(),
+    DEFAULT_COMMAND_TIMEOUT_MS,
+  );
+  const summary = truncate(
+    [
+      `Approved command finished with exit code ${result.code}.`,
+      result.timedOut ? "Timed out: true" : "",
+      result.stdout ? `stdout:\n${result.stdout}` : "",
+      result.stderr ? `stderr:\n${result.stderr}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    MAX_TOOL_OUTPUT_CHARS,
+  );
+  options.stdout?.write(`${summary}\n`);
+  appendCodeAgentTranscriptEvent({
+    runId,
+    kind: "status",
+    message: summary,
+    metadata: {
+      status: result.code === 0 ? "paused" : "errored",
+      phase: "approval-complete",
+      approvalId: approval.id,
+      exitCode: result.code,
+      timedOut: result.timedOut,
+    },
+  });
+  return updateCodeAgentRunRecord(runId, {
+    status: result.code === 0 ? "paused" : "errored",
+    phase: result.code === 0 ? "approval-complete" : "approval-command-error",
+    needsApproval: false,
+    progress: {
+      label: result.code === 0 ? "Approval complete" : "Approval failed",
+      completed: result.code === 0 ? 1 : 0,
+      total: 1,
+      failed: result.code === 0 ? 0 : 1,
+      percent: result.code === 0 ? 100 : 0,
+    },
+    metadata: {
+      pendingApproval: undefined,
+      lastApproval: {
+        ...approval,
+        completedAt: new Date().toISOString(),
+        exitCode: result.code,
+      },
+    },
+  });
 }
 
 function latestUserPrompt(runId: string): string {
@@ -366,12 +500,20 @@ function buildCodeAgentMessages(
   ];
 }
 
-function codeAgentSystemPrompt(cwd: string): string {
+function codeAgentSystemPrompt(
+  cwd: string,
+  permissionMode: CodeAgentPermissionMode,
+): string {
   return `You are Agent-Native Code, a local coding agent running in ${cwd}.
 
 Work like a careful senior engineer:
 - Read relevant files before editing.
 - Prefer small, focused changes.
+- Current permission mode: ${permissionMode}.
+- In read-only mode, inspect and explain only.
+- In ask-before-edit mode, routine file edits and verification commands are allowed; only high-risk destructive operations pause for approval.
+- In auto-edit mode, file edits and ordinary project commands are allowed, while high-risk destructive operations pause for approval.
+- In full-auto mode, broad command execution is allowed, but high-risk destructive operations still pause and forbidden git branch/reset/stash/rebase operations remain blocked.
 - Do not create, switch, delete, reset, rebase, or stash git branches.
 - Do not run destructive git commands.
 - Use apply_patch or write_file for edits, then run focused verification.
@@ -379,8 +521,12 @@ Work like a careful senior engineer:
 - Respect any AGENTS.md instructions in the repository.`;
 }
 
-function createLocalCodeAgentActions(cwd: string): Record<string, ActionEntry> {
-  return {
+function createLocalCodeAgentActions(
+  cwd: string,
+  permissionMode: CodeAgentPermissionMode,
+  runId: string,
+): Record<string, ActionEntry> {
+  const actions: Record<string, ActionEntry> = {
     list_files: {
       readOnly: true,
       tool: {
@@ -478,6 +624,11 @@ function createLocalCodeAgentActions(cwd: string): Record<string, ActionEntry> {
         },
       },
       run: async (args) => {
+        const permissionError = permissionErrorForWrite(
+          permissionMode,
+          "write_file",
+        );
+        if (permissionError) return permissionError;
         const filePath = resolveInsideCwd(cwd, stringArg(args.path));
         if (!filePath) return "Error: path must stay inside the workspace.";
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -498,6 +649,11 @@ function createLocalCodeAgentActions(cwd: string): Record<string, ActionEntry> {
         },
       },
       run: async (args) => {
+        const permissionError = permissionErrorForWrite(
+          permissionMode,
+          "apply_patch",
+        );
+        if (permissionError) return permissionError;
         const patch = stringArg(args.patch);
         if (!patch.trim()) return "Error: patch is required.";
         const result = await runCommand(
@@ -531,6 +687,24 @@ function createLocalCodeAgentActions(cwd: string): Record<string, ActionEntry> {
       run: async (args) => {
         const command = stringArg(args.command);
         if (!command) return "Error: command is required.";
+        const permission = classifyCodeAgentCommandPermission(command);
+        if (permission.kind === "forbidden") {
+          return `Error: command is blocked by Code Agents policy: ${permission.reason}`;
+        }
+        if (permission.kind === "approval-required") {
+          const approval = requestCodeAgentApproval(runId, {
+            tool: "run_command",
+            command,
+            reason: permission.reason,
+            permissionMode,
+          });
+          return [
+            `Approval required before running this command: ${permission.reason}.`,
+            `Approval id: ${approval.id}`,
+            `Command: ${command}`,
+            "The run is paused; approve from the Code Agents UI/CLI if this command is intentional.",
+          ].join("\n");
+        }
         const timeoutMs = Number(args.timeoutMs);
         const result = await runCommand(
           command,
@@ -552,6 +726,177 @@ function createLocalCodeAgentActions(cwd: string): Record<string, ActionEntry> {
         );
       },
     },
+  };
+  if (permissionMode === "read-only") {
+    return Object.fromEntries(
+      Object.entries(actions).filter(([, action]) => action.readOnly),
+    );
+  }
+  return actions;
+}
+
+export type CodeAgentCommandPermission =
+  | { kind: "read" }
+  | { kind: "write" }
+  | { kind: "approval-required"; reason: string }
+  | { kind: "forbidden"; reason: string };
+
+export function classifyCodeAgentCommandPermission(
+  command: string,
+): CodeAgentCommandPermission {
+  const normalized = command.trim().toLowerCase();
+  if (!normalized) return { kind: "read" };
+
+  const blockedPatterns: Array<[RegExp, string]> = [
+    [
+      /\bgit\s+(checkout|switch|reset|rebase|stash|clean|worktree)\b/,
+      "forbidden git branch/reset/stash/rebase operation",
+    ],
+    [
+      /\bgit\s+branch\b(?!\s+--show-current\b)/,
+      "forbidden git branch operation",
+    ],
+    [/\bdrizzle-kit\s+push\b/, "drizzle-kit push is not allowed"],
+  ];
+  for (const [pattern, reason] of blockedPatterns) {
+    if (pattern.test(normalized)) return { kind: "forbidden", reason };
+  }
+
+  const approvalPatterns: Array<[RegExp, string]> = [
+    [/\brm\s+-rf\b/, "destructive recursive delete"],
+    [/\bsudo\b/, "privileged command"],
+    [/\bkill\s+-9\b/, "force-kill command"],
+    [/\bcurl\b.*\|\s*(sh|bash|zsh)\b/, "remote script execution"],
+    [/\b(wget|fetch)\b.*\|\s*(sh|bash|zsh)\b/, "remote script execution"],
+    [/\bnpm\s+publish\b/, "package publish"],
+    [/\bpnpm\s+publish\b/, "package publish"],
+    [/\btruncate\b/, "destructive data command"],
+    [/\bdrop\s+(table|column|database)\b/, "destructive database command"],
+    [/\bdelete\s+from\b(?![\s\S]*\bwhere\b)/, "unscoped delete command"],
+  ];
+  for (const [pattern, reason] of approvalPatterns) {
+    if (pattern.test(normalized)) {
+      return { kind: "approval-required", reason };
+    }
+  }
+
+  const readPatterns = [
+    /^pwd\b/,
+    /^ls\b/,
+    /^find\b/,
+    /^rg\b/,
+    /^grep\b/,
+    /^cat\b/,
+    /^sed\s+-n\b/,
+    /^head\b/,
+    /^tail\b/,
+    /^wc\b/,
+    /^git\s+(status|diff|show|log)\b/,
+    /^git\s+branch\s+--show-current\b/,
+    /^pnpm\b.*\b(test|typecheck|lint|check)\b/,
+    /^npm\b.*\b(test|run\s+(test|typecheck|lint|check))\b/,
+  ];
+  if (readPatterns.some((pattern) => pattern.test(normalized))) {
+    return { kind: "read" };
+  }
+
+  const writePatterns = [
+    /(^|[^>])>(?!>)/,
+    />>/,
+    /\btee\b/,
+    /\bapply_patch\b/,
+    /\b(write|touch|mkdir|cp|mv|rm|chmod|chown)\b/,
+    /\bpnpm\s+(add|install|remove|dlx)\b/,
+    /\bnpm\s+(install|i|add|remove|uninstall)\b/,
+  ];
+  if (writePatterns.some((pattern) => pattern.test(normalized))) {
+    return { kind: "write" };
+  }
+
+  return { kind: "write" };
+}
+
+function permissionErrorForWrite(
+  permissionMode: CodeAgentPermissionMode,
+  toolName: string,
+): string | null {
+  if (
+    permissionMode === "ask-before-edit" ||
+    permissionMode === "auto-edit" ||
+    permissionMode === "full-auto"
+  ) {
+    return null;
+  }
+  if (permissionMode === "read-only") {
+    return `Error: ${toolName} is unavailable in read-only mode.`;
+  }
+  return `Error: ${toolName} is blocked by the current permission mode.`;
+}
+
+function requestCodeAgentApproval(
+  runId: string,
+  input: Omit<PendingCodeAgentApproval, "id" | "requestedAt">,
+): PendingCodeAgentApproval {
+  const requestedAt = new Date().toISOString();
+  const approval: PendingCodeAgentApproval = {
+    id: `approval-${requestedAt.replace(/\D/g, "").slice(0, 14)}`,
+    requestedAt,
+    ...input,
+  };
+  appendCodeAgentTranscriptEvent({
+    runId,
+    kind: "status",
+    message: `Approval required: ${approval.reason}`,
+    metadata: {
+      status: "needs-approval",
+      phase: "approval-required",
+      pendingApproval: approval,
+    },
+  });
+  updateCodeAgentRunRecord(runId, {
+    status: "needs-approval",
+    phase: "approval-required",
+    needsApproval: true,
+    progress: {
+      label: "Approval required",
+      completed: 0,
+      total: 1,
+      percent: 50,
+    },
+    metadata: {
+      pendingApproval: approval,
+    },
+  });
+  return approval;
+}
+
+function getPendingApproval(runId: string): PendingCodeAgentApproval | null {
+  const record = getCodeAgentRunRecord(runId);
+  const approval = record?.metadata?.pendingApproval;
+  if (!approval || typeof approval !== "object") return null;
+  const candidate = approval as Record<string, unknown>;
+  if (
+    candidate.tool !== "run_command" ||
+    typeof candidate.command !== "string" ||
+    typeof candidate.reason !== "string" ||
+    typeof candidate.id !== "string" ||
+    typeof candidate.requestedAt !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: candidate.id,
+    tool: "run_command",
+    command: candidate.command,
+    reason: candidate.reason,
+    requestedAt: candidate.requestedAt,
+    permissionMode:
+      candidate.permissionMode === "read-only" ||
+      candidate.permissionMode === "ask-before-edit" ||
+      candidate.permissionMode === "auto-edit" ||
+      candidate.permissionMode === "full-auto"
+        ? candidate.permissionMode
+        : "ask-before-edit",
   };
 }
 

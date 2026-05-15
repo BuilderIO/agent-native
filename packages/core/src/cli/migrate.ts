@@ -22,6 +22,7 @@ const DEFAULT_TARGET = "agent-native";
 const DEFAULT_DOSSIER_DIR = "agent-native-migration-dossier";
 const MIGRATION_DEV_PORT = 8101;
 const MIGRATE_SUBCOMMANDS = new Set(["resume", "status", "stop", "ui"]);
+const MIGRATION_SESSION_COMMAND = "agent-native code /migrate";
 const MODEL_CREDENTIAL_ENV_NAMES = [
   "ANTHROPIC_API_KEY",
   "OPENAI_API_KEY",
@@ -470,17 +471,30 @@ async function createMigrationCodeAgentSession(
 
   const updated: CodeAgentRunRecord = {
     ...run,
+    progress: {
+      label: "Dossier ready; waiting for approval",
+      completed: 1,
+      total: 2,
+      percent: 50,
+    },
     artifactRoot,
     details: [
       { label: "Source", value: formatSourceForDisplay(source) },
       { label: "Output", value: outputRoot },
       { label: "Dossier", value: dossierRoot },
+      { label: "Resume", value: "agent-native code resume --last" },
+      { label: "Attach", value: "agent-native code attach --last" },
     ],
     metadata: {
       ...(run.metadata ?? {}),
       dossierRoot,
       dossierFiles: dossier.files,
+      artifactFiles: dossier.files.map((file) => path.join(dossierRoot, file)),
       usedMigrateHelpers: dossier.usedMigrateHelpers,
+      resumeCommand: "agent-native code resume --last",
+      attachCommand: "agent-native code attach --last",
+      statusCommand: "agent-native code status --last",
+      preferredCommand: MIGRATION_SESSION_COMMAND,
     },
     updatedAt: new Date().toISOString(),
   };
@@ -505,7 +519,8 @@ async function createMigrationCodeAgentSession(
   appendCodeAgentTranscriptEvent({
     runId: run.id,
     kind: "status",
-    message: "Migration session is ready and waiting for approval.",
+    message:
+      "Migration dossier is ready. Resume the /migrate session from Code Agents when you are ready to approve or continue.",
     metadata: { status: "needs-approval", phase: "intake" },
   });
 
@@ -536,6 +551,9 @@ function printMigrationStatus(opts: MigrateCliOptions): void {
     console.error(`No Migration Workbench found at ${appDir}.`);
     console.error(
       `Create one with: npx @agent-native/core@latest code /migrate <source>`,
+    );
+    console.error(
+      `The direct migrate command is a shortcut into that same Code Agents slash command.`,
     );
     process.exit(1);
   }
@@ -686,12 +704,29 @@ function renderCodeAgentMigrationSession(
     "Code Agents /migrate session created.",
     "",
     `  Run:     ${run.id}`,
+    "  Goal:    /migrate",
     `  Source:  ${run.subtitle ?? "not set"}`,
     `  Output:  ${stringMetadata(run, "outputRoot") ?? "not set"}`,
     `  Dossier: ${stringMetadata(run, "dossierRoot") ?? dossier.dossierRoot}`,
+    `  Engine:  ${dossier.usedMigrateHelpers ? "@agent-native/migrate helpers" : "safe local fallback"}`,
     "",
-    "Next:",
+    "Artifacts:",
+    ...dossier.files
+      .filter((file) =>
+        [
+          "AGENTS.md",
+          "MIGRATION_PLAYBOOK.md",
+          "01-assessment.md",
+          "ir.json",
+          "source.json",
+        ].includes(file),
+      )
+      .map((file) => `  - ${path.join(dossier.dossierRoot, file)}`),
+    "",
+    "Continue:",
+    "  agent-native code attach --last",
     "  agent-native code resume --last",
+    "  agent-native code logs --last",
     "  agent-native code status --last",
     "",
     "Desktop:",
@@ -700,7 +735,9 @@ function renderCodeAgentMigrationSession(
     "Use another agent:",
     `  Point Codex, Claude Code, Cursor, or another coding agent at ${shellQuote(dossier.dossierRoot)} and ask it to follow AGENTS.md plus MIGRATION_PLAYBOOK.md.`,
     "",
-    "No hidden app/template was scaffolded. Use --app-surface only if you want the legacy migration detail app.",
+    "Default surface:",
+    "  Migration stays in Code Agents. No hidden app/template was scaffolded.",
+    "  Use --app-surface only when you explicitly want the legacy migration detail app.",
   ].join("\n");
 }
 
@@ -710,22 +747,31 @@ function renderCodeAgentMigrationStatus(runs: CodeAgentRunRecord[]): string {
     "Code Agents /migrate status",
     "",
     runs.length === 0
-      ? "  No /migrate sessions found."
+      ? "  No /migrate sessions found. Start one with `agent-native code /migrate <source>`."
       : `  ${runs.length} session${runs.length === 1 ? "" : "s"} found.`,
     ...runs.slice(0, 8).map((run) => {
       const output = stringMetadata(run, "outputRoot");
       const dossier = stringMetadata(run, "dossierRoot");
+      const progress = run.progress?.label
+        ? `    Progress: ${run.progress.label} (${run.progress.completed}/${run.progress.total})`
+        : "";
       return [
         `  - ${run.id}`,
         `    Status:  ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
+        progress,
         `    Source:  ${run.subtitle ?? "not set"}`,
         output ? `    Output:  ${output}` : "",
         dossier ? `    Dossier: ${dossier}` : "",
+        `    Resume:  agent-native code resume ${run.id}`,
       ]
         .filter(Boolean)
         .join("\n");
     }),
     runs.length > 8 ? `  - ${runs.length - 8} more...` : "",
+    "",
+    "Shortcuts:",
+    "  agent-native migrate status --last shows the same Code Agents sessions.",
+    "  Add --app-surface only to inspect the legacy hidden migration app.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -744,6 +790,10 @@ function renderCodeAgentMigrationResume(run: CodeAgentRunRecord): string {
     "",
     "Continue in the interactive shell:",
     "  agent-native code",
+    "",
+    "Resume this run directly:",
+    `  agent-native code resume ${run.id}`,
+    "  agent-native code attach --last",
     "",
     dossier
       ? `Or hand off to another agent by pointing it at ${shellQuote(dossier)}.`
@@ -789,8 +839,8 @@ function renderEmitResult(result: EmitDossierResult): string {
 function migrateUsage(): string {
   return [
     "Usage:",
-    "  agent-native code /migrate <source-path-or-url> [--out ../migrated-app]",
-    "  agent-native migrate <source-path-or-url> [--out ../migrated-app]",
+    "  agent-native code /migrate <source-path-or-url> [--out ../migrated-app]   (preferred)",
+    "  agent-native migrate <source-path-or-url> [--out ../migrated-app]         (shortcut)",
     "  agent-native migrate <source> --emit [dossier-dir]",
     '  agent-native migrate --describe "legacy app described in prose" --emit',
     "  agent-native migrate resume --last",
@@ -803,6 +853,9 @@ function migrateUsage(): string {
     "  npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app",
     '  npx @agent-native/core@latest code /migrate https://example.com --describe "marketing site" --emit ../migration-dossier',
     '  npx @agent-native/core@latest code /migrate --describe "A Rails admin app with reporting dashboards" --emit',
+    "",
+    "Default:",
+    "  Migration is a Code Agents slash command. The hidden migration app is not scaffolded unless --app-surface is passed.",
     "",
     "Options:",
     "  --source, --path <path>       Local source path",

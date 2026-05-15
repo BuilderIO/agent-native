@@ -1,4 +1,6 @@
 /** IPC channel names shared between main, preload, and renderer. */
+import type { CodeAgentPermissionMode } from "./code-agents";
+
 export const IPC = {
   /** Window control channels (renderer → main) */
   WINDOW_MINIMIZE: "window:minimize",
@@ -49,6 +51,7 @@ export const IPC = {
   CODE_AGENTS_CREATE_RUN: "code-agents:create-run",
   CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",
   CODE_AGENTS_APPEND_FOLLOW_UP: "code-agents:append-follow-up",
+  CODE_AGENTS_UPDATE_RUN: "code-agents:update-run",
   CODE_AGENTS_CONTROL_RUN: "code-agents:control-run",
   CODE_AGENTS_LIST_MIGRATION_RUNS: "code-agents:list-migration-runs",
   CODE_AGENTS_OPEN_TERMINAL: "code-agents:open-terminal",
@@ -183,6 +186,7 @@ export interface CodeAgentCreateRunRequest {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  permissionMode?: CodeAgentPermissionMode;
 }
 
 export interface CodeAgentCreateRunResult {
@@ -198,12 +202,26 @@ export interface CodeAgentFollowUpRequest {
   goalId?: string;
   runId: string;
   prompt: string;
+  permissionMode?: CodeAgentPermissionMode;
 }
 
 export interface CodeAgentFollowUpResult {
   ok: boolean;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentUpdateRunRequest {
+  goalId?: string;
+  runId: string;
+  permissionMode?: CodeAgentPermissionMode;
+}
+
+export interface CodeAgentUpdateRunResult {
+  ok: boolean;
+  run?: CodeAgentRun;
   message: string;
   error?: string;
 }

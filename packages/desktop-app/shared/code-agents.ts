@@ -8,6 +8,18 @@ export const CODE_AGENTS_SURFACE_ID = "code-agents";
 export const MIGRATION_APP_ID = "migration";
 
 export type CodeAgentGoalId = "task" | "migrate" | "audit";
+export type CodeAgentPermissionMode =
+  | "read-only"
+  | "ask-before-edit"
+  | "auto-edit"
+  | "full-auto";
+
+export interface CodeAgentPermissionModeDefinition {
+  id: CodeAgentPermissionMode;
+  label: string;
+  shortLabel: string;
+  description: string;
+}
 
 export interface CodeAgentGoalDefinition {
   id: CodeAgentGoalId;
@@ -65,6 +77,54 @@ export const CODE_AGENT_GOALS: CodeAgentGoalDefinition[] = [
     surfaceKind: "native",
   },
 ];
+
+export const CODE_AGENT_PERMISSION_MODES: CodeAgentPermissionModeDefinition[] =
+  [
+    {
+      id: "read-only",
+      label: "Read-only",
+      shortLabel: "Read",
+      description: "Inspect files and report back without edits.",
+    },
+    {
+      id: "ask-before-edit",
+      label: "Guarded edit",
+      shortLabel: "Guard",
+      description: "Edit normally, but ask before high-risk commands.",
+    },
+    {
+      id: "auto-edit",
+      label: "Auto-edit",
+      shortLabel: "Edit",
+      description: "Make focused edits and run verification.",
+    },
+    {
+      id: "full-auto",
+      label: "Full-auto",
+      shortLabel: "Auto",
+      description: "Edit, run commands, and continue without prompts.",
+    },
+  ];
+
+export const DEFAULT_CODE_AGENT_PERMISSION_MODE: CodeAgentPermissionMode =
+  "ask-before-edit";
+
+export function getCodeAgentPermissionMode(
+  value: string | null | undefined,
+): CodeAgentPermissionMode | undefined {
+  return CODE_AGENT_PERMISSION_MODES.find((mode) => mode.id === value)?.id;
+}
+
+export function getCodeAgentPermissionModeDefinition(
+  value: string | null | undefined,
+): CodeAgentPermissionModeDefinition {
+  return (
+    CODE_AGENT_PERMISSION_MODES.find((mode) => mode.id === value) ??
+    CODE_AGENT_PERMISSION_MODES.find(
+      (mode) => mode.id === DEFAULT_CODE_AGENT_PERMISSION_MODE,
+    )!
+  );
+}
 
 export function getCodeAgentGoal(
   id: string | null | undefined,

@@ -429,7 +429,14 @@ export default function App() {
     if (!window.electronAPI?.codeAgents?.onOpenRequest) return;
     return window.electronAPI.codeAgents.onOpenRequest((request) => {
       const goal = getCodeAgentGoal(request.goalId);
-      if (!goal && request.app && request.app !== MIGRATION_APP_ID) return;
+      if (
+        !goal &&
+        request.app &&
+        request.app !== MIGRATION_APP_ID &&
+        request.app !== CODE_AGENTS_SURFACE_ID
+      ) {
+        return;
+      }
       setCodeAgentsOpenRequest({
         goalId:
           goal?.id ??

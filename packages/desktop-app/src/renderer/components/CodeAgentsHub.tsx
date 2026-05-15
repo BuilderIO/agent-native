@@ -13,12 +13,17 @@ import {
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import {
+  CODE_AGENT_PERMISSION_MODES,
   CODE_AGENT_GOALS,
+  DEFAULT_CODE_AGENT_PERMISSION_MODE,
   getCodeAgentAppConfig,
   getCodeAgentGoal,
+  getCodeAgentPermissionMode,
+  getCodeAgentPermissionModeDefinition,
   getDefaultCodeAgentGoal,
   type CodeAgentGoalDefinition,
   type CodeAgentGoalId,
+  type CodeAgentPermissionMode,
 } from "@shared/code-agents";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
 import AppWebview from "./AppWebview.js";
@@ -85,6 +90,11 @@ export default function CodeAgentsHub({
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const [followUpPrompt, setFollowUpPrompt] = useState("");
   const [submittingFollowUp, setSubmittingFollowUp] = useState(false);
+  const [newRunPermissionMode, setNewRunPermissionMode] =
+    useState<CodeAgentPermissionMode>(DEFAULT_CODE_AGENT_PERMISSION_MODE);
+  const [selectedPermissionMode, setSelectedPermissionMode] =
+    useState<CodeAgentPermissionMode>(DEFAULT_CODE_AGENT_PERMISSION_MODE);
+  const [updatingPermissionMode, setUpdatingPermissionMode] = useState(false);
   const newPromptRef = useRef<HTMLTextAreaElement | null>(null);
 
   const loadRuns = useCallback(
@@ -173,6 +183,13 @@ export default function CodeAgentsHub({
     [runFilter, runs],
   );
   const workbenchUrlParams = selectedRunId ? { run: selectedRunId } : undefined;
+  const selectedRunStoredPermissionMode = selectedRun
+    ? getRunPermissionMode(selectedRun)
+    : DEFAULT_CODE_AGENT_PERMISSION_MODE;
+
+  useEffect(() => {
+    setSelectedPermissionMode(selectedRunStoredPermissionMode);
+  }, [selectedRunId, selectedRunStoredPermissionMode]);
 
   useEffect(() => {
     void loadRuns();
@@ -229,6 +246,7 @@ export default function CodeAgentsHub({
       selectedGoal.id,
       selectedRunId,
       command,
+      selectedPermissionMode,
     );
     if (!result) {
       toast("Desktop bridge is not available", { duration: 2600 });
@@ -260,6 +278,7 @@ export default function CodeAgentsHub({
       const result = await api.createRun({
         goalId: selectedGoal.id,
         prompt,
+        permissionMode: newRunPermissionMode,
       });
       if (!result.ok || !result.run) {
         toast(result.message, {
@@ -320,6 +339,7 @@ export default function CodeAgentsHub({
         goalId: selectedGoal.id,
         runId: selectedRun.id,
         prompt,
+        permissionMode: selectedPermissionMode,
       });
       if (!result.ok) {
         setTranscriptEvents((current) =>
@@ -344,6 +364,85 @@ export default function CodeAgentsHub({
       });
     } finally {
       setSubmittingFollowUp(false);
+    }
+  }
+
+  async function changeSelectedPermissionMode(
+    nextMode: CodeAgentPermissionMode,
+  ) {
+    if (!selectedRun) {
+      setSelectedPermissionMode(nextMode);
+      return;
+    }
+    const previousMode = selectedPermissionMode;
+    setSelectedPermissionMode(nextMode);
+    setRuns((current) =>
+      current.map((run) =>
+        run.id === selectedRun.id ? withRunPermissionMode(run, nextMode) : run,
+      ),
+    );
+
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.updateRun) {
+      setSelectedPermissionMode(previousMode);
+      setRuns((current) =>
+        current.map((run) =>
+          run.id === selectedRun.id
+            ? withRunPermissionMode(run, previousMode)
+            : run,
+        ),
+      );
+      toast("Desktop bridge is not available", { duration: 2600 });
+      return;
+    }
+
+    setUpdatingPermissionMode(true);
+    try {
+      const result = await api.updateRun({
+        goalId: selectedGoal.id,
+        runId: selectedRun.id,
+        permissionMode: nextMode,
+      });
+      if (!result.ok) {
+        setSelectedPermissionMode(previousMode);
+        setRuns((current) =>
+          current.map((run) =>
+            run.id === selectedRun.id
+              ? withRunPermissionMode(run, previousMode)
+              : run,
+          ),
+        );
+        toast(result.message, {
+          description: result.error,
+          duration: 3600,
+        });
+        return;
+      }
+      if (result.run) {
+        setRuns((current) =>
+          current.map((run) =>
+            run.id === result.run!.id
+              ? withRunPermissionMode(result.run!, nextMode)
+              : run,
+          ),
+        );
+      }
+      toast("Permission mode updated", { duration: 1600 });
+    } catch (err) {
+      setSelectedPermissionMode(previousMode);
+      setRuns((current) =>
+        current.map((run) =>
+          run.id === selectedRun.id
+            ? withRunPermissionMode(run, previousMode)
+            : run,
+        ),
+      );
+      toast("Could not update permission mode", {
+        description: err instanceof Error ? err.message : String(err),
+        duration: 3600,
+      });
+    } finally {
+      setUpdatingPermissionMode(false);
     }
   }
 
@@ -555,7 +654,9 @@ export default function CodeAgentsHub({
               prompt={newPrompt}
               inputRef={newPromptRef}
               creating={creatingRun}
+              permissionMode={newRunPermissionMode}
               onPromptChange={setNewPrompt}
+              onPermissionModeChange={setNewRunPermissionMode}
               onSubmit={createRunFromPrompt}
             />
 
@@ -595,7 +696,10 @@ export default function CodeAgentsHub({
               transcriptError={transcriptError}
               followUpPrompt={followUpPrompt}
               submittingFollowUp={submittingFollowUp}
+              permissionMode={selectedPermissionMode}
+              updatingPermissionMode={updatingPermissionMode}
               onFollowUpPromptChange={setFollowUpPrompt}
+              onPermissionModeChange={changeSelectedPermissionMode}
               onSubmitFollowUp={submitFollowUp}
               onOpenWorkbench={() => setWorkbenchOpen(true)}
               onOpenTerminal={openTerminal}
@@ -620,11 +724,7 @@ function buildSummary(runs: CodeAgentRun[]) {
       } else {
         acc.inProgress += 1;
       }
-      if (
-        run.needsApproval ||
-        run.status === "needs-approval" ||
-        (isMigrationRun(run) && run.phase === "approve" && !run.approved)
-      ) {
+      if (hasPendingApproval(run)) {
         acc.needsApproval += 1;
       }
       acc.failedTasks += getRunFailedCount(run);
@@ -654,14 +754,18 @@ function NewSessionComposer({
   prompt,
   inputRef,
   creating,
+  permissionMode,
   onPromptChange,
+  onPermissionModeChange,
   onSubmit,
 }: {
   goal: CodeAgentGoalDefinition;
   prompt: string;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   creating: boolean;
+  permissionMode: CodeAgentPermissionMode;
   onPromptChange: (value: string) => void;
+  onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onSubmit: (event: React.FormEvent) => void;
 }) {
   return (
@@ -688,7 +792,51 @@ function NewSessionComposer({
         placeholder="Describe the coding task..."
         rows={3}
       />
+      <PermissionModeSelector
+        value={permissionMode}
+        onChange={onPermissionModeChange}
+      />
     </form>
+  );
+}
+
+function PermissionModeSelector({
+  value,
+  onChange,
+  disabled = false,
+  title = "Permission mode",
+}: {
+  value: CodeAgentPermissionMode;
+  onChange: (value: CodeAgentPermissionMode) => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  const selected = getCodeAgentPermissionModeDefinition(value);
+  return (
+    <fieldset className="code-agents-permission">
+      <legend className="code-agents-permission__header">
+        <span>{title}</span>
+        <em>{selected.description}</em>
+      </legend>
+      <div className="code-agents-permission__options">
+        {CODE_AGENT_PERMISSION_MODES.map((mode) => (
+          <button
+            key={mode.id}
+            type="button"
+            className={`code-agents-permission__option${
+              mode.id === value ? " code-agents-permission__option--active" : ""
+            }`}
+            disabled={disabled}
+            aria-pressed={mode.id === value}
+            title={mode.description}
+            onClick={() => onChange(mode.id)}
+          >
+            <strong>{mode.shortLabel}</strong>
+            <span>{mode.label}</span>
+          </button>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
@@ -751,11 +899,7 @@ function matchesRunFilter(run: CodeAgentRun, filter: RunFilter) {
     return run.status === "completed" || run.phase === "complete";
   }
   if (filter === "approval") {
-    return (
-      run.needsApproval ||
-      run.status === "needs-approval" ||
-      (isMigrationRun(run) && run.phase === "approve" && !run.approved)
-    );
+    return hasPendingApproval(run);
   }
   if (filter === "issues") {
     return run.status === "errored" || getRunFailedCount(run) > 0;
@@ -820,7 +964,10 @@ function RunDetailCard({
   transcriptError,
   followUpPrompt,
   submittingFollowUp,
+  permissionMode,
+  updatingPermissionMode,
   onFollowUpPromptChange,
+  onPermissionModeChange,
   onSubmitFollowUp,
   onOpenWorkbench,
   onOpenTerminal,
@@ -837,7 +984,10 @@ function RunDetailCard({
   transcriptError: string | null;
   followUpPrompt: string;
   submittingFollowUp: boolean;
+  permissionMode: CodeAgentPermissionMode;
+  updatingPermissionMode: boolean;
   onFollowUpPromptChange: (value: string) => void;
+  onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onSubmitFollowUp: (event: React.FormEvent) => void;
   onOpenWorkbench: () => void;
   onOpenTerminal: () => void;
@@ -871,6 +1021,7 @@ function RunDetailCard({
   const progress = getRunProgressPercent(run);
   const details = getRunDetails(run, goal);
   const hasCredentialGap = hasMissingCredentialSignal(run, transcriptEvents);
+  const pendingApproval = getPendingApproval(run);
 
   return (
     <div className="code-agents-detail">
@@ -915,11 +1066,29 @@ function RunDetailCard({
         </div>
       )}
 
+      {pendingApproval && (
+        <div className="code-agents-approval-callout">
+          <IconAlertCircle size={16} strokeWidth={1.8} />
+          <div>
+            <strong>Approval pending</strong>
+            <span>{pendingApproval.reason}</span>
+            {pendingApproval.command && <code>{pendingApproval.command}</code>}
+          </div>
+        </div>
+      )}
+
       <div className="code-agents-detail-grid">
         {details.map((detail) => (
           <Field key={detail.label} label={detail.label} value={detail.value} />
         ))}
       </div>
+
+      <PermissionModeSelector
+        value={permissionMode}
+        onChange={onPermissionModeChange}
+        disabled={updatingPermissionMode}
+        title="Permission mode for resume and follow-up prompts"
+      />
 
       <TranscriptPanel
         events={transcriptEvents}
@@ -1192,9 +1361,7 @@ function PhasePill({ run }: { run: CodeAgentRun }) {
   const tone =
     run.status === "completed" || run.phase === "complete"
       ? "complete"
-      : run.needsApproval ||
-          run.status === "needs-approval" ||
-          (isMigrationRun(run) && run.phase === "approve" && !run.approved)
+      : hasPendingApproval(run)
         ? "approval"
         : "active";
   return (
@@ -1249,6 +1416,30 @@ function hasMissingCredentialSignal(
   );
 }
 
+function hasPendingApproval(run: CodeAgentRun): boolean {
+  return Boolean(run.needsApproval || getPendingApproval(run));
+}
+
+function getPendingApproval(
+  run: CodeAgentRun,
+): { reason: string; command?: string } | null {
+  const value = run.metadata?.pendingApproval;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return run.needsApproval ? { reason: "Review the pending action." } : null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const reason =
+    typeof record.reason === "string" && record.reason.trim()
+      ? record.reason.trim()
+      : "Review the pending action.";
+  const command =
+    typeof record.command === "string" && record.command.trim()
+      ? record.command.trim()
+      : undefined;
+  return { reason, command };
+}
+
 function getRunTitle(run: CodeAgentRun | null): string | null {
   if (!run) return null;
   if (isMigrationRun(run)) return run.name;
@@ -1265,11 +1456,12 @@ function getRunDetails(
   run: CodeAgentRun,
   goal: CodeAgentGoalDefinition,
 ): CodeAgentRunDetail[] {
+  const permissionMode = getRunPermissionMode(run);
   const details =
     run.details?.filter((detail) => detail.value.length > 0) ?? [];
   if (details.length > 0) {
     return [
-      ...details,
+      ...withPermissionDetail(details, permissionMode),
       { label: "Updated", value: formatRelativeTime(run.updatedAt) },
     ];
   }
@@ -1278,14 +1470,64 @@ function getRunDetails(
       { label: "Source", value: run.sourceRoot },
       { label: "Output", value: run.outputRoot },
       { label: "Target", value: run.target },
+      { label: "Permission", value: formatPermissionMode(permissionMode) },
       { label: "Updated", value: formatRelativeTime(run.updatedAt) },
     ];
   }
   return [
     { label: "Goal", value: goal.slashCommand },
     { label: "Status", value: run.status },
+    { label: "Permission", value: formatPermissionMode(permissionMode) },
     { label: "Updated", value: formatRelativeTime(run.updatedAt) },
   ];
+}
+
+function getRunPermissionMode(run: CodeAgentRun): CodeAgentPermissionMode {
+  const metadataMode = getCodeAgentPermissionMode(
+    getStringMetadata(run, "permissionMode"),
+  );
+  if (metadataMode) return metadataMode;
+
+  const detailMode = getCodeAgentPermissionMode(
+    run.details?.find((detail) => isPermissionDetail(detail.label))?.value,
+  );
+  return detailMode ?? DEFAULT_CODE_AGENT_PERMISSION_MODE;
+}
+
+function withRunPermissionMode(
+  run: CodeAgentRun,
+  permissionMode: CodeAgentPermissionMode,
+): CodeAgentRun {
+  return {
+    ...run,
+    metadata: {
+      ...(run.metadata ?? {}),
+      permissionMode,
+    },
+    details: withPermissionDetail(run.details ?? [], permissionMode),
+  };
+}
+
+function withPermissionDetail(
+  details: CodeAgentRunDetail[],
+  permissionMode: CodeAgentPermissionMode,
+): CodeAgentRunDetail[] {
+  const displayValue = formatPermissionMode(permissionMode);
+  let found = false;
+  const next = details.map((detail) => {
+    if (!isPermissionDetail(detail.label)) return detail;
+    found = true;
+    return { ...detail, label: "Permission", value: displayValue };
+  });
+  return found ? next : [...next, { label: "Permission", value: displayValue }];
+}
+
+function isPermissionDetail(label: string): boolean {
+  return label.toLowerCase().includes("permission");
+}
+
+function formatPermissionMode(value: CodeAgentPermissionMode): string {
+  return getCodeAgentPermissionModeDefinition(value).label;
 }
 
 function getRunTerminalRequest(

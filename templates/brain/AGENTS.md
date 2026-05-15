@@ -44,8 +44,8 @@ JSON is stored in text columns. There is no vector database.
 | `run-slack-pilot`                                                                   | Produce a guarded Slack pilot report; reads no history unless `readHistory: true`      |
 | `import-capture`                                                                    | Import arbitrary raw text                                                              |
 | `import-transcript`                                                                 | Import meeting transcripts                                                             |
-| `get-capture`                                                                       | Read a raw capture if its source is accessible                                         |
-| `enqueue-distillation`                                                              | Queue capture distillation                                                             |
+| `list-captures` / `get-capture`                                                     | Review raw captures by source/status, including distillation queue state               |
+| `enqueue-distillation`                                                              | Idempotently queue capture distillation                                                |
 | `mark-capture-distilled`                                                            | Mark a capture distilled or ignored                                                    |
 | `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior |
 | `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                    |
@@ -101,6 +101,22 @@ history. Only pass `readHistory: true` when the user explicitly asks for a tiny
 pilot sync; the action caps the read to at most two validated channels, one
 history page per channel, ten messages per page, ten permalinks, `autoSync:
 false`, and a recent default history window.
+
+After a successful pilot sync, use `list-captures` first to review capture
+inventory without raw bodies. The listing includes each capture's latest
+distillation queue state, so repeated `enqueue-distillation` calls should reuse
+an active queue item instead of creating duplicates. Only open individual items
+with `get-capture` when you need source context for distillation. Keep
+`autoSync: false` until the channel allow-list, review policy, and first
+distilled/proposed entries look right.
+
+When a Brain tab is open, the app shell bridges new distillation requests to the
+agent chat in the background. Re-running `enqueue-distillation` for an active
+queue item refreshes that handoff instead of duplicating queue rows. The agent
+should read the capture, apply the settings/extraction rules, write cited
+knowledge or proposals with `write-knowledge`, and finish by calling
+`mark-capture-distilled`. That final action also marks active distillation queue
+rows done.
 
 Granola sources use the scoped `GRANOLA_API_KEY` credential and poll Granola's
 public API for accessible Team-space notes, then fetch each note with its

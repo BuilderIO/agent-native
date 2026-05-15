@@ -22,6 +22,7 @@ import {
   type ActiveWebviewTarget,
   type CodeAgentCreateRunResult,
   type CodeAgentFollowUpResult,
+  type CodeAgentUpdateRunResult,
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
   type CodeAgentMigrationRun,
@@ -39,10 +40,14 @@ import {
 import { FRAME_PORT, getTemplateGatewayAppUrl } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
 import {
+  CODE_AGENTS_SURFACE_ID,
   CODE_AGENT_GOALS,
+  DEFAULT_CODE_AGENT_PERMISSION_MODE,
   getCodeAgentAppConfig,
   getCodeAgentGoal,
+  getCodeAgentPermissionMode,
   MIGRATION_APP_ID,
+  type CodeAgentPermissionMode,
 } from "@shared/code-agents";
 import * as AppStore from "./app-store";
 
@@ -310,6 +315,19 @@ function sendOpenRequestToRenderer(request: DesktopOpenRequest) {
   win.webContents.send(IPC.DEEP_LINK_OPEN, request);
 }
 
+function inferCodeAgentGoalIdFromRunId(
+  runId: string | undefined,
+): string | undefined {
+  if (!runId) return undefined;
+  const recordGoal = getCodeAgentGoal(
+    getRecordString(readCodeAgentRunRecord(runId), "goalId"),
+  );
+  if (recordGoal) return recordGoal.id;
+
+  const prefixGoal = getCodeAgentGoal(runId.split("-")[0]);
+  return prefixGoal?.id;
+}
+
 async function handleDeepLink(url: string) {
   try {
     const parsed = new URL(url);
@@ -356,8 +374,15 @@ async function handleDeepLink(url: string) {
       const runId = parsed.searchParams.get("run") ?? undefined;
       const targetGoal =
         getCodeAgentGoal(goalId) ??
+        getCodeAgentGoal(inferCodeAgentGoalIdFromRunId(runId)) ??
         (targetApp === MIGRATION_APP_ID ? getCodeAgentGoal("migrate") : null);
-      if (targetGoal) {
+      if (targetApp === CODE_AGENTS_SURFACE_ID) {
+        sendOpenRequestToRenderer({
+          app: CODE_AGENTS_SURFACE_ID,
+          goalId: targetGoal?.id,
+          runId,
+        });
+      } else if (targetGoal) {
         sendOpenRequestToRenderer({
           app: targetApp ?? targetGoal.appId,
           goalId: targetGoal.id,
@@ -915,6 +940,9 @@ function readFileBackedCodeAgentRun(filePath: string): CodeAgentRun | null {
       ? { ...(row.metadata as Record<string, unknown>) }
       : {};
     if (typeof row.cwd === "string") metadata.cwd = row.cwd;
+    if (typeof row.permissionMode === "string") {
+      metadata.permissionMode = row.permissionMode;
+    }
     if (typeof row.artifactRoot === "string") {
       metadata.artifactRoot = row.artifactRoot;
     }
@@ -1030,6 +1058,15 @@ function getRecordString(
   if (!record) return undefined;
   const value = record[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readCodeAgentPermissionMode(
+  record: Record<string, unknown> | null | undefined,
+): CodeAgentPermissionMode | undefined {
+  const metadata = isObject(record?.metadata) ? record.metadata : undefined;
+  return getCodeAgentPermissionMode(
+    firstStringValue(metadata?.permissionMode, record?.permissionMode),
+  );
 }
 
 function normalizeTranscriptEventType(
@@ -1321,7 +1358,16 @@ function appendCodeAgentTranscriptEvent(
   return eventFile;
 }
 
-const activeCodeAgentProcesses = new Map<string, { pid?: number }>();
+const activeCodeAgentProcesses = new Map<
+  string,
+  {
+    pid?: number;
+    command: string;
+    cwd: string;
+    startedAt: string;
+    permissionMode: CodeAgentPermissionMode;
+  }
+>();
 
 function appendCodeAgentStatusEvent(
   runId: string,
@@ -1339,9 +1385,18 @@ function appendCodeAgentStatusEvent(
   });
 }
 
-function spawnCodeAgentRunner(runId: string, cwd: string): void {
+function spawnCodeAgentRunner(
+  runId: string,
+  cwd: string,
+  permissionMode?: CodeAgentPermissionMode,
+): void {
   if (activeCodeAgentProcesses.has(runId)) return;
   const repoRoot = resolveRepositoryRoot(cwd);
+  const runRecord = readCodeAgentRunRecord(runId);
+  const normalizedPermissionMode =
+    permissionMode ??
+    readCodeAgentPermissionMode(runRecord) ??
+    DEFAULT_CODE_AGENT_PERMISSION_MODE;
   const localCli = path.join(repoRoot, "packages/core/dist/cli/index.js");
   const command = fs.existsSync(localCli) ? "node" : "pnpm";
   const args = fs.existsSync(localCli)
@@ -1364,16 +1419,28 @@ function spawnCodeAgentRunner(runId: string, cwd: string): void {
       env: {
         ...process.env,
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+        AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
       },
     });
-    activeCodeAgentProcesses.set(runId, { pid: child.pid });
+    const runnerStartedAt = new Date().toISOString();
+    const runnerCommand = `${command} ${args.join(" ")}`;
+    activeCodeAgentProcesses.set(runId, {
+      pid: child.pid,
+      command: runnerCommand,
+      cwd: repoRoot,
+      startedAt: runnerStartedAt,
+      permissionMode: normalizedPermissionMode,
+    });
     touchCodeAgentRunRecord(runId, {
       status: "running",
       phase: "executing",
       metadata: {
+        permissionMode: normalizedPermissionMode,
+        runnerState: "running",
         runnerPid: child.pid,
-        runnerCommand: `${command} ${args.join(" ")}`,
-        runnerStartedAt: new Date().toISOString(),
+        runnerCommand,
+        runnerCwd: repoRoot,
+        runnerStartedAt,
       },
     });
     child.stdout?.on("data", (chunk) => {
@@ -1398,6 +1465,7 @@ function spawnCodeAgentRunner(runId: string, cwd: string): void {
       touchCodeAgentRunRecord(runId, {
         updatedAt: new Date().toISOString(),
         metadata: {
+          runnerState: "exited",
           runnerExitedAt: new Date().toISOString(),
           runnerExitCode: code,
           runnerExitSignal: signal,
@@ -1414,6 +1482,7 @@ function spawnCodeAgentRunner(runId: string, cwd: string): void {
       status: "errored",
       phase: "runner-error",
       metadata: {
+        runnerState: "failed",
         runnerError: err instanceof Error ? err.message : String(err),
       },
     });
@@ -1486,6 +1555,9 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
   const now = new Date().toISOString();
   const runId = `${goal.id}-${timestampSlug(now)}-${randomUUID().slice(0, 8)}`;
   const cwd = resolveCodeAgentsTerminalCwd({ cwd: payload.cwd });
+  const permissionMode =
+    getCodeAgentPermissionMode(firstStringValue(payload.permissionMode)) ??
+    DEFAULT_CODE_AGENT_PERMISSION_MODE;
   const title = titleFromPrompt(prompt);
   const run: CodeAgentRun = {
     id: runId,
@@ -1503,11 +1575,13 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
     details: [
       { label: "Goal", value: goal.slashCommand },
       { label: "Working directory", value: cwd },
+      { label: "Permission mode", value: permissionMode },
     ],
     createdAt: now,
     updatedAt: now,
     metadata: {
       cwd,
+      permissionMode,
       source: "desktop",
       queued: true,
       initialPrompt: prompt,
@@ -1517,6 +1591,7 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
     schemaVersion: 1,
     ...run,
     cwd,
+    permissionMode,
   };
   const runFile = codeAgentRunFilePath(runId);
   if (!runFile) {
@@ -1533,7 +1608,7 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
     const event = createDesktopUserTranscriptEvent(runId, prompt, goal.id);
     const eventFile = appendCodeAgentTranscriptEvent(event);
     if (goal.id === "task") {
-      spawnCodeAgentRunner(runId, cwd);
+      spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     return {
       ok: true,
@@ -1555,6 +1630,10 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
   const payload = isObject(input) ? input : {};
   const runId = normalizeCodeAgentRunId(payload.runId);
   const prompt = firstStringValue(payload.prompt) ?? "";
+  const requestedPermissionMode = firstStringValue(payload.permissionMode);
+  const permissionMode = requestedPermissionMode
+    ? getCodeAgentPermissionMode(requestedPermissionMode)
+    : undefined;
   if (!runId) {
     return {
       ok: false,
@@ -1569,6 +1648,13 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
       error: "Missing prompt.",
     };
   }
+  if (requestedPermissionMode && !permissionMode) {
+    return {
+      ok: false,
+      message: "Choose a valid permission mode.",
+      error: `Unsupported permission mode: ${requestedPermissionMode}`,
+    };
+  }
 
   try {
     const goalId = firstStringValue(payload.goalId);
@@ -1577,13 +1663,17 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
     const now = new Date().toISOString();
     touchCodeAgentRunRecord(runId, {
       updatedAt: now,
-      metadata: { lastDesktopFollowUpAt: now },
+      ...(permissionMode ? { permissionMode } : {}),
+      metadata: {
+        lastDesktopFollowUpAt: now,
+        ...(permissionMode ? { permissionMode } : {}),
+      },
     });
     if ((goalId ?? "task") === "task") {
       const record = readCodeAgentRunRecord(runId);
       const cwd =
         getRecordString(record, "cwd") ?? resolveCodeAgentsTerminalCwd({});
-      spawnCodeAgentRunner(runId, cwd);
+      spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     return {
       ok: true,
@@ -1598,6 +1688,54 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
+  const payload = isObject(input) ? input : {};
+  const runId = normalizeCodeAgentRunId(payload.runId);
+  if (!runId) {
+    return {
+      ok: false,
+      message: "Select a session first.",
+      error: "Missing or invalid run id.",
+    };
+  }
+
+  const runFile = codeAgentRunFilePath(runId);
+  if (!runFile || !fs.existsSync(runFile)) {
+    return {
+      ok: false,
+      message: "Code Agent session was not found.",
+      error: `No run record exists for ${runId}.`,
+    };
+  }
+
+  const requestedPermissionMode = firstStringValue(payload.permissionMode);
+  const permissionMode = requestedPermissionMode
+    ? getCodeAgentPermissionMode(requestedPermissionMode)
+    : undefined;
+  if (requestedPermissionMode && !permissionMode) {
+    return {
+      ok: false,
+      message: "Choose a valid permission mode.",
+      error: `Unsupported permission mode: ${requestedPermissionMode}`,
+    };
+  }
+
+  if (permissionMode) {
+    touchCodeAgentRunRecord(runId, {
+      permissionMode,
+      metadata: { permissionMode },
+    });
+  }
+
+  const run = readFileBackedCodeAgentRun(runFile);
+  return {
+    ok: Boolean(run),
+    run: run ?? undefined,
+    message: run ? "Code Agent session updated." : "Session update failed.",
+    error: run ? undefined : "Could not read the updated session record.",
+  };
 }
 
 async function listMigrationRunsForCodeAgents(): Promise<CodeAgentRunListResult> {
@@ -1849,6 +1987,10 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
   const record = payload as Record<string, unknown>;
   const command = record.command as CodeAgentControlCommand | undefined;
   const runId = typeof record.runId === "string" ? record.runId : "";
+  const requestedPermissionMode = firstStringValue(record.permissionMode);
+  const permissionMode = requestedPermissionMode
+    ? getCodeAgentPermissionMode(requestedPermissionMode)
+    : undefined;
   const defaultGoalId = CODE_AGENT_GOALS[0]?.id ?? "task";
   const goal = getCodeAgentGoal(
     typeof record.goalId === "string" ? record.goalId : defaultGoalId,
@@ -1874,6 +2016,16 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
     };
   }
 
+  if (requestedPermissionMode && !permissionMode) {
+    return {
+      ok: false,
+      command: command ?? "status",
+      action: "none",
+      message: "Choose a valid permission mode.",
+      error: `Unsupported permission mode: ${requestedPermissionMode}`,
+    };
+  }
+
   if (command === "resume" && goal.id === "task") {
     const runRecord = readCodeAgentRunRecord(runId);
     const cwd =
@@ -1881,8 +2033,15 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
     appendCodeAgentStatusEvent(runId, "Resume requested from Desktop.", {
       source: "desktop",
       command: "resume",
+      ...(permissionMode ? { permissionMode } : {}),
     });
-    spawnCodeAgentRunner(runId, cwd);
+    if (permissionMode) {
+      touchCodeAgentRunRecord(runId, {
+        permissionMode,
+        metadata: { permissionMode },
+      });
+    }
+    spawnCodeAgentRunner(runId, cwd, permissionMode);
     return {
       ok: true,
       command,
@@ -1962,10 +2121,25 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
         };
       }
     }
+    appendCodeAgentStatusEvent(
+      runId,
+      "Stop requested for Code Agent run, but no active process was registered.",
+      {
+        source: "desktop",
+      },
+    );
+    touchCodeAgentRunRecord(runId, {
+      status: "paused",
+      phase: "stopped",
+      metadata: {
+        runnerState: "stopped",
+        runnerStoppedAt: new Date().toISOString(),
+      },
+    });
     return {
       ok: true,
       command,
-      action: "none",
+      action: "refresh",
       message: "No active Code Agent process is registered for this run.",
     };
   }
@@ -2034,6 +2208,12 @@ ipcMain.handle(
   IPC.CODE_AGENTS_APPEND_FOLLOW_UP,
   (_event: IpcMainInvokeEvent, input: unknown): CodeAgentFollowUpResult =>
     appendCodeAgentFollowUp(input),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_UPDATE_RUN,
+  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentUpdateRunResult =>
+    updateCodeAgentRun(input),
 );
 
 ipcMain.handle(

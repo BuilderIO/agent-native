@@ -44,6 +44,15 @@ export {
   type AgentLoopToolCallSummary,
   type AgentLoopToolResultSummary,
 } from "../agent/index.js";
+export {
+  actionsToEngineTools,
+  getOwnerActiveApiKey,
+  runAgentLoop,
+} from "../agent/production-agent.js";
+export {
+  getStoredModelForEngine,
+  resolveEngine,
+} from "../agent/engine/index.js";
 export { createDevScriptRegistry } from "../scripts/dev/index.js";
 
 export {

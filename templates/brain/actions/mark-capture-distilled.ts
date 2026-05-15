@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -17,14 +17,30 @@ export default defineAction({
   run: async ({ captureId, status }) => {
     const access = await getAccessibleCapture(captureId);
     if (!access) throw new Error(`No access to capture ${captureId}`);
-    await getDb()
+    const db = getDb();
+    const now = nowIso();
+    await db
       .update(schema.brainRawCaptures)
       .set({
         status,
-        distilledAt: status === "distilled" ? nowIso() : null,
-        updatedAt: nowIso(),
+        distilledAt: status === "distilled" ? now : null,
+        updatedAt: now,
       })
       .where(eq(schema.brainRawCaptures.id, captureId));
+    await db
+      .update(schema.brainIngestQueue)
+      .set({
+        status: "done",
+        error: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.brainIngestQueue.captureId, captureId),
+          eq(schema.brainIngestQueue.operation, "distill"),
+          inArray(schema.brainIngestQueue.status, ["queued", "processing"]),
+        ),
+      );
     const updated = await getAccessibleCapture(captureId);
     return { capture: updated ? serializeCapture(updated.capture) : null };
   },

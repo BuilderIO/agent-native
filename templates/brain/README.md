@@ -44,9 +44,13 @@ pnpm --filter brain build
 2. Run `sync-source` for Slack/Granola sources, import a transcript with
    `import-transcript`, import raw text with `import-capture`, or POST a signed
    `RawCapturePayload` to `/api/_agent-native/brain/ingest`.
-3. Ask the agent to distill the capture with `write-knowledge`.
-4. Review queued proposals in the Review route or with `approve-proposal`.
-5. Ask Brain or another workspace agent to search broadly with
+3. Review the raw capture inventory with `list-captures` or the Sources page,
+   then queue durable-company-context captures with `enqueue-distillation`.
+4. When a Brain tab is open, the bridge hands queued distillation work to the
+   app agent. The agent reads the capture, writes cited knowledge or proposals
+   with `write-knowledge`, and closes the queue with `mark-capture-distilled`.
+5. Review queued proposals in the Review route or with `approve-proposal`.
+6. Ask Brain or another workspace agent to search broadly with
    `search-everything` when the V1.5 search surface is available, then drill
    into `get-knowledge` / `get-capture` for cited answers. In V1-only
    workspaces, use `search-knowledge` and `get-knowledge`.
@@ -120,6 +124,31 @@ pnpm --filter brain action run-slack-pilot \
 Pilot sync caps reads to two validated channels, one history page per channel,
 ten messages per page, ten permalinks, `autoSync: false`, and a recent default
 history window.
+
+After the first sample succeeds, review capture inventory before distillation:
+
+```bash
+pnpm --filter brain action list-captures \
+  --sourceId <source-id> \
+  --status queued
+```
+
+`list-captures` omits raw message bodies by default and includes the latest
+distillation queue state for each capture. Pass `--includePreview true` only
+when a human is intentionally reviewing snippets. Open individual records with
+`get-capture`, distill durable company context into `write-knowledge`, and keep
+`autoSync` disabled until the source rules and review behavior look right.
+
+The Sources page exposes the same review inventory from each source card. Open
+**Captures** to inspect queued records, enable short previews only when needed,
+queue distillation for durable context, see whether a capture is waiting on the
+distillation worker, or mark non-company material ignored.
+
+When a Brain tab is open, queued distillation requests are handed to the app
+agent in the background. Re-running `enqueue-distillation` for an active queue
+item refreshes that handoff instead of duplicating queue rows. The agent reads
+the capture, writes cited knowledge or review proposals, then calls
+`mark-capture-distilled`, which marks the active queue row done.
 
 ## Granola Source Config
 

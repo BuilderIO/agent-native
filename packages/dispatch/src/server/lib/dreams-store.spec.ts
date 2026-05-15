@@ -166,7 +166,10 @@ function explicitEvidence(
   };
 }
 
-function candidateWithEvidence(evidence: DreamEvidence[]): DreamCandidate {
+function candidateWithEvidence(
+  evidence: DreamEvidence[],
+  sourceId = "current",
+): DreamCandidate {
   return {
     thread: {
       id: evidence[0]?.threadId ?? "thread-1",
@@ -177,7 +180,7 @@ function candidateWithEvidence(evidence: DreamEvidence[]): DreamCandidate {
       createdAt: 1,
       updatedAt: 2,
     },
-    sourceId: "current",
+    sourceId,
     score: 50,
     reasons: [
       {
@@ -767,6 +770,212 @@ describe("buildProposalInputs", () => {
             /^instructions\/dream-corrections-/,
           ),
           risk: "medium",
+        }),
+      ]),
+    );
+  });
+
+  it("deduplicates repeated evidence and keeps single-app UI wording out of global instructions", () => {
+    const repeatedCorrection = explicitEvidence({
+      threadId: "thread-clips",
+      threadTitle: "Clips export copy",
+      snippet: "Actually the Clips UI button label should say Export",
+      sourceId: "clips",
+    });
+    const result = buildProposalInputs(
+      [
+        candidateWithEvidence(
+          [
+            repeatedCorrection,
+            {
+              ...repeatedCorrection,
+              messageIndex: 1,
+            },
+          ],
+          "clips",
+        ),
+        candidateWithEvidence(
+          [
+            explicitEvidence({
+              threadId: "thread-clips-2",
+              threadTitle: "Clips export wording",
+              snippet:
+                "Remember the Clips button wording should use Export in this screen",
+              sourceId: "clips",
+            }),
+          ],
+          "clips",
+        ),
+      ],
+      {
+        personalIndex: "",
+        personalNotes: [],
+        sharedLearnings: "",
+      },
+      {
+        personalMemoryAllowed: false,
+        personalMemoryBlockReason: "admin scan spans shared production data",
+      },
+    );
+
+    const shared = result.proposals.find(
+      (proposal) => proposal.targetType === "shared-learnings",
+    );
+
+    expect(shared?.evidence).toHaveLength(2);
+    expect(
+      shared?.content.match(/Actually the Clips UI button label/g),
+    ).toHaveLength(1);
+    expect(
+      result.proposals.some(
+        (proposal) => proposal.targetType === "workspace-instruction",
+      ),
+    ).toBe(false);
+  });
+
+  it("summarizes raw eval failure rows before writing proposal content", () => {
+    const result = buildProposalInputs(
+      [
+        candidateWithEvidence(
+          [
+            {
+              kind: "eval-failure",
+              label: "Evaluation failed or scored low",
+              snippet: {
+                name: "latency_score",
+                score: 0,
+                passed: false,
+                run_id: "run-a",
+                metadata: JSON.stringify({
+                  actualMs: 61_250,
+                  expectedMs: 30_000,
+                }),
+              } as any,
+              threadId: "thread-a",
+              threadTitle: "Slow dream run A",
+              runId: "run-a",
+            },
+          ],
+          "dispatch-prod",
+        ),
+        candidateWithEvidence(
+          [
+            {
+              kind: "eval-failure",
+              label: "Evaluation failed or scored low",
+              snippet: {
+                name: "latency_score",
+                score: 0.2,
+                passed: false,
+                run_id: "run-b",
+                metadata: JSON.stringify({
+                  actualMs: 44_000,
+                  expectedMs: 30_000,
+                }),
+              } as any,
+              threadId: "thread-b",
+              threadTitle: "Slow dream run B",
+              runId: "run-b",
+            },
+          ],
+          "analytics-prod",
+        ),
+      ],
+      {
+        personalIndex: "",
+        personalNotes: [],
+        sharedLearnings: "",
+      },
+    );
+
+    const content = result.proposals
+      .map((proposal) => proposal.content)
+      .join("\n");
+
+    expect(content).toContain("latency score failed");
+    expect(content).toContain("actual 61250ms, expected 30000ms");
+    expect(content).not.toContain('"metadata"');
+    expect(content).not.toContain('"run_id"');
+    expect(content).not.toContain("{");
+  });
+
+  it("requires workspace instruction evidence to span threads or source apps", () => {
+    const sameThreadFailures: DreamEvidence[] = [
+      {
+        kind: "failed-run",
+        label: "Run failed or aborted",
+        snippet: "failed: production dream source timed out",
+        threadId: "thread-a",
+        threadTitle: "Production timeout",
+        sourceId: "dispatch-prod",
+      },
+      {
+        kind: "tool-error",
+        label: "Tool call reported an error",
+        snippet:
+          "Tool error (credits-limit-daily): daily credits limit reached",
+        threadId: "thread-a",
+        threadTitle: "Production timeout",
+        sourceId: "dispatch-prod",
+      },
+      {
+        kind: "eval-failure",
+        label: "Evaluation failed or scored low",
+        snippet: "latency score failed; score 0",
+        threadId: "thread-a",
+        threadTitle: "Production timeout",
+        sourceId: "dispatch-prod",
+      },
+      {
+        kind: "frustration",
+        label: "User expressed friction or repeated failure",
+        snippet: "This keeps failing again",
+        threadId: "thread-a",
+        threadTitle: "Production timeout",
+        sourceId: "dispatch-prod",
+      },
+    ];
+
+    const singleSource = buildProposalInputs(
+      [candidateWithEvidence(sameThreadFailures, "dispatch-prod")],
+      {
+        personalIndex: "",
+        personalNotes: [],
+        sharedLearnings: "",
+      },
+    );
+
+    expect(
+      singleSource.proposals.some(
+        (proposal) => proposal.targetType === "workspace-instruction",
+      ),
+    ).toBe(false);
+
+    const crossSource = buildProposalInputs(
+      [
+        candidateWithEvidence(sameThreadFailures.slice(0, 2), "dispatch-prod"),
+        candidateWithEvidence(
+          sameThreadFailures.slice(2).map((entry) => ({
+            ...entry,
+            sourceId: "analytics-prod",
+          })),
+          "analytics-prod",
+        ),
+      ],
+      {
+        personalIndex: "",
+        personalNotes: [],
+        sharedLearnings: "",
+      },
+    );
+
+    expect(crossSource.proposals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetType: "workspace-instruction",
+          targetPath: expect.stringMatching(
+            /^instructions\/dream-run-reliability-/,
+          ),
         }),
       ]),
     );

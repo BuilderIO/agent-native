@@ -63,6 +63,18 @@ export {
   type BuilderChatMessage,
 } from "./builder-frame.js";
 export {
+  AgentNative,
+  useAgentNativeScreenContext,
+  type AgentNativeCommandCallback,
+  type AgentNativeCommandCallbackInfo,
+  type AgentNativeProps,
+} from "./AgentNative.js";
+export {
+  defineClientAction,
+  type AgentNativeClientActionDefinition,
+  type AgentNativeClientActionRunner,
+} from "./client-action.js";
+export {
   AgentNativeFrame,
   type AgentNativeFrameProps,
 } from "./AgentNativeFrame.js";
@@ -73,8 +85,18 @@ export {
   createAgentNativeHostBridge,
   defaultAgentNativeHostCommands,
   onAgentNativeHostInit,
+  readAgentNativeScreenContext,
+  requestAgentNativeHostActions,
   requestAgentNativeHostContext,
+  runAgentNativeHostAction,
   sendAgentNativeHostCommand,
+  type AgentNativeActionAvailability,
+  type AgentNativeActionManifestEntry,
+  type AgentNativeClientAction,
+  type AgentNativeClientActionApprovalConfig,
+  type AgentNativeClientActionGetter,
+  type AgentNativeClientActionRuntime,
+  type AgentNativeClientActions,
   type AgentNativeHostAuth,
   type AgentNativeHostAuthPayload,
   type AgentNativeHostBridge,
@@ -92,8 +114,23 @@ export {
   type AgentNativeHostResourceContext,
   type AgentNativeHostRouteContext,
   type AgentNativeHostSelectionContext,
+  type AgentNativeHostSession,
+  type AgentNativeJsonSchema,
+  type AgentNativeScreenSnapshot,
+  type AgentNativeScreenSnapshotOptions,
   type BuiltInAgentNativeHostCommand,
 } from "./host-bridge.js";
+export {
+  AGENT_NATIVE_HOST_TOOL_NAMES,
+  createAgentNativeHostTools,
+  type AgentNativeHostToolDefinition,
+  type AgentNativeHostToolName,
+  type AgentNativeHostToolParameters,
+  type AgentNativeHostToolSet,
+  type CreateAgentNativeHostToolsOptions,
+  type RunAgentNativeHostActionToolInput,
+  type SendAgentNativeHostCommandToolInput,
+} from "./host-tools.js";
 export {
   NewWorkspaceAppFlow,
   type NewWorkspaceAppFlowProps,
