@@ -59,6 +59,7 @@ let _versionSeeded = false;
 let _lastDbCheck = 0;
 let _lastAppStateTs = 0;
 let _lastSettingsTs = 0;
+let _lastExtensionsTs = 0;
 
 /**
  * Tracks the latest updated_at seen on the `__screen_refresh__` key in
@@ -84,6 +85,34 @@ function wireLocalEmitters(): void {
   getSettingsEmitter().on("settings", (event) => {
     recordChange(event);
   });
+}
+
+function timestampValue(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function readMaxUpdatedAt(
+  db: {
+    execute: (
+      query: string,
+    ) => Promise<{ rows: Array<Record<string, unknown>> }>;
+  },
+  table: "application_state" | "settings" | "tools",
+): Promise<number> {
+  try {
+    const result = await db.execute(
+      `SELECT MAX(updated_at) as max_ts FROM ${table}`,
+    );
+    return timestampValue(result.rows[0]?.max_ts);
+  } catch {
+    // Optional framework tables may not exist in every app yet.
+    return 0;
+  }
 }
 
 /** Get the current global version counter. */
@@ -174,25 +203,27 @@ async function seedVersionFromDb(): Promise<void> {
   try {
     const db = getDbExec();
 
-    const [appResult, settingsResult, refreshResult] = await Promise.all([
-      db.execute("SELECT MAX(updated_at) as max_ts FROM application_state"),
-      db.execute("SELECT MAX(updated_at) as max_ts FROM settings"),
-      db.execute({
-        sql: "SELECT updated_at FROM application_state WHERE key = ?",
-        args: [SCREEN_REFRESH_KEY],
-      }),
+    const [appTs, settingsTs, extensionsTs, refreshResult] = await Promise.all([
+      readMaxUpdatedAt(db, "application_state"),
+      readMaxUpdatedAt(db, "settings"),
+      readMaxUpdatedAt(db, "tools"),
+      db
+        .execute({
+          sql: "SELECT updated_at FROM application_state WHERE key = ?",
+          args: [SCREEN_REFRESH_KEY],
+        })
+        .catch(() => ({ rows: [] })),
     ]);
 
-    const appTs = Number(appResult.rows[0]?.max_ts) || 0;
-    const settingsTs = Number(settingsResult.rows[0]?.max_ts) || 0;
-    const refreshTs = Number(refreshResult.rows[0]?.updated_at) || 0;
+    const refreshTs = timestampValue(refreshResult.rows[0]?.updated_at);
 
     // Seed version — never decrease an already-set value
-    _version = Math.max(_version, appTs, settingsTs);
+    _version = Math.max(_version, appTs, settingsTs, extensionsTs);
 
     // Set baselines so checkExternalDbChanges detects future writes
     _lastAppStateTs = appTs;
     _lastSettingsTs = settingsTs;
+    _lastExtensionsTs = extensionsTs;
     _lastScreenRefreshTs = refreshTs;
     _screenRefreshInitialized = true;
   } catch {
@@ -222,7 +253,7 @@ async function checkExternalDbChanges(): Promise<void> {
     });
     if (appResult.rows.length > 0) {
       const appTs = appResult.rows.reduce(
-        (max, row) => Math.max(max, Number(row.updated_at) || 0),
+        (max, row) => Math.max(max, timestampValue(row.updated_at)),
         _lastAppStateTs,
       );
       if (_lastAppStateTs > 0) {
@@ -249,7 +280,7 @@ async function checkExternalDbChanges(): Promise<void> {
       sql: "SELECT updated_at, value FROM application_state WHERE key = ?",
       args: [SCREEN_REFRESH_KEY],
     });
-    const refreshTs = Number(refreshResult.rows[0]?.updated_at) || 0;
+    const refreshTs = timestampValue(refreshResult.rows[0]?.updated_at);
     if (!_screenRefreshInitialized) {
       _lastScreenRefreshTs = refreshTs;
       _screenRefreshInitialized = true;
@@ -272,15 +303,24 @@ async function checkExternalDbChanges(): Promise<void> {
     }
 
     // Check settings for external writes
-    const settingsResult = await db.execute(
-      "SELECT MAX(updated_at) as max_ts FROM settings",
-    );
-    const settingsTs = Number(settingsResult.rows[0]?.max_ts) || 0;
+    const settingsTs = await readMaxUpdatedAt(db, "settings");
     if (settingsTs > _lastSettingsTs) {
       if (_lastSettingsTs > 0) {
         recordChange({ source: "settings", type: "change", key: "*" });
       }
       _lastSettingsTs = settingsTs;
+    }
+
+    // Extension rows live in the legacy physical `tools` table. Agent-created
+    // extensions are often updated from a different serverless invocation than
+    // the browser's poll request, so an in-memory recordChange() alone is not
+    // enough to keep open previews fresh.
+    const extensionsTs = await readMaxUpdatedAt(db, "tools");
+    if (extensionsTs > _lastExtensionsTs) {
+      if (_lastExtensionsTs > 0) {
+        recordChange({ source: "extensions", type: "change", key: "*" });
+      }
+      _lastExtensionsTs = extensionsTs;
     }
   } catch {
     // Tables may not exist yet — ignore

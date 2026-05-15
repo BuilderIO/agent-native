@@ -32,6 +32,7 @@ describe("poll handler", () => {
   it("emits screen-refresh events when the refresh marker changes", async () => {
     let appStateTs = 1_000;
     let settingsTs = 900;
+    let extensionsTs = 800;
     let refreshTs = 500;
     let refreshValue = JSON.stringify({ scope: "initial" });
     let appStateRows = [
@@ -52,6 +53,9 @@ describe("poll handler", () => {
       }
       if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
         return { rows: [{ max_ts: settingsTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
+        return { rows: [{ max_ts: extensionsTs }] };
       }
       if (
         sql.includes("SELECT session_id, key, updated_at") &&
@@ -77,6 +81,7 @@ describe("poll handler", () => {
     vi.setSystemTime(101_500);
     appStateTs = 2_000;
     settingsTs = 900;
+    extensionsTs = 800;
     refreshTs = 2_000;
     refreshValue = JSON.stringify({ scope: "documents" });
     appStateRows = [
@@ -106,5 +111,57 @@ describe("poll handler", () => {
         }),
       ]),
     );
+  });
+
+  it("emits extension changes from the tools table for serverless fallback polling", async () => {
+    let appStateTs = 1_000;
+    let settingsTs = 900;
+    let extensionsTs = "2026-05-15T12:00:00.000Z";
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [{ max_ts: appStateTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
+        return { rows: [{ max_ts: settingsTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
+        return { rows: [{ max_ts: extensionsTs }] };
+      }
+      if (
+        sql.includes("SELECT session_id, key, updated_at") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [] };
+      }
+      if (sql.includes("WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const baseline = await handler({ query: { since: "0" } });
+    expect(baseline.events).toEqual([]);
+
+    vi.setSystemTime(101_500);
+    extensionsTs = "2026-05-15T12:00:01.250Z";
+
+    const next = await handler({ query: { since: String(baseline.version) } });
+
+    expect(next.version).toBeGreaterThan(baseline.version);
+    expect(next.events).toEqual([
+      expect.objectContaining({
+        source: "extensions",
+        type: "change",
+        key: "*",
+      }),
+    ]);
   });
 });
