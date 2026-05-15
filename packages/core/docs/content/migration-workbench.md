@@ -87,9 +87,9 @@ npx @agent-native/core@latest code resume --last "check the auth edge cases next
 
 Run modes make editing policy explicit per session:
 
-| Mode          | CLI flag | Behavior                                                                                                  |
-| ------------- | -------- | --------------------------------------------------------------------------------------------------------- |
-| **Plan mode** | `--plan` | Inspect, plan, and explain without writing files or running mutations.                                    |
+| Mode          | CLI flag | Behavior                                                                                                 |
+| ------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| **Plan mode** | `--plan` | Inspect, plan, and explain without writing files or running mutations.                                   |
 | **Auto mode** | `--auto` | Edit files, run checks, and pause only for genuinely destructive file, git, publish, or data operations. |
 
 Auto mode is the default for local Code Agents sessions. Use Plan mode for assessment, architecture, review, or any task where you want a proposal before edits.
