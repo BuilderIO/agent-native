@@ -2,10 +2,16 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
+  type Icon,
+  IconChartBar,
   IconCheck,
   IconExternalLink,
   IconFileText,
+  IconGitMerge,
+  IconInfoCircle,
+  IconListDetails,
   IconPencil,
+  IconShieldCheck,
   IconX,
 } from "@tabler/icons-react";
 import { type ReviewItem, type ReviewQueueResponse } from "@/lib/brain";
@@ -22,6 +28,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import {
   EmptyActionState,
@@ -29,6 +43,7 @@ import {
   PageHeader,
   StatusBadge,
 } from "@/components/brain/Surface";
+import { cn } from "@/lib/utils";
 
 type ProposalStatus = "pending" | "approved" | "rejected";
 
@@ -36,6 +51,27 @@ interface ProposalDraft {
   title?: string;
   body?: string;
   rationale?: string;
+}
+
+interface TargetContext {
+  label: string;
+  detail: string;
+  knowledgeId?: string | null;
+  supersedesId?: string | null;
+}
+
+interface ProposalInsight {
+  confidence: number | null;
+  queueReason: string;
+  privacyFlags: string[];
+  target: TargetContext;
+  publishTier: string | null;
+  kind: string | null;
+  topic: string | null;
+  status: string | null;
+  summary: string | null;
+  tags: string[];
+  approveLabel: string;
 }
 
 export default function ReviewRoute() {
@@ -108,7 +144,7 @@ export default function ReviewRoute() {
     const value = drafts[proposal.id]?.[field];
     if (value !== undefined) return value;
     if (field === "title") return proposal.title;
-    if (field === "body") return proposal.body ?? "";
+    if (field === "body") return proposal.body ?? proposal.proposedAnswer ?? "";
     return proposal.rationale ?? "";
   }
 
@@ -117,7 +153,8 @@ export default function ReviewRoute() {
     if (!draft) return false;
     return (
       (draft.title !== undefined && draft.title !== proposal.title) ||
-      (draft.body !== undefined && draft.body !== (proposal.body ?? "")) ||
+      (draft.body !== undefined &&
+        draft.body !== (proposal.body ?? proposal.proposedAnswer ?? "")) ||
       (draft.rationale !== undefined &&
         draft.rationale !== (proposal.rationale ?? ""))
     );
@@ -187,6 +224,8 @@ export default function ReviewRoute() {
               const evidence = proposal.evidence ?? [];
               const sourceUrl = firstSourceUrl(proposal);
               const canReview = proposal.status === "pending";
+              const insight = buildProposalInsight(proposal);
+              const hasChanges = hasDraftChanges(proposal);
               return (
                 <Card key={proposal.id} className="shadow-none">
                   <CardHeader className="pb-3">
@@ -201,6 +240,10 @@ export default function ReviewRoute() {
                             <Badge variant="secondary" className="capitalize">
                               {proposal.proposedAction}
                             </Badge>
+                          ) : null}
+                          <ConfidenceBadge confidence={insight.confidence} />
+                          {hasChanges ? (
+                            <Badge variant="outline">Unsaved edits</Badge>
                           ) : null}
                         </div>
                         <p className="mt-1 text-sm text-muted-foreground">
@@ -277,60 +320,46 @@ export default function ReviewRoute() {
                       </div>
 
                       <div className="grid content-start gap-4 rounded-md border border-border bg-muted/30 p-4">
-                        <div className="grid gap-2 text-sm">
-                          <MetadataRow
-                            label="Source"
-                            value={proposal.sourceName ?? proposal.sourceId}
+                        <div className="grid gap-3">
+                          <SignalRow
+                            icon={IconInfoCircle}
+                            label="Queued because"
+                            value={insight.queueReason}
                           />
-                          <MetadataRow
-                            label="Capture"
-                            value={proposal.captureId}
+                          <SignalRow
+                            icon={IconGitMerge}
+                            label="Target"
+                            value={insight.target.label}
+                            detail={insight.target.detail}
                           />
-                          <MetadataRow
-                            label="Knowledge"
-                            value={proposal.knowledgeId}
-                          />
-                          <MetadataRow
-                            label="Visibility"
-                            value={proposal.visibility}
-                          />
-                          <MetadataRow
-                            label="Updated"
-                            value={formatDate(proposal.updatedAt)}
+                          <SignalRow
+                            icon={IconShieldCheck}
+                            label="Privacy"
+                            value={privacySummary(insight.privacyFlags)}
+                            detail={privacyDetail(insight.privacyFlags)}
                           />
                         </div>
-                        {evidence.length ? (
-                          <>
-                            <Separator />
-                            <div className="grid gap-3">
-                              <div className="flex items-center gap-2 text-sm font-medium">
-                                <IconFileText className="size-4 text-muted-foreground" />
-                                Evidence
-                              </div>
-                              {evidence.slice(0, 3).map((item, index) => (
-                                <div
-                                  key={`${proposal.id}-evidence-${index}`}
-                                  className="rounded-md border border-border bg-card p-3 text-sm"
-                                >
-                                  <p className="line-clamp-4 leading-6">
-                                    {item.quote ?? "Evidence quote unavailable"}
-                                  </p>
-                                  <p className="mt-2 text-xs text-muted-foreground">
-                                    {item.captureTitle ??
-                                      item.captureId ??
-                                      "Captured source"}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-                          </>
-                        ) : null}
+                        <Separator />
+                        <EvidencePreview
+                          evidence={evidence}
+                          proposalId={proposal.id}
+                        />
+                        <ProposalDetailsSheet
+                          proposal={proposal}
+                          insight={insight}
+                          evidence={evidence}
+                          sourceUrl={sourceUrl}
+                          draftTitle={draftValue(proposal, "title")}
+                          draftBody={draftValue(proposal, "body")}
+                          draftRationale={draftValue(proposal, "rationale")}
+                          hasDraftChanges={hasChanges}
+                        />
                       </div>
                     </div>
 
                     <Separator />
 
-                    <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+                    <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 lg:grid-cols-[1fr_auto] lg:items-end">
                       <div className="grid gap-2">
                         <Label htmlFor={`reviewer-notes-${proposal.id}`}>
                           Reviewer notes
@@ -350,6 +379,13 @@ export default function ReviewRoute() {
                             }))
                           }
                         />
+                        <p className="text-xs leading-5 text-muted-foreground">
+                          {canReview
+                            ? hasChanges
+                              ? "Approval saves wording edits first; rejection records only the notes."
+                              : "Approval applies the proposal; rejection keeps it out of company memory."
+                            : reviewedSummary(proposal)}
+                        </p>
                       </div>
                       <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
                         <Button
@@ -363,7 +399,7 @@ export default function ReviewRoute() {
                           onClick={() => void saveDraft(proposal)}
                         >
                           <IconPencil className="size-4" />
-                          Save edits
+                          Save wording
                         </Button>
                         <Button
                           size="sm"
@@ -372,7 +408,7 @@ export default function ReviewRoute() {
                           onClick={() => void reject(proposal)}
                         >
                           <IconX className="size-4" />
-                          Reject
+                          Reject proposal
                         </Button>
                         <Button
                           size="sm"
@@ -380,7 +416,7 @@ export default function ReviewRoute() {
                           onClick={() => void approve(proposal)}
                         >
                           <IconCheck className="size-4" />
-                          Approve
+                          {insight.approveLabel}
                         </Button>
                       </div>
                     </div>
@@ -442,19 +478,637 @@ function formatDate(value: string | null | undefined) {
   }).format(date);
 }
 
-function MetadataRow({
+function buildProposalInsight(proposal: ReviewItem): ProposalInsight {
+  const payload = proposal.payload ?? {};
+  const confidence = readNumber(
+    payload.confidence ?? payload.score ?? payload.confidenceScore,
+  );
+  const publishTier = readString(payload.publishTier ?? payload.publish_tier);
+  const kind = readString(payload.kind ?? payload.type);
+  const topic = readString(payload.topic);
+  const status = readString(payload.status);
+  const summary = readString(payload.summary);
+  const tags = readStringArray(payload.tags);
+  const target = buildTargetContext(proposal, payload);
+  const privacyFlags = buildPrivacyFlags(proposal, payload, {
+    publishTier,
+    status,
+  });
+
+  return {
+    confidence,
+    queueReason: buildQueueReason(proposal, {
+      confidence,
+      payload,
+      publishTier,
+      privacyFlags,
+    }),
+    privacyFlags,
+    target,
+    publishTier,
+    kind,
+    topic,
+    status,
+    summary,
+    tags,
+    approveLabel: buildApproveLabel(target, status),
+  };
+}
+
+function buildTargetContext(
+  proposal: ReviewItem,
+  payload: Record<string, unknown>,
+): TargetContext {
+  const knowledgeId =
+    proposal.knowledgeId ??
+    readString(payload.knowledgeId ?? payload.knowledge_id);
+  const supersedesId = readString(payload.supersedesId ?? payload.supersedes);
+
+  if (knowledgeId && supersedesId) {
+    return {
+      label: "Merge update and supersede",
+      detail: `Updates ${shortId(knowledgeId)} and archives ${shortId(
+        supersedesId,
+      )}.`,
+      knowledgeId,
+      supersedesId,
+    };
+  }
+
+  if (knowledgeId) {
+    return {
+      label: "Merge into existing memory",
+      detail: `Approving applies this wording to ${shortId(knowledgeId)}.`,
+      knowledgeId,
+    };
+  }
+
+  if (supersedesId) {
+    return {
+      label: "Supersede existing memory",
+      detail: `Approving creates a replacement and archives ${shortId(
+        supersedesId,
+      )}.`,
+      supersedesId,
+    };
+  }
+
+  if (proposal.proposedAction === "archive") {
+    return {
+      label: "Archive memory",
+      detail: "Approving marks the target memory as archived.",
+      knowledgeId,
+    };
+  }
+
+  return {
+    label: "Create new memory",
+    detail: "Approving adds a new durable company-memory entry.",
+  };
+}
+
+function buildPrivacyFlags(
+  proposal: ReviewItem,
+  payload: Record<string, unknown>,
+  context: { publishTier: string | null; status: string | null },
+) {
+  const flags: string[] = readStringArray(
+    payload.privacyFlags ?? payload.privacy_flags ?? payload.flags,
+  );
+  const visibility = readString(payload.visibility) ?? proposal.visibility;
+  const redactions = readStringArray(payload.redactions);
+
+  if (context.status === "redacted" || containsRedaction(proposal)) {
+    flags.push("Redacted content");
+  }
+  if (redactions.length) {
+    flags.push(
+      `${redactions.length} redaction ${redactions.length === 1 ? "rule" : "rules"}`,
+    );
+  }
+  if (context.publishTier === "company") {
+    flags.push("Company-tier memory");
+  } else if (context.publishTier) {
+    flags.push(`${titleCase(context.publishTier)} publish tier`);
+  }
+  if (visibility) {
+    flags.push(`${titleCase(visibility)} visibility`);
+  }
+  if (readBoolean(payload.publishCanonical)) {
+    flags.push("Canonical export");
+  }
+
+  const unique = Array.from(new Set(flags));
+  return unique.length ? unique : ["No privacy flags"];
+}
+
+function buildQueueReason(
+  proposal: ReviewItem,
+  context: {
+    confidence: number | null;
+    payload: Record<string, unknown>;
+    publishTier: string | null;
+    privacyFlags: string[];
+  },
+) {
+  const explicit =
+    proposal.rationale?.trim() ||
+    proposal.reason?.trim() ||
+    readString(
+      context.payload.reason ??
+        context.payload.queueReason ??
+        context.payload.queue_reason,
+    );
+  if (explicit) return explicit;
+  if (context.privacyFlags.some((flag) => flag.includes("Redacted"))) {
+    return "Privacy-sensitive or redacted content needs reviewer confirmation.";
+  }
+  if (context.confidence !== null && context.confidence < 90) {
+    return `Confidence is ${formatConfidence(
+      context.confidence,
+    )}, below the auto-publish threshold.`;
+  }
+  if (context.publishTier === "company") {
+    return "Company-tier memory requires reviewer approval.";
+  }
+  return "Queued for reviewer approval before becoming durable company memory.";
+}
+
+function buildApproveLabel(target: TargetContext, status: string | null) {
+  if (status === "redacted") return "Approve redacted draft";
+  if (target.supersedesId) return "Approve replacement";
+  if (target.knowledgeId) return "Approve update";
+  return "Approve memory";
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : null))
+    .filter((item): item is string => Boolean(item));
+}
+
+function readNumber(value: unknown) {
+  const number =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(number)) return null;
+  const normalized = number <= 1 ? number * 100 : number;
+  return Math.max(0, Math.min(100, Math.round(normalized)));
+}
+
+function readBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.toLowerCase() === "true";
+  return false;
+}
+
+function containsRedaction(proposal: ReviewItem) {
+  const values = [
+    proposal.title,
+    proposal.body,
+    proposal.rationale,
+    ...(proposal.evidence ?? []).flatMap((item) => [item.quote, item.note]),
+  ];
+  return values.some(
+    (value) =>
+      typeof value === "string" && value.toLowerCase().includes("[redacted]"),
+  );
+}
+
+function privacySummary(flags: string[]) {
+  if (!flags.length || flags[0] === "No privacy flags") return "No flags";
+  return flags.length === 1 ? flags[0] : `${flags[0]} +${flags.length - 1}`;
+}
+
+function privacyDetail(flags: string[]) {
+  if (!flags.length || flags[0] === "No privacy flags") {
+    return "No redaction, export, or visibility warning was attached.";
+  }
+  return flags.slice(1).join(" · ") || "Review before approving.";
+}
+
+function formatConfidence(confidence: number | null) {
+  return confidence === null ? "Not scored" : `${confidence}%`;
+}
+
+function shortId(value: string) {
+  return value.length > 12
+    ? `${value.slice(0, 6)}...${value.slice(-4)}`
+    : value;
+}
+
+function titleCase(value: string) {
+  return value
+    .replace(/[_-]/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function reviewedSummary(proposal: ReviewItem) {
+  const status = proposal.status ?? "reviewed";
+  if (proposal.reviewedAt || proposal.reviewedBy) {
+    return `${titleCase(status)} ${formatDate(proposal.reviewedAt)} by ${
+      proposal.reviewedBy ?? "reviewer"
+    }.`;
+  }
+  return `This proposal is ${status.replace(/_/g, " ")}.`;
+}
+
+function timecode(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const totalSeconds = Math.max(0, Math.floor(value / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = `${totalSeconds % 60}`.padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function ConfidenceBadge({ confidence }: { confidence: number | null }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "gap-1.5",
+        confidence !== null &&
+          confidence >= 90 &&
+          "border-border bg-secondary text-secondary-foreground",
+        confidence !== null &&
+          confidence < 70 &&
+          "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+      )}
+    >
+      <IconChartBar className="size-3" />
+      {formatConfidence(confidence)}
+    </Badge>
+  );
+}
+
+function SignalRow({
+  icon: IconComponent,
   label,
   value,
+  detail,
 }: {
+  icon: Icon;
   label: string;
   value?: string | null;
+  detail?: string | null;
+}) {
+  return (
+    <div className="grid gap-1.5 text-sm">
+      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+        <IconComponent className="size-3.5" />
+        <span>{label}</span>
+      </div>
+      <p className="line-clamp-3 break-words font-medium leading-5 text-foreground">
+        {value || "Not recorded"}
+      </p>
+      {detail ? (
+        <p className="break-words text-xs leading-5 text-muted-foreground">
+          {detail}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function EvidencePreview({
+  evidence,
+  proposalId,
+}: {
+  evidence: NonNullable<ReviewItem["evidence"]>;
+  proposalId: string;
+}) {
+  return (
+    <div className="grid gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <IconFileText className="size-4 text-muted-foreground" />
+          Source snippets
+        </div>
+        {evidence.length > 2 ? (
+          <Badge variant="outline">+{evidence.length - 2} more</Badge>
+        ) : null}
+      </div>
+      {evidence.length ? (
+        evidence
+          .slice(0, 2)
+          .map((item, index) => (
+            <EvidenceSnippet
+              key={`${proposalId}-evidence-${index}`}
+              item={item}
+              compact
+            />
+          ))
+      ) : (
+        <p className="rounded-md border border-dashed border-border bg-background p-3 text-sm leading-6 text-muted-foreground">
+          No source snippets were attached to this proposal.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function EvidenceSnippet({
+  item,
+  compact = false,
+}: {
+  item: NonNullable<ReviewItem["evidence"]>[number];
+  compact?: boolean;
+}) {
+  const source = item.captureTitle ?? item.captureId ?? "Captured source";
+  const when = timecode(item.timestampMs);
+  const detail = [source, when ? `at ${when}` : null, item.note]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div className="rounded-md border border-border bg-background p-3 text-sm">
+      <p
+        className={cn(
+          "whitespace-pre-wrap break-words leading-6",
+          compact && "line-clamp-4",
+        )}
+      >
+        {item.quote ?? "Evidence quote unavailable"}
+      </p>
+      <p className="mt-2 break-words text-xs leading-5 text-muted-foreground">
+        {detail || "Captured source"}
+      </p>
+    </div>
+  );
+}
+
+function ProposalDetailsSheet({
+  proposal,
+  insight,
+  evidence,
+  sourceUrl,
+  draftTitle,
+  draftBody,
+  draftRationale,
+  hasDraftChanges,
+}: {
+  proposal: ReviewItem;
+  insight: ProposalInsight;
+  evidence: NonNullable<ReviewItem["evidence"]>;
+  sourceUrl: string | null;
+  draftTitle: string;
+  draftBody: string;
+  draftRationale: string;
+  hasDraftChanges: boolean;
+}) {
+  const queuedBody = proposal.body ?? proposal.proposedAnswer ?? "";
+  const detailRows = [
+    { label: "Source", value: proposal.sourceName ?? proposal.sourceId },
+    { label: "Capture", value: proposal.captureId, mono: true },
+    {
+      label: "Knowledge target",
+      value: insight.target.knowledgeId,
+      mono: true,
+    },
+    { label: "Supersedes", value: insight.target.supersedesId, mono: true },
+    { label: "Visibility", value: proposal.visibility },
+    { label: "Updated", value: formatDate(proposal.updatedAt) },
+  ];
+  const payloadRows = [
+    { label: "Kind", value: insight.kind },
+    { label: "Topic", value: insight.topic },
+    { label: "Publish tier", value: insight.publishTier },
+    { label: "Result status", value: insight.status },
+    { label: "Tags", value: insight.tags.join(", ") },
+    { label: "Summary", value: insight.summary },
+  ];
+
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <Button size="sm" variant="outline" className="w-full">
+          <IconListDetails className="size-4" />
+          Review details
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+        <SheetHeader>
+          <SheetTitle className="pr-8">{proposal.title}</SheetTitle>
+          <SheetDescription>
+            {insight.target.label} · {formatConfidence(insight.confidence)}
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="grid gap-6 py-6">
+          <section className="grid gap-3">
+            <SectionHeading icon={IconInfoCircle} title="Review signals" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <SignalRow
+                icon={IconInfoCircle}
+                label="Why queued"
+                value={insight.queueReason}
+              />
+              <SignalRow
+                icon={IconGitMerge}
+                label="Target context"
+                value={insight.target.label}
+                detail={insight.target.detail}
+              />
+              <SignalRow
+                icon={IconShieldCheck}
+                label="Privacy flags"
+                value={privacySummary(insight.privacyFlags)}
+                detail={privacyDetail(insight.privacyFlags)}
+              />
+              <div className="grid gap-1.5 text-sm">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  <IconChartBar className="size-3.5" />
+                  <span>Confidence</span>
+                </div>
+                <div>
+                  <ConfidenceBadge confidence={insight.confidence} />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-3">
+            <SectionHeading icon={IconGitMerge} title="Target and payload" />
+            <MetadataGrid rows={detailRows} />
+            <MetadataGrid rows={payloadRows} />
+          </section>
+
+          <section className="grid gap-3">
+            <SectionHeading
+              icon={IconPencil}
+              title={hasDraftChanges ? "Draft changes" : "Queued proposal"}
+            />
+            <DraftDiff
+              label="Title"
+              queued={proposal.title}
+              current={draftTitle}
+            />
+            <DraftDiff
+              label="Memory body"
+              queued={queuedBody}
+              current={draftBody}
+              multiline
+            />
+            <DraftDiff
+              label="Rationale"
+              queued={proposal.rationale ?? ""}
+              current={draftRationale}
+              multiline
+            />
+          </section>
+
+          <section className="grid gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <SectionHeading icon={IconFileText} title="Evidence" />
+              {sourceUrl ? (
+                <Button asChild size="sm" variant="outline">
+                  <a href={sourceUrl} target="_blank" rel="noreferrer">
+                    <IconExternalLink className="size-4" />
+                    Open source
+                  </a>
+                </Button>
+              ) : null}
+            </div>
+            {evidence.length ? (
+              <div className="grid gap-3">
+                {evidence.map((item, index) => (
+                  <EvidenceSnippet
+                    key={`${proposal.id}-detail-evidence-${index}`}
+                    item={item}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed border-border bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">
+                No source snippets were attached to this proposal.
+              </p>
+            )}
+          </section>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function SectionHeading({
+  icon: IconComponent,
+  title,
+}: {
+  icon: Icon;
+  title: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+      <IconComponent className="size-4 text-muted-foreground" />
+      <span>{title}</span>
+    </div>
+  );
+}
+
+function MetadataGrid({
+  rows,
+}: {
+  rows: Array<{ label: string; value?: string | null; mono?: boolean }>;
+}) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {rows.map((row) => (
+        <MetadataRow
+          key={row.label}
+          label={row.label}
+          value={row.value}
+          mono={row.mono}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DraftDiff({
+  label,
+  queued,
+  current,
+  multiline = false,
+}: {
+  label: string;
+  queued: string;
+  current: string;
+  multiline?: boolean;
+}) {
+  const changed = queued !== current;
+  return (
+    <div className="grid gap-2 rounded-md border border-border bg-muted/20 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium">{label}</p>
+        {changed ? <Badge variant="outline">Edited</Badge> : null}
+      </div>
+      {changed ? (
+        <div className="grid gap-2 md:grid-cols-2">
+          <DiffText label="Queued" value={queued} multiline={multiline} />
+          <DiffText
+            label="Current draft"
+            value={current}
+            multiline={multiline}
+          />
+        </div>
+      ) : (
+        <DiffText label="Current" value={current} multiline={multiline} />
+      )}
+    </div>
+  );
+}
+
+function DiffText({
+  label,
+  value,
+  multiline,
+}: {
+  label: string;
+  value: string;
+  multiline: boolean;
 }) {
   return (
     <div className="grid gap-1">
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+        {label}
+      </p>
+      <p
+        className={cn(
+          "break-words rounded-md bg-background p-3 text-sm leading-6",
+          multiline && "whitespace-pre-wrap",
+        )}
+      >
+        {value || "Not recorded"}
+      </p>
+    </div>
+  );
+}
+
+function MetadataRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value?: string | null;
+  mono?: boolean;
+}) {
+  return (
+    <div className="grid gap-1 rounded-md border border-border bg-background p-3">
       <span className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
         {label}
       </span>
-      <span className="break-words">{value || "Not recorded"}</span>
+      <span className={cn("break-words text-sm", mono && "font-mono text-xs")}>
+        {value || "Not recorded"}
+      </span>
     </div>
   );
 }

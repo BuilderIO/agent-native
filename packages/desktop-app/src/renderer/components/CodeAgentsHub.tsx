@@ -44,6 +44,16 @@ export default function CodeAgentsHub({
         }
         return api.createRun(request);
       },
+      async listCodePacks() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listCodePacks) {
+          return {
+            status: "unavailable",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.listCodePacks();
+      },
       async readTranscript(request) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.readTranscript) {
@@ -77,6 +87,28 @@ export default function CodeAgentsHub({
           };
         }
         return api.updateRun(request);
+      },
+      async retryRun(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.retryRun) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.retryRun(request);
+      },
+      async rerunRun(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.rerunRun) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.rerunRun(request);
       },
       async controlRun(goalId, runId, command, permissionMode) {
         const api = window.electronAPI?.codeAgents;

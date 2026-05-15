@@ -95,7 +95,7 @@ Each template is a complete app with UI, agent actions, database schema, and AI 
 | ----------------------------------- | ------------------------------------------------ |
 | [Calendar](/templates/calendar)     | Google Calendar, Calendly                        |
 | [Content](/templates/content)       | Notion, Google Docs                              |
-| [Brain](/templates/brain)           | Team wikis and AI memory tools                   |
+| [Brain](/templates/brain)           | Company chat, cited memory, and review queue     |
 | [Slides](/templates/slides)         | Google Slides, Pitch                             |
 | [Analytics](/templates/analytics)   | Amplitude, Mixpanel, Looker                      |
 | [Mail](/templates/mail)             | Superhuman, Gmail                                |

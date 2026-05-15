@@ -18,6 +18,10 @@ import {
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import {
+  formatCodeAgentPromptWithAttachments,
+  readCodeAgentPromptAttachment,
+} from "./composer-primitives.js";
+import {
   CODE_AGENT_GOALS,
   DEFAULT_CODE_AGENT_PERMISSION_MODE,
   getCodeAgentAppConfig,
@@ -46,10 +50,13 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu.js";
 import type {
+  CodeAgentCodePack,
+  CodeAgentCodePackResult,
   CodeAgentControlCommand,
   CodeAgentControlResult,
   CodeAgentCreateRunRequest,
   CodeAgentCreateRunResult,
+  CodeAgentFollowUpMode,
   CodeAgentFollowUpRequest,
   CodeAgentFollowUpResult,
   CodeAgentMigrationRun,
@@ -58,6 +65,10 @@ import type {
   CodeAgentModelSelection,
   CodeAgentPromptAttachment,
   CodeAgentReasoningEffort,
+  CodeAgentRerunRequest,
+  CodeAgentRerunResult,
+  CodeAgentRetryRunRequest,
+  CodeAgentRetryRunResult,
   CodeAgentRun,
   CodeAgentRunDetail,
   CodeAgentRunListResult,
@@ -75,6 +86,7 @@ import type {
 export interface CodeAgentsHost {
   listRuns(goalId?: string): Promise<CodeAgentRunListResult>;
   listModels?(): Promise<CodeAgentModelListResult>;
+  listCodePacks?(): Promise<CodeAgentCodePackResult>;
   createRun(
     request: CodeAgentCreateRunRequest,
   ): Promise<CodeAgentCreateRunResult>;
@@ -87,6 +99,10 @@ export interface CodeAgentsHost {
   updateRun(
     request: CodeAgentUpdateRunRequest,
   ): Promise<CodeAgentUpdateRunResult>;
+  retryRun?(
+    request: CodeAgentRetryRunRequest,
+  ): Promise<CodeAgentRetryRunResult>;
+  rerunRun?(request: CodeAgentRerunRequest): Promise<CodeAgentRerunResult>;
   controlRun(
     goalId: string,
     runId: string,
@@ -186,7 +202,6 @@ const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
 ];
 
 const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
-const MAX_ATTACHMENT_TEXT_CHARS = 60_000;
 
 export default function CodeAgentsApp({
   apps,
@@ -237,9 +252,12 @@ export default function CodeAgentsApp({
   const [modelOptions, setModelOptions] = useState<CodeAgentModelOption[]>(
     DEFAULT_CODE_AGENT_MODEL_OPTIONS,
   );
+  const [codePack, setCodePack] = useState<CodeAgentCodePack | null>(null);
   const [modelSelection, setModelSelection] = useState<CodeAgentModelSelection>(
     () => readStoredModelSelection(),
   );
+  const [followUpMode, setFollowUpMode] =
+    useState<CodeAgentFollowUpMode>("immediate");
   const selectedModelSelection = useMemo(
     () => normalizeModelSelection(modelSelection, modelOptions),
     [modelOptions, modelSelection],
@@ -337,6 +355,22 @@ export default function CodeAgentsApp({
   }, [host, modelSelection.model]);
 
   useEffect(() => {
+    let cancelled = false;
+    void host
+      .listCodePacks?.()
+      .then((result) => {
+        if (cancelled || result.status !== "ok") return;
+        setCodePack(result.pack ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setCodePack(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [host]);
+
+  useEffect(() => {
     writeStoredModelSelection(selectedModelSelection);
   }, [selectedModelSelection]);
 
@@ -422,6 +456,73 @@ export default function CodeAgentsApp({
     });
   }
 
+  async function retrySelectedRun() {
+    if (!selectedRunId || !host.retryRun) {
+      toast("Retry is not available here", { duration: 2200 });
+      return;
+    }
+    try {
+      const result = await host.retryRun({
+        goalId: selectedGoal.id,
+        runId: selectedRunId,
+        permissionMode: selectedPermissionMode,
+        engine: selectedModelSelection.engine,
+        model: selectedModelSelection.model,
+        effort: selectedModelSelection.effort,
+      });
+      if (result.run) {
+        setRuns((current) =>
+          current.map((run) => (run.id === result.run!.id ? result.run! : run)),
+        );
+      }
+      await loadRuns(true);
+      await loadTranscript(selectedRunId, true);
+      toast(result.message, {
+        duration: result.ok ? 2200 : 3600,
+        description: result.error,
+      });
+    } catch (err) {
+      toast("Could not retry the session", {
+        description: err instanceof Error ? err.message : String(err),
+        duration: 3600,
+      });
+    }
+  }
+
+  async function rerunSelectedRun() {
+    if (!selectedRunId || !host.rerunRun) {
+      toast("Re-run is not available here", { duration: 2200 });
+      return;
+    }
+    try {
+      const result = await host.rerunRun({
+        goalId: selectedGoal.id,
+        runId: selectedRunId,
+        permissionMode: selectedPermissionMode,
+        engine: selectedModelSelection.engine,
+        model: selectedModelSelection.model,
+        effort: selectedModelSelection.effort,
+      });
+      if (result.run) {
+        setRuns((current) => [result.run!, ...current]);
+        setSelectedRunId(result.run.id);
+        setWorkbenchOpen(false);
+        if (result.event) setTranscriptEvents([result.event]);
+      }
+      await loadRuns(true);
+      if (result.run) await loadTranscript(result.run.id, true);
+      toast(result.message, {
+        duration: result.ok ? 2200 : 3600,
+        description: result.error,
+      });
+    } catch (err) {
+      toast("Could not re-run the session", {
+        description: err instanceof Error ? err.message : String(err),
+        duration: 3600,
+      });
+    }
+  }
+
   async function createRunFromPrompt(
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
@@ -470,6 +571,7 @@ export default function CodeAgentsApp({
   async function submitFollowUp(
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
+    deliveryMode: CodeAgentFollowUpMode = "immediate",
   ) {
     if (!selectedRun) {
       toast("Select a session first", { duration: 1800 });
@@ -487,7 +589,12 @@ export default function CodeAgentsApp({
       title: "User prompt",
       text: prompt,
       createdAt: new Date().toISOString(),
-      metadata: { source: "desktop", queued: true, pending: true },
+      metadata: {
+        source: "desktop",
+        queued: true,
+        pending: true,
+        followUpMode: selectedRunIsActive ? deliveryMode : "immediate",
+      },
     };
     setFollowUpPrompt("");
     setTranscriptEvents((current) => [...current, optimisticEvent]);
@@ -497,6 +604,7 @@ export default function CodeAgentsApp({
         goalId: selectedGoal.id,
         runId: selectedRun.id,
         prompt,
+        followUpMode: selectedRunIsActive ? deliveryMode : "immediate",
         permissionMode: selectedPermissionMode,
         engine: selectedModelSelection.engine,
         model: selectedModelSelection.model,
@@ -595,14 +703,14 @@ export default function CodeAgentsApp({
   }
 
   return (
-    <section className="code-agents-surface" aria-label="Code">
+    <section className="code-agents-surface" aria-label="Agent-Native Code">
       <aside
         className="code-agents-rail"
         aria-label="Agent-Native Code goals and sessions"
       >
         <div className="code-agents-rail__header">
           <div className="code-agents-title-block">
-            <h1>Code</h1>
+            <h1>Agent-Native Code</h1>
             <p>{runs.length} sessions</p>
           </div>
           <button
@@ -650,8 +758,21 @@ export default function CodeAgentsApp({
           ))}
         </div>
 
+        <ProjectPacksSection
+          pack={codePack}
+          onRunCommand={(commandName) => {
+            setSelectedGoalId("task");
+            setSelectedRunId(null);
+            setWorkbenchOpen(false);
+            setNewPrompt(`/${commandName} `);
+            window.requestAnimationFrame(() => {
+              newPromptRef.current?.focus();
+            });
+          }}
+        />
+
         <div className="code-agents-run-list">
-          <p className="code-agents-rail-label">Recents</p>
+          <p className="code-agents-rail-label">Sessions</p>
           {loading ? (
             <RunListSkeleton />
           ) : runs.length === 0 ? (
@@ -660,18 +781,15 @@ export default function CodeAgentsApp({
               <p>No sessions yet.</p>
             </div>
           ) : (
-            runs.map((run) => (
-              <RunRailItem
-                key={run.id}
-                run={run}
-                selected={run.id === selectedRunId}
-                onSelect={() => setSelectedRunId(run.id)}
-                onOpen={() => {
-                  setSelectedRunId(run.id);
-                  setWorkbenchOpen(true);
-                }}
-              />
-            ))
+            <GroupedRunList
+              runs={runs}
+              selectedRunId={selectedRunId}
+              onSelect={(run) => setSelectedRunId(run.id)}
+              onOpen={(run) => {
+                setSelectedRunId(run.id);
+                setWorkbenchOpen(true);
+              }}
+            />
           )}
         </div>
       </aside>
@@ -752,12 +870,14 @@ export default function CodeAgentsApp({
                 transcriptLoading={transcriptLoading}
                 transcriptError={transcriptError}
                 followUpPrompt={followUpPrompt}
+                followUpMode={followUpMode}
                 submittingFollowUp={submittingFollowUp}
                 permissionMode={selectedPermissionMode}
                 modelSelection={selectedModelSelection}
                 modelOptions={modelOptions}
                 updatingPermissionMode={updatingPermissionMode}
                 onFollowUpPromptChange={setFollowUpPrompt}
+                onFollowUpModeChange={setFollowUpMode}
                 onPermissionModeChange={changeSelectedPermissionMode}
                 onModelSelectionChange={setModelSelection}
                 onSubmitFollowUp={submitFollowUp}
@@ -766,6 +886,8 @@ export default function CodeAgentsApp({
                 onResume={() => controlRun("resume")}
                 onRefreshStatus={() => controlRun("status")}
                 onStop={() => controlRun("stop")}
+                onRetry={host.retryRun ? retrySelectedRun : undefined}
+                onRerun={host.rerunRun ? rerunSelectedRun : undefined}
                 onOpenSettings={onOpenSettings}
               />
             ) : (
@@ -833,6 +955,46 @@ function isMigrationRun(run: CodeAgentRun): run is CodeAgentMigrationRun {
   );
 }
 
+function ProjectPacksSection({
+  pack,
+  onRunCommand,
+}: {
+  pack: CodeAgentCodePack | null;
+  onRunCommand: (commandName: string) => void;
+}) {
+  const commands = pack?.commands.filter((command) => !command.reserved) ?? [];
+  const skills = pack?.skills ?? [];
+  if (commands.length === 0 && skills.length === 0) return null;
+
+  return (
+    <div className="code-agents-pack-list" aria-label="Project code packs">
+      <p className="code-agents-rail-label">Project</p>
+      {commands.slice(0, 5).map((command) => (
+        <button
+          key={`command-${command.name}`}
+          type="button"
+          className="code-agents-pack-row"
+          onClick={() => onRunCommand(command.name)}
+          title={command.description ?? `Run /${command.name}`}
+        >
+          <span>/{command.name}</span>
+          <em>{command.description ?? "Project command"}</em>
+        </button>
+      ))}
+      {skills.slice(0, 4).map((skill) => (
+        <div
+          key={`skill-${skill.name}`}
+          className="code-agents-pack-row code-agents-pack-row--static"
+          title={skill.description ?? skill.relativePath}
+        >
+          <span>{skill.name}</span>
+          <em>{skill.description ?? "Skill instructions"}</em>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function NewSessionComposer({
   prompt,
   inputRef,
@@ -883,6 +1045,8 @@ function CodeAgentComposer({
   inputRef,
   submitting,
   permissionMode,
+  followUpMode = "immediate",
+  showFollowUpMode = false,
   modelSelection,
   modelOptions,
   placeholder,
@@ -890,6 +1054,7 @@ function CodeAgentComposer({
   variant = "compact",
   onPromptChange,
   onPermissionModeChange,
+  onFollowUpModeChange,
   onModelSelectionChange,
   onSubmit,
 }: {
@@ -897,6 +1062,8 @@ function CodeAgentComposer({
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
   submitting: boolean;
   permissionMode: CodeAgentPermissionMode;
+  followUpMode?: CodeAgentFollowUpMode;
+  showFollowUpMode?: boolean;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   placeholder: string;
@@ -904,10 +1071,12 @@ function CodeAgentComposer({
   variant?: "hero" | "compact";
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
+  onFollowUpModeChange?: (value: CodeAgentFollowUpMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
   onSubmit: (
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
+    followUpMode?: CodeAgentFollowUpMode,
   ) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -921,7 +1090,7 @@ function CodeAgentComposer({
     if (!files?.length) return;
     const next: CodeAgentPromptAttachment[] = [];
     for (const file of Array.from(files)) {
-      next.push(await readComposerAttachment(file));
+      next.push(await readCodeAgentPromptAttachment(file));
     }
     setAttachments((current) => [...current, ...next]);
     toast(`${next.length} file${next.length === 1 ? "" : "s"} attached`, {
@@ -968,9 +1137,9 @@ function CodeAgentComposer({
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    const prepared = promptWithAttachments(prompt, attachments);
-    onSubmit(prepared, attachments);
-    if (prompt.trim()) setAttachments([]);
+    const prepared = formatCodeAgentPromptWithAttachments(prompt, attachments);
+    onSubmit(prepared, attachments, followUpMode);
+    if (prepared.trim()) setAttachments([]);
   };
 
   return (
@@ -1029,6 +1198,12 @@ function CodeAgentComposer({
             onChange={onPermissionModeChange}
             compact
           />
+          {showFollowUpMode && onFollowUpModeChange && (
+            <FollowUpModeSelect
+              value={followUpMode}
+              onChange={onFollowUpModeChange}
+            />
+          )}
         </div>
         <div className="code-agents-composer-right">
           <ModelEffortSelect
@@ -1053,7 +1228,8 @@ function CodeAgentComposer({
             className="code-agents-send-button"
             disabled={
               submitting ||
-              promptWithAttachments(prompt, attachments).trim().length === 0
+              formatCodeAgentPromptWithAttachments(prompt, attachments).trim()
+                .length === 0
             }
             aria-label={submitLabel}
           >
@@ -1254,53 +1430,6 @@ function writeStoredModelSelection(value: CodeAgentModelSelection): void {
   }
 }
 
-async function readComposerAttachment(
-  file: File,
-): Promise<CodeAgentPromptAttachment> {
-  const attachment: CodeAgentPromptAttachment = {
-    name: file.name,
-    type: file.type || undefined,
-    size: file.size,
-  };
-  if (isLikelyTextFile(file) && file.size <= MAX_ATTACHMENT_TEXT_CHARS) {
-    try {
-      attachment.text = await file.text();
-    } catch {
-      // Keep the filename-only attachment if the browser cannot read it.
-    }
-  }
-  return attachment;
-}
-
-function isLikelyTextFile(file: File): boolean {
-  if (file.type.startsWith("text/")) return true;
-  return /\.(cjs|css|csv|html|js|json|jsx|md|mdx|mjs|sql|tsx?|txt|xml|yaml|yml)$/i.test(
-    file.name,
-  );
-}
-
-function promptWithAttachments(
-  prompt: string,
-  attachments: CodeAgentPromptAttachment[],
-): string {
-  if (attachments.length === 0) return prompt;
-  const attachmentText = attachments
-    .map((attachment) => {
-      const size = attachment.size ? ` size="${attachment.size}"` : "";
-      const type = attachment.type ? ` type="${attachment.type}"` : "";
-      const body =
-        attachment.text?.trim() ||
-        "Selected in the UI. If this file is needed, inspect it from the workspace or ask for a readable copy.";
-      return `<attached-file name="${escapeAttribute(attachment.name)}"${type}${size}>\n${body}\n</attached-file>`;
-    })
-    .join("\n\n");
-  return `${prompt.trimEnd()}\n\nAttached context:\n${attachmentText}`;
-}
-
-function escapeAttribute(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-}
-
 type SpeechRecognitionLike = {
   continuous: boolean;
   interimResults: boolean;
@@ -1387,6 +1516,47 @@ function RunModeSelect({
   );
 }
 
+function FollowUpModeSelect({
+  value,
+  onChange,
+}: {
+  value: CodeAgentFollowUpMode;
+  onChange: (value: CodeAgentFollowUpMode) => void;
+}) {
+  return (
+    <Select
+      value={value}
+      onValueChange={(nextValue) =>
+        onChange(nextValue === "queued" ? "queued" : "immediate")
+      }
+    >
+      <SelectTrigger
+        className="code-agents-follow-up-mode-select"
+        aria-label="Follow-up delivery"
+        title="Choose how this follow-up reaches the active run"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem
+            value="immediate"
+            description="Send to the active run at its next safe steering point."
+          >
+            Send now
+          </SelectItem>
+          <SelectItem
+            value="queued"
+            description="Run after the current turn finishes."
+          >
+            Queue
+          </SelectItem>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
 function runModeFromPermissionMode(
   permissionMode: CodeAgentPermissionMode,
 ): CodeAgentRunMode {
@@ -1456,6 +1626,61 @@ function isRunActive(run: CodeAgentRun): boolean {
   );
 }
 
+function GroupedRunList({
+  runs,
+  selectedRunId,
+  onSelect,
+  onOpen,
+}: {
+  runs: CodeAgentRun[];
+  selectedRunId: string | null;
+  onSelect: (run: CodeAgentRun) => void;
+  onOpen: (run: CodeAgentRun) => void;
+}) {
+  const groups = groupRunsForRail(runs);
+  return (
+    <>
+      {groups.map((group) => (
+        <div className="code-agents-run-group" key={group.label}>
+          <p className="code-agents-run-group__label">{group.label}</p>
+          {group.runs.map((run) => (
+            <RunRailItem
+              key={run.id}
+              run={run}
+              selected={run.id === selectedRunId}
+              onSelect={() => onSelect(run)}
+              onOpen={() => onOpen(run)}
+            />
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function groupRunsForRail(runs: CodeAgentRun[]): Array<{
+  label: string;
+  runs: CodeAgentRun[];
+}> {
+  const needsInput = runs.filter(runNeedsInput);
+  const running = runs.filter((run) => !runNeedsInput(run) && isRunActive(run));
+  const recent = runs.filter((run) => !runNeedsInput(run) && !isRunActive(run));
+  return [
+    { label: "Needs input", runs: needsInput },
+    { label: "Running", runs: running },
+    { label: "Recent", runs: recent },
+  ].filter((group) => group.runs.length > 0);
+}
+
+function runNeedsInput(run: CodeAgentRun): boolean {
+  return Boolean(
+    run.needsApproval ||
+    run.status === "needs-approval" ||
+    run.phase === "approval-required" ||
+    run.phase === "missing-credentials",
+  );
+}
+
 function RunRailItem({
   run,
   selected,
@@ -1499,12 +1724,14 @@ function RunDetailCard({
   transcriptLoading,
   transcriptError,
   followUpPrompt,
+  followUpMode,
   submittingFollowUp,
   permissionMode,
   modelSelection,
   modelOptions,
   updatingPermissionMode,
   onFollowUpPromptChange,
+  onFollowUpModeChange,
   onPermissionModeChange,
   onModelSelectionChange,
   onSubmitFollowUp,
@@ -1513,6 +1740,8 @@ function RunDetailCard({
   onResume,
   onRefreshStatus,
   onStop,
+  onRetry,
+  onRerun,
   onOpenSettings,
 }: {
   run: CodeAgentRun | null;
@@ -1522,23 +1751,28 @@ function RunDetailCard({
   transcriptLoading: boolean;
   transcriptError: string | null;
   followUpPrompt: string;
+  followUpMode: CodeAgentFollowUpMode;
   submittingFollowUp: boolean;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   updatingPermissionMode: boolean;
   onFollowUpPromptChange: (value: string) => void;
+  onFollowUpModeChange: (value: CodeAgentFollowUpMode) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
   onSubmitFollowUp: (
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
+    followUpMode?: CodeAgentFollowUpMode,
   ) => void;
   onOpenWorkbench: () => void;
   onOpenTerminal: () => void;
   onResume: () => void;
   onRefreshStatus: () => void;
   onStop: () => void;
+  onRetry?: () => void;
+  onRerun?: () => void;
   onOpenSettings?: () => void;
 }) {
   if (!run) {
@@ -1619,11 +1853,14 @@ function RunDetailCard({
             loading={transcriptLoading}
             error={transcriptError}
             followUpPrompt={followUpPrompt}
+            followUpMode={followUpMode}
+            runIsActive={isRunActive(run)}
             submitting={submittingFollowUp}
             permissionMode={permissionMode}
             modelSelection={modelSelection}
             modelOptions={modelOptions}
             onFollowUpPromptChange={onFollowUpPromptChange}
+            onFollowUpModeChange={onFollowUpModeChange}
             onPermissionModeChange={onPermissionModeChange}
             onModelSelectionChange={onModelSelectionChange}
             onSubmitFollowUp={onSubmitFollowUp}
@@ -1685,6 +1922,26 @@ function RunDetailCard({
                 Stop
               </button>
             )}
+            {onRetry && (
+              <button
+                type="button"
+                className="code-agents-button"
+                onClick={onRetry}
+              >
+                <IconRefresh size={14} strokeWidth={1.8} />
+                Retry
+              </button>
+            )}
+            {onRerun && (
+              <button
+                type="button"
+                className="code-agents-button"
+                onClick={onRerun}
+              >
+                <IconRoute size={14} strokeWidth={1.8} />
+                Re-run
+              </button>
+            )}
             <button
               type="button"
               className="code-agents-button"
@@ -1713,11 +1970,14 @@ function TranscriptPanel({
   loading,
   error,
   followUpPrompt,
+  followUpMode,
+  runIsActive,
   submitting,
   permissionMode,
   modelSelection,
   modelOptions,
   onFollowUpPromptChange,
+  onFollowUpModeChange,
   onPermissionModeChange,
   onModelSelectionChange,
   onSubmitFollowUp,
@@ -1726,16 +1986,20 @@ function TranscriptPanel({
   loading: boolean;
   error: string | null;
   followUpPrompt: string;
+  followUpMode: CodeAgentFollowUpMode;
+  runIsActive: boolean;
   submitting: boolean;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   onFollowUpPromptChange: (value: string) => void;
+  onFollowUpModeChange: (value: CodeAgentFollowUpMode) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
   onSubmitFollowUp: (
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
+    followUpMode?: CodeAgentFollowUpMode,
   ) => void;
 }) {
   const timelineRef = useRef<HTMLDivElement | null>(null);
@@ -1789,11 +2053,14 @@ function TranscriptPanel({
         prompt={followUpPrompt}
         submitting={submitting}
         permissionMode={permissionMode}
+        followUpMode={followUpMode}
+        showFollowUpMode={runIsActive}
         modelSelection={modelSelection}
         modelOptions={modelOptions}
         placeholder="Ask for follow-up changes"
         submitLabel={submitting ? "Recording follow-up" : "Send follow-up"}
         onPromptChange={onFollowUpPromptChange}
+        onFollowUpModeChange={onFollowUpModeChange}
         onPermissionModeChange={onPermissionModeChange}
         onModelSelectionChange={onModelSelectionChange}
         onSubmit={onSubmitFollowUp}

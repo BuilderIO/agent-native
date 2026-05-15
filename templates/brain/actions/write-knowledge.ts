@@ -5,6 +5,7 @@ import {
   entitySchema,
   evidenceSchema,
   knowledgeKindSchema,
+  parseJsonCliInput,
   publishTierSchema,
 } from "./_schemas.js";
 
@@ -21,9 +22,15 @@ export default defineAction({
     body: z.string().min(1),
     summary: z.string().optional(),
     topic: z.string().nullable().optional(),
-    tags: z.array(z.string()).default([]),
-    entities: z.array(entitySchema).default([]),
-    evidence: z.array(evidenceSchema).default([]),
+    tags: z.preprocess(parseJsonCliInput, z.array(z.string()).default([])),
+    entities: z.preprocess(
+      parseJsonCliInput,
+      z.array(entitySchema).default([]),
+    ),
+    evidence: z.preprocess(
+      parseJsonCliInput,
+      z.array(evidenceSchema).default([]),
+    ),
     confidence: z.coerce.number().int().min(0).max(100).default(80),
     publishTier: publishTierSchema.optional(),
     supersedesId: z
@@ -32,7 +39,10 @@ export default defineAction({
       .describe("Existing knowledge item this entry replaces"),
     proposalMode: z.enum(["auto", "always", "never"]).default("auto"),
     rationale: z.string().optional(),
-    redactions: z.array(z.string()).default([]),
+    redactions: z.preprocess(
+      parseJsonCliInput,
+      z.array(z.string()).default([]),
+    ),
     publishCanonical: z.coerce
       .boolean()
       .default(false)

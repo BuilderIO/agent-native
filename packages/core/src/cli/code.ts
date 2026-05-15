@@ -6,10 +6,13 @@ import {
   createCodeAgentRunRecord,
   getCodeAgentRunRecord,
   getLastCodeAgentRunRecord,
+  isActiveCodeAgentRun,
   listCodeAgentRunRecords,
   listCodeAgentTranscriptEvents,
   normalizeCodeAgentPermissionMode,
+  queueCodeAgentFollowUp,
   updateCodeAgentRunRecord,
+  type CodeAgentFollowUpMode,
   type CodeAgentPermissionMode,
   type CodeAgentRunRecord,
   type CodeAgentTranscriptEvent,
@@ -48,6 +51,7 @@ export type CodeCliCommand =
       prompt: string;
       runId?: string;
       permissionMode?: CodeAgentPermissionMode;
+      followUpMode?: CodeAgentFollowUpMode;
     }
   | {
       kind: "run-project-command";
@@ -173,11 +177,14 @@ export function resolveCodeCommand(argv: string[]): CodeCliCommand {
   }
 
   if (first === "--continue" || first === "-c") {
-    const parsed = parseTaskArgs(rest);
+    const parsed = parseFollowUpArgs(rest);
     return parsed.prompt
       ? {
           kind: "record-follow-up",
           prompt: parsed.prompt,
+          ...(parsed.followUpMode === "queued"
+            ? { followUpMode: parsed.followUpMode }
+            : {}),
           ...(parsed.permissionModeExplicit
             ? { permissionMode: parsed.permissionMode }
             : {}),
@@ -207,6 +214,7 @@ export function resolveCodeCommand(argv: string[]): CodeCliCommand {
       kind: "record-follow-up",
       prompt: followUp.prompt,
       runId: followUp.runId,
+      ...(followUp.followUpMode ? { followUpMode: followUp.followUpMode } : {}),
       ...(followUp.permissionMode
         ? { permissionMode: followUp.permissionMode }
         : {}),
@@ -287,6 +295,7 @@ export async function runCode(
       output,
       command.permissionMode,
       command.runId,
+      command.followUpMode,
     );
     return;
   }
@@ -358,6 +367,7 @@ export async function handleCodeShellLine(
       options.output,
       followUp.permissionMode,
       followUp.runId,
+      followUp.followUpMode,
     );
     return "continue";
   }
@@ -410,7 +420,7 @@ export async function handleCodeShellLine(
   }
 
   if (first === "--continue" || first === "-c") {
-    const parsedTask = parseTaskArgs(rest);
+    const parsedTask = parseFollowUpArgs(rest);
     if (parsedTask.prompt) {
       await recordCodeAgentFollowUpPrompt(
         parsedTask.prompt,
@@ -418,6 +428,8 @@ export async function handleCodeShellLine(
         parsedTask.permissionModeExplicit
           ? parsedTask.permissionMode
           : undefined,
+        undefined,
+        parsedTask.followUpMode,
       );
     } else {
       await runCodeAgentControl("resume", ["resume", "--last"], options.output);
@@ -676,6 +688,7 @@ function parseResumeFollowUpPrompt(args: string[]): {
   prompt: string;
   runId?: string;
   permissionMode?: CodeAgentPermissionMode;
+  followUpMode?: CodeAgentFollowUpMode;
 } | null {
   const [rawFirst, ...rest] = args;
   if (normalizeGoalToken(rawFirst ?? "") !== "resume") return null;
@@ -688,11 +701,14 @@ function parseResumeFollowUpPrompt(args: string[]): {
     return null;
   }
 
-  const parsed = parseTaskArgs(selector.promptArgs);
+  const parsed = parseFollowUpArgs(selector.promptArgs);
   return parsed.prompt
     ? {
         prompt: parsed.prompt,
         runId: selector.runId,
+        ...(parsed.followUpMode === "queued"
+          ? { followUpMode: parsed.followUpMode }
+          : {}),
         permissionMode: parsed.permissionModeExplicit
           ? parsed.permissionMode
           : undefined,
@@ -1419,6 +1435,7 @@ async function recordCodeAgentFollowUpPrompt(
   output: NodeJS.WritableStream,
   permissionMode?: CodeAgentPermissionMode,
   runId?: string,
+  followUpMode: CodeAgentFollowUpMode = "immediate",
 ): Promise<void> {
   const run = runId
     ? getCodeAgentRunRecord(runId)
@@ -1441,13 +1458,33 @@ async function recordCodeAgentFollowUpPrompt(
   const activeRun = permissionMode
     ? (updateCodeAgentRunRecord(run.id, { permissionMode }) ?? run)
     : run;
+  const shouldQueue = isActiveCodeAgentRun(activeRun);
   const event = appendCodeAgentTranscriptEvent({
     runId: activeRun.id,
     kind: "user",
     message: prompt,
-    metadata: { source: "resume-follow-up", permissionMode },
+    metadata: {
+      source: "resume-follow-up",
+      permissionMode,
+      followUpMode,
+      delivery: shouldQueue ? followUpMode : "run-now",
+    },
   });
-  writeLine(output, renderFollowUpRecorded(activeRun, event));
+  if (shouldQueue) {
+    queueCodeAgentFollowUp({
+      runId: activeRun.id,
+      prompt,
+      mode: followUpMode,
+      eventId: event.id,
+      permissionMode,
+      source: "resume-follow-up",
+      createdAt: event.createdAt,
+    });
+    writeLine(output, renderFollowUpRecorded(activeRun, event, followUpMode));
+    return;
+  }
+
+  writeLine(output, renderFollowUpRecorded(activeRun, event, "immediate"));
   await executeCodeAgentRun({
     runId: activeRun.id,
     prompt,
@@ -1517,6 +1554,33 @@ function parseTaskArgs(
   };
 }
 
+function parseFollowUpArgs(forwardedArgs: string[]): ParsedTaskArgs & {
+  followUpMode: CodeAgentFollowUpMode;
+} {
+  const promptArgs: string[] = [];
+  let followUpMode: CodeAgentFollowUpMode = "immediate";
+  for (let index = 0; index < forwardedArgs.length; index += 1) {
+    const arg = forwardedArgs[index];
+    if (arg === "--") {
+      promptArgs.push(...forwardedArgs.slice(index));
+      break;
+    }
+    if (arg === "--queue" || arg === "--after-completion") {
+      followUpMode = "queued";
+      continue;
+    }
+    if (arg === "--immediate" || arg === "--steer") {
+      followUpMode = "immediate";
+      continue;
+    }
+    promptArgs.push(arg);
+  }
+  return {
+    ...parseTaskArgs(promptArgs),
+    followUpMode,
+  };
+}
+
 function parsePermissionModeFlag(arg: string): CodeAgentPermissionMode | null {
   switch (arg) {
     case "--plan":
@@ -1560,16 +1624,27 @@ function renderTaskStarted(run: CodeAgentRunRecord, prompt: string): string {
 function renderFollowUpRecorded(
   run: CodeAgentRunRecord,
   event: ReturnType<typeof appendCodeAgentTranscriptEvent>,
+  mode: CodeAgentFollowUpMode,
 ): string {
+  const active = isActiveCodeAgentRun(run);
+  const heading = active
+    ? mode === "queued"
+      ? "Queued follow-up prompt for Agent-Native Code run."
+      : "Recorded steering prompt for active Agent-Native Code run."
+    : "Running follow-up prompt for Agent-Native Code run.";
   return [
     "",
-    "Running follow-up prompt for Agent-Native Code run.",
+    heading,
     "",
     `  Run:   ${run.id}`,
     `  Goal:  /${run.goalId}`,
     `  Event: ${event.id}`,
     "",
-    "Streaming output below. The transcript is saved with this run.",
+    active
+      ? mode === "queued"
+        ? "It will run after the current execution finishes."
+        : "It will be applied by the active runner as soon as it can steer."
+      : "Streaming output below. The transcript is saved with this run.",
   ].join("\n");
 }
 

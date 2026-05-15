@@ -600,6 +600,77 @@ describe("generic task sessions", () => {
     expect(listCodeAgentTranscriptEvents(latestRun.id)).toEqual([]);
   });
 
+  it("records steering prompts on active runs without starting another executor", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Should not stream.";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Active task",
+      status: "running",
+      phase: "executing",
+    });
+    const output = createStringOutput();
+
+    await runCode(["resume", "--last", "tighten the tests"], {
+      output: output.stream,
+    });
+
+    const [updated] = listCodeAgentRunRecords("task");
+    const events = listCodeAgentTranscriptEvents(run.id);
+    expect(output.read()).toContain("Recorded steering prompt");
+    expect(output.read()).not.toContain("Should not stream.");
+    expect(updated).toMatchObject({
+      id: run.id,
+      status: "running",
+      metadata: {
+        pendingFollowUps: [
+          {
+            prompt: "tighten the tests",
+            mode: "immediate",
+          },
+        ],
+      },
+    });
+    expect(events[0]).toMatchObject({
+      kind: "user",
+      message: "tighten the tests",
+      metadata: {
+        source: "resume-follow-up",
+        followUpMode: "immediate",
+        delivery: "immediate",
+      },
+    });
+  });
+
+  it("can queue active-run follow-ups for after the current execution", async () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Active task",
+      status: "running",
+      phase: "executing",
+    });
+    const output = createStringOutput();
+
+    await runCode(["resume", "--last", "--queue", "run the slow suite"], {
+      output: output.stream,
+    });
+
+    const [updated] = listCodeAgentRunRecords("task");
+    expect(output.read()).toContain("Queued follow-up prompt");
+    expect(updated).toMatchObject({
+      id: run.id,
+      metadata: {
+        pendingFollowUps: [
+          {
+            prompt: "run the slow suite",
+            mode: "queued",
+          },
+        ],
+      },
+    });
+  });
+
   it("shows generic Agent-Native Code status for the last run", async () => {
     useTempCodeAgentsHome();
     createCodeAgentRunRecord({

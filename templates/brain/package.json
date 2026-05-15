@@ -11,6 +11,8 @@
     "format.fix": "prettier --write .",
     "typecheck": "agent-native typecheck",
     "action": "agent-native action",
+    "demo:seed": "agent-native action seed-demo-data",
+    "demo:eval": "agent-native action run-demo-eval",
     "script": "agent-native script"
   },
   "dependencies": {

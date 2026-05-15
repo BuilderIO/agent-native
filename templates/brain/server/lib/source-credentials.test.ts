@@ -5,10 +5,54 @@ const mocks = vi.hoisted(() => ({
   grants: [] as Array<Record<string, unknown>>,
   secrets: new Map<string, string>(),
   localCredential: undefined as string | undefined,
-  registeredCredential: null as string | null,
 }));
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
+  getWorkspaceConnectionAppAccess: vi.fn(
+    (
+      connection: { id: string; allowedApps: string[] },
+      appId: string,
+      grants: Array<{ id: string; connectionId: string; appId: string }> = [],
+    ) => {
+      if (connection.allowedApps.length === 0) {
+        return {
+          appId,
+          available: true,
+          mode: "all-apps",
+          reason: "Connection is available to every app in the workspace.",
+          grantId: null,
+        };
+      }
+      if (connection.allowedApps.includes(appId)) {
+        return {
+          appId,
+          available: true,
+          mode: "allowed-app",
+          reason: `Connection is directly allowed for ${appId}.`,
+          grantId: null,
+        };
+      }
+      const grant = grants.find(
+        (entry) =>
+          entry.connectionId === connection.id && entry.appId === appId,
+      );
+      return grant
+        ? {
+            appId,
+            available: true,
+            mode: "explicit-grant",
+            reason: `Connection has an explicit grant for ${appId}.`,
+            grantId: grant.id,
+          }
+        : {
+            appId,
+            available: false,
+            mode: "unavailable",
+            reason: `Grant ${appId} access before this connection can be reused by the app.`,
+            grantId: null,
+          };
+    },
+  ),
   listWorkspaceConnections: vi.fn(async () => mocks.connections),
   listWorkspaceConnectionGrants: vi.fn(async () => mocks.grants),
 }));
@@ -24,11 +68,10 @@ vi.mock("@agent-native/core/credentials", () => ({
   resolveCredential: vi.fn(async () => mocks.localCredential),
 }));
 
-vi.mock("@agent-native/core/server", () => ({
-  resolveSecret: vi.fn(async () => mocks.registeredCredential),
-}));
-
-import { resolveSourceCredential } from "./source-credentials.js";
+import {
+  inspectSourceCredentialAvailability,
+  resolveSourceCredential,
+} from "./source-credentials.js";
 
 describe("resolveSourceCredential", () => {
   beforeEach(() => {
@@ -36,14 +79,13 @@ describe("resolveSourceCredential", () => {
     mocks.grants = [];
     mocks.secrets.clear();
     mocks.localCredential = undefined;
-    mocks.registeredCredential = null;
-    delete process.env.SLACK_BOT_TOKEN;
   });
 
-  it("prefers granted workspace connection credentials", async () => {
+  it("prefers granted workspace connection credentials without exposing values in availability", async () => {
     mocks.connections = [
       {
         id: "conn-1",
+        label: "Team Slack",
         provider: "slack",
         status: "connected",
         allowedApps: ["other-app"],
@@ -52,6 +94,7 @@ describe("resolveSourceCredential", () => {
     ];
     mocks.grants = [
       {
+        id: "grant-1",
         connectionId: "conn-1",
         appId: "brain",
         provider: "slack",
@@ -63,7 +106,6 @@ describe("resolveSourceCredential", () => {
       "workspace-connection-token",
     );
     mocks.localCredential = "brain-local-token";
-    mocks.registeredCredential = "registered-token";
 
     await expect(
       resolveSourceCredential({
@@ -72,9 +114,32 @@ describe("resolveSourceCredential", () => {
         ctx: { userEmail: "owner@example.test", orgId: "org-1" },
       }),
     ).resolves.toBe("workspace-connection-token");
+
+    const availability = await inspectSourceCredentialAvailability({
+      provider: "slack",
+      key: "SLACK_BOT_TOKEN",
+      ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+    });
+    expect(availability).toMatchObject({
+      available: true,
+      provenance: {
+        source: "workspace_connection",
+        key: "SLACK_BOT_TOKEN",
+        provider: "slack",
+        connectionId: "conn-1",
+        connectionLabel: "Team Slack",
+        grantId: "grant-1",
+        appAccessMode: "explicit-grant",
+        scope: "org",
+      },
+      missingMessage: null,
+    });
+    expect(JSON.stringify(availability)).not.toContain(
+      "workspace-connection-token",
+    );
   });
 
-  it("falls back through Brain-local, registered, then env credentials", async () => {
+  it("falls back through Brain-local credentials and registered vault secrets", async () => {
     mocks.localCredential = "brain-local-token";
     await expect(
       resolveSourceCredential({
@@ -85,7 +150,7 @@ describe("resolveSourceCredential", () => {
     ).resolves.toBe("brain-local-token");
 
     mocks.localCredential = undefined;
-    mocks.registeredCredential = "registered-token";
+    mocks.secrets.set("org:org-1:GITHUB_TOKEN", "registered-token");
     await expect(
       resolveSourceCredential({
         provider: "github",
@@ -93,8 +158,9 @@ describe("resolveSourceCredential", () => {
         ctx: { userEmail: "owner@example.test", orgId: "org-1" },
       }),
     ).resolves.toBe("registered-token");
+  });
 
-    mocks.registeredCredential = null;
+  it("does not fall back to deploy env credentials for source credentials", async () => {
     process.env.SLACK_BOT_TOKEN = "env-token";
     await expect(
       resolveSourceCredential({
@@ -102,13 +168,15 @@ describe("resolveSourceCredential", () => {
         key: "SLACK_BOT_TOKEN",
         ctx: { userEmail: "owner@example.test", orgId: "org-1" },
       }),
-    ).resolves.toBe("env-token");
+    ).resolves.toBeUndefined();
+    delete process.env.SLACK_BOT_TOKEN;
   });
 
   it("ignores workspace connections that are disabled or not granted to Brain", async () => {
     mocks.connections = [
       {
         id: "disabled",
+        label: "Disabled Granola",
         provider: "granola",
         status: "disabled",
         allowedApps: [],
@@ -116,6 +184,7 @@ describe("resolveSourceCredential", () => {
       },
       {
         id: "other-app",
+        label: "Calendar Granola",
         provider: "granola",
         status: "connected",
         allowedApps: ["calendar"],
@@ -132,5 +201,38 @@ describe("resolveSourceCredential", () => {
         ctx: { userEmail: "owner@example.test", orgId: "org-1" },
       }),
     ).resolves.toBe("brain-local-granola");
+  });
+
+  it("reports missing grant guidance without returning secret values", async () => {
+    mocks.connections = [
+      {
+        id: "conn-calendar",
+        label: "Calendar GitHub",
+        provider: "github",
+        status: "connected",
+        allowedApps: ["calendar"],
+        credentialRefs: [{ key: "GITHUB_TOKEN", scope: "org" }],
+      },
+    ];
+
+    const availability = await inspectSourceCredentialAvailability({
+      provider: "github",
+      key: "GITHUB_TOKEN",
+      ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+    });
+
+    expect(availability.available).toBe(false);
+    expect(availability.missingMessage).toMatch(/grant Brain access/i);
+    expect(availability.checked).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "workspace_connection",
+          status: "not_granted",
+          connectionId: "conn-calendar",
+          appAccessMode: "unavailable",
+        }),
+      ]),
+    );
+    expect(availability).not.toHaveProperty("value");
   });
 });

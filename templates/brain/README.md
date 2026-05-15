@@ -2,8 +2,9 @@
 
 Brain is a public first-party template for Company Brain: whole-company
 institutional memory for agents and humans. V1 ingests approved Slack channels,
-Clips recordings, Granola meeting notes, and generic transcript/webhook
-payloads, then distills them into cited, reviewable SQL-backed knowledge.
+Clips recordings, Granola meeting notes, GitHub issues/PRs, and generic
+transcript/webhook payloads, then distills them into cited, reviewable
+SQL-backed knowledge.
 
 The product direction is intentionally Glean-shaped, but the shipped V1 is not a
 full enterprise search replacement. Brain starts with open-source company memory
@@ -18,11 +19,44 @@ workspace search.
   distilled knowledge, raw captures, and source records together. Agents should
   use it as the broad first pass, then open records with `get-knowledge` or
   `get-capture`.
-- **V2 platform direction:** reusable workspace connections, federated search
-  across apps and sources, permission-aware result ranking, and an expertise
-  graph as a future/platform layer.
+- **V1.5 shared credentials:** reusable workspace connections let Brain source
+  sync reuse provider credentials granted from Dispatch or the workspace layer.
+- **V2 platform direction:** federated search across apps and sources,
+  permission-aware result ranking, and an expertise graph as a future/platform
+  layer.
 - **Portability:** V1 uses portable SQL text search and agentic query expansion.
   There is no vector database requirement.
+
+## Product Shape
+
+- **Full-page company chat:** the Ask route is the main surface. It runs
+  `AgentChatSurface` in page mode, shows source health and review count, and
+  includes Load demo / Run eval controls for launch demos.
+- **Search and drill-in:** the Search route uses `search-everything` across
+  knowledge, raw captures, and source records, then agents can open exact
+  records with `get-knowledge` or `get-capture`.
+- **Review queue:** the Review route lists pending/approved/rejected proposals,
+  lets reviewers edit proposed memory text, inspect evidence/source links, and
+  approve or reject.
+- **Source setup:** the Sources route configures Slack, Clips, Granola, GitHub,
+  generic webhook, and manual sources; reviews captures; queues distillation;
+  and shows reusable workspace connection grants/readiness beside Brain source
+  records.
+- **Ops and settings:** Ops tracks queued, processing, stale, failed, and done
+  distillation work. Settings controls assistant identity, source posture,
+  default publish tier, company-memory approval, citations, redaction, and
+  connector notifications.
+
+## Brain vs Dispatch
+
+Brain is the company-memory specialist. It ingests sources, reviews captures,
+distills durable facts and decisions, and answers from citations.
+
+Dispatch is the workspace control plane. It owns central Slack/email/Telegram/
+WhatsApp messaging, the shared secrets vault, cross-app A2A routing, recurring
+jobs, and workspace-wide resources. In a workspace, Dispatch can route questions
+to Brain and grant Brain shared credentials, but Brain remains the place where
+company memory is ingested, reviewed, searched, and cited.
 
 ## Start
 
@@ -77,10 +111,28 @@ Agents should treat Brain as cited company memory, not a guess engine:
 - If Brain does not contain supporting results, say that the answer was not
   found instead of filling in from general knowledge.
 
+## Privacy And Gating
+
+Brain is scoped to company memory, not personal surveillance:
+
+- Slack sync reads only configured channels and rejects DMs/MPIMs.
+- Granola sync reads Team-space notes exposed by Granola's API, not private
+  notes or private folders.
+- Raw capture bodies are omitted from list/search responses by default. Use
+  previews for intentional human review and `includeRawContent` only for
+  distillation or exact quote validation.
+- Source configs default to review-required, and Settings can require approval
+  for company-tier knowledge before publishing.
+- Settings can require citations, auto-redact emails, and notify reviewers when
+  connectors degrade.
+- `run-demo-eval` covers proposal gating, PII redaction, personal-content
+  exclusion, citation presence, and honest not-found behavior.
+
 ## Slack Source Config
 
-Slack uses the scoped `SLACK_BOT_TOKEN` credential. It only scans configured
-channels and rejects DMs/MPIMs.
+Slack resolves `SLACK_BOT_TOKEN` from a granted workspace connection first,
+then from backward-compatible Brain-local or registered vault credentials. It
+only scans configured channels and rejects DMs/MPIMs.
 
 ```bash
 pnpm --filter brain action create-source \
@@ -182,9 +234,10 @@ allowed only for failed or stale processing items the current user can edit.
 
 ## Granola Source Config
 
-Granola uses the scoped `GRANOLA_API_KEY` credential and polls
-`https://public-api.granola.ai/v1/notes`. Enterprise API keys expose Team-space
-notes; private notes are not included by Granola's API.
+Granola resolves `GRANOLA_API_KEY` from a granted workspace connection first,
+then from backward-compatible Brain-local or registered vault credentials, and
+polls `https://public-api.granola.ai/v1/notes`. Enterprise API keys expose
+Team-space notes; private notes are not included by Granola's API.
 
 ```bash
 pnpm --filter brain action create-source \
@@ -200,11 +253,11 @@ captures.
 
 ## GitHub Source Config
 
-GitHub is Brain's first reusable connector proof. It uses the scoped
-`GITHUB_TOKEN` credential and imports bounded issue/PR context from configured
-repositories through GitHub's REST API. This is company context for Brain
-ingestion, not full GitHub analytics, and can later consume Workspace
-Connections when that platform layer is available.
+GitHub is Brain's first reusable connector proof. It resolves `GITHUB_TOKEN`
+from a granted workspace connection first, then from backward-compatible
+Brain-local or registered vault credentials, and imports bounded issue/PR
+context from configured repositories through GitHub's REST API. This is company
+context for Brain ingestion, not full GitHub analytics.
 
 ```bash
 pnpm --filter brain action create-source \
@@ -229,15 +282,35 @@ Useful config keys:
 ## Workspace Connections
 
 `list-connection-providers` returns the Brain provider catalog plus
-`workspaceConnection` summaries for `appId=brain`. Use those summaries before
-asking for duplicate provider credentials:
+`workspaceConnection`, `credentialHealth`, and `providerHealth` summaries for
+`appId=brain`. Use those summaries before asking for duplicate provider
+credentials:
 
 - `grantState: "connected"` means Brain already has a granted workspace
   connection for that provider.
+- `grantState: "granted"` means Brain has a grant, but the connection is not
+  currently active.
 - `grantState: "needs_grant"` means a workspace connection exists but still
   needs a Brain grant.
-- Existing source sync stays backward compatible with scoped credentials such as
-  `SLACK_BOT_TOKEN`, `GRANOLA_API_KEY`, and `GITHUB_TOKEN`.
+- `grantState: "not_connected"` means there is no shared connection for Brain
+  yet, though Brain-local or registered vault credentials may still exist.
+
+Source sync resolves credentials in this order:
+
+1. Granted `workspace_connections` / `workspace_connection_grants` credential
+   refs for `appId=brain`.
+2. Brain-local SQL credentials.
+3. Registered vault secrets for the same user/org/workspace scope.
+
+It does not fall back to deploy-level environment variables for source
+credentials. Connection and grant refs point at vault secret names; they never
+contain raw credential values.
+
+The Sources route shows the same shared integration state in the provider
+catalog, including readiness labels such as ready, grant needed, missing keys,
+needs repair, or metadata only. Use Dispatch to connect or grant reusable
+workspace credentials, then create Brain sources against those providers
+without copying secret values into the Brain app.
 
 ## Scheduled Sync
 
@@ -246,9 +319,10 @@ accessible Slack/Granola sources whose `autoSync` cadence is due. The Nitro
 plugin in `server/plugins/brain-jobs.ts` registers the same due-source sweep for
 long-lived deployments.
 
-## Generic Webhook
+## Clips And Generic Webhook
 
-Create a source with `sourceKey` to receive a one-time ingest token:
+Create a Clips or generic source with `sourceKey` to receive a one-time ingest
+token:
 
 ```bash
 pnpm --filter brain action create-source \
@@ -275,6 +349,11 @@ Then send:
 ```
 
 Use `Authorization: Bearer <ingestToken>`.
+
+Clips exports use this endpoint without Brain reading the Clips database
+directly. Generic sources use the same payload shape for transcripts, customer
+research, meeting exports, or any bounded capture that should enter the review
+and distillation pipeline.
 
 ## Data
 

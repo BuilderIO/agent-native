@@ -49,10 +49,44 @@ export const evidenceSchema = z.object({
     .describe("Optional timestamp for meeting/call citations"),
 });
 
-export const jsonRecordSchema = z.record(z.string(), z.unknown()).default({});
+export function parseJsonCliInput(value: unknown) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+export const jsonRecordSchema = z.preprocess(
+  parseJsonCliInput,
+  z.record(z.string(), z.unknown()).default({}),
+);
 
 export const optionalJsonRecordSchema = z
-  .record(z.string(), z.unknown())
+  .preprocess(parseJsonCliInput, z.record(z.string(), z.unknown()).optional())
   .optional();
+
+export function stringArrayCliSchema({
+  min,
+  max,
+}: { min?: number; max?: number } = {}) {
+  let schema = z.array(z.string().min(1));
+  if (min !== undefined) schema = schema.min(min);
+  if (max !== undefined) schema = schema.max(max);
+  return z.preprocess((value) => {
+    const parsed = parseJsonCliInput(value);
+    if (typeof parsed === "string") {
+      return parsed
+        .split(/[\n,]/g)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+    return parsed;
+  }, schema);
+}
 
 export const idSchema = z.string().min(1);

@@ -69,6 +69,55 @@ afterAll(() => {
 });
 
 describe("workspace connection store", () => {
+  it("describes app-level access semantics", async () => {
+    const { getWorkspaceConnectionAppAccess } = await import("./store.js");
+    const baseConnection = {
+      id: "conn-1",
+      label: "Team Slack",
+      allowedApps: ["dispatch"],
+    };
+
+    expect(
+      getWorkspaceConnectionAppAccess(
+        { ...baseConnection, allowedApps: [] },
+        "brain",
+      ),
+    ).toMatchObject({
+      available: true,
+      mode: "all-apps",
+      grantId: null,
+    });
+
+    expect(
+      getWorkspaceConnectionAppAccess(
+        { ...baseConnection, allowedApps: ["brain"] },
+        "brain",
+      ),
+    ).toMatchObject({
+      available: true,
+      mode: "allowed-app",
+      grantId: null,
+    });
+
+    expect(
+      getWorkspaceConnectionAppAccess(baseConnection, "brain", [
+        { id: "grant-1", connectionId: "conn-1", appId: "brain" },
+      ]),
+    ).toMatchObject({
+      available: true,
+      mode: "explicit-grant",
+      grantId: "grant-1",
+    });
+
+    expect(
+      getWorkspaceConnectionAppAccess(baseConnection, "brain"),
+    ).toMatchObject({
+      available: false,
+      mode: "unavailable",
+      grantId: null,
+    });
+  });
+
   it("scopes personal list, upsert, and delete to the request user", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

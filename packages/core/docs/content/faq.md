@@ -62,7 +62,7 @@ The framework ships with production-ready templates you can use as daily drivers
 
 - **[Calendar](/templates/calendar)** — Google Calendar + Calendly-style booking links
 - **[Content](/templates/content)** — Notion-style documents
-- **[Brain](/templates/brain)** — knowledge base, memory, sources, and retrieval
+- **[Brain](/templates/brain)** — full-page company chat, cited memory, sources, and review queue
 - **[Slides](/templates/slides)** — presentation builder
 - **[Analytics](/templates/analytics)** — data platform (like Amplitude/Mixpanel)
 - **[Mail](/templates/mail)** — full-featured email client (like Superhuman)

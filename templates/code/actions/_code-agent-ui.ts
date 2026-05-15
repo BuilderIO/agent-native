@@ -3,8 +3,11 @@ import {
   executeCodeAgentRun,
   executeExistingCodeAgentRun,
   getCodeAgentRunRecord,
+  isActiveCodeAgentRun,
   listCodeAgentTranscriptEvents,
+  queueCodeAgentFollowUp,
   updateCodeAgentRunRecord,
+  type CodeAgentFollowUpMode,
   type CodeAgentPermissionMode,
   type CodeAgentRunRecord,
   type CodeAgentTranscriptEvent as StoredTranscriptEvent,
@@ -107,6 +110,7 @@ export function appendFollowUpAndRun(input: {
   engine?: string;
   model?: string;
   effort?: CodeAgentReasoningEffort;
+  followUpMode?: CodeAgentFollowUpMode;
 }): CodeAgentTranscriptEvent {
   const record = getCodeAgentRunRecord(input.runId);
   if (!record)
@@ -140,8 +144,21 @@ export function appendFollowUpAndRun(input: {
       engine: input.engine,
       model: input.model,
       effort: input.effort,
+      followUpMode: input.followUpMode ?? "immediate",
     },
   });
+  if (isActiveCodeAgentRun(record)) {
+    queueCodeAgentFollowUp({
+      runId: input.runId,
+      prompt: input.prompt,
+      mode: input.followUpMode ?? "immediate",
+      eventId: event.id,
+      permissionMode: input.permissionMode,
+      source: "code-template-follow-up",
+      createdAt: event.createdAt,
+    });
+    return toUiTranscriptEvent(event);
+  }
   runCodeAgentInBackground({
     runId: input.runId,
     prompt: input.prompt,

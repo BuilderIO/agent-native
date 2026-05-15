@@ -20,14 +20,21 @@ import { autoUpdater } from "electron-updater";
 import {
   IPC,
   type ActiveWebviewTarget,
+  type CodeAgentCodePackResult,
   type CodeAgentCreateRunResult,
   type CodeAgentFollowUpResult,
+  type CodeAgentHostMetadata,
   type CodeAgentUpdateRunResult,
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
   type CodeAgentMigrationRun,
+  type CodeAgentPromptAttachment,
+  type CodeAgentRetryRunResult,
+  type CodeAgentRerunResult,
   type CodeAgentRun,
   type CodeAgentRunListResult,
+  type CodeAgentQueueMetadata,
+  type CodeAgentSteeringMetadata,
   type CodeAgentTranscriptEvent,
   type CodeAgentTranscriptEventType,
   type CodeAgentTranscriptResult,
@@ -965,6 +972,18 @@ function readFileBackedCodeAgentRun(filePath: string): CodeAgentRun | null {
     if (typeof row.artifactRoot === "string") {
       metadata.artifactRoot = row.artifactRoot;
     }
+    if (isObject(row.queue)) {
+      metadata.queue = row.queue;
+    }
+    if (isObject(row.steering)) {
+      metadata.steering = row.steering;
+    }
+    const activeProcess = activeCodeAgentProcesses.get(id);
+    if (activeProcess) {
+      metadata.runnerState = "running";
+      metadata.runnerPid = activeProcess.pid;
+      metadata.runnerStartedAt = activeProcess.startedAt;
+    }
     return {
       id,
       goalId,
@@ -1086,6 +1105,104 @@ function readCodeAgentPermissionMode(
   return getCodeAgentPermissionMode(
     firstStringValue(metadata?.permissionMode, record?.permissionMode),
   );
+}
+
+function normalizeCodeAgentPromptAttachments(
+  value: unknown,
+): CodeAgentPromptAttachment[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const attachments = value
+    .map((item) => {
+      if (!isObject(item)) return null;
+      const name = firstStringValue(item.name);
+      if (!name) return null;
+      const size = Number(item.size);
+      const attachment: CodeAgentPromptAttachment = { name };
+      const type = firstStringValue(item.type);
+      const text = firstStringValue(item.text);
+      if (type) attachment.type = type;
+      if (Number.isFinite(size) && size >= 0) attachment.size = size;
+      if (text) attachment.text = text;
+      return attachment;
+    })
+    .filter((item): item is CodeAgentPromptAttachment => item !== null);
+  return attachments.length > 0 ? attachments : undefined;
+}
+
+function readCodeAgentAttempt(
+  record: Record<string, unknown> | null | undefined,
+): number {
+  const metadata = isObject(record?.metadata) ? record.metadata : undefined;
+  const queue = isObject(record?.queue)
+    ? record.queue
+    : isObject(metadata?.queue)
+      ? metadata.queue
+      : undefined;
+  const value = Number(queue?.attempt ?? metadata?.attempt);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
+}
+
+function isActiveDesktopCodeAgentRun(
+  record: Record<string, unknown> | null | undefined,
+): boolean {
+  const status = getRecordString(record, "status");
+  const phase = getRecordString(record, "phase");
+  return Boolean(
+    status === "queued" ||
+      status === "running" ||
+      status === "needs-approval" ||
+      phase === "queued" ||
+      phase === "executing" ||
+      phase === "approval-required",
+  );
+}
+
+function readDesktopPendingFollowUps(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is Record<string, unknown> => isObject(item));
+}
+
+function countQueuedCodeAgentRuns(goalId: string): number {
+  return listFileBackedCodeAgentRuns(goalId).filter(
+    (run) => run.status === "queued",
+  ).length;
+}
+
+function buildCodeAgentQueueMetadata(input: {
+  goalId: string;
+  queuedAt: string;
+  attempt?: number;
+  retryOf?: string;
+  rerunOf?: string;
+}): CodeAgentQueueMetadata {
+  return {
+    queued: true,
+    queuedAt: input.queuedAt,
+    queuedBy: "desktop",
+    queueId: `desktop-${timestampSlug(input.queuedAt)}-${randomUUID().slice(0, 8)}`,
+    queuePosition: countQueuedCodeAgentRuns(input.goalId) + 1,
+    attempt: input.attempt ?? 1,
+    retryOf: input.retryOf,
+    rerunOf: input.rerunOf,
+  };
+}
+
+function buildCodeAgentSteeringMetadata(input: {
+  cwd?: string;
+  permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: string;
+  attachments?: CodeAgentPromptAttachment[];
+}): CodeAgentSteeringMetadata {
+  return {
+    cwd: input.cwd,
+    permissionMode: input.permissionMode,
+    engine: input.engine,
+    model: input.model,
+    effort: input.effort,
+    attachments: input.attachments,
+  };
 }
 
 function normalizeTranscriptEventType(
@@ -1337,10 +1454,22 @@ function readCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
   };
 }
 
+function readLatestCodeAgentUserPrompt(runId: string): string | undefined {
+  const transcript = readCodeAgentTranscript({ runId });
+  for (let index = transcript.events.length - 1; index >= 0; index -= 1) {
+    const event = transcript.events[index];
+    if (event.type === "user" && event.text.trim()) {
+      return event.text.trim();
+    }
+  }
+  return undefined;
+}
+
 function createDesktopUserTranscriptEvent(
   runId: string,
   prompt: string,
   goalId?: string,
+  metadata: Record<string, unknown> = {},
 ): CodeAgentTranscriptEvent {
   const now = new Date().toISOString();
   return {
@@ -1353,7 +1482,9 @@ function createDesktopUserTranscriptEvent(
     metadata: {
       source: "desktop",
       queued: true,
+      queuedAt: now,
       ...(goalId ? { goalId } : {}),
+      ...metadata,
     },
   };
 }
@@ -1595,6 +1726,26 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
   const engine = firstStringValue(payload.engine);
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
+  const attachments = normalizeCodeAgentPromptAttachments(payload.attachments);
+  const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
+  const retryOf = firstStringValue(userMetadata.retryOf, payload.retryOf);
+  const rerunOf = firstStringValue(userMetadata.rerunOf, payload.rerunOf);
+  const attempt = Number(userMetadata.attempt ?? payload.attempt);
+  const queue = buildCodeAgentQueueMetadata({
+    goalId: goal.id,
+    queuedAt: now,
+    attempt: Number.isFinite(attempt) && attempt > 0 ? Math.floor(attempt) : 1,
+    retryOf,
+    rerunOf,
+  });
+  const steering = buildCodeAgentSteeringMetadata({
+    cwd,
+    permissionMode,
+    engine,
+    model,
+    effort,
+    attachments,
+  });
   const title = titleFromPrompt(prompt);
   const run: CodeAgentRun = {
     id: runId,
@@ -1620,13 +1771,20 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
     createdAt: now,
     updatedAt: now,
     metadata: {
+      ...userMetadata,
       cwd,
       permissionMode,
       engine,
       model,
       effort,
+      attachments,
+      queue,
+      steering,
       source: "desktop",
       queued: true,
+      queuedAt: now,
+      retryOf,
+      rerunOf,
       initialPrompt: prompt,
     },
   };
@@ -1635,6 +1793,8 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
     ...run,
     cwd,
     permissionMode,
+    queue,
+    steering,
     metadata: {
       ...(run.metadata ?? {}),
       engine,
@@ -1654,7 +1814,13 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
   try {
     fs.mkdirSync(path.dirname(runFile), { recursive: true });
     fs.writeFileSync(runFile, `${JSON.stringify(record, null, 2)}\n`);
-    const event = createDesktopUserTranscriptEvent(runId, prompt, goal.id);
+    const event = createDesktopUserTranscriptEvent(runId, prompt, goal.id, {
+      queue,
+      steering,
+      attachments,
+      retryOf,
+      rerunOf,
+    });
     const eventFile = appendCodeAgentTranscriptEvent(event);
     if (goal.id === "task") {
       spawnCodeAgentRunner(runId, cwd, permissionMode);
@@ -1675,10 +1841,116 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
   }
 }
 
+function rerunCodeAgentRun(input: unknown): CodeAgentRerunResult {
+  const payload = isObject(input) ? input : {};
+  const sourceRunId = normalizeCodeAgentRunId(payload.runId);
+  if (!sourceRunId) {
+    return {
+      ok: false,
+      message: "Select a session first.",
+      error: "Missing or invalid run id.",
+    };
+  }
+
+  const sourceRecord = readCodeAgentRunRecord(sourceRunId);
+  if (!sourceRecord) {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "Agent-Native Code session was not found.",
+      error: `No run record exists for ${sourceRunId}.`,
+    };
+  }
+
+  const goal =
+    getCodeAgentGoal(firstStringValue(payload.goalId)) ??
+    getCodeAgentGoal(getRecordString(sourceRecord, "goalId")) ??
+    CODE_AGENT_GOALS[0];
+  if (goal.surfaceKind !== "native" || goal.id !== "task") {
+    return {
+      ok: false,
+      sourceRunId,
+      message: `${goal.surfaceLabel} sessions open in their app surface.`,
+      error: `Native rerun is not available for goal ${goal.id}.`,
+    };
+  }
+
+  const sourceMetadata = isObject(sourceRecord.metadata)
+    ? sourceRecord.metadata
+    : {};
+  const prompt =
+    firstStringValue(payload.prompt) ??
+    firstStringValue(sourceMetadata.initialPrompt, sourceMetadata.prompt) ??
+    readLatestCodeAgentUserPrompt(sourceRunId);
+  if (!prompt) {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "Could not find a prompt to re-run.",
+      error: "No user prompt was stored for this run.",
+    };
+  }
+
+  const requestedPermissionMode = firstStringValue(payload.permissionMode);
+  const permissionMode = requestedPermissionMode
+    ? getCodeAgentPermissionMode(requestedPermissionMode)
+    : readCodeAgentPermissionMode(sourceRecord);
+  if (requestedPermissionMode && !permissionMode) {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "Choose a valid run mode.",
+      error: `Unsupported run mode: ${requestedPermissionMode}`,
+    };
+  }
+
+  const sourceAttachments = normalizeCodeAgentPromptAttachments(
+    sourceMetadata.attachments,
+  );
+  const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
+  const result = createCodeAgentRun({
+    goalId: goal.id,
+    prompt,
+    cwd:
+      firstStringValue(payload.cwd) ??
+      getRecordString(sourceRecord, "cwd") ??
+      firstStringValue(sourceMetadata.cwd),
+    permissionMode,
+    engine:
+      firstStringValue(payload.engine) ??
+      firstStringValue(sourceMetadata.engine),
+    model:
+      firstStringValue(payload.model) ?? firstStringValue(sourceMetadata.model),
+    effort:
+      firstStringValue(payload.effort) ??
+      firstStringValue(sourceMetadata.effort, sourceMetadata.reasoningEffort),
+    attachments:
+      normalizeCodeAgentPromptAttachments(payload.attachments) ??
+      sourceAttachments,
+    metadata: {
+      ...userMetadata,
+      rerunOf: sourceRunId,
+      attempt: readCodeAgentAttempt(sourceRecord) + 1,
+      sourceRunStatus: getRecordString(sourceRecord, "status"),
+      sourceRunPhase: getRecordString(sourceRecord, "phase"),
+    },
+  });
+  return {
+    ...result,
+    sourceRunId,
+    message: result.ok
+      ? "Agent-Native Code session re-run started."
+      : result.message,
+  };
+}
+
 function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
   const payload = isObject(input) ? input : {};
   const runId = normalizeCodeAgentRunId(payload.runId);
   const prompt = firstStringValue(payload.prompt) ?? "";
+  const requestedFollowUpMode = firstStringValue(payload.followUpMode);
+  const followUpMode =
+    requestedFollowUpMode === "queued" ? "queued" : "immediate";
   const requestedPermissionMode = firstStringValue(payload.permissionMode);
   const permissionMode = requestedPermissionMode
     ? getCodeAgentPermissionMode(requestedPermissionMode)
@@ -1686,6 +1958,8 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
   const engine = firstStringValue(payload.engine);
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
+  const attachments = normalizeCodeAgentPromptAttachments(payload.attachments);
+  const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
   if (!runId) {
     return {
       ok: false,
@@ -1710,31 +1984,74 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
 
   try {
     const goalId = firstStringValue(payload.goalId);
-    const event = createDesktopUserTranscriptEvent(runId, prompt, goalId);
+    const runRecord = readCodeAgentRunRecord(runId);
+    const recordMetadata = isObject(runRecord?.metadata)
+      ? runRecord.metadata
+      : {};
+    const runIsActive =
+      activeCodeAgentProcesses.has(runId) || isActiveDesktopCodeAgentRun(runRecord);
+    const cwd =
+      getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
+    const steering = buildCodeAgentSteeringMetadata({
+      cwd,
+      permissionMode: permissionMode ?? readCodeAgentPermissionMode(runRecord),
+      engine,
+      model,
+      effort,
+      attachments,
+    });
+    const event = createDesktopUserTranscriptEvent(runId, prompt, goalId, {
+      ...userMetadata,
+      steering,
+      attachments,
+      followUpMode,
+      delivery: runIsActive ? followUpMode : "run-now",
+      promptKind: "follow-up",
+    });
     const eventFile = appendCodeAgentTranscriptEvent(event);
     const now = new Date().toISOString();
     touchCodeAgentRunRecord(runId, {
       updatedAt: now,
       ...(permissionMode ? { permissionMode } : {}),
       metadata: {
+        ...userMetadata,
         lastDesktopFollowUpAt: now,
         ...(permissionMode ? { permissionMode } : {}),
         ...(engine ? { engine } : {}),
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
+        ...(attachments ? { attachments } : {}),
+        ...(runIsActive
+          ? {
+              pendingFollowUps: [
+                ...readDesktopPendingFollowUps(recordMetadata.pendingFollowUps),
+                {
+                  id: `followup-${timestampSlug(event.createdAt)}-${randomUUID().slice(0, 8)}`,
+                  prompt,
+                  mode: followUpMode,
+                  createdAt: event.createdAt,
+                  eventId: event.id,
+                  permissionMode,
+                  source: "desktop-follow-up",
+                },
+              ],
+            }
+          : {}),
+        steering,
       },
     });
-    if ((goalId ?? "task") === "task") {
-      const record = readCodeAgentRunRecord(runId);
-      const cwd =
-        getRecordString(record, "cwd") ?? resolveCodeAgentsTerminalCwd({});
+    if ((goalId ?? "task") === "task" && !runIsActive) {
       spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     return {
       ok: true,
       event,
       eventFile,
-      message: "Follow-up recorded.",
+      message: runIsActive
+        ? followUpMode === "queued"
+          ? "Follow-up queued."
+          : "Steering prompt recorded."
+        : "Follow-up recorded.",
     };
   } catch (err) {
     return {
@@ -1772,6 +2089,7 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   const engine = firstStringValue(payload.engine);
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
+  const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
   if (requestedPermissionMode && !permissionMode) {
     return {
       ok: false,
@@ -1781,22 +2099,54 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   }
 
   if (permissionMode) {
+    const record = readCodeAgentRunRecord(runId);
+    const steering = buildCodeAgentSteeringMetadata({
+      cwd: getRecordString(record, "cwd"),
+      permissionMode,
+      engine,
+      model,
+      effort,
+      attachments: normalizeCodeAgentPromptAttachments(
+        isObject(record?.metadata) ? record.metadata.attachments : undefined,
+      ),
+    });
     touchCodeAgentRunRecord(runId, {
       permissionMode,
+      steering,
       metadata: {
+        ...userMetadata,
         permissionMode,
         ...(engine ? { engine } : {}),
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
+        steering,
       },
     });
   } else if (engine || model || effort) {
+    const record = readCodeAgentRunRecord(runId);
+    const steering = buildCodeAgentSteeringMetadata({
+      cwd: getRecordString(record, "cwd"),
+      permissionMode: readCodeAgentPermissionMode(record),
+      engine,
+      model,
+      effort,
+      attachments: normalizeCodeAgentPromptAttachments(
+        isObject(record?.metadata) ? record.metadata.attachments : undefined,
+      ),
+    });
     touchCodeAgentRunRecord(runId, {
+      steering,
       metadata: {
+        ...userMetadata,
         ...(engine ? { engine } : {}),
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
+        steering,
       },
+    });
+  } else if (Object.keys(userMetadata).length > 0) {
+    touchCodeAgentRunRecord(runId, {
+      metadata: userMetadata,
     });
   }
 
@@ -2055,6 +2405,311 @@ function openTerminalForCodeAgents(request?: unknown): CodeAgentTerminalResult {
   };
 }
 
+function readPackageMetadata(packagePath: string): {
+  name?: string;
+  version?: string;
+} {
+  const pkg = readJsonObjectFile(packagePath);
+  return {
+    name: firstStringValue(pkg?.name),
+    version: firstStringValue(pkg?.version),
+  };
+}
+
+const RESERVED_CODE_AGENT_COMMANDS = new Set([
+  ...CODE_AGENT_GOALS.flatMap((goal) => [
+    goal.id,
+    goal.slashCommand.replace(/^\//, ""),
+    goal.cliCommand,
+  ]),
+  "approve",
+  "attach",
+  "e",
+  "exec",
+  "exit",
+  "goals",
+  "help",
+  "list",
+  "ps",
+  "quit",
+  "resume",
+  "run",
+  "start",
+  "status",
+  "stop",
+  "todo",
+  "ui",
+]);
+
+function listCodeAgentProjectPacks(): CodeAgentCodePackResult {
+  try {
+    const root = resolveCodeAgentsTerminalCwd({});
+    const commandsRoot = path.join(root, ".agents", "commands");
+    const skillsRoot = path.join(root, ".agents", "skills");
+    const commands = fs.existsSync(commandsRoot)
+      ? walkMarkdownFiles(commandsRoot)
+          .map((filePath) => {
+            const raw = fs.readFileSync(filePath, "utf-8");
+            const parsed = parseSimpleFrontmatter(raw);
+            const relative = path.relative(commandsRoot, filePath);
+            const name = relative
+              .replace(/\.md$/i, "")
+              .replaceAll(path.sep, ":")
+              .toLowerCase();
+            return {
+              kind: "command" as const,
+              name,
+              path: filePath,
+              relativePath: relative,
+              description: parsed.data.description,
+              argumentHint: parsed.data["argument-hint"],
+              reserved: RESERVED_CODE_AGENT_COMMANDS.has(name),
+            };
+          })
+          .filter((command) => command.name && command.name !== "readme")
+      : [];
+    const skills = fs.existsSync(skillsRoot)
+      ? walkMarkdownFiles(skillsRoot)
+          .filter((filePath) => path.basename(filePath).toLowerCase() === "skill.md")
+          .map((filePath) => {
+            const raw = fs.readFileSync(filePath, "utf-8");
+            const parsed = parseSimpleFrontmatter(raw);
+            const relative = path.relative(skillsRoot, filePath);
+            const skillDir = path.dirname(relative);
+            const fallbackName =
+              skillDir === "." ? path.basename(skillsRoot) : skillDir;
+            return {
+              kind: "skill" as const,
+              name:
+                parsed.data.name ??
+                fallbackName.replaceAll(path.sep, ":").toLowerCase(),
+              path: filePath,
+              relativePath: relative,
+              description: parsed.data.description,
+            };
+          })
+          .filter((skill) => skill.name)
+      : [];
+    return {
+      status: "ok",
+      pack: {
+        schemaVersion: 1,
+        root,
+        commands,
+        skills,
+      },
+    };
+  } catch (err) {
+    return {
+      status: "unavailable",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function walkMarkdownFiles(root: string): string[] {
+  const files: string[] = [];
+  const visit = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        files.push(entryPath);
+      }
+    }
+  };
+  visit(root);
+  return files.sort((a, b) => a.localeCompare(b));
+}
+
+function parseSimpleFrontmatter(raw: string): {
+  data: Record<string, string>;
+} {
+  if (!raw.startsWith("---\n")) return { data: {} };
+  const end = raw.indexOf("\n---", 4);
+  if (end === -1) return { data: {} };
+  const data: Record<string, string> = {};
+  const lines = raw.slice(4, end).trim().split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (!match) continue;
+    const [, key, value] = match;
+    if (value === ">-" || value === ">" || value === "|" || value === "|-") {
+      const block: string[] = [];
+      while (index + 1 < lines.length && /^\s+/.test(lines[index + 1])) {
+        index += 1;
+        block.push(lines[index].trim());
+      }
+      data[key] =
+        value.startsWith("|") ? block.join("\n").trim() : block.join(" ").trim();
+      continue;
+    }
+    data[key] = value.replace(/^["']|["']$/g, "").trim();
+  }
+  return { data };
+}
+
+function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
+  try {
+    const cwd = resolveCodeAgentsTerminalCwd({});
+    const repoRoot = resolveRepositoryRoot(cwd);
+    const corePackagePath = path.join(repoRoot, "packages/core/package.json");
+    const corePackage = fs.existsSync(corePackagePath)
+      ? readPackageMetadata(corePackagePath)
+      : {};
+    const cliEntry = path.join(repoRoot, "packages/core/dist/cli/index.js");
+    return {
+      status: "ok",
+      platform: process.platform,
+      desktopVersion: app.getVersion(),
+      storeRoot: codeAgentStoreRoot(),
+      runsDir: codeAgentRunsDir(),
+      transcriptsDir: codeAgentEventsDir(),
+      codePack: {
+        name: corePackage.name ?? "@agent-native/core",
+        version: corePackage.version,
+        root: fs.existsSync(path.join(repoRoot, "packages/core"))
+          ? path.join(repoRoot, "packages/core")
+          : repoRoot,
+        packagePath: fs.existsSync(corePackagePath)
+          ? corePackagePath
+          : undefined,
+        cliEntry,
+        available: fs.existsSync(cliEntry),
+      },
+      capabilities: {
+        fileBackedRuns: true,
+        nativeTaskRunner: true,
+        queueMetadata: true,
+        steeringMetadata: true,
+        retryRun: true,
+        rerunRun: true,
+        openTerminal: true,
+        controlCommands: ["resume", "status", "stop", "retry", "rerun"],
+      },
+    };
+  } catch (err) {
+    return {
+      status: "unavailable",
+      platform: process.platform,
+      desktopVersion: app.getVersion(),
+      storeRoot: codeAgentStoreRoot(),
+      runsDir: codeAgentRunsDir(),
+      transcriptsDir: codeAgentEventsDir(),
+      capabilities: {
+        fileBackedRuns: true,
+        nativeTaskRunner: false,
+        queueMetadata: true,
+        steeringMetadata: true,
+        retryRun: false,
+        rerunRun: false,
+        openTerminal: true,
+        controlCommands: ["resume", "status", "stop"],
+      },
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
+  const payload = isObject(input) ? input : {};
+  const runId = normalizeCodeAgentRunId(payload.runId);
+  const requestedPermissionMode = firstStringValue(payload.permissionMode);
+  const permissionMode = requestedPermissionMode
+    ? getCodeAgentPermissionMode(requestedPermissionMode)
+    : undefined;
+  const goal =
+    getCodeAgentGoal(firstStringValue(payload.goalId)) ??
+    getCodeAgentGoal(inferCodeAgentGoalIdFromRunId(runId ?? undefined)) ??
+    CODE_AGENT_GOALS[0];
+
+  if (!runId) {
+    return {
+      ok: false,
+      message: "Select a session first.",
+      error: "Missing or invalid run id.",
+    };
+  }
+  if (requestedPermissionMode && !permissionMode) {
+    return {
+      ok: false,
+      message: "Choose a valid run mode.",
+      error: `Unsupported run mode: ${requestedPermissionMode}`,
+    };
+  }
+  if (goal.id !== "task") {
+    return {
+      ok: false,
+      message: `${goal.surfaceLabel} sessions open in their app surface.`,
+      error: `Native retry is not available for goal ${goal.id}.`,
+    };
+  }
+  if (activeCodeAgentProcesses.has(runId)) {
+    return {
+      ok: true,
+      run:
+        readFileBackedCodeAgentRun(codeAgentRunFilePath(runId) ?? "") ??
+        undefined,
+      message: "This Agent-Native Code run is already running.",
+    };
+  }
+
+  const runRecord = readCodeAgentRunRecord(runId);
+  if (!runRecord) {
+    return {
+      ok: false,
+      message: "Agent-Native Code session was not found.",
+      error: `No run record exists for ${runId}.`,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const queue = buildCodeAgentQueueMetadata({
+    goalId: goal.id,
+    queuedAt: now,
+    attempt: readCodeAgentAttempt(runRecord) + 1,
+    retryOf: runId,
+  });
+  const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
+  const engine = firstStringValue(payload.engine);
+  const model = firstStringValue(payload.model);
+  const effort = firstStringValue(payload.effort);
+  appendCodeAgentStatusEvent(runId, "Retry requested from Desktop.", {
+    source: "desktop",
+    command: "retry",
+    queue,
+    ...(permissionMode ? { permissionMode } : {}),
+  });
+  touchCodeAgentRunRecord(runId, {
+    status: "queued",
+    phase: "retry-queued",
+    ...(permissionMode ? { permissionMode } : {}),
+    queue,
+    metadata: {
+      ...userMetadata,
+      retryOf: runId,
+      queue,
+      lastRetryQueuedAt: now,
+      ...(permissionMode ? { permissionMode } : {}),
+      ...(engine ? { engine } : {}),
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+    },
+  });
+  const cwd =
+    getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
+  spawnCodeAgentRunner(runId, cwd, permissionMode);
+  return {
+    ok: true,
+    run:
+      readFileBackedCodeAgentRun(codeAgentRunFilePath(runId) ?? "") ??
+      undefined,
+    message: "Retry started for this Agent-Native Code run.",
+  };
+}
+
 function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
   const payload = input && typeof input === "object" ? input : {};
   const record = payload as Record<string, unknown>;
@@ -2291,9 +2946,31 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  IPC.CODE_AGENTS_RETRY_RUN,
+  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentRetryRunResult =>
+    retryCodeAgentRun(input),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_RERUN_RUN,
+  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentRerunResult =>
+    rerunCodeAgentRun(input),
+);
+
+ipcMain.handle(
   IPC.CODE_AGENTS_CONTROL_RUN,
   (_event: IpcMainInvokeEvent, input: unknown): CodeAgentControlResult =>
     controlCodeAgentRun(input),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_GET_HOST_METADATA,
+  (): CodeAgentHostMetadata => getCodeAgentHostMetadata(),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_LIST_CODE_PACKS,
+  (): CodeAgentCodePackResult => listCodeAgentProjectPacks(),
 );
 
 ipcMain.handle(

@@ -217,9 +217,24 @@ export type BrainWorkspaceConnectionStatus =
 
 export interface BrainWorkspaceCredentialRef {
   key: string;
-  scope?: "user" | "org";
+  scope?: "user" | "org" | "workspace";
   provider?: string;
   label?: string;
+  source?: "connection" | "grant";
+}
+
+export type BrainWorkspaceConnectionAppAccessMode =
+  | "all-apps"
+  | "allowed-app"
+  | "explicit-grant"
+  | "unavailable";
+
+export interface BrainWorkspaceConnectionAppAccess {
+  appId: "brain";
+  available: boolean;
+  mode: BrainWorkspaceConnectionAppAccessMode;
+  reason: string;
+  grantId: string | null;
 }
 
 export interface BrainWorkspaceConnectionSummaryConnection {
@@ -231,6 +246,7 @@ export interface BrainWorkspaceConnectionSummaryConnection {
   status: BrainWorkspaceConnectionStatus;
   grantedToApp: boolean;
   grantScope: "all-apps" | "selected-apps";
+  appAccess?: BrainWorkspaceConnectionAppAccess;
   allowedApps: string[];
   credentialRefs: BrainWorkspaceCredentialRef[];
   lastCheckedAt: string | null;
@@ -247,15 +263,71 @@ export interface BrainWorkspaceConnectionSummaryConnection {
 export interface BrainWorkspaceConnectionSummary {
   appId: "brain";
   grantState: BrainWorkspaceConnectionGrantState;
+  grantAvailability?: "available" | "needs_grant" | "not_connected";
+  grantAvailabilityMessage?: string;
   connectionCount: number;
   grantedConnectionCount: number;
   activeConnectionCount: number;
+  ungrantedConnectionCount?: number;
+  unhealthyGrantedConnectionCount?: number;
+  explicitGrantCount?: number;
   credentialRefCount: number;
   hasWorkspaceConnection: boolean;
   hasGrantedWorkspaceConnection: boolean;
   hasActiveWorkspaceConnection: boolean;
   statuses: BrainWorkspaceConnectionStatus[];
   connections: BrainWorkspaceConnectionSummaryConnection[];
+}
+
+export interface BrainCredentialProvenance {
+  source: "workspace_connection" | "brain_local" | "registered_secret";
+  key: string;
+  provider: string;
+  scope?: "user" | "org" | "workspace";
+  connectionId?: string;
+  connectionLabel?: string;
+  grantId?: string | null;
+  appAccessMode?: BrainWorkspaceConnectionAppAccessMode;
+  credentialRefLabel?: string;
+}
+
+export interface BrainCredentialAvailability {
+  provider: string;
+  key: string;
+  available: boolean;
+  provenance: BrainCredentialProvenance | null;
+  checked: Array<{
+    source: "workspace_connection" | "brain_local" | "registered_secret";
+    key: string;
+    status: "available" | "missing" | "not_granted" | "unhealthy" | "error";
+    message: string;
+    scope?: "user" | "org" | "workspace";
+    connectionId?: string;
+    connectionLabel?: string;
+    grantId?: string | null;
+    appAccessMode?: BrainWorkspaceConnectionAppAccessMode;
+  }>;
+  missingMessage: string | null;
+}
+
+export interface BrainCredentialHealth {
+  status: "available" | "missing" | "not_required" | "unavailable";
+  available: boolean;
+  requiredKeyCount: number;
+  availableKeyCount: number;
+  missingCredentialKeys: string[];
+  missingMessages: string[];
+  details: BrainCredentialAvailability[];
+}
+
+export interface BrainProviderHealth {
+  status:
+    | "ready"
+    | "needs_grant"
+    | "unhealthy"
+    | "missing_credentials"
+    | "unsupported";
+  message: string;
 }
 
 export interface BrainConnectionProvider {
@@ -267,6 +339,8 @@ export interface BrainConnectionProvider {
   configuredSourceCount: number;
   hasConfiguredSources: boolean;
   sourceProviderSupported: boolean;
+  credentialHealth?: BrainCredentialHealth;
+  providerHealth?: BrainProviderHealth;
   workspaceConnection?: BrainWorkspaceConnectionSummary;
 }
 
@@ -359,6 +433,36 @@ export interface RetryDistillationResponse {
     title: string;
     status: "distilling";
   };
+}
+
+export type EnqueueCapturesDistillationOutcome =
+  | "queued"
+  | "existing"
+  | "error";
+
+export interface EnqueueCapturesDistillationResult {
+  captureId: string;
+  sourceId?: string | null;
+  outcome: EnqueueCapturesDistillationOutcome;
+  existing?: boolean;
+  queueItem?: BrainDistillationQueue;
+  captureStatus?: BrainCaptureReviewStatus;
+  code?:
+    | "inaccessible"
+    | "already-distilled"
+    | "already-ignored"
+    | "queue-failed"
+    | string;
+  error?: string;
+}
+
+export interface EnqueueCapturesDistillationResponse {
+  requested: number;
+  queued: number;
+  existing: number;
+  errors: number;
+  results: EnqueueCapturesDistillationResult[];
+  guidance?: NonNullable<SettingsResponse["guidance"]>["distillation"];
 }
 
 export interface BrainCaptureReviewItem {

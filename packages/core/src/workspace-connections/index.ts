@@ -1,6 +1,7 @@
 export {
   deleteWorkspaceConnection,
   ensureWorkspaceConnectionsTable,
+  getWorkspaceConnectionAppAccess,
   getWorkspaceConnection,
   getWorkspaceConnectionGrant,
   listWorkspaceConnectionGrants,
@@ -16,8 +17,11 @@ export {
   type SerializedWorkspaceConnection,
   type UpsertWorkspaceConnectionGrantInput,
   type UpsertWorkspaceConnectionInput,
+  type WorkspaceConnectionAppAccess,
+  type WorkspaceConnectionAppAccessMode,
   type WorkspaceConnection,
   type WorkspaceConnectionCredentialRef,
   type WorkspaceConnectionGrant,
   type WorkspaceConnectionStatus,
+  workspaceConnectionIsAvailableToApp,
 } from "./store.js";

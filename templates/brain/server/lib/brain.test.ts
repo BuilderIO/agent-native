@@ -8,6 +8,7 @@ type Condition =
   | { op: "isNull"; col: Column }
   | { op: "lte"; col: Column; val: unknown }
   | { op: "like"; col: Column; val: unknown }
+  | { op: "captureSourceAccessible" }
   | { op: "access" };
 
 interface Column {
@@ -162,9 +163,19 @@ const mocks = vi.hoisted(() => {
     return [];
   };
 
+  function likeNeedle(value: unknown) {
+    return String(value ?? "")
+      .replace(/^%|%$/g, "")
+      .replace(/\\([\\%_])/g, "$1")
+      .toLowerCase();
+  }
+
   const matches = (row: Row, condition?: Condition): boolean => {
     if (!condition) return true;
     if (condition.op === "access") return true;
+    if (condition.op === "captureSourceAccessible") {
+      return rows.sources.some((source) => source.id === row.sourceId);
+    }
     if (condition.op === "and") {
       return condition.conditions.every((item) => matches(row, item));
     }
@@ -181,7 +192,10 @@ const mocks = vi.hoisted(() => {
         ? value <= condition.val
         : Number(value) <= Number(condition.val);
     }
-    if (condition.op === "like") return true;
+    if (condition.op === "like") {
+      const value = String(row[condition.col.name] ?? "").toLowerCase();
+      return value.includes(likeNeedle(condition.val));
+    }
     return row[condition.col.name] === condition.val;
   };
 
@@ -305,6 +319,14 @@ vi.mock("drizzle-orm", () => ({
   like: (col: Column, val: unknown) => ({ op: "like", col, val }),
   lte: (col: Column, val: unknown) => ({ op: "lte", col, val }),
   or: (...conditions: Condition[]) => ({ op: "or", conditions }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join("${}");
+    if (text.startsWith("lower(")) {
+      return { op: "like", col: values[0] as Column, val: values[1] };
+    }
+    if (text.includes("exists")) return { op: "captureSourceAccessible" };
+    return { op: "access" };
+  },
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -1058,6 +1080,42 @@ describe("Brain connector smoke coverage", () => {
     ).toBe(false);
   });
 
+  it("surfaces Slack missing-scope details without reading history", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/auth.test")) {
+        return Response.json({
+          ok: true,
+          team: "Acme",
+          team_id: "T123",
+          user: "brain-bot",
+          url: "https://acme.slack.com/",
+        });
+      }
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: false,
+          error: "missing_scope",
+          needed: "channels:read",
+          provided: "chat:write",
+        });
+      }
+      return Response.json({ ok: false, error: "should_not_call_history" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      testSlackConnection({ channelRefs: ["C123"] }),
+    ).rejects.toThrow(
+      "Slack conversations.info failed: missing_scope (needed: channels:read; provided: chat:write)",
+    );
+    expect(
+      fetchSpy.mock.calls.some((call) =>
+        String(call[0]).includes("conversations.history"),
+      ),
+    ).toBe(false);
+  });
+
   it("runs a Slack pilot report without reading history by default", async () => {
     const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
@@ -1396,6 +1454,34 @@ describe("Brain connector smoke coverage", () => {
     });
     expect(mocks.rows.captures).toHaveLength(0);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects configured Slack direct message IDs before metadata or history calls", async () => {
+    const fetchSpy = vi.fn(async () =>
+      Response.json({ ok: false, error: "should_not_call_slack" }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-source",
+      title: "Slack direct message",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["D123"] }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      provider: "slack",
+      status: "success",
+      capturesCreated: 0,
+      stats: {
+        scannedChannels: 0,
+        rejectedChannels: 1,
+        messagesSeen: 0,
+      },
+    });
+    expect(mocks.rows.captures).toHaveLength(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("normalizes configured Granola notes into note captures with connector metadata", async () => {
@@ -1749,11 +1835,16 @@ describe("Brain demo eval", () => {
     expect(result.passed).toBe(result.total);
     expect(result.checks.map((item) => item.id)).toEqual([
       "freemium-recall",
+      "freemium-search-quality",
+      "search-citation-links",
       "supersede-chain",
       "how-it-works-recall",
       "proposal-gate",
+      "proposal-not-queryable",
       "pii-redaction",
+      "search-pii-redaction",
       "personal-exclusion",
+      "honest-not-found",
     ]);
     expect(mocks.rows.sources).toHaveLength(4);
     expect(mocks.rows.proposals).toHaveLength(1);

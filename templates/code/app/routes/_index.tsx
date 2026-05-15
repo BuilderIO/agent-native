@@ -32,6 +32,7 @@ export default function CodeAgentsPage() {
     () => ({
       listRuns: (goalId) =>
         callAction("list-code-agent-runs", { goalId }, "GET"),
+      listCodePacks: () => callAction("list-code-agent-packs", {}, "GET"),
       createRun: (request) =>
         callAction("create-code-agent-run", request as unknown as JsonRecord),
       readTranscript: (request) =>

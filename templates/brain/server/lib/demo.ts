@@ -13,6 +13,7 @@ import {
   writeKnowledgeRecord,
   type WriteKnowledgeInput,
 } from "./brain.js";
+import { searchEverythingRows } from "./search.js";
 import type { BrainEvidence, BrainSourceProvider } from "../../shared/types.js";
 
 const DEMO_SEED_ID = "brain-product-decisions-demo-v1";
@@ -526,6 +527,11 @@ export async function runBrainDemoEval(
     "Freemium signup was the default acquisition path",
   );
   const freemiumEvidence = freemium ? knowledgeEvidence(freemium) : [];
+  const freemiumSearch = await searchEverythingRows({
+    query: "Why did we retire freemium?",
+    limit: 5,
+  });
+  const topFreemiumSearch = freemiumSearch[0] ?? null;
   check(
     checks,
     "freemium-recall",
@@ -537,6 +543,34 @@ export async function runBrainDemoEval(
       ? `Found ${freemium.title} with ${freemiumEvidence.length} citation(s).`
       : "Freemium decision was not found.",
     freemium ? serializeKnowledge(freemium) : null,
+  );
+  check(
+    checks,
+    "freemium-search-quality",
+    "Freemium query retrieves the published current decision first",
+    topFreemiumSearch?.type === "knowledge" &&
+      topFreemiumSearch.title ===
+        "Freemium signup retired for enterprise-led growth" &&
+      !freemiumSearch.some(
+        (item) =>
+          item.type === "knowledge" &&
+          item.title === "Freemium signup was the default acquisition path",
+      ),
+    topFreemiumSearch
+      ? `Top result is ${topFreemiumSearch.type}:${topFreemiumSearch.title}.`
+      : "Freemium search returned no results.",
+    freemiumSearch,
+  );
+  check(
+    checks,
+    "search-citation-links",
+    "Search results expose usable citation links",
+    !!topFreemiumSearch?.citation?.sourceUrl &&
+      topFreemiumSearch.citation.sourceUrl.startsWith("https://"),
+    topFreemiumSearch?.citation?.sourceUrl
+      ? `Top result citation: ${topFreemiumSearch.citation.sourceUrl}.`
+      : "Top freemium search result had no citation URL.",
+    topFreemiumSearch?.citation ?? null,
   );
   check(
     checks,
@@ -580,6 +614,24 @@ export async function runBrainDemoEval(
       : "Pending retention proposal was not found.",
     proposal ? serializeProposal(proposal) : null,
   );
+  const retentionKnowledgeSearch = await searchEverythingRows({
+    query: "transcript retention policy legal review",
+    type: "knowledge",
+    limit: 5,
+  });
+  check(
+    checks,
+    "proposal-not-queryable",
+    "Pending retention proposal is not returned as published knowledge",
+    !retentionKnowledgeSearch.some(
+      (item) =>
+        item.title === "Transcript retention policy still needs legal review",
+    ),
+    retentionKnowledgeSearch.length
+      ? `Knowledge search returned ${retentionKnowledgeSearch.length} other result(s).`
+      : "Knowledge search returned no published retention proposal.",
+    retentionKnowledgeSearch,
+  );
 
   const redacted = await findKnowledgeByTitle(
     "Escalation owner notes are redacted when personal data appears",
@@ -597,6 +649,23 @@ export async function runBrainDemoEval(
     redacted
       ? `Stored redacted knowledge ${redacted.id} without the source email.`
       : "Redacted privacy entry was not found.",
+  );
+  const redactionSearch = await searchEverythingRows({
+    query: "support automation escalation owner",
+    type: "capture",
+    limit: 5,
+  });
+  const redactionSearchText = JSON.stringify(redactionSearch);
+  check(
+    checks,
+    "search-pii-redaction",
+    "Search output redacts PII from matching raw captures",
+    redactionSearch.some((item) => item.type === "capture") &&
+      !redactionSearchText.includes("ava.cho@example.com"),
+    redactionSearch.length
+      ? `Search returned ${redactionSearch.length} redacted capture result(s).`
+      : "Search returned no capture result for the redaction fixture.",
+    redactionSearch,
   );
 
   const [personalCapture] = await getDb()
@@ -630,6 +699,21 @@ export async function runBrainDemoEval(
     personalCapture
       ? "Personal aside exists as ignored capture and has no knowledge row."
       : "Ignored personal capture was not found.",
+  );
+
+  const absentSearch = await searchEverythingRows({
+    query: "Which snack supplier replaced the lunch menu?",
+    limit: 5,
+  });
+  check(
+    checks,
+    "honest-not-found",
+    "Unsupported demo questions return no fabricated search support",
+    absentSearch.length === 0,
+    absentSearch.length
+      ? `Unexpectedly found ${absentSearch.length} result(s).`
+      : "No search support found for the absent snack-supplier question.",
+    absentSearch,
   );
 
   const passed = checks.filter((item) => item.passed).length;

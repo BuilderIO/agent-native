@@ -15,6 +15,7 @@ export default defineAction({
     engine: z.string().optional(),
     model: z.string().optional(),
     effort: z.string().optional(),
+    followUpMode: z.enum(["immediate", "queued"]).optional(),
   }),
   run: async (args) => {
     const permissionMode = normalizeCodeAgentPermissionMode(
@@ -31,6 +32,7 @@ export default defineAction({
       engine: args.engine,
       model: args.model,
       effort,
+      followUpMode: args.followUpMode,
     });
     return {
       ok: true,

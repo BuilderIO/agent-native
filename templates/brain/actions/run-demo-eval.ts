@@ -4,7 +4,7 @@ import { runBrainDemoEval } from "../server/lib/demo.js";
 
 export default defineAction({
   description:
-    "Run Brain's repeatable demo eval for product-decision recall, citations, supersede narration data, proposal gating, redaction, and personal-content exclusion.",
+    "Run Brain's repeatable demo eval for search quality, citations, supersede narration data, proposal gating, redaction, personal-content exclusion, and honest not-found behavior.",
   schema: z.object({
     seedIfMissing: z.coerce
       .boolean()

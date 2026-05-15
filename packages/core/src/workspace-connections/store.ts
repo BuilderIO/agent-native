@@ -22,7 +22,7 @@ export type WorkspaceConnectionStatus =
 
 export interface WorkspaceConnectionCredentialRef {
   key: string;
-  scope?: "user" | "org";
+  scope?: "user" | "org" | "workspace";
   provider?: string;
   label?: string;
   [key: string]: unknown;
@@ -101,6 +101,20 @@ export interface UpsertWorkspaceConnectionGrantInput {
   scopes?: string[];
   config?: Record<string, unknown>;
   credentialRefs?: WorkspaceConnectionCredentialRef[];
+}
+
+export type WorkspaceConnectionAppAccessMode =
+  | "all-apps"
+  | "allowed-app"
+  | "explicit-grant"
+  | "unavailable";
+
+export interface WorkspaceConnectionAppAccess {
+  appId: string;
+  available: boolean;
+  mode: WorkspaceConnectionAppAccessMode;
+  reason: string;
+  grantId: string | null;
 }
 
 let _initPromise: Promise<void> | undefined;
@@ -555,6 +569,85 @@ export function serializeWorkspaceConnectionGrant(
     config: sanitizeConfig(grant.config),
     credentialRefs: normalizeCredentialRefs(grant.credentialRefs),
   };
+}
+
+export function getWorkspaceConnectionAppAccess(
+  connection: Pick<
+    SerializedWorkspaceConnection,
+    "id" | "allowedApps" | "label"
+  >,
+  appId: string,
+  grants: Pick<
+    SerializedWorkspaceConnectionGrant,
+    "id" | "connectionId" | "appId"
+  >[] = [],
+): WorkspaceConnectionAppAccess {
+  const normalizedAppId = appId.trim();
+  if (!normalizedAppId) {
+    return {
+      appId: normalizedAppId,
+      available: false,
+      mode: "unavailable",
+      reason: "No app id was provided.",
+      grantId: null,
+    };
+  }
+
+  if (connection.allowedApps.length === 0) {
+    return {
+      appId: normalizedAppId,
+      available: true,
+      mode: "all-apps",
+      reason: "Connection is available to every app in the workspace.",
+      grantId: null,
+    };
+  }
+
+  if (connection.allowedApps.includes(normalizedAppId)) {
+    return {
+      appId: normalizedAppId,
+      available: true,
+      mode: "allowed-app",
+      reason: `Connection is directly allowed for ${normalizedAppId}.`,
+      grantId: null,
+    };
+  }
+
+  const explicitGrant = grants.find(
+    (grant) =>
+      grant.connectionId === connection.id && grant.appId === normalizedAppId,
+  );
+  if (explicitGrant) {
+    return {
+      appId: normalizedAppId,
+      available: true,
+      mode: "explicit-grant",
+      reason: `Connection has an explicit grant for ${normalizedAppId}.`,
+      grantId: explicitGrant.id,
+    };
+  }
+
+  return {
+    appId: normalizedAppId,
+    available: false,
+    mode: "unavailable",
+    reason: `Grant ${normalizedAppId} access before this connection can be reused by the app.`,
+    grantId: null,
+  };
+}
+
+export function workspaceConnectionIsAvailableToApp(
+  connection: Pick<
+    SerializedWorkspaceConnection,
+    "id" | "allowedApps" | "label"
+  >,
+  appId: string,
+  grants: Pick<
+    SerializedWorkspaceConnectionGrant,
+    "id" | "connectionId" | "appId"
+  >[] = [],
+): boolean {
+  return getWorkspaceConnectionAppAccess(connection, appId, grants).available;
 }
 
 async function getGrantedConnectionIdsForApp(

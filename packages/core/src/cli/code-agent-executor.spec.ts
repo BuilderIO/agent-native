@@ -9,6 +9,7 @@ import {
   codeAgentRunTranscriptPath,
   getCodeAgentRunRecord,
   listCodeAgentTranscriptEvents,
+  queueCodeAgentFollowUp,
   updateCodeAgentRunRecord,
 } from "./code-agent-runs.js";
 import {
@@ -163,6 +164,48 @@ describe("executeCodeAgentRun", () => {
         permissionMode: "read-only",
       },
     });
+  });
+
+  it("runs pending follow-ups after the current execution completes", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Turn done.";
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Active task",
+      status: "running",
+      phase: "executing",
+      cwd: process.cwd(),
+    });
+    queueCodeAgentFollowUp({
+      runId: run.id,
+      prompt: "follow up after completion",
+      mode: "queued",
+      source: "test",
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "finish current work",
+      stdout: output.stream,
+    });
+
+    const updated = getCodeAgentRunRecord(run.id);
+    const events = listCodeAgentTranscriptEvents(run.id);
+    expect(updated).toMatchObject({
+      status: "completed",
+      phase: "complete",
+    });
+    expect(updated?.metadata?.pendingFollowUps).toBeUndefined();
+    expect(output.read().match(/Turn done\./g)).toHaveLength(2);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          message: "Agent-Native Code run completed; running queued follow-up.",
+        }),
+      ]),
+    );
   });
 
   it("executes an explicitly approved pending command and clears the approval", async () => {

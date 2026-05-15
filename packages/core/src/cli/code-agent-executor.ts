@@ -28,6 +28,7 @@ import {
 } from "../shared/reasoning-effort.js";
 import {
   appendCodeAgentTranscriptEvent,
+  dequeueCodeAgentFollowUp,
   getCodeAgentRunRecord,
   listCodeAgentTranscriptEvents,
   updateCodeAgentRunRecord,
@@ -268,6 +269,36 @@ export async function executeCodeAgentRun(
           total: 1,
           percent: 50,
         },
+      });
+    }
+
+    const pendingFollowUp = dequeueCodeAgentFollowUp(existing.id);
+    if (pendingFollowUp) {
+      const message =
+        pendingFollowUp.mode === "queued"
+          ? "Agent-Native Code run completed; running queued follow-up."
+          : "Agent-Native Code run completed; applying steering follow-up.";
+      appendCodeAgentTranscriptEvent({
+        runId: existing.id,
+        kind: "status",
+        message,
+        metadata: {
+          status: "running",
+          phase: "follow-up",
+          followUpId: pendingFollowUp.id,
+          followUpMode: pendingFollowUp.mode,
+        },
+      });
+      if (pendingFollowUp.permissionMode) {
+        updateCodeAgentRunRecord(existing.id, {
+          permissionMode: pendingFollowUp.permissionMode,
+        });
+      }
+      return executeCodeAgentRun({
+        ...options,
+        runId: existing.id,
+        prompt: pendingFollowUp.prompt,
+        appendUserEvent: false,
       });
     }
 

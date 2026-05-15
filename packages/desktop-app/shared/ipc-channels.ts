@@ -53,6 +53,10 @@ export const IPC = {
   CODE_AGENTS_APPEND_FOLLOW_UP: "code-agents:append-follow-up",
   CODE_AGENTS_UPDATE_RUN: "code-agents:update-run",
   CODE_AGENTS_CONTROL_RUN: "code-agents:control-run",
+  CODE_AGENTS_RETRY_RUN: "code-agents:retry-run",
+  CODE_AGENTS_RERUN_RUN: "code-agents:rerun-run",
+  CODE_AGENTS_GET_HOST_METADATA: "code-agents:get-host-metadata",
+  CODE_AGENTS_LIST_CODE_PACKS: "code-agents:list-code-packs",
   CODE_AGENTS_LIST_MIGRATION_RUNS: "code-agents:list-migration-runs",
   CODE_AGENTS_OPEN_TERMINAL: "code-agents:open-terminal",
 
@@ -109,6 +113,76 @@ export interface CodeAgentRunProgress {
 export interface CodeAgentRunDetail {
   label: string;
   value: string;
+}
+
+export type CodeAgentReasoningEffort =
+  | "auto"
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export interface CodeAgentPromptAttachment {
+  name: string;
+  type?: string;
+  size?: number;
+  text?: string;
+}
+
+export interface CodeAgentProjectCommand {
+  kind: "command";
+  name: string;
+  path: string;
+  relativePath: string;
+  description?: string;
+  argumentHint?: string;
+  reserved: boolean;
+  body?: string;
+}
+
+export interface CodeAgentProjectSkill {
+  kind: "skill";
+  name: string;
+  path: string;
+  relativePath: string;
+  description?: string;
+  body?: string;
+}
+
+export interface CodeAgentCodePack {
+  schemaVersion: 1;
+  root: string;
+  commands: CodeAgentProjectCommand[];
+  skills: CodeAgentProjectSkill[];
+}
+
+export interface CodeAgentCodePackResult {
+  status: "ok" | "unavailable";
+  pack?: CodeAgentCodePack;
+  error?: string;
+}
+
+export interface CodeAgentQueueMetadata {
+  queued: boolean;
+  queuedAt?: string;
+  queuedBy?: "desktop" | "cli" | "host" | string;
+  queueId?: string;
+  queuePosition?: number;
+  attempt?: number;
+  retryOf?: string;
+  rerunOf?: string;
+}
+
+export interface CodeAgentSteeringMetadata {
+  cwd?: string;
+  permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  attachments?: CodeAgentPromptAttachment[];
 }
 
 export interface CodeAgentRun {
@@ -189,7 +263,9 @@ export interface CodeAgentCreateRunRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  attachments?: CodeAgentPromptAttachment[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface CodeAgentCreateRunResult {
@@ -208,7 +284,9 @@ export interface CodeAgentFollowUpRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  attachments?: CodeAgentPromptAttachment[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface CodeAgentFollowUpResult {
@@ -225,7 +303,8 @@ export interface CodeAgentUpdateRunRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CodeAgentUpdateRunResult {
@@ -249,11 +328,81 @@ export interface CodeAgentTerminalResult {
 
 export type CodeAgentControlCommand = "resume" | "status" | "stop";
 
+export type CodeAgentHostControlCommand =
+  | CodeAgentControlCommand
+  | "retry"
+  | "rerun";
+
 export interface CodeAgentControlResult {
   ok: boolean;
   command: CodeAgentControlCommand;
-  action?: "open-ui" | "refresh" | "none";
+  action?: "open-ui" | "refresh" | "none" | "select-run";
+  run?: CodeAgentRun;
   message: string;
+  error?: string;
+}
+
+export interface CodeAgentRerunRequest {
+  goalId?: string;
+  runId: string;
+  prompt?: string;
+  cwd?: string;
+  permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  attachments?: CodeAgentPromptAttachment[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface CodeAgentRerunResult extends CodeAgentCreateRunResult {
+  sourceRunId?: string;
+}
+
+export interface CodeAgentRetryRunRequest {
+  goalId?: string;
+  runId: string;
+  permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CodeAgentRetryRunResult {
+  ok: boolean;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentCodePackMetadata {
+  name: string;
+  version?: string;
+  root?: string;
+  packagePath?: string;
+  cliEntry?: string;
+  available?: boolean;
+}
+
+export interface CodeAgentHostMetadata {
+  status: "ok" | "unavailable";
+  platform: NodeJS.Platform | string;
+  desktopVersion?: string;
+  storeRoot: string;
+  runsDir: string;
+  transcriptsDir: string;
+  codePack?: CodeAgentCodePackMetadata;
+  capabilities: {
+    fileBackedRuns: boolean;
+    nativeTaskRunner: boolean;
+    queueMetadata: boolean;
+    steeringMetadata: boolean;
+    retryRun: boolean;
+    rerunRun: boolean;
+    openTerminal: boolean;
+    controlCommands: CodeAgentHostControlCommand[];
+  };
   error?: string;
 }
 

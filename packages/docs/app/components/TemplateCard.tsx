@@ -113,7 +113,7 @@ export const templates = [
     cliCommand: "npx @agent-native/core create my-brain-app --template brain",
     demoUrl: "https://brain.agent-native.com",
     description:
-      "Whole-company memory from approved Slack channels, Clips recordings, Granola exports, and transcripts. Distill cited decisions and durable context that every agent can reuse.",
+      "Full-page company chat over cited memory from approved Slack channels, Clips recordings, Granola notes, GitHub, and transcripts, with review gates every agent can reuse.",
     color: "#8B5CF6",
   },
   {

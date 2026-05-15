@@ -16,16 +16,17 @@ Set `AGENT_NATIVE_CODE_AGENTS_HOME` to isolate a custom store while developing t
 
 ## Actions
 
-| Action                        | Purpose                                     |
-| ----------------------------- | ------------------------------------------- |
-| `list-code-agent-runs`        | List file-backed Agent-Native Code sessions |
-| `create-code-agent-run`       | Create a run and start local execution      |
-| `read-code-agent-transcript`  | Read transcript events for a run            |
-| `append-code-agent-follow-up` | Append a follow-up and resume execution     |
-| `update-code-agent-run`       | Update run mode metadata                    |
-| `control-code-agent-run`      | Resume, refresh, or mark a run stopped      |
-| `view-screen`                 | Return current screen state                 |
-| `navigate`                    | Navigate the UI                             |
+| Action                        | Purpose                                                       |
+| ----------------------------- | ------------------------------------------------------------- |
+| `list-code-agent-runs`        | List file-backed Agent-Native Code sessions                   |
+| `list-code-agent-packs`       | List project `.agents/commands` and `.agents/skills` metadata |
+| `create-code-agent-run`       | Create a run and start local execution                        |
+| `read-code-agent-transcript`  | Read transcript events for a run                              |
+| `append-code-agent-follow-up` | Append a follow-up and resume execution                       |
+| `update-code-agent-run`       | Update run mode metadata                                      |
+| `control-code-agent-run`      | Resume, refresh, or mark a run stopped                        |
+| `view-screen`                 | Return current screen state                                   |
+| `navigate`                    | Navigate the UI                                               |
 
 ## UI Contract
 

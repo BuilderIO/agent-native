@@ -18,7 +18,7 @@ Each one is a real app you could use today, and the launching pad for your own v
 | **Mail**      | An agent-native Superhuman. Inbox, labels, AI triage, keyboard-first, drafts and sends through the agent.      |
 | **Calendar**  | An agent-native Google Calendar. Events, sync, public booking links, agent-driven scheduling.                  |
 | **Content**   | An agent-native Notion / Google Docs. Markdown + Tiptap editor, Notion sync, real-time multi-user collab.      |
-| **Brain**     | An agent-native knowledge base. Notes, sources, memory, and retrieval the agent can maintain and reuse.        |
+| **Brain**     | A whole-company memory app: full-page company chat, cited decisions, review queue, and approved sources.       |
 | **Slides**    | An agent-native Google Slides. React-based decks the agent generates and edits directly.                       |
 | **Video**     | An agent-native video editor on Remotion. Prompt for a cut, the agent assembles it.                            |
 | **Analytics** | An agent-native Amplitude/Mixpanel. Connect data sources, prompt for charts, pin to dashboards.                |

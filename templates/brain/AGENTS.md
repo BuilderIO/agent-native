@@ -47,7 +47,7 @@ JSON is stored in text columns. There is no vector database.
 | `import-capture`                                                                    | Import arbitrary raw text                                                                                                              |
 | `import-transcript`                                                                 | Import meeting transcripts                                                                                                             |
 | `list-captures` / `get-capture`                                                     | Review raw captures by source/status, including distillation queue state                                                               |
-| `enqueue-distillation`                                                              | Idempotently queue capture distillation                                                                                                |
+| `enqueue-distillation` / `enqueue-captures-distillation`                            | Idempotently queue one capture or a selected batch for distillation                                                                    |
 | `claim-distillation`                                                                | Claim one queued distillation item before a browser or worker hands it to the agent                                                    |
 | `list-distillation-queue` / `retry-distillation`                                    | Inspect failed/stale distillation work and safely retry accessible items                                                               |
 | `mark-capture-distilled`                                                            | Mark a capture distilled or ignored                                                                                                    |
@@ -134,11 +134,15 @@ Distillation has two worker paths. When a Brain tab is open, the app shell uses
 the background. When no tab is open, the server `brain-distillation` sweep runs
 under `RUN_BACKGROUND_JOBS`, reclaims stale `processing` rows, and invokes the
 same agent loop headlessly. Re-running `enqueue-distillation` for an active
-queue item refreshes the handoff instead of duplicating queue rows. The agent
-should read the capture, apply the settings/extraction rules, write cited
-knowledge or proposals with `write-knowledge`, and finish by calling
-`mark-capture-distilled`. That final action also marks active distillation queue
-rows done.
+queue item refreshes the handoff instead of duplicating queue rows. Use
+`enqueue-captures-distillation` when a user selects multiple raw captures; it
+applies the same access checks and active-queue reuse per capture, returns
+`queued`, `existing`, and `errors` counts plus per-capture results, and does not
+fail the whole batch for inaccessible, distilled, or ignored captures. The
+agent should read each capture, apply the settings/extraction rules, write cited
+knowledge or proposals with `write-knowledge`, and finish each capture by
+calling `mark-capture-distilled`. That final action also marks active
+distillation queue rows done.
 
 Distillation must apply `get-brain-settings` guidance. Respect
 `distillationInstructions`, `defaultPublishTier`, `requireCitations`,
@@ -186,9 +190,10 @@ that is the user's intent. Existing Brain connectors remain backward
 compatible with scoped credentials such as `SLACK_BOT_TOKEN`, `GRANOLA_API_KEY`,
 and `GITHUB_TOKEN`. Runtime connector sync resolves credentials in this order:
 granted `workspace_connections` / `workspace_connection_grants` credential refs
-for `appId=brain`, Brain-local credentials, registered secrets, then the legacy
-environment variable with the same key. Never include resolved credential values
-in action responses, stats, errors, or logs.
+for `appId=brain`, Brain-local credentials, then vault-backed registered
+secrets. It does not fall back to deploy-level environment variables for source
+credentials. Never include resolved credential values in action responses,
+stats, errors, or logs.
 
 Auto-sync is controlled per source with `config.autoSync` and
 `config.pollMinutes`. The background job is gated by `RUN_BACKGROUND_JOBS`; use

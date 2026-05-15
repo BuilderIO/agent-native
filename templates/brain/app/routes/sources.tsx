@@ -6,6 +6,7 @@ import {
   IconArchive,
   IconBrandGithub,
   IconBrandSlack,
+  IconChecks,
   IconCircleCheck,
   IconCircleDashed,
   IconClock,
@@ -28,6 +29,8 @@ import {
 import {
   type BrainConnectionProvider,
   type BrainCaptureReviewStatus,
+  type BrainCaptureReviewItem,
+  type EnqueueCapturesDistillationResponse,
   type CapturesResponse,
   type BrainPilotReport,
   type BrainSource,
@@ -357,6 +360,13 @@ function queueActionLabel(
   return "Queued";
 }
 
+function captureCanQueue(capture: BrainCaptureReviewItem) {
+  const queue = capture.distillationQueue;
+  const terminal =
+    capture.status === "distilled" || capture.status === "ignored";
+  return !terminal && (!queue || queue.status === "failed");
+}
+
 function isSourceProvider(providerId: string): providerId is Provider {
   return providers.some((provider) => provider.value === providerId);
 }
@@ -385,6 +395,9 @@ function grantStateDetail(
   state: BrainWorkspaceConnectionGrantState,
 ) {
   const workspace = provider.workspaceConnection;
+  if (workspace?.grantAvailabilityMessage) {
+    return workspace.grantAvailabilityMessage;
+  }
   const sourceCount = provider.configuredSourceCount.toLocaleString();
   switch (state) {
     case "connected":
@@ -405,18 +418,98 @@ function grantStateDetail(
   }
 }
 
-function grantStateClass(state: BrainWorkspaceConnectionGrantState) {
-  switch (state) {
-    case "connected":
+type ReadinessTone = "ready" | "attention" | "danger" | "muted";
+
+type ProviderReadinessItem = {
+  label: string;
+  value: string;
+  detail: string;
+  tone: ReadinessTone;
+  icon: typeof IconDatabaseImport;
+};
+
+function readinessToneClass(tone: ReadinessTone) {
+  switch (tone) {
+    case "ready":
       return "border-border bg-secondary text-secondary-foreground";
-    case "granted":
+    case "attention":
       return "border-border bg-accent text-accent-foreground";
-    case "needs_grant":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400";
-    case "not_connected":
+    case "danger":
+      return "border-destructive/25 bg-destructive/10 text-destructive";
+    case "muted":
     default:
       return "border-border bg-muted text-muted-foreground";
   }
+}
+
+function providerHealthLabel(provider: BrainConnectionProvider) {
+  switch (provider.providerHealth?.status) {
+    case "ready":
+      return "Ready";
+    case "needs_grant":
+      return "Grant needed";
+    case "unhealthy":
+      return "Needs repair";
+    case "missing_credentials":
+      return "Missing keys";
+    case "unsupported":
+      return "Metadata only";
+    default:
+      return "Unknown";
+  }
+}
+
+function providerHealthClass(provider: BrainConnectionProvider) {
+  switch (provider.providerHealth?.status) {
+    case "ready":
+      return readinessToneClass("ready");
+    case "needs_grant":
+    case "unhealthy":
+      return readinessToneClass("attention");
+    case "missing_credentials":
+      return readinessToneClass("danger");
+    case "unsupported":
+    default:
+      return readinessToneClass("muted");
+  }
+}
+
+function grantStateClass(state: BrainWorkspaceConnectionGrantState) {
+  switch (state) {
+    case "connected":
+      return readinessToneClass("ready");
+    case "granted":
+      return readinessToneClass("attention");
+    case "needs_grant":
+      return readinessToneClass("attention");
+    case "not_connected":
+    default:
+      return readinessToneClass("muted");
+  }
+}
+
+type BrainWorkspaceSummaryConnection = NonNullable<
+  BrainConnectionProvider["workspaceConnection"]
+>["connections"][number];
+
+function appAccessLabel(access: BrainWorkspaceSummaryConnection["appAccess"]) {
+  switch (access?.mode) {
+    case "all-apps":
+      return "All apps";
+    case "allowed-app":
+      return "Brain allow-list";
+    case "explicit-grant":
+      return "Brain grant";
+    case "unavailable":
+    default:
+      return "Needs Brain grant";
+  }
+}
+
+function appAccessClass(access: BrainWorkspaceSummaryConnection["appAccess"]) {
+  return access?.available
+    ? readinessToneClass("muted")
+    : grantStateClass("needs_grant");
 }
 
 function workspaceStatusLabel(status: BrainWorkspaceConnectionStatus) {
@@ -438,16 +531,16 @@ function workspaceStatusLabel(status: BrainWorkspaceConnectionStatus) {
 function workspaceStatusClass(status: BrainWorkspaceConnectionStatus) {
   switch (status) {
     case "connected":
-      return "border-border bg-secondary text-secondary-foreground";
+      return readinessToneClass("ready");
     case "checking":
-      return "border-border bg-accent text-accent-foreground";
+      return readinessToneClass("attention");
     case "needs_reauth":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400";
+      return readinessToneClass("attention");
     case "error":
-      return "border-destructive/25 bg-destructive/10 text-destructive";
+      return readinessToneClass("danger");
     case "disabled":
     default:
-      return "border-border bg-muted text-muted-foreground";
+      return readinessToneClass("muted");
   }
 }
 
@@ -482,6 +575,384 @@ function providerWorkspaceCredentialRefs(provider: BrainConnectionProvider) {
   return Array.from(refs.values());
 }
 
+function availableCredentialDetails(provider: BrainConnectionProvider) {
+  return (
+    provider.credentialHealth?.details.filter((detail) => detail.available) ??
+    []
+  );
+}
+
+function credentialCount(
+  provider: BrainConnectionProvider,
+  source: "workspace_connection" | "brain_local" | "registered_secret",
+) {
+  return availableCredentialDetails(provider).filter(
+    (detail) => detail.provenance?.source === source,
+  ).length;
+}
+
+function scopedCredentialCount(provider: BrainConnectionProvider) {
+  return (
+    credentialCount(provider, "brain_local") +
+    credentialCount(provider, "registered_secret")
+  );
+}
+
+function countLabel(count: number, singular: string, plural = `${singular}s`) {
+  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
+}
+
+function sharedConnectionReadiness(
+  provider: BrainConnectionProvider,
+): ProviderReadinessItem {
+  const workspace = provider.workspaceConnection;
+  if (!workspace) {
+    return {
+      label: "Shared connection",
+      value: "Checking",
+      detail: "Workspace connection status has not loaded yet.",
+      tone: "muted",
+      icon: IconCircleDashed,
+    };
+  }
+  if (workspace.hasActiveWorkspaceConnection) {
+    return {
+      label: "Shared connection",
+      value: "Connected",
+      detail: `${countLabel(
+        workspace.activeConnectionCount,
+        "active connection",
+      )} can provide credential refs.`,
+      tone: "ready",
+      icon: IconCircleCheck,
+    };
+  }
+  if (workspace.hasGrantedWorkspaceConnection) {
+    return {
+      label: "Shared connection",
+      value: "Repair",
+      detail: "Brain has a grant, but the provider connection needs attention.",
+      tone: "attention",
+      icon: IconAlertTriangle,
+    };
+  }
+  if (workspace.hasWorkspaceConnection) {
+    return {
+      label: "Shared connection",
+      value: "Grantable",
+      detail: "A workspace connection exists and can be granted to Brain.",
+      tone: "attention",
+      icon: IconShieldCheck,
+    };
+  }
+  return {
+    label: "Shared connection",
+    value: "Not connected",
+    detail: scopedCredentialCount(provider)
+      ? "Brain can still use scoped local credential refs."
+      : "Add a reusable provider connection in Dispatch.",
+    tone: "muted",
+    icon: IconCircleDashed,
+  };
+}
+
+function appGrantReadiness(
+  provider: BrainConnectionProvider,
+): ProviderReadinessItem {
+  const workspace = provider.workspaceConnection;
+  const grantState = workspace?.grantState ?? "not_connected";
+  if (grantState === "connected" || grantState === "granted") {
+    return {
+      label: "Brain app grant",
+      value: grantState === "connected" ? "Granted" : "Granted, repair",
+      detail:
+        grantState === "connected"
+          ? "Brain can use the shared workspace connection."
+          : "Access is granted, but the connection is not active yet.",
+      tone: grantState === "connected" ? "ready" : "attention",
+      icon: grantStateIcon(grantState),
+    };
+  }
+  if (grantState === "needs_grant") {
+    return {
+      label: "Brain app grant",
+      value: "Needed",
+      detail: "Grant the existing provider connection to the Brain app.",
+      tone: "attention",
+      icon: IconAlertTriangle,
+    };
+  }
+  return {
+    label: "Brain app grant",
+    value: scopedCredentialCount(provider) ? "Not needed" : "No grant",
+    detail: scopedCredentialCount(provider)
+      ? "Scoped Brain credentials are already available."
+      : "A grant appears after a workspace provider connection exists.",
+    tone: "muted",
+    icon: IconCircleDashed,
+  };
+}
+
+function credentialPathReadiness(
+  provider: BrainConnectionProvider,
+): ProviderReadinessItem {
+  const health = provider.credentialHealth;
+  if (!health) {
+    return {
+      label: "Credential path",
+      value: "Checking",
+      detail: "Credential availability has not loaded yet.",
+      tone: "muted",
+      icon: IconCircleDashed,
+    };
+  }
+  if (health.status === "not_required") {
+    return {
+      label: "Credential path",
+      value: "Not required",
+      detail: "This provider does not require a credential key.",
+      tone: "ready",
+      icon: IconCircleCheck,
+    };
+  }
+
+  const available = availableCredentialDetails(provider)[0];
+  if (available?.provenance?.source === "workspace_connection") {
+    return {
+      label: "Credential path",
+      value: "Shared",
+      detail: "Using workspace credential refs; values stay hidden.",
+      tone: "ready",
+      icon: IconShieldCheck,
+    };
+  }
+  if (available?.provenance?.source === "brain_local") {
+    return {
+      label: "Credential path",
+      value: "Brain-local",
+      detail: "Scoped Brain credential refs are configured.",
+      tone: "ready",
+      icon: IconShieldCheck,
+    };
+  }
+  if (available?.provenance?.source === "registered_secret") {
+    return {
+      label: "Credential path",
+      value: "Vault",
+      detail: "A registered credential ref is available in the vault.",
+      tone: "ready",
+      icon: IconShieldCheck,
+    };
+  }
+  if (health.available) {
+    return {
+      label: "Credential path",
+      value: "Available",
+      detail: "Required credential refs are available without exposing values.",
+      tone: "ready",
+      icon: IconShieldCheck,
+    };
+  }
+  return {
+    label: "Credential path",
+    value: "Missing",
+    detail:
+      health.missingMessages[0] ??
+      "Add a shared provider connection or scoped Brain credential.",
+    tone: "danger",
+    icon: IconAlertTriangle,
+  };
+}
+
+function providerConnectionReadiness(
+  provider: BrainConnectionProvider,
+): ProviderReadinessItem {
+  const workspace = provider.workspaceConnection;
+  const health = provider.providerHealth?.status;
+  if (!provider.sourceProviderSupported) {
+    return {
+      label: "Provider connection",
+      value: "Metadata only",
+      detail: "Brain source setup is not implemented for this provider.",
+      tone: "muted",
+      icon: IconCircleDashed,
+    };
+  }
+  if (health === "ready") {
+    return {
+      label: "Provider connection",
+      value: "Ready",
+      detail: workspace?.hasActiveWorkspaceConnection
+        ? "Ready through a shared workspace connection."
+        : scopedCredentialCount(provider)
+          ? "Ready through scoped Brain credential refs."
+          : "Ready for source setup.",
+      tone: "ready",
+      icon: IconCircleCheck,
+    };
+  }
+  if (health === "needs_grant") {
+    return {
+      label: "Provider connection",
+      value: "Needs grant",
+      detail: "The provider is connected, but Brain needs app access.",
+      tone: "attention",
+      icon: IconAlertTriangle,
+    };
+  }
+  if (health === "unhealthy") {
+    return {
+      label: "Provider connection",
+      value: "Repair",
+      detail: "Reauthorize or repair the shared provider connection.",
+      tone: "attention",
+      icon: IconAlertTriangle,
+    };
+  }
+  if (health === "missing_credentials" && !workspace?.hasWorkspaceConnection) {
+    return {
+      label: "Provider connection",
+      value: "Connect provider",
+      detail: "Add a shared connection or configure scoped Brain credentials.",
+      tone: "danger",
+      icon: IconAlertTriangle,
+    };
+  }
+  return {
+    label: "Provider connection",
+    value: providerHealthLabel(provider),
+    detail:
+      provider.providerHealth?.message ??
+      "Provider readiness could not be determined.",
+    tone: health === "missing_credentials" ? "danger" : "muted",
+    icon:
+      health === "missing_credentials" ? IconAlertTriangle : IconCircleDashed,
+  };
+}
+
+function providerReadinessItems(provider: BrainConnectionProvider) {
+  return [
+    sharedConnectionReadiness(provider),
+    appGrantReadiness(provider),
+    providerConnectionReadiness(provider),
+    credentialPathReadiness(provider),
+  ];
+}
+
+function providerReadinessCallout(
+  provider: BrainConnectionProvider,
+): ProviderReadinessItem & { title: string } {
+  const workspace = provider.workspaceConnection;
+  if (!provider.sourceProviderSupported) {
+    return {
+      ...providerConnectionReadiness(provider),
+      title: "Connection metadata only",
+    };
+  }
+  if (workspace?.hasActiveWorkspaceConnection) {
+    return {
+      label: "Readiness",
+      value: "Shared",
+      title: "Shared workspace connection ready",
+      detail: "Brain can reuse the provider connection without showing values.",
+      tone: "ready",
+      icon: IconCircleCheck,
+    };
+  }
+  if (workspace?.grantState === "needs_grant") {
+    return {
+      label: "Readiness",
+      value: "Grant needed",
+      title: "Grant Brain access",
+      detail:
+        "A workspace provider connection exists; approve Brain to use it.",
+      tone: "attention",
+      icon: IconAlertTriangle,
+    };
+  }
+  if (scopedCredentialCount(provider)) {
+    return {
+      label: "Readiness",
+      value: "Local",
+      title: "Scoped credentials ready",
+      detail: "Brain has local credential refs available; values stay hidden.",
+      tone: "ready",
+      icon: IconShieldCheck,
+    };
+  }
+  if (provider.credentialHealth?.status === "not_required") {
+    return {
+      label: "Readiness",
+      value: "Ready",
+      title: "No credential required",
+      detail: "This provider can be configured without a credential key.",
+      tone: "ready",
+      icon: IconCircleCheck,
+    };
+  }
+  return {
+    label: "Readiness",
+    value: "Connect",
+    title: "Connect the provider",
+    detail: "Add a shared provider connection or scoped Brain credential.",
+    tone: "danger",
+    icon: IconAlertTriangle,
+  };
+}
+
+function ProviderReadinessCell({ item }: { item: ProviderReadinessItem }) {
+  const Icon = item.icon;
+  return (
+    <div className="min-w-0 rounded-md border border-border bg-card p-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+          <p className="truncate text-xs text-muted-foreground">{item.label}</p>
+        </div>
+        <Badge
+          variant="outline"
+          className={`${readinessToneClass(item.tone)} shrink-0`}
+        >
+          {item.value}
+        </Badge>
+      </div>
+      <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
+        {item.detail}
+      </p>
+    </div>
+  );
+}
+
+function provenanceLabel(
+  provenance: NonNullable<
+    NonNullable<
+      BrainConnectionProvider["credentialHealth"]
+    >["details"][number]["provenance"]
+  >,
+) {
+  switch (provenance.source) {
+    case "workspace_connection":
+      return [
+        provenance.connectionLabel ?? "Workspace connection",
+        provenance.appAccessMode === "explicit-grant"
+          ? "explicit Brain grant"
+          : provenance.appAccessMode === "all-apps"
+            ? "all apps"
+            : provenance.appAccessMode === "allowed-app"
+              ? "Brain allow-list"
+              : null,
+      ]
+        .filter(Boolean)
+        .join(" - ");
+    case "brain_local":
+      return "Brain-local credential";
+    case "registered_secret":
+      return "Credential vault";
+    default:
+      return "Credential source";
+  }
+}
+
 function ProviderCatalog({
   providers: connectionProviders,
   loading,
@@ -507,8 +978,8 @@ function ProviderCatalog({
           </div>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
             Brain sources and reusable workspace integrations in one place.
-            Credential references show names only; values stay in the workspace
-            credential store.
+            Readiness shows shared connections, Brain grants, provider repair
+            needs, and local credential refs without exposing values.
           </p>
         </div>
         <Badge variant="outline" className="w-fit max-w-full">
@@ -532,6 +1003,8 @@ function ProviderCatalog({
             const grantState = workspace?.grantState ?? "not_connected";
             const GrantIcon = grantStateIcon(grantState);
             const credentialRefs = providerWorkspaceCredentialRefs(provider);
+            const missingCredentialMessage =
+              provider.credentialHealth?.missingMessages[0] ?? null;
             const credentialBadges = credentialRefs.length
               ? credentialRefs.map((ref, index) => ({
                   key: `${refLabel(ref)}-${index}`,
@@ -548,6 +1021,9 @@ function ProviderCatalog({
               ? sourceProviderIcon(sourceProvider)
               : IconDatabaseImport;
             const expanded = expandedProviderId === provider.id;
+            const readinessCallout = providerReadinessCallout(provider);
+            const ReadinessIcon = readinessCallout.icon;
+            const readinessItems = providerReadinessItems(provider);
             return (
               <div
                 key={provider.id}
@@ -574,11 +1050,42 @@ function ProviderCatalog({
                     <GrantIcon className="mr-1 size-3" />
                     {grantStateLabel(grantState)}
                   </Badge>
+                  <Badge
+                    variant="outline"
+                    className={`${providerHealthClass(provider)} w-fit max-w-full`}
+                  >
+                    {providerHealthLabel(provider)}
+                  </Badge>
                 </div>
 
                 <p className="text-xs leading-5 text-muted-foreground">
-                  {grantStateDetail(provider, grantState)}
+                  {provider.providerHealth?.message ??
+                    grantStateDetail(provider, grantState)}
                 </p>
+
+                <div className="rounded-md border border-border bg-muted/25 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-2">
+                      <ReadinessIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">
+                          {readinessCallout.title}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {readinessCallout.detail}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={`${readinessToneClass(
+                        readinessCallout.tone,
+                      )} shrink-0`}
+                    >
+                      {readinessCallout.value}
+                    </Badge>
+                  </div>
+                </div>
 
                 <div className="flex flex-wrap gap-1.5">
                   {provider.capabilities.map((capability) => (
@@ -588,32 +1095,24 @@ function ProviderCatalog({
                   ))}
                 </div>
 
-                <dl className="grid grid-cols-3 gap-2 rounded-md bg-muted/25 p-2 text-xs">
-                  <div>
-                    <dt className="truncate text-muted-foreground">
-                      Connections
-                    </dt>
-                    <dd className="mt-1 font-medium">
-                      {(workspace?.connectionCount ?? 0).toLocaleString()}
-                    </dd>
+                <div className="grid gap-2 rounded-md bg-muted/25 p-2">
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Connection readiness
+                    </p>
+                    <span className="truncate text-xs text-muted-foreground">
+                      Values hidden
+                    </span>
                   </div>
-                  <div>
-                    <dt className="truncate text-muted-foreground">
-                      Brain grants
-                    </dt>
-                    <dd className="mt-1 font-medium">
-                      {(
-                        workspace?.grantedConnectionCount ?? 0
-                      ).toLocaleString()}
-                    </dd>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {readinessItems.map((item) => (
+                      <ProviderReadinessCell
+                        key={`${provider.id}-${item.label}`}
+                        item={item}
+                      />
+                    ))}
                   </div>
-                  <div>
-                    <dt className="truncate text-muted-foreground">Sources</dt>
-                    <dd className="mt-1 font-medium">
-                      {provider.configuredSourceCount.toLocaleString()}
-                    </dd>
-                  </div>
-                </dl>
+                </div>
 
                 <div>
                   <p className="text-xs text-muted-foreground">
@@ -632,6 +1131,11 @@ function ProviderCatalog({
                       </span>
                     )}
                   </div>
+                  {missingCredentialMessage ? (
+                    <p className="mt-2 text-xs leading-5 text-destructive">
+                      {missingCredentialMessage}
+                    </p>
+                  ) : null}
                 </div>
 
                 {expanded ? (
@@ -639,6 +1143,30 @@ function ProviderCatalog({
                     <p className="leading-6 text-muted-foreground">
                       {provider.description}
                     </p>
+                    {provider.id === "slack" ? (
+                      <div className="grid gap-2 rounded-md border border-border bg-card p-3">
+                        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          <IconBrandSlack className="size-4" />
+                          Slack setup guide
+                        </div>
+                        <div className="grid gap-1 text-xs leading-5 text-muted-foreground">
+                          <p>
+                            Allow-list approved channel IDs such as C0123456789,
+                            or channel names like #product when name resolution
+                            is acceptable.
+                          </p>
+                          <p>
+                            Minimum scopes are channels:read and
+                            channels:history. Add groups:read and groups:history
+                            for private channels.
+                          </p>
+                          <p>
+                            Invite the Slack app to private channels before
+                            syncing. DMs and MPIMs stay excluded.
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
                     {provider.credentialKeys.length ? (
                       <div className="grid gap-2">
                         {provider.credentialKeys.map((credential) => (
@@ -657,6 +1185,38 @@ function ProviderCatalog({
                                 {credential.description}
                               </p>
                             ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {provider.credentialHealth?.details.length ? (
+                      <div className="grid gap-2">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Credential provenance
+                        </p>
+                        {provider.credentialHealth.details.map((detail) => (
+                          <div
+                            key={`${provider.id}-${detail.key}`}
+                            className="rounded-md border border-border bg-card p-3"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-medium">{detail.key}</p>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  detail.available
+                                    ? readinessToneClass("ready")
+                                    : readinessToneClass("danger")
+                                }
+                              >
+                                {detail.available ? "Available" : "Missing"}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                              {detail.provenance
+                                ? provenanceLabel(detail.provenance)
+                                : detail.missingMessage}
+                            </p>
                           </div>
                         ))}
                       </div>
@@ -698,15 +1258,11 @@ function ProviderCatalog({
                                   </Badge>
                                   <Badge
                                     variant="outline"
-                                    className={
-                                      connection.grantedToApp
-                                        ? "border-border bg-muted text-muted-foreground"
-                                        : grantStateClass("needs_grant")
-                                    }
+                                    className={appAccessClass(
+                                      connection.appAccess,
+                                    )}
                                   >
-                                    {connection.grantedToApp
-                                      ? "Brain granted"
-                                      : "Needs Brain grant"}
+                                    {appAccessLabel(connection.appAccess)}
                                   </Badge>
                                 </div>
                               </div>
@@ -1128,6 +1684,11 @@ export default function SourcesRoute() {
   const [captureStatus, setCaptureStatus] =
     useState<CaptureStatusFilter>("queued");
   const [showCapturePreview, setShowCapturePreview] = useState(false);
+  const [selectedCaptureIds, setSelectedCaptureIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [bulkResult, setBulkResult] =
+    useState<EnqueueCapturesDistillationResponse | null>(null);
   const [form, setForm] = useState<SourceFormState>(() => defaultForm("slack"));
   const [slackPilotReport, setSlackPilotReport] =
     useState<SlackPilotReport | null>(null);
@@ -1194,6 +1755,10 @@ export default function SourcesRoute() {
     unknown,
     { captureId: string; priority?: number }
   >("enqueue-distillation" as any);
+  const enqueueCapturesDistillation = useActionMutation<
+    EnqueueCapturesDistillationResponse,
+    { captureIds: string[]; priority?: number }
+  >("enqueue-captures-distillation" as any);
   const markCaptureDistilled = useActionMutation<
     unknown,
     { captureId: string; status: "ignored" }
@@ -1201,6 +1766,17 @@ export default function SourcesRoute() {
 
   const sources = sourcesQuery.data?.sources ?? [];
   const connectionProviders = connectionProvidersQuery.data?.providers ?? [];
+  const captures = capturesQuery.data?.captures ?? [];
+  const queueableCaptures = captures.filter(captureCanQueue);
+  const queueableCaptureIds = new Set(
+    queueableCaptures.map((capture) => capture.id),
+  );
+  const selectedQueueableIds = Array.from(selectedCaptureIds).filter((id) =>
+    queueableCaptureIds.has(id),
+  );
+  const allQueueableSelected =
+    queueableCaptures.length > 0 &&
+    queueableCaptures.every((capture) => selectedCaptureIds.has(capture.id));
   const selectedSourceId = params.get("sourceId");
   const sourceTypes = useMemo(
     () => [
@@ -1268,6 +1844,8 @@ export default function SourcesRoute() {
   function openCaptureReview(source: BrainSource) {
     setCaptureStatus("queued");
     setShowCapturePreview(false);
+    setSelectedCaptureIds(new Set());
+    setBulkResult(null);
     const next = new URLSearchParams(params);
     next.set("sourceId", source.id);
     setParams(next, { replace: true });
@@ -1278,6 +1856,8 @@ export default function SourcesRoute() {
     next.delete("sourceId");
     setParams(next, { replace: true });
     setReviewSource(null);
+    setSelectedCaptureIds(new Set());
+    setBulkResult(null);
   }
 
   function updateForm(patch: Partial<SourceFormState>) {
@@ -1313,7 +1893,7 @@ export default function SourcesRoute() {
     const result = await runSlackPilot.mutateAsync({
       sourceId: source.id,
       readHistory,
-      resolveNames: false,
+      resolveNames: true,
     });
     setSlackPilotReport(result);
   }
@@ -1322,6 +1902,37 @@ export default function SourcesRoute() {
     setPilotReportSourceId((current) =>
       current === source.id ? null : source.id,
     );
+  }
+
+  function toggleCaptureSelection(captureId: string, checked: boolean) {
+    setSelectedCaptureIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(captureId);
+      else next.delete(captureId);
+      return next;
+    });
+  }
+
+  function toggleAllQueueableCaptures() {
+    setSelectedCaptureIds((current) => {
+      const next = new Set(current);
+      if (allQueueableSelected) {
+        queueableCaptures.forEach((capture) => next.delete(capture.id));
+      } else {
+        queueableCaptures.forEach((capture) => next.add(capture.id));
+      }
+      return next;
+    });
+  }
+
+  async function queueSelectedCaptures() {
+    if (!selectedQueueableIds.length) return;
+    const result = await enqueueCapturesDistillation.mutateAsync({
+      captureIds: selectedQueueableIds,
+      priority: 60,
+    });
+    setBulkResult(result);
+    setSelectedCaptureIds(new Set());
   }
 
   return (
@@ -1631,6 +2242,7 @@ export default function SourcesRoute() {
         syncSource.isError ||
         syncDueSources.isError ||
         runSlackPilot.isError ||
+        enqueueCapturesDistillation.isError ||
         pilotReportQuery.isError ? (
           <div className="lg:col-span-3">
             <EmptyActionState
@@ -1663,9 +2275,11 @@ export default function SourcesRoute() {
                 <Label htmlFor="capture-status-filter">Status</Label>
                 <Select
                   value={captureStatus}
-                  onValueChange={(value) =>
-                    setCaptureStatus(value as CaptureStatusFilter)
-                  }
+                  onValueChange={(value) => {
+                    setCaptureStatus(value as CaptureStatusFilter);
+                    setSelectedCaptureIds(new Set());
+                    setBulkResult(null);
+                  }}
                 >
                   <SelectTrigger id="capture-status-filter">
                     <SelectValue />
@@ -1693,6 +2307,72 @@ export default function SourcesRoute() {
               </label>
             </div>
 
+            {(captures.length || bulkResult) && (
+              <div className="grid gap-3 rounded-md border border-border bg-card p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Batch distillation</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Select queueable captures and hand them to the Brain
+                      distillation worker together.
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!queueableCaptures.length}
+                      onClick={toggleAllQueueableCaptures}
+                    >
+                      <IconChecks className="size-4" />
+                      {allQueueableSelected ? "Unselect all" : "Select all"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={
+                        !selectedQueueableIds.length ||
+                        enqueueCapturesDistillation.isPending
+                      }
+                      onClick={() => void queueSelectedCaptures()}
+                    >
+                      {enqueueCapturesDistillation.isPending ? (
+                        <IconLoader2 className="size-4 animate-spin" />
+                      ) : (
+                        <IconSend className="size-4" />
+                      )}
+                      Queue selected
+                    </Button>
+                    {selectedCaptureIds.size ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setSelectedCaptureIds(new Set())}
+                      >
+                        Clear
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline">
+                    {selectedQueueableIds.length.toLocaleString()} selected
+                  </Badge>
+                  <Badge variant="outline">
+                    {queueableCaptures.length.toLocaleString()} queueable
+                  </Badge>
+                  {bulkResult ? (
+                    <Badge
+                      variant={bulkResult.errors ? "destructive" : "secondary"}
+                    >
+                      {bulkResult.queued.toLocaleString()} queued,{" "}
+                      {bulkResult.existing.toLocaleString()} existing,{" "}
+                      {bulkResult.errors.toLocaleString()} errors
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+            )}
+
             {capturesQuery.isLoading ? (
               <LoadingRows rows={3} />
             ) : capturesQuery.isError ? (
@@ -1702,86 +2382,100 @@ export default function SourcesRoute() {
               />
             ) : (capturesQuery.data?.captures ?? []).length ? (
               <div className="grid gap-3">
-                {(capturesQuery.data?.captures ?? []).map((capture) => {
+                {captures.map((capture) => {
                   const queue = capture.distillationQueue;
                   const queueIsActive =
                     queue?.status === "queued" ||
                     queue?.status === "processing";
-                  const terminal =
-                    capture.status === "distilled" ||
-                    capture.status === "ignored";
-                  const canQueue =
-                    !terminal && (!queue || queue.status === "failed");
+                  const canQueue = captureCanQueue(capture);
                   const isMutating =
                     enqueueDistillation.isPending ||
+                    enqueueCapturesDistillation.isPending ||
                     markCaptureDistilled.isPending;
+                  const selected = selectedCaptureIds.has(capture.id);
                   return (
                     <div
                       key={capture.id}
                       className="grid gap-3 rounded-md border border-border bg-card p-4"
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="secondary">{capture.kind}</Badge>
-                            <StatusBadge status={capture.status} />
-                            <span className="text-xs text-muted-foreground">
-                              {shortDate(capture.capturedAt) ??
-                                capture.capturedAt}
-                            </span>
-                          </div>
-                          <p className="mt-2 truncate text-sm font-medium">
-                            {capture.title}
-                          </p>
-                          {capture.preview ? (
-                            <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">
-                              {capture.preview}
+                        <div className="flex min-w-0 flex-1 items-start gap-3">
+                          <input
+                            type="checkbox"
+                            className="mt-1 size-4 shrink-0 rounded border-border accent-primary disabled:cursor-not-allowed disabled:opacity-50"
+                            checked={selected}
+                            disabled={!canQueue || isMutating}
+                            aria-label={`Select ${capture.title}`}
+                            onChange={(event) =>
+                              toggleCaptureSelection(
+                                capture.id,
+                                event.target.checked,
+                              )
+                            }
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant="secondary">{capture.kind}</Badge>
+                              <StatusBadge status={capture.status} />
+                              <span className="text-xs text-muted-foreground">
+                                {shortDate(capture.capturedAt) ??
+                                  capture.capturedAt}
+                              </span>
+                            </div>
+                            <p className="mt-2 truncate text-sm font-medium">
+                              {capture.title}
                             </p>
-                          ) : (
-                            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                              Raw content hidden. Enable previews or open the
-                              source when review requires context.
-                            </p>
-                          )}
-                          {queue ? (
-                            <div className="mt-3 rounded-md border border-border bg-muted/25 p-3 text-xs leading-5 text-muted-foreground">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Badge
-                                  variant={
-                                    queue.status === "failed"
-                                      ? "destructive"
-                                      : "outline"
-                                  }
-                                >
-                                  Distillation {queueStatusLabel(queue.status)}
-                                </Badge>
-                                {queue.attempts ? (
-                                  <span>
-                                    {queue.attempts}{" "}
-                                    {queue.attempts === 1
-                                      ? "attempt"
-                                      : "attempts"}
-                                  </span>
-                                ) : null}
-                                {queue.runAfter ? (
-                                  <span>
-                                    Next check{" "}
-                                    {shortDate(queue.runAfter) ??
-                                      queue.runAfter}
-                                  </span>
+                            {capture.preview ? (
+                              <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">
+                                {capture.preview}
+                              </p>
+                            ) : (
+                              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                                Raw content hidden. Enable previews or open the
+                                source when review requires context.
+                              </p>
+                            )}
+                            {queue ? (
+                              <div className="mt-3 rounded-md border border-border bg-muted/25 p-3 text-xs leading-5 text-muted-foreground">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge
+                                    variant={
+                                      queue.status === "failed"
+                                        ? "destructive"
+                                        : "outline"
+                                    }
+                                  >
+                                    Distillation{" "}
+                                    {queueStatusLabel(queue.status)}
+                                  </Badge>
+                                  {queue.attempts ? (
+                                    <span>
+                                      {queue.attempts}{" "}
+                                      {queue.attempts === 1
+                                        ? "attempt"
+                                        : "attempts"}
+                                    </span>
+                                  ) : null}
+                                  {queue.runAfter ? (
+                                    <span>
+                                      Next check{" "}
+                                      {shortDate(queue.runAfter) ??
+                                        queue.runAfter}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {queue.error ? (
+                                  <p className="mt-2">{queue.error}</p>
+                                ) : queueIsActive ? (
+                                  <p className="mt-2">
+                                    Waiting for the Brain distillation worker to
+                                    write knowledge or send this capture to
+                                    review.
+                                  </p>
                                 ) : null}
                               </div>
-                              {queue.error ? (
-                                <p className="mt-2">{queue.error}</p>
-                              ) : queueIsActive ? (
-                                <p className="mt-2">
-                                  Waiting for the Brain distillation worker to
-                                  write knowledge or send this capture to
-                                  review.
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : null}
+                            ) : null}
+                          </div>
                         </div>
                       </div>
 
@@ -1897,6 +2591,22 @@ export default function SourcesRoute() {
 
             {form.provider === "slack" && (
               <div className="grid gap-4 rounded-md border border-border p-4">
+                <div className="rounded-md border border-border bg-muted/25 p-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <IconShieldCheck className="size-4 text-muted-foreground" />
+                    Slack access rules
+                  </div>
+                  <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
+                    <p>
+                      Use one approved channel ID or #name per line. IDs are
+                      safest for pilots; names are resolved before validation.
+                    </p>
+                    <p>
+                      Scopes: channels:read and channels:history. Add
+                      groups:read and groups:history for private channels.
+                    </p>
+                  </div>
+                </div>
                 <div className="grid gap-2">
                   <Label htmlFor="slack-channels">Allowed channels</Label>
                   <Textarea
@@ -1908,8 +2618,8 @@ export default function SourcesRoute() {
                     placeholder={"C0123456789\n#product\n#launches"}
                   />
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Brain verifies each channel and rejects DMs/MPIMs before
-                    reading history.
+                    Brain verifies the allow-list, rejects DMs/MPIMs, and never
+                    stores credential values in source config.
                   </p>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">

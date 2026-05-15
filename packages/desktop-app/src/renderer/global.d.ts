@@ -45,6 +45,76 @@ type CodeAgentRunDetail = {
   value: string;
 };
 
+type CodeAgentReasoningEffort =
+  | "auto"
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+type CodeAgentPromptAttachment = {
+  name: string;
+  type?: string;
+  size?: number;
+  text?: string;
+};
+
+type CodeAgentProjectCommand = {
+  kind: "command";
+  name: string;
+  path: string;
+  relativePath: string;
+  description?: string;
+  argumentHint?: string;
+  reserved: boolean;
+  body?: string;
+};
+
+type CodeAgentProjectSkill = {
+  kind: "skill";
+  name: string;
+  path: string;
+  relativePath: string;
+  description?: string;
+  body?: string;
+};
+
+type CodeAgentCodePack = {
+  schemaVersion: 1;
+  root: string;
+  commands: CodeAgentProjectCommand[];
+  skills: CodeAgentProjectSkill[];
+};
+
+type CodeAgentCodePackResult = {
+  status: "ok" | "unavailable";
+  pack?: CodeAgentCodePack;
+  error?: string;
+};
+
+type CodeAgentQueueMetadata = {
+  queued: boolean;
+  queuedAt?: string;
+  queuedBy?: "desktop" | "cli" | "host" | string;
+  queueId?: string;
+  queuePosition?: number;
+  attempt?: number;
+  retryOf?: string;
+  rerunOf?: string;
+};
+
+type CodeAgentSteeringMetadata = {
+  cwd?: string;
+  permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  attachments?: CodeAgentPromptAttachment[];
+};
+
 type CodeAgentRun = {
   id: string;
   goalId: string;
@@ -117,7 +187,9 @@ type CodeAgentCreateRunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  attachments?: CodeAgentPromptAttachment[];
+  metadata?: Record<string, unknown>;
 };
 
 type CodeAgentCreateRunResult = {
@@ -136,7 +208,9 @@ type CodeAgentFollowUpRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  attachments?: CodeAgentPromptAttachment[];
+  metadata?: Record<string, unknown>;
 };
 
 type CodeAgentFollowUpResult = {
@@ -153,7 +227,8 @@ type CodeAgentUpdateRunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  metadata?: Record<string, unknown>;
 };
 
 type CodeAgentUpdateRunResult = {
@@ -177,11 +252,77 @@ type CodeAgentTerminalResult = {
 
 type CodeAgentControlCommand = "resume" | "status" | "stop";
 
+type CodeAgentHostControlCommand = CodeAgentControlCommand | "retry" | "rerun";
+
 type CodeAgentControlResult = {
   ok: boolean;
   command: CodeAgentControlCommand;
   action?: "open-ui" | "refresh" | "none";
   message: string;
+  error?: string;
+};
+
+type CodeAgentRerunRequest = {
+  goalId?: string;
+  runId: string;
+  prompt?: string;
+  cwd?: string;
+  permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  attachments?: CodeAgentPromptAttachment[];
+  metadata?: Record<string, unknown>;
+};
+
+type CodeAgentRerunResult = CodeAgentCreateRunResult & {
+  sourceRunId?: string;
+};
+
+type CodeAgentRetryRunRequest = {
+  goalId?: string;
+  runId: string;
+  permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  metadata?: Record<string, unknown>;
+};
+
+type CodeAgentRetryRunResult = {
+  ok: boolean;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+};
+
+type CodeAgentCodePackMetadata = {
+  name: string;
+  version?: string;
+  root?: string;
+  packagePath?: string;
+  cliEntry?: string;
+  available?: boolean;
+};
+
+type CodeAgentHostMetadata = {
+  status: "ok" | "unavailable";
+  platform: NodeJS.Platform | string;
+  desktopVersion?: string;
+  storeRoot: string;
+  runsDir: string;
+  transcriptsDir: string;
+  codePack?: CodeAgentCodePackMetadata;
+  capabilities: {
+    fileBackedRuns: boolean;
+    nativeTaskRunner: boolean;
+    queueMetadata: boolean;
+    steeringMetadata: boolean;
+    retryRun: boolean;
+    rerunRun: boolean;
+    openTerminal: boolean;
+    controlCommands: CodeAgentHostControlCommand[];
+  };
   error?: string;
 };
 
@@ -261,12 +402,18 @@ interface ElectronAPI {
     updateRun(
       request: CodeAgentUpdateRunRequest,
     ): Promise<CodeAgentUpdateRunResult>;
+    retryRun(
+      request: CodeAgentRetryRunRequest,
+    ): Promise<CodeAgentRetryRunResult>;
+    rerunRun(request: CodeAgentRerunRequest): Promise<CodeAgentRerunResult>;
     controlRun(
       goalId: string,
       runId: string,
       command: CodeAgentControlCommand,
       permissionMode?: CodeAgentPermissionMode,
     ): Promise<CodeAgentControlResult>;
+    getHostMetadata(): Promise<CodeAgentHostMetadata>;
+    listCodePacks(): Promise<CodeAgentCodePackResult>;
     listMigrationRuns(): Promise<CodeAgentRunListResult<CodeAgentMigrationRun>>;
     openTerminal(
       request?: CodeAgentTerminalRequest,

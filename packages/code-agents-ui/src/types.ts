@@ -38,6 +38,41 @@ export interface CodeAgentPromptAttachment {
   text?: string;
 }
 
+export type CodeAgentFollowUpMode = "immediate" | "queued";
+
+export interface CodeAgentProjectCommand {
+  kind: "command";
+  name: string;
+  path: string;
+  relativePath: string;
+  description?: string;
+  argumentHint?: string;
+  reserved: boolean;
+  body?: string;
+}
+
+export interface CodeAgentProjectSkill {
+  kind: "skill";
+  name: string;
+  path: string;
+  relativePath: string;
+  description?: string;
+  body?: string;
+}
+
+export interface CodeAgentCodePack {
+  schemaVersion: 1;
+  root: string;
+  commands: CodeAgentProjectCommand[];
+  skills: CodeAgentProjectSkill[];
+}
+
+export interface CodeAgentCodePackResult {
+  status: "ok" | "unavailable";
+  pack?: CodeAgentCodePack;
+  error?: string;
+}
+
 export type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -155,6 +190,7 @@ export interface CodeAgentFollowUpRequest {
   goalId?: string;
   runId: string;
   prompt: string;
+  followUpMode?: CodeAgentFollowUpMode;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -203,9 +239,42 @@ export type CodeAgentControlCommand = "resume" | "status" | "stop";
 export interface CodeAgentControlResult {
   ok: boolean;
   command: CodeAgentControlCommand;
-  action?: "open-ui" | "refresh" | "none";
+  action?: "open-ui" | "refresh" | "none" | "select-run";
+  run?: CodeAgentRun;
   message: string;
   error?: string;
+}
+
+export interface CodeAgentRetryRunRequest {
+  goalId?: string;
+  runId: string;
+  permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort;
+}
+
+export interface CodeAgentRetryRunResult {
+  ok: boolean;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentRerunRequest {
+  goalId?: string;
+  runId: string;
+  prompt?: string;
+  cwd?: string;
+  permissionMode?: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort;
+  attachments?: CodeAgentPromptAttachment[];
+}
+
+export interface CodeAgentRerunResult extends CodeAgentCreateRunResult {
+  sourceRunId?: string;
 }
 
 export interface CodeAgentsOpenRequest {

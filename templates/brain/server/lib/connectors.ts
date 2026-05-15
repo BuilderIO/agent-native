@@ -680,6 +680,14 @@ function slackUserLabel(message: SlackMessage): string {
   return message.username ?? message.user ?? message.bot_id ?? "unknown";
 }
 
+function slackDirectConversationFromRef(
+  channelRef: string,
+): SlackChannel | null {
+  const normalized = channelRef.trim().replace(/^#/, "");
+  if (!/^D[A-Z0-9]+$/i.test(normalized)) return null;
+  return { id: normalized.toUpperCase(), is_im: true };
+}
+
 export function isSlackDirectConversation(channel: SlackChannel): boolean {
   return channel.is_im === true || channel.is_mpim === true;
 }
@@ -729,12 +737,23 @@ async function slackApi<T>(
   if (!response.ok) {
     throw new Error(`Slack ${method} failed (${response.status})`);
   }
-  const data = (await response.json()) as { ok?: boolean; error?: string };
+  const data = (await response.json()) as {
+    ok?: boolean;
+    error?: string;
+    needed?: string;
+    provided?: string;
+  };
   if (data.ok === false) {
     if (data.error === "ratelimited") {
       throw new ConnectorRateLimitError("slack", method, 60);
     }
-    throw new Error(`Slack ${method} failed: ${data.error ?? "unknown"}`);
+    const details = [
+      data.needed ? `needed: ${data.needed}` : null,
+      data.provided ? `provided: ${data.provided}` : null,
+    ].filter(Boolean);
+    throw new Error(
+      `Slack ${method} failed: ${data.error ?? "unknown"}${details.length ? ` (${details.join("; ")})` : ""}`,
+    );
   }
   return data as T;
 }
@@ -769,6 +788,9 @@ async function resolveSlackChannel(
   token: string,
   channelRef: string,
 ): Promise<SlackChannel | null> {
+  const directConversation = slackDirectConversationFromRef(channelRef);
+  if (directConversation) return directConversation;
+
   const looksLikeId = /^[CG][A-Z0-9]+$/i.test(channelRef);
   if (looksLikeId) {
     const data = await slackApi<SlackInfoResponse>(
@@ -822,6 +844,20 @@ export async function testSlackConnection(
   const channels = [];
 
   for (const ref of channelRefs) {
+    const directConversation = slackDirectConversationFromRef(ref);
+    if (directConversation) {
+      channels.push({
+        ref,
+        id: directConversation.id,
+        status: "excluded" as const,
+        message: "DMs and MPIMs are structurally excluded.",
+        directExcluded: true,
+        archived: false,
+        privateChannel: false,
+      });
+      continue;
+    }
+
     const looksLikeId = /^[CG][A-Z0-9]+$/i.test(ref);
     if (!looksLikeId && !options.resolveNames) {
       channels.push({

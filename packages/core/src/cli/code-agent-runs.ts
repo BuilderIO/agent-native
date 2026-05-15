@@ -35,6 +35,18 @@ export interface CodeAgentRunDetail {
   value: string;
 }
 
+export type CodeAgentFollowUpMode = "immediate" | "queued";
+
+export interface CodeAgentPendingFollowUp {
+  id: string;
+  prompt: string;
+  mode: CodeAgentFollowUpMode;
+  createdAt: string;
+  eventId?: string;
+  permissionMode?: CodeAgentPermissionMode;
+  source?: string;
+}
+
 export interface CodeAgentRunRecord {
   schemaVersion: 1;
   id: string;
@@ -94,6 +106,16 @@ export interface AppendCodeAgentTranscriptEventInput {
   message: string;
   createdAt?: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface QueueCodeAgentFollowUpInput {
+  runId: string;
+  prompt: string;
+  mode: CodeAgentFollowUpMode;
+  eventId?: string;
+  permissionMode?: CodeAgentPermissionMode;
+  source?: string;
+  createdAt?: string;
 }
 
 const STORE_ENV = "AGENT_NATIVE_CODE_AGENTS_HOME";
@@ -248,8 +270,85 @@ export function listCodeAgentTranscriptEvents(
     .filter((event): event is CodeAgentTranscriptEvent => Boolean(event));
 }
 
+export function isActiveCodeAgentRun(run: CodeAgentRunRecord): boolean {
+  return run.status === "running" || run.status === "needs-approval";
+}
+
+export function queueCodeAgentFollowUp(
+  input: QueueCodeAgentFollowUpInput,
+): CodeAgentPendingFollowUp | null {
+  const createdAt = input.createdAt ?? new Date().toISOString();
+  const followUp: CodeAgentPendingFollowUp = {
+    id: `followup-${timestampSlug(createdAt)}-${crypto.randomUUID().slice(0, 8)}`,
+    prompt: input.prompt,
+    mode: input.mode,
+    createdAt,
+    eventId: input.eventId,
+    permissionMode: input.permissionMode,
+    source: input.source,
+  };
+  const updated = updateCodeAgentRunRecord(input.runId, (record) => ({
+    metadata: {
+      pendingFollowUps: [
+        ...readPendingFollowUps(record.metadata?.pendingFollowUps),
+        followUp,
+      ],
+    },
+  }));
+  return updated ? followUp : null;
+}
+
+export function dequeueCodeAgentFollowUp(
+  runId: string,
+): CodeAgentPendingFollowUp | null {
+  let selected: CodeAgentPendingFollowUp | null = null;
+  updateCodeAgentRunRecord(runId, (record) => {
+    const [first, ...rest] = readPendingFollowUps(
+      record.metadata?.pendingFollowUps,
+    );
+    selected = first ?? null;
+    return {
+      metadata: {
+        pendingFollowUps: rest.length > 0 ? rest : undefined,
+      },
+    };
+  });
+  return selected;
+}
+
 function codeAgentRunRecordPath(runId: string): string {
   return path.join(codeAgentRunsDir(), `${runId}.json`);
+}
+
+function readPendingFollowUps(value: unknown): CodeAgentPendingFollowUp[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): CodeAgentPendingFollowUp | null => {
+      if (!item || typeof item !== "object") return null;
+      const candidate = item as Record<string, unknown>;
+      if (
+        typeof candidate.id !== "string" ||
+        typeof candidate.prompt !== "string" ||
+        typeof candidate.createdAt !== "string" ||
+        (candidate.mode !== "immediate" && candidate.mode !== "queued")
+      ) {
+        return null;
+      }
+      return {
+        id: candidate.id,
+        prompt: candidate.prompt,
+        mode: candidate.mode,
+        createdAt: candidate.createdAt,
+        eventId:
+          typeof candidate.eventId === "string" ? candidate.eventId : undefined,
+        permissionMode:
+          normalizeCodeAgentPermissionMode(candidate.permissionMode) ??
+          undefined,
+        source:
+          typeof candidate.source === "string" ? candidate.source : undefined,
+      } satisfies CodeAgentPendingFollowUp;
+    })
+    .filter((item): item is CodeAgentPendingFollowUp => Boolean(item));
 }
 
 function touchCodeAgentRunRecord(runId: string, updatedAt: string): void {

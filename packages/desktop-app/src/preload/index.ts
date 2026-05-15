@@ -2,10 +2,16 @@ import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC,
   type ActiveWebviewTarget,
+  type CodeAgentCodePackResult,
   type CodeAgentCreateRunRequest,
   type CodeAgentCreateRunResult,
   type CodeAgentFollowUpRequest,
   type CodeAgentFollowUpResult,
+  type CodeAgentHostMetadata,
+  type CodeAgentRetryRunRequest,
+  type CodeAgentRetryRunResult,
+  type CodeAgentRerunRequest,
+  type CodeAgentRerunResult,
   type CodeAgentUpdateRunRequest,
   type CodeAgentUpdateRunResult,
   type CodeAgentControlCommand,
@@ -136,6 +142,12 @@ const electronAPI = {
       request: CodeAgentUpdateRunRequest,
     ): Promise<CodeAgentUpdateRunResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_UPDATE_RUN, request),
+    retryRun: (
+      request: CodeAgentRetryRunRequest,
+    ): Promise<CodeAgentRetryRunResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_RETRY_RUN, request),
+    rerunRun: (request: CodeAgentRerunRequest): Promise<CodeAgentRerunResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_RERUN_RUN, request),
     controlRun: (
       goalId: string,
       runId: string,
@@ -148,6 +160,10 @@ const electronAPI = {
         command,
         permissionMode,
       }),
+    getHostMetadata: (): Promise<CodeAgentHostMetadata> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_GET_HOST_METADATA),
+    listCodePacks: (): Promise<CodeAgentCodePackResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_CODE_PACKS),
     listMigrationRuns: (): Promise<
       CodeAgentRunListResult<CodeAgentMigrationRun>
     > => ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MIGRATION_RUNS),
