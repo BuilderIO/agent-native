@@ -338,9 +338,16 @@ function StatusBadge({ status }: { status?: DreamStatus | null }) {
   const normalized = String(status || "pending").toLowerCase();
   return (
     <Badge variant={statusVariant(status)} className="capitalize">
-      {normalized}
+      {normalized.replace(/_/g, " ")}
     </Badge>
   );
+}
+
+function isApprovalRequestResult(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const result = record.result as Record<string, unknown> | undefined;
+  return result?.approvalRequired === true;
 }
 
 function QueryState({ error, label }: { error: unknown; label: string }) {
@@ -452,6 +459,8 @@ function ProposalCard({
   const sourceRunIds = proposal.sourceRunIds ?? [];
   const status = String(proposal.status || "pending").toLowerCase();
   const canAct = status === "pending";
+  const needsApproval =
+    proposal.targetType != null && proposal.targetType !== "personal-memory";
 
   return (
     <div className="rounded-lg border bg-card">
@@ -488,7 +497,7 @@ function ProposalCard({
             ) : (
               <IconCheck size={14} className="mr-1.5" />
             )}
-            Apply
+            {needsApproval ? "Request approval" : "Apply"}
           </Button>
           <Button
             size="sm"
@@ -623,7 +632,12 @@ export default function DreamsRoute() {
   const applyProposal = useActionMutation<unknown, ProposalMutationParams>(
     "apply-dream-proposal",
     {
-      onSuccess: () => toast.success("Proposal applied"),
+      onSuccess: (result) =>
+        toast.success(
+          isApprovalRequestResult(result)
+            ? "Approval requested"
+            : "Proposal applied",
+        ),
       onError: (err) => toast.error(String(err)),
     },
   );

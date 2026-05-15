@@ -68,6 +68,8 @@ skills/company-voice/SKILL.md
 
 Set these to **All apps** when every app should inherit the same company facts, brand rules, messaging, safety constraints, and customer-facing writing style. Use selected-app grants only for resources that are genuinely app-specific.
 
+The **Resources** page highlights this starter pack in a Global context section so admins can quickly see which files exist, whether they are scoped to all apps, and edit their contents. Each app card also has a **Context** view that shows exactly what that app receives: global resources, selected grants, auto-loaded instructions, and grant sync status.
+
 This is how a team-wide change ("always use British English in customer-facing replies") or a shared brand guideline propagates without editing ten repos.
 
 ### Dreams
@@ -82,7 +84,7 @@ Start from the **Dreams** tab in Dispatch. Run a manual pass first, inspect each
 
 ### Approval flow
 
-Dispatch can gate sensitive runtime changes behind admin review. Today this covers **saved destinations** (the Slack channels and email addresses the agent can proactively send to) and **dispatch approval policy** itself. When the policy is enabled, the change is queued and the agent surfaces an inline approval preview directly in chat — admins approve or reject without leaving the conversation. Resource-wide approval interception is planned but not yet shipped.
+Dispatch can gate sensitive runtime changes behind admin review. Today this covers **saved destinations** (the Slack channels and email addresses the agent can proactively send to), shared/team **dream proposals**, and **dispatch approval policy** itself. When the policy is enabled, the change is queued and the agent surfaces an inline approval preview directly in chat — admins approve or reject without leaving the conversation. Broader resource-wide approval interception is planned separately.
 
 ## How a Slack message flows through Dispatch {#flow}
 

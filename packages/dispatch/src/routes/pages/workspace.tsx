@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { toast } from "sonner";
 import {
+  IconAlertCircle,
   IconBook,
   IconChevronDown,
   IconChevronRight,
+  IconCircleCheck,
   IconCode,
+  IconEdit,
   IconFileText,
   IconPlus,
   IconRefresh,
@@ -83,6 +86,39 @@ const KIND_CONFIG = {
   },
 } as const;
 
+const STARTER_GLOBAL_CONTEXT = [
+  {
+    path: "context/company.md",
+    label: "Company",
+    kind: "knowledge",
+    description: "Company facts, ICP, products, and canonical links",
+  },
+  {
+    path: "context/brand.md",
+    label: "Brand",
+    kind: "knowledge",
+    description: "Voice, visual identity, naming, and style rules",
+  },
+  {
+    path: "context/messaging.md",
+    label: "Messaging",
+    kind: "knowledge",
+    description: "Positioning, value props, proof points, and objections",
+  },
+  {
+    path: "instructions/guardrails.md",
+    label: "Guardrails",
+    kind: "instruction",
+    description: "Always-on rules loaded by every app agent",
+  },
+  {
+    path: "skills/company-voice/SKILL.md",
+    label: "Company Voice",
+    kind: "skill",
+    description: "On-demand guidance for customer-facing writing",
+  },
+] as const;
+
 function resourceSlug(value: string): string {
   return value
     .toLowerCase()
@@ -104,6 +140,118 @@ function isAutoLoadedInstruction(resource: any): boolean {
     resource.kind === "instruction" &&
     (resource.path === "AGENTS.md" ||
       String(resource.path).startsWith("instructions/"))
+  );
+}
+
+function EditResourceDialog({
+  resource,
+  trigger,
+}: {
+  resource: any;
+  trigger?: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(resource.name || "");
+  const [description, setDescription] = useState(resource.description || "");
+  const [content, setContent] = useState(resource.content || "");
+  const [scope, setScope] = useState(resource.scope || "all");
+
+  useEffect(() => {
+    if (!open) return;
+    setName(resource.name || "");
+    setDescription(resource.description || "");
+    setContent(resource.content || "");
+    setScope(resource.scope || "all");
+  }, [open, resource]);
+
+  const update = useActionMutation("update-workspace-resource", {
+    onSuccess: () => {
+      toast.success("Resource updated");
+      setOpen(false);
+    },
+    onError: (err) => toast.error(String(err)),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {trigger || (
+          <Button variant="outline" size="sm">
+            <IconEdit size={14} className="mr-1.5" />
+            Edit
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Edit workspace resource</DialogTitle>
+          <DialogDescription>
+            Updates apply anywhere this resource is global or granted. Sync
+            reachable apps when you need copied app resources refreshed.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Scope</Label>
+              <Select value={scope} onValueChange={setScope}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All apps</SelectItem>
+                  <SelectItem value="selected">Selected apps only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Path</Label>
+            <Input
+              value={resource.path}
+              disabled
+              className="font-mono text-sm"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Description</Label>
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Content</Label>
+            <Textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={14}
+              className="font-mono text-sm"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            onClick={() =>
+              update.mutate({
+                id: resource.id,
+                name,
+                description,
+                content,
+                scope: scope as "all" | "selected",
+              })
+            }
+            disabled={!name.trim() || update.isPending}
+          >
+            {update.isPending ? "Saving..." : "Save changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -473,40 +621,134 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
               Created by {resource.createdBy} ·{" "}
               {new Date(resource.createdAt).toLocaleString()}
             </div>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={deleteResource.isPending}
-                >
-                  <IconTrash size={14} className="mr-1" />
-                  Delete
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this resource?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Removing "{resource.name}" revokes all of its grants. Apps
-                    that already received this resource keep their current copy
-                    until it is removed from those apps. This cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => deleteResource.mutate({ id: resource.id })}
+            <div className="flex gap-2">
+              <EditResourceDialog resource={resource} />
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={deleteResource.isPending}
                   >
-                    Delete resource
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                    <IconTrash size={14} className="mr-1" />
+                    Delete
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this resource?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Removing "{resource.name}" revokes all of its grants. Apps
+                      that already received this resource keep their current
+                      copy until it is removed from those apps. This cannot be
+                      undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => deleteResource.mutate({ id: resource.id })}
+                    >
+                      Delete resource
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+function GlobalContextSection({ resources }: { resources: any[] }) {
+  const byPath = new Map(
+    resources.map((resource) => [resource.path, resource]),
+  );
+  const presentCount = STARTER_GLOBAL_CONTEXT.filter((item) =>
+    byPath.has(item.path),
+  ).length;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">
+            Global context
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Starter resources every workspace can use for company facts, brand,
+            messaging, guardrails, and voice.
+          </p>
+        </div>
+        <Badge variant="outline" className="shrink-0">
+          {presentCount}/{STARTER_GLOBAL_CONTEXT.length} ready
+        </Badge>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {STARTER_GLOBAL_CONTEXT.map((item) => {
+          const resource = byPath.get(item.path);
+          const exists = !!resource;
+          const global = resource?.scope === "all";
+          return (
+            <div key={item.path} className="rounded-lg border bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    {exists ? (
+                      <IconCircleCheck
+                        size={15}
+                        className="shrink-0 text-green-600 dark:text-green-400"
+                      />
+                    ) : (
+                      <IconAlertCircle
+                        size={15}
+                        className="shrink-0 text-amber-600 dark:text-amber-400"
+                      />
+                    )}
+                    <h3 className="truncate text-sm font-medium text-foreground">
+                      {item.label}
+                    </h3>
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                    {item.description}
+                  </p>
+                </div>
+                {resource ? (
+                  <EditResourceDialog
+                    resource={resource}
+                    trigger={
+                      <Button variant="ghost" size="sm" className="h-7 px-2">
+                        <IconEdit size={14} />
+                      </Button>
+                    }
+                  />
+                ) : null}
+              </div>
+              <div className="mt-3 space-y-2">
+                <div className="truncate font-mono text-[11px] text-muted-foreground">
+                  {item.path}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant={exists ? "secondary" : "outline"}>
+                    {exists ? "Present" : "Missing"}
+                  </Badge>
+                  {exists ? (
+                    <Badge variant="outline">
+                      {global ? "All apps" : "Selected"}
+                    </Badge>
+                  ) : null}
+                  {resource && isAutoLoadedInstruction(resource) ? (
+                    <Badge variant="outline">Auto-loaded</Badge>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -618,6 +860,8 @@ export default function WorkspaceRoute() {
           <AddResourceDialog />
         </div>
       </div>
+
+      <GlobalContextSection resources={resources || []} />
 
       <Tabs defaultValue="skills">
         <TabsList>

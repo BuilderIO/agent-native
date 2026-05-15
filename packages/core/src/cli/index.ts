@@ -665,8 +665,8 @@ Usage:
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
                                 for a single-app scaffold.
-  agent-native code /migrate    Run a coding-agent goal; migration is the first
-                                built-in slash goal.
+  agent-native code /migrate    Run a coding-agent goal. Built-ins include
+                                /migrate and /audit.
   agent-native migrate <source> Scaffold a local Migration Workbench, or use
                                 --emit to create a Code Agent/Desktop dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace

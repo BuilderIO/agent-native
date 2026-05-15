@@ -49,11 +49,14 @@ export default function CodeAgentsHub({
   const selectedGoal =
     getCodeAgentGoal(selectedGoalId) ?? getDefaultCodeAgentGoal();
   const selectedGoalApp = useMemo(
-    () => getCodeAgentAppConfig(selectedGoal, apps),
+    () =>
+      selectedGoal.surfaceKind === "app"
+        ? getCodeAgentAppConfig(selectedGoal, apps)
+        : null,
     [apps, selectedGoal],
   );
   const selectedGoalAppDef = useMemo(
-    () => toAppDefinition(selectedGoalApp),
+    () => (selectedGoalApp ? toAppDefinition(selectedGoalApp) : null),
     [selectedGoalApp],
   );
   const [runs, setRuns] = useState<CodeAgentMigrationRun[]>([]);
@@ -201,6 +204,7 @@ export default function CodeAgentsHub({
               }`}
               onClick={() => {
                 setSelectedGoalId(goal.id);
+                setSelectedRunId(null);
                 setWorkbenchOpen(false);
               }}
             >
@@ -311,13 +315,21 @@ export default function CodeAgentsHub({
               </div>
             </div>
             <div className="code-agents-workbench-frame">
-              <AppWebview
-                app={selectedGoalAppDef}
-                appConfig={selectedGoalApp}
-                isActive
-                urlParams={workbenchUrlParams}
-                refreshKey={refreshKey}
-              />
+              {selectedGoalApp && selectedGoalAppDef ? (
+                <AppWebview
+                  app={selectedGoalAppDef}
+                  appConfig={selectedGoalApp}
+                  isActive
+                  urlParams={workbenchUrlParams}
+                  refreshKey={refreshKey}
+                />
+              ) : (
+                <NativeGoalSurface
+                  slashCommand={selectedGoal.slashCommand}
+                  description={selectedGoal.description}
+                  onOpenTerminal={openTerminal}
+                />
+              )}
             </div>
           </div>
         ) : (
@@ -328,8 +340,8 @@ export default function CodeAgentsHub({
                 <h2>Code Agents</h2>
                 <p>
                   Run and monitor coding-agent goals from one place. Migration
-                  is the first built-in goal, and more goal presets can share
-                  this same harness.
+                  is the first app-backed goal, and lightweight goals can share
+                  the same shell.
                 </p>
               </div>
               <div className="code-agents-toolbar-actions">
@@ -427,6 +439,37 @@ function buildSummary(runs: CodeAgentMigrationRun[]) {
       complete: 0,
       failedTasks: 0,
     },
+  );
+}
+
+function NativeGoalSurface({
+  slashCommand,
+  description,
+  onOpenTerminal,
+}: {
+  slashCommand: string;
+  description: string;
+  onOpenTerminal: () => void;
+}) {
+  return (
+    <div className="code-agents-native-surface">
+      <div className="code-agents-detail code-agents-detail--empty">
+        <IconCode size={30} strokeWidth={1.5} />
+        <h3>{slashCommand}</h3>
+        <p>{description}</p>
+        <div className="code-agents-command-line">
+          agent-native code {slashCommand} --url https://example.com
+        </div>
+        <button
+          type="button"
+          className="code-agents-button code-agents-button--primary"
+          onClick={onOpenTerminal}
+        >
+          <IconTerminal2 size={14} strokeWidth={1.8} />
+          Open Terminal
+        </button>
+      </div>
+    </div>
   );
 }
 

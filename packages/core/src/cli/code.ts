@@ -1,13 +1,14 @@
+import { runAuditAgentWeb } from "./audit-agent-web.js";
 import { runMigrate } from "./migrate.js";
 
-export type CodeAgentGoalId = "migrate";
+export type CodeAgentGoalId = "migrate" | "audit";
 
 export interface CodeAgentCliGoal {
   id: CodeAgentGoalId;
   slashCommand: string;
   aliases: string[];
   summary: string;
-  backingCommand: "migrate";
+  backingCommand: "migrate" | "audit-agent-web";
 }
 
 export type CodeCliCommand =
@@ -27,6 +28,14 @@ export const CODE_AGENT_CLI_GOALS: CodeAgentCliGoal[] = [
     summary:
       "Move a path, URL, or described product into agent-native with verification.",
     backingCommand: "migrate",
+  },
+  {
+    id: "audit",
+    slashCommand: "/audit",
+    aliases: ["audit", "audit-agent-web", "agent-web"],
+    summary:
+      "Audit a public URL for agent-readable surfaces such as llms.txt and markdown mirrors.",
+    backingCommand: "audit-agent-web",
   },
 ];
 
@@ -90,6 +99,7 @@ export function codeUsage(): string {
 Run long-running coding-agent goals with the Agent Native harness.
 
 Usage:
+  agent-native code /audit --url https://example.com
   agent-native code /migrate <source> [--out ../migrated-app]
   agent-native code /migrate --describe "what to build or migrate"
   agent-native code resume --last
@@ -141,6 +151,9 @@ async function runCodeGoal(
   }
 
   switch (goal.backingCommand) {
+    case "audit-agent-web":
+      await runAuditAgentWeb(forwardedArgs);
+      return;
     case "migrate":
       await runMigrate(forwardedArgs);
       return;

@@ -976,6 +976,28 @@ body {
   min-height: 0;
 }
 
+.code-agents-native-surface {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.code-agents-command-line {
+  max-width: min(100%, 520px);
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.24);
+  color: rgba(217, 255, 250, 0.92);
+  padding: 10px 12px;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono",
+    monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .code-agents-empty-rail {
   display: flex;
   align-items: center;

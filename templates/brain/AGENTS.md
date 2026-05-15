@@ -1,8 +1,9 @@
 # Agent-Native Brain
 
 Brain is a whole-company institutional memory template. It turns raw captures
-(transcripts, notes, Slack/Granola exports, documents, and generic text) into
-reviewed, searchable knowledge with source quotes preserved as evidence.
+(Slack channel messages, Clips recordings, Granola notes, transcripts,
+documents, and generic text) into reviewed, searchable knowledge with source
+quotes preserved as evidence.
 
 ## Data Model
 
@@ -20,7 +21,7 @@ JSON is stored in text columns. There is no vector database.
 | Action                                                                              | Purpose                                                                                |
 | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `create-source` / `update-source` / `delete-source` / `get-source` / `list-sources` | Manage source configuration                                                            |
-| `sync-source`                                                                       | Run the configured Slack, Granola, generic, or manual connector skeleton               |
+| `sync-source`                                                                       | Run a configured source connector, including Slack channel backfill and Granola polling |
 | `import-capture`                                                                    | Import arbitrary raw text                                                              |
 | `import-transcript`                                                                 | Import meeting transcripts                                                             |
 | `get-capture`                                                                       | Read a raw capture if its source is accessible                                         |
@@ -43,7 +44,18 @@ JSON is stored in text columns. There is no vector database.
 
 ## Connector Notes
 
-Slack and Granola support a practical v1 import skeleton through `sync-source`.
-Put exported items in source `config.transcripts`, `config.sampleTranscripts`, or
-`config.messages`. Each item can be a string or an object with `title`, `content`
-or `text`, `kind`, `capturedAt`, and `metadata`.
+Slack sources use the scoped `SLACK_BOT_TOKEN` credential and only scan
+explicitly configured public or private channels. Configure `channelIds`,
+`channels`, or `allowedChannels` in the source config. The connector must reject
+DMs and MPIMs structurally; do not broaden it to enumerate private direct
+conversations.
+
+Granola sources use the scoped `GRANOLA_API_KEY` credential and poll Granola's
+public API for accessible Team-space notes, then fetch each note with its
+transcript. Keep the Granola cursor and sync window in the source cursor/config
+JSON instead of process memory.
+
+Manual, generic, and Clips sources can still import fixture/exported items
+through `config.transcripts`, `config.sampleTranscripts`, or `config.messages`.
+Each item can be a string or an object with `title`, `content` or `text`, `kind`,
+`capturedAt`, and `metadata`.

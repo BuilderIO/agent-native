@@ -8,8 +8,10 @@ import {
 } from "@agent-native/core/resources/store";
 import { getDb, schema } from "../../db/index.js";
 import {
+  createApprovalRequest,
   currentOrgId,
   currentOwnerEmail,
+  getApprovalPolicy,
   recordAudit,
   type DispatchCtx,
 } from "./dispatch-store.js";
@@ -28,7 +30,7 @@ type DreamRow = typeof schema.dispatchDreams.$inferSelect;
 type DreamProposalRow = typeof schema.dispatchDreamProposals.$inferSelect;
 
 type DreamStatus = "running" | "completed" | "failed";
-type ProposalStatus = "pending" | "applied" | "rejected";
+type ProposalStatus = "pending" | "approval_requested" | "applied" | "rejected";
 type ProposalTargetType = "personal-memory" | "shared-learnings";
 type ProposalRisk = "low" | "medium" | "high";
 
@@ -1390,14 +1392,61 @@ async function appendSharedLearning(proposal: DreamProposalRow) {
   };
 }
 
-export async function applyDreamProposal(proposalId: string) {
-  const db = getDb();
-  const proposal = await getProposalRow(proposalId);
-  if (!proposal) throw new Error("Dream proposal not found");
-  if (proposal.status !== "pending") {
-    throw new Error("Only pending dream proposals can be applied");
-  }
+function proposalRequiresApproval(proposal: DreamProposalRow): boolean {
+  return proposal.targetType !== "personal-memory";
+}
 
+async function requestDreamProposalApproval(proposal: DreamProposalRow) {
+  const db = getDb();
+  const timestamp = now();
+  await db
+    .update(schema.dispatchDreamProposals)
+    .set({
+      status: "approval_requested" satisfies ProposalStatus,
+      updatedAt: timestamp,
+    })
+    .where(eq(schema.dispatchDreamProposals.id, proposal.id));
+
+  const approval = await createApprovalRequest({
+    changeType: "dream-proposal.apply",
+    targetType: "dream-proposal",
+    targetId: proposal.id,
+    summary: `Apply dream proposal: ${proposal.title}`,
+    payload: { proposalId: proposal.id },
+    beforeValue: serializeProposal(proposal),
+    afterValue: {
+      ...serializeProposal(proposal),
+      status: "applied" satisfies ProposalStatus,
+    },
+  });
+
+  await recordAudit({
+    action: "dream.proposal.approval-requested",
+    targetType: "dream-proposal",
+    targetId: proposal.id,
+    summary: `Requested approval for dream proposal: ${proposal.title}`,
+    metadata: {
+      dreamId: proposal.dreamId,
+      approvalId: approval?.id ?? null,
+      targetType: proposal.targetType,
+      targetPath: proposal.targetPath,
+    },
+  });
+
+  return {
+    proposal: serializeProposal((await getProposalRow(proposal.id))!),
+    approval,
+    result: {
+      approvalRequired: true,
+      approvalId: approval?.id ?? null,
+    },
+  };
+}
+
+async function applyDreamProposalDirect(
+  proposal: DreamProposalRow,
+  actor = currentOwnerEmail(),
+) {
   let result: unknown;
   if (proposal.targetType === "personal-memory") {
     result = await savePersonalMemory(proposal);
@@ -1414,7 +1463,7 @@ export async function applyDreamProposal(proposalId: string) {
     .update(schema.dispatchDreamProposals)
     .set({
       status: "applied" satisfies ProposalStatus,
-      appliedBy: currentOwnerEmail(),
+      appliedBy: actor,
       appliedAt: timestamp,
       updatedAt: timestamp,
     })
@@ -1425,6 +1474,7 @@ export async function applyDreamProposal(proposalId: string) {
     targetType: "dream-proposal",
     targetId: proposal.id,
     summary: `Applied dream proposal: ${proposal.title}`,
+    actor,
     metadata: {
       dreamId: proposal.dreamId,
       targetType: proposal.targetType,
@@ -1439,6 +1489,39 @@ export async function applyDreamProposal(proposalId: string) {
   };
 }
 
+export async function applyApprovedDreamProposal(
+  proposalId: string,
+  actor = currentOwnerEmail(),
+  ctx: DispatchCtx = { ownerEmail: currentOwnerEmail(), orgId: currentOrgId() },
+) {
+  const proposal = await getProposalRow(proposalId, ctx);
+  if (!proposal) throw new Error("Dream proposal not found");
+  if (!["pending", "approval_requested"].includes(proposal.status)) {
+    throw new Error("Only pending dream proposals can be applied");
+  }
+  return applyDreamProposalDirect(proposal, actor);
+}
+
+export async function applyDreamProposal(proposalId: string) {
+  const proposal = await getProposalRow(proposalId);
+  if (!proposal) throw new Error("Dream proposal not found");
+  if (proposal.status === "approval_requested") {
+    throw new Error("Dream proposal is already waiting for approval");
+  }
+  if (proposal.status !== "pending") {
+    throw new Error("Only pending dream proposals can be applied");
+  }
+
+  if (proposalRequiresApproval(proposal)) {
+    const policy = await getApprovalPolicy();
+    if (policy.enabled) {
+      return requestDreamProposalApproval(proposal);
+    }
+  }
+
+  return applyDreamProposalDirect(proposal);
+}
+
 export async function rejectDreamProposal(
   proposalId: string,
   reason?: string | null,
@@ -1446,7 +1529,7 @@ export async function rejectDreamProposal(
   const db = getDb();
   const proposal = await getProposalRow(proposalId);
   if (!proposal) throw new Error("Dream proposal not found");
-  if (proposal.status !== "pending") {
+  if (!["pending", "approval_requested"].includes(proposal.status)) {
     throw new Error("Only pending dream proposals can be rejected");
   }
   const timestamp = now();

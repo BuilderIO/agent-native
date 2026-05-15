@@ -42,6 +42,7 @@ import listVaultSecrets from "./list-vault-secrets.js";
 import listWorkspaceApps from "./list-workspace-apps.js";
 import listWorkspaceResourceOptions from "./list-workspace-resource-options.js";
 import listWorkspaceResourceGrants from "./list-workspace-resource-grants.js";
+import listWorkspaceResourcesForApp from "./list-workspace-resources-for-app.js";
 import listWorkspaceResources from "./list-workspace-resources.js";
 import navigate from "./navigate.js";
 import applyDreamProposal from "./apply-dream-proposal.js";
@@ -118,6 +119,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-workspace-apps": listWorkspaceApps,
   "list-workspace-resource-options": listWorkspaceResourceOptions,
   "list-workspace-resource-grants": listWorkspaceResourceGrants,
+  "list-workspace-resources-for-app": listWorkspaceResourcesForApp,
   "list-workspace-resources": listWorkspaceResources,
   navigate: navigate,
   "apply-dream-proposal": applyDreamProposal,

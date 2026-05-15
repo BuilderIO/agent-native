@@ -22,6 +22,16 @@ describe("resolveCodeCommand", () => {
     });
   });
 
+  it("forwards non-migration slash goals", () => {
+    expect(resolveCodeCommand(["/audit", "--url", "https://example.com"])).toEqual(
+      {
+        kind: "run-goal",
+        goalId: "audit",
+        forwardedArgs: ["--url", "https://example.com"],
+      },
+    );
+  });
+
   it("accepts bare goal aliases", () => {
     expect(resolveCodeCommand(["migration", "--describe", "old app"])).toEqual({
       kind: "run-goal",
@@ -49,6 +59,7 @@ describe("resolveCodeCommand", () => {
 
 describe("codeUsage", () => {
   it("documents migrate as a slash goal", () => {
+    expect(codeUsage()).toContain("agent-native code /audit --url");
     expect(codeUsage()).toContain("agent-native code /migrate <source>");
     expect(codeUsage()).toContain("/migrate");
   });
@@ -61,6 +72,13 @@ describe("CODE_AGENT_CLI_GOALS", () => {
         id: "migrate",
         slashCommand: "/migrate",
         backingCommand: "migrate",
+      }),
+    );
+    expect(CODE_AGENT_CLI_GOALS).toContainEqual(
+      expect.objectContaining({
+        id: "audit",
+        slashCommand: "/audit",
+        backingCommand: "audit-agent-web",
       }),
     );
   });

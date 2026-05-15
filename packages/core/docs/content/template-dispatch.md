@@ -71,6 +71,8 @@ Dreams are Dispatch's review loop for agent memory. A dream pass looks over exis
 
 Dream proposals are checked against the personal memory index, existing `memory/*.md` files, and shared `LEARNINGS.md` before they are saved. Duplicate lessons are skipped in the report, while likely stale personal memories are updated in place instead of producing parallel notes.
 
+When Dispatch approval policy is enabled, applying a shared or team-wide dream proposal creates a pending approval request instead of writing immediately. Personal memory proposals can still be applied directly after review.
+
 Use Dreams when you want to answer questions like "what did agents keep getting wrong this week?", "what should we remember?", or "which repeated lesson deserves a skill?" Inbound Slack, email, Telegram, WhatsApp, and web-derived evidence is treated as untrusted input, so proposals from those sources require review and provenance before they affect shared memory.
 
 In the Dispatch UI, open **Dreams** to run a manual pass, review candidate threads, inspect the report, and apply or reject each proposal. Agents use the same workflow through actions:

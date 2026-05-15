@@ -7,7 +7,7 @@ import {
 export const CODE_AGENTS_SURFACE_ID = "code-agents";
 export const MIGRATION_APP_ID = "migration";
 
-export type CodeAgentGoalId = "migrate";
+export type CodeAgentGoalId = "migrate" | "audit";
 
 export interface CodeAgentGoalDefinition {
   id: CodeAgentGoalId;
@@ -15,12 +15,13 @@ export interface CodeAgentGoalDefinition {
   slashCommand: string;
   description: string;
   cliCommand: string;
-  appId: string;
-  templateId: string;
-  listRunsAction: string;
+  appId?: string;
+  templateId?: string;
+  listRunsAction?: string;
   runNoun: string;
   surfaceLabel: string;
   primaryActionLabel: string;
+  surfaceKind: "app" | "native";
 }
 
 export const CODE_AGENT_GOALS: CodeAgentGoalDefinition[] = [
@@ -37,6 +38,19 @@ export const CODE_AGENT_GOALS: CodeAgentGoalDefinition[] = [
     runNoun: "migration run",
     surfaceLabel: "Migration Workbench",
     primaryActionLabel: "New /migrate",
+    surfaceKind: "app",
+  },
+  {
+    id: "audit",
+    label: "Agent Web Audit",
+    slashCommand: "/audit",
+    description:
+      "Check a public URL for agent-readable surfaces such as llms.txt, sitemap, and Markdown mirrors.",
+    cliCommand: "audit-agent-web",
+    runNoun: "audit run",
+    surfaceLabel: "Audit Runner",
+    primaryActionLabel: "New /audit",
+    surfaceKind: "native",
   },
 ];
 
@@ -72,6 +86,9 @@ export function getCodeAgentAppConfig(
   goal: CodeAgentGoalDefinition,
   apps: AppConfig[] = [],
 ): AppConfig {
+  if (goal.surfaceKind !== "app") {
+    throw new Error(`${goal.label} does not use an app surface.`);
+  }
   if (goal.id === "migrate") {
     return getMigrationWorkbenchAppConfig(apps);
   }

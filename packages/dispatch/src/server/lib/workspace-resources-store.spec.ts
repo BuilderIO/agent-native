@@ -58,6 +58,7 @@ import {
   ensureStarterWorkspaceResources,
   createWorkspaceResource,
   deleteWorkspaceResource,
+  listWorkspaceResourcesForApp,
   STARTER_GLOBAL_WORKSPACE_RESOURCES,
   updateWorkspaceResource,
 } from "./workspace-resources-store.js";
@@ -417,6 +418,109 @@ describe("workspace resource materialization", () => {
     expect(mocks.resourceDeleteByPath).toHaveBeenCalledWith(
       "__shared__",
       "context/positioning.md",
+    );
+  });
+
+  it("lists the global and granted workspace resources an app receives", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ version: 1 });
+    const state = {
+      resources: [
+        {
+          id: "global_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Guardrails",
+          description: null,
+          path: "instructions/guardrails.md",
+          content: "# Guardrails",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        {
+          id: "selected_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "knowledge",
+          name: "Analytics Messaging",
+          description: null,
+          path: "context/analytics.md",
+          content: "# Analytics",
+          scope: "selected",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 3,
+        },
+        {
+          id: "selected_2",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "knowledge",
+          name: "Mail Messaging",
+          description: null,
+          path: "context/mail.md",
+          content: "# Mail",
+          scope: "selected",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 4,
+        },
+      ],
+      grants: [
+        {
+          id: "grant_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          resourceId: "selected_1",
+          appId: "analytics",
+          status: "active",
+          syncedAt: 123,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: "grant_2",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          resourceId: "selected_2",
+          appId: "analytics",
+          status: "revoked",
+          syncedAt: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+
+    const result = await listWorkspaceResourcesForApp("analytics");
+
+    expect(result.counts).toEqual({
+      total: 2,
+      global: 1,
+      granted: 1,
+      autoLoaded: 1,
+    });
+    expect(result.resources.map((resource) => resource.path)).toEqual([
+      "instructions/guardrails.md",
+      "context/analytics.md",
+    ]);
+    expect(result.resources[0]).toEqual(
+      expect.objectContaining({
+        source: "global",
+        autoLoaded: true,
+        grantId: null,
+      }),
+    );
+    expect(result.resources[1]).toEqual(
+      expect.objectContaining({
+        source: "grant",
+        autoLoaded: false,
+        grantId: "grant_1",
+        syncedAt: 123,
+      }),
     );
   });
 });

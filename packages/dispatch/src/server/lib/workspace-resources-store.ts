@@ -165,6 +165,13 @@ export interface WorkspaceResourceOption {
   updatedAt: number;
 }
 
+export interface WorkspaceResourceForApp extends WorkspaceResourceOption {
+  source: "global" | "grant";
+  autoLoaded: boolean;
+  grantId: string | null;
+  syncedAt: number | null;
+}
+
 const STARTER_RESOURCES_VERSION = 1;
 const STARTER_RESOURCES_SETTING_KEY = "dispatch-starter-workspace-resources";
 
@@ -513,6 +520,75 @@ export async function listWorkspaceResourceOptions(filter?: {
     scope: resource.scope as WorkspaceResourceScope,
     updatedAt: resource.updatedAt,
   }));
+}
+
+function isResourceAutoLoaded(resource: { kind: string; path: string }) {
+  return (
+    resource.kind === "instruction" &&
+    (resource.path === "AGENTS.md" || resource.path.startsWith("instructions/"))
+  );
+}
+
+export async function listWorkspaceResourcesForApp(appId: string): Promise<{
+  appId: string;
+  resources: WorkspaceResourceForApp[];
+  counts: {
+    total: number;
+    global: number;
+    granted: number;
+    autoLoaded: number;
+  };
+}> {
+  const [resources, grants] = await Promise.all([
+    listWorkspaceResources(),
+    listResourceGrants({ appId }),
+  ]);
+  const activeGrantsByResourceId = new Map(
+    grants
+      .filter((grant) => grant.status === "active")
+      .map((grant) => [grant.resourceId, grant]),
+  );
+
+  const received = resources
+    .map((resource): WorkspaceResourceForApp | null => {
+      const grant = activeGrantsByResourceId.get(resource.id);
+      const isGlobal = resource.scope === "all";
+      if (!isGlobal && !grant) return null;
+      return {
+        id: resource.id,
+        kind: resource.kind as WorkspaceResourceKind,
+        name: resource.name,
+        description: resource.description,
+        path: resource.path,
+        scope: resource.scope as WorkspaceResourceScope,
+        updatedAt: resource.updatedAt,
+        source: isGlobal ? "global" : "grant",
+        autoLoaded: isResourceAutoLoaded(resource),
+        grantId: grant?.id ?? null,
+        syncedAt: grant?.syncedAt ?? null,
+      };
+    })
+    .filter((resource): resource is WorkspaceResourceForApp => !!resource)
+    .sort((a, b) => {
+      const sourceOrder =
+        (a.source === "global" ? 0 : 1) - (b.source === "global" ? 0 : 1);
+      if (sourceOrder !== 0) return sourceOrder;
+      return a.path.localeCompare(b.path);
+    });
+
+  const global = received.filter((resource) => resource.source === "global");
+  const granted = received.filter((resource) => resource.source === "grant");
+
+  return {
+    appId,
+    resources: received,
+    counts: {
+      total: received.length,
+      global: global.length,
+      granted: granted.length,
+      autoLoaded: received.filter((resource) => resource.autoLoaded).length,
+    },
+  };
 }
 
 export async function getWorkspaceResource(

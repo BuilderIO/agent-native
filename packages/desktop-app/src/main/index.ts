@@ -165,6 +165,7 @@ function withCodeAgentApps(apps: AppConfig[]): AppConfig[] {
   let next = apps;
   try {
     for (const goal of CODE_AGENT_GOALS) {
+      if (goal.surfaceKind !== "app") continue;
       if (next.some((appConfig) => appConfig.id === goal.appId)) continue;
       next = [...next, getCodeAgentAppConfig(goal, next)];
     }
@@ -1056,10 +1057,9 @@ ipcMain.handle(
       }));
     }
     return Promise.resolve({
-      status: "unavailable",
+      status: "ok",
       goalId: goal.id,
       runs: [],
-      error: `${goal.label} is not available in this build yet.`,
     });
   },
 );

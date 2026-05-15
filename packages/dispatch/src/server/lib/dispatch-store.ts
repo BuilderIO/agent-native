@@ -423,7 +423,7 @@ async function notifyApprovers(requestId: string, summary: string) {
   }).catch(() => {});
 }
 
-async function createApprovalRequest(input: {
+export async function createApprovalRequest(input: {
   changeType: string;
   targetType: string;
   targetId?: string | null;
@@ -562,6 +562,14 @@ async function applyApprovedRequest(request: DispatchApprovalRequest) {
     return applyApprovalPolicy(
       payload,
       request.reviewedBy || currentOwnerEmail(),
+    );
+  }
+  if (request.changeType === "dream-proposal.apply") {
+    const { applyApprovedDreamProposal } = await import("./dreams-store.js");
+    return applyApprovedDreamProposal(
+      payload.proposalId,
+      request.reviewedBy || currentOwnerEmail(),
+      requestCtx,
     );
   }
   throw new Error(`Unsupported approval request type: ${request.changeType}`);

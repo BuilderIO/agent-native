@@ -49,6 +49,9 @@ const SKIP_DIRS = new Set([
 const INTENTIONAL_RAW_DB_DENYLIST = {
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
   "analytics:dashboard_views": "view telemetry, scoped by dashboard/action",
+  "brain:brain_ingest_queue": "internal ingestion queue scoped by actions",
+  "brain:brain_raw_captures": "raw imported content scoped through sources",
+  "brain:brain_sync_runs": "provider sync bookkeeping scoped by sources",
   "calendar:booking_slug_redirects": "public redirect helper, no user data",
   "calls:accounts": "third-party/account metadata, accessed by actions",
   "calls:call_comments": "child rows scoped through calls",

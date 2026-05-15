@@ -5,7 +5,7 @@ description: "A public first-party template for cited whole-company institutiona
 
 # Brain
 
-Brain is a first-party template for whole-company institutional memory. It ingests approved Slack channels, Clips recordings, Granola exports, and generic transcript/webhook payloads, then turns that material into cited, reviewable knowledge an agent can search.
+Brain is a first-party template for whole-company institutional memory. It ingests approved Slack channels, Clips recordings, Granola meeting notes, and generic transcript/webhook payloads, then turns that material into cited, reviewable knowledge an agent can search.
 
 Use Brain when your team wants agents to answer questions like “why did we make this product decision?”, “how does this in-development feature work?”, or “what changed in this process?” with links back to the source conversation or meeting.
 
@@ -53,6 +53,40 @@ Create a source with a `sourceKey` to receive a bearer token, then send a `RawCa
 ```
 
 Set `Authorization: Bearer <ingestToken>` on the request. Clips can export to that endpoint without Brain reading the Clips database directly.
+
+## Slack Backfill
+
+Brain uses the scoped `SLACK_BOT_TOKEN` credential and scans only channels that
+an admin configures on the source:
+
+```bash
+pnpm --filter brain action create-source \
+  --title "Slack product channels" \
+  --provider slack \
+  --visibility org \
+  --config '{"channelIds":["C0123456789"],"historyLimit":15}'
+```
+
+The connector verifies each configured conversation before reading history and
+rejects DMs and MPIMs. Cursor state is stored on the source so each sync can pick
+up where the last one stopped, including after Slack rate limiting.
+
+## Granola Polling
+
+Brain uses the scoped `GRANOLA_API_KEY` credential and polls Granola's public API
+for notes, then fetches each note with its transcript:
+
+```bash
+pnpm --filter brain action create-source \
+  --title "Granola team notes" \
+  --provider granola \
+  --visibility org \
+  --config '{"pageSize":10,"updatedAfter":"2026-05-01T00:00:00.000Z"}'
+```
+
+Granola Enterprise API keys expose Team-space notes, not private notes or
+private folders. Brain stores the note summary, transcript, attendees, calendar
+metadata, and source URL as a raw capture before distillation.
 
 ## Developer Notes
 

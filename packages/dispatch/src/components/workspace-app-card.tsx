@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
   IconClockHour4,
@@ -7,6 +7,8 @@ import {
   IconEdit,
   IconEye,
   IconEyeOff,
+  IconFileText,
+  IconRefresh,
   IconWorld,
   IconTrash,
 } from "@tabler/icons-react";
@@ -17,9 +19,11 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -172,6 +176,11 @@ export function WorkspaceAppCard({
         <div className="flex shrink-0 items-center gap-1">
           {!isPending && !isArchived ? (
             <div className="pointer-events-auto">
+              <AppResourcesDialog app={app} />
+            </div>
+          ) : null}
+          {!isPending && !isArchived ? (
+            <div className="pointer-events-auto">
               <AppKeysPopover appId={app.id} appName={app.name} />
             </div>
           ) : null}
@@ -268,6 +277,131 @@ export function WorkspaceAppCard({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useActionQuery(
+    "list-workspace-resources-for-app",
+    { appId: app.id },
+    { enabled: open },
+  );
+  const syncToApp = useActionMutation("sync-workspace-resources-to-app", {
+    onSuccess: (result: any) =>
+      toast.success(
+        `Synced ${result?.synced ?? 0} resource(s) to ${result?.appId ?? app.id}`,
+      ),
+    onError: (err) =>
+      toast.error(`Could not sync ${app.name}: ${stringifyError(err)}`),
+  });
+
+  const resources = ((data as any)?.resources ?? []) as any[];
+  const counts = (data as any)?.counts;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <IconFileText size={14} className="mr-1" />
+          Context
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{app.name} workspace resources</DialogTitle>
+          <DialogDescription>
+            Resources this app receives from global workspace context and
+            selected grants.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary">{counts?.total ?? 0} total</Badge>
+            <Badge variant="outline">{counts?.global ?? 0} global</Badge>
+            <Badge variant="outline">{counts?.granted ?? 0} granted</Badge>
+            <Badge variant="outline">
+              {counts?.autoLoaded ?? 0} auto-loaded
+            </Badge>
+          </div>
+
+          {isLoading ? (
+            <div className="space-y-2">
+              <div className="h-14 rounded-lg border bg-muted/30" />
+              <div className="h-14 rounded-lg border bg-muted/30" />
+              <div className="h-14 rounded-lg border bg-muted/30" />
+            </div>
+          ) : resources.length === 0 ? (
+            <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+              No global or granted workspace resources are visible to this app
+              yet.
+            </div>
+          ) : (
+            <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+              {resources.map((resource) => (
+                <div key={resource.id} className="rounded-lg border px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium text-foreground">
+                          {resource.name}
+                        </span>
+                        <Badge variant="secondary">{resource.kind}</Badge>
+                        <Badge variant="outline">
+                          {resource.source === "global"
+                            ? "All apps"
+                            : "Granted"}
+                        </Badge>
+                        {resource.autoLoaded ? (
+                          <Badge variant="outline">Auto-loaded</Badge>
+                        ) : null}
+                      </div>
+                      <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                        {resource.path}
+                      </div>
+                    </div>
+                    {resource.source === "grant" ? (
+                      <div className="shrink-0 text-right text-[11px] text-muted-foreground">
+                        {resource.syncedAt
+                          ? `Synced ${new Date(resource.syncedAt).toLocaleDateString()}`
+                          : "Not synced"}
+                      </div>
+                    ) : null}
+                  </div>
+                  {resource.description ? (
+                    <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                      {resource.description}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => syncToApp.mutate({ appId: app.id })}
+            disabled={syncToApp.isPending || resources.length === 0}
+          >
+            <IconRefresh
+              size={14}
+              className={syncToApp.isPending ? "mr-1.5 animate-spin" : "mr-1.5"}
+            />
+            Sync resources
+          </Button>
+          <Button type="button" onClick={() => setOpen(false)}>
+            Done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -11,7 +11,7 @@ Start with the npx command:
 npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 ```
 
-Migration Workbench is the first built-in **Code Agents** goal. It uses the same long-running harness as the desktop Code Agents hub and the CLI `code` command, so migration behaves like a slash command rather than a separate one-off tool. The input can be a local codebase, a URL, or a prose description. The first output is not blind generated code; it is an auditable migration surface with assessment, planning, approval, generated output, and verification.
+Migration Workbench is the first app-backed **Code Agents** goal. It uses the same long-running harness as the desktop Code Agents hub and the CLI `code` command, so migration behaves like a slash command rather than a separate one-off tool. The input can be a local codebase, a URL, or a prose description. The first output is not blind generated code; it is an auditable migration surface with assessment, planning, approval, generated output, and verification.
 
 The product promise is: **let the agent run, but prove it**.
 
@@ -96,7 +96,7 @@ In the Workbench or Desktop, connect providers through the normal settings and o
 
 ## Code Agents
 
-Agent-Native Desktop includes a **Code Agents** hub for long-running coding-agent sessions. Migration is the first built-in goal there, registered as `/migrate`: the hub can show runs, filter by active, approval, issues, or complete status, open the goal surface for a selected run, and handle links like:
+Agent-Native Desktop includes a **Code Agents** hub for long-running coding-agent sessions. Migration is the first app-backed goal there, registered as `/migrate`: the hub can show runs, filter by active, approval, issues, or complete status, open the goal surface for a selected run, and handle links like:
 
 ```text
 agentnative://open?goal=migrate&run=<runId>
@@ -106,6 +106,12 @@ The legacy app-style deep link still works:
 
 ```text
 agentnative://open?app=migration&run=<runId>
+```
+
+The hub also includes `/audit`, a lightweight native goal backed by `agent-native audit-agent-web`, to keep the shell honest about non-migration goals:
+
+```bash
+npx @agent-native/core@latest code /audit --url https://example.com
 ```
 
 The hub exposes the same generic run controls the CLI does: resume opens the goal surface, status refreshes the run list, and stop reports how to stop the owning terminal or `dev-all` process for goals that are not daemonized yet. Browser/Desktop approval remains the trust gate for generated output writes. Future coding goals can reuse the same CLI and desktop shell by registering another slash goal.

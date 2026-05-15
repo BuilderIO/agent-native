@@ -20,7 +20,10 @@ import {
 } from "../server/lib/vault-store.js";
 import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
 import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
-import { listWorkspaceResourceOptions } from "../server/lib/workspace-resources-store.js";
+import {
+  listWorkspaceResourceOptions,
+  listWorkspaceResourcesForApp,
+} from "../server/lib/workspace-resources-store.js";
 import {
   getAgentThreadDebug,
   listThreadDebugSources,
@@ -86,9 +89,33 @@ export default defineAction({
       navigation?.view === "apps" ||
       navigation?.view === "new-app"
     ) {
-      screen.workspaceApps = await listWorkspaceApps({
+      const workspaceApps = await listWorkspaceApps({
         includeAgentCards: true,
       });
+      screen.workspaceApps = workspaceApps;
+      if (navigation?.view === "apps") {
+        screen.workspaceAppResources = await Promise.all(
+          workspaceApps
+            .filter((app) => !app.isDispatch)
+            .slice(0, 12)
+            .map(async (app) => {
+              const result = await listWorkspaceResourcesForApp(app.id);
+              return {
+                appId: app.id,
+                appName: app.name,
+                counts: result.counts,
+                resources: result.resources.map((resource) => ({
+                  name: resource.name,
+                  path: resource.path,
+                  kind: resource.kind,
+                  source: resource.source,
+                  autoLoaded: resource.autoLoaded,
+                  syncedAt: resource.syncedAt,
+                })),
+              };
+            }),
+        );
+      }
     }
     if (navigation?.view === "metrics") {
       try {
