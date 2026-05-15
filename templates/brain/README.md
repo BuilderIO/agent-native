@@ -51,8 +51,10 @@ pnpm --filter brain build
    queued or stale work when `RUN_BACKGROUND_JOBS` is enabled. The agent reads
    the capture, writes cited knowledge or proposals with `write-knowledge`, and
    closes the queue with `mark-capture-distilled`.
-5. Review queued proposals in the Review route or with `approve-proposal`.
-6. Ask Brain or another workspace agent to search broadly with
+5. Monitor failed or stale handoffs in the Ops route, or with
+   `list-distillation-queue` and `retry-distillation`.
+6. Review queued proposals in the Review route or with `approve-proposal`.
+7. Ask Brain or another workspace agent to search broadly with
    `search-everything` when the V1.5 search surface is available, then drill
    into `get-knowledge` / `get-capture` for cited answers. In V1-only
    workspaces, use `search-knowledge` and `get-knowledge`.
@@ -66,7 +68,9 @@ Agents should treat Brain as cited company memory, not a guess engine:
 - Use `get-knowledge` for reviewed facts, decisions, policies, and durable
   summaries.
 - Use `get-capture` when the answer needs source context, exact quote checking,
-  or a direct link back to a meeting/transcript/message.
+  or a direct link back to a meeting/transcript/message. Capture content is
+  redacted by default; pass `includeRawContent: true` only for
+  editor-authorized distillation or exact quote validation.
 - Cite links from evidence or capture metadata whenever available.
 - If Brain does not contain supporting results, say that the answer was not
   found instead of filling in from general knowledge.
@@ -138,8 +142,20 @@ pnpm --filter brain action list-captures \
 `list-captures` omits raw message bodies by default and includes the latest
 distillation queue state for each capture. Pass `--includePreview true` only
 when a human is intentionally reviewing snippets. Open individual records with
-`get-capture`, distill durable company context into `write-knowledge`, and keep
-`autoSync` disabled until the source rules and review behavior look right.
+`get-capture`; use `--includeRawContent true` only for distillation or exact
+quote validation. Distill durable company context into `write-knowledge`, and
+keep `autoSync` disabled until the source rules and review behavior look right.
+
+After any pilot sync, generate the source-level quality report:
+
+```bash
+pnpm --filter brain action get-pilot-report \
+  --sourceId <source-id>
+```
+
+The report summarizes sync health, capture counts, distillation queue state,
+published knowledge, pending proposals, privacy notes, and recommended next
+steps without returning raw capture bodies.
 
 The Sources page exposes the same review inventory from each source card. Open
 **Captures** to inspect queued records, enable short previews only when needed,
@@ -156,6 +172,11 @@ of duplicating queue rows. The agent reads the capture, writes cited knowledge
 or review proposals, then calls `mark-capture-distilled`, which marks the
 active queue row done. If the agent does not close the queue, the worker requeues
 the item with a short delay and eventually fails it after repeated attempts.
+
+The Ops route is the operator surface for that pipeline. It shows queued,
+processing, failed, done, stale, and retryable distillation work. The matching
+actions are `list-distillation-queue` and `retry-distillation`; retries are
+allowed only for failed or stale processing items the current user can edit.
 
 ## Granola Source Config
 

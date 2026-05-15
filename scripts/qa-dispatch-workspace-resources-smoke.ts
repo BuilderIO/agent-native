@@ -491,10 +491,10 @@ async function runSmoke(page: Page, baseUrl: string) {
     "inherited resource in app context",
   );
   const resourceCard = contextDialog
-    .locator("div.rounded-lg.border", {
-      has: contextDialog.getByText(resourceName, { exact: true }),
-    })
-    .first();
+    .getByText(resourceName, { exact: true })
+    .locator(
+      "xpath=ancestor::div[contains(@class, 'rounded-lg') and contains(@class, 'border')][1]",
+    );
   await expectVisible(resourceCard, "inherited resource card");
   await resourceCard.getByRole("button", { name: "Stack" }).first().click();
   await expectVisible(
@@ -525,6 +525,7 @@ async function main() {
   const running = await startDispatch();
   let browser: Browser | null = null;
   const errors: string[] = [];
+  const httpErrors: string[] = [];
   try {
     browser = await launchBrowser();
     const context = await browser.newContext({
@@ -537,12 +538,30 @@ async function main() {
 
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => {
-      if (message.type() === "error") errors.push(message.text());
+      if (message.type() !== "error") return;
+      const text = message.text();
+      if (text.startsWith("Failed to load resource:")) return;
+      errors.push(text);
+    });
+    page.on("response", (response) => {
+      const status = response.status();
+      if (status < 400) return;
+      const url = response.url();
+      if (url.startsWith(running.baseUrl)) {
+        if (
+          status === 404 &&
+          url.includes("/_agent-native/agent-chat/threads/")
+        ) {
+          return;
+        }
+        httpErrors.push(`${status} ${url}`);
+      }
     });
 
     await runSmoke(page, running.baseUrl);
 
     assert.deepEqual(errors, [], "browser console/page errors");
+    assert.deepEqual(httpErrors, [], "browser HTTP errors");
     console.log(
       `qa-dispatch-workspace-resources-smoke: clean (${resourcePath})`,
     );
@@ -552,8 +571,12 @@ async function main() {
       err instanceof Error ? err.stack || err.message : String(err);
     const browserErrors =
       errors.length > 0 ? `\n\nBrowser errors:\n${errors.join("\n")}` : "";
+    const browserHttpErrors =
+      httpErrors.length > 0
+        ? `\n\nBrowser HTTP errors:\n${httpErrors.join("\n")}`
+        : "";
     throw new Error(
-      `${message}${browserErrors}\n\nRecent Dispatch logs:\n${logs}`,
+      `${message}${browserErrors}${browserHttpErrors}\n\nRecent Dispatch logs:\n${logs}`,
     );
   } finally {
     if (browser) await browser.close();

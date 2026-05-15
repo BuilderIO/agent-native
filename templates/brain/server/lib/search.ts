@@ -85,15 +85,60 @@ function cleanText(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
+function tokenAround(value: string, start: number, end: number): string {
+  let tokenStart = start;
+  while (tokenStart > 0 && !/\s/.test(value[tokenStart - 1] ?? "")) {
+    tokenStart -= 1;
+  }
+  let tokenEnd = end;
+  while (tokenEnd < value.length && !/\s/.test(value[tokenEnd] ?? "")) {
+    tokenEnd += 1;
+  }
+  return value.slice(tokenStart, tokenEnd);
+}
+
+function shouldRedactPhoneLike(
+  fullText: string,
+  match: string,
+  start: number,
+): boolean {
+  const digits = match.replace(/\D/g, "");
+  if (digits.length < 9 || digits.length > 16) return false;
+  const token = tokenAround(fullText, start, start + match.length);
+  if (/(?:https?:\/\/|www\.)/i.test(token)) return false;
+  if (/^\d{4}-\d{2}-\d{2}(?:\b|[T\s])/.test(match.trim())) return false;
+  return true;
+}
+
 export function redactSensitiveText(value: string): string {
-  return value
+  const withoutMail = value
     .replace(/<mailto:[^>|]+(?:\|[^>]+)?>/gi, "[redacted]")
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]")
-    .replace(/(?:\+?\d[\d\s().-]{7,}\d)/g, (match) =>
-      /https?:\/\//i.test(match) || /\d{4}-\d{2}-\d{2}/.test(match)
-        ? match
-        : "[redacted]",
-    );
+    .replace(/<@[UW][A-Z0-9]+(?:\|[^>]+)?>/g, "[redacted]")
+    .replace(/\bU[A-Z0-9]{8,}\b/g, "[redacted]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]");
+  return withoutMail.replace(
+    /(?:\+?\d|\(\d{2,4}\))[\d\s().-]{6,}\d/g,
+    (match, offset: number) =>
+      shouldRedactPhoneLike(withoutMail, match, offset) ? "[redacted]" : match,
+  );
+}
+
+export function redactSensitiveValue<T>(value: T): T {
+  if (typeof value === "string") {
+    return redactSensitiveText(value) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSensitiveValue(item)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        redactSensitiveValue(item),
+      ]),
+    ) as T;
+  }
+  return value;
 }
 
 export function buildSnippet(
@@ -186,7 +231,7 @@ function serializeSourceInfo(
   if (!row) return null;
   return {
     id: row.id,
-    title: row.title,
+    title: redactSensitiveText(row.title),
     provider: row.provider,
     status: row.status,
   };
@@ -314,7 +359,7 @@ async function searchCaptureResults(
         sourceUrl,
         citation: {
           captureId: row.id,
-          captureTitle: row.title,
+          captureTitle: redactSensitiveText(row.title),
           quote: snippet,
           sourceUrl,
         },
@@ -364,14 +409,14 @@ async function searchSourceResults(
     return {
       type: "source" as const,
       id: row.id,
-      title: row.title,
+      title: redactSensitiveText(row.title),
       snippet: `${row.provider} source · ${row.status}`,
       summary: `${row.provider} source · ${row.status}`,
       status: row.status,
       provider: row.provider,
       source: {
         id: row.id,
-        title: row.title,
+        title: redactSensitiveText(row.title),
         provider: row.provider,
         status: row.status,
       },

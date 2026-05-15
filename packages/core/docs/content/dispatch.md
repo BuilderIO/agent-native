@@ -47,7 +47,7 @@ The behavioral rule lives in the dispatch agent's instructions: domain work belo
 
 ### Workspace resources
 
-Skills, guardrail instructions, agent profiles, and reference resources can be authored once in Dispatch and inherited by the rest of the workspace. Resources with **All apps** scope are global: Dispatch stores them once at workspace scope, and every app agent reads them at runtime. They are not copied into each app. App shared resources and personal resources can override or narrow the workspace defaults locally. Selected resources still use explicit per-app grants.
+Skills, guardrail instructions, agent profiles, and reference resources can be authored once in Dispatch and inherited by the rest of the workspace. Resources with **All apps** scope are global: Dispatch stores them once at workspace scope, and every app agent reads them at runtime. They are not copied into each app, and there is no manual workspace-resource sync step. App shared resources and personal resources can override or narrow the workspace defaults locally. Selected resources use explicit per-app grants for app-specific exceptions.
 
 Use the canonical paths to control how agents consume them:
 

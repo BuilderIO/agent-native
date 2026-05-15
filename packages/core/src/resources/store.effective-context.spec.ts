@@ -44,6 +44,76 @@ afterAll(() => {
 });
 
 describe("resourceEffectiveContext", () => {
+  it("reuses one workspace record across callers and overlays shared/personal overrides", async () => {
+    const {
+      SHARED_OWNER,
+      WORKSPACE_OWNER,
+      resourceDeleteByPath,
+      resourceEffectiveContext,
+      resourceListAllOwners,
+      resourcePut,
+    } = await import("./store.js");
+
+    const path = "context/runtime-inheritance-contract.md";
+    const analyticsUser = "analytics-agent@example.test";
+    const mailUser = "mail-agent@example.test";
+
+    for (const owner of [
+      WORKSPACE_OWNER,
+      SHARED_OWNER,
+      analyticsUser,
+      mailUser,
+    ]) {
+      await resourceDeleteByPath(owner, path);
+    }
+
+    await resourcePut(WORKSPACE_OWNER, path, "# Workspace Baseline");
+
+    const analyticsWorkspace = await resourceEffectiveContext(
+      analyticsUser,
+      path,
+    );
+    const mailWorkspace = await resourceEffectiveContext(mailUser, path);
+    const workspaceId = analyticsWorkspace.effectiveResource?.id;
+
+    expect(analyticsWorkspace.effectiveScope).toBe("workspace");
+    expect(mailWorkspace.effectiveScope).toBe("workspace");
+    expect(mailWorkspace.effectiveResource?.id).toBe(workspaceId);
+    expect(mailWorkspace.effectiveResource?.owner).toBe(WORKSPACE_OWNER);
+    expect(
+      (await resourceListAllOwners(path)).map((resource) => resource.owner),
+    ).toEqual([WORKSPACE_OWNER]);
+
+    await resourcePut(SHARED_OWNER, path, "# Shared Override");
+
+    const analyticsShared = await resourceEffectiveContext(analyticsUser, path);
+    const mailShared = await resourceEffectiveContext(mailUser, path);
+
+    expect(analyticsShared.effectiveScope).toBe("shared");
+    expect(mailShared.effectiveScope).toBe("shared");
+    expect(analyticsShared.effectiveResource?.id).toBe(
+      mailShared.effectiveResource?.id,
+    );
+    expect(analyticsShared.layers[0].resource?.id).toBe(workspaceId);
+
+    await resourcePut(analyticsUser, path, "# Personal Override");
+
+    const analyticsPersonal = await resourceEffectiveContext(
+      analyticsUser,
+      path,
+    );
+    const mailStillShared = await resourceEffectiveContext(mailUser, path);
+    const owners = (await resourceListAllOwners(path))
+      .map((resource) => resource.owner)
+      .sort();
+
+    expect(analyticsPersonal.effectiveScope).toBe("personal");
+    expect(mailStillShared.effectiveScope).toBe("shared");
+    expect(owners).toEqual(
+      [WORKSPACE_OWNER, SHARED_OWNER, analyticsUser].sort(),
+    );
+  });
+
   it("resolves personal > organization/app > workspace for instruction, skill, AGENTS, and context paths", async () => {
     const {
       SHARED_OWNER,

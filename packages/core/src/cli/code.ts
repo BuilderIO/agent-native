@@ -453,8 +453,8 @@ Usage:
   agent-native code "fix the failing auth tests"
   agent-native code exec "fix the failing auth tests"
   agent-native code -p "fix the failing auth tests"
-  agent-native code --permission-mode read-only "explain this repo"
-  agent-native code /task "fix the failing auth tests"
+  agent-native code --plan "explain this repo"
+  agent-native code --auto "fix the failing auth tests"
   agent-native code /review-diff
   agent-native code /audit --url https://example.com
   agent-native code /migrate <source> [--out ../migrated-app]
@@ -489,7 +489,8 @@ Session commands:
   status ...   Show run status
   stop ...     Stop a tracked Desktop/CLI runner
 
-Permission modes:
+Modes:
+  --plan, --auto
   --permission-mode read-only|ask-before-edit|auto-edit|full-auto
   --read-only, --ask-before-edit, --auto-edit, --full-auto
 
@@ -535,7 +536,7 @@ Compatibility shortcuts:
 
 export function codeShellFreeTextMessage(): string {
   return `Bare prompts run as generic Code Agent sessions.
-Use /task explicitly if you prefer, or /migrate and /audit for specialized goals.`;
+Use /migrate and /audit for specialized goals.`;
 }
 
 export function parseCodeShellArgs(
@@ -928,7 +929,9 @@ function renderCodeAgentResume(
     `  Goal:    /${run.goalId}`,
     `  Title:   ${run.title}`,
     `  Status:  ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
-    run.permissionMode ? `  Mode:    ${run.permissionMode}` : "",
+    run.permissionMode
+      ? `  Mode:    ${formatCodeAgentRunMode(run.permissionMode)}`
+      : "",
     `  Updated: ${run.updatedAt}`,
     latestEvent
       ? `  Last:    ${truncateForDisplay(latestEvent.message, 140)}`
@@ -1242,7 +1245,9 @@ function renderCodeAgentRunDetail(
     `  Goal:       /${run.goalId}`,
     `  Title:      ${run.title}`,
     run.subtitle ? `  Subtitle:   ${run.subtitle}` : "",
-    run.permissionMode ? `  Permission: ${run.permissionMode}` : "",
+    run.permissionMode
+      ? `  Mode:       ${formatCodeAgentRunMode(run.permissionMode)}`
+      : "",
     `  Status:     ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
     run.progress
       ? `  Progress:   ${run.progress.completed}/${run.progress.total} (${run.progress.percent}%)`
@@ -1259,7 +1264,9 @@ function renderCodeAgentRunListItem(run: CodeAgentRunRecord): string {
   const progress = run.progress
     ? `, ${run.progress.completed}/${run.progress.total}`
     : "";
-  const permission = run.permissionMode ? `, ${run.permissionMode}` : "";
+  const permission = run.permissionMode
+    ? `, ${formatCodeAgentRunMode(run.permissionMode)}`
+    : "";
   return [
     `  - ${run.id}`,
     `    /${run.goalId} ${run.status}${run.phase ? ` (${run.phase})` : ""}${progress}${permission}`,
@@ -1343,12 +1350,12 @@ async function runTask(
     details: [
       { label: "Prompt", value: truncateForDisplay(prompt, 160) },
       { label: "Agent", value: "Running locally" },
-      { label: "Permission", value: parsed.permissionMode },
+      { label: "Mode", value: formatCodeAgentRunMode(parsed.permissionMode) },
     ],
     cwd: process.cwd(),
     metadata: {
       prompt,
-      source: options.source ?? "agent-native code /task",
+      source: options.source ?? "agent-native code",
       commandName: options.commandName,
       commandPath: options.commandPath,
       permissionMode: parsed.permissionMode,
@@ -1426,7 +1433,7 @@ async function recordCodeAgentFollowUpPrompt(
           ? `Code Agents run not found: ${runId}`
           : "No Code Agents runs found.",
         "",
-        'Start one with: agent-native code /task "what to change"',
+        'Start one with: agent-native code "what to change"',
       ].join("\n"),
     );
     return;
@@ -1452,7 +1459,7 @@ async function recordCodeAgentFollowUpPrompt(
 
 function parseTaskArgs(
   forwardedArgs: string[],
-  defaultPermissionMode: CodeAgentPermissionMode = "ask-before-edit",
+  defaultPermissionMode: CodeAgentPermissionMode = "full-auto",
 ): ParsedTaskArgs {
   const promptArgs: string[] = [];
   let permissionMode: CodeAgentPermissionMode = defaultPermissionMode;
@@ -1513,8 +1520,11 @@ function parseTaskArgs(
 
 function parsePermissionModeFlag(arg: string): CodeAgentPermissionMode | null {
   switch (arg) {
+    case "--plan":
     case "--read-only":
       return "read-only";
+    case "--auto":
+      return "full-auto";
     case "--ask-before-edit":
       return "ask-before-edit";
     case "--auto-edit":
@@ -1538,11 +1548,11 @@ function truncateForDisplay(value: string, maxLength: number): string {
 function renderTaskStarted(run: CodeAgentRunRecord, prompt: string): string {
   return [
     "",
-    "Code Agents /task session started.",
+    "Code Agents session started.",
     "",
     `  Run:    ${run.id}`,
     `  Prompt: ${truncateForDisplay(prompt, 160)}`,
-    `  Mode:   ${run.permissionMode ?? "ask-before-edit"}`,
+    `  Mode:   ${formatCodeAgentRunMode(run.permissionMode)}`,
     "",
     "Streaming output below. The transcript is saved with this run.",
   ].join("\n");
@@ -1568,9 +1578,17 @@ function taskUsage(): string {
   return [
     "",
     "Usage:",
-    '  agent-native code /task "what to change"',
+    '  agent-native code "what to change"',
+    '  agent-native code --plan "explain this repo"',
+    '  agent-native code --auto "fix this and verify it"',
     `  agent-native code --permission-mode ${CODE_AGENT_PERMISSION_MODES.join("|")} "what to change"`,
     "",
     "The task goal starts a local Code Agent session, saves transcript events, and can be resumed with follow-up prompts.",
   ].join("\n");
+}
+
+function formatCodeAgentRunMode(
+  permissionMode: CodeAgentPermissionMode | undefined,
+): string {
+  return permissionMode === "read-only" ? "Plan mode" : "Auto mode";
 }

@@ -17,7 +17,7 @@ export default createAgentChatPlugin({
 Use actions as the source of truth. Import raw material with import-capture or import-transcript, queue distillation with enqueue-distillation, and write durable memory with write-knowledge.
 
 Important rules:
-- Evidence quotes must be exact substrings of a raw capture. Use get-capture before writing knowledge when you need to quote.
+- Evidence quotes must be exact substrings of a raw capture. Use get-capture with includeRawContent=true only when you need exact quote validation; normal capture reads are redacted by default.
 - No vector database exists; search-knowledge uses SQL text matching.
 - Company-tier knowledge may create a proposal instead of publishing immediately, depending on settings.
 - Slack and Granola sources are configurable v1 connectors. Generic transcript import is always available.`,

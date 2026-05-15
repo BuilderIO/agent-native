@@ -4,6 +4,7 @@ type Condition =
   | { op: "and"; conditions: Condition[] }
   | { op: "or"; conditions: Condition[] }
   | { op: "eq"; col: Column; val: unknown }
+  | { op: "inArray"; col: Column; vals: unknown[] }
   | { op: "isNull"; col: Column }
   | { op: "lte"; col: Column; val: unknown }
   | { op: "like"; col: Column; val: unknown }
@@ -171,6 +172,9 @@ const mocks = vi.hoisted(() => {
       return condition.conditions.some((item) => matches(row, item));
     }
     if (condition.op === "isNull") return row[condition.col.name] == null;
+    if (condition.op === "inArray") {
+      return condition.vals.includes(row[condition.col.name]);
+    }
     if (condition.op === "lte") {
       const value = row[condition.col.name];
       return typeof value === "string" && typeof condition.val === "string"
@@ -296,6 +300,7 @@ vi.mock("drizzle-orm", () => ({
   asc: (column: Column) => ({ op: "asc", column }),
   desc: (column: Column) => ({ op: "desc", column }),
   eq: (col: Column, val: unknown) => ({ op: "eq", col, val }),
+  inArray: (col: Column, vals: unknown[]) => ({ op: "inArray", col, vals }),
   isNull: (col: Column) => ({ op: "isNull", col }),
   like: (col: Column, val: unknown) => ({ op: "like", col, val }),
   lte: (col: Column, val: unknown) => ({ op: "lte", col, val }),
@@ -384,6 +389,8 @@ vi.mock("@agent-native/core/sharing", () => ({
   }),
 }));
 
+import getCaptureAction from "../../actions/get-capture.js";
+import listCapturesAction from "../../actions/list-captures.js";
 import {
   applyRedactions,
   createCapture,
@@ -543,6 +550,110 @@ describe("Brain memory quality gates", () => {
     expect(serializeSource(source as never).config).toEqual({
       reviewRequired: true,
     });
+  });
+
+  it("lists captures with redacted review previews", async () => {
+    seedSource({
+      title: "Slack source alice@example.com",
+    });
+    seedCapture({
+      externalId: "thread-alice@example.com",
+      title: "Launch note from alice@example.com",
+      content:
+        "Ask <mailto:alice@example.com|Alice> or call +1 415 555 1212 by 2026-05-15. Link https://example.test/users/4155551212",
+      metadataJson: JSON.stringify({
+        sourceUrl: "https://example.test/users/4155551212",
+      }),
+    });
+    mocks.rows.ingestQueue.push({
+      id: "queue-1",
+      sourceId: "source-1",
+      captureId: "capture-1",
+      operation: "distill",
+      status: "queued",
+      priority: 50,
+      attempts: 0,
+      payloadJson: "{}",
+      error: "Failed for alice@example.com",
+      runAfter: null,
+      createdAt: "2026-05-15T12:00:00.000Z",
+      updatedAt: "2026-05-15T12:00:00.000Z",
+    });
+
+    const result = await listCapturesAction.run({
+      sourceId: "source-1",
+      includePreview: true,
+      previewLength: 220,
+    });
+
+    expect(result.captures[0]).toMatchObject({
+      externalId: "[redacted]",
+      title: "Launch note from [redacted]",
+      source: {
+        title: "Slack source [redacted]",
+      },
+      sourceUrl: "https://example.test/users/4155551212",
+      preview:
+        "Ask [redacted] or call [redacted] by 2026-05-15. Link https://example.test/users/4155551212",
+      distillationQueue: {
+        error: "Failed for [redacted]",
+      },
+    });
+  });
+
+  it("redacts get-capture by default and keeps explicit raw access for distillation", async () => {
+    seedSource({
+      title: "Slack source alice@example.com",
+    });
+    seedCapture({
+      externalId: "thread-alice@example.com",
+      title: "Launch note from alice@example.com",
+      content:
+        "Ask <mailto:alice@example.com|Alice> or call +1 415 555 1212 by 2026-05-15. Link https://example.test/users/4155551212",
+      metadataJson: JSON.stringify({
+        requester: "alice@example.com",
+        attendees: [{ email: "bob@example.com" }],
+        sourceUrl: "https://example.test/users/4155551212",
+      }),
+    });
+
+    const redacted = await getCaptureAction.run({ id: "capture-1" });
+
+    expect(redacted.capture).toMatchObject({
+      externalId: "[redacted]",
+      title: "Launch note from [redacted]",
+      content:
+        "Ask [redacted] or call [redacted] by 2026-05-15. Link https://example.test/users/4155551212",
+      contentRedacted: true,
+      rawContentIncluded: false,
+      metadata: {
+        requester: "[redacted]",
+        attendees: [{ email: "[redacted]" }],
+        sourceUrl: "https://example.test/users/4155551212",
+      },
+      importedBy: "[redacted]",
+    });
+    expect(redacted.source.title).toBe("Slack source [redacted]");
+
+    const raw = await getCaptureAction.run({
+      id: "capture-1",
+      includeRawContent: true,
+    });
+
+    expect(raw.capture).toMatchObject({
+      externalId: "thread-alice@example.com",
+      title: "Launch note from alice@example.com",
+      content:
+        "Ask <mailto:alice@example.com|Alice> or call +1 415 555 1212 by 2026-05-15. Link https://example.test/users/4155551212",
+      contentRedacted: false,
+      rawContentIncluded: true,
+      metadata: {
+        requester: "alice@example.com",
+        attendees: [{ email: "bob@example.com" }],
+      },
+      importedBy: "owner@example.test",
+    });
+    expect(raw.source.title).toBe("Slack source alice@example.com");
   });
 
   it("requires signed ingest payload sourceKey to match the source config", async () => {

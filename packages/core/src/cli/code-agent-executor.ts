@@ -147,7 +147,7 @@ export async function executeCodeAgentRun(
     (await getStoredModelForEngine(engine).catch(() => undefined)) ??
     engine.defaultModel;
   const cwd = existing.cwd || process.cwd();
-  const permissionMode = existing.permissionMode ?? "ask-before-edit";
+  const permissionMode = existing.permissionMode ?? "full-auto";
   const actions = createLocalCodeAgentActions(cwd, permissionMode, existing.id);
   const tools = actionsToEngineTools(actions);
   const messages = buildCodeAgentMessages(existing, prompt);
@@ -509,11 +509,9 @@ function codeAgentSystemPrompt(
 Work like a careful senior engineer:
 - Read relevant files before editing.
 - Prefer small, focused changes.
-- Current permission mode: ${permissionMode}.
-- In read-only mode, inspect and explain only.
-- In ask-before-edit mode, routine file edits and verification commands are allowed; only high-risk destructive operations pause for approval.
-- In auto-edit mode, file edits and ordinary project commands are allowed, while high-risk destructive operations pause for approval.
-- In full-auto mode, broad command execution is allowed, but high-risk destructive operations still pause and forbidden git branch/reset/stash/rebase operations remain blocked.
+- Current run mode: ${permissionMode === "read-only" ? "Plan mode" : "Auto mode"} (${permissionMode}).
+- In Plan mode, inspect and explain only.
+- In Auto mode, edit files and run ordinary project commands without pausing. Pause only for genuinely destructive operations such as recursive deletes, package publishing, privileged commands, destructive database operations, or forbidden git branch/reset/stash/rebase operations.
 - Do not create, switch, delete, reset, rebase, or stash git branches.
 - Do not run destructive git commands.
 - Use apply_patch or write_file for edits, then run focused verification.
@@ -896,7 +894,7 @@ function getPendingApproval(runId: string): PendingCodeAgentApproval | null {
       candidate.permissionMode === "auto-edit" ||
       candidate.permissionMode === "full-auto"
         ? candidate.permissionMode
-        : "ask-before-edit",
+        : "full-auto",
   };
 }
 

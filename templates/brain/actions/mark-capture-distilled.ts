@@ -7,6 +7,10 @@ import {
   nowIso,
   serializeCapture,
 } from "../server/lib/brain.js";
+import {
+  redactSensitiveText,
+  redactSensitiveValue,
+} from "../server/lib/search.js";
 
 export default defineAction({
   description: "Mark a raw Brain capture as distilled or ignored.",
@@ -42,6 +46,22 @@ export default defineAction({
         ),
       );
     const updated = await getAccessibleCapture(captureId);
-    return { capture: updated ? serializeCapture(updated.capture) : null };
+    if (!updated) return { capture: null };
+    const capture = serializeCapture(updated.capture);
+    return {
+      capture: {
+        ...capture,
+        externalId: capture.externalId
+          ? redactSensitiveText(capture.externalId)
+          : capture.externalId,
+        title: redactSensitiveText(capture.title),
+        content: redactSensitiveText(capture.content),
+        metadata: redactSensitiveValue(capture.metadata),
+        importedBy: capture.importedBy
+          ? redactSensitiveText(capture.importedBy)
+          : capture.importedBy,
+        contentRedacted: true,
+      },
+    };
   },
 });

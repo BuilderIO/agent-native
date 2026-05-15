@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconAlertCircle,
   IconArrowUp,
+  IconChevronDown,
   IconClock,
   IconCode,
   IconExternalLink,
@@ -14,13 +15,11 @@ import {
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import {
-  CODE_AGENT_PERMISSION_MODES,
   CODE_AGENT_GOALS,
   DEFAULT_CODE_AGENT_PERMISSION_MODE,
   getCodeAgentAppConfig,
   getCodeAgentGoal,
   getCodeAgentPermissionMode,
-  getCodeAgentPermissionModeDefinition,
   getDefaultCodeAgentGoal,
   type CodeAgentGoalDefinition,
   type CodeAgentGoalId,
@@ -37,6 +36,25 @@ interface CodeAgentsHubProps {
 }
 
 type RunListStatus = CodeAgentRunListResult["status"];
+type CodeAgentRunMode = "plan" | "auto";
+
+const CODE_AGENT_RUN_MODES: Array<{
+  id: CodeAgentRunMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "plan",
+    label: "Plan mode",
+    description: "Read the workspace and propose a plan before editing.",
+  },
+  {
+    id: "auto",
+    label: "Auto mode",
+    description:
+      "Edit, run checks, and only pause for destructive file, git, or data operations.",
+  },
+];
 
 export default function CodeAgentsHub({
   apps,
@@ -408,7 +426,7 @@ export default function CodeAgentsHub({
           ),
         );
       }
-      toast("Permission mode updated", { duration: 1600 });
+      toast("Mode updated", { duration: 1600 });
     } catch (err) {
       setSelectedPermissionMode(previousMode);
       setRuns((current) =>
@@ -418,7 +436,7 @@ export default function CodeAgentsHub({
             : run,
         ),
       );
-      toast("Could not update permission mode", {
+      toast("Could not update mode", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -603,7 +621,6 @@ export default function CodeAgentsHub({
               <div className="code-agents-start">
                 <h2>What should we work on?</h2>
                 <NewSessionComposer
-                  goal={selectedGoal}
                   prompt={newPrompt}
                   inputRef={newPromptRef}
                   creating={creatingRun}
@@ -663,7 +680,6 @@ function isMigrationRun(run: CodeAgentRun): run is CodeAgentMigrationRun {
 }
 
 function NewSessionComposer({
-  goal,
   prompt,
   inputRef,
   creating,
@@ -672,7 +688,6 @@ function NewSessionComposer({
   onPermissionModeChange,
   onSubmit,
 }: {
-  goal: CodeAgentGoalDefinition;
   prompt: string;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   creating: boolean;
@@ -693,8 +708,7 @@ function NewSessionComposer({
       />
       <div className="code-agents-composer-bar">
         <div className="code-agents-composer-meta">
-          <span>{goal.slashCommand}</span>
-          <PermissionModeSelector
+          <RunModeSelect
             value={permissionMode}
             onChange={onPermissionModeChange}
             compact
@@ -713,11 +727,11 @@ function NewSessionComposer({
   );
 }
 
-function PermissionModeSelector({
+function RunModeSelect({
   value,
   onChange,
   disabled = false,
-  title = "Permission mode",
+  title = "Mode",
   compact = false,
 }: {
   value: CodeAgentPermissionMode;
@@ -726,7 +740,8 @@ function PermissionModeSelector({
   title?: string;
   compact?: boolean;
 }) {
-  const selected = getCodeAgentPermissionModeDefinition(value);
+  const selectedMode = runModeFromPermissionMode(value);
+  const selected = getRunModeDefinition(selectedMode);
   return (
     <fieldset
       className={`code-agents-permission${
@@ -739,25 +754,42 @@ function PermissionModeSelector({
           <em>{selected.description}</em>
         </legend>
       )}
-      <div className="code-agents-permission__options">
-        {CODE_AGENT_PERMISSION_MODES.map((mode) => (
-          <button
-            key={mode.id}
-            type="button"
-            className={`code-agents-permission__option${
-              mode.id === value ? " code-agents-permission__option--active" : ""
-            }`}
-            disabled={disabled}
-            aria-pressed={mode.id === value}
-            title={mode.description}
-            onClick={() => onChange(mode.id)}
-          >
-            <strong>{compact ? mode.label : mode.shortLabel}</strong>
-            {!compact && <span>{mode.label}</span>}
-          </button>
-        ))}
-      </div>
+      <label className="code-agents-mode-select">
+        <select
+          value={selectedMode}
+          disabled={disabled}
+          aria-label={title}
+          title={selected.description}
+          onChange={(event) =>
+            onChange(permissionModeFromRunMode(event.target.value))
+          }
+        >
+          {CODE_AGENT_RUN_MODES.map((mode) => (
+            <option key={mode.id} value={mode.id}>
+              {mode.label}
+            </option>
+          ))}
+        </select>
+        <IconChevronDown size={13} strokeWidth={1.8} aria-hidden="true" />
+      </label>
     </fieldset>
+  );
+}
+
+function runModeFromPermissionMode(
+  permissionMode: CodeAgentPermissionMode,
+): CodeAgentRunMode {
+  return permissionMode === "read-only" ? "plan" : "auto";
+}
+
+function permissionModeFromRunMode(value: string): CodeAgentPermissionMode {
+  return value === "plan" ? "read-only" : "full-auto";
+}
+
+function getRunModeDefinition(mode: CodeAgentRunMode) {
+  return (
+    CODE_AGENT_RUN_MODES.find((definition) => definition.id === mode) ??
+    CODE_AGENT_RUN_MODES[1]
   );
 }
 
@@ -792,7 +824,7 @@ function NativeGoalSurface({
 
 function exampleCommandForGoal(goal: CodeAgentGoalDefinition): string {
   if (goal.id === "task") {
-    return 'agent-native code /task "Implement the settings polish"';
+    return 'agent-native code "Implement the settings polish"';
   }
   if (goal.id === "migrate") {
     return "agent-native code /migrate ./legacy-app --out ../migrated-app";
@@ -926,16 +958,6 @@ function RunDetailCard({
         <PhasePill run={run} />
       </div>
 
-      <div className="code-agents-progress">
-        <div className="code-agents-progress__label">
-          <span>{run.progress?.label ?? "Task feedback"}</span>
-          <span>{progress}%</span>
-        </div>
-        <div className="code-agents-progress__track">
-          <span style={{ width: `${progress}%` }} />
-        </div>
-      </div>
-
       {hasCredentialGap && (
         <div className="code-agents-credential-callout">
           <IconAlertCircle size={16} strokeWidth={1.8} />
@@ -970,68 +992,92 @@ function RunDetailCard({
         </div>
       )}
 
-      <div className="code-agents-detail-grid">
-        {details.map((detail) => (
-          <Field key={detail.label} label={detail.label} value={detail.value} />
-        ))}
-      </div>
+      <div className="code-agents-session-layout">
+        <div className="code-agents-session-main">
+          <TranscriptPanel
+            events={transcriptEvents}
+            loading={transcriptLoading}
+            error={transcriptError}
+            followUpPrompt={followUpPrompt}
+            submitting={submittingFollowUp}
+            onFollowUpPromptChange={onFollowUpPromptChange}
+            onSubmitFollowUp={onSubmitFollowUp}
+          />
+        </div>
 
-      <PermissionModeSelector
-        value={permissionMode}
-        onChange={onPermissionModeChange}
-        disabled={updatingPermissionMode}
-        title="Permission mode for resume and follow-up prompts"
-      />
+        <aside className="code-agents-session-aside" aria-label="Session state">
+          <div className="code-agents-progress">
+            <div className="code-agents-progress__label">
+              <span>{run.progress?.label ?? "Progress"}</span>
+              <span>{progress}%</span>
+            </div>
+            <div className="code-agents-progress__track">
+              <span style={{ width: `${progress}%` }} />
+            </div>
+          </div>
 
-      <TranscriptPanel
-        events={transcriptEvents}
-        loading={transcriptLoading}
-        error={transcriptError}
-        followUpPrompt={followUpPrompt}
-        submitting={submittingFollowUp}
-        onFollowUpPromptChange={onFollowUpPromptChange}
-        onSubmitFollowUp={onSubmitFollowUp}
-      />
+          <div className="code-agents-detail-grid">
+            {details.map((detail) => (
+              <Field
+                key={detail.label}
+                label={detail.label}
+                value={detail.value}
+              />
+            ))}
+          </div>
 
-      <div className="code-agents-detail__footer">
-        <button
-          type="button"
-          className="code-agents-button code-agents-button--primary"
-          onClick={onResume}
-        >
-          <IconPlayerPlay size={14} strokeWidth={1.8} />
-          Resume
-        </button>
-        <button
-          type="button"
-          className="code-agents-button"
-          onClick={onRefreshStatus}
-        >
-          <IconRefresh size={14} strokeWidth={1.8} />
-          Status
-        </button>
-        {run.status !== "completed" && run.phase !== "complete" && (
-          <button type="button" className="code-agents-button" onClick={onStop}>
-            <IconAlertCircle size={14} strokeWidth={1.8} />
-            Stop
-          </button>
-        )}
-        <button
-          type="button"
-          className="code-agents-button"
-          onClick={onOpenWorkbench}
-        >
-          <IconExternalLink size={14} strokeWidth={1.8} />
-          Open {goal.surfaceLabel}
-        </button>
-        <button
-          type="button"
-          className="code-agents-button"
-          onClick={onOpenTerminal}
-        >
-          <IconTerminal2 size={14} strokeWidth={1.8} />
-          Terminal
-        </button>
+          <RunModeSelect
+            value={permissionMode}
+            onChange={onPermissionModeChange}
+            disabled={updatingPermissionMode}
+            title="Mode"
+          />
+
+          <div className="code-agents-detail__footer">
+            <button
+              type="button"
+              className="code-agents-button code-agents-button--primary"
+              onClick={onResume}
+            >
+              <IconPlayerPlay size={14} strokeWidth={1.8} />
+              Resume
+            </button>
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={onRefreshStatus}
+            >
+              <IconRefresh size={14} strokeWidth={1.8} />
+              Status
+            </button>
+            {run.status !== "completed" && run.phase !== "complete" && (
+              <button
+                type="button"
+                className="code-agents-button"
+                onClick={onStop}
+              >
+                <IconAlertCircle size={14} strokeWidth={1.8} />
+                Stop
+              </button>
+            )}
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={onOpenWorkbench}
+            >
+              <IconExternalLink size={14} strokeWidth={1.8} />
+              Open {goal.surfaceLabel}
+            </button>
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={onOpenTerminal}
+            >
+              <IconTerminal2 size={14} strokeWidth={1.8} />
+              Terminal
+            </button>
+          </div>
+        </aside>
       </div>
     </div>
   );
@@ -1335,14 +1381,14 @@ function getRunDetails(
       { label: "Source", value: run.sourceRoot },
       { label: "Output", value: run.outputRoot },
       { label: "Target", value: run.target },
-      { label: "Permission", value: formatPermissionMode(permissionMode) },
+      { label: "Mode", value: formatPermissionMode(permissionMode) },
       { label: "Updated", value: formatRelativeTime(run.updatedAt) },
     ];
   }
   return [
     { label: "Goal", value: goal.slashCommand },
     { label: "Status", value: run.status },
-    { label: "Permission", value: formatPermissionMode(permissionMode) },
+    { label: "Mode", value: formatPermissionMode(permissionMode) },
     { label: "Updated", value: formatRelativeTime(run.updatedAt) },
   ];
 }
@@ -1382,17 +1428,18 @@ function withPermissionDetail(
   const next = details.map((detail) => {
     if (!isPermissionDetail(detail.label)) return detail;
     found = true;
-    return { ...detail, label: "Permission", value: displayValue };
+    return { ...detail, label: "Mode", value: displayValue };
   });
-  return found ? next : [...next, { label: "Permission", value: displayValue }];
+  return found ? next : [...next, { label: "Mode", value: displayValue }];
 }
 
 function isPermissionDetail(label: string): boolean {
-  return label.toLowerCase().includes("permission");
+  const normalized = label.toLowerCase();
+  return normalized.includes("permission") || normalized === "mode";
 }
 
 function formatPermissionMode(value: CodeAgentPermissionMode): string {
-  return getCodeAgentPermissionModeDefinition(value).label;
+  return getRunModeDefinition(runModeFromPermissionMode(value)).label;
 }
 
 function getRunTerminalRequest(

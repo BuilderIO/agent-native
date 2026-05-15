@@ -656,9 +656,9 @@ describe("workspace resource materialization", () => {
         source: "grant",
         autoLoaded: false,
         grantId: "grant_1",
-        syncedAt: 123,
       }),
     );
+    expect(result.resources[1]).not.toHaveProperty("syncedAt");
   });
 
   it("previews all-app effective context without requiring a grant or sync", async () => {

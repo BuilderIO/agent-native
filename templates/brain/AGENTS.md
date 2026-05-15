@@ -42,11 +42,13 @@ JSON is stored in text columns. There is no vector database.
 | `sync-source` / `sync-due-sources`                                                  | Run one source immediately or run due auto-sync sources                                |
 | `test-slack-connection`                                                             | Test Slack credentials/channel allow-lists without reading message history             |
 | `run-slack-pilot`                                                                   | Produce a guarded Slack pilot report; reads no history unless `readHistory: true`      |
+| `get-pilot-report`                                                                  | Summarize one source's sync health, queue state, privacy notes, and rollout next steps |
 | `import-capture`                                                                    | Import arbitrary raw text                                                              |
 | `import-transcript`                                                                 | Import meeting transcripts                                                             |
 | `list-captures` / `get-capture`                                                     | Review raw captures by source/status, including distillation queue state               |
 | `enqueue-distillation`                                                              | Idempotently queue capture distillation                                                |
 | `claim-distillation`                                                                | Claim one queued distillation item before a browser or worker hands it to the agent    |
+| `list-distillation-queue` / `retry-distillation`                                    | Inspect failed/stale distillation work and safely retry accessible items               |
 | `mark-capture-distilled`                                                            | Mark a capture distilled or ignored                                                    |
 | `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior |
 | `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                    |
@@ -64,8 +66,10 @@ When answering company-memory questions:
    search surface and should return candidate knowledge entries, raw captures,
    and sources the current user can access.
 2. Drill into promising results with `get-knowledge` for durable facts and
-   `get-capture` for source context or exact quotes. Use `search-knowledge`
-   when only V1 distilled knowledge search is available.
+   `get-capture` for source context. `get-capture` is redacted by default; use
+   `includeRawContent: true` only for editor-authorized distillation or exact
+   quote validation. Use `search-knowledge` when only V1 distilled knowledge
+   search is available.
 3. Cite source links from knowledge evidence or raw capture metadata. Prefer
    direct source URLs/permalinks over generic source names.
 4. Distinguish reviewed knowledge from raw captures. Raw captures can provide
@@ -107,9 +111,12 @@ After a successful pilot sync, use `list-captures` first to review capture
 inventory without raw bodies. The listing includes each capture's latest
 distillation queue state, so repeated `enqueue-distillation` calls should reuse
 an active queue item instead of creating duplicates. Only open individual items
-with `get-capture` when you need source context for distillation. Keep
-`autoSync: false` until the channel allow-list, review policy, and first
-distilled/proposed entries look right.
+with `get-capture` when you need source context. Pass `includeRawContent: true`
+only while performing distillation or exact quote validation; default reads are
+redacted for safer review surfaces. Use `get-pilot-report` after sample syncs
+to summarize sync health, queue state, privacy guardrails, proposals, and next
+steps. Keep `autoSync: false` until the channel allow-list, review policy, and
+first distilled/proposed entries look right.
 
 Distillation has two worker paths. When a Brain tab is open, the app shell uses
 `claim-distillation` to claim a queued item and bridges it to the agent chat in
@@ -121,6 +128,12 @@ should read the capture, apply the settings/extraction rules, write cited
 knowledge or proposals with `write-knowledge`, and finish by calling
 `mark-capture-distilled`. That final action also marks active distillation queue
 rows done.
+
+Use `list-distillation-queue` to inspect queued, processing, failed, and stale
+distillation handoffs. Use `retry-distillation` only for failed or stale
+processing rows; it access-checks the capture source, requeues the item, and
+refreshes the agent handoff. The Ops route exposes these same queue controls in
+the UI.
 
 Granola sources use the scoped `GRANOLA_API_KEY` credential and poll Granola's
 public API for accessible Team-space notes, then fetch each note with its

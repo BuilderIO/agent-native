@@ -28,8 +28,9 @@ async function writeDistillationRequest(values: {
     requestedAt: values.requestedAt,
     instructions: values.instructions ?? null,
     message:
-      `Distill Brain capture ${values.captureId}. Use get-capture first, ` +
-      `extract only durable company knowledge with exact evidence quotes, ` +
+      `Distill Brain capture ${values.captureId}. Use get-capture with ` +
+      `includeRawContent=true when you need exact quote validation, extract ` +
+      `only durable company knowledge with exact evidence quotes, ` +
       `call write-knowledge for supported entries or proposals, then call ` +
       `mark-capture-distilled when finished. If the capture is personal or ` +
       `out of scope, call mark-capture-distilled with status ignored.`,

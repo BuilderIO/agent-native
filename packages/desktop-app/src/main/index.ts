@@ -1575,7 +1575,7 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
     details: [
       { label: "Goal", value: goal.slashCommand },
       { label: "Working directory", value: cwd },
-      { label: "Permission mode", value: permissionMode },
+      { label: "Mode", value: permissionMode },
     ],
     createdAt: now,
     updatedAt: now,

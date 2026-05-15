@@ -673,7 +673,7 @@ Usage:
                                 multi-select template picker. Use --standalone
                                 for a single-app scaffold.
   agent-native code             Launch Code Agents workspace. Type a task or
-                                use goals like /task, /migrate, and /audit.
+                                use goals like /migrate and /audit.
   agent-native migrate <source> Create a Code Agents /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace

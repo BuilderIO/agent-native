@@ -36,12 +36,28 @@ describe("Brain universal search helpers", () => {
     expect(snippet.startsWith("...")).toBe(true);
   });
 
-  it("redacts emails and Slack mailto tokens from snippets", () => {
+  it("redacts emails, Slack mailto tokens, and phone-like values", () => {
     expect(
       redactSensitiveText(
-        "Email: <mailto:ava@example.com|ava@example.com> call +1 415 555 1212",
+        "Email: <mailto:ava@example.com|Ava> or ava@example.com call +1 415 555 1212",
       ),
-    ).toBe("Email: [redacted] call [redacted]");
+    ).toBe("Email: [redacted] or [redacted] call [redacted]");
+  });
+
+  it("preserves ISO dates and URLs while redacting phone-like values", () => {
+    expect(
+      redactSensitiveText(
+        "Launch 2026-05-15 from https://example.test/users/4155551212, call (415) 555-1212.",
+      ),
+    ).toBe(
+      "Launch 2026-05-15 from https://example.test/users/4155551212, call [redacted].",
+    );
+  });
+
+  it("redacts Slack user identifiers in default review text", () => {
+    expect(
+      redactSensitiveText("User: U0GCV21HC pinged <@U02JPJEU67J> in channel"),
+    ).toBe("User: [redacted] pinged [redacted] in channel");
   });
 
   it("scores title matches higher than body-only matches", () => {

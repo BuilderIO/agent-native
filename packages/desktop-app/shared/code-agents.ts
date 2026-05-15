@@ -82,32 +82,33 @@ export const CODE_AGENT_PERMISSION_MODES: CodeAgentPermissionModeDefinition[] =
   [
     {
       id: "read-only",
-      label: "Read-only",
-      shortLabel: "Read",
-      description: "Inspect files and report back without edits.",
+      label: "Plan mode",
+      shortLabel: "Plan",
+      description: "Inspect files and propose a plan before editing.",
     },
     {
       id: "ask-before-edit",
-      label: "Guarded edit",
-      shortLabel: "Guard",
-      description: "Edit normally, but ask before high-risk commands.",
+      label: "Ask mode",
+      shortLabel: "Ask",
+      description: "Ask before changing files or running write commands.",
     },
     {
       id: "auto-edit",
-      label: "Auto-edit",
+      label: "Edit mode",
       shortLabel: "Edit",
       description: "Make focused edits and run verification.",
     },
     {
       id: "full-auto",
-      label: "Full-auto",
+      label: "Auto mode",
       shortLabel: "Auto",
-      description: "Edit, run commands, and continue without prompts.",
+      description:
+        "Edit, run checks, and only pause for destructive file, git, or data operations.",
     },
   ];
 
 export const DEFAULT_CODE_AGENT_PERMISSION_MODE: CodeAgentPermissionMode =
-  "ask-before-edit";
+  "full-auto";
 
 export function getCodeAgentPermissionMode(
   value: string | null | undefined,

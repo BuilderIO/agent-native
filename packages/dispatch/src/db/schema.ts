@@ -185,7 +185,7 @@ export const workspaceResources = table("workspace_resources", {
   description: text("description"),
   path: text("path").notNull(), // resource path, e.g. "skills/designer.md"
   content: text("content").notNull(),
-  scope: text("scope").notNull(), // "all" (push to all apps) | "selected" (grant per-app)
+  scope: text("scope").notNull(), // "all" (runtime inherited) | "selected" (grant per-app)
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
@@ -198,7 +198,7 @@ export const workspaceResourceGrants = table("workspace_resource_grants", {
   resourceId: text("resource_id").notNull(),
   appId: text("app_id").notNull(),
   status: text("status").notNull(), // "active" | "revoked"
-  syncedAt: integer("synced_at"),
+  syncedAt: integer("synced_at"), // legacy column retained for older rows
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

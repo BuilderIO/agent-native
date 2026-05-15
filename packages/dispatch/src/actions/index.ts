@@ -66,8 +66,6 @@ import setDreamSettings from "./set-dream-settings.js";
 import setVaultAccessSettings from "./set-vault-access-settings.js";
 import startWorkspaceAppCreation from "./start-workspace-app-creation.js";
 import syncVaultToApp from "./sync-vault-to-app.js";
-import syncWorkspaceResourcesToAll from "./sync-workspace-resources-to-all.js";
-import syncWorkspaceResourcesToApp from "./sync-workspace-resources-to-app.js";
 import unarchiveWorkspaceApp from "./unarchive-workspace-app.js";
 import updateWorkspaceAppMetadata from "./update-workspace-app-metadata.js";
 import updateVaultSecret from "./update-vault-secret.js";
@@ -150,8 +148,6 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "set-vault-access-settings": setVaultAccessSettings,
   "start-workspace-app-creation": startWorkspaceAppCreation,
   "sync-vault-to-app": syncVaultToApp,
-  "sync-workspace-resources-to-all": syncWorkspaceResourcesToAll,
-  "sync-workspace-resources-to-app": syncWorkspaceResourcesToApp,
   "unarchive-workspace-app": unarchiveWorkspaceApp,
   "update-workspace-app-metadata": updateWorkspaceAppMetadata,
   "update-vault-secret": updateVaultSecret,

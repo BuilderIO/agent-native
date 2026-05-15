@@ -23,9 +23,10 @@ layer.
 - **Distilled knowledge.** Write atomic entries with kind, topic, entities, confidence, exact evidence quotes, and supersede links.
 - **Review gating.** High-confidence non-sensitive entries can publish immediately; company-tier or sensitive entries can queue as proposals for approval.
 - **Cited retrieval.** V1 exposes `search-knowledge` and `get-knowledge` for distilled company memory. The V1.5 expansion adds a Search route and `search-everything` action for searching knowledge, raw captures, and source records together, then drilling into `get-knowledge` / `get-capture`.
+- **Pilot and Ops controls.** Slack pilots stay bounded by default, `get-pilot-report` summarizes source quality without raw bodies, and the Ops route tracks stale or failed distillation queue items with safe retry controls.
 - **Ambient context.** Canonical approved entries can mirror into workspace resources under `context/company-brain/...` for cross-app context.
 
-Brain intentionally uses SQL text search and agentic query expansion for v1. There is no vector database requirement, so the template stays portable across SQLite, Postgres, Neon, D1, Turso, and similar hosts.
+Brain intentionally uses SQL text search and agentic query expansion for v1. There is no vector database requirement, so the template stays portable across SQLite, Postgres, Neon, D1, Turso, and similar hosts. Raw capture content is redacted by default in review/search surfaces; editor-authorized distillation can request exact raw text for quote validation.
 
 ## Search Model
 
@@ -128,6 +129,10 @@ queued records, opt into short previews only when needed, queue distillation,
 see whether a capture is waiting on the distillation worker, or mark non-company
 material ignored.
 
+Use `get-pilot-report` after a sample sync to inspect sync health, capture
+counts, queue state, published knowledge, pending proposals, privacy notes, and
+recommended rollout steps without returning raw capture bodies.
+
 Distillation has two worker paths. When a Brain tab is open, the app shell
 claims queued items with `claim-distillation` and delegates them to the app
 agent in the background. When no tab is open, the `brain-distillation` server
@@ -139,6 +144,10 @@ or review proposals, then calls `mark-capture-distilled`, which marks the
 active queue row done. If the agent does not close the queue, the worker
 requeues the item with a short delay and eventually fails it after repeated
 attempts.
+
+The Ops route is the operator view for distillation. It lists queued,
+processing, failed, done, stale, and retryable handoffs, backed by
+`list-distillation-queue` and `retry-distillation`.
 
 ## Granola Polling
 
@@ -203,8 +212,8 @@ new workspace can show Brain's strongest use case immediately.
 
 The template follows the agent-native four-area contract:
 
-- **UI:** Ask, Knowledge, Review, Sources, and Settings routes.
-- **Actions:** imports, source management, distillation queueing/claiming, proposal review, cited search, and navigation/context actions.
+- **UI:** Ask, Search, Knowledge, Review, Sources, Ops, and Settings routes.
+- **Actions:** imports, source management, pilot reports, distillation queueing/claiming/retry, proposal review, cited search, and navigation/context actions.
 - **Skills/instructions:** Brain-specific guidance for distillation and retrieval.
 - **Application state:** route, filters, and selected IDs mirror into `application_state` for agent context.
 

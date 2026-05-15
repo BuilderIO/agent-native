@@ -165,8 +165,9 @@ export function useDistillationBridge(): void {
 function buildMessage(capture: BrainCaptureReviewItem) {
   return (
     `Distill Brain capture ${capture.id} (${capture.title}). ` +
-    `Use get-capture before quoting, write durable company knowledge with ` +
-    `write-knowledge, then mark the capture distilled or ignored.`
+    `Use get-capture with includeRawContent=true before exact quote ` +
+    `validation, write durable company knowledge with write-knowledge, then ` +
+    `mark the capture distilled or ignored.`
   );
 }
 

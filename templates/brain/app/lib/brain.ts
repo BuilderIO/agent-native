@@ -1,5 +1,6 @@
 import type { Icon } from "@tabler/icons-react";
 import {
+  IconActivityHeartbeat,
   IconBook2,
   IconChecks,
   IconDatabase,
@@ -15,6 +16,7 @@ export type BrainView =
   | "knowledge"
   | "review"
   | "sources"
+  | "ops"
   | "settings";
 
 export type KnowledgeStatus = "approved" | "needs_review" | "draft" | "stale";
@@ -190,6 +192,67 @@ export interface BrainDistillationQueue {
   runAfter?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+}
+
+export type BrainDistillationQueueStatus =
+  | "queued"
+  | "processing"
+  | "done"
+  | "failed";
+
+export interface BrainOpsQueueItem {
+  id: string;
+  sourceId: string | null;
+  captureId: string | null;
+  status: BrainDistillationQueueStatus;
+  priority: number;
+  attempts: number;
+  lastError?: string | null;
+  runAfter?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  staleProcessing: boolean;
+  retryable: boolean;
+  source: {
+    id: string | null;
+    title: string;
+    provider: string;
+    status: string;
+  };
+  capture: {
+    id: string | null;
+    title: string;
+    status: string;
+  };
+}
+
+export interface BrainOpsQueueSummary {
+  total: number;
+  queued: number;
+  processing: number;
+  done: number;
+  failed: number;
+  staleProcessing: number;
+  retryable: number;
+}
+
+export interface BrainOpsQueueResponse {
+  count?: number;
+  staleProcessingCutoff?: string;
+  summary?: BrainOpsQueueSummary;
+  items?: BrainOpsQueueItem[];
+}
+
+export interface RetryDistillationResponse {
+  retried: boolean;
+  staleProcessing: boolean;
+  queueItem: BrainDistillationQueue | null;
+  capture: {
+    id: string;
+    sourceId: string;
+    title: string;
+    status: "distilling";
+  };
 }
 
 export interface BrainCaptureReviewItem {
@@ -374,6 +437,12 @@ export const navItems: Array<{
   { view: "review", label: "Review", href: "/review", icon: IconChecks },
   { view: "sources", label: "Sources", href: "/sources", icon: IconDatabase },
   {
+    view: "ops",
+    label: "Ops",
+    href: "/ops",
+    icon: IconActivityHeartbeat,
+  },
+  {
     view: "settings",
     label: "Settings",
     href: "/settings",
@@ -522,6 +591,7 @@ export function viewFromPath(pathname: string): BrainView {
   if (pathname.startsWith("/knowledge")) return "knowledge";
   if (pathname.startsWith("/review")) return "review";
   if (pathname.startsWith("/sources")) return "sources";
+  if (pathname.startsWith("/ops")) return "ops";
   if (pathname.startsWith("/settings")) return "settings";
   return "ask";
 }
@@ -536,6 +606,8 @@ export function pathFromView(view?: string): string {
       return "/review";
     case "sources":
       return "/sources";
+    case "ops":
+      return "/ops";
     case "settings":
       return "/settings";
     case "ask":

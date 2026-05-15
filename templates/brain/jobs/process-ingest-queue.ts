@@ -31,8 +31,9 @@ const HEADLESS_DISTILLATION_TIMEOUT_MS = 5 * 60 * 1000;
 const HEADLESS_DISTILLATION_SYSTEM_PROMPT = `You are the Brain distillation worker.
 
 Convert raw company captures into durable, cited institutional knowledge.
-Use only Brain actions. Never invent facts. Start by calling get-capture for
-the provided capture id. Write supported durable entries with write-knowledge;
+Use only Brain actions. Never invent facts. Start by calling get-capture with
+includeRawContent=true for the provided capture id when exact quote validation
+is needed. Write supported durable entries with write-knowledge;
 that action will route uncertain, sensitive, or low-confidence items through
 the review queue when needed. Preserve exact short evidence quotes from the
 capture. Exclude personal or out-of-scope material. Always finish by calling
@@ -150,7 +151,7 @@ function buildDistillationMessage(context: DistillationAgentContext) {
     `Source: ${context.source.title} (${context.source.provider})`,
     instructions,
     "Required workflow:",
-    "1. Call get-capture for this capture id.",
+    "1. Call get-capture with includeRawContent=true for this capture id when exact quote validation is needed.",
     "2. Extract only durable company knowledge with exact source quotes.",
     "3. Call write-knowledge for supported entries or proposals.",
     "4. Call mark-capture-distilled when finished, or mark ignored if excluded.",

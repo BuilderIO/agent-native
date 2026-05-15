@@ -39,6 +39,20 @@ function contentPreview(content: string, maxLength: number) {
   return `${text.slice(0, maxLength).trim()}...`;
 }
 
+function redactOptionalText(value: string | null) {
+  return value ? redactSensitiveText(value) : value;
+}
+
+function redactDistillationQueue<T extends { error: string | null }>(
+  queue: T | null,
+): T | null {
+  if (!queue) return null;
+  return {
+    ...queue,
+    error: redactOptionalText(queue.error),
+  };
+}
+
 export default defineAction({
   description:
     "List raw Brain captures for review without returning raw content by default. Use get-capture to open one accessible capture when needed.",
@@ -120,17 +134,19 @@ export default defineAction({
             sourceId: row.sourceId,
             source: {
               id: source.id,
-              title: source.title,
+              title: redactSensitiveText(source.title),
               provider: source.provider,
               status: source.status,
             },
-            externalId: row.externalId,
-            title: row.title,
+            externalId: redactOptionalText(row.externalId),
+            title: redactSensitiveText(row.title),
             kind: row.kind,
             status: row.status,
             capturedAt: row.capturedAt,
             sourceUrl: sourceUrlFromMetadata(metadata),
-            distillationQueue: queueByCapture.get(row.id) ?? null,
+            distillationQueue: redactDistillationQueue(
+              queueByCapture.get(row.id) ?? null,
+            ),
             preview: args.includePreview
               ? contentPreview(row.content, args.previewLength)
               : undefined,

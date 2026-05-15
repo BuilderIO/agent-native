@@ -212,7 +212,6 @@ export interface WorkspaceResourceForApp extends WorkspaceResourceOption {
   source: "workspace" | "grant";
   autoLoaded: boolean;
   grantId: string | null;
-  syncedAt: number | null;
 }
 
 export type WorkspaceResourceAvailability =
@@ -743,7 +742,6 @@ export async function listWorkspaceResourcesForApp(appId: string): Promise<{
         source: isGlobal ? "workspace" : "grant",
         autoLoaded: isResourceAutoLoaded(resource),
         grantId: grant?.id ?? null,
-        syncedAt: grant?.syncedAt ?? null,
       };
     })
     .filter((resource): resource is WorkspaceResourceForApp => !!resource)
@@ -1361,188 +1359,6 @@ export async function revokeResourceGrant(
   });
 
   return getResourceGrant(grantId, ctx);
-}
-
-// ─── Sync ──────────────────────────────────────────────────────
-
-/**
- * Legacy bridge for selected-only resources that still need to be copied to an
- * app endpoint. Scope="all" workspace resources are inherited at runtime from
- * the canonical workspace resource owner and are never pushed per app.
- */
-export async function syncResourcesToApp(appId: string) {
-  const agents = await discoverAgents("dispatch");
-  const agent = agents.find((a) => a.id === appId);
-  if (!agent) throw new Error(`App "${appId}" not found in agent registry`);
-
-  const allResources = await listWorkspaceResources();
-  const inheritedPaths = allResources
-    .filter((resource) => resource.scope === "all")
-    .map((resource) => resource.path);
-  const grants = await listResourceGrants({ appId });
-  const activeGrantResourceIds = new Set(
-    grants.filter((g) => g.status === "active").map((g) => g.resourceId),
-  );
-
-  // Determine which selected resources still need the legacy copy bridge.
-  const toPush = allResources.filter(
-    (r) => r.scope === "selected" && activeGrantResourceIds.has(r.id),
-  );
-
-  if (toPush.length === 0) {
-    return {
-      appId,
-      inherited: inheritedPaths,
-      synced: 0,
-      resources: [],
-      failed: [],
-    };
-  }
-
-  const syncedPaths: string[] = [];
-  const failed: Array<{ path: string; reason: string }> = [];
-  const db = getDb();
-  const timestamp = now();
-
-  for (const resource of toPush) {
-    try {
-      // Push via the resources API — create as shared resource
-      const res = await fetch(`${agent.url}/_agent-native/resources`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          path: resource.path,
-          content: resource.content,
-          shared: true,
-          mimeType: "text/markdown",
-          metadata: {
-            source: DISPATCH_RESOURCE_METADATA_SOURCE,
-            resourceId: resource.id,
-            kind: resource.kind,
-            name: resource.name,
-            description: resource.description,
-            updatedAt: resource.updatedAt,
-          },
-        }),
-      });
-
-      if (res.ok || res.status === 409) {
-        // 409 = already exists, try updating
-        if (res.status === 409) {
-          // Fetch existing to get ID, then update
-          const listRes = await fetch(
-            `${agent.url}/_agent-native/resources?scope=shared&path=${encodeURIComponent(resource.path)}`,
-          );
-          if (listRes.ok) {
-            const payload = await listRes.json();
-            const items = Array.isArray(payload)
-              ? payload
-              : Array.isArray(payload?.resources)
-                ? payload.resources
-                : [];
-            const existing = items.find((i: any) => i.path === resource.path);
-            if (existing) {
-              await fetch(
-                `${agent.url}/_agent-native/resources/${existing.id}`,
-                {
-                  method: "PUT",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    content: resource.content,
-                    metadata: {
-                      source: DISPATCH_RESOURCE_METADATA_SOURCE,
-                      resourceId: resource.id,
-                      kind: resource.kind,
-                      name: resource.name,
-                      description: resource.description,
-                      updatedAt: resource.updatedAt,
-                    },
-                  }),
-                },
-              );
-            }
-          }
-        }
-        syncedPaths.push(resource.path);
-
-        // Update grant syncedAt if applicable
-        const grant = grants.find(
-          (g) => g.resourceId === resource.id && g.status === "active",
-        );
-        if (grant) {
-          await db
-            .update(schema.workspaceResourceGrants)
-            .set({ syncedAt: timestamp, updatedAt: timestamp })
-            .where(eq(schema.workspaceResourceGrants.id, grant.id));
-        }
-      } else {
-        failed.push({
-          path: resource.path,
-          reason: await res.text().catch(() => `HTTP ${res.status}`),
-        });
-      }
-    } catch (err) {
-      failed.push({
-        path: resource.path,
-        reason: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  await recordAudit({
-    action: "workspace.resources.synced",
-    targetType: "workspace-resource-sync",
-    targetId: appId,
-    summary: `Synced ${syncedPaths.length} workspace resource(s) to ${appId}: ${syncedPaths.join(", ")}`,
-    metadata: failed.length > 0 ? { failed } : undefined,
-  });
-
-  return {
-    appId,
-    inherited: inheritedPaths,
-    synced: syncedPaths.length,
-    resources: syncedPaths,
-    failed,
-  };
-}
-
-/**
- * Legacy bridge selected-only resources to every app with an active grant.
- * Scope="all" resources are inherited directly and never pushed per app.
- */
-export async function syncResourcesToAllApps() {
-  const agents = await discoverAgents("dispatch");
-  const results: Array<{
-    appId: string;
-    inherited?: string[];
-    synced: number;
-    failed?: Array<{ path: string; reason: string }>;
-  }> = [];
-
-  for (const agent of agents) {
-    try {
-      const result = await syncResourcesToApp(agent.id);
-      results.push({
-        appId: result.appId,
-        inherited: result.inherited,
-        synced: result.synced,
-        failed: result.failed,
-      });
-    } catch (err) {
-      results.push({
-        appId: agent.id,
-        synced: 0,
-        failed: [
-          {
-            path: "*",
-            reason: err instanceof Error ? err.message : String(err),
-          },
-        ],
-      });
-    }
-  }
-
-  return results;
 }
 
 // ─── Overview ──────────────────────────────────────────────────────

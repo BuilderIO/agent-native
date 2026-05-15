@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   resourceList: vi.fn(),
   resourceListAccessible: vi.fn(),
   resourceGet: vi.fn(),
+  resourcePut: vi.fn(async () => undefined),
   discoverAgents: vi.fn(async () => []),
 }));
 
@@ -19,6 +20,7 @@ vi.mock("../resources/store.js", () => ({
   resourceListAccessible: (...args: any[]) =>
     mocks.resourceListAccessible(...args),
   resourceGet: (...args: any[]) => mocks.resourceGet(...args),
+  resourcePut: (...args: any[]) => mocks.resourcePut(...args),
 }));
 
 vi.mock("./agent-discovery.js", () => ({
@@ -211,6 +213,60 @@ beforeEach(() => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it("assembles the same inherited workspace context for every app without sync writes", async () => {
+    const analyticsPrompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      "analytics",
+    );
+    const mailPrompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      "mail",
+    );
+
+    expect(analyticsPrompt).toBe(mailPrompt);
+    expect(mocks.resourcePut).not.toHaveBeenCalled();
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("analytics");
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("mail");
+
+    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
+      "__workspace__",
+      "AGENTS.md",
+    );
+    expect(mocks.resourceList).toHaveBeenCalledWith(
+      "__workspace__",
+      "instructions/",
+    );
+    expect(mocks.resourceListAccessible).toHaveBeenCalledWith(
+      "user@example.test",
+      "skills/",
+    );
+    expect(mocks.resourceList).toHaveBeenCalledWith("__workspace__");
+
+    expect(analyticsPrompt).toContain(
+      '<resource name="instructions/guardrails.md" scope="workspace-instruction"',
+    );
+    expect(analyticsPrompt).toContain(
+      "`company-voice` at resource `skills/company-voice/SKILL.md` (personal) - Personal voice override.",
+    );
+    expect(analyticsPrompt).toContain(
+      '<workspace-resources scope="workspace">',
+    );
+    expect(analyticsPrompt).toContain(
+      "Workspace reference resources are inherited by every app",
+    );
+
+    expect(analyticsPrompt.indexOf("Workspace Guardrails")).toBeLessThan(
+      analyticsPrompt.indexOf("Organization Guardrails"),
+    );
+    expect(analyticsPrompt.indexOf("Organization Guardrails")).toBeLessThan(
+      analyticsPrompt.indexOf("Personal Guardrails"),
+    );
+    expect(analyticsPrompt).not.toContain("Workspace voice default.");
+    expect(analyticsPrompt).not.toContain("Organization voice override.");
+  });
+
   it("loads inherited workspace instructions and indexes workspace reference resources", async () => {
     const prompt = await loadResourcesForPrompt("user@example.test");
 

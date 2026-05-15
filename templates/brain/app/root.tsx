@@ -113,6 +113,8 @@ function DbSyncSetup() {
       "enqueue-distillation",
       "claim-distillation",
       "mark-capture-distilled",
+      "list-distillation-queue",
+      "retry-distillation",
       "get-brain-settings",
       "update-brain-settings",
     ],
@@ -157,6 +159,9 @@ function AppContent() {
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/sources")}>
             Sources
+          </CommandMenu.Item>
+          <CommandMenu.Item onSelect={() => navigate("/ops")}>
+            Ops
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading="Appearance">

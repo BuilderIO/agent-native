@@ -173,7 +173,8 @@ npx @agent-native/core@latest code
 npx @agent-native/core@latest code "fix the failing auth tests"
 npx @agent-native/core@latest code exec "fix the failing auth tests"
 npx @agent-native/core@latest code -p "fix the failing auth tests"
-npx @agent-native/core@latest code /task "fix the failing auth tests"
+npx @agent-native/core@latest code --plan "explain the auth test failures"
+npx @agent-native/core@latest code --auto "fix the failing auth tests"
 npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 npx @agent-native/core@latest code /migrate ./my-next-app --emit ../migration-dossier
 npx @agent-native/core@latest code list
@@ -185,14 +186,12 @@ npx @agent-native/core@latest code --continue "check the auth edge cases next"
 npx @agent-native/core@latest code resume --last "check the auth edge cases next"
 ```
 
-Slash goals can run from the interactive shell or directly from the command line, and `agent-native code goals` shows the goals registered in your checkout. `/task` starts a local coding-agent session, streams work, records transcript/status/tool events, and accepts follow-up prompts; `/migrate` is one specialized capability inside that general Code workspace. Project-specific slash commands live in `.agents/commands/*.md`, so teams can add prompts such as `/release-check` or `/migrate-commerce` without changing the framework. Bare `agent-native` launches the Code workspace in builds with the top-level entrypoint, while a bare prompt such as `agent-native "fix tests"` starts a Code Agents task directly.
+Slash goals can run from the interactive shell or directly from the command line, and `agent-native code goals` shows the goals registered in your checkout. A bare prompt starts a local coding-agent session, streams work, records transcript/status/tool events, and accepts follow-up prompts; `/migrate` is one specialized capability inside that general Code workspace. Project-specific slash commands live in `.agents/commands/*.md`, so teams can add prompts such as `/release-check` or `/migrate-commerce` without changing the framework. Bare `agent-native` launches the Code workspace in builds with the top-level entrypoint, while a bare prompt such as `agent-native "fix tests"` starts a Code Agents task directly.
 
-The Code workspace is adding the familiar Codex/Claude-style session loop: pick a previous session, list runs, attach to live output, print logs, resume with context, and continue the same run from Desktop or CLI. Permission modes make the trust boundary explicit:
+The Code workspace is adding the familiar Codex/Claude-style session loop: pick a previous session, list runs, attach to live output, print logs, resume with context, and continue the same run from Desktop or CLI. The primary modes are intentionally simple:
 
-- `read-only` inspects and explains without writing files.
-- `ask-before-edit` is a guarded edit mode: routine file edits and verification run, but high-risk destructive operations pause.
-- `auto-edit` can edit project files and run ordinary project commands, but still pauses for destructive operations.
-- `full-auto` can run the whole loop when you trust the workspace.
+- **Plan mode** (`--plan`) inspects, explains, and proposes without writing files.
+- **Auto mode** (`--auto`, default) edits files, runs checks, and only pauses for genuinely destructive file, git, publish, or data operations.
 
 `agent-native migrate` still works as a direct shortcut; `code /migrate` is the Code Agents entrypoint for the migration goal. By default it creates a Code Agents session and portable migration dossier, not a scaffolded app/template. `resume --last` reopens the latest run handoff; adding a quoted prompt records it as a follow-up transcript event for that run so the next active Code Agent can pick it up. If a high-risk command is paused for approval, `code approve --last` runs that one pending command and then points you back to resume the session. Use `--app-surface` only when you want the legacy hidden migration detail app for assessment, approval, tasks, artifacts, and verification.
 Use `--emit` when you want only the portable dossier for Codex, Claude Code, Cursor, or another coding agent.
