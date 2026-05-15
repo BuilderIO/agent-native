@@ -31,6 +31,7 @@ import {
   EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG,
   EXTENSIONS_OWNER_INDEX_SQL,
   EXTENSIONS_ORG_INDEX_SQL,
+  EXTENSIONS_UPDATED_INDEX_SQL,
   EXTENSION_SHARES_RESOURCE_INDEX_SQL,
   EXTENSION_HIDES_CREATE_SQL,
   EXTENSION_HIDES_CREATE_SQL_PG,
@@ -84,6 +85,7 @@ export async function ensureExtensionsTables(): Promise<void> {
       );
       await retryOnDdlRace(() => client.execute(EXTENSIONS_OWNER_INDEX_SQL));
       await retryOnDdlRace(() => client.execute(EXTENSIONS_ORG_INDEX_SQL));
+      await retryOnDdlRace(() => client.execute(EXTENSIONS_UPDATED_INDEX_SQL));
       await retryOnDdlRace(() =>
         client.execute(EXTENSION_SHARES_RESOURCE_INDEX_SQL),
       );
@@ -329,7 +331,7 @@ async function notifyExtensionChanged(
     });
   }
 
-  await Promise.allSettled(
+  await Promise.all(
     uniqueTargets.map(async (target) => {
       const sessionId = extensionChangeMarkerSession(target);
       if (!sessionId) return;

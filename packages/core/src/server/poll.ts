@@ -65,6 +65,7 @@ let _lastDbCheck = 0;
 let _lastAppStateTs = 0;
 let _lastSettingsTs = 0;
 let _lastExtensionsTs = 0;
+let _lastExtensionsUpdatedAt: string | number | undefined;
 let _lastExtensionMarkerTs = 0;
 
 /**
@@ -102,6 +103,31 @@ function timestampValue(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function sqlWatermarkValue(value: unknown): string | number | undefined {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return undefined;
+}
+
+async function readMaxUpdatedAtRaw(
+  db: {
+    execute: (
+      query: string | { sql: string; args?: unknown[] },
+    ) => Promise<{ rows: Array<Record<string, unknown>> }>;
+  },
+  table: "application_state" | "settings" | "tools",
+): Promise<unknown> {
+  try {
+    const result = await db.execute(
+      `SELECT MAX(updated_at) as max_ts FROM ${table}`,
+    );
+    return result.rows[0]?.max_ts;
+  } catch {
+    // Optional framework tables may not exist in every app yet.
+    return undefined;
+  }
+}
+
 async function readMaxUpdatedAt(
   db: {
     execute: (
@@ -110,15 +136,7 @@ async function readMaxUpdatedAt(
   },
   table: "application_state" | "settings" | "tools",
 ): Promise<number> {
-  try {
-    const result = await db.execute(
-      `SELECT MAX(updated_at) as max_ts FROM ${table}`,
-    );
-    return timestampValue(result.rows[0]?.max_ts);
-  } catch {
-    // Optional framework tables may not exist in every app yet.
-    return 0;
-  }
+  return timestampValue(await readMaxUpdatedAtRaw(db, table));
 }
 
 async function readExtensionMarkerMaxUpdatedAt(db: {
@@ -322,20 +340,26 @@ async function seedVersionFromDb(): Promise<void> {
   try {
     const db = getDbExec();
 
-    const [appTs, settingsTs, extensionsTs, extensionMarkerTs, refreshResult] =
-      await Promise.all([
-        readMaxUpdatedAt(db, "application_state"),
-        readMaxUpdatedAt(db, "settings"),
-        readMaxUpdatedAt(db, "tools"),
-        readExtensionMarkerMaxUpdatedAt(db),
-        db
-          .execute({
-            sql: "SELECT updated_at FROM application_state WHERE key = ?",
-            args: [SCREEN_REFRESH_KEY],
-          })
-          .catch(() => ({ rows: [] })),
-      ]);
+    const [
+      appTs,
+      settingsTs,
+      extensionsMaxUpdatedAt,
+      extensionMarkerTs,
+      refreshResult,
+    ] = await Promise.all([
+      readMaxUpdatedAt(db, "application_state"),
+      readMaxUpdatedAt(db, "settings"),
+      readMaxUpdatedAtRaw(db, "tools"),
+      readExtensionMarkerMaxUpdatedAt(db),
+      db
+        .execute({
+          sql: "SELECT updated_at FROM application_state WHERE key = ?",
+          args: [SCREEN_REFRESH_KEY],
+        })
+        .catch(() => ({ rows: [] })),
+    ]);
 
+    const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
     const refreshTs = timestampValue(refreshResult.rows[0]?.updated_at);
 
     // Seed version — never decrease an already-set value
@@ -351,6 +375,7 @@ async function seedVersionFromDb(): Promise<void> {
     _lastAppStateTs = appTs;
     _lastSettingsTs = settingsTs;
     _lastExtensionsTs = extensionsTs;
+    _lastExtensionsUpdatedAt = sqlWatermarkValue(extensionsMaxUpdatedAt);
     _lastExtensionMarkerTs = extensionMarkerTs;
     _lastScreenRefreshTs = refreshTs;
     _screenRefreshInitialized = true;
@@ -435,17 +460,14 @@ async function checkExternalDbChanges(): Promise<void> {
     // operations are visible across serverless invocations. Translate those
     // marker rows back into extension-source events for targeted client
     // invalidation while preserving user/org scope.
-    const extensionMarkerResult = await db.execute({
-      sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
-      args: [EXTENSION_CHANGE_MARKER_KEY],
-    });
-    const changedExtensionMarkers = extensionMarkerResult.rows.filter(
-      (row) => timestampValue(row.updated_at) > _lastExtensionMarkerTs,
-    );
-    if (changedExtensionMarkers.length > 0) {
-      const markerTs = changedExtensionMarkers.reduce(
-        (max, row) => Math.max(max, timestampValue(row.updated_at)),
-        _lastExtensionMarkerTs,
+    const extensionMarkerTs = await readExtensionMarkerMaxUpdatedAt(db);
+    if (extensionMarkerTs > _lastExtensionMarkerTs) {
+      const extensionMarkerResult = await db.execute({
+        sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
+        args: [EXTENSION_CHANGE_MARKER_KEY],
+      });
+      const changedExtensionMarkers = extensionMarkerResult.rows.filter(
+        (row) => timestampValue(row.updated_at) > _lastExtensionMarkerTs,
       );
       if (_lastExtensionMarkerTs > 0) {
         recordExtensionChanges(
@@ -454,7 +476,7 @@ async function checkExternalDbChanges(): Promise<void> {
             .filter((target): target is ExtensionChangeTarget => !!target),
         );
       }
-      _lastExtensionMarkerTs = markerTs;
+      _lastExtensionMarkerTs = extensionMarkerTs;
     }
 
     // Check settings for external writes
@@ -469,17 +491,22 @@ async function checkExternalDbChanges(): Promise<void> {
     // Extension rows live in the legacy physical `tools` table. Keep this as a
     // compatibility fallback for direct table writes, but scope events to the
     // resource owner/share targets instead of broadcasting deployment-wide.
-    const extensionResult = await db.execute({
-      sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools ORDER BY updated_at ASC",
-      args: [],
-    });
-    const changedExtensionRows = extensionResult.rows.filter(
-      (row) => timestampValue(row.updated_at) > _lastExtensionsTs,
-    );
-    if (changedExtensionRows.length > 0) {
-      const extensionsTs = changedExtensionRows.reduce(
-        (max, row) => Math.max(max, timestampValue(row.updated_at)),
-        _lastExtensionsTs,
+    const extensionsMaxUpdatedAt = await readMaxUpdatedAtRaw(db, "tools");
+    const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
+    if (extensionsTs > _lastExtensionsTs) {
+      const since = _lastExtensionsUpdatedAt;
+      const extensionResult =
+        since === undefined
+          ? await db.execute({
+              sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools ORDER BY updated_at ASC",
+              args: [],
+            })
+          : await db.execute({
+              sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools WHERE updated_at > ? ORDER BY updated_at ASC",
+              args: [since],
+            });
+      const changedExtensionRows = extensionResult.rows.filter(
+        (row) => timestampValue(row.updated_at) > _lastExtensionsTs,
       );
       if (_lastExtensionsTs > 0) {
         const targetsByRow = await readExtensionTargetsForRows(
@@ -489,6 +516,7 @@ async function checkExternalDbChanges(): Promise<void> {
         for (const targets of targetsByRow) recordExtensionChanges(targets);
       }
       _lastExtensionsTs = extensionsTs;
+      _lastExtensionsUpdatedAt = sqlWatermarkValue(extensionsMaxUpdatedAt);
     }
   } catch {
     // Tables may not exist yet — ignore

@@ -220,7 +220,25 @@ describe("poll handler", () => {
         owner: "test@example.com",
       }),
     ]);
-    expect(executedSql()).not.toContain("FROM tools WHERE updated_at > ?");
+    const toolRowQueries = mockExecute.mock.calls
+      .map(([query]) => query)
+      .filter((query: any) => {
+        const sql = typeof query === "string" ? query : query?.sql;
+        return (
+          typeof sql === "string" &&
+          sql.includes("SELECT id, owner_email") &&
+          sql.includes("FROM tools")
+        );
+      });
+    const latestToolRowQuery = toolRowQueries[toolRowQueries.length - 1] as {
+      sql: string;
+      args?: unknown[];
+    };
+    expect(latestToolRowQuery.sql).toContain("FROM tools WHERE updated_at > ?");
+    expect(latestToolRowQuery.args).toEqual(["2026-05-15T12:00:00.000Z"]);
+    expect(executedSql()).not.toContain(
+      "SELECT id, owner_email, org_id, visibility, updated_at FROM tools ORDER BY updated_at ASC",
+    );
   });
 
   it("emits extension changes from durable markers for delete and hide fallback", async () => {
