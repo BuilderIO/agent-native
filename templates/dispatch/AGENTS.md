@@ -130,6 +130,7 @@ manual mode, create grants before syncing.
 - `list-workspace-resources`: list all workspace skills, instructions, agent profiles, and reference resources
 - `list-workspace-resource-options`: list lightweight workspace resources for picker flows without returning full content
 - `list-workspace-resources-for-app`: show the global and explicitly granted workspace resources a specific app receives, including auto-loaded instructions and grant sync status
+- `restore-starter-workspace-resources`: restore missing starter global resources (`context/company.md`, `context/brand.md`, `context/messaging.md`, `instructions/guardrails.md`, `skills/company-voice/SKILL.md`) without overwriting existing resources
 - `create-workspace-resource`: create a new workspace resource (skill, instruction, agent, or reference resource). Use `AGENTS.md` or `instructions/<slug>.md` for always-on guardrails, `skills/<slug>/SKILL.md` for skills, `context/<slug>.md` for brand/company/reference material, and `agents/<slug>.md` for custom agents.
 - `update-workspace-resource`: update a resource's name, description, content, or scope
 - `delete-workspace-resource`: delete a resource and revoke all grants

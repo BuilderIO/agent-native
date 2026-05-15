@@ -21,7 +21,7 @@ JSON is stored in text columns. There is no vector database.
 | Action                                                                              | Purpose                                                                                |
 | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `create-source` / `update-source` / `delete-source` / `get-source` / `list-sources` | Manage source configuration                                                            |
-| `sync-source`                                                                       | Run a configured source connector, including Slack channel backfill and Granola polling |
+| `sync-source` / `sync-due-sources`                                                  | Run one source immediately or run due auto-sync sources                                |
 | `import-capture`                                                                    | Import arbitrary raw text                                                              |
 | `import-transcript`                                                                 | Import meeting transcripts                                                             |
 | `get-capture`                                                                       | Read a raw capture if its source is accessible                                         |
@@ -54,6 +54,11 @@ Granola sources use the scoped `GRANOLA_API_KEY` credential and poll Granola's
 public API for accessible Team-space notes, then fetch each note with its
 transcript. Keep the Granola cursor and sync window in the source cursor/config
 JSON instead of process memory.
+
+Auto-sync is controlled per source with `config.autoSync` and
+`config.pollMinutes`. The background job is gated by `RUN_BACKGROUND_JOBS`; use
+`sync-due-sources` when the user wants to kick due Slack/Granola polling from
+the agent or UI.
 
 Manual, generic, and Clips sources can still import fixture/exported items
 through `config.transcripts`, `config.sampleTranscripts`, or `config.messages`.

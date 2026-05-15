@@ -666,9 +666,25 @@ function GlobalContextSection({ resources }: { resources: any[] }) {
   const byPath = new Map(
     resources.map((resource) => [resource.path, resource]),
   );
-  const presentCount = STARTER_GLOBAL_CONTEXT.filter((item) =>
-    byPath.has(item.path),
-  ).length;
+  const missingPaths = STARTER_GLOBAL_CONTEXT.filter(
+    (item) => !byPath.has(item.path),
+  ).map((item) => item.path);
+  const presentCount = STARTER_GLOBAL_CONTEXT.length - missingPaths.length;
+  const restoreStarter = useActionMutation(
+    "restore-starter-workspace-resources",
+    {
+      onSuccess: (result: any) => {
+        const restored = result?.restored?.length ?? 0;
+        const existing = result?.existing?.length ?? 0;
+        toast.success(
+          restored > 0
+            ? `Restored ${restored} starter resource${restored === 1 ? "" : "s"}`
+            : `Starter resources already present (${existing})`,
+        );
+      },
+      onError: (err) => toast.error(String(err)),
+    },
+  );
 
   return (
     <section className="space-y-3">
@@ -681,10 +697,28 @@ function GlobalContextSection({ resources }: { resources: any[] }) {
             Starter resources every workspace can use for company facts, brand,
             messaging, guardrails, and voice.
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            All-app resources are available immediately in shared-database
+            workspaces. Use Sync all when remote/copied app resources need to be
+            refreshed.
+          </p>
         </div>
-        <Badge variant="outline" className="shrink-0">
-          {presentCount}/{STARTER_GLOBAL_CONTEXT.length} ready
-        </Badge>
+        <div className="flex shrink-0 items-center gap-2">
+          {missingPaths.length > 0 ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => restoreStarter.mutate({ paths: missingPaths })}
+              disabled={restoreStarter.isPending}
+            >
+              <IconPlus size={14} className="mr-1.5" />
+              {restoreStarter.isPending ? "Restoring..." : "Restore missing"}
+            </Button>
+          ) : null}
+          <Badge variant="outline">
+            {presentCount}/{STARTER_GLOBAL_CONTEXT.length} ready
+          </Badge>
+        </div>
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {STARTER_GLOBAL_CONTEXT.map((item) => {
@@ -720,11 +754,25 @@ function GlobalContextSection({ resources }: { resources: any[] }) {
                     resource={resource}
                     trigger={
                       <Button variant="ghost" size="sm" className="h-7 px-2">
+                        <span className="sr-only">Edit {item.label}</span>
                         <IconEdit size={14} />
                       </Button>
                     }
                   />
-                ) : null}
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() =>
+                      restoreStarter.mutate({ paths: [item.path] })
+                    }
+                    disabled={restoreStarter.isPending}
+                    aria-label={`Restore ${item.label}`}
+                  >
+                    <IconPlus size={14} />
+                  </Button>
+                )}
               </div>
               <div className="mt-3 space-y-2">
                 <div className="truncate font-mono text-[11px] text-muted-foreground">

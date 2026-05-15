@@ -84,7 +84,16 @@ export interface BrainSource {
   nextSyncAt?: string | null;
   reviewRequired?: boolean;
   config?: Record<string, unknown>;
+  cursor?: Record<string, unknown>;
   lastError?: string | null;
+  latestRun?: {
+    id: string;
+    status: "running" | "success" | "error";
+    stats?: Record<string, unknown>;
+    error?: string | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+  } | null;
 }
 
 export interface BrainOverviewResponse {
@@ -329,8 +338,27 @@ export function sourceType(source: BrainSource) {
   return source.type ?? source.provider ?? "generic";
 }
 
+export function sourceDescription(source: BrainSource) {
+  if (source.description) return source.description;
+  switch (source.provider) {
+    case "slack":
+      return "Approved Slack channels for product decisions, launches, support signals, and operating context.";
+    case "granola":
+      return "Granola Team-space notes and transcripts imported through the Enterprise API.";
+    case "clips":
+      return "Meeting recordings and transcripts exported from Clips into Brain.";
+    case "generic":
+      return "Signed webhook or manual API source for transcripts and structured context.";
+    case "manual":
+      return "Direct imports created from the agent or UI.";
+    default:
+      return "Company knowledge source.";
+  }
+}
+
 export function sourceHealth(source: BrainSource): SourceHealth {
   if (source.health) return source.health;
+  if (sourceRetryAfter(source)) return "degraded";
   if (source.status === "active")
     return source.lastError ? "degraded" : "healthy";
   if (source.status === "error") return "error";
@@ -348,6 +376,19 @@ export function sourceReviewRequired(source: BrainSource) {
   if (typeof source.reviewRequired === "boolean") return source.reviewRequired;
   const value = source.config?.reviewRequired;
   return typeof value === "boolean" ? value : true;
+}
+
+export function sourceAutoSync(source: BrainSource) {
+  const value = source.config?.autoSync;
+  if (typeof value === "boolean") return value;
+  return source.provider === "slack" || source.provider === "granola";
+}
+
+export function sourceRetryAfter(source: BrainSource) {
+  const retry = source.cursor?.retry;
+  if (!retry || typeof retry !== "object") return null;
+  const retryAfterAt = (retry as Record<string, unknown>).retryAfterAt;
+  return typeof retryAfterAt === "string" ? retryAfterAt : null;
 }
 
 export function sourceLastSync(source: BrainSource) {

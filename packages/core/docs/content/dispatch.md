@@ -68,7 +68,7 @@ skills/company-voice/SKILL.md
 
 Set these to **All apps** when every app should inherit the same company facts, brand rules, messaging, safety constraints, and customer-facing writing style. Use selected-app grants only for resources that are genuinely app-specific.
 
-The **Resources** page highlights this starter pack in a Global context section so admins can quickly see which files exist, whether they are scoped to all apps, and edit their contents. Each app card also has a **Context** view that shows exactly what that app receives: global resources, selected grants, auto-loaded instructions, and grant sync status.
+The **Resources** page highlights this starter pack in a Global context section so admins can quickly see which files exist, whether they are scoped to all apps, restore missing starter files without overwriting existing ones, and edit their contents. Each app card also has a **Context** view that shows exactly what that app receives: global resources, selected grants, auto-loaded instructions, and grant sync status. Same-database global resources apply immediately; use **Sync resources** when copied remote app resources or selected grants need to be refreshed.
 
 This is how a team-wide change ("always use British English in customer-facing replies") or a shared brand guideline propagates without editing ten repos.
 

@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   currentOwnerEmail: vi.fn(() => "owner@example.test"),
   currentOrgId: vi.fn(() => null),
+  getApprovalPolicy: vi.fn(),
+  createApprovalRequest: vi.fn(),
   recordAudit: vi.fn(),
   searchAgentThreads: vi.fn(),
   getAgentThreadDebug: vi.fn(),
@@ -27,6 +29,8 @@ vi.mock("../../db/index.js", async () => {
 vi.mock("./dispatch-store.js", () => ({
   currentOwnerEmail: mocks.currentOwnerEmail,
   currentOrgId: mocks.currentOrgId,
+  getApprovalPolicy: mocks.getApprovalPolicy,
+  createApprovalRequest: mocks.createApprovalRequest,
   recordAudit: mocks.recordAudit,
 }));
 
@@ -44,6 +48,7 @@ vi.mock("@agent-native/core/resources/store", () => ({
 
 import { schema } from "../../db/index.js";
 import {
+  applyApprovedDreamProposal,
   applyDreamProposal,
   buildProposalInputs,
   ensureDreamJob,
@@ -193,6 +198,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
   mocks.currentOrgId.mockReturnValue(null);
+  mocks.getApprovalPolicy.mockResolvedValue({
+    enabled: false,
+    approverEmails: [],
+  });
+  mocks.createApprovalRequest.mockResolvedValue({
+    id: "approval-1",
+    status: "pending",
+  });
   mocks.recordAudit.mockResolvedValue(undefined);
   mocks.resourceGetByPath.mockResolvedValue(null);
   mocks.resourceList.mockResolvedValue([]);
@@ -275,6 +288,66 @@ describe("listDreamCandidates", () => {
         "tool-error",
       ]),
     );
+  });
+
+  it("does not treat feature wording or successful eval metadata as dream failures", async () => {
+    mocks.searchAgentThreads.mockResolvedValue({
+      source: { id: "current" },
+      access: { mode: "local" },
+      query: null,
+      threads: [{ id: "thread-1" }],
+    });
+    mocks.getAgentThreadDebug.mockResolvedValue({
+      thread: {
+        id: "thread-1",
+        ownerEmail: "owner@example.test",
+        title: "Create an extension",
+        preview: "image instead of camera",
+        messageCount: 1,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      messages: [
+        {
+          role: "user",
+          text: "Create an extension to add image instead of camera when recording",
+          index: 0,
+          createdAt: 1,
+        },
+      ],
+      runs: [
+        {
+          id: "run-1",
+          status: "completed",
+          abortReason: null,
+          events: [
+            {
+              event: {
+                type: "tool_done",
+                tool: "db-query",
+                result:
+                  "query: select status, failure_reason from transcripts\nrows: 1\nstatus | failure_reason\nfailed | no native transcript",
+              },
+            },
+          ],
+        },
+      ],
+      feedback: [],
+      evals: [
+        {
+          eval_type: "automated",
+          criteria: "tool_success_rate",
+          score: 1,
+          metadata: JSON.stringify({ failedTools: 0, successfulTools: 1 }),
+        },
+      ],
+      satisfaction: [],
+      checkpoints: [],
+    });
+
+    const result = await listDreamCandidates({ limit: 5 });
+
+    expect(result.candidateCount).toBe(0);
   });
 });
 
@@ -421,6 +494,78 @@ describe("applyDreamProposal", () => {
       "Personal memory proposals can only be applied by owner",
     );
     expect(mocks.resourcePut).not.toHaveBeenCalled();
+  });
+
+  it("queues shared proposals for approval when approval policy is enabled", async () => {
+    mocks.getApprovalPolicy.mockResolvedValue({
+      enabled: true,
+      approverEmails: ["admin@example.test"],
+    });
+    mocks.getDb.mockReturnValue(
+      createDbMock(
+        pendingProposal({
+          targetType: "shared-learnings",
+          targetPath: "LEARNINGS.md",
+        }),
+      ),
+    );
+
+    const result = await applyDreamProposal("proposal-1");
+
+    expect(mocks.createApprovalRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changeType: "dream-proposal.apply",
+        targetType: "dream-proposal",
+        targetId: "proposal-1",
+        payload: { proposalId: "proposal-1" },
+      }),
+    );
+    expect(mocks.resourcePut).not.toHaveBeenCalled();
+    expect(result.proposal.status).toBe("approval_requested");
+    expect(result.result).toEqual({
+      approvalRequired: true,
+      approvalId: "approval-1",
+    });
+  });
+
+  it("applies approved shared proposals to LEARNINGS.md", async () => {
+    mocks.getDb.mockReturnValue(
+      createDbMock(
+        pendingProposal({
+          status: "approval_requested",
+          targetType: "shared-learnings",
+          targetPath: "LEARNINGS.md",
+          summary: "Record a repeated Dispatch failure pattern.",
+        }),
+      ),
+    );
+    mocks.resourceGetByPath.mockResolvedValue(
+      resource("LEARNINGS.md", "# Learnings\n\n## Patterns\n", "__shared__"),
+    );
+
+    const result = await applyApprovedDreamProposal(
+      "proposal-1",
+      "admin@example.test",
+      { ownerEmail: "owner@example.test", orgId: null },
+    );
+
+    expect(mocks.resourcePut).toHaveBeenCalledWith(
+      "__shared__",
+      "LEARNINGS.md",
+      expect.stringContaining("Record a repeated Dispatch failure pattern."),
+      "text/markdown",
+      expect.objectContaining({
+        createdBy: "agent",
+        metadata: { dreamId: "dream-1", proposalId: "proposal-1" },
+      }),
+    );
+    expect(result.proposal.status).toBe("applied");
+    expect(mocks.recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "dream.proposal.applied",
+        actor: "admin@example.test",
+      }),
+    );
   });
 });
 

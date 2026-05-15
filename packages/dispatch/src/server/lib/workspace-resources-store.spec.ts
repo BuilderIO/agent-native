@@ -59,6 +59,7 @@ import {
   createWorkspaceResource,
   deleteWorkspaceResource,
   listWorkspaceResourcesForApp,
+  restoreStarterWorkspaceResources,
   STARTER_GLOBAL_WORKSPACE_RESOURCES,
   updateWorkspaceResource,
 } from "./workspace-resources-store.js";
@@ -251,6 +252,46 @@ describe("workspace resource materialization", () => {
     expect(mocks.getDbExec).not.toHaveBeenCalled();
     expect(mocks.resourcePut).not.toHaveBeenCalled();
     expect(mocks.putOrgSetting).not.toHaveBeenCalled();
+  });
+
+  it("restores a missing starter resource without rerunning automatic seeding", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ version: 1 });
+    const state = { resources: [] as ResourceRow[] };
+    mocks.getDb.mockReturnValue(createStarterFakeDb(state));
+    mocks.getDbExec.mockReturnValue(createStarterExec(state));
+
+    const result = await restoreStarterWorkspaceResources({
+      paths: ["context/brand.md"],
+    });
+
+    expect(result.restored.map((resource) => resource.path)).toEqual([
+      "context/brand.md",
+    ]);
+    expect(state.resources).toHaveLength(1);
+    expect(state.resources[0]).toEqual(
+      expect.objectContaining({
+        path: "context/brand.md",
+        scope: "all",
+      }),
+    );
+    expect(mocks.putOrgSetting).not.toHaveBeenCalled();
+    expect(mocks.resourcePut).toHaveBeenCalledWith(
+      "__shared__",
+      "context/brand.md",
+      expect.stringContaining("# Brand Guidelines"),
+      "text/markdown",
+      expect.objectContaining({ createdBy: "system" }),
+    );
+
+    mocks.getDb.mockReturnValue(createFakeDb({ resources: state.resources }));
+    const received = await listWorkspaceResourcesForApp("mail");
+
+    expect(received.resources).toEqual([
+      expect.objectContaining({
+        path: "context/brand.md",
+        source: "global",
+      }),
+    ]);
   });
 
   it("materializes scope=all starter resources into the core shared resource store", async () => {

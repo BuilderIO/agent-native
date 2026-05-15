@@ -88,6 +88,15 @@ Granola Enterprise API keys expose Team-space notes, not private notes or
 private folders. Brain stores the note summary, transcript, attendees, calendar
 metadata, and source URL as a raw capture before distillation.
 
+## Scheduled Sync
+
+The Sources page includes a setup sheet for Slack, Granola, Clips, generic
+webhooks, and manual imports. Slack and Granola sources can opt into
+`autoSync` with a `pollMinutes` cadence. Use `sync-source` for a single source,
+`sync-due-sources` for all due accessible sources, or enable
+`RUN_BACKGROUND_JOBS=1` locally to let the Brain background job poll due sources
+from the Nitro process.
+
 ## Developer Notes
 
 The template follows the agent-native four-area contract:

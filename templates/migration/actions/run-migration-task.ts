@@ -49,9 +49,16 @@ export default defineAction({
         updatedAt: new Date().toISOString(),
       })
       .where(eq(schema.migrationTasks.id, selected.id));
+    const remainingTasks = await loadTasks(id);
+    const hasPendingTasks = remainingTasks.some(
+      (task) => task.status === "pending" || task.status === "running",
+    );
     await db
       .update(schema.migrationRuns)
-      .set({ phase: "verify", updatedAt: new Date().toISOString() })
+      .set({
+        phase: hasPendingTasks ? "sweep" : "verify",
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(schema.migrationRuns.id, id));
     return { task: selected, result };
   },

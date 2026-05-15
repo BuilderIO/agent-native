@@ -23,13 +23,13 @@ describe("resolveCodeCommand", () => {
   });
 
   it("forwards non-migration slash goals", () => {
-    expect(resolveCodeCommand(["/audit", "--url", "https://example.com"])).toEqual(
-      {
-        kind: "run-goal",
-        goalId: "audit",
-        forwardedArgs: ["--url", "https://example.com"],
-      },
-    );
+    expect(
+      resolveCodeCommand(["/audit", "--url", "https://example.com"]),
+    ).toEqual({
+      kind: "run-goal",
+      goalId: "audit",
+      forwardedArgs: ["--url", "https://example.com"],
+    });
   });
 
   it("accepts bare goal aliases", () => {

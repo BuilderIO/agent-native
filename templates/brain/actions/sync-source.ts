@@ -5,7 +5,7 @@ import { runConnectorSync } from "../server/lib/connectors.js";
 
 export default defineAction({
   description:
-    "Run a configured Brain source connector. Slack and Granola are practical v1 skeletons driven by source config.",
+    "Run one configured Brain source connector immediately. Slack scans allow-listed channels; Granola polls accessible notes.",
   schema: z.object({
     sourceId: z.string().min(1),
   }),

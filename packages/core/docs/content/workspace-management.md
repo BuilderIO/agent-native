@@ -198,7 +198,7 @@ The [Dispatch](/docs/dispatch) app is the workspace's runtime control plane. It 
 
 - **Vault** — store credentials centrally and sync on demand. The default policy makes all vault keys available to all workspace apps; manual mode requires specific app grants. Non-admins can request access; admins approve.
 - **Integrations catalog** — see which credentials each app needs, what's configured, what's missing, what's granted from the vault.
-- **Workspace resources** — share global skills, always-on guardrail instructions, reusable agent profiles, and reference resources across apps. Use `AGENTS.md` or `instructions/<slug>.md` for instructions loaded every turn, `skills/<slug>/SKILL.md` for on-demand skills, and `context/<slug>.md` for brand/company/product knowledge. Scope to all apps or grant per-app. The Resources page highlights the starter global context files, and each app card shows the exact global/granted resources that app receives.
+- **Workspace resources** — share global skills, always-on guardrail instructions, reusable agent profiles, and reference resources across apps. Use `AGENTS.md` or `instructions/<slug>.md` for instructions loaded every turn, `skills/<slug>/SKILL.md` for on-demand skills, and `context/<slug>.md` for brand/company/product knowledge. Scope to all apps or grant per-app. The Resources page highlights the starter global context files, can restore missing starter files, and each app card shows the exact global/granted resources that app receives.
 - **Approvals** — require review before runtime changes (destinations, settings) take effect.
 - **Audit** — full history of secret access, grants, syncs, and changes.
 

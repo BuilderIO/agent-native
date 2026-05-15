@@ -493,6 +493,59 @@ export async function ensureStarterWorkspaceResources(
   await writeStarterSeedMarker(ctx);
 }
 
+export async function restoreStarterWorkspaceResources(input?: {
+  paths?: string[];
+}) {
+  const ctx = requireWorkspaceResourceCtx();
+  const requestedPaths = new Set((input?.paths ?? []).filter(Boolean));
+  const starters =
+    requestedPaths.size > 0
+      ? STARTER_GLOBAL_WORKSPACE_RESOURCES.filter((resource) =>
+          requestedPaths.has(resource.path),
+        )
+      : STARTER_GLOBAL_WORKSPACE_RESOURCES;
+  const knownPaths = new Set(
+    STARTER_GLOBAL_WORKSPACE_RESOURCES.map((resource) => resource.path),
+  );
+  const unknown = [...requestedPaths].filter((path) => !knownPaths.has(path));
+  const timestamp = now();
+  const restored: WorkspaceResourceOption[] = [];
+  const existing: WorkspaceResourceOption[] = [];
+
+  for (const starter of starters) {
+    const before = await getWorkspaceResourceByPath(starter.path, ctx);
+    if (!before) {
+      await insertStarterWorkspaceResource(starter, ctx, timestamp);
+    }
+    const row = await getWorkspaceResourceByPath(starter.path, ctx);
+    if (!row) continue;
+    await materializeGlobalResource(row);
+    const option: WorkspaceResourceOption = {
+      id: row.id,
+      kind: row.kind as WorkspaceResourceKind,
+      name: row.name,
+      description: row.description,
+      path: row.path,
+      scope: row.scope as WorkspaceResourceScope,
+      updatedAt: row.updatedAt,
+    };
+    if (before) existing.push(option);
+    else restored.push(option);
+  }
+
+  if (restored.length > 0) {
+    await recordAudit({
+      action: "workspace.starter-resources.restored",
+      targetType: "workspace-resource",
+      targetId: null,
+      summary: `Restored starter workspace resource(s): ${restored.map((resource) => resource.path).join(", ")}`,
+      metadata: { paths: restored.map((resource) => resource.path) },
+    });
+  }
+
+  return { restored, existing, unknown };
+}
+
 export async function listWorkspaceResources(filter?: { kind?: string }) {
   await ensureStarterWorkspaceResources();
   const db = getDb();

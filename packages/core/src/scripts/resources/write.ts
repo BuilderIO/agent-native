@@ -82,7 +82,7 @@ export default async function resourceWriteScript(
 Options:
   --path <path>            Resource path (required)
   --content <content>      Content to write (required)
-  --scope personal|shared  Scope to write to (default: personal)
+  --scope personal|shared  Scope to write to (default: personal). Workspace resources are managed from Dispatch.
   --mime <mime-type>       MIME type (default: inferred from extension)
   --visibility workspace|agent_scratch
                            Visibility (default: workspace)
@@ -107,6 +107,9 @@ Options:
   }
 
   const scope = parsed.scope ?? "personal";
+  if (scope === "workspace") {
+    fail("Workspace resources are managed from Dispatch. Use resource-write for personal or shared app resources.");
+  }
   const mimeType = parsed.mime ?? inferMimeType(resourcePath);
   const visibility = parseVisibility(parsed.visibility);
   const createdBy = parseCreatedBy(parsed["created-by"] ?? parsed.createdBy);

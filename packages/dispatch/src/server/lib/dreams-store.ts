@@ -210,14 +210,23 @@ function isNegativeFeedback(row: Record<string, unknown>): boolean {
   );
 }
 
+function lowerString(value: unknown): string {
+  return String(value ?? "").toLowerCase();
+}
+
 function isEvalFailure(row: Record<string, unknown>): boolean {
-  const text = objectText(row);
+  const passed = (row as any).passed;
   const score = parseNumber((row as any).score);
+  const status = lowerString((row as any).status);
+  const result = lowerString((row as any).result ?? (row as any).outcome);
   return (
-    text.includes('"passed":false') ||
-    text.includes("failed") ||
-    text.includes("failure") ||
-    text.includes("regression") ||
+    passed === false ||
+    status === "failed" ||
+    status === "failure" ||
+    status === "regression" ||
+    result === "failed" ||
+    result === "failure" ||
+    result === "regression" ||
     (score != null && score < 0.7)
   );
 }
@@ -252,6 +261,53 @@ function addEvidence(bucket: DreamEvidence[], input: DreamEvidence, max = 12) {
   bucket.push({ ...input, snippet });
 }
 
+function isCorrectionSignal(lower: string): boolean {
+  return (
+    /\b(actually|wrong|not what i meant|you should)\b/.test(lower) ||
+    /\b(don't|do not|never)\b/.test(lower) ||
+    /\b(no|instead)\b[,.!?:;-]/.test(lower) ||
+    /\bfrom now on\b/.test(lower)
+  );
+}
+
+function isToolErrorEvent(value: unknown): boolean {
+  const event = (value as any)?.event ?? value;
+  const type = lowerString(event?.type);
+  const status = lowerString(event?.status);
+  if (
+    type.includes("error") ||
+    type.includes("exception") ||
+    type.includes("failed") ||
+    status === "error" ||
+    status === "failed"
+  ) {
+    return true;
+  }
+
+  const result =
+    typeof event?.result === "string"
+      ? event.result.trim().toLowerCase()
+      : typeof event?.error === "string"
+        ? event.error.trim().toLowerCase()
+        : "";
+  if (!result) return false;
+  if (
+    result.startsWith("error:") ||
+    result.startsWith("failed:") ||
+    result.includes("exception") ||
+    result.includes("timed out")
+  ) {
+    return true;
+  }
+
+  const parsed = safeJsonParse<Record<string, unknown> | null>(
+    event?.result,
+    null,
+  );
+  const parsedStatus = lowerString(parsed?.status ?? parsed?.state);
+  return parsedStatus === "failed" || parsedStatus === "error";
+}
+
 function analyzeThreadDebug(debug: any, sourceId: string): DreamCandidate {
   const evidence: DreamEvidence[] = [];
   const reasons: DreamCandidateReason[] = [];
@@ -277,10 +333,7 @@ function analyzeThreadDebug(debug: any, sourceId: string): DreamCandidate {
     const lower = text.toLowerCase();
     const isRemember =
       /\b(remember|for future|next time|from now on|always)\b/.test(lower);
-    const isCorrection =
-      /\b(no|actually|instead|don't|do not|never|wrong|not what i meant|you should)\b/.test(
-        lower,
-      );
+    const isCorrection = isCorrectionSignal(lower);
     const isFrustration =
       /\b(frustrat|again|still|why did|keeps? doing|same mistake)\b/.test(
         lower,
@@ -339,19 +392,12 @@ function analyzeThreadDebug(debug: any, sourceId: string): DreamCandidate {
     }
     const events = Array.isArray(run?.events) ? run.events : [];
     for (const event of events) {
-      const text = objectText(event);
-      const hasToolSignal =
-        text.includes("tool") &&
-        (text.includes("error") ||
-          text.includes("failed") ||
-          text.includes("exception") ||
-          text.includes("timed out"));
-      if (!hasToolSignal) continue;
+      if (!isToolErrorEvent(event)) continue;
       counts.toolErrors += 1;
       addEvidence(evidence, {
         kind: "tool-error",
         label: "Tool call reported an error",
-        snippet: text,
+        snippet: event,
         threadId: thread.id,
         threadTitle,
         runId: run?.id ?? null,
@@ -1447,6 +1493,7 @@ async function applyDreamProposalDirect(
   proposal: DreamProposalRow,
   actor = currentOwnerEmail(),
 ) {
+  const db = getDb();
   let result: unknown;
   if (proposal.targetType === "personal-memory") {
     result = await savePersonalMemory(proposal);

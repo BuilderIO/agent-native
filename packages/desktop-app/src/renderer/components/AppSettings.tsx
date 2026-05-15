@@ -11,13 +11,8 @@ import {
   IconWorld,
   IconTerminal2,
 } from "@tabler/icons-react";
-import type { AppConfig, TemplateMeta } from "@shared/app-registry";
-import {
-  generateAppId,
-  visibleTemplates,
-  DEFAULT_APPS,
-  templateToAppConfig,
-} from "@shared/app-registry";
+import type { AppConfig } from "@shared/app-registry";
+import { generateAppId } from "@shared/app-registry";
 
 interface FrameSettings {
   enabled: boolean;
@@ -51,7 +46,6 @@ export default function AppSettings({
   onAddAppClick,
 }: AppSettingsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
     null,
@@ -220,47 +214,6 @@ export default function AppSettings({
 
           {showAdvanced && (
             <>
-              {/* Local Dev Frame */}
-              {frameSettings && (
-                <div className="settings-section">
-                  <h3>Code Editing Frame</h3>
-                  <div className="settings-app-row">
-                    <div className="settings-app-info">
-                      <span className="settings-app-name">
-                        Code editing frame
-                      </span>
-                      <span className="settings-app-url">
-                        Chat + CLI sidebar for code editing
-                      </span>
-                    </div>
-                    <div className="settings-app-actions">
-                      <div className="settings-mode-toggle">
-                        <button
-                          className={`settings-mode-btn${frameSettings.mode === "prod" ? " settings-mode-btn--active" : ""}`}
-                          onClick={() => handleFrameModeToggle("prod")}
-                        >
-                          Prod
-                        </button>
-                        <button
-                          className={`settings-mode-btn${frameSettings.mode === "dev" ? " settings-mode-btn--active" : ""}`}
-                          onClick={() => handleFrameModeToggle("dev")}
-                        >
-                          Dev
-                        </button>
-                      </div>
-                      <label className="settings-toggle">
-                        <input
-                          type="checkbox"
-                          checked={frameSettings.enabled}
-                          onChange={(e) => handleFrameToggle(e.target.checked)}
-                        />
-                        <span className="settings-toggle-track" />
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* App list */}
               <div className="settings-section">
                 <h3>Installed Apps</h3>
@@ -318,6 +271,42 @@ export default function AppSettings({
                     </div>
                   </div>
                 ))}
+                {frameSettings && (
+                  <div className="settings-app-row">
+                    <div className="settings-app-info">
+                      <span className="settings-app-name">
+                        Code editing frame
+                      </span>
+                      <span className="settings-app-url">
+                        Chat + CLI sidebar for code editing
+                      </span>
+                    </div>
+                    <div className="settings-app-actions">
+                      <div className="settings-mode-toggle">
+                        <button
+                          className={`settings-mode-btn${frameSettings.mode === "prod" ? " settings-mode-btn--active" : ""}`}
+                          onClick={() => handleFrameModeToggle("prod")}
+                        >
+                          Prod
+                        </button>
+                        <button
+                          className={`settings-mode-btn${frameSettings.mode === "dev" ? " settings-mode-btn--active" : ""}`}
+                          onClick={() => handleFrameModeToggle("dev")}
+                        >
+                          Dev
+                        </button>
+                      </div>
+                      <label className="settings-toggle">
+                        <input
+                          type="checkbox"
+                          checked={frameSettings.enabled}
+                          onChange={(e) => handleFrameToggle(e.target.checked)}
+                        />
+                        <span className="settings-toggle-track" />
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Add / Reset */}
@@ -329,12 +318,6 @@ export default function AppSettings({
                   <IconPlus size={15} /> Add App
                 </button>
                 <button
-                  className="settings-btn"
-                  onClick={() => setShowTemplatePicker(true)}
-                >
-                  <IconPlus size={15} /> Add First-Party App
-                </button>
-                <button
                   className="settings-btn settings-btn--danger"
                   onClick={handleReset}
                 >
@@ -344,28 +327,6 @@ export default function AppSettings({
             </>
           )}
         </div>
-
-        {/* Template picker */}
-        {showTemplatePicker && (
-          <TemplatePicker
-            installedIds={new Set(apps.map((a) => a.id))}
-            onPick={async (template) => {
-              const preset = DEFAULT_APPS.find((a) => a.id === template.name);
-              const next: AppConfig = preset
-                ? { ...preset, enabled: true }
-                : templateToAppConfig(template, {
-                    isBuiltIn: false,
-                    enabled: true,
-                  });
-              if (window.electronAPI?.appConfig) {
-                const updated = await window.electronAPI.appConfig.add(next);
-                onAppsChanged(updated);
-              }
-              setShowTemplatePicker(false);
-            }}
-            onCancel={() => setShowTemplatePicker(false)}
-          />
-        )}
 
         {/* Inline edit form */}
         {editingApp && (
@@ -649,79 +610,6 @@ function AppEditForm({
           </button>
         </div>
       </form>
-    </div>
-  );
-}
-
-// ─── Template picker ─────────────────────────────────────────────
-
-function TemplatePicker({
-  installedIds,
-  onPick,
-  onCancel,
-}: {
-  installedIds: Set<string>;
-  onPick: (template: TemplateMeta) => void;
-  onCancel: () => void;
-}) {
-  const available = visibleTemplates().filter((t) => !installedIds.has(t.name));
-
-  return (
-    <div className="settings-form-overlay" onClick={onCancel}>
-      <div
-        className="settings-form"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 520 }}
-      >
-        <h3>Add First-Party App</h3>
-        {available.length === 0 ? (
-          <p style={{ color: "var(--muted, #6b7280)" }}>
-            Every first-party template is already installed. Use "Add App" for
-            external apps.
-          </p>
-        ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr",
-              gap: 6,
-              maxHeight: 420,
-              overflowY: "auto",
-            }}
-          >
-            {available.map((t) => (
-              <button
-                key={t.name}
-                type="button"
-                className="settings-app-row"
-                style={{
-                  cursor: "pointer",
-                  border: "1px solid rgba(0,0,0,0.08)",
-                  borderRadius: 8,
-                  padding: 10,
-                  background: "transparent",
-                  textAlign: "left",
-                }}
-                onClick={() => onPick(t)}
-              >
-                <div className="settings-app-info">
-                  <span className="settings-app-name">{t.label}</span>
-                  <span className="settings-app-url">{t.hint}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="settings-form-actions">
-          <button
-            type="button"
-            className="settings-btn settings-btn--ghost"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

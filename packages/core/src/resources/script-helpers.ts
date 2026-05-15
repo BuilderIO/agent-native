@@ -8,6 +8,7 @@
 
 import {
   SHARED_OWNER,
+  WORKSPACE_OWNER,
   resourceGetByPath,
   resourcePut,
   resourceDeleteByPath,
@@ -19,8 +20,11 @@ import {
 } from "./store.js";
 import { getRequestUserEmail } from "../server/request-context.js";
 
-function getOwner(shared?: boolean): string {
-  if (shared) return SHARED_OWNER;
+type ResourceHelperScope = "personal" | "shared" | "workspace";
+
+function getOwnerForScope(scope?: ResourceHelperScope): string {
+  if (scope === "shared") return SHARED_OWNER;
+  if (scope === "workspace") return WORKSPACE_OWNER;
   const userEmail = getRequestUserEmail();
   if (userEmail) return userEmail;
   const cliEmail = process.env.AGENT_USER_EMAIL;
@@ -30,11 +34,18 @@ function getOwner(shared?: boolean): string {
   );
 }
 
+function resolveScope(options?: {
+  shared?: boolean;
+  scope?: ResourceHelperScope;
+}): ResourceHelperScope {
+  return options?.scope ?? (options?.shared ? "shared" : "personal");
+}
+
 export async function readResource(
   path: string,
-  options?: { shared?: boolean },
+  options?: { shared?: boolean; scope?: ResourceHelperScope },
 ): Promise<string | null> {
-  const owner = getOwner(options?.shared);
+  const owner = getOwnerForScope(resolveScope(options));
   const resource = await resourceGetByPath(owner, path);
   return resource ? resource.content : null;
 }
@@ -44,6 +55,7 @@ export async function writeResource(
   content: string,
   options?: {
     shared?: boolean;
+    scope?: Exclude<ResourceHelperScope, "workspace">;
     mimeType?: string;
     visibility?: ResourceVisibility;
     createdBy?: ResourceCreatedBy;
@@ -53,7 +65,7 @@ export async function writeResource(
     metadata?: string | Record<string, unknown> | null;
   },
 ): Promise<void> {
-  const owner = getOwner(options?.shared);
+  const owner = getOwnerForScope(resolveScope(options));
   const writeOptions = {
     visibility: options?.visibility,
     createdBy: options?.createdBy,
@@ -74,17 +86,21 @@ export async function writeResource(
 
 export async function deleteResource(
   path: string,
-  options?: { shared?: boolean },
+  options?: { shared?: boolean; scope?: Exclude<ResourceHelperScope, "workspace"> },
 ): Promise<boolean> {
-  const owner = getOwner(options?.shared);
+  const owner = getOwnerForScope(resolveScope(options));
   return resourceDeleteByPath(owner, path);
 }
 
 export async function listResources(
   prefix?: string,
-  options?: { shared?: boolean; includeAgentScratch?: boolean },
+  options?: {
+    shared?: boolean;
+    scope?: ResourceHelperScope;
+    includeAgentScratch?: boolean;
+  },
 ): Promise<ResourceMeta[]> {
-  const owner = getOwner(options?.shared);
+  const owner = getOwnerForScope(resolveScope(options));
   return options?.includeAgentScratch
     ? resourceList(owner, prefix, { includeAgentScratch: true })
     : resourceList(owner, prefix);
@@ -94,7 +110,7 @@ export async function listAllResources(
   prefix?: string,
   options?: { includeAgentScratch?: boolean },
 ): Promise<ResourceMeta[]> {
-  const userEmail = getOwner(false);
+  const userEmail = getOwnerForScope("personal");
   return options?.includeAgentScratch
     ? resourceListAccessible(userEmail, prefix, { includeAgentScratch: true })
     : resourceListAccessible(userEmail, prefix);

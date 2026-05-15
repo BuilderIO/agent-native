@@ -4,7 +4,7 @@
  * List resources stored in the SQL resource store.
  *
  * Usage:
- *   pnpm action resource-list [--prefix <path>] [--scope personal|shared|all] [--format json|text] [--include-agent-scratch true]
+ *   pnpm action resource-list [--prefix <path>] [--scope personal|shared|workspace|all] [--format json|text] [--include-agent-scratch true]
  */
 
 import { parseArgs, fail } from "../utils.js";
@@ -13,6 +13,7 @@ import {
   resourceListAccessible,
   ensurePersonalDefaults,
   SHARED_OWNER,
+  WORKSPACE_OWNER,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 
@@ -26,7 +27,8 @@ export default async function resourceListScript(
 
 Options:
   --prefix <path>              Filter by path prefix
-  --scope personal|shared|all  Scope to list (default: all)
+  --scope personal|shared|workspace|all
+                               Scope to list (default: all)
   --format json|text           Output format (default: text)
   --include-agent-scratch true Include hidden agent scratch files
   --help                       Show this help message`);
@@ -48,7 +50,7 @@ Options:
   }
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
-  if (scope !== "shared") {
+  if (scope !== "shared" && scope !== "workspace") {
     await ensurePersonalDefaults(owner);
   }
 
@@ -61,6 +63,12 @@ Options:
     resources = includeAgentScratch
       ? await resourceList(SHARED_OWNER, prefix, { includeAgentScratch: true })
       : await resourceList(SHARED_OWNER, prefix);
+  } else if (scope === "workspace") {
+    resources = includeAgentScratch
+      ? await resourceList(WORKSPACE_OWNER, prefix, {
+          includeAgentScratch: true,
+        })
+      : await resourceList(WORKSPACE_OWNER, prefix);
   } else {
     resources = includeAgentScratch
       ? await resourceListAccessible(owner, prefix, {
@@ -83,7 +91,12 @@ Options:
   console.log(`Resources: ${resources.length}\n`);
 
   for (const r of resources) {
-    const ownerLabel = r.owner === SHARED_OWNER ? "[shared]" : `[${r.owner}]`;
+    const ownerLabel =
+      r.owner === WORKSPACE_OWNER
+        ? "[workspace]"
+        : r.owner === SHARED_OWNER
+          ? "[shared]"
+          : `[${r.owner}]`;
     const sizeLabel = r.size != null ? ` (${r.size} bytes)` : "";
     console.log(`  ${r.path}  ${ownerLabel}${sizeLabel}  ${r.mimeType}`);
   }

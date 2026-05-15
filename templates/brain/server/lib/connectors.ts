@@ -116,10 +116,13 @@ interface GranolaListResponse {
 }
 
 interface GranolaNote extends GranolaListNote {
+  summary_text?: string;
+  summary_markdown?: string;
   summary?: unknown;
   transcript?: unknown;
   attendees?: unknown;
   calendar_event?: unknown;
+  folder_membership?: unknown;
 }
 
 class ConnectorRateLimitError extends Error {
@@ -301,6 +304,14 @@ function buildUrl(
   return url;
 }
 
+function slackTsFromDateish(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (/^\d+(\.\d+)?$/.test(value)) return value;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return undefined;
+  return (ms / 1000).toFixed(6);
+}
+
 function isoFromSlackTs(ts: string | undefined): string | undefined {
   if (!ts) return undefined;
   const seconds = Number(ts.split(".")[0]);
@@ -328,6 +339,225 @@ function readableJson(value: unknown): string {
     }
   }
   return JSON.stringify(value, null, 2);
+}
+
+function slackUserLabel(message: SlackMessage): string {
+  return message.username ?? message.user ?? message.bot_id ?? "unknown";
+}
+
+export function isSlackDirectConversation(channel: SlackChannel): boolean {
+  return channel.is_im === true || channel.is_mpim === true;
+}
+
+function isUsableSlackChannel(channel: SlackChannel): boolean {
+  return (
+    !isSlackDirectConversation(channel) &&
+    channel.is_archived !== true &&
+    (channel.is_channel === true || channel.is_group === true)
+  );
+}
+
+function normalizeSlackMessageContent(
+  channel: SlackChannel,
+  message: SlackMessage,
+): string {
+  const label = slackUserLabel(message);
+  const time = isoFromSlackTs(message.ts) ?? message.ts ?? "unknown time";
+  const thread =
+    message.thread_ts && message.thread_ts !== message.ts
+      ? `\nThread: ${message.thread_ts}`
+      : "";
+  return [
+    `Slack #${channel.name ?? channel.id} at ${time}`,
+    `User: ${label}${thread}`,
+    "",
+    message.text ?? "",
+  ].join("\n");
+}
+
+async function slackApi<T>(
+  token: string,
+  method: string,
+  params: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<T> {
+  const url = buildUrl(`https://slack.com/api/${method}`, params);
+  const response = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (response.status === 429) {
+    throw new ConnectorRateLimitError(
+      "slack",
+      method,
+      retryAfterSeconds(response.headers),
+    );
+  }
+  if (!response.ok) {
+    throw new Error(`Slack ${method} failed (${response.status})`);
+  }
+  const data = (await response.json()) as { ok?: boolean; error?: string };
+  if (data.ok === false) {
+    if (data.error === "ratelimited") {
+      throw new ConnectorRateLimitError("slack", method, 60);
+    }
+    throw new Error(`Slack ${method} failed: ${data.error ?? "unknown"}`);
+  }
+  return data as T;
+}
+
+async function resolveSlackChannelByName(
+  token: string,
+  name: string,
+): Promise<SlackChannel | null> {
+  let cursor: string | undefined;
+  for (let page = 0; page < 10; page += 1) {
+    const data = await slackApi<SlackListResponse>(
+      token,
+      "conversations.list",
+      {
+        types: "public_channel,private_channel",
+        exclude_archived: true,
+        limit: 200,
+        cursor,
+      },
+    );
+    const match = (data.channels ?? []).find(
+      (channel) => channel.name?.toLowerCase() === name.toLowerCase(),
+    );
+    if (match) return match;
+    cursor = data.response_metadata?.next_cursor;
+    if (!cursor) break;
+  }
+  return null;
+}
+
+async function resolveSlackChannel(
+  token: string,
+  channelRef: string,
+): Promise<SlackChannel | null> {
+  const looksLikeId = /^[CG][A-Z0-9]+$/i.test(channelRef);
+  if (looksLikeId) {
+    const data = await slackApi<SlackInfoResponse>(
+      token,
+      "conversations.info",
+      { channel: channelRef },
+    );
+    return data.channel ?? null;
+  }
+  const byName = await resolveSlackChannelByName(token, channelRef);
+  if (!byName) return null;
+  const data = await slackApi<SlackInfoResponse>(token, "conversations.info", {
+    channel: byName.id,
+  });
+  return data.channel ?? byName;
+}
+
+async function slackPermalink(
+  token: string,
+  channelId: string,
+  ts: string | undefined,
+): Promise<string | null> {
+  if (!ts) return null;
+  const data = await slackApi<SlackPermalinkResponse>(
+    token,
+    "chat.getPermalink",
+    { channel: channelId, message_ts: ts },
+  );
+  return data.permalink ?? null;
+}
+
+function granolaSpeakerLabel(item: Record<string, unknown>): string {
+  const speaker = objectValue(item.speaker);
+  const label =
+    speaker.diarization_label ??
+    speaker.name ??
+    speaker.source ??
+    item.speaker ??
+    "speaker";
+  return String(label);
+}
+
+function granolaTranscriptLines(transcript: unknown): string[] {
+  if (!Array.isArray(transcript)) return [];
+  return transcript
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      if (!item || typeof item !== "object") return "";
+      const record = item as Record<string, unknown>;
+      const text = typeof record.text === "string" ? record.text.trim() : "";
+      if (!text) return "";
+      const start =
+        typeof record.start_time === "string" ? ` ${record.start_time}` : "";
+      return `[${granolaSpeakerLabel(record)}${start}] ${text}`;
+    })
+    .filter(Boolean);
+}
+
+export function normalizeGranolaNote(note: GranolaNote) {
+  const calendar = objectValue(note.calendar_event);
+  const title =
+    note.title ??
+    (typeof calendar.event_title === "string"
+      ? calendar.event_title
+      : "Granola meeting note");
+  const summary =
+    note.summary_markdown ??
+    note.summary_text ??
+    readableJson(note.summary).trim();
+  const transcriptLines = granolaTranscriptLines(note.transcript);
+  const body = [
+    summary ? `Summary\n${summary}` : "",
+    transcriptLines.length ? `Transcript\n${transcriptLines.join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
+  return {
+    externalId: note.id ? `granola:${note.id}` : undefined,
+    title,
+    content: body || summary || title,
+    capturedAt:
+      (typeof calendar.scheduled_start_time === "string"
+        ? calendar.scheduled_start_time
+        : undefined) ??
+      note.created_at ??
+      nowIso(),
+    sourceUrl: note.web_url,
+    metadata: {
+      provider: "granola",
+      granolaNoteId: note.id,
+      owner: note.owner,
+      attendees: note.attendees,
+      calendarEvent: note.calendar_event,
+      folders: note.folder_membership,
+      sourceUrl: note.web_url,
+      createdAt: note.created_at,
+      updatedAt: note.updated_at,
+      transcriptSegments: Array.isArray(note.transcript) ? note.transcript : [],
+    },
+  };
+}
+
+async function granolaApi<T>(
+  token: string,
+  path: string,
+  params: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<T> {
+  const url = buildUrl(`https://public-api.granola.ai/v1${path}`, params);
+  const response = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (response.status === 429) {
+    throw new ConnectorRateLimitError(
+      "granola",
+      path,
+      retryAfterSeconds(response.headers),
+    );
+  }
+  if (!response.ok) {
+    throw new Error(`Granola ${path} failed (${response.status})`);
+  }
+  return (await response.json()) as T;
 }
 
 async function createRun(source: SourceRow) {
@@ -432,6 +662,427 @@ async function syncFromConfiguredItems(
   }
 }
 
+async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
+  const config = parseJson<Record<string, unknown>>(source.configJson, {});
+  if (isFixtureConfig(config) || transcriptItems(config).length > 0) {
+    return syncFromConfiguredItems(
+      source,
+      "Slack fixture source has no configured messages.",
+    );
+  }
+
+  const runId = await createRun(source);
+  const db = getDb();
+  const cursor = parseJson<SlackSyncCursor>(source.cursorJson, {});
+  const nextCursor: SlackSyncCursor = {
+    ...cursor,
+    channels: { ...(cursor.channels ?? {}) },
+    retry: undefined,
+    lastRunAt: nowIso(),
+  };
+  const channelRefs = configuredList(
+    config,
+    [
+      "channelIds",
+      "channels",
+      "allowedChannels",
+      "allowlistedChannels",
+      "allowList",
+    ],
+    "slack",
+  );
+  const limit = configuredNumber(config, ["historyLimit", "limit"], 15, {
+    min: 1,
+    max: 15,
+    nestedKey: "slack",
+  });
+  const maxChannels = configuredNumber(
+    config,
+    ["maxChannelsPerSync", "channelBudget"],
+    3,
+    { min: 1, max: 25, nestedKey: "slack" },
+  );
+  const pagesPerChannel = configuredNumber(
+    config,
+    ["pagesPerChannel", "pageBudget"],
+    1,
+    { min: 1, max: 5, nestedKey: "slack" },
+  );
+  const permalinkLimit = configuredNumber(
+    config,
+    ["permalinkLimit", "citationLinkLimit"],
+    15,
+    { min: 0, max: 50, nestedKey: "slack" },
+  );
+  const initialOldest = slackTsFromDateish(
+    typeof config.oldest === "string"
+      ? config.oldest
+      : typeof config.updatedAfter === "string"
+        ? config.updatedAfter
+        : typeof objectValue(config.slack).oldest === "string"
+          ? String(objectValue(config.slack).oldest)
+          : undefined,
+  );
+
+  const captures = [];
+  const stats: Record<string, unknown> = {
+    configuredChannels: channelRefs.length,
+    scannedChannels: 0,
+    rejectedChannels: 0,
+    missingChannels: 0,
+    messagesSeen: 0,
+    capturesCreated: 0,
+    rateLimited: false,
+  };
+
+  try {
+    const token = await requireConnectorCredential("SLACK_BOT_TOKEN", "Slack");
+    if (!channelRefs.length) {
+      throw new Error(
+        "Slack source must configure channelIds, channels, or allowedChannels",
+      );
+    }
+
+    let permalinkCalls = 0;
+
+    for (const channelRef of channelRefs.slice(0, maxChannels)) {
+      const channel = await resolveSlackChannel(token, channelRef);
+      if (!channel) {
+        stats.missingChannels = Number(stats.missingChannels) + 1;
+        continue;
+      }
+      if (!isUsableSlackChannel(channel)) {
+        stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
+        continue;
+      }
+
+      stats.scannedChannels = Number(stats.scannedChannels) + 1;
+      const channelCursor = nextCursor.channels?.[channel.id] ?? {};
+      const pendingLatest =
+        channelCursor.pendingLatestTs ?? channelCursor.latestTs;
+
+      for (let page = 0; page < pagesPerChannel; page += 1) {
+        const params: Record<
+          string,
+          string | number | boolean | null | undefined
+        > = {
+          channel: channel.id,
+          limit,
+        };
+        if (channelCursor.pageCursor) {
+          params.cursor = channelCursor.pageCursor;
+        } else if (channelCursor.latestTs) {
+          params.oldest = channelCursor.latestTs;
+          params.inclusive = false;
+        } else if (initialOldest) {
+          params.oldest = initialOldest;
+          params.inclusive = false;
+        }
+
+        const data = await slackApi<SlackHistoryResponse>(
+          token,
+          "conversations.history",
+          params,
+        );
+        const messages = (data.messages ?? []).filter(
+          (message) =>
+            message.type === "message" &&
+            typeof message.text === "string" &&
+            message.text.trim() &&
+            typeof message.ts === "string",
+        );
+        stats.messagesSeen = Number(stats.messagesSeen) + messages.length;
+
+        const newest = newestSlackTs(messages);
+        if (!channelCursor.pendingLatestTs && newest) {
+          channelCursor.pendingLatestTs = newest;
+        }
+
+        for (const message of messages) {
+          let permalink: string | null = null;
+          if (permalinkCalls < permalinkLimit) {
+            permalink = await slackPermalink(token, channel.id, message.ts);
+            permalinkCalls += 1;
+          }
+          const capture = await createCapture({
+            sourceId: source.id,
+            externalId: `slack:${channel.id}:${message.ts}`,
+            title: `#${channel.name ?? channel.id} message ${isoFromSlackTs(message.ts) ?? message.ts}`,
+            kind: "message",
+            content: normalizeSlackMessageContent(channel, message),
+            capturedAt: isoFromSlackTs(message.ts) ?? nowIso(),
+            metadata: {
+              provider: "slack",
+              connector: "slack",
+              syncRunId: runId,
+              channelId: channel.id,
+              channelName: channel.name,
+              ts: message.ts,
+              threadTs: message.thread_ts,
+              user: message.user,
+              username: message.username,
+              botId: message.bot_id,
+              sourceUrl: permalink,
+              permalink,
+              raw: message,
+            },
+          });
+          captures.push(serializeCapture(capture));
+        }
+
+        const nextPage = data.response_metadata?.next_cursor;
+        if (data.has_more && nextPage) {
+          channelCursor.pageCursor = nextPage;
+          nextCursor.channels[channel.id] = channelCursor;
+          break;
+        }
+
+        channelCursor.pageCursor = undefined;
+        channelCursor.latestTs =
+          channelCursor.pendingLatestTs ??
+          pendingLatest ??
+          channelCursor.latestTs;
+        channelCursor.pendingLatestTs = undefined;
+        nextCursor.channels[channel.id] = channelCursor;
+        break;
+      }
+    }
+
+    stats.capturesCreated = captures.length;
+    await finishRun(runId, "success", stats);
+    await db
+      .update(schema.brainSources)
+      .set({
+        cursorJson: stableJson(nextCursor),
+        lastSyncedAt: nowIso(),
+        lastError: null,
+        status: "active",
+        updatedAt: nowIso(),
+      })
+      .where(eq(schema.brainSources.id, source.id));
+    return {
+      runId,
+      sourceId: source.id,
+      provider: "slack",
+      status: "success",
+      capturesCreated: captures.length,
+      captures,
+      stats,
+      message: captures.length
+        ? `Imported ${captures.length} Slack messages`
+        : "Slack sync completed with no new channel messages",
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isRateLimit = err instanceof ConnectorRateLimitError;
+    const failedCursor: SlackSyncCursor = {
+      ...cursor,
+      ...nextCursor,
+      retry: isRateLimit ? retryCursor(err, "slack") : cursor.retry,
+      lastRunAt: nowIso(),
+    };
+    stats.capturesCreated = captures.length;
+    stats.rateLimited = isRateLimit;
+    await finishRun(
+      runId,
+      isRateLimit ? "success" : "error",
+      stats,
+      isRateLimit ? null : message,
+    );
+    await db
+      .update(schema.brainSources)
+      .set({
+        cursorJson: stableJson(failedCursor),
+        lastError: message,
+        status: isRateLimit ? "active" : "error",
+        updatedAt: nowIso(),
+      })
+      .where(eq(schema.brainSources.id, source.id));
+    return {
+      runId,
+      sourceId: source.id,
+      provider: "slack",
+      status: isRateLimit ? "success" : "error",
+      capturesCreated: captures.length,
+      captures,
+      stats,
+      message,
+    };
+  }
+}
+
+async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
+  const config = parseJson<Record<string, unknown>>(source.configJson, {});
+  if (isFixtureConfig(config) || transcriptItems(config).length > 0) {
+    return syncFromConfiguredItems(
+      source,
+      "Granola fixture source has no configured transcripts.",
+    );
+  }
+
+  const runId = await createRun(source);
+  const db = getDb();
+  const cursor = parseJson<GranolaSyncCursor>(source.cursorJson, {});
+  const pageSize = configuredNumber(config, ["pageSize", "limit"], 10, {
+    min: 1,
+    max: 30,
+    nestedKey: "granola",
+  });
+  const pagesPerSync = configuredNumber(
+    config,
+    ["pagesPerSync", "pageBudget"],
+    1,
+    { min: 1, max: 5, nestedKey: "granola" },
+  );
+  const configuredUpdatedAfter =
+    typeof config.updatedAfter === "string"
+      ? config.updatedAfter
+      : typeof objectValue(config.granola).updatedAfter === "string"
+        ? String(objectValue(config.granola).updatedAfter)
+        : undefined;
+  const updatedAfter = cursor.updatedAfter ?? configuredUpdatedAfter;
+
+  const captures = [];
+  const stats: Record<string, unknown> = {
+    notesSeen: 0,
+    notesFetched: 0,
+    capturesCreated: 0,
+    rateLimited: false,
+  };
+
+  try {
+    const token = await requireConnectorCredential(
+      "GRANOLA_API_KEY",
+      "Granola",
+    );
+    let nextPageCursor = cursor.cursor ?? undefined;
+    let maxUpdatedAt = updatedAfter;
+
+    for (let page = 0; page < pagesPerSync; page += 1) {
+      const list = await granolaApi<GranolaListResponse>(token, "/notes", {
+        page_size: pageSize,
+        cursor: nextPageCursor,
+        updated_after: nextPageCursor ? undefined : updatedAfter,
+      });
+      const notes = list.notes ?? [];
+      stats.notesSeen = Number(stats.notesSeen) + notes.length;
+
+      for (const listed of notes) {
+        if (!listed.id) continue;
+        const note = await granolaApi<GranolaNote>(
+          token,
+          `/notes/${encodeURIComponent(listed.id)}`,
+          { include: "transcript" },
+        );
+        stats.notesFetched = Number(stats.notesFetched) + 1;
+        const normalized = normalizeGranolaNote({
+          ...listed,
+          ...note,
+        });
+        const capture = await createCapture({
+          sourceId: source.id,
+          externalId: normalized.externalId,
+          title: normalized.title,
+          kind: "transcript",
+          content: normalized.content,
+          capturedAt: normalized.capturedAt,
+          metadata: {
+            ...normalized.metadata,
+            connector: "granola",
+            syncRunId: runId,
+          },
+        });
+        captures.push(serializeCapture(capture));
+
+        const candidateUpdatedAt = note.updated_at ?? listed.updated_at;
+        if (
+          candidateUpdatedAt &&
+          (!maxUpdatedAt ||
+            Date.parse(candidateUpdatedAt) > Date.parse(maxUpdatedAt))
+        ) {
+          maxUpdatedAt = candidateUpdatedAt;
+        }
+      }
+
+      const hasMore = list.hasMore ?? list.has_more ?? false;
+      nextPageCursor = list.cursor ?? undefined;
+      if (!hasMore || !nextPageCursor) {
+        nextPageCursor = undefined;
+        break;
+      }
+    }
+
+    const nextCursor: GranolaSyncCursor = {
+      cursor: nextPageCursor ?? null,
+      updatedAfter: nextPageCursor
+        ? updatedAfter
+        : (maxUpdatedAt ?? new Date().toISOString()),
+      retry: undefined,
+      lastRunAt: nowIso(),
+    };
+
+    stats.capturesCreated = captures.length;
+    await finishRun(runId, "success", stats);
+    await db
+      .update(schema.brainSources)
+      .set({
+        cursorJson: stableJson(nextCursor),
+        lastSyncedAt: nowIso(),
+        lastError: null,
+        status: "active",
+        updatedAt: nowIso(),
+      })
+      .where(eq(schema.brainSources.id, source.id));
+    return {
+      runId,
+      sourceId: source.id,
+      provider: "granola",
+      status: "success",
+      capturesCreated: captures.length,
+      captures,
+      stats,
+      message: captures.length
+        ? `Imported ${captures.length} Granola notes`
+        : "Granola sync completed with no new notes",
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isRateLimit = err instanceof ConnectorRateLimitError;
+    const nextCursor: GranolaSyncCursor = {
+      ...cursor,
+      retry: isRateLimit ? retryCursor(err, "granola") : cursor.retry,
+      lastRunAt: nowIso(),
+    };
+    stats.capturesCreated = captures.length;
+    stats.rateLimited = isRateLimit;
+    await finishRun(
+      runId,
+      isRateLimit ? "success" : "error",
+      stats,
+      isRateLimit ? null : message,
+    );
+    await db
+      .update(schema.brainSources)
+      .set({
+        cursorJson: stableJson(nextCursor),
+        lastError: message,
+        status: isRateLimit ? "active" : "error",
+        updatedAt: nowIso(),
+      })
+      .where(eq(schema.brainSources.id, source.id));
+    return {
+      runId,
+      sourceId: source.id,
+      provider: "granola",
+      status: isRateLimit ? "success" : "error",
+      capturesCreated: captures.length,
+      captures,
+      stats,
+      message,
+    };
+  }
+}
+
 const manualConnector: Connector = {
   sync: (source) =>
     syncFromConfiguredItems(
@@ -441,19 +1092,11 @@ const manualConnector: Connector = {
 };
 
 const slackConnector: Connector = {
-  sync: (source) =>
-    syncFromConfiguredItems(
-      source,
-      "Slack connector configured. Add transcripts/messages to source config for v1 imports.",
-    ),
+  sync: syncSlack,
 };
 
 const granolaConnector: Connector = {
-  sync: (source) =>
-    syncFromConfiguredItems(
-      source,
-      "Granola connector configured. Add exported transcripts to source config for v1 imports.",
-    ),
+  sync: syncGranola,
 };
 
 const clipsConnector: Connector = {

@@ -174,6 +174,11 @@ npx @agent-native/core@latest code resume --last
 
 `agent-native migrate` still works as a direct shortcut; `code /migrate` is the generic Code Agents entrypoint for long-running coding goals.
 Use `--emit` when you want to hand a portable migration dossier to Codex, Claude Code, Cursor, or another coding agent instead of opening the Workbench first.
+Code Agents also includes lightweight goals such as `/audit`:
+
+```bash
+npx @agent-native/core@latest code /audit --url https://example.com
+```
 
 ## Workspaces (Monorepo)
 

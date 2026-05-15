@@ -10,6 +10,7 @@ import type { StoreWriteOptions } from "../settings/store.js";
 import crypto from "crypto";
 
 export const SHARED_OWNER = "__shared__";
+export const WORKSPACE_OWNER = "__workspace__";
 
 export interface Resource {
   id: string;
@@ -539,7 +540,13 @@ const _personalSeeded = new Set<string>();
  * Called when listing resources or from the agent chat plugin.
  */
 export async function ensurePersonalDefaults(owner: string): Promise<void> {
-  if (owner === SHARED_OWNER || _personalSeeded.has(owner)) return;
+  if (
+    owner === SHARED_OWNER ||
+    owner === WORKSPACE_OWNER ||
+    _personalSeeded.has(owner)
+  ) {
+    return;
+  }
   _personalSeeded.add(owner);
   await ensureTable();
 
@@ -881,8 +888,17 @@ export async function resourceListAccessible(
     const { rows } = await client.execute({
       sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}
             UNION
+            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}
+            UNION
             SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}`,
-      args: [userEmail, pathPrefix + "%", SHARED_OWNER, pathPrefix + "%"],
+      args: [
+        userEmail,
+        pathPrefix + "%",
+        SHARED_OWNER,
+        pathPrefix + "%",
+        WORKSPACE_OWNER,
+        pathPrefix + "%",
+      ],
     });
     return rows.map(rowToMeta);
   }
@@ -890,8 +906,10 @@ export async function resourceListAccessible(
   const { rows } = await client.execute({
     sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}
           UNION
+          SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}
+          UNION
           SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
-    args: [userEmail, SHARED_OWNER],
+    args: [userEmail, SHARED_OWNER, WORKSPACE_OWNER],
   });
   return rows.map(rowToMeta);
 }

@@ -50,6 +50,9 @@ Useful config keys:
 - `historyLimit`: page size per channel. Keep this small for non-Marketplace
   Slack apps because `conversations.history` can be heavily rate limited.
 - `oldest` / `updatedAfter`: optional timestamp boundary for initial backfill.
+- `autoSync` and `pollMinutes`: opt the source into background polling and set
+  the cadence. Background polling runs when `RUN_BACKGROUND_JOBS=1` in dev, and
+  by default in production unless `RUN_BACKGROUND_JOBS=0`.
 
 ## Granola Source Config
 
@@ -68,6 +71,13 @@ pnpm --filter brain action create-source \
 Brain persists Granola cursors in the source cursor JSON and normalizes note
 summary, transcript, attendees, calendar metadata, and `web_url` into raw
 captures.
+
+## Scheduled Sync
+
+Use `sync-source` to run one source immediately, or `sync-due-sources` to run
+accessible Slack/Granola sources whose `autoSync` cadence is due. The Nitro
+plugin in `server/plugins/brain-jobs.ts` registers the same due-source sweep for
+long-lived deployments.
 
 ## Generic Webhook
 
