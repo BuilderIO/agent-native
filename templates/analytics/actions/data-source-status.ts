@@ -6,6 +6,7 @@ import {
 import {
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
+  summarizeWorkspaceConnectionProviderForApp,
   type SerializedWorkspaceConnectionGrant,
   type SerializedWorkspaceConnection,
 } from "@agent-native/core/workspace-connections";
@@ -20,102 +21,17 @@ import { getGitHubAccessToken } from "../server/lib/github-oauth";
 
 const APP_ID = "analytics";
 
-function isGrantedToApp(
-  connection: SerializedWorkspaceConnection,
-  appId: string,
-  grants: SerializedWorkspaceConnectionGrant[],
-): boolean {
-  return (
-    connection.allowedApps.length === 0 ||
-    connection.allowedApps.includes(appId) ||
-    grants.some(
-      (grant) => grant.connectionId === connection.id && grant.appId === appId,
-    )
-  );
-}
-
-function serializeConnection(
-  connection: SerializedWorkspaceConnection,
-  grants: SerializedWorkspaceConnectionGrant[],
-) {
-  const explicitGrant = grants.find(
-    (grant) => grant.connectionId === connection.id,
-  );
-  return {
-    id: connection.id,
-    label: connection.label,
-    provider: connection.provider,
-    accountId: connection.accountId,
-    accountLabel: connection.accountLabel,
-    status: connection.status,
-    grantScope:
-      connection.allowedApps.length === 0 ? "all-apps" : "selected-apps",
-    allowedApps: connection.allowedApps,
-    credentialRefs: connection.credentialRefs.map((ref) => ({
-      key: ref.key,
-      scope: ref.scope,
-      provider: ref.provider,
-      label: ref.label,
-    })),
-    lastCheckedAt: connection.lastCheckedAt,
-    lastError: connection.lastError,
-    explicitGrant: explicitGrant
-      ? {
-          id: explicitGrant.id,
-          appId: explicitGrant.appId,
-          scopes: explicitGrant.scopes,
-          credentialRefs: explicitGrant.credentialRefs.map((ref) => ({
-            key: ref.key,
-            scope: ref.scope,
-            provider: ref.provider,
-            label: ref.label,
-          })),
-          updatedAt: explicitGrant.updatedAt,
-        }
-      : null,
-  };
-}
-
 function summarizeWorkspaceConnections(
   providerId: string,
   connections: SerializedWorkspaceConnection[],
   grants: SerializedWorkspaceConnectionGrant[],
 ) {
-  const allConnections = connections.filter(
-    (connection) => connection.provider === providerId,
-  );
-  const grantedConnections = allConnections.filter((connection) =>
-    isGrantedToApp(connection, APP_ID, grants),
-  );
-  const connectedConnections = grantedConnections.filter(
-    (connection) => connection.status === "connected",
-  );
-  const activeStatuses = new Set(
-    grantedConnections.map((connection) => connection.status),
-  );
-  const grantState = connectedConnections.length
-    ? "connected"
-    : grantedConnections.length
-      ? "granted"
-      : allConnections.length
-        ? "needs_grant"
-        : "not_connected";
-
-  return {
+  return summarizeWorkspaceConnectionProviderForApp({
+    providerId,
     appId: APP_ID,
-    provider: providerId,
-    grantState,
-    connectionCount: allConnections.length,
-    grantedConnectionCount: grantedConnections.length,
-    activeConnectionCount: connectedConnections.length,
-    hasWorkspaceConnection: allConnections.length > 0,
-    hasGrantedWorkspaceConnection: grantedConnections.length > 0,
-    hasActiveWorkspaceConnection: connectedConnections.length > 0,
-    statuses: [...activeStatuses],
-    connections: grantedConnections.map((connection) =>
-      serializeConnection(connection, grants),
-    ),
-  };
+    connections,
+    grants,
+  });
 }
 
 async function listWorkspaceConnectionsForStatus(): Promise<{

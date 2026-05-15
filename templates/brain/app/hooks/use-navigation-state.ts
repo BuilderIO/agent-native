@@ -18,6 +18,7 @@ export interface NavigationState {
   type?: string;
   provider?: string;
   status?: string;
+  issue?: string;
   limit?: number;
   priority?: string;
   sourceId?: string;
@@ -44,6 +45,7 @@ export function useNavigationState() {
       type: params.get("type") || undefined,
       provider: params.get("provider") || undefined,
       status: params.get("status") || undefined,
+      issue: params.get("issue") || undefined,
       limit: parseLimit(params.get("limit")),
       priority: params.get("priority") || undefined,
       sourceId: params.get("sourceId") || undefined,
@@ -97,6 +99,7 @@ export function useNavigationState() {
     }
     if (navCommand.provider) params.set("provider", navCommand.provider);
     if (navCommand.status) params.set("status", navCommand.status);
+    if (navCommand.issue) params.set("issue", navCommand.issue);
     if (navCommand.limit) params.set("limit", String(navCommand.limit));
     if (navCommand.priority) params.set("priority", navCommand.priority);
     if (navCommand.sourceId) params.set("sourceId", navCommand.sourceId);

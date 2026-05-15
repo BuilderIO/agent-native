@@ -217,6 +217,10 @@ interface TiptapComposerProps {
   placeholder?: string;
   disabled?: boolean;
   focusRef?: React.Ref<TiptapComposerHandle>;
+  /** Programmatically seed the editor with plain text. */
+  initialText?: string;
+  /** Stable key used to re-apply the seeded text. */
+  initialTextKey?: string | number;
   /**
    * When provided, called instead of composerRuntime.send(). Used for queue
    * mode and standalone prompt popovers. Receives the live composer
@@ -240,6 +244,8 @@ interface TiptapComposerProps {
   extraActionButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
   attachButton?: React.ReactNode;
+  /** Custom host-owned control rendered next to the attachment affordance. */
+  modeControl?: React.ReactNode;
   /** Called when a slash command (e.g. /clear, /help) is executed */
   onSlashCommand?: (command: string) => void;
   /** Current execution mode (build/plan) */
@@ -286,6 +292,17 @@ interface TiptapComposerProps {
    * text lacks.
    */
   interceptBuildRequestsForBuilder?: boolean;
+}
+
+function plainTextToDoc(text: string) {
+  const lines = text.length > 0 ? text.split(/\r?\n/) : [""];
+  return {
+    type: "doc",
+    content: lines.map((line) => ({
+      type: "paragraph",
+      content: line ? [{ type: "text", text: line }] : [],
+    })),
+  };
 }
 
 export function createTiptapComposerExtensions(
@@ -342,7 +359,7 @@ function ModeSelector({
         <button
           type="button"
           aria-label={mode === "build" ? "Act mode" : "Plan mode"}
-          className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          className="agent-composer-mode-button shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <ActiveIcon className="h-3.5 w-3.5" />
           {mode === "build" ? "Act" : "Plan"}
@@ -416,6 +433,7 @@ function ModeSelector({
 }
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
+  auto: "Default model",
   "grok-code-fast": "Grok Code Fast",
   "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
@@ -519,7 +537,17 @@ function ModelSelector({
   onEffortChange?: (effort: ReasoningEffort) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const effortOptions = getReasoningEffortOptionsForModel(model);
+  const effortOptions =
+    model === "auto"
+      ? ([
+          "auto",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+        ] satisfies ReasoningEffort[])
+      : getReasoningEffortOptionsForModel(model);
 
   // Collapse non-selected families by default. The family containing the
   // currently-selected model stays expanded so the user sees their pick at
@@ -573,7 +601,7 @@ function ModelSelector({
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
-          className="flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">{friendlyModelName(model)}</span>
           {effortOptions.length > 0 && (
@@ -733,12 +761,15 @@ export function TiptapComposer({
   placeholder = "Message agent...",
   disabled = false,
   focusRef,
+  initialText,
+  initialTextKey,
   onSubmit,
   clearOnSubmit = true,
   onTextChange,
   actionButton,
   extraActionButton,
   attachButton,
+  modeControl,
   onSlashCommand,
   execMode,
   onExecModeChange,
@@ -824,6 +855,7 @@ export function TiptapComposer({
   onSlashCommandRef.current = onSlashCommand;
   const onTextChangeRef = useRef(onTextChange);
   onTextChangeRef.current = onTextChange;
+  const initialTextKeyRef = useRef<string | number | undefined>(undefined);
 
   const closePopover = useCallback(() => {
     setPopover(null);
@@ -848,11 +880,18 @@ export function TiptapComposer({
     onCreate: ({ editor: ed }) => {
       // Restore draft on mount
       try {
-        const saved = localStorage.getItem(draftKey);
-        if (saved) {
-          ed.commands.setContent(saved);
+        if (initialText !== undefined) {
+          ed.commands.setContent(plainTextToDoc(initialText));
           ed.commands.focus("end");
           setEditorHasText(ed.state.doc.textContent.trim().length > 0);
+          initialTextKeyRef.current = initialTextKey ?? initialText;
+        } else {
+          const saved = localStorage.getItem(draftKey);
+          if (saved) {
+            ed.commands.setContent(saved);
+            ed.commands.focus("end");
+            setEditorHasText(ed.state.doc.textContent.trim().length > 0);
+          }
         }
         onTextChangeRef.current?.(ed.state.doc.textContent.trim());
       } catch {}
@@ -894,7 +933,7 @@ export function TiptapComposer({
     editorProps: {
       attributes: {
         class:
-          "flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[3.25rem] max-h-[10rem] overflow-y-auto",
+          "agent-composer-prosemirror flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[3.25rem] max-h-[10rem] overflow-y-auto",
       },
       handlePaste: (_view, event) => {
         const pastedText = event.clipboardData?.getData("text/plain") ?? "";
@@ -1633,6 +1672,26 @@ export function TiptapComposer({
     editor.commands.clearContent();
   }, [composerText, editor]);
 
+  useEffect(() => {
+    if (!editor || initialText === undefined) return;
+    const key = initialTextKey ?? initialText;
+    if (initialTextKeyRef.current === key) return;
+    initialTextKeyRef.current = key;
+    editor.commands.setContent(plainTextToDoc(initialText));
+    editor.commands.focus("end");
+    const trimmed = editor.state.doc.textContent.trim();
+    setEditorHasText(trimmed.length > 0);
+    composerRuntime.setText(trimmed);
+    onTextChangeRef.current?.(trimmed);
+    try {
+      if (trimmed) {
+        localStorage.setItem(draftKey, editor.getHTML());
+      } else {
+        localStorage.removeItem(draftKey);
+      }
+    } catch {}
+  }, [composerRuntime, draftKey, editor, initialText, initialTextKey]);
+
   // Tiptap only reads `editable` at init; prop changes need setEditable.
   useEffect(() => {
     if (!editor) return;
@@ -1653,7 +1712,7 @@ export function TiptapComposer({
         }
       `}</style>
       {composerMode && (
-        <div className="px-2.5 pt-2 pb-0">
+        <div className="agent-composer-mode-row px-2.5 pt-2 pb-0">
           <ComposerModeChip
             mode={composerMode}
             onRemove={() => {
@@ -1664,14 +1723,18 @@ export function TiptapComposer({
           />
         </div>
       )}
-      <div className={composerMode ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"}>
+      <div
+        className={`agent-composer-editor-wrap ${
+          composerMode ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"
+        }`}
+      >
         <EditorContent
           editor={editor}
-          className="aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0 px-0.5"
+          className="agent-composer-editor aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0 px-0.5"
         />
       </div>
       {voiceEnabled && <VoiceRecordingOverlay voice={voice} />}
-      <div className="flex items-center gap-1 px-2 py-1.5">
+      <div className="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5">
         {attachButton ??
           (plusMenuMode === "hidden" ? null : (
             <ComposerPlusMenu
@@ -1679,6 +1742,7 @@ export function TiptapComposer({
               mode={plusMenuMode}
             />
           ))}
+        {modeControl}
         {!actionButton && (
           <>
             {selectedModel && availableModels && onModelChange && (
@@ -1713,7 +1777,7 @@ export function TiptapComposer({
                   type="button"
                   onClick={submitComposer}
                   disabled={!canSend}
-                  className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <IconArrowUp className="h-3.5 w-3.5" />
                 </button>

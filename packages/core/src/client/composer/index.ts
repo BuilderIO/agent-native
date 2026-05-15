@@ -1,7 +1,7 @@
 export { FileReference } from "./extensions/FileReference.js";
 export { SkillReference } from "./extensions/SkillReference.js";
 export { MentionReference } from "./extensions/MentionReference.js";
-export { TiptapComposer } from "./TiptapComposer.js";
+export { TiptapComposer, type TiptapComposerHandle } from "./TiptapComposer.js";
 export {
   PromptComposer,
   type PromptComposerProps,

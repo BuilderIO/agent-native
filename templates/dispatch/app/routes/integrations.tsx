@@ -56,6 +56,23 @@ interface WorkspaceConnectionCredentialKey {
   required?: boolean;
 }
 
+type WorkspaceConnectionProviderReadinessStatus =
+  | "ready"
+  | "checking"
+  | "needs_credentials"
+  | "needs_attention"
+  | "disabled"
+  | "not_configured";
+
+interface WorkspaceConnectionProviderReadiness {
+  status: WorkspaceConnectionProviderReadinessStatus;
+  connectionCount: number;
+  activeConnectionCount: number;
+  readyConnectionCount: number;
+  requiredCredentialKeys: string[];
+  missingRequiredCredentialKeys: string[];
+}
+
 interface WorkspaceConnectionProvider {
   id: string;
   label: string;
@@ -63,14 +80,14 @@ interface WorkspaceConnectionProvider {
   credentialKeys: WorkspaceConnectionCredentialKey[];
   capabilities: string[];
   recommendedTemplateUses: string[];
+  readiness?: WorkspaceConnectionProviderReadiness;
 }
 
 interface WorkspaceConnectionCredentialRef {
   key: string;
-  scope?: "user" | "org";
+  scope?: "user" | "org" | "workspace";
   provider?: string;
   label?: string;
-  [key: string]: unknown;
 }
 
 type WorkspaceConnectionStatus =
@@ -117,6 +134,7 @@ interface WorkspaceConnectionsResponse {
     providers: number;
     connections: number;
     grants: number;
+    readyProviders?: number;
   };
 }
 
@@ -141,7 +159,7 @@ interface ConnectionFormState {
   accountLabel: string;
   status: WorkspaceConnectionStatus;
   scopes: string;
-  credentialRefs: string;
+  credentialRefs: WorkspaceConnectionCredentialRef[];
   allApps: boolean;
   selectedApps: string[];
 }
@@ -176,6 +194,34 @@ const STATUS_CLASSES: Record<WorkspaceConnectionStatus, string> = {
     "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400",
   error: "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400",
   disabled: "border-border bg-muted text-muted-foreground",
+};
+
+const READINESS_LABELS: Record<
+  WorkspaceConnectionProviderReadinessStatus,
+  string
+> = {
+  ready: "Ready",
+  checking: "Checking",
+  needs_credentials: "Needs refs",
+  needs_attention: "Needs attention",
+  disabled: "Disabled",
+  not_configured: "Available",
+};
+
+const READINESS_CLASSES: Record<
+  WorkspaceConnectionProviderReadinessStatus,
+  string
+> = {
+  ready:
+    "border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-400",
+  checking:
+    "border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+  needs_credentials:
+    "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+  needs_attention:
+    "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400",
+  disabled: "border-border bg-muted text-muted-foreground",
+  not_configured: "border-border bg-muted text-muted-foreground",
 };
 
 const APP_ICONS: Record<string, IconComponent> = {
@@ -243,20 +289,80 @@ function normalizeList(value: string): string[] {
   );
 }
 
-function parseCredentialRefs(
-  value: string,
+function credentialRefsForProvider(
+  provider: WorkspaceConnectionProvider,
 ): WorkspaceConnectionCredentialRef[] {
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-  const parsed = JSON.parse(trimmed);
-  if (!Array.isArray(parsed)) {
-    throw new Error("Credential refs must be a JSON array.");
-  }
-  return parsed as WorkspaceConnectionCredentialRef[];
+  return provider.credentialKeys.map((credential) => ({
+    key: credential.key,
+    label: credential.label,
+    provider: provider.id,
+    scope: "org",
+  }));
 }
 
-function credentialRefsText(refs: WorkspaceConnectionCredentialRef[]) {
-  return refs.length > 0 ? JSON.stringify(refs, null, 2) : "";
+function normalizeCredentialRefs(
+  refs: WorkspaceConnectionCredentialRef[],
+  provider?: WorkspaceConnectionProvider,
+): WorkspaceConnectionCredentialRef[] {
+  const labels = new Map(
+    provider?.credentialKeys.map((credential) => [
+      credential.key,
+      credential.label,
+    ]) ?? [],
+  );
+  const seen = new Set<string>();
+  return refs
+    .map((ref) => {
+      const key = ref.key.trim();
+      return {
+        key,
+        label: ref.label?.trim() || labels.get(key) || key,
+        provider: ref.provider?.trim() || provider?.id,
+        scope: ref.scope ?? "org",
+      };
+    })
+    .filter((ref) => {
+      if (!ref.key || seen.has(ref.key)) return false;
+      seen.add(ref.key);
+      return true;
+    });
+}
+
+function upsertCredentialRefAt(
+  refs: WorkspaceConnectionCredentialRef[],
+  index: number,
+  patch: Partial<WorkspaceConnectionCredentialRef>,
+): WorkspaceConnectionCredentialRef[] {
+  return refs.map((ref, currentIndex) =>
+    currentIndex === index ? { ...ref, ...patch } : ref,
+  );
+}
+
+function appendCredentialRef(
+  refs: WorkspaceConnectionCredentialRef[],
+  provider?: WorkspaceConnectionProvider,
+): WorkspaceConnectionCredentialRef[] {
+  return [
+    ...refs,
+    {
+      key: "",
+      label: "",
+      provider: provider?.id,
+      scope: "org",
+    },
+  ];
+}
+
+function missingRequiredCredentialKeys(
+  provider: WorkspaceConnectionProvider | undefined,
+  refs: WorkspaceConnectionCredentialRef[],
+): string[] {
+  if (!provider) return [];
+  const available = new Set(refs.map((ref) => ref.key.trim()).filter(Boolean));
+  return provider.credentialKeys
+    .filter((credential) => credential.required)
+    .map((credential) => credential.key)
+    .filter((key) => !available.has(key));
 }
 
 function defaultForm(
@@ -274,19 +380,7 @@ function defaultForm(
     accountLabel: "",
     status: "connected",
     scopes: "",
-    credentialRefs:
-      provider.credentialKeys.length > 0
-        ? JSON.stringify(
-            provider.credentialKeys.map((credential) => ({
-              key: credential.key,
-              label: credential.label,
-              provider: provider.id,
-              scope: "org",
-            })),
-            null,
-            2,
-          )
-        : "",
+    credentialRefs: credentialRefsForProvider(provider),
     allApps: false,
     selectedApps,
   };
@@ -294,6 +388,7 @@ function defaultForm(
 
 function formFromConnection(
   connection: WorkspaceConnection,
+  provider?: WorkspaceConnectionProvider,
 ): ConnectionFormState {
   return {
     id: connection.id,
@@ -303,7 +398,12 @@ function formFromConnection(
     accountLabel: connection.accountLabel ?? "",
     status: connection.status,
     scopes: connection.scopes.join(", "),
-    credentialRefs: credentialRefsText(connection.credentialRefs),
+    credentialRefs:
+      connection.credentialRefs.length > 0
+        ? normalizeCredentialRefs(connection.credentialRefs, provider)
+        : provider
+          ? credentialRefsForProvider(provider)
+          : [],
     allApps: connection.allowedApps.length === 0,
     selectedApps: connection.allowedApps,
   };
@@ -377,26 +477,23 @@ function ProviderCard({
 }) {
   const Icon = iconForProvider(provider.id);
   const active = connections.filter((item) => item.status !== "disabled");
+  const readiness = provider.readiness;
+  const readinessStatus =
+    readiness?.status ?? (active.length > 0 ? "ready" : "not_configured");
   return (
-    <article className="flex min-h-[220px] flex-col justify-between rounded-lg border bg-card p-4 shadow-sm">
+    <article className="flex min-h-[232px] flex-col justify-between rounded-lg border bg-card p-4 shadow-sm transition hover:border-foreground/20">
       <div className="space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted">
             <Icon size={18} className="text-muted-foreground" />
           </div>
-          <Pill
-            className={
-              active.length > 0
-                ? "border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-400"
-                : "border-border bg-muted text-muted-foreground"
-            }
-          >
-            {active.length > 0 ? (
+          <Pill className={READINESS_CLASSES[readinessStatus]}>
+            {readinessStatus === "ready" ? (
               <IconCheck size={12} />
             ) : (
               <IconCircleDashed size={12} />
             )}
-            {active.length > 0 ? `${active.length} connected` : "Available"}
+            {READINESS_LABELS[readinessStatus]}
           </Pill>
         </div>
         <div>
@@ -414,14 +511,27 @@ function ProviderCard({
             </Pill>
           ))}
         </div>
+        {readiness?.missingRequiredCredentialKeys.length ? (
+          <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            Missing{" "}
+            {readiness.missingRequiredCredentialKeys.slice(0, 2).join(", ")}
+            {readiness.missingRequiredCredentialKeys.length > 2
+              ? ` +${readiness.missingRequiredCredentialKeys.length - 2}`
+              : ""}
+          </div>
+        ) : null}
       </div>
       <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
         <span className="text-xs text-muted-foreground">
-          {provider.credentialKeys.length === 0
-            ? "No credential refs"
-            : `${provider.credentialKeys.length} credential ref${
-                provider.credentialKeys.length === 1 ? "" : "s"
-              }`}
+          {active.length > 0
+            ? `${active.length} active connection${
+                active.length === 1 ? "" : "s"
+              }`
+            : provider.credentialKeys.length === 0
+              ? "No credential refs"
+              : `${provider.credentialKeys.length} credential ref${
+                  provider.credentialKeys.length === 1 ? "" : "s"
+                }`}
         </span>
         <button
           type="button"
@@ -456,6 +566,10 @@ function ConnectionRow({
   grantPending: boolean;
 }) {
   const Icon = iconForProvider(connection.provider);
+  const missingKeys = missingRequiredCredentialKeys(
+    provider,
+    connection.credentialRefs,
+  );
   return (
     <article className="rounded-lg border bg-card shadow-sm">
       <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
@@ -473,6 +587,11 @@ function ConnectionRow({
                   <Pill className={STATUS_CLASSES[connection.status]}>
                     {STATUS_LABELS[connection.status]}
                   </Pill>
+                  {missingKeys.length > 0 ? (
+                    <Pill className={READINESS_CLASSES.needs_credentials}>
+                      Missing refs
+                    </Pill>
+                  ) : null}
                 </div>
                 <p className="mt-1 truncate text-sm text-muted-foreground">
                   {provider?.label ?? connection.provider}
@@ -507,7 +626,11 @@ function ConnectionRow({
             <ConnectionMeta
               icon={IconKey}
               label="Credential refs"
-              value={String(connection.credentialRefs.length)}
+              value={
+                connection.credentialRefs.length
+                  ? connection.credentialRefs.map((ref) => ref.key).join(", ")
+                  : "None"
+              }
             />
             <ConnectionMeta
               icon={IconShieldCheck}
@@ -522,6 +645,19 @@ function ConnectionRow({
               value={summarizeGrant(connection, grantApps, grants)}
             />
           </div>
+
+          {connection.credentialRefs.length > 0 ? (
+            <CredentialRefsPreview refs={connection.credentialRefs} />
+          ) : null}
+
+          {missingKeys.length > 0 ? (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+              <IconAlertTriangle size={15} className="mt-0.5 shrink-0" />
+              <span className="min-w-0 break-words">
+                Required refs missing: {missingKeys.join(", ")}
+              </span>
+            </div>
+          ) : null}
 
           {connection.lastError ? (
             <div className="flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
@@ -592,6 +728,29 @@ function ConnectionMeta({
       <div className="mt-1 truncate text-sm font-medium text-foreground">
         {value}
       </div>
+    </div>
+  );
+}
+
+function CredentialRefsPreview({
+  refs,
+}: {
+  refs: WorkspaceConnectionCredentialRef[];
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {refs.map((ref) => (
+        <Pill
+          key={`${ref.scope ?? "org"}:${ref.key}`}
+          className="border-border bg-background font-mono"
+        >
+          <IconKey size={12} />
+          {ref.key}
+          {ref.scope ? (
+            <span className="font-sans text-muted-foreground">{ref.scope}</span>
+          ) : null}
+        </Pill>
+      ))}
     </div>
   );
 }
@@ -687,6 +846,11 @@ function ConnectionForm({
 }) {
   if (!form) return null;
   const provider = providers.find((item) => item.id === form.provider);
+  const credentialRefs = normalizeCredentialRefs(form.credentialRefs, provider);
+  const missingCredentialRefs = missingRequiredCredentialKeys(
+    provider,
+    credentialRefs,
+  );
   return (
     <Modal
       open={open}
@@ -710,6 +874,9 @@ function ConnectionForm({
                     provider: event.target.value,
                     label:
                       form.label || nextProvider?.label || event.target.value,
+                    credentialRefs: nextProvider
+                      ? credentialRefsForProvider(nextProvider)
+                      : form.credentialRefs,
                   });
                 }}
                 className="h-9 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
@@ -831,19 +998,12 @@ function ConnectionForm({
             ) : null}
           </div>
 
-          <label className="grid gap-1.5 text-sm">
-            <span className="font-medium">Credential refs JSON</span>
-            <textarea
-              value={form.credentialRefs}
-              onChange={(event) =>
-                onChange({ ...form, credentialRefs: event.target.value })
-              }
-              rows={6}
-              spellCheck={false}
-              className="min-h-32 rounded-md border bg-background px-3 py-2 font-mono text-xs outline-none focus:ring-2 focus:ring-ring"
-              placeholder='[{"key":"SLACK_BOT_TOKEN","scope":"org"}]'
-            />
-          </label>
+          <CredentialRefsEditor
+            provider={provider}
+            refs={form.credentialRefs}
+            missingRefs={missingCredentialRefs}
+            onChange={(credentialRefs) => onChange({ ...form, credentialRefs })}
+          />
         </div>
         <div className="flex items-center justify-end gap-2 border-t p-4">
           <button
@@ -892,6 +1052,132 @@ function TextField({
         className="h-9 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
       />
     </label>
+  );
+}
+
+function CredentialRefsEditor({
+  provider,
+  refs,
+  missingRefs,
+  onChange,
+}: {
+  provider?: WorkspaceConnectionProvider;
+  refs: WorkspaceConnectionCredentialRef[];
+  missingRefs: string[];
+  onChange: (refs: WorkspaceConnectionCredentialRef[]) => void;
+}) {
+  const providerKeys = new Map(
+    provider?.credentialKeys.map((credential) => [
+      credential.key,
+      credential,
+    ]) ?? [],
+  );
+  const rows = refs.length > 0 ? refs : appendCredentialRef([], provider);
+
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium">Credential refs</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            Reference names only. Secret values remain in Vault or OAuth.
+          </div>
+        </div>
+        <button
+          type="button"
+          className={buttonClass("secondary")}
+          onClick={() => onChange(appendCredentialRef(refs, provider))}
+        >
+          <IconPlus size={14} />
+          Add ref
+        </button>
+      </div>
+
+      <div className="mt-3 grid gap-2">
+        {rows.map((ref, index) => {
+          const credential = providerKeys.get(ref.key);
+          return (
+            <div
+              key={`${index}:${ref.provider ?? provider?.id ?? "provider"}`}
+              className="grid gap-2 rounded-md border px-3 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto]"
+            >
+              <label className="grid min-w-0 gap-1.5 text-sm">
+                <span className="flex items-center gap-1.5 font-medium">
+                  Ref name
+                  {credential?.required ? (
+                    <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
+                      Required
+                    </Pill>
+                  ) : null}
+                </span>
+                <input
+                  value={ref.key}
+                  onChange={(event) =>
+                    onChange(
+                      upsertCredentialRefAt(rows, index, {
+                        key: event.target.value,
+                        label:
+                          providerKeys.get(event.target.value)?.label ??
+                          ref.label,
+                        provider: provider?.id ?? ref.provider,
+                      }),
+                    )
+                  }
+                  placeholder={
+                    provider?.credentialKeys[index]?.key ?? "VAULT_KEY_NAME"
+                  }
+                  spellCheck={false}
+                  className="h-9 rounded-md border bg-card px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
+                />
+                {credential?.description ? (
+                  <span className="text-xs leading-5 text-muted-foreground">
+                    {credential.description}
+                  </span>
+                ) : null}
+              </label>
+              <label className="grid gap-1.5 text-sm">
+                <span className="font-medium">Scope</span>
+                <select
+                  value={ref.scope ?? "org"}
+                  onChange={(event) =>
+                    onChange(
+                      upsertCredentialRefAt(rows, index, {
+                        scope: event.target
+                          .value as WorkspaceConnectionCredentialRef["scope"],
+                      }),
+                    )
+                  }
+                  className="h-9 rounded-md border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="org">Org</option>
+                  <option value="workspace">Workspace</option>
+                  <option value="user">User</option>
+                </select>
+              </label>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  className={buttonClass("ghost")}
+                  onClick={() =>
+                    onChange(rows.filter((_, itemIndex) => itemIndex !== index))
+                  }
+                  aria-label={`Remove ${ref.key || "credential ref"}`}
+                >
+                  <IconTrash size={14} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {missingRefs.length > 0 ? (
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <IconAlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>Missing required refs: {missingRefs.join(", ")}</span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1008,14 +1294,20 @@ export default function WorkspaceIntegrationsRoute() {
   }
 
   function openEdit(connection: WorkspaceConnection) {
-    setForm(formFromConnection(connection));
+    setForm(
+      formFromConnection(connection, providersById.get(connection.provider)),
+    );
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!form) return;
     try {
-      const credentialRefs = parseCredentialRefs(form.credentialRefs);
+      const provider = providersById.get(form.provider);
+      const credentialRefs = normalizeCredentialRefs(
+        form.credentialRefs,
+        provider,
+      );
       await upsertConnection.mutateAsync({
         id: form.id,
         provider: form.provider,
@@ -1156,7 +1448,13 @@ export default function WorkspaceIntegrationsRoute() {
       description="Shared provider connections and app-level grants for the workspace."
     >
       <div className="space-y-6">
-        <section className="grid gap-3 md:grid-cols-3">
+        <section className="grid gap-3 md:grid-cols-4">
+          <SummaryCard
+            icon={IconCheck}
+            label="Ready providers"
+            value={`${data.counts.readyProviders ?? 0}/${providers.length}`}
+            detail="Configured refs and healthy status"
+          />
           <SummaryCard
             icon={IconPlugConnected}
             label="Connections"
@@ -1176,6 +1474,8 @@ export default function WorkspaceIntegrationsRoute() {
             detail="Reauth, disabled, or error"
           />
         </section>
+
+        <IntegrationOnboarding />
 
         {connectionsQuery.isLoading ? (
           <div className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
@@ -1270,6 +1570,69 @@ export default function WorkspaceIntegrationsRoute() {
         onConfirm={confirmDelete}
       />
     </DispatchShell>
+  );
+}
+
+function IntegrationOnboarding() {
+  const steps: Array<{
+    icon: IconComponent;
+    title: string;
+    detail: string;
+  }> = [
+    {
+      icon: IconPlugConnected,
+      title: "Connect once",
+      detail:
+        "Save provider metadata and vault ref names in one workspace place.",
+    },
+    {
+      icon: IconShieldCheck,
+      title: "Grant apps",
+      detail:
+        "Enable Brain, Analytics, Mail, or Dispatch without copying secrets.",
+    },
+    {
+      icon: IconDatabase,
+      title: "Configure locally",
+      detail:
+        "Each app keeps its own channels, repos, cursors, and sync rules.",
+    },
+  ];
+
+  return (
+    <section className="rounded-lg border bg-card px-4 py-3 shadow-sm">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)] lg:items-center">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">
+            Connect once, use everywhere
+          </h2>
+          <p className="mt-1 text-sm leading-5 text-muted-foreground">
+            Shared connections keep provider setup in Dispatch while each app
+            owns its source-specific choices.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {steps.map((step) => {
+            const Icon = step.icon;
+            return (
+              <div key={step.title} className="flex min-w-0 gap-2">
+                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-muted">
+                  <Icon size={14} className="text-muted-foreground" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-foreground">
+                    {step.title}
+                  </div>
+                  <div className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                    {step.detail}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
   );
 }
 

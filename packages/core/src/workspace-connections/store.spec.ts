@@ -118,6 +118,172 @@ describe("workspace connection store", () => {
     });
   });
 
+  it("summarizes provider access for an app without exposing secret values", async () => {
+    const { summarizeWorkspaceConnectionProviderForApp } =
+      await import("./store.js");
+    const summary = summarizeWorkspaceConnectionProviderForApp({
+      providerId: "slack",
+      appId: "brain",
+      includeConnections: "all",
+      connections: [
+        {
+          id: "conn-open",
+          provider: "slack",
+          label: "Open Slack",
+          accountId: null,
+          accountLabel: "Acme",
+          status: "connected",
+          scopes: [],
+          config: {},
+          allowedApps: [],
+          credentialRefs: [
+            {
+              key: "SLACK_BOT_TOKEN",
+              scope: "org",
+              value: "xoxb-should-not-leak",
+            },
+          ],
+          ownerEmail: "alice@example.com",
+          orgId: "org-1",
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+          lastCheckedAt: null,
+          lastError: null,
+        },
+        {
+          id: "conn-dispatch",
+          provider: "slack",
+          label: "Dispatch Slack",
+          accountId: null,
+          accountLabel: null,
+          status: "needs_reauth",
+          scopes: [],
+          config: {},
+          allowedApps: ["dispatch"],
+          credentialRefs: [],
+          ownerEmail: "alice@example.com",
+          orgId: "org-1",
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+          lastCheckedAt: null,
+          lastError: "Expired token",
+        },
+      ],
+      grants: [],
+    });
+
+    expect(summary).toMatchObject({
+      appId: "brain",
+      provider: "slack",
+      grantState: "connected",
+      grantAvailability: "available",
+      connectionCount: 2,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 1,
+      ungrantedConnectionCount: 1,
+      unhealthyGrantedConnectionCount: 0,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: true,
+    });
+    expect(summary.connections).toHaveLength(2);
+    expect(summary.connections[0].credentialRefs[0]).toEqual({
+      key: "SLACK_BOT_TOKEN",
+      scope: "org",
+      provider: undefined,
+      label: undefined,
+      source: "connection",
+    });
+    expect(JSON.stringify(summary)).not.toContain("xoxb-should-not-leak");
+  });
+
+  it("summarizes provider readiness with required credential refs and app grants", async () => {
+    const { summarizeWorkspaceConnectionProviderReadiness } =
+      await import("./store.js");
+    const readinessInput = {
+      provider: {
+        id: "github",
+        credentialKeys: [
+          { key: "GITHUB_TOKEN", required: true },
+          { key: "GITHUB_WEBHOOK_SECRET", required: false },
+        ],
+      },
+      appId: "analytics",
+      connections: [
+        {
+          id: "conn-github",
+          provider: "github",
+          label: "GitHub",
+          accountId: null,
+          accountLabel: null,
+          status: "connected",
+          scopes: [],
+          config: {},
+          allowedApps: ["brain"],
+          credentialRefs: [],
+          ownerEmail: "alice@example.com",
+          orgId: "org-1",
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+          lastCheckedAt: null,
+          lastError: null,
+        },
+      ],
+      grants: [
+        {
+          id: "grant-analytics",
+          connectionId: "conn-github",
+          provider: "github",
+          appId: "analytics",
+          scopes: [],
+          config: {},
+          credentialRefs: [],
+          grantedByEmail: "alice@example.com",
+          ownerEmail: "alice@example.com",
+          orgId: "org-1",
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+        },
+      ],
+    } satisfies Parameters<
+      typeof summarizeWorkspaceConnectionProviderReadiness
+    >[0];
+    const readiness =
+      summarizeWorkspaceConnectionProviderReadiness(readinessInput);
+
+    expect(readiness).toMatchObject({
+      status: "needs_credentials",
+      connectionCount: 1,
+      activeConnectionCount: 1,
+      readyConnectionCount: 0,
+      requiredCredentialKeys: ["GITHUB_TOKEN"],
+      missingRequiredCredentialKeys: ["GITHUB_TOKEN"],
+      appGrant: {
+        grantState: "connected",
+        grantAvailability: "available",
+        grantedConnectionCount: 1,
+        explicitGrantCount: 1,
+      },
+    });
+
+    const grantScopedRefReadiness =
+      summarizeWorkspaceConnectionProviderReadiness({
+        ...readinessInput,
+        grants: [
+          {
+            ...readinessInput.grants[0],
+            credentialRefs: [{ key: "GITHUB_TOKEN", scope: "org" }],
+          },
+        ],
+      });
+
+    expect(grantScopedRefReadiness).toMatchObject({
+      status: "ready",
+      readyConnectionCount: 1,
+      missingRequiredCredentialKeys: [],
+    });
+  });
+
   it("scopes personal list, upsert, and delete to the request user", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

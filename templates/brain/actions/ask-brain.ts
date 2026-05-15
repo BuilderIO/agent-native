@@ -43,6 +43,59 @@ function facetsFromQuestion(question: string) {
   return Array.from(facets).slice(0, 8);
 }
 
+type KnowledgeSearchRow = Awaited<
+  ReturnType<typeof searchKnowledgeRows>
+>[number];
+
+function questionTerms(question: string) {
+  return Array.from(
+    new Set(
+      question
+        .toLowerCase()
+        .split(/[^a-z0-9-]+/)
+        .map((word) => word.trim())
+        .filter((word) => word.length > 2 && !STOPWORDS.has(word)),
+    ),
+  );
+}
+
+function rowText(row: KnowledgeSearchRow) {
+  return [
+    row.title,
+    row.summary,
+    row.body,
+    row.topic,
+    row.tagsJson,
+    row.entitiesJson,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function scoreRowForQuestion(row: KnowledgeSearchRow, terms: string[]) {
+  const text = rowText(row);
+  const title = row.title.toLowerCase();
+  return terms.reduce((score, term) => {
+    if (!text.includes(term)) return score;
+    return score + (title.includes(term) ? 3 : 1);
+  }, 0);
+}
+
+function rankRowsForQuestion(rows: KnowledgeSearchRow[], question: string) {
+  const terms = questionTerms(question);
+  if (!terms.length) return rows;
+  const ranked = rows
+    .map((row) => ({ row, score: scoreRowForQuestion(row, terms) }))
+    .sort((a, b) => b.score - a.score);
+  const bestScore = ranked[0]?.score ?? 0;
+  const minimumScore = bestScore >= 3 ? Math.max(2, bestScore - 2) : 0;
+  return ranked
+    .filter((entry) => entry.score >= minimumScore)
+    .slice(0, 6)
+    .map((entry) => entry.row);
+}
+
 export default defineAction({
   description:
     "Answer a company-memory question from published Brain knowledge, falling back to cited raw capture matches when approved knowledge is thin.",
@@ -66,7 +119,9 @@ export default defineAction({
       }
       if (rows.length >= 6) break;
     }
-    const knowledge = rows.map(serializeKnowledge);
+    const knowledge = rankRowsForQuestion(rows, question).map(
+      serializeKnowledge,
+    );
     const captureFallback: UniversalSearchResult[] = [];
     const knowledgeTextLength = knowledge.reduce(
       (total, item) => total + `${item.summary} ${item.body}`.trim().length,

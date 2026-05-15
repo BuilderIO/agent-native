@@ -131,7 +131,7 @@ export default function SearchRoute() {
       <PageHeader
         eyebrow="Search"
         title="Search company memory"
-        description="Find durable knowledge, raw captures, and connected sources from one cited memory surface."
+        description="Search reviewed knowledge, raw captures, and source records, then open the cited Brain record or original source."
         actions={
           <Badge variant="outline" className="gap-2">
             <IconSearch className="size-4" />
@@ -284,7 +284,7 @@ export default function SearchRoute() {
             detail={
               hasFilters
                 ? "Broaden the query or clear a filter."
-                : "Enter a phrase to search company memory."
+                : "Enter a phrase or load the demo from Ask to search cited company memory."
             }
           />
         )}

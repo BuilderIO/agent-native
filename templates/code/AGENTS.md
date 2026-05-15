@@ -4,6 +4,8 @@ This hidden template is a customizable browser surface for Agent-Native Code. It
 
 The template is intentionally local-first. It can start and resume local Agent-Native Code runs through `@agent-native/core/code-agents`, which uses the same file-backed run store as the CLI and Desktop. Native terminal launch and hard process cancellation remain Desktop responsibilities.
 
+Migration is a first-class slash-command goal on the same native run store. Do not assume a separate Migration Workbench app is available; `/migrate` sessions should behave like normal Code sessions with transcripts, follow-ups, approvals, retries, and project skills.
+
 ## Run Store
 
 Agent-Native Code sessions live under:
@@ -35,6 +37,7 @@ The UI receives a `CodeAgentsHost`:
 ```ts
 interface CodeAgentsHost {
   listRuns(goalId?: string): Promise<CodeAgentRunListResult>;
+  listCodePacks?(): Promise<CodeAgentCodePackResult>;
   createRun(
     request: CodeAgentCreateRunRequest,
   ): Promise<CodeAgentCreateRunResult>;
@@ -47,10 +50,14 @@ interface CodeAgentsHost {
   updateRun(
     request: CodeAgentUpdateRunRequest,
   ): Promise<CodeAgentUpdateRunResult>;
+  retryRun?(
+    request: CodeAgentRetryRunRequest,
+  ): Promise<CodeAgentRetryRunResult>;
+  rerunRun?(request: CodeAgentRerunRequest): Promise<CodeAgentRerunResult>;
   controlRun(
     goalId: string,
     runId: string,
-    command: "resume" | "status" | "stop",
+    command: "resume" | "status" | "stop" | "approve",
     permissionMode?: string,
   ): Promise<CodeAgentControlResult>;
 }
@@ -58,9 +65,19 @@ interface CodeAgentsHost {
 
 Customize the app by editing the host adapter in `app/routes/_index.tsx` or replacing the action implementations. Keep UI and action parity: anything visible in the UI should remain callable as an action.
 
+Project commands and skills shown in the rail should be clickable insertion shortcuts. Commands insert `/<command>`, while skills insert a prompt that tells the agent to use that skill.
+
+Use the shared framework composer for all prompt entry. The Code UI should
+reuse `PromptComposer` / `TiptapComposer` from `@agent-native/core/client` so it
+inherits the same upload, voice, model/effort, slash/reference, and
+Enter-to-submit behavior as the agent sidebar and Brain chat. Add small
+host-specific controls through composer slots instead of introducing a second
+textarea implementation.
+
 ## Limits
 
 - Browser mode cannot open a native terminal. Use Agent-Native Desktop for that.
+- `approve` runs one pending destructive-command approval; keep the prompt rare and specific.
 - `stop` marks a run stopped in the store. If a separate terminal owns the process, stop that owner directly.
 - Long-running work requires a local Node server. Do not deploy this template as a public hosted SaaS without replacing the background execution model.
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
@@ -38,6 +38,7 @@ import {
   type BrainWorkspaceConnectionStatus,
   type BrainWorkspaceCredentialRef,
   type ConnectionProvidersResponse,
+  type SlackConnectionResponse,
   type SlackPilotReport,
   type SourcesResponse,
   formatPercent,
@@ -903,11 +904,18 @@ function providerReadinessCallout(
 function ProviderReadinessCell({ item }: { item: ProviderReadinessItem }) {
   const Icon = item.icon;
   return (
-    <div className="min-w-0 rounded-md border border-border bg-card p-2">
-      <div className="flex items-center justify-between gap-2">
+    <div className="min-w-0 rounded-md border border-border/70 bg-background/60 p-2">
+      <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-1.5">
           <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-          <p className="truncate text-xs text-muted-foreground">{item.label}</p>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-medium text-foreground">
+              {item.label}
+            </p>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+              {item.detail}
+            </p>
+          </div>
         </div>
         <Badge
           variant="outline"
@@ -916,9 +924,6 @@ function ProviderReadinessCell({ item }: { item: ProviderReadinessItem }) {
           {item.value}
         </Badge>
       </div>
-      <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
-        {item.detail}
-      </p>
     </div>
   );
 }
@@ -977,9 +982,8 @@ function ProviderCatalog({
             <h2 className="text-sm font-medium">Connection providers</h2>
           </div>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Brain sources and reusable workspace integrations in one place.
-            Readiness shows shared connections, Brain grants, provider repair
-            needs, and local credential refs without exposing values.
+            Reuse workspace integrations, grant Brain access, or add Brain-local
+            sources without exposing credential values.
           </p>
         </div>
         <Badge variant="outline" className="w-fit max-w-full">
@@ -1095,54 +1099,54 @@ function ProviderCatalog({
                   ))}
                 </div>
 
-                <div className="grid gap-2 rounded-md bg-muted/25 p-2">
-                  <div className="flex items-center justify-between gap-2 px-1">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Connection readiness
-                    </p>
-                    <span className="truncate text-xs text-muted-foreground">
-                      Values hidden
-                    </span>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {readinessItems.map((item) => (
-                      <ProviderReadinessCell
-                        key={`${provider.id}-${item.label}`}
-                        item={item}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs text-muted-foreground">
-                    {credentialRefs.length ? "Credential refs" : "Catalog keys"}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {credentialBadges.length ? (
-                      credentialBadges.map((credential) => (
-                        <Badge key={credential.key} variant="outline">
-                          {credential.label}
-                        </Badge>
-                      ))
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        No credential keys required
-                      </span>
-                    )}
-                  </div>
-                  {missingCredentialMessage ? (
-                    <p className="mt-2 text-xs leading-5 text-destructive">
-                      {missingCredentialMessage}
-                    </p>
-                  ) : null}
-                </div>
-
                 {expanded ? (
                   <div className="grid gap-3 rounded-md border border-border bg-muted/25 p-3 text-sm">
                     <p className="leading-6 text-muted-foreground">
                       {provider.description}
                     </p>
+                    <div className="grid gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Connection readiness
+                        </p>
+                        <span className="truncate text-xs text-muted-foreground">
+                          Values hidden
+                        </span>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {readinessItems.map((item) => (
+                          <ProviderReadinessCell
+                            key={`${provider.id}-${item.label}`}
+                            item={item}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {credentialRefs.length
+                          ? "Credential refs"
+                          : "Catalog keys"}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {credentialBadges.length ? (
+                          credentialBadges.map((credential) => (
+                            <Badge key={credential.key} variant="outline">
+                              {credential.label}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            No credential keys required
+                          </span>
+                        )}
+                      </div>
+                      {missingCredentialMessage ? (
+                        <p className="mt-2 text-xs leading-5 text-destructive">
+                          {missingCredentialMessage}
+                        </p>
+                      ) : null}
+                    </div>
                     {provider.id === "slack" ? (
                       <div className="grid gap-2 rounded-md border border-border bg-card p-3">
                         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1469,6 +1473,196 @@ function SlackPilotReportCard({ report }: { report: SlackPilotReport }) {
   );
 }
 
+function SlackConnectionReportCard({
+  report,
+}: {
+  report: SlackConnectionResponse;
+}) {
+  const visibleChannels = report.channels.slice(0, 3);
+  return (
+    <div className="rounded-md border border-border bg-card p-3 text-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-medium">
+            {report.ok ? "Connection ready" : "Connection needs attention"}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {report.ok
+              ? `Slack ${report.team ?? "workspace"} checked without reading history.`
+              : "Slack credentials or allow-listed channels need review."}
+          </p>
+        </div>
+        <Badge variant={report.ok ? "secondary" : "outline"}>
+          No history read
+        </Badge>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+        <div className="rounded-md bg-muted/35 p-2">
+          <p className="text-muted-foreground">Channels</p>
+          <p className="mt-1 font-medium">{report.checkedChannels}</p>
+        </div>
+        <div className="rounded-md bg-muted/35 p-2">
+          <p className="text-muted-foreground">Team</p>
+          <p className="mt-1 truncate font-medium">
+            {report.team ?? report.teamId ?? "Unknown"}
+          </p>
+        </div>
+        <div className="rounded-md bg-muted/35 p-2">
+          <p className="text-muted-foreground">Bot</p>
+          <p className="mt-1 truncate font-medium">
+            {report.botUser ?? "Checked"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2">
+        {visibleChannels.length ? (
+          visibleChannels.map((channel) => (
+            <div
+              key={`${channel.ref}-${channel.id ?? channel.status}`}
+              className="flex items-start justify-between gap-3 rounded-md bg-muted/25 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium">
+                  {channel.name ? `#${channel.name}` : channel.ref}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {channel.message}
+                </p>
+              </div>
+              <Badge
+                variant={channel.status === "ok" ? "secondary" : "outline"}
+              >
+                {channel.status}
+              </Badge>
+            </div>
+          ))
+        ) : (
+          <p className="text-xs leading-5 text-muted-foreground">
+            Add channel IDs to the source allow-list before testing.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SlackPilotFlow({
+  source,
+  testing,
+  piloting,
+  onTest,
+  onPilot,
+  onReview,
+}: {
+  source: BrainSource;
+  testing: boolean;
+  piloting: boolean;
+  onTest: () => void;
+  onPilot: () => void;
+  onReview: () => void;
+}) {
+  const steps = [
+    {
+      icon: IconShieldCheck,
+      label: "Test",
+      detail: "No history",
+      action: (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={testing || piloting}
+          onClick={onTest}
+        >
+          {testing ? (
+            <IconLoader2 className="size-4 animate-spin" />
+          ) : (
+            <IconShieldCheck className="size-4" />
+          )}
+          Test
+        </Button>
+      ),
+    },
+    {
+      icon: IconHistory,
+      label: "Safe pilot",
+      detail: "Tiny sample",
+      action: (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={testing || piloting}
+          onClick={onPilot}
+        >
+          {piloting ? (
+            <IconLoader2 className="size-4 animate-spin" />
+          ) : (
+            <IconHistory className="size-4" />
+          )}
+          Safe pilot
+        </Button>
+      ),
+    },
+    {
+      icon: IconFileSearch,
+      label: "Review",
+      detail: "Captures",
+      action: (
+        <Button size="sm" variant="outline" onClick={onReview}>
+          <IconFileSearch className="size-4" />
+          Review captures
+        </Button>
+      ),
+    },
+    {
+      icon: IconCircleCheck,
+      label: "Approve",
+      detail: sourceReviewRequired(source) ? "Proposals" : "Optional",
+      action: (
+        <Button size="sm" variant="ghost" asChild>
+          <Link to="/review">
+            <IconCircleCheck className="size-4" />
+            Review queue
+          </Link>
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <div className="rounded-md border border-border bg-muted/25 p-3">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+        <div className="grid gap-2 sm:grid-cols-4">
+          {steps.map((step) => {
+            const Icon = step.icon;
+            return (
+              <div key={step.label} className="flex min-w-0 gap-2">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-card">
+                  <Icon className="size-3.5 text-muted-foreground" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-medium">
+                    {step.label}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {step.detail}
+                  </span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
+          {steps.map((step) => (
+            <div key={`${step.label}-action`}>{step.action}</div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function countValue(
   counts: BrainPilotReport["captures"]["counts"] | undefined,
   key: keyof BrainPilotReport["captures"]["counts"],
@@ -1692,6 +1886,8 @@ export default function SourcesRoute() {
   const [form, setForm] = useState<SourceFormState>(() => defaultForm("slack"));
   const [slackPilotReport, setSlackPilotReport] =
     useState<SlackPilotReport | null>(null);
+  const [slackConnectionReport, setSlackConnectionReport] =
+    useState<SlackConnectionResponse | null>(null);
   const [pilotReportSourceId, setPilotReportSourceId] = useState<string | null>(
     null,
   );
@@ -1736,6 +1932,10 @@ export default function SourcesRoute() {
     SlackPilotReport,
     { sourceId: string; readHistory: boolean; resolveNames: boolean }
   >("run-slack-pilot" as any);
+  const testSlackConnection = useActionMutation<
+    SlackConnectionResponse,
+    { sourceId: string; resolveNames: boolean }
+  >("test-slack-connection" as any);
   const pilotReportQuery = useActionQuery<BrainPilotReport>(
     "get-pilot-report" as any,
     { sourceId: pilotReportSourceId ?? "" } as any,
@@ -1898,6 +2098,14 @@ export default function SourcesRoute() {
     setSlackPilotReport(result);
   }
 
+  async function testSlackSource(source: BrainSource) {
+    const result = await testSlackConnection.mutateAsync({
+      sourceId: source.id,
+      resolveNames: true,
+    });
+    setSlackConnectionReport(result);
+  }
+
   function togglePilotReport(source: BrainSource) {
     setPilotReportSourceId((current) =>
       current === source.id ? null : source.id,
@@ -1940,7 +2148,7 @@ export default function SourcesRoute() {
       <PageHeader
         eyebrow="Sources"
         title="Source configuration"
-        description="Connect approved Slack channels, Granola notes, GitHub repos, Clips exports, and signed transcript feeds."
+        description="Connect approved Slack channels, Granola Team-space notes, GitHub repos, Clips exports, and signed transcript feeds using shared grants when available."
         actions={
           <div className="grid w-full gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:justify-end">
             <Select value={type} onValueChange={updateType}>
@@ -2115,28 +2323,6 @@ export default function SourcesRoute() {
                         : "Manual"}
                     </Badge>
                     <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                      {source.provider === "slack" ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={runSlackPilot.isPending}
-                            onClick={() => runSlackPilotReport(source, false)}
-                          >
-                            <IconShieldCheck className="size-4" />
-                            Pilot
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={runSlackPilot.isPending}
-                            onClick={() => runSlackPilotReport(source, true)}
-                          >
-                            <IconHistory className="size-4" />
-                            Pilot sync
-                          </Button>
-                        </>
-                      ) : null}
                       <Button
                         size="sm"
                         variant={
@@ -2188,6 +2374,21 @@ export default function SourcesRoute() {
                     </div>
                   </div>
 
+                  {source.provider === "slack" ? (
+                    <SlackPilotFlow
+                      source={source}
+                      testing={testSlackConnection.isPending}
+                      piloting={runSlackPilot.isPending}
+                      onTest={() => void testSlackSource(source)}
+                      onPilot={() => void runSlackPilotReport(source, true)}
+                      onReview={() => openCaptureReview(source)}
+                    />
+                  ) : null}
+
+                  {slackConnectionReport?.sourceId === source.id ? (
+                    <SlackConnectionReportCard report={slackConnectionReport} />
+                  ) : null}
+
                   {slackPilotReport?.sourceId === source.id ? (
                     <SlackPilotReportCard report={slackPilotReport} />
                   ) : null}
@@ -2211,7 +2412,7 @@ export default function SourcesRoute() {
           <div className="lg:col-span-3">
             <EmptyActionState
               title="Connect Brain's first source"
-              detail="Start with Slack channels for product decisions, Granola Team-space notes, Clips exports, or a signed webhook."
+              detail="Start with the demo, then add an approved Slack channel, Granola Team-space source, GitHub repo, Clips export, or signed webhook."
             />
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {providers.map((provider) => {
@@ -2242,6 +2443,7 @@ export default function SourcesRoute() {
         syncSource.isError ||
         syncDueSources.isError ||
         runSlackPilot.isError ||
+        testSlackConnection.isError ||
         enqueueCapturesDistillation.isError ||
         pilotReportQuery.isError ? (
           <div className="lg:col-span-3">
@@ -2264,7 +2466,7 @@ export default function SourcesRoute() {
             <SheetTitle>Review raw captures</SheetTitle>
             <SheetDescription>
               {reviewSource
-                ? `${sourceName(reviewSource)} inventory. Raw bodies stay hidden unless previews are enabled.`
+                ? `${sourceName(reviewSource)} inventory. Raw bodies stay hidden unless a reviewer enables previews.`
                 : "Review imported raw material before distillation."}
             </SheetDescription>
           </SheetHeader>
@@ -2432,7 +2634,7 @@ export default function SourcesRoute() {
                             ) : (
                               <p className="mt-2 text-xs leading-5 text-muted-foreground">
                                 Raw content hidden. Enable previews or open the
-                                source when review requires context.
+                                source only when review requires context.
                               </p>
                             )}
                             {queue ? (
@@ -2547,7 +2749,8 @@ export default function SourcesRoute() {
             </SheetTitle>
             <SheetDescription>
               Configure what Brain may ingest. Credentials stay in the workspace
-              credential store; this form only saves source rules.
+              credential store; this form only saves allow-lists, cursors, and
+              review rules.
             </SheetDescription>
           </SheetHeader>
 
@@ -2602,8 +2805,9 @@ export default function SourcesRoute() {
                       safest for pilots; names are resolved before validation.
                     </p>
                     <p>
-                      Scopes: channels:read and channels:history. Add
-                      groups:read and groups:history for private channels.
+                      Slack access should support auth.test,
+                      conversations.info/history, and chat.getPermalink. Add
+                      private-channel access when piloting private channels.
                     </p>
                   </div>
                 </div>

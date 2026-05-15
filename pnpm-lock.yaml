@@ -89,6 +89,9 @@ importers:
 
   packages/code-agents-ui:
     dependencies:
+      '@agent-native/core':
+        specifier: workspace:*
+        version: link:../core
       '@agent-native/shared-app-config':
         specifier: workspace:*
         version: link:../shared-app-config

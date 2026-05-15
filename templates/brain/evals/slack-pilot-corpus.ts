@@ -154,17 +154,56 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
       "https://slack.example.com/archives/CBRAINPILOT/p1778866800000800",
     tags: ["evals", "citations", "slack"],
   },
+  {
+    id: "dev-fusion-project-settings-revert",
+    title: "Project settings revert fixed with partial updates and deep merge",
+    summary:
+      "The project settings revert came from stale frontend values and PATCH /projects/:projectId replacing the whole settings object; the fix is partial frontend updates plus server-side deep merge.",
+    body: "The #dev-fusion review found the project settings revert happened because the frontend kept stale settings values and PATCH /projects/:projectId replaced the whole settings object. The durable fix is for the frontend to send partial settings updates and for the server to deep merge settings patches before persistence.",
+    quote:
+      "Project settings reverted because stale frontend values and PATCH /projects/:projectId replaced the whole settings object; fix with partial frontend updates and server-side deep merge.",
+    captureTitle: "#dev-fusion project settings revert RCA",
+    sourceUrl:
+      "https://slack.example.com/archives/CDEVFUSION/p1778870400000900",
+    tags: ["dev-fusion", "project-settings", "deep-merge", "patch"],
+  },
+  {
+    id: "dev-fusion-tanstack-compromise",
+    title: "Agent Native TanStack compromise review found no affected packages",
+    summary:
+      "Agent Native uses TanStack, but the TanStack compromise review concluded Agent Native did not use the affected packages; PR #673 added minimum package age and CI package pinning hardening.",
+    body: "The #dev-fusion Agent Native TanStack compromise review concluded that Agent Native does use TanStack, but it did not depend on the affected packages from the compromise. Follow-up hardening in PR #673 added minimum package age checks and CI package pinning so future installs are less exposed to dependency compromise windows.",
+    quote:
+      "Agent Native uses TanStack but not the affected packages; PR #673 hardened installs with minimum package age and CI package pinning.",
+    captureTitle: "#dev-fusion TanStack compromise review",
+    sourceUrl:
+      "https://slack.example.com/archives/CDEVFUSION/p1778874000001000",
+    tags: ["dev-fusion", "tanstack", "supply-chain", "pr-673"],
+  },
+  {
+    id: "dev-fusion-broad-status-distractor",
+    title: "Broad Fusion pilot status stayed informational",
+    summary:
+      "General Fusion pilot chatter should not outrank specific #dev-fusion memories about project settings or TanStack compromise hardening.",
+    body: "This broad Fusion status update says the Fusion pilot had several reviews, Slack follow-ups, and package discussions. It intentionally lacks the project settings revert fix and the TanStack compromise conclusion so evals can verify specific Brain memories rank above generic Fusion matches.",
+    quote:
+      "Broad Fusion pilot chatter is only background and should not outrank specific #dev-fusion decisions.",
+    captureTitle: "#dev-fusion broad pilot status",
+    sourceUrl:
+      "https://slack.example.com/archives/CDEVFUSION/p1778877600001100",
+    tags: ["dev-fusion", "fusion", "distractor"],
+  },
 ];
 
 export const slackPilotEvalCases: SlackPilotEvalCase[] = [
   {
     id: "reasoning-effort-control",
     kind: "answer",
-    question: "How should Brain control reasoning effort in the Slack pilot?",
+    question: "Medium reasoning effort Slack pilot control?",
     expectedTitle: "Reasoning effort control stays explicit in Brain pilots",
     requiredTerms: [
       "medium reasoning effort",
-      "deep debugging",
+      "deeper debugging",
       "routine summaries",
     ],
     notes: "Covers the pilot control for reasoning effort spend.",
@@ -251,11 +290,43 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
     notes: "Covers cited-answer behavior for the eval itself.",
   },
   {
+    id: "dev-fusion-project-settings-revert",
+    kind: "answer",
+    question: "Why did project settings revert in #dev-fusion?",
+    expectedTitle:
+      "Project settings revert fixed with partial updates and deep merge",
+    requiredTerms: [
+      "stale frontend values",
+      "PATCH /projects/:projectId",
+      "whole settings object",
+      "partial frontend updates",
+      "server-side deep merge",
+    ],
+    notes:
+      "Covers the durable #dev-fusion memory for project-settings revert root cause and fix.",
+  },
+  {
+    id: "dev-fusion-tanstack-compromise",
+    kind: "answer",
+    question: "Was Agent Native affected by the TanStack compromise?",
+    expectedTitle:
+      "Agent Native TanStack compromise review found no affected packages",
+    requiredTerms: [
+      "uses TanStack",
+      "not the affected packages",
+      "minimum package age",
+      "CI package pinning",
+      "PR #673",
+    ],
+    notes:
+      "Covers the durable #dev-fusion memory for TanStack compromise review and follow-up hardening.",
+  },
+  {
     id: "unsupported-office-catering",
     kind: "not-found",
-    question: "Which snack supplier replaced the lunch menu?",
+    question: "Which office snack supplier catered the Friday lunch?",
     requiredTerms: ["could not find"],
-    forbiddenTerms: ["supplier", "lunch menu", "replaced the lunch"],
+    forbiddenTerms: ["supplier", "Friday lunch", "catered"],
     notes: "Covers honest not-found behavior for absent corpus facts.",
   },
 ];

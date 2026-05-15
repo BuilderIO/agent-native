@@ -205,6 +205,7 @@ type CodeAgentFollowUpRequest = {
   goalId?: string;
   runId: string;
   prompt: string;
+  followUpMode?: "immediate" | "queued";
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -250,14 +251,15 @@ type CodeAgentTerminalResult = {
   error?: string;
 };
 
-type CodeAgentControlCommand = "resume" | "status" | "stop";
+type CodeAgentControlCommand = "resume" | "status" | "stop" | "approve";
 
 type CodeAgentHostControlCommand = CodeAgentControlCommand | "retry" | "rerun";
 
 type CodeAgentControlResult = {
   ok: boolean;
   command: CodeAgentControlCommand;
-  action?: "open-ui" | "refresh" | "none";
+  action?: "open-ui" | "refresh" | "none" | "select-run";
+  run?: CodeAgentRun;
   message: string;
   error?: string;
 };

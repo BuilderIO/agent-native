@@ -234,7 +234,7 @@ export interface CodeAgentTerminalResult {
   error?: string;
 }
 
-export type CodeAgentControlCommand = "resume" | "status" | "stop";
+export type CodeAgentControlCommand = "resume" | "status" | "stop" | "approve";
 
 export interface CodeAgentControlResult {
   ok: boolean;

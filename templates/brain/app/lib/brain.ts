@@ -752,6 +752,11 @@ export interface DemoEvalCheck {
 
 export interface DemoEvalResponse {
   seedId: string;
+  mode?: "product-demo" | "retrieval";
+  dataset?: string;
+  dataMode?: "workspace" | "seeded-fallback";
+  workspaceHadSupport?: boolean;
+  fallbackSeeded?: boolean;
   ok: boolean;
   passed: number;
   total: number;

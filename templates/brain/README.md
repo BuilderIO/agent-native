@@ -1,14 +1,14 @@
 # Agent-Native Brain
 
-Brain is a public first-party template for Company Brain: whole-company
-institutional memory for agents and humans. V1 ingests approved Slack channels,
-Clips recordings, Granola meeting notes, GitHub issues/PRs, and generic
-transcript/webhook payloads, then distills them into cited, reviewable
-SQL-backed knowledge.
+Brain is a public first-party template for Company Brain: cited institutional
+memory for agents and humans. It ingests approved Slack channels, Clips
+recordings, Granola Team-space notes, GitHub issues/PRs, and generic
+transcript/webhook payloads, then distills them into reviewable SQL-backed
+knowledge with source links.
 
 The product direction is intentionally Glean-shaped, but the shipped V1 is not a
 full enterprise search replacement. Brain starts with open-source company memory
-over distilled knowledge, then expands toward universal, permission-aware
+over reviewed knowledge, then expands toward universal, permission-aware
 workspace search.
 
 ## Version Direction
@@ -20,7 +20,7 @@ workspace search.
   use it as the broad first pass, then open records with `get-knowledge` or
   `get-capture`.
 - **V1.5 shared credentials:** reusable workspace connections let Brain source
-  sync reuse provider credentials granted from Dispatch or the workspace layer.
+  sync use provider credentials granted from Dispatch or the workspace layer.
 - **V2 platform direction:** federated search across apps and sources,
   permission-aware result ranking, and an expertise graph as a future/platform
   layer.
@@ -31,7 +31,11 @@ workspace search.
 
 - **Full-page company chat:** the Ask route is the main surface. It runs
   `AgentChatSurface` in page mode, shows source health and review count, and
-  includes Load demo / Run eval controls for launch demos.
+  includes Load demo / Run eval controls for first-run demos. Keep this route
+  on `AgentChatSurface` so Brain uses the same composer UX as the agent sidebar
+  and Agent-Native Code.
+- **Repeatable first-run demo:** seed product-decision sources, run the trust
+  eval, and ask a cited question before connecting a real workspace.
 - **Search and drill-in:** the Search route uses `search-everything` across
   knowledge, raw captures, and source records, then agents can open exact
   records with `get-knowledge` or `get-capture`.
@@ -49,13 +53,13 @@ workspace search.
 
 ## Brain vs Dispatch
 
-Brain is the company-memory specialist. It ingests sources, reviews captures,
-distills durable facts and decisions, and answers from citations.
+Brain is the company-memory specialist. It ingests approved sources, reviews
+captures, distills durable facts and decisions, and answers from citations.
 
-Dispatch is the workspace control plane. It owns central Slack/email/Telegram/
-WhatsApp messaging, the shared secrets vault, cross-app A2A routing, recurring
-jobs, and workspace-wide resources. In a workspace, Dispatch can route questions
-to Brain and grant Brain shared credentials, but Brain remains the place where
+Dispatch is the workspace control plane. It owns central messaging, the shared
+secrets vault, cross-app A2A routing, recurring jobs, approvals, and
+workspace-wide resources. In a workspace, Dispatch can route questions to Brain
+and grant Brain shared provider credentials, but Brain remains the place where
 company memory is ingested, reviewed, searched, and cited.
 
 ## Start
@@ -75,7 +79,7 @@ pnpm --filter brain build
 ## Core Flow
 
 1. Create a source with `create-source`.
-2. Run `sync-source` for Slack/Granola sources, import a transcript with
+2. Run `sync-source` for Slack/Granola/GitHub sources, import a transcript with
    `import-transcript`, import raw text with `import-capture`, or POST a signed
    `RawCapturePayload` to `/api/_agent-native/brain/ingest`.
 3. Review the raw capture inventory with `list-captures` or the Sources page,
@@ -127,6 +131,9 @@ Brain is scoped to company memory, not personal surveillance:
   connectors degrade.
 - `run-demo-eval` covers proposal gating, PII redaction, personal-content
   exclusion, citation presence, and honest not-found behavior.
+- `run-retrieval-eval` covers offline real-channel-style retrieval, using
+  existing workspace data when #dev-fusion/stale Fusion branch support is
+  already present and seeding fallback Slack-style data when absent.
 
 ## Slack Source Config
 
@@ -152,6 +159,19 @@ Useful config keys:
 - `autoSync` and `pollMinutes`: opt the source into background polling and set
   the cadence. Background polling runs when `RUN_BACKGROUND_JOBS=1` in dev, and
   by default in production unless `RUN_BACKGROUND_JOBS=0`.
+
+Slack scopes for the bot token should be the smallest set that supports the
+configured source:
+
+- `auth.test`: validate the token before any history read.
+- `conversations.info`: verify allow-listed conversations and reject DMs/MPIMs.
+- `conversations.history`: read message history from allow-listed channels.
+- `chat.getPermalink`: store durable citation links for each capture.
+- `conversations.list`: optional, only when a setup flow resolves channel names
+  instead of using channel IDs.
+
+Private channels require inviting the bot to the channel. Public channels may
+also require an explicit join/invite depending on the Slack app posture.
 
 Before reading real Slack history, run a credential/channel smoke test:
 
@@ -185,6 +205,22 @@ Pilot sync caps reads to two validated channels, one history page per channel,
 ten messages per page, ten permalinks, `autoSync: false`, and a recent default
 history window.
 
+For a production rollout, keep the first pass deliberately narrow:
+
+1. Create one Slack source for one or two high-signal channels, using channel
+   IDs where possible.
+2. Keep `autoSync: false` while testing and reviewing the first imported
+   captures.
+3. Run `test-slack-connection`, then `run-slack-pilot` without `readHistory`.
+4. If the report is clean, run one tiny `run-slack-pilot --readHistory true`
+   sample.
+5. Review imported captures with previews only when needed; mark social,
+   personal, or thin messages ignored.
+6. Distill only durable company context, approve proposal-gated memories, and
+   confirm `ask-brain` cites the expected Slack permalinks.
+7. Expand the page/window manually with bounded `sync-source` runs before
+   turning on `autoSync`.
+
 After the first sample succeeds, review capture inventory before distillation:
 
 ```bash
@@ -215,6 +251,13 @@ The Sources page exposes the same review inventory from each source card. Open
 **Captures** to inspect queued records, enable short previews only when needed,
 queue distillation for durable context, see whether a capture is waiting on the
 distillation worker, or mark non-company material ignored.
+
+For Slack sources, the source card presents the recommended pilot path as a
+minimal four-step flow: **Test** validates credentials and the allow-list
+without history reads, **Safe pilot** imports a tiny capped sample,
+**Review captures** opens the raw inventory, and **Review queue** takes
+reviewers to proposal approval before memories become durable company
+knowledge.
 
 Distillation has two worker paths. When a Brain tab is open, the app shell
 claims queued items with `claim-distillation` and hands them to the app agent in
@@ -312,6 +355,16 @@ needs repair, or metadata only. Use Dispatch to connect or grant reusable
 workspace credentials, then create Brain sources against those providers
 without copying secret values into the Brain app.
 
+The boundary is intentional:
+
+- Dispatch or the workspace layer owns shared provider account metadata,
+  credential ref names, and per-app grants.
+- The vault owns the secret values.
+- Brain owns source-specific choices: Slack channel IDs, GitHub repositories,
+  Granola polling windows, sync cursors, review posture, and distillation state.
+- Agents should inspect shared connection readiness first, then ask for a Brain
+  grant or source config instead of asking for another raw provider token.
+
 ## Scheduled Sync
 
 Use `sync-source` to run one source immediately, or `sync-due-sources` to run
@@ -385,6 +438,31 @@ pnpm --filter brain action run-demo-eval
 The eval checks product-decision recall, citation presence, supersede links,
 proposal gating, PII redaction, and personal-content exclusion. The Ask page
 also exposes **Load demo** and **Run eval** controls for template demos.
+
+Run the real-channel-style retrieval eval:
+
+```bash
+pnpm --filter brain action run-retrieval-eval
+```
+
+This eval checks #dev-fusion stale Fusion branch retrieval, Slack-style citation
+presence, branch-safety terms, and an unsupported cleanup-cron not-found case.
+It evaluates existing workspace data first; if the answer cases do not have
+citation-backed support and `seedIfMissing` is true, it seeds a tiny portable SQL
+fallback corpus and re-runs the checks. The same eval is available through
+`run-demo-eval` with `mode: "retrieval"`.
+
+CI and `pnpm prep` run the deterministic action evals through the repository
+script:
+
+```bash
+pnpm test:brain-evals
+```
+
+That command uses a disposable local SQLite database at
+`templates/brain/data/brain-evals-ci.db`, seeds any missing demo/fallback
+fixtures, and removes the database when it exits. It does not call Slack,
+Granola, Clips, or any external service.
 
 The Slack pilot regression set lives in
 `templates/brain/evals/slack-pilot-corpus.ts`. It contains redacted pilot

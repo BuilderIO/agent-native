@@ -2,11 +2,12 @@ import { defineAction } from "@agent-native/core";
 import { listWorkspaceConnectionProvidersForTemplate } from "@agent-native/core/connections";
 import { getCredentialContext } from "@agent-native/core/server";
 import {
-  getWorkspaceConnectionAppAccess,
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
+  summarizeWorkspaceConnectionProviderForApp,
   type SerializedWorkspaceConnectionGrant,
   type SerializedWorkspaceConnection,
+  type WorkspaceConnectionProviderAppSummary,
 } from "@agent-native/core/workspace-connections";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, ne } from "drizzle-orm";
@@ -26,145 +27,6 @@ const SUPPORTED_SOURCE_PROVIDERS = new Set([
   "granola",
   "github",
 ]);
-
-function serializeCredentialRef(
-  ref: { key: string; scope?: string; provider?: string; label?: string },
-  source: "connection" | "grant",
-) {
-  return {
-    key: ref.key,
-    scope: ref.scope,
-    provider: ref.provider,
-    label: ref.label,
-    source,
-  };
-}
-
-function serializeConnectionForProvider(
-  connection: SerializedWorkspaceConnection,
-  grants: SerializedWorkspaceConnectionGrant[],
-) {
-  const explicitGrant = grants.find(
-    (grant) => grant.connectionId === connection.id,
-  );
-  const appAccess = getWorkspaceConnectionAppAccess(connection, APP_ID, grants);
-  return {
-    id: connection.id,
-    label: connection.label,
-    provider: connection.provider,
-    accountId: connection.accountId,
-    accountLabel: connection.accountLabel,
-    status: connection.status,
-    grantedToApp: appAccess.available,
-    grantScope:
-      connection.allowedApps.length === 0 ? "all-apps" : "selected-apps",
-    appAccess,
-    allowedApps: connection.allowedApps,
-    credentialRefs: connection.credentialRefs.map((ref) =>
-      serializeCredentialRef(ref, "connection"),
-    ),
-    lastCheckedAt: connection.lastCheckedAt,
-    lastError: connection.lastError,
-    explicitGrant: explicitGrant
-      ? {
-          id: explicitGrant.id,
-          appId: explicitGrant.appId,
-          scopes: explicitGrant.scopes,
-          credentialRefs: explicitGrant.credentialRefs.map((ref) =>
-            serializeCredentialRef(ref, "grant"),
-          ),
-          updatedAt: explicitGrant.updatedAt,
-        }
-      : null,
-  };
-}
-
-function grantAvailabilityMessage(
-  grantState: "connected" | "granted" | "needs_grant" | "not_connected",
-  providerId: string,
-) {
-  switch (grantState) {
-    case "connected":
-      return `Brain has an active ${providerId} workspace connection.`;
-    case "granted":
-      return `Brain has ${providerId} access, but the granted connection is not connected yet.`;
-    case "needs_grant":
-      return `A ${providerId} workspace connection exists; grant Brain access to reuse it.`;
-    case "not_connected":
-    default:
-      return `No shared ${providerId} workspace connection is available yet.`;
-  }
-}
-
-function workspaceSummaryForProvider(
-  providerId: string,
-  connections: SerializedWorkspaceConnection[],
-  grants: SerializedWorkspaceConnectionGrant[],
-) {
-  const allConnections = connections.filter(
-    (connection) => connection.provider === providerId,
-  );
-  const grantedConnections = allConnections.filter(
-    (connection) =>
-      getWorkspaceConnectionAppAccess(connection, APP_ID, grants).available,
-  );
-  const connectedConnections = grantedConnections.filter(
-    (connection) => connection.status === "connected",
-  );
-  const ungrantedConnectionCount =
-    allConnections.length - grantedConnections.length;
-  const unhealthyGrantedConnectionCount =
-    grantedConnections.length - connectedConnections.length;
-  const activeStatuses = new Set(
-    allConnections.map((connection) => connection.status),
-  );
-  const credentialRefCount = allConnections.reduce((count, connection) => {
-    const grant = grants.find((entry) => entry.connectionId === connection.id);
-    return (
-      count +
-      connection.credentialRefs.length +
-      (grant?.credentialRefs.length ?? 0)
-    );
-  }, 0);
-  const grantState = connectedConnections.length
-    ? ("connected" as const)
-    : grantedConnections.length
-      ? ("granted" as const)
-      : allConnections.length
-        ? ("needs_grant" as const)
-        : ("not_connected" as const);
-  const explicitGrantCount = allConnections.reduce(
-    (count, connection) =>
-      grants.some((grant) => grant.connectionId === connection.id)
-        ? count + 1
-        : count,
-    0,
-  );
-
-  return {
-    appId: APP_ID,
-    grantState,
-    grantAvailability:
-      grantState === "connected" || grantState === "granted"
-        ? "available"
-        : grantState,
-    grantAvailabilityMessage: grantAvailabilityMessage(grantState, providerId),
-    connectionCount: allConnections.length,
-    grantedConnectionCount: grantedConnections.length,
-    activeConnectionCount: connectedConnections.length,
-    ungrantedConnectionCount,
-    unhealthyGrantedConnectionCount,
-    explicitGrantCount,
-    credentialRefCount,
-    hasWorkspaceConnection: allConnections.length > 0,
-    hasGrantedWorkspaceConnection: grantedConnections.length > 0,
-    hasActiveWorkspaceConnection: connectedConnections.length > 0,
-    statuses: [...activeStatuses],
-    connections: allConnections.map((connection) =>
-      serializeConnectionForProvider(connection, grants),
-    ),
-  };
-}
 
 async function credentialHealthForProvider(
   provider: ReturnType<
@@ -243,7 +105,7 @@ function providerHealthForProvider({
 }: {
   credentialHealth: Awaited<ReturnType<typeof credentialHealthForProvider>>;
   sourceProviderSupported: boolean;
-  workspace: ReturnType<typeof workspaceSummaryForProvider>;
+  workspace: WorkspaceConnectionProviderAppSummary;
 }) {
   if (!sourceProviderSupported) {
     return {
@@ -340,11 +202,14 @@ export default defineAction({
           const sourceProviderSupported = SUPPORTED_SOURCE_PROVIDERS.has(
             provider.id,
           );
-          const workspaceConnection = workspaceSummaryForProvider(
-            provider.id,
-            workspace.connections,
-            workspace.grants,
-          );
+          const workspaceConnection =
+            summarizeWorkspaceConnectionProviderForApp({
+              providerId: provider.id,
+              appId: APP_ID,
+              connections: workspace.connections,
+              grants: workspace.grants,
+              includeConnections: "all",
+            });
           const credentialHealth = await credentialHealthForProvider(provider);
           return {
             id: provider.id,

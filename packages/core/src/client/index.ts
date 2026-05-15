@@ -177,6 +177,7 @@ export {
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
 } from "./composer/PromptComposer.js";
+export type { TiptapComposerHandle } from "./composer/TiptapComposer.js";
 export {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,

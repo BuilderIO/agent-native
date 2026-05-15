@@ -12,6 +12,7 @@ import {
   serializeDistillationQueue,
   stableJson,
 } from "../server/lib/brain.js";
+import { redactSensitiveText } from "../server/lib/search.js";
 import { optionalJsonRecordSchema, stringArrayCliSchema } from "./_schemas.js";
 
 type BrainAgentGuidance = Awaited<
@@ -46,7 +47,8 @@ async function writeDistillationRequest(values: {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
+  return redactSensitiveText(message);
 }
 
 async function enqueueOneCapture(values: {

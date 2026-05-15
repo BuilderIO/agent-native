@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type Ref,
+  type ReactNode,
 } from "react";
 import {
   AssistantRuntimeProvider,
@@ -29,7 +30,7 @@ import { IconX } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { TiptapComposer, type TiptapComposerHandle } from "./TiptapComposer.js";
 import type { Reference } from "./types.js";
-import { useChatModels } from "../use-chat-models.js";
+import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
@@ -75,6 +76,24 @@ export interface PromptComposerProps {
   voiceEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
+  /**
+   * Controls the shared "+" affordance. Defaults to upload-only for standalone
+   * prompt forms; chat surfaces can opt into the full sidebar menu.
+   */
+  plusMenuMode?: "full" | "upload-only" | "hidden";
+  /** Programmatically seed the composer with plain text. */
+  initialText?: string;
+  /** Stable key used to re-apply `initialText` when the host picks a preset. */
+  initialTextKey?: string | number;
+  /** Optional host-owned control rendered directly after the "+" button. */
+  modeControl?: ReactNode;
+  /** External model list for hosts that already resolve models outside the app. */
+  availableModels?: EngineModelGroup[];
+  selectedModel?: string;
+  selectedEngine?: string;
+  selectedEffort?: ReasoningEffort;
+  onModelChange?: (model: string, engine: string) => void;
+  onEffortChange?: (effort: ReasoningEffort) => void;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
   /** Imperative handle for focusing the composer. */
@@ -304,7 +323,7 @@ function AttachmentChip({
           type="button"
           onClick={() => setPreviewOpen(true)}
           aria-label={`Preview ${attachment.name}`}
-          className="group relative flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
+          className="agent-composer-attachment-image group relative flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
         >
           <img
             src={src}
@@ -343,7 +362,7 @@ function AttachmentChip({
   }
 
   return (
-    <div className="group relative inline-flex max-w-[200px] items-center gap-2 rounded-md border border-border/70 bg-muted/50 px-2 py-1.5 text-xs">
+    <div className="agent-composer-attachment-chip group relative inline-flex max-w-[200px] items-center gap-2 rounded-md border border-border/70 bg-muted/50 px-2 py-1.5 text-xs">
       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-background text-[9px] font-semibold uppercase text-muted-foreground">
         {attachment.name.split(".").pop() || "file"}
       </div>
@@ -373,7 +392,7 @@ function PromptAttachmentStrip() {
 
   if (attachments.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-2 px-2 pt-2">
+    <div className="agent-composer-attachment-strip flex flex-wrap gap-2 px-2 pt-2">
       {attachments.map((attachment) => (
         <AttachmentChip
           key={attachment.id}
@@ -396,12 +415,40 @@ function PromptComposerInner({
   showModelSelector = true,
   voiceEnabled = true,
   attachmentsEnabled = true,
+  plusMenuMode,
+  initialText,
+  initialTextKey,
+  modeControl,
+  availableModels,
+  selectedModel,
+  selectedEngine,
+  selectedEffort,
+  onModelChange,
+  onEffortChange,
   onTextChange,
   composerRef,
 }: PromptComposerProps) {
   const localRef = useRef<TiptapComposerHandle>(null);
   const handleRef = composerRef ?? localRef;
   const models = useChatModels();
+  const composerModel = showModelSelector
+    ? (selectedModel ?? models.selectedModel)
+    : undefined;
+  const composerEngine = showModelSelector
+    ? (selectedEngine ?? models.selectedEngine)
+    : undefined;
+  const composerEffort = showModelSelector
+    ? (selectedEffort ?? models.selectedEffort)
+    : undefined;
+  const composerModelGroups = showModelSelector
+    ? (availableModels ?? models.availableModels)
+    : undefined;
+  const handleModelChange = showModelSelector
+    ? (onModelChange ?? models.onModelChange)
+    : undefined;
+  const handleEffortChange = showModelSelector
+    ? (onEffortChange ?? models.onEffortChange)
+    : undefined;
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -432,18 +479,12 @@ function PromptComposerInner({
         attachments,
       });
       onSubmit(finalText, files, references, {
-        model: showModelSelector ? models.selectedModel : undefined,
-        engine: showModelSelector ? models.selectedEngine : undefined,
-        effort: showModelSelector ? models.selectedEffort : undefined,
+        model: composerModel,
+        engine: composerEngine,
+        effort: composerEffort,
       });
     },
-    [
-      models.selectedEffort,
-      models.selectedEngine,
-      models.selectedModel,
-      onSubmit,
-      showModelSelector,
-    ],
+    [composerEffort, composerEngine, composerModel, onSubmit],
   );
 
   return (
@@ -459,19 +500,22 @@ function PromptComposerInner({
           focusRef={handleRef}
           disabled={disabled}
           placeholder={placeholder}
+          initialText={initialText}
+          initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
           clearOnSubmit={!preserveDraftOnSubmit}
-          plusMenuMode={attachmentsEnabled ? "upload-only" : "hidden"}
+          plusMenuMode={
+            plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
+          }
+          modeControl={modeControl}
           voiceEnabled={voiceEnabled}
           onTextChange={onTextChange}
           draftScope={draftScope}
-          selectedModel={showModelSelector ? models.selectedModel : undefined}
-          selectedEffort={showModelSelector ? models.selectedEffort : undefined}
-          availableModels={
-            showModelSelector ? models.availableModels : undefined
-          }
-          onModelChange={showModelSelector ? models.onModelChange : undefined}
-          onEffortChange={showModelSelector ? models.onEffortChange : undefined}
+          selectedModel={composerModel}
+          selectedEffort={composerEffort}
+          availableModels={composerModelGroups}
+          onModelChange={handleModelChange}
+          onEffortChange={handleEffortChange}
         />
       </ComposerPrimitive.Root>
     </div>

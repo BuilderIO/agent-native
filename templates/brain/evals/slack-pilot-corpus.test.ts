@@ -321,7 +321,7 @@ beforeEach(resetRows);
 
 describe("Brain Slack pilot eval corpus", () => {
   it("covers the real pilot follow-up topics with a durable question set", () => {
-    expect(slackPilotEvalCases).toHaveLength(10);
+    expect(slackPilotEvalCases).toHaveLength(12);
     expect(slackPilotEvalCases.map((item) => item.id)).toEqual([
       "reasoning-effort-control",
       "fusion-missing-branch-pr-13340",
@@ -332,6 +332,8 @@ describe("Brain Slack pilot eval corpus", () => {
       "honest-not-found-policy",
       "personal-asides-exclusion",
       "pilot-eval-citations",
+      "dev-fusion-project-settings-revert",
+      "dev-fusion-tanstack-compromise",
       "unsupported-office-catering",
     ]);
   });
@@ -339,7 +341,7 @@ describe("Brain Slack pilot eval corpus", () => {
   it("passes against Brain search and cited-answer actions without network access", async () => {
     const report = await runSlackPilotCorpusEval({
       search: async (question) =>
-        searchEverythingRows({ query: question, limit: 8 }),
+        searchEverythingRows({ query: question, limit: 16 }),
       answer: async (question) =>
         askBrainAction.run({ question, mode: "cited" }),
     });
@@ -347,15 +349,101 @@ describe("Brain Slack pilot eval corpus", () => {
     expect(report.checks.filter((check) => !check.passed)).toEqual([]);
     expect(report).toMatchObject({
       ok: true,
-      passed: 10,
-      total: 10,
+      passed: 12,
+      total: 12,
       score: 1,
     });
   });
 
+  it("ranks the #dev-fusion project settings memory above broad Fusion chatter", async () => {
+    const results = await searchEverythingRows({
+      query: "Why did project settings revert in #dev-fusion?",
+      limit: 8,
+    });
+    const titles = results.map((result) => result.title);
+
+    expect(
+      titles.indexOf(
+        "Project settings revert fixed with partial updates and deep merge",
+      ),
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      titles.indexOf("Broad Fusion pilot status stayed informational"),
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      titles.indexOf(
+        "Project settings revert fixed with partial updates and deep merge",
+      ),
+    ).toBeLessThan(
+      titles.indexOf("Broad Fusion pilot status stayed informational"),
+    );
+
+    const answer = await askBrainAction.run({
+      question: "Why did project settings revert in #dev-fusion?",
+      mode: "cited",
+    });
+    const haystack = [
+      answer.answer,
+      ...answer.citations.flatMap((citation) => [
+        citation.title,
+        citation.excerpt,
+        citation.url,
+      ]),
+    ].join("\n");
+
+    expect(haystack).toContain("stale frontend values");
+    expect(haystack).toContain("PATCH /projects/:projectId");
+    expect(haystack).toContain("server-side deep merge");
+    expect(haystack).not.toContain("Broad Fusion pilot status");
+  });
+
+  it("ranks the #dev-fusion TanStack compromise memory above broad Fusion chatter", async () => {
+    const results = await searchEverythingRows({
+      query: "Was Agent Native affected by the TanStack compromise?",
+      limit: 8,
+    });
+    const titles = results.map((result) => result.title);
+
+    expect(
+      titles.indexOf(
+        "Agent Native TanStack compromise review found no affected packages",
+      ),
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      titles.indexOf("Broad Fusion pilot status stayed informational"),
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      titles.indexOf(
+        "Agent Native TanStack compromise review found no affected packages",
+      ),
+    ).toBeLessThan(
+      titles.indexOf("Broad Fusion pilot status stayed informational"),
+    );
+
+    const answer = await askBrainAction.run({
+      question: "Was Agent Native affected by the TanStack compromise?",
+      mode: "cited",
+    });
+    const haystack = [
+      answer.answer,
+      ...answer.citations.flatMap((citation) => [
+        citation.title,
+        citation.excerpt,
+        citation.url,
+      ]),
+    ].join("\n");
+
+    expect(haystack).toContain("uses TanStack");
+    expect(haystack).toContain("not the affected packages");
+    expect(haystack).toContain("minimum package age");
+    expect(haystack).toContain("CI package pinning");
+    expect(haystack).toContain("PR #673");
+    expect(haystack).not.toContain("Broad Fusion pilot status");
+  });
+
   it("keeps absent pilot facts honest instead of inventing citations", async () => {
     const result = await askBrainAction.run({
-      question: "Which snack supplier replaced the lunch menu?",
+      question: "Which office snack supplier catered the Friday lunch?",
       mode: "cited",
     });
 

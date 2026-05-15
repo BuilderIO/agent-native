@@ -1,36 +1,36 @@
 ---
 title: "Workspace Connections"
-description: "Shared provider metadata for connect-once-use-everywhere integrations."
+description: "Shared provider metadata, grants, and credential refs for connect-once-use-everywhere integrations."
 ---
 
 # Workspace Connections
 
 Workspace connections are the framework path toward "connect once, grant apps,
-use everywhere" integrations. The workspace/Dispatch layer records a provider
-account once, grants apps such as Brain, Analytics, Mail, and Dispatch access,
-and lets each app's agent see the same safe integration metadata before asking
-for another credential.
+use everywhere" integrations. The workspace/Dispatch layer records provider
+accounts once, grants apps such as Brain, Analytics, Mail, and Dispatch access,
+and lets each app's UI and agent inspect safe integration metadata before
+asking for another credential.
 
 They have two shared pieces:
 
-- A typed provider catalog that templates can import to describe the external
+- A typed provider catalog that templates import to describe the external
   systems they understand.
 - A scoped SQL store for connected accounts plus per-app grants, so Dispatch or
-  another workspace setup flow can connect Slack, GitHub, Google Drive, or
-  another provider once and then grant individual apps access to that
-  connection.
+  another workspace setup flow can connect Slack, GitHub, Google Drive, Granola,
+  or another provider once and then grant individual apps access.
 
 The store records provider ids, account labels, non-secret config, credential
-reference names, health state, and grant rows. It does not run OAuth or return
-secret values. Secret values stay in the credential vault and are resolved by
-actions at execution time from the request's user/org/workspace scope.
+reference names, health state, and grant rows. It does not run OAuth and never
+returns secret values. Secret values stay in the credential vault and are
+resolved by actions at execution time from the request's user/org/workspace
+scope.
 
 Dispatch exposes the first control-plane implementation through the
 `list-workspace-connections`, `upsert-workspace-connection`, and
 `set-workspace-connection-grant` actions. App-specific actions then consume the
 same records. Brain uses `list-connection-providers`; Analytics uses
 `data-source-status`; future apps should expose the same kind of readiness
-summary rather than asking users for duplicate provider keys.
+summary before asking users for duplicate provider keys.
 
 ## Provider Catalog
 
@@ -74,7 +74,10 @@ Import the shared store from `@agent-native/core/workspace-connections`:
 
 ```ts
 import {
+  listWorkspaceConnectionGrants,
   listWorkspaceConnections,
+  summarizeWorkspaceConnectionProviderForApp,
+  summarizeWorkspaceConnectionProviderReadiness,
   upsertWorkspaceConnection,
   upsertWorkspaceConnectionGrant,
   revokeWorkspaceConnectionGrant,
@@ -93,8 +96,21 @@ await upsertWorkspaceConnectionGrant({
   appId: "dispatch",
 });
 
-const dispatchConnections = await listWorkspaceConnections({
-  appId: "dispatch",
+const connections = await listWorkspaceConnections({ includeDisabled: true });
+const grants = await listWorkspaceConnectionGrants({ appId: "brain" });
+
+const appGrant = summarizeWorkspaceConnectionProviderForApp({
+  providerId: "slack",
+  appId: "brain",
+  connections,
+  grants,
+});
+
+const readiness = summarizeWorkspaceConnectionProviderReadiness({
+  provider: slack!,
+  appId: "brain",
+  connections,
+  grants,
 });
 ```
 
@@ -119,6 +135,14 @@ personal scopes cannot.
 Use `revokeWorkspaceConnectionGrant(connectionId, appId)` to remove an explicit
 grant. Revoking a grant does not change legacy `allowedApps`; if the app is
 still listed there, the connection remains available to that app.
+
+Use `summarizeWorkspaceConnectionProviderForApp()` and
+`summarizeWorkspaceConnectionProviderReadiness()` for app-facing status instead
+of hand-rolling grant checks. The shared summaries return the stable contract
+used by Brain, Analytics, and Dispatch: `grantState`, `grantAvailability`,
+safe credential ref names, per-app connection rows, counts for granted/active
+connections, and readiness fields such as `readyConnectionCount` and
+`missingRequiredCredentialKeys`.
 
 ## How This Complements The Vault
 
@@ -158,6 +182,43 @@ granted shared connection when one exists. If a connection exists with
 `needs_grant`, ask for that app grant instead of asking the user to paste a new
 secret.
 
+## Minimal Onboarding Flow
+
+Use a connect-once flow before app-specific source setup:
+
+1. Connect the provider account in Dispatch or the workspace integrations
+   surface.
+2. Store safe metadata and credential ref names only; put secret values in the
+   vault.
+3. Grant only the apps that need the provider, such as Brain, Analytics, Mail,
+   or Dispatch.
+4. In each app, create the app-local source or data source with only the
+   provider-specific choices it owns: channels, repositories, polling windows,
+   filters, cursors, or sync cadence.
+5. Agents inspect readiness and grants before asking for new credentials.
+
+This keeps the UX clean: users connect Slack, GitHub, HubSpot, Google Drive,
+Granola, and similar providers once, then choose which apps may use that
+connection without duplicating secrets or scattering account setup across every
+template.
+
+### Dispatch to Brain Slack happy path
+
+For Slack, Dispatch can represent the shared account with:
+
+- `provider: "slack"`
+- safe account metadata such as `accountId`, `accountLabel`, scopes, channel
+  hints, or team URLs in `config`
+- credential refs such as `{ key: "SLACK_BOT_TOKEN", scope: "org" }`
+- either `allowedApps: []` for all apps or an explicit
+  `workspace_connection_grants` row for `appId: "brain"`
+
+Brain then reads the same grant metadata through `list-connection-providers`
+and resolves the token from the vault at execution time. The Brain source
+resolver checks granted workspace connection refs before Brain-local credentials
+or registered vault secrets, and it intentionally does not fall back to raw
+deployment env vars like `process.env.SLACK_BOT_TOKEN`.
+
 ## App Readiness Pattern
 
 Apps that consume shared provider credentials should expose a read-only
@@ -167,7 +228,12 @@ readiness action and a small setup surface:
   uses, and required credential key names from `@agent-native/core/connections`.
 - **Workspace summary:** connection count, active/granted counts, connection
   statuses, grant state, credential ref names, and non-secret account labels
-  from `@agent-native/core/workspace-connections`.
+  from `@agent-native/core/workspace-connections`. Use
+  `summarizeWorkspaceConnectionProviderForApp()` for this shape.
+- **Provider readiness:** use
+  `summarizeWorkspaceConnectionProviderReadiness()` when the UI needs the
+  provider-level `ready`, `needs_credentials`, `needs_attention`, `checking`,
+  `disabled`, or `not_configured` status.
 - **Credential health:** whether required keys can be resolved without exposing
   values.
 - **Source state:** app-local configured sources, cursors, sync status, and
@@ -178,7 +244,8 @@ workspace connection providers beside Brain source records, labels grant states
 as `connected`, `granted`, `needs_grant`, or `not_connected`, and shows provider
 health as ready, missing keys, grant needed, needs repair, or metadata only.
 That lets a Brain user create Slack, Granola, GitHub, Clips, generic, or manual
-sources with a clear signal about whether the shared credential path is ready.
+sources with a clear signal about whether the shared credential path is ready,
+grantable, scoped locally, or missing.
 
 ## Path To Connect Once, Use Everywhere
 

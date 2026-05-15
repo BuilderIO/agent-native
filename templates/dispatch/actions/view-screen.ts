@@ -102,6 +102,7 @@ export default defineAction({
             label: provider.label,
             capabilities: provider.capabilities,
             recommendedTemplateUses: provider.recommendedTemplateUses,
+            readiness: provider.readiness,
           })),
           connections: integrations.connections.map((connection) => ({
             id: connection.id,

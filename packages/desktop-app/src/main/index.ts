@@ -27,7 +27,6 @@ import {
   type CodeAgentUpdateRunResult,
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
-  type CodeAgentMigrationRun,
   type CodeAgentPromptAttachment,
   type CodeAgentRetryRunResult,
   type CodeAgentRerunResult,
@@ -391,7 +390,10 @@ async function handleDeepLink(url: string) {
         });
       } else if (targetGoal) {
         sendOpenRequestToRenderer({
-          app: targetApp ?? targetGoal.appId,
+          app:
+            targetGoal.surfaceKind === "native"
+              ? CODE_AGENTS_SURFACE_ID
+              : (targetApp ?? targetGoal.appId),
           goalId: targetGoal.id,
           runId,
         });
@@ -788,109 +790,6 @@ function resetActiveWebviewZoom() {
   const target = getActiveWebviewContents();
   if (!target) return;
   target.setZoomLevel(0);
-}
-
-function buildAppEndpointUrl(appConfig: AppConfig, endpointPath: string) {
-  const baseUrl = resolveAppBaseUrl(appConfig);
-  if (!baseUrl) return null;
-  try {
-    const url = new URL(baseUrl);
-    const basePath = url.pathname.replace(/\/$/, "");
-    const endpoint = endpointPath.startsWith("/")
-      ? endpointPath
-      : `/${endpointPath}`;
-    url.pathname = `${basePath}${endpoint}`;
-    url.search = "";
-    url.hash = "";
-    return url;
-  } catch {
-    return null;
-  }
-}
-
-async function getCookieHeaderForApp(
-  appConfig: AppConfig,
-  url: URL,
-): Promise<string> {
-  const sess = session.fromPartition(`persist:app-${appConfig.id}`);
-  const cookies = await sess.cookies.get({ url: url.toString() });
-  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
-}
-
-function normalizeMigrationRun(raw: unknown): CodeAgentMigrationRun | null {
-  if (!raw || typeof raw !== "object") return null;
-  const row = raw as Record<string, unknown>;
-  const id = typeof row.id === "string" ? row.id : "";
-  if (!id) return null;
-  const phase = typeof row.phase === "string" ? row.phase : "discover";
-  const approved = Boolean(row.approved);
-  const taskCount = Number(row.taskCount ?? 0);
-  const passedTaskCount = Number(row.passedTaskCount ?? 0);
-  const failedTaskCount = Number(row.failedTaskCount ?? 0);
-  const createdAt =
-    typeof row.createdAt === "string"
-      ? row.createdAt
-      : new Date().toISOString();
-  const updatedAt =
-    typeof row.updatedAt === "string"
-      ? row.updatedAt
-      : new Date().toISOString();
-  const sourceRoot = typeof row.sourceRoot === "string" ? row.sourceRoot : "";
-  const outputRoot = typeof row.outputRoot === "string" ? row.outputRoot : "";
-  const target = typeof row.target === "string" ? row.target : "agent-native";
-  const progressPercent =
-    taskCount > 0 ? Math.round((passedTaskCount / taskCount) * 100) : 0;
-  return {
-    id,
-    goalId: "migrate",
-    title: typeof row.name === "string" && row.name ? row.name : id,
-    subtitle: sourceRoot || undefined,
-    status: mapMigrationPhaseToCodeAgentStatus(phase, approved),
-    needsApproval: phase === "approve" && !approved,
-    progress: {
-      label: "Task sweep",
-      completed: passedTaskCount,
-      total: taskCount,
-      failed: failedTaskCount,
-      percent: progressPercent,
-    },
-    details: [
-      { label: "Source", value: sourceRoot },
-      { label: "Output", value: outputRoot },
-      { label: "Target", value: target },
-    ].filter((detail) => detail.value.length > 0),
-    metadata: {
-      sourceRoot,
-      outputRoot,
-      target,
-      taskCount,
-      passedTaskCount,
-      failedTaskCount,
-    },
-    name: typeof row.name === "string" && row.name ? row.name : id,
-    sourceRoot,
-    outputRoot,
-    target,
-    phase,
-    approved,
-    taskCount,
-    passedTaskCount,
-    failedTaskCount,
-    createdAt,
-    updatedAt,
-  };
-}
-
-function mapMigrationPhaseToCodeAgentStatus(
-  phase: string,
-  approved: boolean,
-): CodeAgentMigrationRun["status"] {
-  if (phase === "complete") return "completed";
-  if (phase === "approve" && !approved) return "needs-approval";
-  if (phase === "verify" || phase === "sweep" || phase === "scaffold") {
-    return "running";
-  }
-  return "queued";
 }
 
 function codeAgentStoreRoot(): string {
@@ -1647,6 +1546,134 @@ function spawnCodeAgentRunner(
   }
 }
 
+function spawnCodeAgentApprovalRunner(
+  runId: string,
+  cwd: string,
+): CodeAgentControlResult {
+  if (activeCodeAgentProcesses.has(runId)) {
+    return {
+      ok: true,
+      command: "approve",
+      action: "refresh",
+      message: "This Agent-Native Code run already has an active process.",
+    };
+  }
+  const repoRoot = resolveRepositoryRoot(cwd);
+  const runRecord = readCodeAgentRunRecord(runId);
+  const normalizedPermissionMode =
+    readCodeAgentPermissionMode(runRecord) ??
+    DEFAULT_CODE_AGENT_PERMISSION_MODE;
+  const localCli = path.join(repoRoot, "packages/core/dist/cli/index.js");
+  const command = fs.existsSync(localCli) ? "node" : "pnpm";
+  const args = fs.existsSync(localCli)
+    ? [path.relative(repoRoot, localCli), "code", "approve", runId]
+    : [
+        "--filter",
+        "@agent-native/core",
+        "exec",
+        "node",
+        "dist/cli/index.js",
+        "code",
+        "approve",
+        runId,
+      ];
+
+  try {
+    const child = spawn(command, args, {
+      cwd: repoRoot,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+        AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+      },
+    });
+    const runnerStartedAt = new Date().toISOString();
+    const runnerCommand = `${command} ${args.join(" ")}`;
+    activeCodeAgentProcesses.set(runId, {
+      pid: child.pid,
+      command: runnerCommand,
+      cwd: repoRoot,
+      startedAt: runnerStartedAt,
+      permissionMode: normalizedPermissionMode,
+    });
+    appendCodeAgentStatusEvent(runId, "Approval requested from Desktop.", {
+      source: "desktop",
+      command: "approve",
+    });
+    touchCodeAgentRunRecord(runId, {
+      status: "running",
+      phase: "approval-running",
+      metadata: {
+        approvalRunnerPid: child.pid,
+        approvalRunnerCommand: runnerCommand,
+        approvalRunnerStartedAt: runnerStartedAt,
+      },
+    });
+    child.stdout?.on("data", (chunk) => {
+      const text = chunk.toString().trim();
+      if (!text) return;
+      appendCodeAgentStatusEvent(runId, text, {
+        source: "approval-stdout",
+      });
+    });
+    child.stderr?.on("data", (chunk) => {
+      const text = chunk.toString().trim();
+      if (!text) return;
+      appendCodeAgentStatusEvent(runId, text, {
+        source: "approval-stderr",
+      });
+    });
+    child.on("exit", (code, signal) => {
+      activeCodeAgentProcesses.delete(runId);
+      appendCodeAgentStatusEvent(
+        runId,
+        code === 0
+          ? "Approval process exited."
+          : `Approval process exited with ${signal ?? code}.`,
+        { source: "desktop-approval-runner", code, signal },
+      );
+      touchCodeAgentRunRecord(runId, {
+        updatedAt: new Date().toISOString(),
+        metadata: {
+          approvalRunnerExitedAt: new Date().toISOString(),
+          approvalRunnerExitCode: code,
+          approvalRunnerExitSignal: signal,
+        },
+      });
+    });
+    child.unref();
+    return {
+      ok: true,
+      command: "approve",
+      action: "refresh",
+      message: "Approval command started.",
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    appendCodeAgentStatusEvent(runId, "Could not start the approval command.", {
+      source: "desktop-approval-runner",
+      error: message,
+    });
+    touchCodeAgentRunRecord(runId, {
+      status: "needs-approval",
+      phase: "approval-error",
+      needsApproval: true,
+      metadata: {
+        approvalRunnerError: message,
+      },
+    });
+    return {
+      ok: false,
+      command: "approve",
+      action: "refresh",
+      message: "Could not start the approval command.",
+      error: message,
+    };
+  }
+}
+
 function resolveRepositoryRoot(cwd: string): string {
   const candidates = [
     process.env.AGENT_NATIVE_FRAMEWORK_ROOT,
@@ -1826,7 +1853,7 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
       rerunOf,
     });
     const eventFile = appendCodeAgentTranscriptEvent(event);
-    if (goal.id === "task") {
+    if (goal.surfaceKind === "native") {
       spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     return {
@@ -1870,7 +1897,7 @@ function rerunCodeAgentRun(input: unknown): CodeAgentRerunResult {
     getCodeAgentGoal(firstStringValue(payload.goalId)) ??
     getCodeAgentGoal(getRecordString(sourceRecord, "goalId")) ??
     CODE_AGENT_GOALS[0];
-  if (goal.surfaceKind !== "native" || goal.id !== "task") {
+  if (goal.surfaceKind !== "native") {
     return {
       ok: false,
       sourceRunId,
@@ -2045,7 +2072,8 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
         steering,
       },
     });
-    if ((goalId ?? "task") === "task" && !runIsActive) {
+    const goal = getCodeAgentGoal(goalId ?? "task") ?? CODE_AGENT_GOALS[0];
+    if (goal.surfaceKind === "native" && !runIsActive) {
       spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     return {
@@ -2164,102 +2192,6 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
       : "Session update failed.",
     error: run ? undefined : "Could not read the updated session record.",
   };
-}
-
-async function listMigrationRunsForCodeAgents(): Promise<CodeAgentRunListResult> {
-  const fileRuns = listFileBackedCodeAgentRuns("migrate");
-  let appConfig: AppConfig;
-  const migrationGoal = getCodeAgentGoal("migrate") ?? CODE_AGENT_GOALS[0];
-  try {
-    appConfig = getCodeAgentAppConfig(migrationGoal, loadAppsForAuthContext());
-  } catch (err) {
-    return {
-      status: fileRuns.length > 0 ? "ok" : "unavailable",
-      runs: fileRuns,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-
-  const endpoint = buildAppEndpointUrl(
-    appConfig,
-    `/_agent-native/actions/${migrationGoal.listRunsAction}`,
-  );
-  if (!endpoint) {
-    return {
-      status: fileRuns.length > 0 ? "ok" : "unavailable",
-      runs: fileRuns,
-      error: "Migration Workbench URL is not configured.",
-    };
-  }
-
-  try {
-    const cookie = await getCookieHeaderForApp(appConfig, endpoint);
-    const res = await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        ...(cookie ? { Cookie: cookie } : {}),
-      },
-    });
-    if (res.status === 401 || res.status === 403) {
-      return {
-        status: fileRuns.length > 0 ? "ok" : "unauthorized",
-        runs: fileRuns,
-        workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
-      };
-    }
-    if (!res.ok) {
-      return {
-        status: fileRuns.length > 0 ? "ok" : "unavailable",
-        runs: fileRuns,
-        workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
-        error: `Migration Workbench returned ${res.status}.`,
-      };
-    }
-
-    const contentType = res.headers.get("content-type") ?? "";
-    if (!contentType.includes("application/json")) {
-      return {
-        status: fileRuns.length > 0 ? "ok" : "unauthorized",
-        runs: fileRuns,
-        workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
-        error: "Migration Workbench did not return JSON.",
-      };
-    }
-
-    const data = (await res.json()) as { runs?: unknown[] };
-    const runs = Array.isArray(data.runs)
-      ? data.runs
-          .map((run) => normalizeMigrationRun(run))
-          .filter((run): run is CodeAgentMigrationRun => run !== null)
-      : [];
-    return {
-      status: "ok",
-      runs: mergeCodeAgentRuns(fileRuns, runs),
-      workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
-    };
-  } catch (err) {
-    return {
-      status: fileRuns.length > 0 ? "ok" : "unavailable",
-      runs: fileRuns,
-      workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
-function mergeCodeAgentRuns(
-  primary: CodeAgentRun[],
-  secondary: CodeAgentRun[],
-): CodeAgentRun[] {
-  const seen = new Set<string>();
-  return [...primary, ...secondary]
-    .filter((run) => {
-      if (seen.has(run.id)) return false;
-      seen.add(run.id);
-      return true;
-    })
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 function spawnDetached(
@@ -2595,7 +2527,14 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
         retryRun: true,
         rerunRun: true,
         openTerminal: true,
-        controlCommands: ["resume", "status", "stop", "retry", "rerun"],
+        controlCommands: [
+          "resume",
+          "status",
+          "stop",
+          "approve",
+          "retry",
+          "rerun",
+        ],
       },
     };
   } catch (err) {
@@ -2614,7 +2553,7 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
         retryRun: false,
         rerunRun: false,
         openTerminal: true,
-        controlCommands: ["resume", "status", "stop"],
+        controlCommands: ["resume", "status", "stop", "approve"],
       },
       error: err instanceof Error ? err.message : String(err),
     };
@@ -2647,7 +2586,7 @@ function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
       error: `Unsupported run mode: ${requestedPermissionMode}`,
     };
   }
-  if (goal.id !== "task") {
+  if (goal.surfaceKind !== "native") {
     return {
       ok: false,
       message: `${goal.surfaceLabel} sessions open in their app surface.`,
@@ -2762,7 +2701,44 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
     };
   }
 
-  if (command === "resume" && goal.id === "task") {
+  if (command === "approve" && goal.surfaceKind === "native") {
+    const runRecord = readCodeAgentRunRecord(runId);
+    if (!runRecord) {
+      return {
+        ok: false,
+        command,
+        action: "none",
+        message: "Agent-Native Code session was not found.",
+        error: `No run record exists for ${runId}.`,
+      };
+    }
+    const metadata = isObject(runRecord.metadata) ? runRecord.metadata : null;
+    const pendingApproval = isObject(metadata?.pendingApproval)
+      ? metadata.pendingApproval
+      : null;
+    if (!pendingApproval) {
+      return {
+        ok: true,
+        command,
+        action: "refresh",
+        message: "No pending approval was found for this run.",
+      };
+    }
+    const cwd =
+      getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
+    return spawnCodeAgentApprovalRunner(runId, cwd);
+  }
+
+  if (command === "approve") {
+    return {
+      ok: true,
+      command,
+      action: "open-ui",
+      message: `Open ${goal.surfaceLabel} to approve this run.`,
+    };
+  }
+
+  if (command === "resume" && goal.surfaceKind === "native") {
     const runRecord = readCodeAgentRunRecord(runId);
     const cwd =
       getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
@@ -2914,12 +2890,6 @@ ipcMain.handle(
         error: `Unknown Agent-Native Code goal: ${goalId}`,
       });
     }
-    if (goal.id === "migrate") {
-      return listMigrationRunsForCodeAgents().then((result) => ({
-        ...result,
-        goalId: goal.id,
-      }));
-    }
     const runs = listFileBackedCodeAgentRuns(goal.id);
     return Promise.resolve({
       status: "ok",
@@ -2983,7 +2953,12 @@ ipcMain.handle(
 
 ipcMain.handle(
   IPC.CODE_AGENTS_LIST_MIGRATION_RUNS,
-  (): Promise<CodeAgentRunListResult> => listMigrationRunsForCodeAgents(),
+  (): Promise<CodeAgentRunListResult> =>
+    Promise.resolve({
+      status: "ok",
+      goalId: "migrate",
+      runs: listFileBackedCodeAgentRuns("migrate"),
+    }),
 );
 
 ipcMain.handle(

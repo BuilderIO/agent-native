@@ -41,7 +41,14 @@ export default defineConfig({
       alias: {
         "@shared": resolve("shared"),
         "@renderer": resolve("src/renderer"),
+        react: resolve("node_modules/react"),
+        "react-dom": resolve("node_modules/react-dom"),
+        "react/jsx-dev-runtime": resolve(
+          "node_modules/react/jsx-dev-runtime.js",
+        ),
+        "react/jsx-runtime": resolve("node_modules/react/jsx-runtime.js"),
       },
+      dedupe: ["react", "react-dom"],
     },
     plugins: [react()],
   },

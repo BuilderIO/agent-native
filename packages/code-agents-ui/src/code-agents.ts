@@ -56,13 +56,10 @@ export const CODE_AGENT_GOALS: CodeAgentGoalDefinition[] = [
     description:
       "Start a slash-command session that ports an existing path, URL, or described product into agent-native.",
     cliCommand: "migrate",
-    appId: MIGRATION_APP_ID,
-    templateId: MIGRATION_APP_ID,
-    listRunsAction: "list-migration-runs",
     runNoun: "slash-command session",
-    surfaceLabel: "Migration detail surface",
+    surfaceLabel: "Native migration session",
     primaryActionLabel: "Start /migrate",
-    surfaceKind: "app",
+    surfaceKind: "native",
   },
   {
     id: "audit",

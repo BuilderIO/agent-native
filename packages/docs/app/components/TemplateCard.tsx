@@ -109,11 +109,11 @@ export const templates = [
     name: "Brain",
     slug: "brain",
     replaces:
-      "Replaces or augments team wikis, Glean-style recall, and meeting-memory tools",
+      "Replaces or augments team wikis, Glean-style recall, and institutional memory tools",
     cliCommand: "npx @agent-native/core create my-brain-app --template brain",
     demoUrl: "https://brain.agent-native.com",
     description:
-      "Full-page company chat over cited memory from approved Slack channels, Clips recordings, Granola notes, GitHub, and transcripts, with review gates every agent can reuse.",
+      "Full-page company chat over cited memory from approved Slack, Clips, Granola, GitHub, and transcript sources, with review gates, evals, and shared connection readiness built in.",
     color: "#8B5CF6",
   },
   {

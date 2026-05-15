@@ -1,15 +1,23 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { runBrainDemoEval } from "../server/lib/demo.js";
+import { runBrainDemoEval, runBrainRetrievalEval } from "../server/lib/demo.js";
 
 export default defineAction({
   description:
-    "Run Brain's repeatable demo eval for search quality, citations, supersede narration data, proposal gating, redaction, personal-content exclusion, and honest not-found behavior.",
+    "Run Brain's repeatable demo evals for product-decision trust checks or real-channel-style retrieval quality.",
   schema: z.object({
+    mode: z
+      .enum(["product-demo", "retrieval"])
+      .default("product-demo")
+      .describe(
+        "Eval mode: product-demo checks the seeded product-decision corpus; retrieval checks real-channel-style Brain retrieval.",
+      ),
     seedIfMissing: z.coerce
       .boolean()
       .default(true)
-      .describe("Seed the demo corpus before evaluating."),
+      .describe(
+        "Seed fallback demo data when the selected eval has no existing workspace support.",
+      ),
     publishCanonical: z.coerce
       .boolean()
       .default(false)
@@ -17,6 +25,8 @@ export default defineAction({
         "When seeding during the eval, also publish selected canonical facts to workspace resources.",
       ),
   }),
-  run: async ({ seedIfMissing, publishCanonical }) =>
-    runBrainDemoEval({ seedIfMissing, publishCanonical }),
+  run: async ({ mode, seedIfMissing, publishCanonical }) =>
+    mode === "retrieval"
+      ? runBrainRetrievalEval({ seedIfMissing, publishCanonical })
+      : runBrainDemoEval({ seedIfMissing, publishCanonical }),
 });

@@ -17,6 +17,11 @@ import { searchEverythingRows } from "./search.js";
 import type { BrainEvidence, BrainSourceProvider } from "../../shared/types.js";
 
 const DEMO_SEED_ID = "brain-product-decisions-demo-v1";
+const RETRIEVAL_EVAL_SEED_ID = "brain-real-channel-retrieval-eval-v1";
+
+type EvalMode = "product-demo" | "retrieval";
+type RetrievalEvalKind = "answer" | "not-found";
+type TermExpectation = string | string[];
 
 interface DemoSourceSpec {
   key: string;
@@ -200,6 +205,116 @@ const demoCaptures: DemoCaptureSpec[] = [
     },
     content:
       "Personal aside: dentist appointment and childcare schedule are not company memory.",
+  },
+];
+
+const retrievalEvalSources: DemoSourceSpec[] = [
+  {
+    key: "slack-dev-fusion",
+    title: "Demo Slack #dev-fusion",
+    provider: "slack",
+    config: {
+      demoSeedId: RETRIEVAL_EVAL_SEED_ID,
+      autoSync: false,
+      channelIds: ["CDEMO_DEV_FUSION"],
+      channels: ["#dev-fusion"],
+      reviewRequired: true,
+    },
+  },
+];
+
+const retrievalEvalCaptures: DemoCaptureSpec[] = [
+  {
+    key: "stale-fusion-branch",
+    sourceKey: "slack-dev-fusion",
+    externalId: `${RETRIEVAL_EVAL_SEED_ID}:slack:dev-fusion-stale-branch`,
+    title: "#dev-fusion stale Fusion branch handling",
+    kind: "message",
+    capturedAt: "2026-05-08T18:20:00.000Z",
+    metadata: {
+      demoSeedId: RETRIEVAL_EVAL_SEED_ID,
+      provider: "slack",
+      channelName: "dev-fusion",
+      channelId: "CDEMO_DEV_FUSION",
+      sourceUrl:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778264400000100",
+      permalink:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778264400000100",
+    },
+    content: [
+      "Slack #dev-fusion at 2026-05-08T18:20:00.000Z",
+      "Nora: Decision: when a Fusion run points at a stale or missing branch, show branch-not-found, keep the workspace branch unchanged, and ask the user to recreate the Fusion run.",
+      "Lee: Do not run git checkout, reset, stash, or branch repair automatically from this state.",
+      "Sam: Answers about this stale Fusion branch guidance should cite the #dev-fusion Slack thread so users can verify the source.",
+    ].join("\n"),
+    status: "distilled",
+  },
+];
+
+interface RetrievalEvalCase {
+  id: string;
+  kind: RetrievalEvalKind;
+  label: string;
+  question: string;
+  requiredTerms: TermExpectation[];
+  forbiddenTerms?: string[];
+  requireCitation?: boolean;
+  requireSlackProvider?: boolean;
+}
+
+const retrievalEvalCases: RetrievalEvalCase[] = [
+  {
+    id: "dev-fusion-stale-branch",
+    kind: "answer",
+    label: "#dev-fusion stale Fusion branch guidance is retrievable",
+    question:
+      "In #dev-fusion, what should we do when a Fusion branch is stale or missing?",
+    requiredTerms: [
+      "fusion",
+      ["stale branch", "stale or missing branch"],
+      ["branch-not-found", "branch not found"],
+      ["workspace branch unchanged", "current branch unchanged"],
+      ["recreate", "rerun"],
+    ],
+    requireCitation: true,
+    requireSlackProvider: true,
+  },
+  {
+    id: "dev-fusion-no-branch-repair",
+    kind: "answer",
+    label: "Stale Fusion branch answers preserve branch safety",
+    question:
+      "For a stale Fusion branch, should the agent checkout, reset, stash, or repair the branch automatically?",
+    requiredTerms: [
+      "fusion",
+      ["do not", "don't", "never"],
+      "git checkout",
+      "reset",
+    ],
+    forbiddenTerms: ["delete the branch automatically"],
+    requireCitation: true,
+    requireSlackProvider: true,
+  },
+  {
+    id: "dev-fusion-citation",
+    kind: "answer",
+    label: "Real-channel answers carry source citations",
+    question:
+      "Where should answers cite the stale Fusion branch guidance from?",
+    requiredTerms: [["stale Fusion branch", "stale branch"], "fusion"],
+    requireCitation: true,
+    requireSlackProvider: true,
+  },
+  {
+    id: "unsupported-cleanup-cron",
+    kind: "not-found",
+    label: "Unsupported cleanup cron claims are not treated as supported",
+    question:
+      "Which cleanup cron deletes stale Fusion branches from #dev-fusion?",
+    requiredTerms: [
+      ["cleanup cron", "cron"],
+      ["deletes stale Fusion branches", "delete stale Fusion branches"],
+    ],
   },
 ];
 
@@ -483,6 +598,73 @@ export async function seedBrainDemoData(
   };
 }
 
+export async function seedBrainRetrievalEvalData(
+  options: {
+    publishCanonical?: boolean;
+  } = {},
+) {
+  const sourceByKey = new Map<
+    string,
+    typeof schema.brainSources.$inferSelect
+  >();
+  for (const spec of retrievalEvalSources) {
+    sourceByKey.set(spec.key, await ensureDemoSource(spec));
+  }
+
+  const captureByKey = new Map<
+    string,
+    typeof schema.brainRawCaptures.$inferSelect
+  >();
+  for (const spec of retrievalEvalCaptures) {
+    const source = sourceByKey.get(spec.sourceKey);
+    if (!source)
+      throw new Error(`Missing retrieval eval source ${spec.sourceKey}`);
+    captureByKey.set(spec.key, await ensureDemoCapture(source.id, spec));
+  }
+
+  const staleFusionBranch = await upsertDemoKnowledge({
+    title:
+      "Stale Fusion branches are reported without moving workspace branches",
+    kind: "process",
+    body: "When a Fusion run points at a stale or missing branch, Brain should report branch-not-found, keep the workspace branch unchanged, and ask the user to recreate the Fusion run. Agents should not run git checkout, reset, stash, or branch repair automatically from this state. Answers should cite the #dev-fusion Slack thread.",
+    summary:
+      "Stale Fusion branches should surface branch-not-found, preserve the current workspace branch, avoid git checkout/reset/stash repair, and cite #dev-fusion.",
+    topic: "Fusion",
+    tags: ["fusion", "dev-fusion", "stale-branches", "retrieval-eval"],
+    entities: [
+      { type: "channel", name: "#dev-fusion" },
+      { type: "product", name: "Fusion" },
+    ],
+    evidence: [
+      evidence(
+        captureByKey.get("stale-fusion-branch")!,
+        "Decision: when a Fusion run points at a stale or missing branch, show branch-not-found, keep the workspace branch unchanged, and ask the user to recreate the Fusion run.",
+      ),
+      evidence(
+        captureByKey.get("stale-fusion-branch")!,
+        "Do not run git checkout, reset, stash, or branch repair automatically from this state.",
+      ),
+      evidence(
+        captureByKey.get("stale-fusion-branch")!,
+        "Answers about this stale Fusion branch guidance should cite the #dev-fusion Slack thread so users can verify the source.",
+      ),
+    ],
+    confidence: 96,
+    publishCanonical: options.publishCanonical ?? false,
+  });
+
+  return {
+    seedId: RETRIEVAL_EVAL_SEED_ID,
+    seededAt: nowIso(),
+    sources: Array.from(sourceByKey.values()).map(serializeSource),
+    captures: Array.from(captureByKey.values()).map(serializeCapture),
+    knowledge: [staleFusionBranch],
+    suggestedQuestions: retrievalEvalCases
+      .filter((item) => item.kind === "answer")
+      .map((item) => item.question),
+  };
+}
+
 interface EvalCheck {
   id: string;
   label: string;
@@ -504,6 +686,158 @@ function check(
   evidence?: unknown,
 ) {
   checks.push({ id, label, passed, detail, evidence });
+}
+
+function includesTerm(value: string, term: string) {
+  return value.toLowerCase().includes(term.toLowerCase());
+}
+
+function includesTermExpectation(value: string, term: TermExpectation) {
+  return Array.isArray(term)
+    ? term.some((candidate) => includesTerm(value, candidate))
+    : includesTerm(value, term);
+}
+
+function includesAnyTerm(value: string, terms: string[] = []) {
+  return terms.some((term) => includesTerm(value, term));
+}
+
+function searchResultText(
+  result: Awaited<ReturnType<typeof searchEverythingRows>>[number],
+) {
+  return [
+    result.type,
+    result.title,
+    result.snippet,
+    result.summary,
+    result.provider,
+    result.source?.title,
+    result.source?.provider,
+    result.sourceUrl,
+    result.citation?.captureTitle,
+    result.citation?.quote,
+    result.citation?.sourceUrl,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function searchResultCitationUrl(
+  result: Awaited<ReturnType<typeof searchEverythingRows>>[number],
+) {
+  return result.citation?.sourceUrl ?? result.sourceUrl ?? null;
+}
+
+function hasExpectedCitation(
+  result: Awaited<ReturnType<typeof searchEverythingRows>>[number],
+  evalCase: RetrievalEvalCase,
+) {
+  if (!evalCase.requireCitation) return true;
+  const url = searchResultCitationUrl(result);
+  if (!url?.startsWith("https://")) return false;
+  if (!evalCase.requireSlackProvider) return true;
+  return (result.provider ?? result.source?.provider) === "slack";
+}
+
+function findRetrievalEvalMatch(
+  results: Awaited<ReturnType<typeof searchEverythingRows>>,
+  evalCase: RetrievalEvalCase,
+) {
+  return (
+    results.find((result) => {
+      const text = searchResultText(result);
+      return (
+        evalCase.requiredTerms.every((term) =>
+          includesTermExpectation(text, term),
+        ) && !includesAnyTerm(text, evalCase.forbiddenTerms)
+      );
+    }) ?? null
+  );
+}
+
+async function evaluateRetrievalEvalCases() {
+  const checks: EvalCheck[] = [];
+  let answerCaseCount = 0;
+  let passedAnswerCases = 0;
+
+  for (const evalCase of retrievalEvalCases) {
+    const results = await searchEverythingRows({
+      query: evalCase.question,
+      limit: 8,
+    });
+    const match = findRetrievalEvalMatch(results, evalCase);
+    const citationOk = match ? hasExpectedCitation(match, evalCase) : false;
+
+    if (evalCase.kind === "answer") {
+      answerCaseCount += 1;
+      const passed = Boolean(match) && citationOk;
+      if (passed) passedAnswerCases += 1;
+      check(
+        checks,
+        evalCase.id,
+        evalCase.label,
+        passed,
+        match
+          ? `Matched ${match.type}:${match.title}; citation=${citationOk}.`
+          : `No result satisfied the required retrieval terms from ${results.length} result(s).`,
+        { match, results },
+      );
+      continue;
+    }
+
+    check(
+      checks,
+      evalCase.id,
+      evalCase.label,
+      !match,
+      match
+        ? `Unexpectedly found citation-backed support in ${match.type}:${match.title}.`
+        : `${results.length} broad result(s), but none supported the unsupported claim.`,
+      { match, results },
+    );
+  }
+
+  return { checks, answerCaseCount, passedAnswerCases };
+}
+
+export async function runBrainRetrievalEval(
+  options: {
+    seedIfMissing?: boolean;
+    publishCanonical?: boolean;
+  } = {},
+) {
+  const initial = await evaluateRetrievalEvalCases();
+  const workspaceHadSupport =
+    initial.answerCaseCount > 0 &&
+    initial.passedAnswerCases === initial.answerCaseCount;
+  let checks = initial.checks;
+  let seeded: Awaited<ReturnType<typeof seedBrainRetrievalEvalData>> | null =
+    null;
+  let fallbackSeeded = false;
+
+  if (!workspaceHadSupport && options.seedIfMissing !== false) {
+    seeded = await seedBrainRetrievalEvalData({
+      publishCanonical: options.publishCanonical ?? false,
+    });
+    fallbackSeeded = true;
+    checks = (await evaluateRetrievalEvalCases()).checks;
+  }
+
+  const passed = checks.filter((item) => item.passed).length;
+  return {
+    seedId: RETRIEVAL_EVAL_SEED_ID,
+    mode: "retrieval" as EvalMode,
+    dataset: "real-channel",
+    dataMode: fallbackSeeded ? "seeded-fallback" : "workspace",
+    workspaceHadSupport,
+    fallbackSeeded,
+    ok: passed === checks.length,
+    passed,
+    total: checks.length,
+    score: checks.length ? passed / checks.length : 0,
+    checks,
+    seeded,
+  };
 }
 
 export async function runBrainDemoEval(
@@ -719,6 +1053,7 @@ export async function runBrainDemoEval(
   const passed = checks.filter((item) => item.passed).length;
   return {
     seedId: DEMO_SEED_ID,
+    mode: "product-demo" as EvalMode,
     ok: passed === checks.length,
     passed,
     total: checks.length,

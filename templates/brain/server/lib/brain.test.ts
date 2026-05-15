@@ -439,7 +439,7 @@ import {
   runSlackPilot,
   testSlackConnection,
 } from "./connectors.js";
-import { runBrainDemoEval } from "./demo.js";
+import { runBrainDemoEval, runBrainRetrievalEval } from "./demo.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
 
@@ -1876,5 +1876,90 @@ describe("Brain demo eval", () => {
         }),
       ]),
     );
+  });
+
+  it("seeds the real-channel fallback corpus and passes retrieval checks", async () => {
+    const result = await runBrainRetrievalEval({ publishCanonical: false });
+
+    expect(result).toMatchObject({
+      mode: "retrieval",
+      dataset: "real-channel",
+      dataMode: "seeded-fallback",
+      workspaceHadSupport: false,
+      fallbackSeeded: true,
+      ok: true,
+      passed: 4,
+      total: 4,
+      score: 1,
+    });
+    expect(result.checks.map((item) => item.id)).toEqual([
+      "dev-fusion-stale-branch",
+      "dev-fusion-no-branch-repair",
+      "dev-fusion-citation",
+      "unsupported-cleanup-cron",
+    ]);
+    expect(mocks.rows.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Demo Slack #dev-fusion",
+          provider: "slack",
+        }),
+      ]),
+    );
+    expect(mocks.rows.knowledge).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title:
+            "Stale Fusion branches are reported without moving workspace branches",
+          status: "published",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(result.checks)).toContain(
+      "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778264400000100",
+    );
+  });
+
+  it("evaluates existing #dev-fusion workspace data without seeding fallback", async () => {
+    seedSource({
+      id: "real-dev-fusion-source",
+      title: "Slack #dev-fusion",
+      provider: "slack",
+    });
+    seedCapture({
+      id: "real-dev-fusion-capture",
+      sourceId: "real-dev-fusion-source",
+      externalId: "real-dev-fusion-stale-branch",
+      title: "#dev-fusion stale Fusion branch thread",
+      kind: "message",
+      content: [
+        "Slack #dev-fusion thread",
+        "Decision: when a Fusion run points at a stale or missing branch, show branch-not-found, keep the workspace branch unchanged, and ask the user to recreate the Fusion run.",
+        "Do not run git checkout, reset, stash, or branch repair automatically from this state.",
+        "Answers about this stale Fusion branch guidance should cite the #dev-fusion Slack thread.",
+      ].join("\n"),
+      metadataJson: JSON.stringify({
+        provider: "slack",
+        permalink:
+          "https://workspace.slack.com/archives/CDEVFUSION/p1778264400000100",
+      }),
+      status: "distilled",
+    });
+
+    const result = await runBrainRetrievalEval({ seedIfMissing: true });
+
+    expect(result).toMatchObject({
+      mode: "retrieval",
+      dataMode: "workspace",
+      workspaceHadSupport: true,
+      fallbackSeeded: false,
+      ok: true,
+      passed: 4,
+      total: 4,
+    });
+    expect(result.seeded).toBeNull();
+    expect(mocks.rows.sources).toHaveLength(1);
+    expect(mocks.rows.captures).toHaveLength(1);
+    expect(mocks.rows.knowledge).toHaveLength(0);
   });
 });

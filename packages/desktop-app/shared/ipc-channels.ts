@@ -281,6 +281,7 @@ export interface CodeAgentFollowUpRequest {
   goalId?: string;
   runId: string;
   prompt: string;
+  followUpMode?: "immediate" | "queued";
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -326,7 +327,7 @@ export interface CodeAgentTerminalResult {
   error?: string;
 }
 
-export type CodeAgentControlCommand = "resume" | "status" | "stop";
+export type CodeAgentControlCommand = "resume" | "status" | "stop" | "approve";
 
 export type CodeAgentHostControlCommand =
   | CodeAgentControlCommand

@@ -49,13 +49,13 @@ JSON is stored in text columns. There is no vector database.
 | `list-captures` / `get-capture`                                                     | Review raw captures by source/status, including distillation queue state                                                               |
 | `enqueue-distillation` / `enqueue-captures-distillation`                            | Idempotently queue one capture or a selected batch for distillation                                                                    |
 | `claim-distillation`                                                                | Claim one queued distillation item before a browser or worker hands it to the agent                                                    |
-| `list-distillation-queue` / `retry-distillation`                                    | Inspect failed/stale distillation work and safely retry accessible items                                                               |
+| `list-distillation-queue` / `retry-distillation`                                    | Inspect queue counts, failed/stale/retryable work, failure reasons, and safely retry one, selected, or all accessible items            |
 | `mark-capture-distilled`                                                            | Mark a capture distilled or ignored                                                                                                    |
 | `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior                                                 |
 | `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                                                                    |
 | `search-everything`                                                                 | V1.5 search across knowledge, raw captures, and source records                                                                         |
 | `list-proposals` / `update-proposal` / `approve-proposal` / `reject-proposal`       | Review, edit, approve, or reject company-tier or forced proposals                                                                      |
-| `seed-demo-data` / `run-demo-eval`                                                  | Seed and evaluate the product-decision demo corpus                                                                                     |
+| `seed-demo-data` / `run-demo-eval` / `run-retrieval-eval`                           | Seed and evaluate product-decision demos and offline real-channel-style retrieval checks                                               |
 | `get-settings` / `set-settings`                                                     | Read/update Brain settings                                                                                                             |
 | `navigate` / `view-screen`                                                          | Keep agent and UI context in sync                                                                                                      |
 
@@ -118,6 +118,12 @@ pilot sync; the action caps the read to at most two validated channels, one
 history page per channel, ten messages per page, ten permalinks, `autoSync:
 false`, and a recent default history window.
 
+In the Sources UI, Slack source cards expose the same safe sequence as
+first-class controls: Test connection, run a safe pilot sample, review captures,
+then approve proposals in the Review queue. Preserve that sequence when adding
+new Slack source affordances; do not make broad sync the primary first-run
+action.
+
 After a successful pilot sync, use `list-captures` first to review capture
 inventory without raw bodies. The listing includes each capture's latest
 distillation queue state, so repeated `enqueue-distillation` calls should reuse
@@ -151,10 +157,22 @@ Distillation must apply `get-brain-settings` guidance. Respect
 it, and whether a raw capture should become knowledge or be ignored.
 
 Use `list-distillation-queue` to inspect queued, processing, failed, and stale
-distillation handoffs. Use `retry-distillation` only for failed or stale
-processing rows; it access-checks the capture source, requeues the item, and
-refreshes the agent handoff. The Ops route exposes these same queue controls in
-the UI.
+distillation handoffs. It returns all-accessible queue counts in `summary`, the
+current filtered list counts in `visibleSummary`, per-item failure or state
+reasons, and `retryable` flags for failed or stale processing rows. Use
+`issue: "failed"`, `issue: "stale"`, or `issue: "retryable"` when triaging
+operator work.
+
+Use `retry-distillation` only for failed or stale processing rows; it
+access-checks the capture source, requeues the item, refreshes the agent
+handoff, and includes the current Brain distillation guidance in the handoff.
+Pass `queueId` or `captureId` for one item, `queueIds` for selected Ops rows, or
+`retryAllRetryable: true` with an optional `sourceId`/`limit` for a batch. Batch
+retries return per-item `results` so inaccessible or no-longer-stale rows do
+not hide the rest of the retry outcome. The Ops route exposes these same queue
+filters, counts, failure reasons, selected retry, and retry-all controls in the
+UI, and `view-screen` includes the current Ops queue snapshot when the user is
+on that route.
 
 Granola sources use the scoped `GRANOLA_API_KEY` credential and poll Granola's
 public API for accessible Team-space notes, then fetch each note with its
@@ -178,6 +196,13 @@ catalog from `@agent-native/core/connections` for provider ids, labels,
 credential key names, capabilities, and recommended template uses. The catalog
 is metadata only; Brain actions must still read secret values through the
 existing credential vault and must never return them.
+
+Use `summarizeWorkspaceConnectionProviderForApp()` from
+`@agent-native/core/workspace-connections` for Brain-facing app grant summaries.
+It returns the shared `grantState`, `grantAvailability`, safe credential ref
+names, explicit grant metadata, and connection counts used by Dispatch and
+Analytics, so Brain should not reimplement `allowedApps` or explicit grant
+checks locally.
 
 Before asking the user for a duplicate Slack, Granola, GitHub, Notion, Google
 Drive, HubSpot, or other provider key, call `list-connection-providers` and
@@ -215,6 +240,21 @@ a personal aside as an ignored capture.
 Use `run-demo-eval` to verify recall, citations, supersede links, proposal
 gating, redaction, and personal-content exclusion. This is the fastest
 repeatable check that Brain still feels like a trustworthy company memory app.
+
+Use `run-retrieval-eval` for the offline real-channel-style retrieval checks.
+It first evaluates existing workspace Brain data; when the #dev-fusion/stale
+Fusion branch answer cases lack citation-backed support and `seedIfMissing` is
+true, it seeds a small Slack-style #dev-fusion fallback corpus and re-runs the
+same checks. The eval requires Slack-style citation links, verifies branch-safety
+terms, and includes an unsupported cleanup-cron not-found check. You can also run
+the same mode through `run-demo-eval` with `mode: "retrieval"`.
+
+CI/prep run both deterministic action evals through `pnpm test:brain-evals`
+at the repository root, which delegates to `pnpm --filter brain eval:ci`. The
+Brain CI script pins `DATABASE_URL` to a disposable local SQLite file
+(`./data/brain-evals-ci.db`) and sets a fixed `AGENT_USER_EMAIL`, so it never
+requires production Slack, Granola, external services, or a pre-populated local
+workspace. Keep new CI eval cases offline and seeded.
 
 The Slack pilot regression corpus lives in
 `templates/brain/evals/slack-pilot-corpus.ts`. It covers reasoning-effort

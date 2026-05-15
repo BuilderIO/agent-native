@@ -30,9 +30,9 @@ import { toast } from "sonner";
 
 const assistantSuggestions = [
   "What were the most important product decisions we made recently, and why?",
-  "How does the current in-development Brain feature work and why?",
-  "What unresolved company questions should leadership review?",
-  "What customer context should I know before this week's roadmap review?",
+  "Which in-development Brain features are ready to explain with citations?",
+  "What unresolved company questions are waiting for review?",
+  "What customer context should I know before this week's roadmap discussion?",
 ];
 
 const demoQuestion =
@@ -166,7 +166,7 @@ export default function AskRoute() {
         mode="page"
         className="brain-chat-panel"
         defaultMode="chat"
-        emptyStateText="Ask your company anything."
+        emptyStateText="Ask Brain about company memory."
         suggestions={assistantSuggestions}
         emptyStateAddon={
           <BrainDemoPrompt
@@ -217,8 +217,8 @@ function BrainDemoPrompt({
         Product-decision demo
       </div>
       <p className="text-xs leading-5 text-muted-foreground">
-        Seed company memory, verify citations, then ask why freemium was
-        retired.
+        Seed product-decision memory, verify citations and review gates, then
+        ask why freemium was retired.
       </p>
       <div className="flex flex-col gap-1.5 sm:flex-row">
         <Button
@@ -287,11 +287,11 @@ function BrainChatNotice({
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Badge variant="secondary" className="gap-1.5">
           <IconMessageCircle className="size-3" />
-          Company assistant
+          Company memory chat
         </Badge>
         <Badge variant="outline" className="gap-1.5">
           <IconShieldCheck className="size-3" />
-          Cited answers
+          Cited, review-gated
         </Badge>
         <Badge variant="outline" className="gap-1.5">
           <IconDatabase className="size-3" />

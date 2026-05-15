@@ -1,51 +1,75 @@
 ---
 title: "Brain"
-description: "A public, advertised first-party template for cited Company Brain memory and the foundation for universal workspace search."
+description: "A public first-party template for cited company memory, reviewable source ingestion, and the path toward universal workspace search."
 ---
 
 # Brain
 
-Brain is a public first-party template for Company Brain: whole-company
-institutional memory that agents and humans can search. The primary product
-surface is a full-page company chat where teammates ask questions, load the demo
-corpus, run the eval, and get cited answers from approved company knowledge.
-Brain ingests approved Slack channels, Clips recordings, Granola meeting notes,
-GitHub issues/PRs, and generic transcript/webhook payloads, then turns that
-material into cited, reviewable knowledge an agent can search.
+Brain is a public first-party template for Company Brain: cited institutional
+memory that agents and humans can search without pretending raw workplace data
+is already clean, complete, or safe to publish. The first-run surface is a
+full-page company chat with demo and eval controls, source health, review
+counts, and cited answers from approved company knowledge.
 
-Use Brain when your team wants agents to answer questions like “why did we make this product decision?”, “how does this in-development feature work?”, or “what changed in this process?” with links back to the source conversation or meeting.
+Brain ingests approved Slack channels, Clips recordings, Granola Team-space
+notes, GitHub issues/PRs, and generic transcript/webhook payloads. It stores raw
+captures, distills durable facts/decisions/processes, and routes sensitive or
+low-confidence memories through review before they become company knowledge.
+
+Use Brain when your team wants agents to answer questions like "why did we make
+this product decision?", "how does this in-development feature work?", or "what
+changed in this process?" with links back to the source conversation, meeting,
+or issue.
 
 Brain is intentionally on an open-source, Glean-shaped path, but it is not a
-complete Glean replacement today. V1 focuses on distilled company memory. V1.5
-adds a universal search surface for Brain's own knowledge, captures, and
-sources, plus the first reusable workspace-connection path for source
-credentials. V2 points toward federated app/source search, permission-aware
-results, and an expertise graph as a future platform layer.
+complete Glean replacement today. V1 is cited company memory over reviewed
+knowledge. V1.5 adds universal Brain search across knowledge, captures, and
+sources, plus reusable workspace connections for source credentials. V2 points
+toward federated app/source search, permission-aware result filtering, ranking,
+and an expertise graph as a future platform layer.
 
 ## What It Includes
 
-- **Full-page company chat.** The Ask route is a dedicated company assistant,
-  not a small sidebar. It shows source health, review count, demo/eval controls,
-  and suggested company-memory questions.
-- **Approved sources.** Configure manual, generic webhook, Clips, Slack, Granola, and GitHub source records. Slack is channel-oriented by design; DMs and MPIMs are not a scan target.
+- **Full-page company chat.** The Ask route is the main product surface. It
+  shows demo/eval controls, source health, review count, and suggested
+  company-memory questions. It uses `AgentChatSurface`, so the Brain composer
+  stays on the same shared chat input stack as the agent sidebar and
+  Agent-Native Code.
+- **Repeatable demo flow.** Load a product-decision corpus, run the demo eval,
+  and ask a cited question immediately so a new workspace can see the trust
+  loop before connecting real sources.
+- **Approved sources.** Configure manual, generic webhook, Clips, Slack,
+  Granola, and GitHub source records. Slack is channel-oriented by design; DMs
+  and MPIMs are not scan targets.
 - **Raw captures.** Store transcripts, channel exports, notes, and webhook imports in portable SQL with dedupe keys and source metadata.
 - **Distilled knowledge.** Write atomic entries with kind, topic, entities, confidence, exact evidence quotes, and supersede links.
-- **Review queue.** Proposed company memories have a first-class Review route where reviewers edit wording, inspect evidence/source links, approve, or reject.
+- **Review queue.** Proposed company memories have a first-class Review route
+  where reviewers edit wording, inspect evidence/source links, approve, or
+  reject.
 - **Review gating.** High-confidence non-sensitive entries can publish immediately; company-tier or sensitive entries can queue as proposals for approval.
-- **Cited retrieval.** V1 exposes `search-knowledge` and `get-knowledge` for distilled company memory. The V1.5 expansion adds a Search route and `search-everything` action for searching knowledge, raw captures, and source records together, then drilling into `get-knowledge` / `get-capture`.
+- **Cited retrieval.** V1 exposes `search-knowledge` and `get-knowledge` for
+  distilled company memory. The V1.5 expansion adds a Search route and
+  `search-everything` action for searching knowledge, raw captures, and source
+  records together, then drilling into `get-knowledge` / `get-capture`.
 - **Pilot and Ops controls.** Slack pilots stay bounded by default, `get-pilot-report` summarizes source quality without raw bodies, and the Ops route tracks stale or failed distillation queue items with safe retry controls.
-- **Shared integrations.** The Sources page shows Brain source records beside reusable workspace connection grants and provider readiness, so Brain can reuse Dispatch-managed credentials when a workspace connection exists.
+- **Shared integrations.** The Sources page shows Brain source records beside
+  reusable workspace connection grants and provider readiness, so Brain can use
+  Dispatch/workspace-managed credentials when a grant exists.
 - **Ambient context.** Canonical approved entries can mirror into workspace resources under `context/company-brain/...` for cross-app context.
 
-Brain intentionally uses SQL text search and agentic query expansion for v1. There is no vector database requirement, so the template stays portable across SQLite, Postgres, Neon, D1, Turso, and similar hosts. Raw capture content is redacted by default in review/search surfaces; editor-authorized distillation can request exact raw text for quote validation.
+Brain intentionally uses SQL text search and agentic query expansion for v1.
+There is no vector database requirement, so the template stays portable across
+SQLite, Postgres, Neon, D1, Turso, and similar hosts. Raw capture content is
+redacted by default in review/search surfaces; editor-authorized distillation
+can request exact raw text for quote validation.
 
 ## Search Model
 
 Brain search has three layers:
 
 - **V1 Company Brain search:** answer from reviewed, distilled knowledge first.
-  This is the trustworthy memory layer for decisions, policies, product facts,
-  processes, and durable summaries.
+  This is the trust layer for decisions, policies, product facts, processes,
+  and durable summaries.
 - **V1.5 universal Brain search:** use `search-everything` as the broad first
   pass across knowledge, raw captures, and sources. Then call `get-knowledge`
   for reviewed entries or `get-capture` for exact source context and links.
@@ -64,13 +88,13 @@ Brain and Dispatch are complementary, but they do different jobs:
 - **Brain owns company memory.** It ingests sources, reviews raw captures,
   distills durable facts/decisions/processes, answers from cited evidence, and
   exposes approved knowledge to agents.
-- **Dispatch owns the workspace control plane.** It centralizes Slack/email/
-  Telegram/WhatsApp inboxes, secrets, recurring jobs, approvals, A2A
-  orchestration, and workspace-wide resources.
+- **Dispatch owns the workspace control plane.** It centralizes messaging,
+  secrets, recurring jobs, approvals, A2A orchestration, and workspace-wide
+  resources.
 
 In a multi-app workspace, Dispatch can route a question to Brain over A2A and
-can grant Brain shared credentials. Brain still remains the specialist for
-source ingestion, review, retrieval, and cited Company Brain answers.
+can grant Brain shared provider credentials. Brain remains the specialist for
+approved source ingestion, review, retrieval, and cited Company Brain answers.
 
 ## Scaffolding
 
@@ -79,6 +103,11 @@ pnpm dlx @agent-native/core create my-brain --template brain --standalone
 ```
 
 Then open the app, add sources, import a transcript, and ask the agent to distill cited memories from the raw capture.
+
+For a public demo, open the Ask page, choose **Load demo and ask**, then run
+**Run eval**. The seeded corpus demonstrates product-decision recall, citation
+links, supersede behavior, review gating, redaction, personal-content
+exclusion, and honest not-found behavior without connecting a real workspace.
 
 ## Generic Ingest
 
@@ -132,6 +161,17 @@ Use `test-slack-connection` before a production backfill. It validates the
 Slack bot token with `auth.test` and, when channel refs are provided, checks
 channel metadata without reading message history.
 
+For Slack, grant the bot the smallest scopes needed for the source:
+
+- `auth.test` for credential validation.
+- `conversations.info` for allow-list verification and DM/MPIM rejection.
+- `conversations.history` for allow-listed channel history.
+- `chat.getPermalink` for durable citations.
+- `conversations.list` only when setup resolves channel names instead of IDs.
+
+Private channels require inviting the bot to the channel. Public channels may
+also require joining or inviting the bot depending on the Slack app posture.
+
 Use `run-slack-pilot` for a safer first-pass rollout report. The default action
 validates the Slack credential and allow-listed channels, reports guardrails,
 privacy exclusions, current knowledge/proposal counts, and next steps, and does
@@ -160,9 +200,29 @@ queued records, opt into short previews only when needed, queue distillation,
 see whether a capture is waiting on the distillation worker, or mark non-company
 material ignored.
 
+Slack source cards expose this as a clean rollout flow: **Test** checks the
+credential and allow-list without history reads, **Safe pilot** imports only a
+tiny capped sample, **Review captures** opens the capture inventory, and
+**Review queue** sends reviewers to approve proposals before they become
+queryable company memory.
+
 Use `get-pilot-report` after a sample sync to inspect sync health, capture
 counts, queue state, published knowledge, pending proposals, privacy notes, and
 recommended rollout steps without returning raw capture bodies.
+
+Recommended production rollout:
+
+1. Start with one or two high-signal channels and channel IDs.
+2. Keep `autoSync: false` until review quality is proven.
+3. Run `test-slack-connection`, then `run-slack-pilot` without history.
+4. Run one explicit `run-slack-pilot --readHistory true` sample when the report
+   is clean.
+5. Review captures with previews only when needed; ignore social, personal, or
+   thin records.
+6. Distill durable company context, approve proposal-gated memories, and verify
+   `ask-brain` returns cited Slack permalinks.
+7. Expand with bounded manual `sync-source` runs before enabling background
+   polling.
 
 Distillation has two worker paths. When a Brain tab is open, the app shell
 claims queued items with `claim-distillation` and delegates them to the app
@@ -243,6 +303,16 @@ Brain source credentials do not fall back to deploy-level environment
 variables. If a shared provider exists but has not been granted to Brain, grant
 Brain access instead of copying the same secret into a Brain-specific setting.
 
+Keep the ownership model simple:
+
+- Dispatch or the workspace layer owns provider account metadata, credential
+  ref names, and app grants.
+- The vault owns the secret values.
+- Brain owns source-local choices such as Slack channels, GitHub repositories,
+  Granola polling windows, cursors, review posture, and distillation status.
+- Agents should inspect connection readiness first, then request a grant or
+  source configuration instead of asking the user for another provider token.
+
 The Sources page surfaces the same provider catalog. A provider can be:
 
 - `connected` when an active workspace connection is already granted to Brain.
@@ -279,6 +349,19 @@ citations, supersede links, proposal gating, redaction, and personal-content
 exclusion. The Ask page includes **Load demo** and **Run eval** controls so a
 new workspace can show Brain's strongest use case immediately.
 
+`run-retrieval-eval` checks an offline real-channel-style retrieval set. It
+uses existing workspace Brain data when #dev-fusion stale Fusion branch answers
+already have citation-backed support; otherwise, with `seedIfMissing` enabled,
+it seeds a small Slack-style fallback corpus and re-runs the same checks. The
+result covers Slack-style citations, branch-safety terms, and an unsupported
+cleanup-cron not-found case. The same mode is available through `run-demo-eval`
+with `mode: "retrieval"`.
+
+The repository-level `pnpm test` command includes `pnpm test:brain-evals`, which
+runs Brain's product-demo and retrieval action evals against a disposable local
+SQLite database. The CI/prep eval path is fully seeded and offline; it does not
+require production Slack, Granola, Clips, or any external workspace data.
+
 ## Privacy And Gating
 
 Brain is designed for company memory, not personal surveillance:
@@ -294,7 +377,8 @@ Brain is designed for company memory, not personal surveillance:
   approval, citation requirements, email redaction, and connector error
   notifications.
 - Demo/eval coverage checks proposal gating, PII redaction, personal-content
-  exclusion, citations, and honest not-found behavior.
+  exclusion, citations, real-channel-style retrieval, and honest not-found
+  behavior.
 
 ## Developer Notes
 

@@ -133,14 +133,22 @@ without each app re-entering setup metadata. The provider catalog comes from
 `@agent-native/core/connections`; saved connections and grants come from
 `@agent-native/core/workspace-connections`.
 
-- `list-workspace-connections`: list provider catalog entries, saved workspace connections, app grants, and suggested app grant targets. Pass `provider`, `appId`, `capability`, `templateUse`, or `includeDisabled` to filter.
-- `upsert-workspace-connection`: create or update a shared provider connection. Store labels, account metadata, scopes, non-secret config, credential refs, and `allowedApps`; never store raw secret values in connection config.
-- `set-workspace-connection-grant`: grant or revoke an app's access to a connection. `allowedApps: []` means all apps; selected access uses explicit `workspace_connection_grants` rows while legacy `allowedApps` remains backward compatible.
+- `list-workspace-connections`: list provider catalog entries, provider readiness, saved workspace connections, app grants, and suggested app grant targets. Pass `provider`, `appId`, `capability`, `templateUse`, or `includeDisabled` to filter. Provider readiness includes `status`, connection counts, required credential ref names, and missing required ref names.
+- `upsert-workspace-connection`: create or update a shared provider connection. Store labels, account metadata, scopes, non-secret config, credential refs, and `allowedApps`; never store raw secret values in connection config. `credentialRefs` are strict references only: `{ key, scope, provider, label }`, where `key` is a Vault/OAuth ref name such as `SLACK_BOT_TOKEN`, not the secret value.
+- `set-workspace-connection-grant`: grant or revoke an app's access to a connection. `allowedApps: []` means all apps; selected access uses explicit `workspace_connection_grants` rows while legacy `allowedApps` remains backward compatible. Common grant targets are `dispatch`, `brain`, `analytics`, and `mail`.
 - `delete-workspace-connection`: delete a shared provider connection and its app grants.
 
 When `navigation.view === "integrations"`, `view-screen` returns the provider
 catalog, saved connections, grants, suggested app targets, and any connection
 errors so the agent can answer from the same control-plane state the user sees.
+
+New templates should reuse
+`summarizeWorkspaceConnectionProviderForApp()` and
+`summarizeWorkspaceConnectionProviderReadiness()` from
+`@agent-native/core/workspace-connections` for grant/readiness summaries.
+Those helpers understand `allowedApps`, explicit
+`workspace_connection_grants`, provider health states, and safe credential-ref
+serialization, so apps do not need to duplicate app-grant logic.
 
 ### Workspace Resources (global skills, instructions, agents, reference resources)
 

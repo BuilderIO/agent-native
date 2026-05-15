@@ -117,6 +117,113 @@ export interface WorkspaceConnectionAppAccess {
   grantId: string | null;
 }
 
+export type WorkspaceConnectionGrantState =
+  | "connected"
+  | "granted"
+  | "needs_grant"
+  | "not_connected";
+
+export type WorkspaceConnectionGrantAvailability =
+  | "available"
+  | "needs_grant"
+  | "not_connected";
+
+export type WorkspaceConnectionProviderReadinessStatus =
+  | "ready"
+  | "checking"
+  | "needs_credentials"
+  | "needs_attention"
+  | "disabled"
+  | "not_configured";
+
+export interface WorkspaceConnectionPublicCredentialRef {
+  key: string;
+  scope?: string;
+  provider?: string;
+  label?: string;
+  source: "connection" | "grant";
+}
+
+export interface WorkspaceConnectionExplicitGrantSummary {
+  id: string;
+  appId: string;
+  scopes: string[];
+  credentialRefs: WorkspaceConnectionPublicCredentialRef[];
+  updatedAt: string;
+}
+
+export interface WorkspaceConnectionForAppSummary {
+  id: string;
+  label: string;
+  provider: string;
+  accountId: string | null;
+  accountLabel: string | null;
+  status: WorkspaceConnectionStatus;
+  grantedToApp: boolean;
+  grantScope: "all-apps" | "selected-apps";
+  appAccess: WorkspaceConnectionAppAccess;
+  allowedApps: string[];
+  credentialRefs: WorkspaceConnectionPublicCredentialRef[];
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  explicitGrant: WorkspaceConnectionExplicitGrantSummary | null;
+}
+
+export interface WorkspaceConnectionProviderAppSummary {
+  appId: string;
+  provider: string;
+  grantState: WorkspaceConnectionGrantState;
+  grantAvailability: WorkspaceConnectionGrantAvailability;
+  grantAvailabilityMessage: string;
+  connectionCount: number;
+  grantedConnectionCount: number;
+  activeConnectionCount: number;
+  ungrantedConnectionCount: number;
+  unhealthyGrantedConnectionCount: number;
+  explicitGrantCount: number;
+  credentialRefCount: number;
+  hasWorkspaceConnection: boolean;
+  hasGrantedWorkspaceConnection: boolean;
+  hasActiveWorkspaceConnection: boolean;
+  statuses: WorkspaceConnectionStatus[];
+  connections: WorkspaceConnectionForAppSummary[];
+}
+
+export interface WorkspaceConnectionProviderReadiness {
+  status: WorkspaceConnectionProviderReadinessStatus;
+  connectionCount: number;
+  activeConnectionCount: number;
+  readyConnectionCount: number;
+  requiredCredentialKeys: string[];
+  missingRequiredCredentialKeys: string[];
+  appGrant: WorkspaceConnectionProviderAppSummary | null;
+}
+
+export interface WorkspaceConnectionProviderLike {
+  id: string;
+  label?: string;
+  credentialKeys?: readonly {
+    key: string;
+    required?: boolean;
+  }[];
+}
+
+export interface SummarizeWorkspaceConnectionProviderForAppOptions {
+  providerId: string;
+  appId: string;
+  connections: SerializedWorkspaceConnection[];
+  grants?: SerializedWorkspaceConnectionGrant[];
+  includeConnections?: "all" | "granted";
+}
+
+export interface SummarizeWorkspaceConnectionProviderReadinessOptions {
+  provider: WorkspaceConnectionProviderLike;
+  connections: SerializedWorkspaceConnection[];
+  grants?: SerializedWorkspaceConnectionGrant[];
+  appId?: string;
+  includeConnections?: "all" | "granted";
+}
+
 let _initPromise: Promise<void> | undefined;
 
 function workspaceConnectionsTable(): string {
@@ -648,6 +755,288 @@ export function workspaceConnectionIsAvailableToApp(
   >[] = [],
 ): boolean {
   return getWorkspaceConnectionAppAccess(connection, appId, grants).available;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  );
+}
+
+function publicCredentialRefs(
+  refs: WorkspaceConnectionCredentialRef[],
+  source: WorkspaceConnectionPublicCredentialRef["source"],
+): WorkspaceConnectionPublicCredentialRef[] {
+  return refs.map((ref) => ({
+    key: ref.key,
+    scope: ref.scope,
+    provider: ref.provider,
+    label: ref.label,
+    source,
+  }));
+}
+
+function grantsForConnection(
+  connectionId: string,
+  grants: SerializedWorkspaceConnectionGrant[],
+  appId?: string,
+): SerializedWorkspaceConnectionGrant[] {
+  return grants.filter(
+    (grant) =>
+      grant.connectionId === connectionId && (!appId || grant.appId === appId),
+  );
+}
+
+function explicitGrantForConnection(
+  connectionId: string,
+  grants: SerializedWorkspaceConnectionGrant[],
+  appId?: string,
+): SerializedWorkspaceConnectionGrant | undefined {
+  return grantsForConnection(connectionId, grants, appId)[0];
+}
+
+function serializeConnectionForApp(
+  connection: SerializedWorkspaceConnection,
+  appId: string,
+  grants: SerializedWorkspaceConnectionGrant[],
+): WorkspaceConnectionForAppSummary {
+  const explicitGrant = explicitGrantForConnection(
+    connection.id,
+    grants,
+    appId,
+  );
+  const appAccess = getWorkspaceConnectionAppAccess(connection, appId, grants);
+  return {
+    id: connection.id,
+    label: connection.label,
+    provider: connection.provider,
+    accountId: connection.accountId,
+    accountLabel: connection.accountLabel,
+    status: connection.status,
+    grantedToApp: appAccess.available,
+    grantScope:
+      connection.allowedApps.length === 0 ? "all-apps" : "selected-apps",
+    appAccess,
+    allowedApps: connection.allowedApps,
+    credentialRefs: publicCredentialRefs(
+      connection.credentialRefs,
+      "connection",
+    ),
+    lastCheckedAt: connection.lastCheckedAt,
+    lastError: connection.lastError,
+    explicitGrant: explicitGrant
+      ? {
+          id: explicitGrant.id,
+          appId: explicitGrant.appId,
+          scopes: explicitGrant.scopes,
+          credentialRefs: publicCredentialRefs(
+            explicitGrant.credentialRefs,
+            "grant",
+          ),
+          updatedAt: explicitGrant.updatedAt,
+        }
+      : null,
+  };
+}
+
+function grantAvailabilityMessage(
+  grantState: WorkspaceConnectionGrantState,
+  providerId: string,
+  appId: string,
+): string {
+  switch (grantState) {
+    case "connected":
+      return `${appId} has an active ${providerId} workspace connection.`;
+    case "granted":
+      return `${appId} has ${providerId} access, but the granted connection is not connected yet.`;
+    case "needs_grant":
+      return `A ${providerId} workspace connection exists; grant ${appId} access to reuse it.`;
+    case "not_connected":
+    default:
+      return `No shared ${providerId} workspace connection is available yet.`;
+  }
+}
+
+export function summarizeWorkspaceConnectionProviderForApp({
+  providerId,
+  appId,
+  connections,
+  grants = [],
+  includeConnections = "granted",
+}: SummarizeWorkspaceConnectionProviderForAppOptions): WorkspaceConnectionProviderAppSummary {
+  const normalizedProviderId = providerId.trim();
+  const normalizedAppId = appId.trim();
+  const allConnections = connections.filter(
+    (connection) => connection.provider === normalizedProviderId,
+  );
+  const grantedConnections = allConnections.filter(
+    (connection) =>
+      getWorkspaceConnectionAppAccess(connection, normalizedAppId, grants)
+        .available,
+  );
+  const connectedConnections = grantedConnections.filter(
+    (connection) => connection.status === "connected",
+  );
+  const ungrantedConnectionCount =
+    allConnections.length - grantedConnections.length;
+  const unhealthyGrantedConnectionCount =
+    grantedConnections.length - connectedConnections.length;
+  const grantState: WorkspaceConnectionGrantState = connectedConnections.length
+    ? "connected"
+    : grantedConnections.length
+      ? "granted"
+      : allConnections.length
+        ? "needs_grant"
+        : "not_connected";
+  const explicitGrantCount = allConnections.reduce(
+    (count, connection) =>
+      explicitGrantForConnection(connection.id, grants, normalizedAppId)
+        ? count + 1
+        : count,
+    0,
+  );
+  const credentialRefCount = allConnections.reduce((count, connection) => {
+    const explicitGrant = explicitGrantForConnection(
+      connection.id,
+      grants,
+      normalizedAppId,
+    );
+    return (
+      count +
+      connection.credentialRefs.length +
+      (explicitGrant?.credentialRefs.length ?? 0)
+    );
+  }, 0);
+  const visibleConnections =
+    includeConnections === "all" ? allConnections : grantedConnections;
+
+  return {
+    appId: normalizedAppId,
+    provider: normalizedProviderId,
+    grantState,
+    grantAvailability:
+      grantState === "connected" || grantState === "granted"
+        ? "available"
+        : grantState,
+    grantAvailabilityMessage: grantAvailabilityMessage(
+      grantState,
+      normalizedProviderId,
+      normalizedAppId,
+    ),
+    connectionCount: allConnections.length,
+    grantedConnectionCount: grantedConnections.length,
+    activeConnectionCount: connectedConnections.length,
+    ungrantedConnectionCount,
+    unhealthyGrantedConnectionCount,
+    explicitGrantCount,
+    credentialRefCount,
+    hasWorkspaceConnection: allConnections.length > 0,
+    hasGrantedWorkspaceConnection: grantedConnections.length > 0,
+    hasActiveWorkspaceConnection: connectedConnections.length > 0,
+    statuses: uniqueStrings(
+      allConnections.map((connection) => connection.status),
+    ) as WorkspaceConnectionStatus[],
+    connections: visibleConnections.map((connection) =>
+      serializeConnectionForApp(connection, normalizedAppId, grants),
+    ),
+  };
+}
+
+function requiredCredentialKeys(provider: WorkspaceConnectionProviderLike) {
+  return uniqueStrings(
+    (provider.credentialKeys ?? [])
+      .filter((credential) => credential.required ?? false)
+      .map((credential) => credential.key),
+  );
+}
+
+function missingRequiredCredentialKeys(
+  provider: WorkspaceConnectionProviderLike,
+  connection: SerializedWorkspaceConnection,
+  grants: SerializedWorkspaceConnectionGrant[] = [],
+): string[] {
+  const available = new Set(
+    [
+      ...connection.credentialRefs,
+      ...grants.flatMap((grant) => grant.credentialRefs),
+    ]
+      .map((ref) => ref.key.trim())
+      .filter(Boolean),
+  );
+  return requiredCredentialKeys(provider).filter((key) => !available.has(key));
+}
+
+export function summarizeWorkspaceConnectionProviderReadiness({
+  provider,
+  connections,
+  grants = [],
+  appId,
+  includeConnections,
+}: SummarizeWorkspaceConnectionProviderReadinessOptions): WorkspaceConnectionProviderReadiness {
+  const providerConnections = connections.filter(
+    (connection) => connection.provider === provider.id,
+  );
+  const activeConnections = providerConnections.filter(
+    (connection) => connection.status !== "disabled",
+  );
+  const attentionConnections = activeConnections.filter(
+    (connection) =>
+      connection.status === "error" ||
+      connection.status === "needs_reauth" ||
+      Boolean(connection.lastError),
+  );
+  const missingKeys = uniqueStrings(
+    activeConnections.flatMap((connection) =>
+      missingRequiredCredentialKeys(
+        provider,
+        connection,
+        grantsForConnection(connection.id, grants, appId),
+      ),
+    ),
+  );
+  const readyConnections = activeConnections.filter(
+    (connection) =>
+      connection.status === "connected" &&
+      missingRequiredCredentialKeys(
+        provider,
+        connection,
+        grantsForConnection(connection.id, grants, appId),
+      ).length === 0,
+  );
+  const checkingConnections = activeConnections.filter(
+    (connection) => connection.status === "checking",
+  );
+
+  let status: WorkspaceConnectionProviderReadinessStatus = "not_configured";
+  if (readyConnections.length > 0) {
+    status = "ready";
+  } else if (attentionConnections.length > 0) {
+    status = "needs_attention";
+  } else if (missingKeys.length > 0) {
+    status = "needs_credentials";
+  } else if (checkingConnections.length > 0) {
+    status = "checking";
+  } else if (providerConnections.length > 0) {
+    status = "disabled";
+  }
+
+  return {
+    status,
+    connectionCount: providerConnections.length,
+    activeConnectionCount: activeConnections.length,
+    readyConnectionCount: readyConnections.length,
+    requiredCredentialKeys: requiredCredentialKeys(provider),
+    missingRequiredCredentialKeys: missingKeys,
+    appGrant: appId
+      ? summarizeWorkspaceConnectionProviderForApp({
+          providerId: provider.id,
+          appId,
+          connections,
+          grants,
+          includeConnections,
+        })
+      : null,
+  };
 }
 
 async function getGrantedConnectionIdsForApp(

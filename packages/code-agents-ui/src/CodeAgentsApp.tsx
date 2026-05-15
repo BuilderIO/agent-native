@@ -1,26 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconAlertCircle,
-  IconArrowUp,
   IconClock,
   IconCode,
   IconExternalLink,
-  IconCalendarTime,
-  IconFileUpload,
   IconListCheck,
-  IconMicrophone,
   IconPlus,
   IconPlayerPlay,
   IconRefresh,
   IconRoute,
   IconTerminal2,
-  IconX,
 } from "@tabler/icons-react";
-import { toast } from "sonner";
 import {
-  formatCodeAgentPromptWithAttachments,
-  readCodeAgentPromptAttachment,
-} from "./composer-primitives.js";
+  PromptComposer,
+  type PromptComposerFile,
+  type TiptapComposerHandle,
+} from "@agent-native/core/client";
+import { toast } from "sonner";
+import { readCodeAgentPromptAttachment } from "./composer-primitives.js";
 import {
   CODE_AGENT_GOALS,
   DEFAULT_CODE_AGENT_PERMISSION_MODE,
@@ -41,14 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select.js";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu.js";
 import type {
   CodeAgentCodePack,
   CodeAgentCodePackResult,
@@ -236,6 +225,7 @@ export default function CodeAgentsApp({
   const [refreshing, setRefreshing] = useState(false);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [newPrompt, setNewPrompt] = useState("");
+  const [newPromptSeed, setNewPromptSeed] = useState(0);
   const [creatingRun, setCreatingRun] = useState(false);
   const [transcriptEvents, setTranscriptEvents] = useState<
     CodeAgentTranscriptEvent[]
@@ -262,7 +252,15 @@ export default function CodeAgentsApp({
     () => normalizeModelSelection(modelSelection, modelOptions),
     [modelOptions, modelSelection],
   );
-  const newPromptRef = useRef<HTMLTextAreaElement | null>(null);
+  const newPromptRef = useRef<TiptapComposerHandle | null>(null);
+
+  const seedNewPrompt = useCallback((value: string) => {
+    setNewPrompt(value);
+    setNewPromptSeed((seed) => seed + 1);
+    window.requestAnimationFrame(() => {
+      newPromptRef.current?.focus();
+    });
+  }, []);
 
   const loadRuns = useCallback(
     async (busy = false) => {
@@ -527,7 +525,7 @@ export default function CodeAgentsApp({
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
   ) {
-    const prompt = preparedPrompt.trim();
+    const prompt = normalizePromptForSelectedGoal(selectedGoal, preparedPrompt);
     if (!prompt) {
       toast("Enter a coding task first", { duration: 1800 });
       return;
@@ -551,6 +549,7 @@ export default function CodeAgentsApp({
         return;
       }
       setNewPrompt("");
+      setNewPromptSeed((seed) => seed + 1);
       setRuns((current) => [result.run!, ...current]);
       setSelectedRunId(result.run.id);
       setWorkbenchOpen(false);
@@ -764,10 +763,13 @@ export default function CodeAgentsApp({
             setSelectedGoalId("task");
             setSelectedRunId(null);
             setWorkbenchOpen(false);
-            setNewPrompt(`/${commandName} `);
-            window.requestAnimationFrame(() => {
-              newPromptRef.current?.focus();
-            });
+            seedNewPrompt(`/${commandName} `);
+          }}
+          onUseSkill={(skillName) => {
+            setSelectedGoalId("task");
+            setSelectedRunId(null);
+            setWorkbenchOpen(false);
+            seedNewPrompt(`Use the ${skillName} skill to `);
           }}
         />
 
@@ -886,6 +888,7 @@ export default function CodeAgentsApp({
                 onResume={() => controlRun("resume")}
                 onRefreshStatus={() => controlRun("status")}
                 onStop={() => controlRun("stop")}
+                onApprove={() => controlRun("approve")}
                 onRetry={host.retryRun ? retrySelectedRun : undefined}
                 onRerun={host.rerunRun ? rerunSelectedRun : undefined}
                 onOpenSettings={onOpenSettings}
@@ -895,6 +898,7 @@ export default function CodeAgentsApp({
                 <h2>What should we work on?</h2>
                 <NewSessionComposer
                   prompt={newPrompt}
+                  promptSeed={newPromptSeed}
                   inputRef={newPromptRef}
                   creating={creatingRun}
                   permissionMode={newRunPermissionMode}
@@ -910,8 +914,7 @@ export default function CodeAgentsApp({
                     type="button"
                     onClick={() => {
                       setSelectedGoalId("task");
-                      setNewPrompt("Review the current changes");
-                      newPromptRef.current?.focus();
+                      seedNewPrompt("Review the current changes");
                     }}
                   >
                     Review the current changes
@@ -920,8 +923,7 @@ export default function CodeAgentsApp({
                     type="button"
                     onClick={() => {
                       setSelectedGoalId("migrate");
-                      setNewPrompt("/migrate ");
-                      newPromptRef.current?.focus();
+                      seedNewPrompt("/migrate ");
                     }}
                   >
                     Migrate an existing app
@@ -930,8 +932,7 @@ export default function CodeAgentsApp({
                     type="button"
                     onClick={() => {
                       setSelectedGoalId("audit");
-                      setNewPrompt("/audit ");
-                      newPromptRef.current?.focus();
+                      seedNewPrompt("/audit ");
                     }}
                   >
                     Audit a web app
@@ -958,9 +959,11 @@ function isMigrationRun(run: CodeAgentRun): run is CodeAgentMigrationRun {
 function ProjectPacksSection({
   pack,
   onRunCommand,
+  onUseSkill,
 }: {
   pack: CodeAgentCodePack | null;
   onRunCommand: (commandName: string) => void;
+  onUseSkill: (skillName: string) => void;
 }) {
   const commands = pack?.commands.filter((command) => !command.reserved) ?? [];
   const skills = pack?.skills ?? [];
@@ -982,14 +985,16 @@ function ProjectPacksSection({
         </button>
       ))}
       {skills.slice(0, 4).map((skill) => (
-        <div
+        <button
           key={`skill-${skill.name}`}
-          className="code-agents-pack-row code-agents-pack-row--static"
+          type="button"
+          className="code-agents-pack-row"
+          onClick={() => onUseSkill(skill.name)}
           title={skill.description ?? skill.relativePath}
         >
           <span>{skill.name}</span>
           <em>{skill.description ?? "Skill instructions"}</em>
-        </div>
+        </button>
       ))}
     </div>
   );
@@ -997,6 +1002,7 @@ function ProjectPacksSection({
 
 function NewSessionComposer({
   prompt,
+  promptSeed,
   inputRef,
   creating,
   permissionMode,
@@ -1008,7 +1014,8 @@ function NewSessionComposer({
   onSubmit,
 }: {
   prompt: string;
-  inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  promptSeed: number;
+  inputRef: React.RefObject<TiptapComposerHandle | null>;
   creating: boolean;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
@@ -1024,6 +1031,7 @@ function NewSessionComposer({
   return (
     <CodeAgentComposer
       prompt={prompt}
+      promptSeed={promptSeed}
       inputRef={inputRef}
       submitting={creating}
       permissionMode={permissionMode}
@@ -1031,7 +1039,6 @@ function NewSessionComposer({
       modelOptions={modelOptions}
       placeholder="Describe a task or ask a question"
       variant="hero"
-      submitLabel={creating ? "Starting session" : "Start session"}
       onPromptChange={onPromptChange}
       onPermissionModeChange={onPermissionModeChange}
       onModelSelectionChange={onModelSelectionChange}
@@ -1042,6 +1049,7 @@ function NewSessionComposer({
 
 function CodeAgentComposer({
   prompt,
+  promptSeed,
   inputRef,
   submitting,
   permissionMode,
@@ -1050,7 +1058,6 @@ function CodeAgentComposer({
   modelSelection,
   modelOptions,
   placeholder,
-  submitLabel,
   variant = "compact",
   onPromptChange,
   onPermissionModeChange,
@@ -1059,7 +1066,8 @@ function CodeAgentComposer({
   onSubmit,
 }: {
   prompt: string;
-  inputRef?: React.RefObject<HTMLTextAreaElement | null>;
+  promptSeed?: string | number;
+  inputRef?: React.RefObject<TiptapComposerHandle | null>;
   submitting: boolean;
   permissionMode: CodeAgentPermissionMode;
   followUpMode?: CodeAgentFollowUpMode;
@@ -1067,7 +1075,6 @@ function CodeAgentComposer({
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   placeholder: string;
-  submitLabel: string;
   variant?: "hero" | "compact";
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
@@ -1079,300 +1086,127 @@ function CodeAgentComposer({
     followUpMode?: CodeAgentFollowUpMode,
   ) => void;
 }) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const [attachments, setAttachments] = useState<CodeAgentPromptAttachment[]>(
+  const composerModelGroups = useMemo(
+    () => modelOptionsToComposerGroups(modelOptions),
+    [modelOptions],
+  );
+  const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
+  const selectedModel = normalizedModel.model ?? "auto";
+  const selectedEngine = normalizedModel.engine ?? "auto";
+  const selectedEffort = normalizeReasoningEffort(
+    normalizedModel.effort ?? "auto",
+  );
+
+  const handleModelChange = useCallback(
+    (model: string, engine: string) => {
+      if (engine === "auto" && model === "auto") {
+        onModelSelectionChange({ effort: selectedEffort });
+        return;
+      }
+      onModelSelectionChange({
+        engine,
+        model,
+        effort: selectedEffort,
+      });
+    },
+    [onModelSelectionChange, selectedEffort],
+  );
+
+  const handleEffortChange = useCallback(
+    (effort: CodeAgentReasoningEffort) => {
+      onModelSelectionChange({
+        ...normalizedModel,
+        effort: normalizeReasoningEffort(effort),
+      });
+    },
+    [normalizedModel, onModelSelectionChange],
+  );
+
+  const readPromptFiles = useCallback(
+    async (files: PromptComposerFile[]) =>
+      Promise.all(files.map((file) => readCodeAgentPromptAttachment(file))),
     [],
   );
-  const [listening, setListening] = useState(false);
 
-  const addFiles = async (files: FileList | null) => {
-    if (!files?.length) return;
-    const next: CodeAgentPromptAttachment[] = [];
-    for (const file of Array.from(files)) {
-      next.push(await readCodeAgentPromptAttachment(file));
-    }
-    setAttachments((current) => [...current, ...next]);
-    toast(`${next.length} file${next.length === 1 ? "" : "s"} attached`, {
-      duration: 1800,
-    });
-  };
-
-  const toggleVoice = () => {
-    if (listening) {
-      recognitionRef.current?.stop();
-      setListening(false);
-      return;
-    }
-    const Recognition = getSpeechRecognitionConstructor();
-    if (!Recognition) {
-      toast("Voice dictation is not available in this browser.", {
-        duration: 2800,
-      });
-      return;
-    }
-    const recognition = new Recognition();
-    recognitionRef.current = recognition;
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map((result) => result[0]?.transcript ?? "")
-        .join(" ")
-        .trim();
-      if (transcript) {
-        onPromptChange(
-          [prompt.trimEnd(), transcript].filter(Boolean).join(" "),
-        );
-      }
-    };
-    recognition.onerror = () => {
-      setListening(false);
-      toast("Voice dictation stopped", { duration: 1800 });
-    };
-    recognition.onend = () => setListening(false);
-    setListening(true);
-    recognition.start();
-  };
-
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    const prepared = formatCodeAgentPromptWithAttachments(prompt, attachments);
-    onSubmit(prepared, attachments, followUpMode);
-    if (prepared.trim()) setAttachments([]);
-  };
-
-  return (
-    <form
-      className={`code-agents-new-session code-agents-composer-shell code-agents-composer-shell--${variant}`}
-      onSubmit={submit}
-    >
-      <textarea
-        ref={inputRef}
-        className="code-agents-composer"
-        value={prompt}
-        onChange={(event) => onPromptChange(event.target.value)}
-        placeholder={placeholder}
-        rows={variant === "hero" ? 4 : 3}
+  const modeControl = (
+    <div className="code-agents-composer-mode-slot">
+      <RunModeSelect
+        value={permissionMode}
+        onChange={onPermissionModeChange}
+        compact
       />
-
-      {attachments.length > 0 && (
-        <div className="code-agents-attachments" aria-label="Attached files">
-          {attachments.map((attachment, index) => (
-            <button
-              key={`${attachment.name}-${index}`}
-              type="button"
-              className="code-agents-attachment-chip"
-              onClick={() =>
-                setAttachments((current) =>
-                  current.filter((_, itemIndex) => itemIndex !== index),
-                )
-              }
-              title={`Remove ${attachment.name}`}
-            >
-              <span>{attachment.name}</span>
-              <IconX size={12} strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          ))}
-        </div>
+      {showFollowUpMode && onFollowUpModeChange && (
+        <FollowUpModeSelect
+          value={followUpMode}
+          onChange={onFollowUpModeChange}
+        />
       )}
-
-      <div className="code-agents-composer-bar">
-        <div className="code-agents-composer-left">
-          <ComposerPlusMenu
-            onUpload={() => fileInputRef.current?.click()}
-            disabled={submitting}
-          />
-          <input
-            ref={fileInputRef}
-            className="code-agents-file-input"
-            type="file"
-            multiple
-            onChange={(event) => {
-              void addFiles(event.currentTarget.files);
-              event.currentTarget.value = "";
-            }}
-          />
-          <RunModeSelect
-            value={permissionMode}
-            onChange={onPermissionModeChange}
-            compact
-          />
-          {showFollowUpMode && onFollowUpModeChange && (
-            <FollowUpModeSelect
-              value={followUpMode}
-              onChange={onFollowUpModeChange}
-            />
-          )}
-        </div>
-        <div className="code-agents-composer-right">
-          <ModelEffortSelect
-            value={modelSelection}
-            models={modelOptions}
-            onChange={onModelSelectionChange}
-          />
-          <button
-            type="button"
-            className={`code-agents-composer-icon-button${
-              listening ? " code-agents-composer-icon-button--active" : ""
-            }`}
-            onClick={toggleVoice}
-            title="Voice dictation"
-            aria-label="Voice dictation"
-            disabled={submitting}
-          >
-            <IconMicrophone size={16} strokeWidth={1.75} />
-          </button>
-          <button
-            type="submit"
-            className="code-agents-send-button"
-            disabled={
-              submitting ||
-              formatCodeAgentPromptWithAttachments(prompt, attachments).trim()
-                .length === 0
-            }
-            aria-label={submitLabel}
-          >
-            <IconArrowUp size={17} strokeWidth={1.9} />
-          </button>
-        </div>
-      </div>
-    </form>
-  );
-}
-
-function ComposerPlusMenu({
-  onUpload,
-  disabled,
-}: {
-  onUpload: () => void;
-  disabled: boolean;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="code-agents-composer-icon-button"
-          aria-label="Add context"
-          title="Add context"
-          disabled={disabled}
-        >
-          <IconPlus size={18} strokeWidth={1.7} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="code-agents-plus-menu">
-        <DropdownMenuLabel>Add context</DropdownMenuLabel>
-        <DropdownMenuItem
-          onSelect={(event: Event) => {
-            event.preventDefault();
-            onUpload();
-          }}
-          description="Attach files to this prompt."
-        >
-          <IconFileUpload size={15} strokeWidth={1.8} />
-          Upload files
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          disabled
-          description="Schedule this from Automations soon."
-        >
-          <IconCalendarTime size={15} strokeWidth={1.8} />
-          Scheduled task
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function ModelEffortSelect({
-  value,
-  models,
-  onChange,
-}: {
-  value: CodeAgentModelSelection;
-  models: CodeAgentModelOption[];
-  onChange: (value: CodeAgentModelSelection) => void;
-}) {
-  const normalized = normalizeModelSelection(value, models);
-  const modelKey = modelOptionKey(normalized);
-  const effort = normalized.effort ?? "auto";
-  const modelLabel =
-    models.find((model) => modelOptionKey(model) === modelKey)?.label ??
-    normalized.model ??
-    "Model";
-  return (
-    <div className="code-agents-model-controls">
-      <Select
-        value={modelKey}
-        onValueChange={(nextValue) => {
-          const nextModel = models.find(
-            (option) => modelOptionKey(option) === nextValue,
-          );
-          if (!nextModel) return;
-          onChange({
-            engine: nextModel.engine,
-            model: nextModel.model,
-            effort,
-          });
-        }}
-      >
-        <SelectTrigger
-          className="code-agents-model-select"
-          aria-label="Model"
-          title={modelLabel}
-        >
-          <SelectValue>{modelLabel}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {models.map((model) => (
-              <SelectItem
-                key={modelOptionKey(model)}
-                value={modelOptionKey(model)}
-                description={model.description ?? model.engineLabel}
-              >
-                {model.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      <Select
-        value={effort}
-        onValueChange={(nextEffort) =>
-          onChange({
-            ...normalized,
-            effort: normalizeReasoningEffort(nextEffort),
-          })
-        }
-      >
-        <SelectTrigger
-          className="code-agents-effort-select"
-          aria-label="Reasoning effort"
-          title="Reasoning effort"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {CODE_AGENT_REASONING_EFFORTS.map((item) => (
-              <SelectItem key={item.id} value={item.id}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
     </div>
   );
+
+  return (
+    <PromptComposer
+      className={`code-agents-new-session code-agents-standard-composer code-agents-composer-shell code-agents-composer-shell--${variant}`}
+      composerRef={inputRef}
+      disabled={submitting}
+      placeholder={placeholder}
+      draftScope={
+        variant === "hero"
+          ? "agent-native-code:new-session"
+          : "agent-native-code:follow-up"
+      }
+      initialText={promptSeed !== undefined ? prompt : undefined}
+      initialTextKey={promptSeed}
+      modeControl={modeControl}
+      availableModels={composerModelGroups}
+      selectedModel={selectedModel}
+      selectedEngine={selectedEngine}
+      selectedEffort={selectedEffort}
+      onModelChange={handleModelChange}
+      onEffortChange={handleEffortChange}
+      onTextChange={onPromptChange}
+      onSubmit={async (text, files) => {
+        const attachments = await readPromptFiles(files);
+        onSubmit(text, attachments, followUpMode);
+      }}
+      attachmentsEnabled
+      voiceEnabled
+      preserveDraftOnSubmit={false}
+    />
+  );
 }
 
-function modelOptionKey(
-  value: Pick<CodeAgentModelSelection, "engine" | "model">,
-): string {
-  return `${value.engine ?? "auto"}:${value.model ?? "auto"}`;
+function modelOptionsToComposerGroups(models: CodeAgentModelOption[]): Array<{
+  engine: string;
+  label: string;
+  models: string[];
+  configured: boolean;
+}> {
+  const groups = new Map<
+    string,
+    {
+      engine: string;
+      label: string;
+      models: string[];
+      configured: boolean;
+    }
+  >();
+
+  for (const option of models) {
+    const key = `${option.engine}:${option.engineLabel}`;
+    const group = groups.get(key) ?? {
+      engine: option.engine,
+      label: option.engineLabel,
+      models: [],
+      configured: true,
+    };
+    if (!group.models.includes(option.model)) {
+      group.models.push(option.model);
+    }
+    groups.set(key, group);
+  }
+
+  return [...groups.values()];
 }
 
 function normalizeModelSelection(
@@ -1428,33 +1262,6 @@ function writeStoredModelSelection(value: CodeAgentModelSelection): void {
   } catch {
     // Ignore private-mode storage failures.
   }
-}
-
-type SpeechRecognitionLike = {
-  continuous: boolean;
-  interimResults: boolean;
-  onresult:
-    | ((event: {
-        results: ArrayLike<ArrayLike<{ transcript: string }>>;
-      }) => void)
-    | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start(): void;
-  stop(): void;
-};
-
-function getSpeechRecognitionConstructor():
-  | (new () => SpeechRecognitionLike)
-  | null {
-  if (typeof window === "undefined") return null;
-  const maybeWindow = window as unknown as {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  };
-  return (
-    maybeWindow.SpeechRecognition ?? maybeWindow.webkitSpeechRecognition ?? null
-  );
 }
 
 function RunModeSelect({
@@ -1613,6 +1420,16 @@ function exampleCommandForGoal(goal: CodeAgentGoalDefinition): string {
   return `agent-native code ${goal.slashCommand} --url https://example.com`;
 }
 
+function normalizePromptForSelectedGoal(
+  goal: CodeAgentGoalDefinition,
+  prompt: string,
+): string {
+  const trimmed = prompt.trim();
+  if (!trimmed || goal.id === "task") return trimmed;
+  if (trimmed.startsWith(goal.slashCommand)) return trimmed;
+  return `${goal.slashCommand} ${trimmed}`.trim();
+}
+
 function isRunActive(run: CodeAgentRun): boolean {
   return !(
     run.status === "completed" ||
@@ -1740,6 +1557,7 @@ function RunDetailCard({
   onResume,
   onRefreshStatus,
   onStop,
+  onApprove,
   onRetry,
   onRerun,
   onOpenSettings,
@@ -1771,6 +1589,7 @@ function RunDetailCard({
   onResume: () => void;
   onRefreshStatus: () => void;
   onStop: () => void;
+  onApprove: () => void;
   onRetry?: () => void;
   onRerun?: () => void;
   onOpenSettings?: () => void;
@@ -1843,6 +1662,14 @@ function RunDetailCard({
             <span>{pendingApproval.reason}</span>
             {pendingApproval.command && <code>{pendingApproval.command}</code>}
           </div>
+          <button
+            type="button"
+            className="code-agents-button code-agents-button--primary"
+            onClick={onApprove}
+          >
+            <IconPlayerPlay size={14} strokeWidth={1.8} />
+            Approve
+          </button>
         </div>
       )}
 
@@ -2058,7 +1885,6 @@ function TranscriptPanel({
         modelSelection={modelSelection}
         modelOptions={modelOptions}
         placeholder="Ask for follow-up changes"
-        submitLabel={submitting ? "Recording follow-up" : "Send follow-up"}
         onPromptChange={onFollowUpPromptChange}
         onFollowUpModeChange={onFollowUpModeChange}
         onPermissionModeChange={onPermissionModeChange}

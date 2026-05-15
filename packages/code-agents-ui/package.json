@@ -20,6 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
     "@radix-ui/react-dropdown-menu": "2.1.16",
     "@radix-ui/react-select": "2.2.6",

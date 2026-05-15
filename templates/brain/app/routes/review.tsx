@@ -195,7 +195,7 @@ export default function ReviewRoute() {
       <PageHeader
         eyebrow="Review"
         title="Proposal review"
-        description="Inspect proposed company memories, tune the wording when needed, and record the review decision."
+        description="Approve only the proposed memories that have durable value, source support, and the right privacy posture."
         actions={
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <Badge variant="outline" className="w-fit max-w-full">
@@ -428,7 +428,7 @@ export default function ReviewRoute() {
         ) : (
           <EmptyActionState
             title={`No ${status} proposals`}
-            detail="Brain has no proposals matching this review filter."
+            detail="Demo and low-confidence distillation proposals appear here before they become company memory."
           />
         )}
 

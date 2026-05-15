@@ -17,6 +17,7 @@ export default defineAction({
         "knowledge",
         "review",
         "proposals",
+        "ops",
         "settings",
       ])
       .default("home"),
@@ -28,6 +29,7 @@ export default defineAction({
     type: z.enum(["knowledge", "capture", "source", "all"]).optional(),
     provider: z.string().optional(),
     status: z.string().optional(),
+    issue: z.enum(["all", "failed", "stale", "retryable"]).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional(),
   }),
   http: false,

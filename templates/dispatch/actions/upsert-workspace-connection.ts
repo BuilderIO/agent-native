@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { getWorkspaceConnectionProvider } from "@agent-native/core/connections";
+import {
+  getWorkspaceConnectionProvider,
+  type WorkspaceConnectionProvider,
+} from "@agent-native/core/connections";
 import {
   upsertWorkspaceConnection,
   type WorkspaceConnectionStatus,
@@ -16,12 +19,43 @@ const statusSchema = z.enum([
 
 const credentialRefSchema = z
   .object({
-    key: z.string(),
-    scope: z.enum(["user", "org"]).optional(),
+    key: z.string().describe("Vault or OAuth credential reference name."),
+    scope: z
+      .enum(["user", "org", "workspace"])
+      .optional()
+      .describe("Reference scope. Defaults to org."),
     provider: z.string().optional(),
     label: z.string().optional(),
   })
-  .catchall(z.unknown());
+  .strict();
+
+function normalizeCredentialRefs(
+  refs: Array<z.infer<typeof credentialRefSchema>>,
+  provider: WorkspaceConnectionProvider,
+) {
+  const credentialLabels = new Map(
+    provider.credentialKeys.map((credential) => [
+      credential.key,
+      credential.label,
+    ]),
+  );
+  const seen = new Set<string>();
+  return refs
+    .map((ref) => ({
+      key: ref.key.trim(),
+      scope: ref.scope ?? "org",
+      provider: ref.provider?.trim() || provider.id,
+      label:
+        ref.label?.trim() ||
+        credentialLabels.get(ref.key.trim()) ||
+        ref.key.trim(),
+    }))
+    .filter((ref) => {
+      if (!ref.key || seen.has(ref.key)) return false;
+      seen.add(ref.key);
+      return true;
+    });
+}
 
 export default defineAction({
   description:
@@ -76,6 +110,7 @@ export default defineAction({
     return upsertWorkspaceConnection({
       ...args,
       status: args.status as WorkspaceConnectionStatus,
+      credentialRefs: normalizeCredentialRefs(args.credentialRefs, provider),
     });
   },
 });

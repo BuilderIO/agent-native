@@ -7,6 +7,7 @@ import {
 import {
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
+  summarizeWorkspaceConnectionProviderReadiness,
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
@@ -97,15 +98,29 @@ export default defineAction({
       })),
     ];
 
+    const providersWithReadiness = providers.map((provider) => ({
+      ...provider,
+      readiness: summarizeWorkspaceConnectionProviderReadiness({
+        provider,
+        connections,
+        grants: explicitGrants,
+        appId: args.appId,
+        includeConnections: "all",
+      }),
+    }));
+
     return {
-      providers,
+      providers: providersWithReadiness,
       connections,
       grants,
       suggestedApps: SUGGESTED_GRANT_APPS,
       counts: {
-        providers: providers.length,
+        providers: providersWithReadiness.length,
         connections: connections.length,
         grants: grants.length,
+        readyProviders: providersWithReadiness.filter(
+          (provider) => provider.readiness.status === "ready",
+        ).length,
       },
     };
   },
