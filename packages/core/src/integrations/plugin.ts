@@ -35,12 +35,7 @@ import {
   processA2AContinuationById,
   processDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
-import {
-  resourceGet,
-  resourceGetByPath,
-  resourceList,
-  SHARED_OWNER,
-} from "../resources/store.js";
+import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { getTaskQueueStats } from "./task-queue-stats.js";
 import { getSession } from "../server/auth.js";
 import { getOrgContext } from "../org/context.js";
@@ -120,81 +115,6 @@ function getDefaultAdapters(): PlatformAdapter[] {
     googleDocsAdapter(),
     emailAdapter(),
   ];
-}
-
-/**
- * Load resources for the integration agent's system prompt.
- * Mirrors the pattern from agent-chat-plugin.ts.
- */
-async function loadResourcesForPrompt(owner: string): Promise<string> {
-  const resourceNames = ["AGENTS.md", "LEARNINGS.md"];
-  const sections: string[] = [];
-
-  for (const name of resourceNames) {
-    try {
-      const shared = await resourceGetByPath(SHARED_OWNER, name);
-      if (shared?.content?.trim()) {
-        sections.push(
-          `<resource name="${name}" scope="shared">\n${shared.content.trim()}\n</resource>`,
-        );
-      }
-    } catch {}
-
-    if (owner !== SHARED_OWNER) {
-      try {
-        const personal = await resourceGetByPath(owner, name);
-        if (personal?.content?.trim()) {
-          sections.push(
-            `<resource name="${name}" scope="personal">\n${personal.content.trim()}\n</resource>`,
-          );
-        }
-      } catch {}
-    }
-  }
-
-  try {
-    const instructions = (await resourceList(SHARED_OWNER, "instructions/"))
-      .filter((resource) => resource.path.endsWith(".md"))
-      .sort((a, b) => a.path.localeCompare(b.path));
-    for (const resource of instructions) {
-      const full = await resourceGet(resource.id).catch(() => null);
-      if (full?.content?.trim()) {
-        sections.push(
-          `<resource name="${resource.path}" scope="shared-instruction">\n${full.content.trim()}\n</resource>`,
-        );
-      }
-    }
-  } catch {}
-
-  try {
-    const resources = (await resourceList(SHARED_OWNER))
-      .filter((resource) => {
-        if (resource.path === "AGENTS.md" || resource.path === "LEARNINGS.md") {
-          return false;
-        }
-        return ![
-          "instructions/",
-          "skills/",
-          "agents/",
-          "remote-agents/",
-          "jobs/",
-          "memory/",
-        ].some((prefix) => resource.path.startsWith(prefix));
-      })
-      .sort((a, b) => a.path.localeCompare(b.path))
-      .slice(0, 40);
-    if (resources.length > 0) {
-      sections.push(
-        `<workspace-resources>\nShared workspace reference resources are available. Use resource-read --path <path> --scope shared when a task may depend on company, brand, positioning, persona, product, or domain context.\n\n${resources.map((resource) => `- \`${resource.path}\``).join("\n")}\n</workspace-resources>`,
-      );
-    }
-  } catch {}
-
-  if (sections.length === 0) return "";
-  return (
-    "\n\nThe following resources contain template-specific instructions and user context.\n\n" +
-    sections.join("\n\n")
-  );
 }
 
 const INTEGRATION_SYSTEM_PROMPT = `You are an AI agent responding via a messaging platform integration (Slack, Telegram, WhatsApp, etc.).

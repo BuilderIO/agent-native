@@ -17,11 +17,14 @@ import {
 } from "./dispatch-store.js";
 import {
   getAgentThreadDebug,
+  listThreadDebugSources,
   searchAgentThreads,
 } from "./thread-debug-store.js";
 
 const DEFAULT_DREAM_LIMIT = 20;
 const MAX_DREAM_LIMIT = 50;
+const DEFAULT_SOURCE_TIMEOUT_MS = 15_000;
+const MAX_SOURCE_TIMEOUT_MS = 60_000;
 const MEMORY_INDEX_PATH = "memory/MEMORY.md";
 const DREAM_JOB_PATH = "jobs/dispatch-dream.md";
 const DEFAULT_DREAM_CRON = "0 9 * * 1";
@@ -33,6 +36,18 @@ type DreamStatus = "running" | "completed" | "failed";
 type ProposalStatus = "pending" | "approval_requested" | "applied" | "rejected";
 type ProposalTargetType = "personal-memory" | "shared-learnings";
 type ProposalRisk = "low" | "medium" | "high";
+type DreamSourceStatus = "ok" | "timed_out" | "error";
+
+export interface DreamSourceHealth {
+  sourceId: string;
+  label?: string | null;
+  status: DreamSourceStatus;
+  durationMs: number;
+  inspectedThreadCount: number;
+  candidateCount: number;
+  errorCount: number;
+  message?: string | null;
+}
 
 interface DreamCandidateReason {
   code: string;
@@ -112,6 +127,73 @@ function today() {
 
 function clampLimit(limit: number | undefined) {
   return Math.max(1, Math.min(MAX_DREAM_LIMIT, limit ?? DEFAULT_DREAM_LIMIT));
+}
+
+function clampSourceTimeoutMs(timeoutMs: number | undefined) {
+  const parsed = Number(timeoutMs ?? DEFAULT_SOURCE_TIMEOUT_MS);
+  if (!Number.isFinite(parsed)) return DEFAULT_SOURCE_TIMEOUT_MS;
+  return Math.max(1, Math.min(MAX_SOURCE_TIMEOUT_MS, Math.floor(parsed)));
+}
+
+class DreamSourceTimeoutError extends Error {
+  readonly code = "DREAM_SOURCE_TIMEOUT";
+
+  constructor(sourceId: string, timeoutMs: number) {
+    super(`Dream source "${sourceId}" timed out after ${timeoutMs}ms.`);
+    this.name = "DreamSourceTimeoutError";
+  }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  sourceId: string,
+  timeoutMs: number,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new DreamSourceTimeoutError(sourceId, timeoutMs)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function isDreamSourceTimeout(error: unknown): boolean {
+  return (
+    error instanceof DreamSourceTimeoutError ||
+    (error as any)?.code === "DREAM_SOURCE_TIMEOUT"
+  );
+}
+
+function compactErrorMessage(error: unknown): string {
+  return compactText((error as Error)?.message ?? error, 320);
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await worker(items[index]!);
+      }
+    }),
+  );
+  return results;
 }
 
 function scopeFor<T extends { ownerEmail: any; orgId: any }>(

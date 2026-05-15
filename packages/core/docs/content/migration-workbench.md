@@ -1,21 +1,21 @@
 ---
-title: "Migration Workbench"
-description: "Migrate existing apps, URLs, or described products into agent-native with a local Workbench or an own-agent dossier."
+title: "Code Agents /migrate Goal"
+description: "Use the built-in Code Agents /migrate goal to assess, plan, approve, and verify app migrations."
 ---
 
-# Migration Workbench
+# Code Agents /migrate Goal
 
-Start with the npx command:
+Start migration through **Code Agents**:
 
 ```bash
 npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 ```
 
-Migration Workbench is the first app-backed **Code Agents** goal. It uses the same long-running harness as the desktop Code Agents hub and the CLI `code` command, so migration behaves like a slash command rather than a separate one-off tool. The input can be a local codebase, a URL, or a prose description. The first output is not blind generated code; it is an auditable migration surface with assessment, planning, approval, generated output, and verification.
+**Code Agents** is the product surface for long-running coding work. `/migrate` is a built-in Code Agents goal for moving an existing app, URL, or described product into agent-native. It uses the same long-running harness as the desktop Code Agents hub and the CLI `code` command, so migration behaves like a goal you can resume, inspect, and stop rather than a separate one-off product.
 
-The product promise is: **let the agent run, but prove it**.
+The hidden `migration` app is an internal implementation detail. It provides the run detail/control surface for assessment, approval, task progress, artifacts, and verification. The first output is not blind generated code; it is auditable evidence that lets the agent run and prove what happened.
 
-The direct `migrate` command remains a shortcut:
+The direct `migrate` command remains a shortcut into the same goal:
 
 ```bash
 npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app
@@ -43,9 +43,9 @@ npx @agent-native/core@latest code /migrate --describe "A Rails admin app with r
 
 For local paths, the source is read-only. Generated output must live outside the source tree.
 
-## Workbench Flow
+## Internal Run Surface
 
-The normal command scaffolds the hidden `migration` template and writes `data/migration-source.json` with source metadata. Then run the Workbench:
+The normal command scaffolds the hidden `migration` template and writes `data/migration-source.json` with source metadata. Open this internal surface only when you need to inspect or control a run directly:
 
 ```bash
 cd migration
@@ -53,13 +53,13 @@ pnpm install
 pnpm dev
 ```
 
-The Workbench URL is the local dev URL printed by Vite. In first-party dev setups it is usually:
+The local dev URL is printed by Vite. In first-party dev setups it is usually:
 
 ```text
 http://localhost:8101/
 ```
 
-Inside the app, the flow is:
+Inside the internal surface, the flow is:
 
 1. **Discover** reads the source and creates `01-assessment.md`.
 2. **Plan** creates recipe tasks and writes `02-plan.md` plus `03-tasks.md`.
@@ -76,11 +76,11 @@ npx @agent-native/core@latest code ui --last
 npx @agent-native/core@latest code stop --last
 ```
 
-`stop` does not kill an unknown background process. It reminds you to stop the terminal or Desktop/dev-all process that owns the Workbench server.
+`stop` does not kill an unknown background process. It reminds you to stop the terminal or Desktop/dev-all process that owns the internal run surface.
 
 ## Long-Running Goals
 
-The Workbench has a goal action named `run-migration-goal`. It advances a run in bounded iterations:
+The `/migrate` goal has an action named `run-migration-goal`. It advances a run in bounded iterations:
 
 - before approval, it can assess and plan but cannot write generated output
 - after approval, it scaffolds once, advances pending tasks, verifies, and records verifier results
@@ -90,25 +90,25 @@ That gives the flow Claude Code `/goal`-style semantics without making migration
 
 ## Credentials
 
-Migration reuses the same credentials system as agent-native. There is no migration-specific key store and no `MIGRATION_*` secret namespace.
+The `/migrate` goal reuses the same credentials system as agent-native. There is no migration-specific key store and no `MIGRATION_*` secret namespace.
 
-In the Workbench or Desktop, connect providers through the normal settings and onboarding surfaces. For headless CLI use, existing provider environment variables are detected, including `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, and other provider env vars supported by the framework. Secret values are never copied into migration artifacts.
+In Code Agents, Desktop, or the internal run surface, connect providers through the normal settings and onboarding surfaces. For headless CLI use, existing provider environment variables are detected, including `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, and other provider env vars supported by the framework. Secret values are never copied into migration artifacts.
 
 ## Code Agents
 
-Agent-Native Desktop includes a **Code Agents** hub for long-running coding-agent sessions. Migration is the first app-backed goal there, registered as `/migrate`: the hub can show runs, filter by active, approval, issues, or complete status, open the goal surface for a selected run, and handle links like:
+Agent-Native Desktop includes a **Code Agents** hub for long-running coding-agent sessions. `/migrate` is a built-in goal there: the hub can show runs, filter by active, approval, issues, or complete status, open the goal surface for a selected run, and handle links like:
 
 ```text
 agentnative://open?goal=migrate&run=<runId>
 ```
 
-The legacy app-style deep link still works:
+The legacy app-style deep link still works and opens the internal run detail surface:
 
 ```text
 agentnative://open?app=migration&run=<runId>
 ```
 
-The hub also includes `/audit`, a lightweight native goal backed by `agent-native audit-agent-web`, to keep the shell honest about non-migration goals:
+The hub also includes `/audit`, a lightweight native goal backed by `agent-native audit-agent-web`, to keep the shell honest about more than one goal:
 
 ```bash
 npx @agent-native/core@latest code /audit --url https://example.com
@@ -118,7 +118,7 @@ The hub exposes the same generic run controls the CLI does: resume opens the goa
 
 ## Emit Mode
 
-Use `--emit` when you want Codex, Claude Code, another code agent, or Agent-Native Desktop to do the next phase without first running the Workbench UI:
+Use `--emit` when you want Codex, Claude Code, another code agent, or Agent-Native Desktop to do the next phase without opening the internal run surface:
 
 ```bash
 npx @agent-native/core@latest code /migrate ./my-next-app --emit ../migration-dossier
@@ -142,7 +142,7 @@ When `@agent-native/migrate` helpers are installed, `--emit` uses them for Next.
 
 ## Instruction Packs
 
-Migration is driven by instruction packs instead of one source-specific path.
+The `/migrate` goal is driven by instruction packs instead of one source-specific path.
 
 | Pack             | What it tells the agent to do                                       |
 | ---------------- | ------------------------------------------------------------------- |

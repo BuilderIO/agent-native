@@ -151,8 +151,8 @@ export const TEMPLATES: TemplateMeta[] = [
   },
   {
     name: "migration",
-    label: "Migration",
-    hint: "Migration Workbench — move existing apps to agent-native with verification",
+    label: "Migration Goal Surface",
+    hint: "Internal Code Agents detail surface for /migrate assessment, approval, and verification",
     icon: "Route",
     color: "#0F766E",
     colorRgb: "15 118 110",

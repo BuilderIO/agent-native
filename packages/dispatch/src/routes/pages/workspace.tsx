@@ -11,7 +11,6 @@ import {
   IconEdit,
   IconFileText,
   IconPlus,
-  IconRefresh,
   IconTrash,
   IconUser,
   IconX,
@@ -186,8 +185,8 @@ function EditResourceDialog({
         <DialogHeader>
           <DialogTitle>Edit workspace resource</DialogTitle>
           <DialogDescription>
-            Updates apply anywhere this resource is global or granted. Sync
-            reachable apps when you need copied app resources refreshed.
+            Updates apply immediately anywhere this workspace resource is
+            inherited. App shared or personal resources can override it locally.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -480,11 +479,6 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
     onSuccess: () => toast.success("Grant revoked"),
     onError: (err) => toast.error(String(err)),
   });
-  const syncToApp = useActionMutation("sync-workspace-resources-to-app", {
-    onSuccess: (data: any) =>
-      toast.success(`Synced ${data.synced} resource(s) to ${data.appId}`),
-    onError: (err) => toast.error(String(err)),
-  });
 
   const kindInfo = KIND_CONFIG[resource.kind as keyof typeof KIND_CONFIG];
   const KindIcon = kindInfo?.icon || IconCode;
@@ -578,22 +572,10 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
                           {grant.appId}
                         </span>
                         <span className="ml-2 text-xs text-muted-foreground">
-                          {grant.syncedAt
-                            ? `synced ${new Date(grant.syncedAt).toLocaleString()}`
-                            : "not synced"}
+                          selected grant
                         </span>
                       </div>
                       <div className="flex gap-1.5">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            syncToApp.mutate({ appId: grant.appId })
-                          }
-                          disabled={syncToApp.isPending}
-                        >
-                          <IconRefresh size={14} />
-                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -638,10 +620,9 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
                   <AlertDialogHeader>
                     <AlertDialogTitle>Delete this resource?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      Removing "{resource.name}" revokes all of its grants. Apps
-                      that already received this resource keep their current
-                      copy until it is removed from those apps. This cannot be
-                      undone.
+                      Removing "{resource.name}" revokes all of its grants and
+                      removes inherited workspace access immediately. This
+                      cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -698,9 +679,8 @@ function GlobalContextSection({ resources }: { resources: any[] }) {
             messaging, guardrails, and voice.
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            All-app resources are available immediately in shared-database
-            workspaces. Use Sync all when remote/copied app resources need to be
-            refreshed.
+            All-app resources live once at workspace scope and are inherited by
+            every app agent at runtime.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -807,19 +787,6 @@ export default function WorkspaceRoute() {
   );
   const { data: grants } = useActionQuery("list-workspace-resource-grants", {});
 
-  const syncAll = useActionMutation("sync-workspace-resources-to-all", {
-    onSuccess: (data: any) => {
-      const total = (data || []).reduce(
-        (sum: number, r: any) => sum + r.synced,
-        0,
-      );
-      toast.success(
-        `Synced resources to ${data?.length || 0} apps (${total} total pushes)`,
-      );
-    },
-    onError: (err) => toast.error(String(err)),
-  });
-
   const grantsByResource = (grants || []).reduce(
     (acc: Record<string, any[]>, g: any) => {
       if (!acc[g.resourceId]) acc[g.resourceId] = [];
@@ -883,7 +850,7 @@ export default function WorkspaceRoute() {
   return (
     <DispatchShell
       title="Workspace Resources"
-      description="Share global skills, guardrail instructions, agent profiles, and reference resources across workspace apps. Scope to all apps or grant per-app."
+      description="Manage inherited workspace skills, guardrail instructions, agent profiles, and reference resources. All-app resources are available to every app without syncing."
     >
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
@@ -894,17 +861,6 @@ export default function WorkspaceRoute() {
           )}
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => syncAll.mutate({})}
-            disabled={syncAll.isPending || (resources?.length || 0) === 0}
-          >
-            <IconRefresh
-              size={16}
-              className={syncAll.isPending ? "mr-1.5 animate-spin" : "mr-1.5"}
-            />
-            Sync all
-          </Button>
           <AddResourceDialog />
         </div>
       </div>

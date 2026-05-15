@@ -27,29 +27,29 @@ export interface CodeAgentGoalDefinition {
 export const CODE_AGENT_GOALS: CodeAgentGoalDefinition[] = [
   {
     id: "migrate",
-    label: "Migration",
+    label: "App migration",
     slashCommand: "/migrate",
     description:
-      "Move an existing path, URL, or described product into agent-native.",
+      "Start a slash-command session that ports an existing path, URL, or described product into agent-native.",
     cliCommand: "migrate",
     appId: MIGRATION_APP_ID,
     templateId: MIGRATION_APP_ID,
     listRunsAction: "list-migration-runs",
-    runNoun: "migration run",
-    surfaceLabel: "Migration Workbench",
-    primaryActionLabel: "New /migrate",
+    runNoun: "slash-command session",
+    surfaceLabel: "Migration detail surface",
+    primaryActionLabel: "Start /migrate",
     surfaceKind: "app",
   },
   {
     id: "audit",
-    label: "Agent Web Audit",
+    label: "Agent web audit",
     slashCommand: "/audit",
     description:
-      "Check a public URL for agent-readable surfaces such as llms.txt, sitemap, and Markdown mirrors.",
+      "Start a slash-command session that checks a public URL for agent-readable surfaces such as llms.txt, sitemap, and Markdown mirrors.",
     cliCommand: "audit-agent-web",
-    runNoun: "audit run",
-    surfaceLabel: "Audit Runner",
-    primaryActionLabel: "New /audit",
+    runNoun: "slash-command session",
+    surfaceLabel: "Native audit feedback",
+    primaryActionLabel: "Start /audit",
     surfaceKind: "native",
   },
 ];
@@ -72,7 +72,7 @@ export function getMigrationWorkbenchAppConfig(
 
   const template = getTemplate(MIGRATION_APP_ID);
   if (!template) {
-    throw new Error("Migration Workbench template is not registered.");
+    throw new Error("Migration detail surface template is not registered.");
   }
 
   return {

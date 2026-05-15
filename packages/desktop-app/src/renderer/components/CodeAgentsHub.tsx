@@ -17,6 +17,7 @@ import {
   getCodeAgentAppConfig,
   getCodeAgentGoal,
   getDefaultCodeAgentGoal,
+  type CodeAgentGoalDefinition,
   type CodeAgentGoalId,
 } from "@shared/code-agents";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
@@ -34,7 +35,7 @@ type RunFilter = "all" | "active" | "approval" | "complete" | "issues";
 const RUN_FILTERS: Array<{ id: RunFilter; label: string }> = [
   { id: "all", label: "All" },
   { id: "active", label: "Active" },
-  { id: "approval", label: "Approval" },
+  { id: "approval", label: "Input" },
   { id: "issues", label: "Issues" },
   { id: "complete", label: "Done" },
 ];
@@ -151,7 +152,7 @@ export default function CodeAgentsHub({
 
   async function controlRun(command: CodeAgentControlCommand) {
     if (!selectedRunId) {
-      toast("Select a run first", { duration: 1800 });
+      toast("Select a session first", { duration: 1800 });
       return;
     }
     if (command === "resume") {
@@ -182,7 +183,7 @@ export default function CodeAgentsHub({
     <section className="code-agents-surface" aria-label="Code Agents">
       <aside
         className="code-agents-rail"
-        aria-label="Code Agent goals and runs"
+        aria-label="Code Agent goals and sessions"
       >
         <div className="code-agents-rail__header">
           <div className="code-agents-mark">
@@ -190,7 +191,7 @@ export default function CodeAgentsHub({
           </div>
           <div className="code-agents-title-block">
             <h1>Code Agents</h1>
-            <p>Long-running coding goals</p>
+            <p>Slash-command sessions</p>
           </div>
         </div>
 
@@ -227,8 +228,8 @@ export default function CodeAgentsHub({
             type="button"
             className="code-agents-icon-button"
             onClick={() => loadRuns(true)}
-            title="Refresh runs"
-            aria-label="Refresh runs"
+            title="Refresh sessions"
+            aria-label="Refresh sessions"
           >
             <IconRefresh
               size={15}
@@ -239,7 +240,7 @@ export default function CodeAgentsHub({
         </div>
 
         <div className="code-agents-run-list">
-          <div className="code-agents-filter" aria-label="Run filters">
+          <div className="code-agents-filter" aria-label="Session filters">
             {RUN_FILTERS.map((filter) => (
               <button
                 key={filter.id}
@@ -262,8 +263,8 @@ export default function CodeAgentsHub({
               <IconClock size={18} strokeWidth={1.7} />
               <p>
                 {runs.length === 0
-                  ? `No ${selectedGoal.runNoun}s yet.`
-                  : "No runs match this filter."}
+                  ? `No ${selectedGoal.slashCommand} sessions yet.`
+                  : "No sessions match this filter."}
               </p>
             </div>
           ) : (
@@ -288,11 +289,15 @@ export default function CodeAgentsHub({
           <div className="code-agents-workbench">
             <div className="code-agents-workbench__toolbar">
               <div>
-                <p className="code-agents-kicker">Workbench</p>
+                <p className="code-agents-kicker">
+                  {selectedGoal.surfaceKind === "app"
+                    ? "App-backed detail surface"
+                    : "Native feedback surface"}
+                </p>
                 <h2>
                   {selectedRun?.name ??
                     (selectedRunId
-                      ? `Run ${selectedRunId}`
+                      ? `Session ${selectedRunId}`
                       : selectedGoal.primaryActionLabel)}
                 </h2>
               </div>
@@ -325,8 +330,7 @@ export default function CodeAgentsHub({
                 />
               ) : (
                 <NativeGoalSurface
-                  slashCommand={selectedGoal.slashCommand}
-                  description={selectedGoal.description}
+                  goal={selectedGoal}
                   onOpenTerminal={openTerminal}
                 />
               )}
@@ -336,12 +340,13 @@ export default function CodeAgentsHub({
           <div className="code-agents-overview">
             <div className="code-agents-overview__header">
               <div>
-                <p className="code-agents-kicker">Native hub</p>
+                <p className="code-agents-kicker">Slash-command hub</p>
                 <h2>Code Agents</h2>
                 <p>
-                  Run and monitor coding-agent goals from one place. Migration
-                  is the first app-backed goal, and lightweight goals can share
-                  the same shell.
+                  Start slash-command sessions, review coding-agent feedback,
+                  and jump into the right detail surface. Migration is the first
+                  app-backed goal here; the hub is the primary Desktop home for
+                  Code Agents.
                 </p>
               </div>
               <div className="code-agents-toolbar-actions">
@@ -367,25 +372,25 @@ export default function CodeAgentsHub({
             <div className="code-agents-status-grid">
               <StatusCard
                 icon={<IconListCheck size={17} strokeWidth={1.8} />}
-                label="Runs"
+                label="Sessions"
                 value={String(summary.total)}
                 tone="neutral"
               />
               <StatusCard
                 icon={<IconPlayerPlay size={17} strokeWidth={1.8} />}
-                label="In progress"
+                label="Running"
                 value={String(summary.inProgress)}
                 tone="active"
               />
               <StatusCard
                 icon={<IconAlertCircle size={17} strokeWidth={1.8} />}
-                label="Needs approval"
+                label="Needs input"
                 value={String(summary.needsApproval)}
                 tone="warning"
               />
               <StatusCard
                 icon={<IconCircleCheck size={17} strokeWidth={1.8} />}
-                label="Complete"
+                label="Completed"
                 value={String(summary.complete)}
                 tone="success"
               />
@@ -398,9 +403,9 @@ export default function CodeAgentsHub({
                 <IconAlertCircle size={17} strokeWidth={1.8} />
                 <span>
                   {status === "unauthorized"
-                    ? `Open ${selectedGoal.surfaceLabel} and sign in to see runs.`
+                    ? `Open ${selectedGoal.surfaceLabel} and sign in to see sessions.`
                     : (error ??
-                      `${selectedGoal.surfaceLabel} is not reachable yet.`)}
+                      `${selectedGoal.surfaceLabel} is not reporting sessions yet.`)}
                 </span>
               </div>
             )}
@@ -443,22 +448,33 @@ function buildSummary(runs: CodeAgentMigrationRun[]) {
 }
 
 function NativeGoalSurface({
-  slashCommand,
-  description,
+  goal,
   onOpenTerminal,
 }: {
-  slashCommand: string;
-  description: string;
+  goal: CodeAgentGoalDefinition;
   onOpenTerminal: () => void;
 }) {
   return (
     <div className="code-agents-native-surface">
       <div className="code-agents-detail code-agents-detail--empty">
         <IconCode size={30} strokeWidth={1.5} />
-        <h3>{slashCommand}</h3>
-        <p>{description}</p>
+        <h3>{goal.slashCommand} native feedback</h3>
+        <p>
+          {goal.description} Native goals report status, findings, approval
+          prompts, and terminal handoffs directly in this Code Agents hub.
+        </p>
+        <div className="code-agents-feedback-list">
+          <span>
+            <IconListCheck size={14} strokeWidth={1.8} />
+            Findings and task progress stay attached to the session.
+          </span>
+          <span>
+            <IconAlertCircle size={14} strokeWidth={1.8} />
+            Approval or follow-up prompts appear as coding-agent feedback.
+          </span>
+        </div>
         <div className="code-agents-command-line">
-          agent-native code {slashCommand} --url https://example.com
+          agent-native code {goal.slashCommand} --url https://example.com
         </div>
         <button
           type="button"
@@ -527,7 +543,7 @@ function RunDetailCard({
 }: {
   run: CodeAgentMigrationRun | null;
   selectedRunId: string | null;
-  goal: { runNoun: string; surfaceLabel: string };
+  goal: CodeAgentGoalDefinition;
   onOpenWorkbench: () => void;
   onOpenTerminal: () => void;
   onResume: () => void;
@@ -538,11 +554,11 @@ function RunDetailCard({
     return (
       <div className="code-agents-detail code-agents-detail--empty">
         <IconRoute size={30} strokeWidth={1.5} />
-        <h3>{selectedRunId ? "Run link ready" : "No run selected"}</h3>
+        <h3>{selectedRunId ? "Session link ready" : "No session selected"}</h3>
         <p>
           {selectedRunId
-            ? `Open ${goal.surfaceLabel} to load the linked run.`
-            : `Create or select a ${goal.runNoun} to see source, output, and verification status.`}
+            ? `Open ${goal.surfaceLabel} to load the linked slash-command session.`
+            : `Start ${goal.slashCommand} or select a session to review source, output, task status, and coding-agent feedback.`}
         </p>
         <button
           type="button"
@@ -562,7 +578,7 @@ function RunDetailCard({
     <div className="code-agents-detail">
       <div className="code-agents-detail__header">
         <div>
-          <p className="code-agents-kicker">Selected run</p>
+          <p className="code-agents-kicker">Selected session</p>
           <h3>{run.name}</h3>
         </div>
         <PhasePill run={run} />
@@ -570,7 +586,7 @@ function RunDetailCard({
 
       <div className="code-agents-progress">
         <div className="code-agents-progress__label">
-          <span>Task sweep</span>
+          <span>Task feedback</span>
           <span>{progress}%</span>
         </div>
         <div className="code-agents-progress__track">

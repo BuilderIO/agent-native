@@ -4,7 +4,7 @@ import { syncResourcesToAllApps } from "../server/lib/workspace-resources-store.
 
 export default defineAction({
   description:
-    "Push workspace resources to all discovered apps. Scope=all global resources go everywhere; scope=selected only go to apps with grants.",
+    "Legacy bridge selected-only workspace resources to discovered apps with active grants. Scope=all workspace resources are inherited at runtime and are not synced.",
   schema: z.object({}),
   run: async () => syncResourcesToAllApps(),
 });

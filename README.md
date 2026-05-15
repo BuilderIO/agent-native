@@ -164,7 +164,7 @@ Want a single app, no monorepo? Use `--standalone`:
 npx @agent-native/core create my-app --standalone --template mail
 ```
 
-Migrating an existing app? Start a local Migration Workbench from any source path, URL, or description:
+Migrating an existing app? Use the built-in Code Agents `/migrate` goal with a source path, URL, or description:
 
 ```bash
 npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
@@ -172,8 +172,8 @@ npx @agent-native/core@latest code /migrate ./my-next-app --emit ../migration-do
 npx @agent-native/core@latest code resume --last
 ```
 
-`agent-native migrate` still works as a direct shortcut; `code /migrate` is the generic Code Agents entrypoint for long-running coding goals.
-Use `--emit` when you want to hand a portable migration dossier to Codex, Claude Code, Cursor, or another coding agent instead of opening the Workbench first.
+`agent-native migrate` still works as a direct shortcut; `code /migrate` is the Code Agents entrypoint for the migration goal. Behind the scenes, `/migrate` may open the hidden migration app as an internal run detail/control surface for assessment, approval, tasks, artifacts, and verification.
+Use `--emit` when you want to hand a portable migration dossier to Codex, Claude Code, Cursor, or another coding agent instead of opening that internal surface first.
 Code Agents also includes lightweight goals such as `/audit`:
 
 ```bash

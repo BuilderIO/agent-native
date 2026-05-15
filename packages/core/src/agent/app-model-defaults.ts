@@ -185,14 +185,8 @@ export async function getAgentAppModelDefaultForCurrentRequest(
   const appId = normalizeAgentAppModelDefaultAppId(appIdInput);
   if (!appId) return null;
 
-  let userEmail: string | undefined;
-  let orgId: string | null | undefined;
-  try {
-    userEmail = getRequestUserEmail();
-    orgId = getRequestOrgId();
-  } catch {
-    return null;
-  }
+  const userEmail = getRequestUserEmail();
+  const orgId = getRequestOrgId();
 
   const settings = await readAgentAppModelDefaultSettings(
     { userEmail, orgId },

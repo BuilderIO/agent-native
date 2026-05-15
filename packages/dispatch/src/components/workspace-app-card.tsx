@@ -8,7 +8,6 @@ import {
   IconEye,
   IconEyeOff,
   IconFileText,
-  IconRefresh,
   IconWorld,
   IconTrash,
 } from "@tabler/icons-react";
@@ -287,14 +286,6 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
     { appId: app.id },
     { enabled: open },
   );
-  const syncToApp = useActionMutation("sync-workspace-resources-to-app", {
-    onSuccess: (result: any) =>
-      toast.success(
-        `Synced ${result?.synced ?? 0} resource(s) to ${result?.appId ?? app.id}`,
-      ),
-    onError: (err) =>
-      toast.error(`Could not sync ${app.name}: ${stringifyError(err)}`),
-  });
 
   const resources = ((data as any)?.resources ?? []) as any[];
   const counts = (data as any)?.counts;
@@ -317,20 +308,19 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
         <DialogHeader>
           <DialogTitle>{app.name} workspace resources</DialogTitle>
           <DialogDescription>
-            Resources this app receives from global workspace context and
-            selected grants.
+            Workspace-level resources are inherited at runtime. App shared and
+            personal resources can override them locally.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-            All-app resources are immediate for apps sharing this database. Sync
-            resources only when this app keeps a copied resource store or has
-            selected grants that need to be refreshed.
+            All-app resources live once at workspace scope and are read by each
+            app agent when it builds context. Nothing is copied into this app.
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{counts?.total ?? 0} total</Badge>
-            <Badge variant="outline">{counts?.global ?? 0} global</Badge>
+            <Badge variant="outline">{counts?.global ?? 0} workspace</Badge>
             <Badge variant="outline">{counts?.granted ?? 0} granted</Badge>
             <Badge variant="outline">
               {counts?.autoLoaded ?? 0} auto-loaded
@@ -345,8 +335,7 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
             </div>
           ) : resources.length === 0 ? (
             <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-              No global or granted workspace resources are visible to this app
-              yet.
+              No workspace or granted resources are visible to this app yet.
             </div>
           ) : (
             <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
@@ -360,7 +349,7 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
                         </span>
                         <Badge variant="secondary">{resource.kind}</Badge>
                         <Badge variant="outline">
-                          {resource.source === "global"
+                          {resource.source === "workspace"
                             ? "All apps"
                             : "Granted"}
                         </Badge>
@@ -374,9 +363,7 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
                     </div>
                     {resource.source === "grant" ? (
                       <div className="shrink-0 text-right text-[11px] text-muted-foreground">
-                        {resource.syncedAt
-                          ? `Synced ${new Date(resource.syncedAt).toLocaleDateString()}`
-                          : "Not synced"}
+                        Selected grant
                       </div>
                     ) : null}
                   </div>
@@ -391,17 +378,6 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
           )}
         </div>
         <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => syncToApp.mutate({ appId: app.id })}
-            disabled={syncToApp.isPending || resources.length === 0}
-          >
-            <IconRefresh
-              size={14}
-              className={syncToApp.isPending ? "mr-1.5 animate-spin" : "mr-1.5"}
-            />
-            Sync resources
-          </Button>
           <Button type="button" onClick={() => setOpen(false)}>
             Done
           </Button>

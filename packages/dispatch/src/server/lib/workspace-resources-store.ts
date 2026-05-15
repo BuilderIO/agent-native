@@ -5,7 +5,7 @@ import {
   resourceDeleteByPath,
   resourceGetByPath,
   resourcePut,
-  SHARED_OWNER,
+  WORKSPACE_OWNER,
 } from "@agent-native/core/resources/store";
 import {
   getOrgSetting,
@@ -96,7 +96,7 @@ async function materializeGlobalResource(
   }
 
   await resourcePut(
-    SHARED_OWNER,
+    WORKSPACE_OWNER,
     resource.path,
     resource.content,
     mimeTypeForWorkspaceResource(resource),
@@ -117,9 +117,10 @@ async function materializeGlobalResource(
 async function removeMaterializedGlobalResource(
   resource: Pick<MaterializableWorkspaceResource, "id" | "path">,
 ) {
-  const existing = await resourceGetByPath(SHARED_OWNER, resource.path).catch(
-    () => null,
-  );
+  const existing = await resourceGetByPath(
+    WORKSPACE_OWNER,
+    resource.path,
+  ).catch(() => null);
   if (!existing) return;
   const metadata = parseResourceMetadata(existing.metadata);
   if (
@@ -128,7 +129,7 @@ async function removeMaterializedGlobalResource(
   ) {
     return;
   }
-  await resourceDeleteByPath(SHARED_OWNER, resource.path);
+  await resourceDeleteByPath(WORKSPACE_OWNER, resource.path);
 }
 
 function orgFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
@@ -166,7 +167,7 @@ export interface WorkspaceResourceOption {
 }
 
 export interface WorkspaceResourceForApp extends WorkspaceResourceOption {
-  source: "global" | "grant";
+  source: "workspace" | "grant";
   autoLoaded: boolean;
   grantId: string | null;
   syncedAt: number | null;
@@ -615,7 +616,7 @@ export async function listWorkspaceResourcesForApp(appId: string): Promise<{
         path: resource.path,
         scope: resource.scope as WorkspaceResourceScope,
         updatedAt: resource.updatedAt,
-        source: isGlobal ? "global" : "grant",
+        source: isGlobal ? "workspace" : "grant",
         autoLoaded: isResourceAutoLoaded(resource),
         grantId: grant?.id ?? null,
         syncedAt: grant?.syncedAt ?? null,
@@ -624,12 +625,15 @@ export async function listWorkspaceResourcesForApp(appId: string): Promise<{
     .filter((resource): resource is WorkspaceResourceForApp => !!resource)
     .sort((a, b) => {
       const sourceOrder =
-        (a.source === "global" ? 0 : 1) - (b.source === "global" ? 0 : 1);
+        (a.source === "workspace" ? 0 : 1) -
+        (b.source === "workspace" ? 0 : 1);
       if (sourceOrder !== 0) return sourceOrder;
       return a.path.localeCompare(b.path);
     });
 
-  const global = received.filter((resource) => resource.source === "global");
+  const global = received.filter(
+    (resource) => resource.source === "workspace",
+  );
   const granted = received.filter((resource) => resource.source === "grant");
 
   return {
@@ -921,9 +925,9 @@ export async function revokeResourceGrant(
 // ─── Sync ──────────────────────────────────────────────────────
 
 /**
- * Push workspace resources to an app via its /_agent-native/resources endpoint.
- * Resources with scope="all" are always pushed. Resources with scope="selected"
- * are only pushed if there's an active grant for that app.
+ * Legacy bridge for selected-only resources that still need to be copied to an
+ * app endpoint. Scope="all" workspace resources are inherited at runtime from
+ * the canonical workspace resource owner and are never pushed per app.
  */
 export async function syncResourcesToApp(appId: string) {
   const agents = await discoverAgents("dispatch");
@@ -931,20 +935,27 @@ export async function syncResourcesToApp(appId: string) {
   if (!agent) throw new Error(`App "${appId}" not found in agent registry`);
 
   const allResources = await listWorkspaceResources();
+  const inheritedPaths = allResources
+    .filter((resource) => resource.scope === "all")
+    .map((resource) => resource.path);
   const grants = await listResourceGrants({ appId });
   const activeGrantResourceIds = new Set(
     grants.filter((g) => g.status === "active").map((g) => g.resourceId),
   );
 
-  // Determine which resources to push
+  // Determine which selected resources still need the legacy copy bridge.
   const toPush = allResources.filter(
-    (r) =>
-      r.scope === "all" ||
-      (r.scope === "selected" && activeGrantResourceIds.has(r.id)),
+    (r) => r.scope === "selected" && activeGrantResourceIds.has(r.id),
   );
 
   if (toPush.length === 0) {
-    return { appId, synced: 0, resources: [], failed: [] };
+    return {
+      appId,
+      inherited: inheritedPaths,
+      synced: 0,
+      resources: [],
+      failed: [],
+    };
   }
 
   const syncedPaths: string[] = [];
@@ -1047,6 +1058,7 @@ export async function syncResourcesToApp(appId: string) {
 
   return {
     appId,
+    inherited: inheritedPaths,
     synced: syncedPaths.length,
     resources: syncedPaths,
     failed,
@@ -1054,12 +1066,14 @@ export async function syncResourcesToApp(appId: string) {
 }
 
 /**
- * Sync all workspace resources to all apps that have grants or scope="all" resources.
+ * Legacy bridge selected-only resources to every app with an active grant.
+ * Scope="all" resources are inherited directly and never pushed per app.
  */
 export async function syncResourcesToAllApps() {
   const agents = await discoverAgents("dispatch");
   const results: Array<{
     appId: string;
+    inherited?: string[];
     synced: number;
     failed?: Array<{ path: string; reason: string }>;
   }> = [];
@@ -1069,6 +1083,7 @@ export async function syncResourcesToAllApps() {
       const result = await syncResourcesToApp(agent.id);
       results.push({
         appId: result.appId,
+        inherited: result.inherited,
         synced: result.synced,
         failed: result.failed,
       });

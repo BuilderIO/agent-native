@@ -70,22 +70,22 @@ type GoalBadgeVariant = "default" | "secondary" | "destructive" | "outline";
 
 export function meta() {
   return [
-    { title: "Migration Workbench" },
+    { title: "Code Agents /migrate" },
     {
       name: "description",
       content:
-        "Migrate existing apps, URLs, or described products to agent-native with assessment, approval, and deterministic verification.",
+        "Internal run surface for the Code Agents /migrate goal: assessment, approval, tasks, artifacts, and deterministic verification.",
     },
   ];
 }
 
-export default function MigrationWorkbenchPage() {
-  useSetPageTitle("Migration Workbench");
+export default function MigrateGoalSurfacePage() {
+  useSetPageTitle("Code Agents /migrate");
   const [searchParams, setSearchParams] = useSearchParams();
   const runIdFromUrl = searchParams.get("run");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [goalResult, setGoalResult] = useState<GoalResult | null>(null);
-  const [name, setName] = useState("Agent-native migration");
+  const [name, setName] = useState("/migrate run");
   const [sourceRoot, setSourceRoot] = useState("");
   const [outputRoot, setOutputRoot] = useState("../migrated-app");
   const runsQuery = useActionQuery("list-migration-runs", {});
@@ -209,11 +209,11 @@ export default function MigrationWorkbenchPage() {
         <section className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">New run</CardTitle>
+              <CardTitle className="text-base">New /migrate run</CardTitle>
               <CardDescription>
-                Start from a local path, URL, or description. The Workbench
-                treats source as read-only and writes generated output somewhere
-                else.
+                Start from a local path, URL, or description. This internal
+                surface treats source as read-only and writes generated output
+                somewhere else.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -239,7 +239,7 @@ export default function MigrationWorkbenchPage() {
                 className="w-full"
               >
                 <IconRoute className="h-4 w-4" />
-                Create migration run
+                Create /migrate run
               </Button>
             </CardContent>
           </Card>
@@ -248,7 +248,7 @@ export default function MigrationWorkbenchPage() {
             <CardHeader>
               <CardTitle className="text-base">Runs</CardTitle>
               <CardDescription>
-                Resumable local migration audits.
+                Internal run details for the Code Agents /migrate goal.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -259,7 +259,7 @@ export default function MigrationWorkbenchPage() {
                 </>
               ) : runs.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No migration runs yet.
+                  No /migrate runs yet.
                 </p>
               ) : (
                 runs.map((run) => (
@@ -380,7 +380,7 @@ export default function MigrationWorkbenchPage() {
                   <div className="rounded-lg border border-border bg-muted/30 p-3">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <p className="text-sm font-medium">Migration goal</p>
+                        <p className="text-sm font-medium">/migrate goal</p>
                         <p className="mt-1 text-sm text-muted-foreground">
                           {goalState.description}
                         </p>
@@ -529,7 +529,7 @@ function describeGoalState(
       label: "Plan next",
       variant: "secondary",
       description:
-        "Run Goal will generate the migration plan and stop before output writes.",
+        "Run Goal will generate the /migrate plan and stop before output writes.",
     };
   }
   if (!run?.approved) {
@@ -560,7 +560,7 @@ function describeGoalState(
       label: "Complete",
       variant: "default",
       description:
-        "The migration goal is complete and the latest report is available.",
+        "The /migrate goal is complete and the latest report is available.",
     };
   }
   return {
@@ -585,10 +585,10 @@ function EmptyState() {
     <Card>
       <CardContent className="flex min-h-[420px] flex-col items-center justify-center text-center">
         <IconRoute className="h-9 w-9 text-muted-foreground" />
-        <h2 className="mt-4 text-lg font-semibold">Create a migration run</h2>
+        <h2 className="mt-4 text-lg font-semibold">Create a /migrate run</h2>
         <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-          Assessment, plan approval, output generation, and verification will
-          appear here as an auditable workflow.
+          Assessment, plan approval, output generation, artifacts, and
+          verification will appear here as an auditable workflow.
         </p>
         <Separator className="my-5 max-w-xs" />
         <p className="max-w-md text-xs text-muted-foreground">

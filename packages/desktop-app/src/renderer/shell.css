@@ -905,6 +905,34 @@ body {
   line-height: 1.5;
 }
 
+.code-agents-feedback-list {
+  width: min(100%, 520px);
+  display: grid;
+  gap: 8px;
+  margin: 2px 0;
+  text-align: left;
+}
+
+.code-agents-feedback-list span {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.code-agents-feedback-list svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: rgba(110, 231, 216, 0.78);
+}
+
 .code-agents-progress {
   margin-top: 18px;
 }

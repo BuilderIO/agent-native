@@ -106,6 +106,7 @@ import {
   resourceGetByPath,
   ensurePersonalDefaults,
   SHARED_OWNER,
+  WORKSPACE_OWNER,
 } from "../resources/store.js";
 import {
   getFrontmatterValue,
@@ -160,7 +161,7 @@ function truncatePromptResourceContent(
   const trimmed = content.trim();
   if (trimmed.length <= maxChars) return trimmed;
   const omitted = trimmed.length - maxChars;
-  return `${trimmed.slice(0, maxChars)}\n\n[Resource ${path} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted. Use resource-read --path "${path}" --scope shared for the full content.]`;
+  return `${trimmed.slice(0, maxChars)}\n\n[Resource ${path} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted. Use resource-read --path "${path}" with the resource's scope for the full content.]`;
 }
 
 function promptResourceBlock(input: {
@@ -231,24 +232,37 @@ function getResourceSummaryFromContent(content: string): string | null {
   return null;
 }
 
-async function loadSharedAgentsResourceForPrompt(): Promise<string | null> {
+function resourceScopeForOwner(owner: string, currentOwner?: string): string {
+  if (owner === WORKSPACE_OWNER) return "workspace";
+  if (owner === SHARED_OWNER) return "shared";
+  if (currentOwner && owner === currentOwner) return "personal";
+  return "resource";
+}
+
+async function loadAgentsResourceForPrompt(
+  owner: string,
+  scope: string,
+): Promise<string | null> {
   try {
-    const sharedAgents = await resourceGetByPath(SHARED_OWNER, "AGENTS.md");
-    if (!sharedAgents?.content?.trim()) return null;
+    const agents = await resourceGetByPath(owner, "AGENTS.md");
+    if (!agents?.content?.trim()) return null;
     return promptResourceBlock({
       name: "AGENTS.md",
-      scope: "shared",
+      scope,
       path: "AGENTS.md",
-      content: sharedAgents.content,
+      content: agents.content,
     });
   } catch {
     return null;
   }
 }
 
-async function loadSharedInstructionResourcesForPrompt(): Promise<string[]> {
+async function loadInstructionResourcesForPrompt(
+  owner: string,
+  scope: string,
+): Promise<string[]> {
   try {
-    const resources = await resourceList(SHARED_OWNER, "instructions/");
+    const resources = await resourceList(owner, "instructions/");
     const blocks: string[] = [];
     const sorted = resources
       .filter((resource) => isAutoLoadedInstructionPath(resource.path))
@@ -258,7 +272,7 @@ async function loadSharedInstructionResourcesForPrompt(): Promise<string[]> {
       if (!full?.content?.trim()) continue;
       const block = promptResourceBlock({
         name: resource.path,
-        scope: "shared-instruction",
+        scope,
         path: resource.path,
         content: full.content,
       });
@@ -276,11 +290,27 @@ async function loadResourceSkillsPromptBlock(
   try {
     const resources =
       owner === SHARED_OWNER
-        ? await resourceList(SHARED_OWNER, "skills/")
+        ? [
+            ...(await resourceList(SHARED_OWNER, "skills/")),
+            ...(await resourceList(WORKSPACE_OWNER, "skills/")),
+          ]
         : await resourceListAccessible(owner, "skills/");
     const sorted = resources.sort((a, b) => {
       const ownerOrder =
-        (a.owner === owner ? 0 : 1) - (b.owner === owner ? 0 : 1);
+        (a.owner === owner
+          ? 0
+          : a.owner === SHARED_OWNER
+            ? 1
+            : a.owner === WORKSPACE_OWNER
+              ? 2
+              : 3) -
+        (b.owner === owner
+          ? 0
+          : b.owner === SHARED_OWNER
+            ? 1
+            : b.owner === WORKSPACE_OWNER
+              ? 2
+              : 3);
       if (ownerOrder !== 0) return ownerOrder;
       return a.path.localeCompare(b.path);
     });
@@ -294,7 +324,7 @@ async function loadResourceSkillsPromptBlock(
       const name = meta.name || getSkillNameFromPath(resource.path);
       if (!name || seen.has(name)) continue;
       seen.add(name);
-      const scope = resource.owner === SHARED_OWNER ? "shared" : "personal";
+      const scope = resourceScopeForOwner(resource.owner, owner);
       const description = meta.description || "(no description)";
       lines.push(
         `- \`${name}\` at resource \`${resource.path}\` (${scope}) - ${description}. Read it with \`resource-read --path "${resource.path}" --scope ${scope}\` before starting a task it applies to.`,
@@ -307,11 +337,12 @@ async function loadResourceSkillsPromptBlock(
   }
 }
 
-async function loadSharedWorkspaceResourceIndexForPrompt(): Promise<
-  string | null
-> {
+async function loadResourceIndexForPrompt(
+  owner: string,
+  scope: "workspace" | "shared",
+): Promise<string | null> {
   try {
-    const resources = (await resourceList(SHARED_OWNER))
+    const resources = (await resourceList(owner))
       .filter(
         (resource) =>
           !isSpecialPromptResourcePath(resource.path) &&
@@ -331,11 +362,15 @@ async function loadSharedWorkspaceResourceIndexForPrompt(): Promise<
     }
     if (resources.length > listed.length) {
       lines.push(
-        `- ...${resources.length - listed.length} more shared resources. Use \`resource-list --scope shared\` to inspect them.`,
+        `- ...${resources.length - listed.length} more ${scope} resources. Use \`resource-list --scope ${scope}\` to inspect them.`,
       );
     }
 
-    return `<workspace-resources>\nShared workspace reference resources are available for company, brand, positioning, persona, product, or domain context. Use \`resource-read --path <path> --scope shared\` when a task may depend on them; do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
+    const label =
+      scope === "workspace"
+        ? "Workspace reference resources are inherited by every app and are available for company, brand, positioning, persona, product, or domain context."
+        : "Shared app/organization reference resources are available for app-specific or team context.";
+    return `<workspace-resources scope="${scope}">\n${label} Use \`resource-read --path <path> --scope ${scope}\` when a task may depend on them; do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
   } catch {
     return null;
   }
@@ -2318,10 +2353,12 @@ const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
  *
  *   1. `<workspace>` — AGENTS.md from the enterprise workspace core.
  *   2. `<template>` — AGENTS.md + skills index from the Vite plugin bundle.
- *   3. `<shared>` — SQL shared AGENTS.md and instructions/*.md. Runtime
- *      workspace guardrails that can be managed from Dispatch/resources.
- *   4. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
- *   5. `<personal>` — memory/MEMORY.md from the SQL personal scope. The
+ *   3. `<workspace>` — SQL workspace AGENTS.md and instructions/*.md.
+ *      Runtime global defaults managed from Dispatch and inherited by apps.
+ *   4. `<shared>` — SQL shared AGENTS.md and instructions/*.md. App/team/org
+ *      guidance that can override or narrow workspace defaults.
+ *   5. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
+ *   6. `<personal>` — memory/MEMORY.md from the SQL personal scope. The
  *      current user's structured memory index.
  *
  * Each source is read independently — no copying between them. Editing
@@ -2372,10 +2409,33 @@ export async function loadResourcesForPrompt(
     }
   } catch {}
 
-  // 3. Runtime shared AGENTS.md + global instruction resources from SQL.
-  const sharedAgents = await loadSharedAgentsResourceForPrompt();
+  // 3. Runtime workspace resources from SQL. These are global defaults
+  // inherited by every app in the workspace, not copied into app scopes.
+  const workspaceAgents = await loadAgentsResourceForPrompt(
+    WORKSPACE_OWNER,
+    "workspace",
+  );
+  if (workspaceAgents) sections.push(workspaceAgents);
+  sections.push(
+    ...(await loadInstructionResourcesForPrompt(
+      WORKSPACE_OWNER,
+      "workspace-instruction",
+    )),
+  );
+
+  // 4. Runtime shared/app/org resources from SQL. These come after workspace
+  // defaults so app/team-specific guidance can override or narrow them.
+  const sharedAgents = await loadAgentsResourceForPrompt(
+    SHARED_OWNER,
+    "shared",
+  );
   if (sharedAgents) sections.push(sharedAgents);
-  sections.push(...(await loadSharedInstructionResourcesForPrompt()));
+  sections.push(
+    ...(await loadInstructionResourcesForPrompt(
+      SHARED_OWNER,
+      "shared-instruction",
+    )),
+  );
 
   const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner);
   if (resourceSkillsBlock) sections.push(resourceSkillsBlock);
@@ -2412,7 +2472,16 @@ export async function loadResourcesForPrompt(
     }
   }
 
-  const sharedResourceIndex = await loadSharedWorkspaceResourceIndexForPrompt();
+  const workspaceResourceIndex = await loadResourceIndexForPrompt(
+    WORKSPACE_OWNER,
+    "workspace",
+  );
+  if (workspaceResourceIndex) sections.push(workspaceResourceIndex);
+
+  const sharedResourceIndex = await loadResourceIndexForPrompt(
+    SHARED_OWNER,
+    "shared",
+  );
   if (sharedResourceIndex) sections.push(sharedResourceIndex);
 
   try {
@@ -4699,7 +4768,10 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
 
           // Query resources
           try {
-            const resources = await resourceList(SHARED_OWNER);
+            const resources = [
+              ...(await resourceList(WORKSPACE_OWNER)),
+              ...(await resourceList(SHARED_OWNER)),
+            ];
             for (const r of resources) {
               if (!seen.has(r.path)) {
                 seen.add(r.path);
@@ -4809,11 +4881,26 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             if (skillsOwner) await ensurePersonalDefaults(skillsOwner);
             const resourceSkills = skillsOwner
               ? await resourceListAccessible(skillsOwner, "skills/")
-              : await resourceList(SHARED_OWNER, "skills/");
+              : [
+                  ...(await resourceList(SHARED_OWNER, "skills/")),
+                  ...(await resourceList(WORKSPACE_OWNER, "skills/")),
+                ];
             resourceSkills.sort((a, b) => {
               const ownerOrder =
-                (a.owner === skillsOwner ? 0 : 1) -
-                (b.owner === skillsOwner ? 0 : 1);
+                (a.owner === skillsOwner
+                  ? 0
+                  : a.owner === SHARED_OWNER
+                    ? 1
+                    : a.owner === WORKSPACE_OWNER
+                      ? 2
+                      : 3) -
+                (b.owner === skillsOwner
+                  ? 0
+                  : b.owner === SHARED_OWNER
+                    ? 1
+                    : b.owner === WORKSPACE_OWNER
+                      ? 2
+                      : 3);
               if (ownerOrder !== 0) return ownerOrder;
               const pathOrder =
                 (a.path.endsWith("/SKILL.md") ? 0 : 1) -
@@ -4969,18 +5056,24 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             sources.push(
               (async () => {
                 try {
-                  const resources = await resourceList(SHARED_OWNER);
+                  const resources = mentionsOwner
+                    ? await resourceListAccessible(mentionsOwner)
+                    : [
+                        ...(await resourceList(WORKSPACE_OWNER)),
+                        ...(await resourceList(SHARED_OWNER)),
+                      ];
                   flush(
                     resources.map((r) => {
-                      const isShared = r.owner === SHARED_OWNER;
+                      const scope = resourceScopeForOwner(
+                        r.owner,
+                        mentionsOwner,
+                      );
                       return {
                         id: `resource:${r.path}`,
                         label: r.path.split("/").pop() || r.path,
                         description: r.path,
                         icon: "file",
-                        source: isShared
-                          ? "resource:shared"
-                          : "resource:private",
+                        source: `resource:${scope}`,
                         refType: "file",
                         refPath: r.path,
                         section: "Files",
