@@ -220,7 +220,8 @@ describe("codeUsage", () => {
     expect(codeUsage()).toContain('agent-native code "fix the failing');
     expect(codeUsage()).toContain("agent-native code exec");
     expect(codeUsage()).toContain("agent-native code -p");
-    expect(codeUsage()).toContain("agent-native code /task");
+    expect(codeUsage()).toContain('agent-native code "fix');
+    expect(codeUsage()).toContain("agent-native code --plan");
     expect(codeUsage()).toContain("agent-native code /audit --url");
     expect(codeUsage()).toContain("agent-native code /migrate <source>");
     expect(codeUsage()).toContain("agent-native code attach --last");
@@ -451,17 +452,17 @@ describe("generic task sessions", () => {
       phase: "complete",
       metadata: {
         prompt: "fix the tests",
-        source: "agent-native code /task",
+        source: "agent-native code",
       },
     });
     expect(
       listCodeAgentTranscriptEvents(runs[0].id).map((event) => event.kind),
     ).toEqual(["user", "status", "status", "system", "status"]);
-    expect(output.read()).toContain("Code Agents /task session started.");
+    expect(output.read()).toContain("Code Agents session started.");
     expect(output.read()).toContain("Task complete.");
   });
 
-  it("stores permission mode on generic task sessions", async () => {
+  it("stores run mode on generic task sessions", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Read-only pass.";
     const output = createStringOutput();
@@ -479,7 +480,34 @@ describe("generic task sessions", () => {
         permissionMode: "read-only",
       },
     });
-    expect(output.read()).toContain("Mode:   read-only");
+    expect(output.read()).toContain("Mode:   Plan mode");
+  });
+
+  it("supports plan and auto mode shortcuts", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Mode noted.";
+    const output = createStringOutput();
+
+    await runCode(["--plan", "explain", "repo"], {
+      output: output.stream,
+    });
+    await runCode(["--auto", "fix", "repo"], {
+      output: output.stream,
+    });
+
+    const runs = listCodeAgentRunRecords("task");
+    expect(runs).toHaveLength(2);
+    expect(runs.find((run) => run.title === "explain repo")).toMatchObject({
+      permissionMode: "read-only",
+      metadata: { permissionMode: "read-only" },
+    });
+    expect(runs.find((run) => run.title === "fix repo")).toMatchObject({
+      permissionMode: "full-auto",
+      metadata: { permissionMode: "full-auto" },
+    });
+    const text = output.read();
+    expect(text).toContain("Mode:   Plan mode");
+    expect(text).toContain("Mode:   Auto mode");
   });
 
   it("runs project slash commands as generic task sessions", async () => {
@@ -670,7 +698,7 @@ describe("generic task sessions", () => {
     const text = output.read();
     expect(text).toContain("Code Agents sessions");
     expect(text).toContain(run.id);
-    expect(text).toContain("auto-edit");
+    expect(text).toContain("Auto mode");
     expect(text).toContain("agent-native code status <runId>");
     expect(text).toContain(
       'agent-native code resume <runId> "follow-up prompt"',
@@ -691,7 +719,7 @@ describe("generic task sessions", () => {
     const text = output.read();
     expect(text).toContain("Code Agents resume");
     expect(text).toContain("Title:   Existing task");
-    expect(text).toContain("Mode:    read-only");
+    expect(text).toContain("Mode:    Plan mode");
     expect(text).toContain(`agent-native code run ${run.id}`);
     expect(text).toContain(
       `agent-native code resume ${run.id} "next instruction"`,

@@ -64,16 +64,35 @@ export interface KnowledgeRow {
 
 export interface ReviewItem {
   id: string;
+  knowledgeId?: string | null;
   title: string;
   proposedAnswer?: string;
   body?: string;
   sourceName?: string;
   sourceId?: string | null;
+  captureId?: string | null;
   reason?: string;
   rationale?: string | null;
   priority?: ReviewPriority;
-  status?: "queued" | "approved" | "rejected" | "needs_changes";
+  proposedAction?: "create" | "update" | "archive";
+  payload?: Record<string, unknown>;
+  evidence?: Array<{
+    captureId?: string | null;
+    captureTitle?: string | null;
+    quote?: string | null;
+    note?: string | null;
+    sourceUrl?: string | null;
+    url?: string | null;
+    timestampMs?: number | null;
+  }>;
+  status?: "pending" | "queued" | "approved" | "rejected" | "needs_changes";
+  visibility?: string;
+  reviewerNotes?: string | null;
+  createdBy?: string | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
   createdAt?: string | null;
+  updatedAt?: string | null;
 }
 
 export interface BrainSource {
@@ -167,6 +186,7 @@ export interface SearchEverythingResponse {
 }
 
 export interface ReviewQueueResponse {
+  count?: number;
   items?: ReviewItem[];
   proposals?: ReviewItem[];
 }
@@ -381,6 +401,106 @@ export interface SlackPilotReport {
   };
   privacyExclusions: string[];
   nextSteps: string[];
+}
+
+export interface BrainPilotReportStatusCounts {
+  total: number;
+  other: number;
+  queued?: number;
+  distilling?: number;
+  distilled?: number;
+  ignored?: number;
+  processing?: number;
+  done?: number;
+  failed?: number;
+  published?: number;
+  redacted?: number;
+  draft?: number;
+  archived?: number;
+  pending?: number;
+  approved?: number;
+  rejected?: number;
+}
+
+export interface BrainPilotReport {
+  source: BrainSource;
+  accessRole: string;
+  generatedAt: string;
+  latestSyncRun: {
+    id: string;
+    provider: string;
+    status: "running" | "success" | "error" | string;
+    stats?: Record<string, unknown>;
+    error?: string | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+  } | null;
+  captures: {
+    counts: BrainPilotReportStatusCounts;
+    recent?: Array<{
+      id: string;
+      title: string;
+      kind: string;
+      status: BrainCaptureReviewStatus;
+      capturedAt: string;
+      sourceUrl?: string | null;
+      createdAt?: string | null;
+      updatedAt?: string | null;
+    }>;
+  };
+  distillationQueue: {
+    counts: BrainPilotReportStatusCounts;
+    stale: {
+      total: number;
+      processing: number;
+      overdueQueued: number;
+    };
+    recent?: Array<{
+      id: string;
+      captureId?: string | null;
+      status: BrainDistillationQueueStatus;
+      attempts?: number;
+      error?: string | null;
+      runAfter?: string | null;
+      createdAt?: string | null;
+      updatedAt?: string | null;
+    }>;
+  };
+  knowledge: {
+    counts: BrainPilotReportStatusCounts;
+    recent?: Array<{
+      id: string;
+      title: string;
+      kind: string;
+      status: KnowledgeStatus | "published" | "redacted" | "archived";
+      confidence?: number | null;
+      summary?: string | null;
+      sourceUrl?: string | null;
+      publishedResourcePath?: string | null;
+      publishedAt?: string | null;
+      createdAt?: string | null;
+      updatedAt?: string | null;
+    }>;
+  };
+  proposals: {
+    counts: BrainPilotReportStatusCounts;
+    recent?: Array<{
+      id: string;
+      knowledgeId?: string | null;
+      captureId?: string | null;
+      title: string;
+      proposedAction?: string | null;
+      status: "pending" | "approved" | "rejected" | string;
+      rationale?: string | null;
+      sourceUrl?: string | null;
+      reviewerNotes?: string | null;
+      reviewedAt?: string | null;
+      createdAt?: string | null;
+      updatedAt?: string | null;
+    }>;
+  };
+  privacyNotes: string[];
+  recommendedNextSteps: string[];
 }
 
 export interface BrainSettings {

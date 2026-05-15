@@ -6,6 +6,9 @@ import {
   IconArchive,
   IconBrandGithub,
   IconBrandSlack,
+  IconCircleCheck,
+  IconCircleDashed,
+  IconClock,
   IconDatabaseImport,
   IconExternalLink,
   IconFileSearch,
@@ -15,6 +18,7 @@ import {
   IconNotes,
   IconPlayerPlay,
   IconRefresh,
+  IconReportAnalytics,
   IconSend,
   IconSettings2,
   IconShieldCheck,
@@ -24,6 +28,7 @@ import {
 import {
   type BrainCaptureReviewStatus,
   type CapturesResponse,
+  type BrainPilotReport,
   type BrainSource,
   type SlackPilotReport,
   type SourcesResponse,
@@ -37,6 +42,7 @@ import {
   sourceRetryAfter,
   sourceReviewRequired,
   sourceType,
+  statusLabel,
 } from "@/lib/brain";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -457,6 +463,212 @@ function SlackPilotReportCard({ report }: { report: SlackPilotReport }) {
   );
 }
 
+function countValue(
+  counts: BrainPilotReport["captures"]["counts"] | undefined,
+  key: keyof BrainPilotReport["captures"]["counts"],
+) {
+  const value = counts?.[key];
+  return typeof value === "number" ? value : 0;
+}
+
+function PilotMetric({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: number | string;
+  detail: string;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-background p-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-medium">{value}</p>
+      <p className="mt-1 truncate text-xs text-muted-foreground">{detail}</p>
+    </div>
+  );
+}
+
+function PilotReportCard({
+  report,
+  loading,
+  onRefresh,
+}: {
+  report?: BrainPilotReport;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  if (loading && !report) {
+    return (
+      <div className="rounded-md border border-border bg-background p-3 text-sm">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <IconLoader2 className="size-4 animate-spin" />
+          Loading source pilot report...
+        </div>
+      </div>
+    );
+  }
+
+  if (!report) {
+    return (
+      <div className="rounded-md border border-border bg-background p-3 text-sm text-muted-foreground">
+        Report unavailable. Check source access and try again.
+      </div>
+    );
+  }
+
+  const captureCounts = report.captures.counts;
+  const queueCounts = report.distillationQueue.counts;
+  const knowledgeCounts = report.knowledge.counts;
+  const proposalCounts = report.proposals.counts;
+  const pendingQueue =
+    countValue(queueCounts, "queued") + countValue(queueCounts, "processing");
+  const publishedKnowledge = countValue(knowledgeCounts, "published");
+  const pendingProposals = countValue(proposalCounts, "pending");
+  const recentPublished = (report.knowledge.recent ?? [])
+    .filter((item) => item.status === "published")
+    .slice(0, 2);
+  const recentPending = (report.proposals.recent ?? [])
+    .filter((item) => item.status === "pending")
+    .slice(0, 2);
+  const health = sourceHealth(report.source);
+
+  return (
+    <div className="rounded-md border border-border bg-background p-3 text-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={health} />
+            <Badge variant="outline">
+              {report.latestSyncRun
+                ? `Sync ${statusLabel(report.latestSyncRun.status)}`
+                : "No sync run"}
+            </Badge>
+            {report.distillationQueue.stale.total ? (
+              <Badge variant="outline">
+                {report.distillationQueue.stale.total} stale
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            Generated {shortDate(report.generatedAt) ?? report.generatedAt}. Raw
+            capture content stays hidden in this view.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={loading}
+          onClick={onRefresh}
+        >
+          {loading ? (
+            <IconLoader2 className="size-4 animate-spin" />
+          ) : (
+            <IconRefresh className="size-4" />
+          )}
+          Refresh
+        </Button>
+      </div>
+
+      {report.latestSyncRun?.error ? (
+        <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/30 p-2 text-xs leading-5 text-muted-foreground">
+          <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span>{report.latestSyncRun.error}</span>
+        </div>
+      ) : null}
+
+      <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-4">
+        <PilotMetric
+          label="Captures"
+          value={captureCounts.total.toLocaleString()}
+          detail={`${countValue(captureCounts, "queued")} queued, ${countValue(captureCounts, "distilled")} distilled`}
+        />
+        <PilotMetric
+          label="Queue"
+          value={pendingQueue.toLocaleString()}
+          detail={`${countValue(queueCounts, "failed")} failed, ${countValue(queueCounts, "done")} done`}
+        />
+        <PilotMetric
+          label="Published"
+          value={publishedKnowledge.toLocaleString()}
+          detail={`${countValue(knowledgeCounts, "draft")} draft, ${countValue(knowledgeCounts, "redacted")} redacted`}
+        />
+        <PilotMetric
+          label="Proposals"
+          value={pendingProposals.toLocaleString()}
+          detail={`${proposalCounts.total.toLocaleString()} total`}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-3 xl:grid-cols-2">
+        <div className="rounded-md border border-border bg-muted/30 p-3">
+          <div className="flex items-center gap-2 text-xs font-medium">
+            <IconCircleCheck className="size-4 text-muted-foreground" />
+            Published knowledge
+          </div>
+          {recentPublished.length ? (
+            <div className="mt-2 grid gap-2">
+              {recentPublished.map((item) => (
+                <p key={item.id} className="truncate text-xs">
+                  {item.title}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              No published knowledge from this source yet.
+            </p>
+          )}
+        </div>
+        <div className="rounded-md border border-border bg-muted/30 p-3">
+          <div className="flex items-center gap-2 text-xs font-medium">
+            <IconCircleDashed className="size-4 text-muted-foreground" />
+            Pending proposals
+          </div>
+          {recentPending.length ? (
+            <div className="mt-2 grid gap-2">
+              {recentPending.map((item) => (
+                <p key={item.id} className="truncate text-xs">
+                  {item.title}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              No pending proposals are waiting for this source.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 xl:grid-cols-2">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-medium">
+            <IconShieldCheck className="size-4 text-muted-foreground" />
+            Privacy notes
+          </div>
+          <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
+            {report.privacyNotes.slice(0, 3).map((note) => (
+              <p key={note}>{note}</p>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center gap-2 text-xs font-medium">
+            <IconClock className="size-4 text-muted-foreground" />
+            Next steps
+          </div>
+          <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
+            {report.recommendedNextSteps.slice(0, 3).map((step) => (
+              <p key={step}>{step}</p>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SourcesRoute() {
   const [params, setParams] = useSearchParams();
   const type = params.get("type") ?? "all";
@@ -469,6 +681,9 @@ export default function SourcesRoute() {
   const [form, setForm] = useState<SourceFormState>(() => defaultForm("slack"));
   const [slackPilotReport, setSlackPilotReport] =
     useState<SlackPilotReport | null>(null);
+  const [pilotReportSourceId, setPilotReportSourceId] = useState<string | null>(
+    null,
+  );
 
   const sourcesQuery = useActionQuery<SourcesResponse>(
     "list-sources" as any,
@@ -506,6 +721,11 @@ export default function SourcesRoute() {
     SlackPilotReport,
     { sourceId: string; readHistory: boolean; resolveNames: boolean }
   >("run-slack-pilot" as any);
+  const pilotReportQuery = useActionQuery<BrainPilotReport>(
+    "get-pilot-report" as any,
+    { sourceId: pilotReportSourceId ?? "" } as any,
+    { enabled: Boolean(pilotReportSourceId), retry: false },
+  );
   const capturesQuery = useActionQuery<CapturesResponse>(
     "list-captures" as any,
     {
@@ -551,6 +771,15 @@ export default function SourcesRoute() {
     const selected = sources.find((source) => source.id === selectedSourceId);
     if (selected) setReviewSource(selected);
   }, [selectedSourceId, sources]);
+
+  useEffect(() => {
+    if (
+      pilotReportSourceId &&
+      !sources.some((source) => source.id === pilotReportSourceId)
+    ) {
+      setPilotReportSourceId(null);
+    }
+  }, [pilotReportSourceId, sources]);
 
   function updateType(value: string) {
     const next = new URLSearchParams(params);
@@ -632,6 +861,12 @@ export default function SourcesRoute() {
       resolveNames: false,
     });
     setSlackPilotReport(result);
+  }
+
+  function togglePilotReport(source: BrainSource) {
+    setPilotReportSourceId((current) =>
+      current === source.id ? null : source.id,
+    );
   }
 
   return (
@@ -829,6 +1064,27 @@ export default function SourcesRoute() {
                       ) : null}
                       <Button
                         size="sm"
+                        variant={
+                          pilotReportSourceId === source.id
+                            ? "secondary"
+                            : "outline"
+                        }
+                        disabled={
+                          pilotReportQuery.isLoading &&
+                          pilotReportSourceId === source.id
+                        }
+                        onClick={() => togglePilotReport(source)}
+                      >
+                        {pilotReportQuery.isLoading &&
+                        pilotReportSourceId === source.id ? (
+                          <IconLoader2 className="size-4 animate-spin" />
+                        ) : (
+                          <IconReportAnalytics className="size-4" />
+                        )}
+                        Report
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="outline"
                         onClick={() => openCaptureReview(source)}
                       >
@@ -859,6 +1115,18 @@ export default function SourcesRoute() {
 
                   {slackPilotReport?.sourceId === source.id ? (
                     <SlackPilotReportCard report={slackPilotReport} />
+                  ) : null}
+
+                  {pilotReportSourceId === source.id ? (
+                    <PilotReportCard
+                      report={
+                        pilotReportQuery.data?.source.id === source.id
+                          ? pilotReportQuery.data
+                          : undefined
+                      }
+                      loading={pilotReportQuery.isLoading}
+                      onRefresh={() => void pilotReportQuery.refetch()}
+                    />
                   ) : null}
                 </CardContent>
               </Card>
@@ -897,7 +1165,8 @@ export default function SourcesRoute() {
         createSource.isError ||
         syncSource.isError ||
         syncDueSources.isError ||
-        runSlackPilot.isError ? (
+        runSlackPilot.isError ||
+        pilotReportQuery.isError ? (
           <div className="lg:col-span-3">
             <EmptyActionState
               title="Source action failed"

@@ -57,6 +57,10 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "MCP Clients", to: "/docs/mcp-clients" as const },
       { label: "MCP Protocol", to: "/docs/mcp-protocol" as const },
       { label: "Notifications", to: "/docs/notifications" as const },
+      {
+        label: "Workspace Connections",
+        to: "/docs/workspace-connections" as const,
+      },
       { label: "Onboarding & API Keys", to: "/docs/onboarding" as const },
     ],
   },

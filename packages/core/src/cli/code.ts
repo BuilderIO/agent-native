@@ -474,7 +474,6 @@ Usage:
 Interactive shell:
   /help        Show shell commands
   /goals       List available coding-agent goals
-  /task ...    Run a generic coding task
   /migrate ... Run the migration goal
   /audit ...   Run the web audit goal
   /<project>   Run .agents/commands/<project>.md
@@ -511,7 +510,6 @@ export function codeShellHelp(): string {
   return `Code Agents shell commands:
   /help        Show this help
   /goals       List available coding-agent goals
-  /task ...    Run a generic coding task
   /migrate ... Move a source into agent-native
   /audit ...   Audit a public URL for agent-readable surfaces
   /<project>   Run a project command from .agents/commands/*.md
@@ -1478,7 +1476,7 @@ function parseTaskArgs(
           prompt: "",
           promptArgs,
           permissionMode,
-          error: `Invalid permission mode: ${value ?? "(missing)"}`,
+          error: `Invalid run mode: ${value ?? "(missing)"}`,
         };
       }
       permissionMode = normalized;
@@ -1495,7 +1493,7 @@ function parseTaskArgs(
           prompt: "",
           promptArgs,
           permissionMode,
-          error: `Invalid permission mode: ${arg.slice("--permission-mode=".length)}`,
+          error: `Invalid run mode: ${arg.slice("--permission-mode=".length)}`,
         };
       }
       permissionMode = normalized;

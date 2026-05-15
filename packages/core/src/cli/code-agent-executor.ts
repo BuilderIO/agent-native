@@ -828,7 +828,7 @@ function permissionErrorForWrite(
   if (permissionMode === "read-only") {
     return `Error: ${toolName} is unavailable in read-only mode.`;
   }
-  return `Error: ${toolName} is blocked by the current permission mode.`;
+  return `Error: ${toolName} is blocked by the current run mode.`;
 }
 
 function requestCodeAgentApproval(

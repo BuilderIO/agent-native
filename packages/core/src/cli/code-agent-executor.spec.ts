@@ -141,7 +141,7 @@ describe("executeCodeAgentRun", () => {
     });
   });
 
-  it("records the run permission mode during execution", async () => {
+  it("records the run mode during execution", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Permission noted.";
     const run = createCodeAgentRunRecord({

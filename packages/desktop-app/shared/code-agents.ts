@@ -39,7 +39,7 @@ export interface CodeAgentGoalDefinition {
 export const CODE_AGENT_GOALS: CodeAgentGoalDefinition[] = [
   {
     id: "task",
-    label: "Coding task",
+    label: "New session",
     slashCommand: "/task",
     description:
       "Start a general coding session from a prompt, then keep transcript events and follow-ups attached to the same run.",

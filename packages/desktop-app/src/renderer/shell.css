@@ -1424,6 +1424,8 @@ body {
   --foreground: 0 0% 90%;
   --card: 220 5% 6%;
   --card-foreground: 0 0% 90%;
+  --popover: 220 5% 8%;
+  --popover-foreground: 0 0% 90%;
   --primary: 0 0% 75%;
   --primary-foreground: 220 6% 6%;
   --secondary: 220 4% 12%;
@@ -1978,50 +1980,138 @@ body {
 }
 
 .code-agents-mode-select {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-width: 130px;
+  width: 132px;
 }
 
-.code-agents-mode-select select {
-  width: 100%;
+.desktop-select-trigger {
+  display: inline-flex;
   height: 30px;
-  appearance: none;
-  border: 1px solid hsl(var(--border));
-  border-radius: calc(var(--radius) - 2px);
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  padding: 0 28px 0 9px;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid hsl(var(--border, 220 4% 14%));
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  background: hsl(var(--card, 220 5% 7%));
+  color: hsl(var(--foreground, 0 0% 90%) / 0.86);
+  padding: 0 9px;
   font: inherit;
   font-size: 12px;
+  font-weight: 500;
   outline: none;
   cursor: pointer;
+  transition:
+    background var(--ease),
+    border-color var(--ease),
+    color var(--ease),
+    box-shadow var(--ease);
 }
 
-.code-agents-mode-select select:hover,
-.code-agents-mode-select select:focus {
-  background: hsl(var(--accent) / 0.5);
-  color: hsl(var(--foreground));
+.desktop-select-trigger:hover,
+.desktop-select-trigger[data-state="open"] {
+  border-color: hsl(var(--border, 220 4% 14%));
+  background: hsl(var(--accent, 220 4% 13%));
+  color: hsl(var(--foreground, 0 0% 90%));
 }
 
-.code-agents-mode-select select:disabled {
+.desktop-select-trigger:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--ring, 0 0% 60%) / 0.28);
+}
+
+.desktop-select-trigger:disabled {
   cursor: default;
   opacity: 0.55;
 }
 
-.code-agents-mode-select svg {
-  position: absolute;
-  right: 9px;
+.desktop-select-trigger svg {
+  flex: 0 0 auto;
+  color: hsl(var(--muted-foreground, 220 4% 60%));
+}
+
+.desktop-select-content {
+  z-index: 300;
+  min-width: 184px;
+  max-width: 260px;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border, 220 4% 16%));
+  border-radius: calc(var(--radius, 0.5rem) + 2px);
+  background: hsl(var(--popover, 220 5% 8%));
+  color: hsl(var(--popover-foreground, 0 0% 90%));
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 hsl(var(--foreground, 0 0% 90%) / 0.04);
+}
+
+.desktop-select-viewport {
+  padding: 5px;
+}
+
+.desktop-select-viewport--popper {
+  min-width: var(--radix-select-trigger-width);
+}
+
+.desktop-select-scroll-button {
+  display: grid;
+  place-items: center;
+  height: 22px;
+  color: hsl(var(--muted-foreground, 220 4% 60%));
+}
+
+.desktop-select-item {
+  position: relative;
+  display: grid;
+  min-height: 50px;
+  cursor: default;
+  user-select: none;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  border-radius: calc(var(--radius, 0.5rem) - 3px);
+  padding: 8px 9px 8px 30px;
+  color: hsl(var(--foreground, 0 0% 90%) / 0.88);
+  outline: none;
+}
+
+.desktop-select-item[data-highlighted] {
+  background: hsl(var(--accent, 220 4% 13%));
+  color: hsl(var(--foreground, 0 0% 90%));
+}
+
+.desktop-select-item[data-disabled] {
   pointer-events: none;
-  color: hsl(var(--muted-foreground));
+  opacity: 0.5;
+}
+
+.desktop-select-item__indicator {
+  position: absolute;
+  left: 9px;
+  top: 10px;
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  color: hsl(var(--foreground, 0 0% 90%));
+}
+
+.desktop-select-item__label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.desktop-select-item__description {
+  display: block;
+  color: hsl(var(--muted-foreground, 220 4% 60%));
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .code-agents-permission--compact .code-agents-mode-select {
   min-width: 112px;
-}
-
-.code-agents-permission--compact .code-agents-mode-select select {
+  width: 112px;
   height: 26px;
   font-size: 11px;
 }

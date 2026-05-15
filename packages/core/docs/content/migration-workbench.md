@@ -49,7 +49,6 @@ Inside the shell, type a task or use slash goals as commands:
 
 ```text
 code> fix the failing auth tests
-code> /task fix the failing auth tests
 code> /migrate ./my-next-app --out ../migrated-app
 code> /audit --url https://example.com
 ```
@@ -61,16 +60,17 @@ npx @agent-native/core@latest "fix the failing auth tests"
 npx @agent-native/core@latest code "fix the failing auth tests"
 npx @agent-native/core@latest code exec "fix the failing auth tests"
 npx @agent-native/core@latest code -p "fix the failing auth tests"
-npx @agent-native/core@latest code /task "fix the failing auth tests"
+npx @agent-native/core@latest code --plan "explain the failing auth tests"
+npx @agent-native/core@latest code --auto "fix the failing auth tests"
 npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 npx @agent-native/core@latest code /audit --url https://example.com
 ```
 
-Run `agent-native code goals` to see the goals registered in your checkout. `/task` starts a local coding-agent session for open-ended code work, streams the run, records transcript/status/tool events, and accepts follow-up prompts through the same run record.
+Run `agent-native code goals` to see the goals registered in your checkout. A bare prompt starts a local coding-agent session for open-ended code work, streams the run, records transcript/status/tool events, and accepts follow-up prompts through the same run record.
 
 Bare `agent-native` launches the Code Agents workspace in this branch, and `agent-native "prompt"` starts a generic Code Agents task directly, matching the Codex/Claude Code habit of treating unknown text as a coding prompt. If an installed version does not include that top-level entrypoint yet, run `agent-native code` directly.
 
-## Sessions and Permissions
+## Sessions and Modes
 
 The next Code Agents follow-up features make the workspace feel like a local Codex/Claude Code session manager instead of a one-shot command. The CLI and Desktop hub share the same run store, so you can start work in one place and continue it in the other:
 
@@ -85,20 +85,18 @@ npx @agent-native/core@latest code resume --last "check the auth edge cases next
 
 `list` shows previous and active sessions for the current workspace. `attach` follows a live transcript. `logs` prints the transcript once. `resume` reopens a session with its prior context, and a quoted resume prompt records the next instruction against that same run. If a high-risk command pauses for approval, `approve --last` runs that one pending command and then points you back to resume the session. Desktop adds the visual session picker on top of the same data: choose a run, inspect status and tool events, then attach, resume, stop, or open the run workspace.
 
-Permission modes make editing policy explicit per run:
+Run modes make editing policy explicit per session:
 
-| Mode              | Behavior                                                              |
-| ----------------- | --------------------------------------------------------------------- |
-| `read-only`       | Inspect, plan, and explain without writing files or running mutations |
-| `ask-before-edit` | Make routine edits, but pause for high-risk destructive operations    |
-| `auto-edit`       | Edit and run ordinary commands, but pause for destructive operations  |
-| `full-auto`       | Run the loop end-to-end when the workspace and command are trusted    |
+| Mode          | CLI flag | Behavior                                                                                                  |
+| ------------- | -------- | --------------------------------------------------------------------------------------------------------- |
+| **Plan mode** | `--plan` | Inspect, plan, and explain without writing files or running mutations.                                    |
+| **Auto mode** | `--auto` | Edit files, run checks, and pause only for genuinely destructive file, git, publish, or data operations. |
 
-Use the lowest mode that fits the task. A migration assessment can often start in `read-only`; an approved implementation sweep usually wants `ask-before-edit` or `auto-edit`; `full-auto` is for trusted local work where the user expects the agent to keep going.
+Auto mode is the default for local Code Agents sessions. Use Plan mode for assessment, architecture, review, or any task where you want a proposal before edits.
 
 ## Project Slash Commands
 
-Built-in slash goals such as `/task`, `/migrate`, and `/audit` are framework commands. Projects can also define custom commands in `.agents/commands/*.md` using the same npx-first workflow:
+Built-in slash goals such as `/migrate` and `/audit` are framework commands. Projects can also define custom commands in `.agents/commands/*.md` using the same npx-first workflow:
 
 ```bash
 npx @agent-native/core@latest code /release-check
@@ -171,7 +169,7 @@ npx @agent-native/core@latest code ui --last
 npx @agent-native/core@latest code stop --last
 ```
 
-`attach --last` follows a live transcript until the run reaches a terminal state, while `logs --last` prints the transcript once. `resume --last` reopens the latest run handoff. Passing a quoted prompt, or using `--continue "prompt"`, records it as a follow-up transcript event and, for executable goals such as `/task`, immediately runs that follow-up against the same session context. `approve --last` is intentionally narrow: it only runs the pending approved command for a session that paused on a high-risk command, then tells you to resume.
+`attach --last` follows a live transcript until the run reaches a terminal state, while `logs --last` prints the transcript once. `resume --last` reopens the latest run handoff. Passing a quoted prompt, or using `--continue "prompt"`, records it as a follow-up transcript event and immediately runs that follow-up against the same session context for executable coding sessions. `approve --last` is intentionally narrow: it only runs the pending approved command for a session that paused on a high-risk command, then tells you to resume.
 
 `stop` marks the run paused and sends SIGTERM when the run has a tracked Desktop/CLI runner process id. If the active work belongs to another terminal or external agent, stop that owner directly.
 
@@ -193,7 +191,7 @@ In Code Agents, Desktop, or the internal run surface, connect providers through 
 
 ## Code Agents
 
-Agent-Native Desktop includes a **Code Agents** hub for long-running coding-agent sessions. It is the general Code app/surface in Desktop, and it pairs with the `agent-native code` shell as the primary CLI/Desktop coding experience. `/task` is the generic executable coding session, and `/migrate` is one specialized capability there: the hub can show runs, filter by active, approval, issues, or complete status, tail transcripts, render tool events, send follow-up prompts, stop tracked runners, open a terminal in the run workspace, and handle links like:
+Agent-Native Desktop includes a **Code Agents** hub for long-running coding-agent sessions. It is the general Code app/surface in Desktop, and it pairs with the `agent-native code` shell as the primary CLI/Desktop coding experience. A bare prompt is the generic coding session, and `/migrate` is one specialized capability there: the hub shows recent and active runs, opens a transcript-first session view, renders tool events and artifacts, sends follow-up prompts, stops tracked runners, opens a terminal in the run workspace, and handles links like:
 
 ```text
 agentnative://open?goal=migrate&run=<runId>

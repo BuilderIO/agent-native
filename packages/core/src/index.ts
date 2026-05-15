@@ -144,6 +144,24 @@ export {
   type WorkspaceConnectionStatus,
 } from "./workspace-connections/index.js";
 
+// Reusable workspace connection provider catalog
+export {
+  WORKSPACE_CONNECTION_PROVIDERS,
+  defineWorkspaceConnectionProvider,
+  getWorkspaceConnectionProvider,
+  isWorkspaceConnectionProviderId,
+  listWorkspaceConnectionProviders,
+  listWorkspaceConnectionProvidersForCapability,
+  listWorkspaceConnectionProvidersForTemplate,
+  workspaceConnectionProviderSupports,
+  type ListWorkspaceConnectionProvidersOptions,
+  type WorkspaceConnectionCapability,
+  type WorkspaceConnectionCredentialKey,
+  type WorkspaceConnectionProvider,
+  type WorkspaceConnectionProviderId,
+  type WorkspaceConnectionTemplateUse,
+} from "./connections/index.js";
+
 // Scripts
 export {
   runScript,

@@ -53,7 +53,7 @@ JSON is stored in text columns. There is no vector database.
 | `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior |
 | `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                    |
 | `search-everything`                                                                 | V1.5 search across knowledge, raw captures, and source records                         |
-| `list-proposals` / `approve-proposal` / `reject-proposal`                           | Review company-tier or forced proposals                                                |
+| `list-proposals` / `update-proposal` / `approve-proposal` / `reject-proposal`       | Review, edit, approve, or reject company-tier or forced proposals                      |
 | `seed-demo-data` / `run-demo-eval`                                                  | Seed and evaluate the product-decision demo corpus                                     |
 | `get-settings` / `set-settings`                                                     | Read/update Brain settings                                                             |
 | `navigate` / `view-screen`                                                          | Keep agent and UI context in sync                                                      |
@@ -85,6 +85,7 @@ When answering company-memory questions:
 - `publishTier: "team"` and `"company"` use org visibility.
 - Company-tier writes create a proposal by default when `requireApprovalForCompanyKnowledge` is true.
 - Use `proposalMode: "never"` only when the user explicitly wants to bypass review.
+- Pending proposals may be edited with `update-proposal` before approval; keep reviewer notes on the approve/reject action.
 - Redactions are applied before storage. Explicit `redactions` replace matching text with `[redacted]`; settings can also auto-redact email addresses.
 
 ## Connector Notes
@@ -147,6 +148,12 @@ configured repositories through GitHub's REST API. Configure `repositories` or
 and `includePullRequests`. Treat imported GitHub captures as ingestable company
 context, not full GitHub analytics. This connector can later move to Workspace
 Connections once that reusable connection layer is available.
+
+For new Brain source provider UI or agent guidance, prefer the shared provider
+catalog from `@agent-native/core/connections` for provider ids, labels,
+credential key names, capabilities, and recommended template uses. The catalog
+is metadata only; Brain actions must still read secret values through the
+existing credential vault and must never return them.
 
 Auto-sync is controlled per source with `config.autoSync` and
 `config.pollMinutes`. The background job is gated by `RUN_BACKGROUND_JOBS`; use

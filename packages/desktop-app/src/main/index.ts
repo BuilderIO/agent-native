@@ -1651,8 +1651,8 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
   if (requestedPermissionMode && !permissionMode) {
     return {
       ok: false,
-      message: "Choose a valid permission mode.",
-      error: `Unsupported permission mode: ${requestedPermissionMode}`,
+      message: "Choose a valid run mode.",
+      error: `Unsupported run mode: ${requestedPermissionMode}`,
     };
   }
 
@@ -1717,8 +1717,8 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   if (requestedPermissionMode && !permissionMode) {
     return {
       ok: false,
-      message: "Choose a valid permission mode.",
-      error: `Unsupported permission mode: ${requestedPermissionMode}`,
+      message: "Choose a valid run mode.",
+      error: `Unsupported run mode: ${requestedPermissionMode}`,
     };
   }
 
@@ -2021,8 +2021,8 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
       ok: false,
       command: command ?? "status",
       action: "none",
-      message: "Choose a valid permission mode.",
-      error: `Unsupported permission mode: ${requestedPermissionMode}`,
+      message: "Choose a valid run mode.",
+      error: `Unsupported run mode: ${requestedPermissionMode}`,
     };
   }
 

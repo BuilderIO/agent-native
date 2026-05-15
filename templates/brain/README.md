@@ -53,7 +53,9 @@ pnpm --filter brain build
    closes the queue with `mark-capture-distilled`.
 5. Monitor failed or stale handoffs in the Ops route, or with
    `list-distillation-queue` and `retry-distillation`.
-6. Review queued proposals in the Review route or with `approve-proposal`.
+6. Review queued proposals in the Review route. Reviewers can edit a pending
+   proposal with `update-proposal`, then approve it with `approve-proposal` or
+   reject it with `reject-proposal`.
 7. Ask Brain or another workspace agent to search broadly with
    `search-everything` when the V1.5 search surface is available, then drill
    into `get-knowledge` / `get-capture` for cited answers. In V1-only

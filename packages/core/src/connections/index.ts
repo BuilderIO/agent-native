@@ -1,0 +1,16 @@
+export {
+  WORKSPACE_CONNECTION_PROVIDERS,
+  defineWorkspaceConnectionProvider,
+  getWorkspaceConnectionProvider,
+  isWorkspaceConnectionProviderId,
+  listWorkspaceConnectionProviders,
+  listWorkspaceConnectionProvidersForCapability,
+  listWorkspaceConnectionProvidersForTemplate,
+  workspaceConnectionProviderSupports,
+  type ListWorkspaceConnectionProvidersOptions,
+  type WorkspaceConnectionCapability,
+  type WorkspaceConnectionCredentialKey,
+  type WorkspaceConnectionProvider,
+  type WorkspaceConnectionProviderId,
+  type WorkspaceConnectionTemplateUse,
+} from "./catalog.js";

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconAlertCircle,
   IconArrowUp,
-  IconChevronDown,
   IconClock,
   IconCode,
   IconExternalLink,
@@ -27,6 +26,14 @@ import {
 } from "@shared/code-agents";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
 import AppWebview from "./AppWebview.js";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 interface CodeAgentsHubProps {
   apps: AppConfig[];
@@ -496,7 +503,7 @@ export default function CodeAgentsHub({
               }}
             >
               <strong>{goal.label}</strong>
-              <span>{goal.slashCommand}</span>
+              <span>{goal.id === "task" ? "Prompt" : goal.slashCommand}</span>
             </button>
           ))}
         </div>
@@ -754,24 +761,34 @@ function RunModeSelect({
           <em>{selected.description}</em>
         </legend>
       )}
-      <label className="code-agents-mode-select">
-        <select
-          value={selectedMode}
-          disabled={disabled}
+      <Select
+        value={selectedMode}
+        disabled={disabled}
+        onValueChange={(nextMode) =>
+          onChange(permissionModeFromRunMode(nextMode))
+        }
+      >
+        <SelectTrigger
+          className="code-agents-mode-select"
           aria-label={title}
           title={selected.description}
-          onChange={(event) =>
-            onChange(permissionModeFromRunMode(event.target.value))
-          }
         >
-          {CODE_AGENT_RUN_MODES.map((mode) => (
-            <option key={mode.id} value={mode.id}>
-              {mode.label}
-            </option>
-          ))}
-        </select>
-        <IconChevronDown size={13} strokeWidth={1.8} aria-hidden="true" />
-      </label>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="code-agents-mode-menu">
+          <SelectGroup>
+            {CODE_AGENT_RUN_MODES.map((mode) => (
+              <SelectItem
+                key={mode.id}
+                value={mode.id}
+                description={mode.description}
+              >
+                {mode.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
     </fieldset>
   );
 }
