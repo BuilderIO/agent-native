@@ -4,12 +4,16 @@ import {
   IconArrowRight,
   IconBook2,
   IconChecks,
+  IconFlask,
   IconQuote,
+  IconReportAnalytics,
   IconSearch,
 } from "@tabler/icons-react";
 import { Link } from "react-router";
 import {
   type AskBrainResponse,
+  type DemoEvalResponse,
+  type DemoSeedResponse,
   type KnowledgeResponse,
   type ReviewQueueResponse,
   type SourcesResponse,
@@ -25,6 +29,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import {
   EmptyActionState,
@@ -35,14 +40,15 @@ import {
 } from "@/components/brain/Surface";
 
 const starterQuestions = [
-  "What is our current enterprise security review process?",
-  "Which onboarding policies changed recently?",
-  "Summarize customer escalation rules with citations.",
+  "Why did we retire freemium?",
+  "How does Decision Digest work and why?",
+  "Why are product decisions the lead Brain demo?",
 ];
 
 export default function AskRoute() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<AskBrainResponse | null>(null);
+  const [evalResult, setEvalResult] = useState<DemoEvalResponse | null>(null);
 
   const knowledgeQuery = useActionQuery<KnowledgeResponse>(
     "search-knowledge" as any,
@@ -62,6 +68,14 @@ export default function AskRoute() {
     AskBrainResponse,
     { question: string; mode: "cited"; filters?: Record<string, string> }
   >("ask-brain" as any);
+  const seedDemo = useActionMutation<
+    DemoSeedResponse,
+    { publishCanonical: boolean }
+  >("seed-demo-data" as any);
+  const runDemoEval = useActionMutation<
+    DemoEvalResponse,
+    { seedIfMissing: boolean; publishCanonical: boolean }
+  >("run-demo-eval" as any);
 
   const knowledgeRows =
     knowledgeQuery.data?.rows ?? knowledgeQuery.data?.knowledge;
@@ -127,6 +141,20 @@ export default function AskRoute() {
     }
   }
 
+  async function loadDemo() {
+    const response = await seedDemo.mutateAsync({ publishCanonical: true });
+    setQuestion(response.suggestedQuestions?.[0] ?? starterQuestions[0]);
+    setAnswer(null);
+  }
+
+  async function runEval() {
+    const response = await runDemoEval.mutateAsync({
+      seedIfMissing: true,
+      publishCanonical: false,
+    });
+    setEvalResult(response);
+  }
+
   return (
     <div className="min-h-full bg-background">
       <PageHeader
@@ -134,7 +162,25 @@ export default function AskRoute() {
         title="Ask Brain"
         description="Query whole-company memory with citations, source health, and reviewable evidence in the same working surface."
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={seedDemo.isPending}
+              onClick={loadDemo}
+            >
+              <IconFlask className="size-4" />
+              {seedDemo.isPending ? "Seeding" : "Load demo"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={runDemoEval.isPending}
+              onClick={runEval}
+            >
+              <IconReportAnalytics className="size-4" />
+              {runDemoEval.isPending ? "Running" : "Run eval"}
+            </Button>
             <Button asChild variant="outline" size="sm">
               <Link to="/knowledge">
                 <IconBook2 className="size-4" />
@@ -280,6 +326,43 @@ export default function AskRoute() {
             ))}
           </div>
 
+          {evalResult ? (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-base">Demo eval</CardTitle>
+                  <Badge variant={evalResult.ok ? "secondary" : "outline"}>
+                    {evalResult.passed}/{evalResult.total}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                <Progress value={evalResult.score * 100} />
+                <div className="grid gap-2">
+                  {evalResult.checks.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-md border border-border bg-background p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-sm font-medium">{item.label}</p>
+                        <Badge
+                          variant={item.passed ? "secondary" : "outline"}
+                          className="shrink-0"
+                        >
+                          {item.passed ? "Pass" : "Check"}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        {item.detail}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-3">
@@ -354,10 +437,12 @@ export default function AskRoute() {
 
           {knowledgeQuery.isError ||
           reviewQuery.isError ||
-          sourcesQuery.isError ? (
+          sourcesQuery.isError ||
+          seedDemo.isError ||
+          runDemoEval.isError ? (
             <EmptyActionState
-              title="Some Brain actions are not available yet"
-              detail="Ask is wired to search-knowledge, list-proposals, list-sources, and ask-brain. Scaffold rows keep the page usable while backend actions land."
+              title="Some Brain actions need attention"
+              detail="Ask is wired to search, review, source, demo seed, and demo eval actions. Check the action error for details."
             />
           ) : null}
         </aside>

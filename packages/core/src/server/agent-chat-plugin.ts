@@ -2349,7 +2349,7 @@ const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
  * These all get appended to the system prompt so the agent has everything it
  * needs from the first turn.
  *
- * Four sources are layered:
+ * Six sources are layered:
  *
  *   1. `<workspace>` — AGENTS.md from the enterprise workspace core.
  *   2. `<template>` — AGENTS.md + skills index from the Vite plugin bundle.
@@ -4769,8 +4769,8 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
           // Query resources
           try {
             const resources = [
-              ...(await resourceList(WORKSPACE_OWNER)),
               ...(await resourceList(SHARED_OWNER)),
+              ...(await resourceList(WORKSPACE_OWNER)),
             ];
             for (const r of resources) {
               if (!seen.has(r.path)) {

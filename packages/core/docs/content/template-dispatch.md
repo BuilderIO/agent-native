@@ -77,8 +77,8 @@ Use Dreams when you want to answer questions like "what did agents keep getting 
 
 In the Dispatch UI, open **Dreams** to run a manual pass, review candidate threads, inspect the report, and apply or reject each proposal. Agents use the same workflow through actions:
 
-- `list-dream-candidates` finds recent threads with grounded signals such as explicit user corrections, failed runs, tool errors, feedback, eval failures, and successful checkpointed workflows.
-- `create-dream-report` creates the report and pending proposals.
+- `list-dream-candidates` finds recent threads with grounded signals such as explicit user corrections, failed runs, tool errors, feedback, eval failures, and successful checkpointed workflows. Pass `sourceId: "all"` or `sourceIds` to scan multiple thread-debug sources; `sourceTimeoutMs` bounds each source and the response includes per-source health.
+- `create-dream-report` creates the report and pending proposals. Multi-source reports include a Source Health section so partial scans are visible during review.
 - `get-dream`, `apply-dream-proposal`, and `reject-dream-proposal` handle review.
 - `ensure-dream-job` creates the safe recurring dream job once manual reports are useful.
 

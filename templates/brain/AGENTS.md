@@ -22,6 +22,7 @@ JSON is stored in text columns. There is no vector database.
 | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `create-source` / `update-source` / `delete-source` / `get-source` / `list-sources` | Manage source configuration                                                            |
 | `sync-source` / `sync-due-sources`                                                  | Run one source immediately or run due auto-sync sources                                |
+| `test-slack-connection`                                                             | Test Slack credentials/channel allow-lists without reading message history             |
 | `import-capture`                                                                    | Import arbitrary raw text                                                              |
 | `import-transcript`                                                                 | Import meeting transcripts                                                             |
 | `get-capture`                                                                       | Read a raw capture if its source is accessible                                         |
@@ -30,6 +31,7 @@ JSON is stored in text columns. There is no vector database.
 | `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior |
 | `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search knowledge                                                              |
 | `list-proposals` / `approve-proposal` / `reject-proposal`                           | Review company-tier or forced proposals                                                |
+| `seed-demo-data` / `run-demo-eval`                                                  | Seed and evaluate the product-decision demo corpus                                     |
 | `get-settings` / `set-settings`                                                     | Read/update Brain settings                                                             |
 | `navigate` / `view-screen`                                                          | Keep agent and UI context in sync                                                      |
 
@@ -50,6 +52,10 @@ explicitly configured public or private channels. Configure `channelIds`,
 DMs and MPIMs structurally; do not broaden it to enumerate private direct
 conversations.
 
+Use `test-slack-connection` before production backfills. It calls Slack
+`auth.test` and optional channel metadata checks only; it never calls
+`conversations.history`.
+
 Granola sources use the scoped `GRANOLA_API_KEY` credential and poll Granola's
 public API for accessible Team-space notes, then fetch each note with its
 transcript. Keep the Granola cursor and sync window in the source cursor/config
@@ -64,3 +70,14 @@ Manual, generic, and Clips sources can still import fixture/exported items
 through `config.transcripts`, `config.sampleTranscripts`, or `config.messages`.
 Each item can be a string or an object with `title`, `content` or `text`, `kind`,
 `capturedAt`, and `metadata`.
+
+## Demo/Eval
+
+Use `seed-demo-data` to load the public product-decision demo corpus. It creates
+Slack, Clips, Granola, and generic demo sources; seeds cited knowledge; creates
+a pending retention proposal; archives a superseded freemium decision; and keeps
+a personal aside as an ignored capture.
+
+Use `run-demo-eval` to verify recall, citations, supersede links, proposal
+gating, redaction, and personal-content exclusion. This is the fastest
+repeatable check that Brain still feels like a trustworthy company memory app.

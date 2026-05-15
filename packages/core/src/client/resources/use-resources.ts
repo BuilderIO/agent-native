@@ -73,7 +73,7 @@ export interface TreeNode {
   mcpServerMeta?: McpServer;
 }
 
-export type ResourceScope = "personal" | "shared" | "all";
+export type ResourceScope = "personal" | "shared" | "workspace" | "all";
 
 /**
  * Inject a virtual `mcp-servers/` folder into a scope's resource tree.

@@ -50,15 +50,6 @@ function stripUndefined(args: Record<string, unknown>) {
   );
 }
 
-async function getDreamDetail(dreamId: unknown) {
-  try {
-    return await runLocalDispatchAction("get-dream", { dreamId });
-  } catch (error) {
-    if (!dreamId) throw error;
-    return runLocalDispatchAction("get-dream", { id: dreamId });
-  }
-}
-
 export default defineAction({
   description:
     "See what the user is currently looking at in the dispatch UI, including navigation state and a compact operational summary.",
@@ -200,7 +191,6 @@ export default defineAction({
           runLocalDispatchAction("list-dream-candidates", {
             sourceId: nav.sourceId,
             ownerEmail: nav.ownerEmail,
-            sinceDays: nav.sinceDays,
             limit: 10,
           }),
           runLocalDispatchAction("list-dreams", {
@@ -214,7 +204,9 @@ export default defineAction({
 
         const dreamId = nav.dreamId ?? nav.id;
         if (dreamId) {
-          screen.dreamDetail = await getDreamDetail(dreamId);
+          screen.dreamDetail = await runLocalDispatchAction("get-dream", {
+            id: dreamId,
+          });
         }
       } catch (error) {
         screen.dreamsError =

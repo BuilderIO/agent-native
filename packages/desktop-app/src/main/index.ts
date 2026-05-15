@@ -11,7 +11,10 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import { spawn } from "node:child_process";
+import fs from "fs";
+import os from "os";
 import path from "path";
+import { fileURLToPath } from "url";
 import { autoUpdater } from "electron-updater";
 import {
   IPC,
@@ -19,7 +22,9 @@ import {
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
   type CodeAgentMigrationRun,
+  type CodeAgentRun,
   type CodeAgentRunListResult,
+  type CodeAgentTerminalRequest,
   type CodeAgentTerminalResult,
   type DesktopOpenRequest,
   type InterAppMessage,
@@ -831,17 +836,106 @@ function mapMigrationPhaseToCodeAgentStatus(
   return "queued";
 }
 
-async function listMigrationRunsForCodeAgents(): Promise<
-  CodeAgentRunListResult<CodeAgentMigrationRun>
-> {
+function codeAgentStoreRoot(): string {
+  return path.resolve(
+    process.env.AGENT_NATIVE_CODE_AGENTS_HOME ??
+      path.join(getHomeDirectory(), ".agent-native", "code-agents"),
+  );
+}
+
+function listFileBackedCodeAgentRuns(goalId?: string): CodeAgentRun[] {
+  const runsDir = path.join(codeAgentStoreRoot(), "runs");
+  if (!fs.existsSync(runsDir)) return [];
+  return fs
+    .readdirSync(runsDir)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => readFileBackedCodeAgentRun(path.join(runsDir, file)))
+    .filter((run): run is CodeAgentRun => Boolean(run))
+    .filter((run) => !goalId || run.goalId === goalId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function readFileBackedCodeAgentRun(filePath: string): CodeAgentRun | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
+    if (!raw || typeof raw !== "object") return null;
+    const row = raw as Record<string, unknown>;
+    const id = typeof row.id === "string" ? row.id : "";
+    const goalId = typeof row.goalId === "string" ? row.goalId : "";
+    const title = typeof row.title === "string" ? row.title : id;
+    const status =
+      typeof row.status === "string"
+        ? (row.status as CodeAgentRun["status"])
+        : "unknown";
+    const createdAt =
+      typeof row.createdAt === "string"
+        ? row.createdAt
+        : new Date().toISOString();
+    const updatedAt =
+      typeof row.updatedAt === "string" ? row.updatedAt : createdAt;
+    if (!id || !goalId || !title) return null;
+    return {
+      id,
+      goalId,
+      title,
+      subtitle: typeof row.subtitle === "string" ? row.subtitle : undefined,
+      status,
+      phase: typeof row.phase === "string" ? row.phase : undefined,
+      needsApproval:
+        typeof row.needsApproval === "boolean" ? row.needsApproval : undefined,
+      progress: normalizeCodeAgentProgress(row.progress),
+      details: Array.isArray(row.details)
+        ? (row.details as unknown as CodeAgentRun["details"])
+        : undefined,
+      surfaceUrl:
+        typeof row.surfaceUrl === "string" ? row.surfaceUrl : undefined,
+      createdAt,
+      updatedAt,
+      metadata: isObject(row.metadata)
+        ? (row.metadata as Record<string, unknown>)
+        : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function normalizeCodeAgentProgress(value: unknown): CodeAgentRun["progress"] {
+  if (!isObject(value)) return undefined;
+  const completed = Number(value.completed);
+  const total = Number(value.total);
+  const percent = Number(value.percent);
+  if (
+    !Number.isFinite(completed) ||
+    !Number.isFinite(total) ||
+    !Number.isFinite(percent)
+  ) {
+    return undefined;
+  }
+  const failed = Number(value.failed);
+  return {
+    label: typeof value.label === "string" ? value.label : undefined,
+    completed,
+    total,
+    failed: Number.isFinite(failed) ? failed : undefined,
+    percent,
+  };
+}
+
+async function listMigrationRunsForCodeAgents(): Promise<CodeAgentRunListResult> {
+  const fileRuns = listFileBackedCodeAgentRuns("migrate");
   let appConfig: AppConfig;
   const migrationGoal = getCodeAgentGoal("migrate") ?? CODE_AGENT_GOALS[0];
   try {
     appConfig = getCodeAgentAppConfig(migrationGoal, loadAppsForAuthContext());
   } catch (err) {
     return {
-      status: "unavailable",
-      runs: [],
+      status: fileRuns.length > 0 ? "ok" : "unavailable",
+      runs: fileRuns,
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -852,8 +946,8 @@ async function listMigrationRunsForCodeAgents(): Promise<
   );
   if (!endpoint) {
     return {
-      status: "unavailable",
-      runs: [],
+      status: fileRuns.length > 0 ? "ok" : "unavailable",
+      runs: fileRuns,
       error: "Migration Workbench URL is not configured.",
     };
   }
@@ -869,15 +963,15 @@ async function listMigrationRunsForCodeAgents(): Promise<
     });
     if (res.status === 401 || res.status === 403) {
       return {
-        status: "unauthorized",
-        runs: [],
+        status: fileRuns.length > 0 ? "ok" : "unauthorized",
+        runs: fileRuns,
         workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
       };
     }
     if (!res.ok) {
       return {
-        status: "unavailable",
-        runs: [],
+        status: fileRuns.length > 0 ? "ok" : "unavailable",
+        runs: fileRuns,
         workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
         error: `Migration Workbench returned ${res.status}.`,
       };
@@ -886,8 +980,8 @@ async function listMigrationRunsForCodeAgents(): Promise<
     const contentType = res.headers.get("content-type") ?? "";
     if (!contentType.includes("application/json")) {
       return {
-        status: "unauthorized",
-        runs: [],
+        status: fileRuns.length > 0 ? "ok" : "unauthorized",
+        runs: fileRuns,
         workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
         error: "Migration Workbench did not return JSON.",
       };
@@ -901,17 +995,31 @@ async function listMigrationRunsForCodeAgents(): Promise<
       : [];
     return {
       status: "ok",
-      runs,
+      runs: mergeCodeAgentRuns(fileRuns, runs),
       workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
     };
   } catch (err) {
     return {
-      status: "unavailable",
-      runs: [],
+      status: fileRuns.length > 0 ? "ok" : "unavailable",
+      runs: fileRuns,
       workbenchUrl: resolveAppBaseUrl(appConfig) ?? undefined,
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+function mergeCodeAgentRuns(
+  primary: CodeAgentRun[],
+  secondary: CodeAgentRun[],
+): CodeAgentRun[] {
+  const seen = new Set<string>();
+  return [...primary, ...secondary]
+    .filter((run) => {
+      if (seen.has(run.id)) return false;
+      seen.add(run.id);
+      return true;
+    })
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 function spawnDetached(
@@ -924,6 +1032,7 @@ function spawnDetached(
       cwd,
       detached: true,
       stdio: "ignore",
+      windowsHide: false,
     });
     child.unref();
     return { ok: true, cwd };
@@ -936,15 +1045,114 @@ function spawnDetached(
   }
 }
 
-function openTerminalForCodeAgents(): CodeAgentTerminalResult {
-  const cwd = process.cwd();
+function getHomeDirectory(): string {
+  try {
+    return app.getPath("home");
+  } catch {
+    return os.homedir();
+  }
+}
+
+function hasUrlProtocol(value: string): boolean {
+  return /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(value);
+}
+
+function isWindowsDrivePath(value: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(value);
+}
+
+function expandPathCandidate(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("file:")) {
+    try {
+      return fileURLToPath(trimmed);
+    } catch {
+      return null;
+    }
+  }
+
+  if (hasUrlProtocol(trimmed) && !isWindowsDrivePath(trimmed)) {
+    return null;
+  }
+
+  if (trimmed === "~") {
+    return getHomeDirectory();
+  }
+  if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) {
+    return path.join(getHomeDirectory(), trimmed.slice(2));
+  }
+
+  return trimmed;
+}
+
+function isFilesystemRoot(dir: string): boolean {
+  return path.parse(dir).root === dir;
+}
+
+function resolveUsableDirectory(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const expanded = expandPathCandidate(value);
+  if (!expanded) return null;
+  const resolved = path.resolve(expanded);
+  if (isFilesystemRoot(resolved)) return null;
+
+  try {
+    const stat = fs.statSync(resolved);
+    if (stat.isDirectory()) return resolved;
+    if (stat.isFile()) {
+      const parent = path.dirname(resolved);
+      return isFilesystemRoot(parent) ? null : parent;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function resolveCodeAgentsTerminalCwd(
+  request: unknown,
+): CodeAgentTerminalResult["cwd"] {
+  const record =
+    request && typeof request === "object"
+      ? (request as Partial<CodeAgentTerminalRequest>)
+      : {};
+  const candidates: unknown[] = [
+    record.sourceRoot,
+    record.outputRoot,
+    record.cwd,
+    process.env.AGENT_NATIVE_PROJECT_ROOT,
+    process.env.CODE_AGENTS_PROJECT_ROOT,
+    process.env.INIT_CWD,
+    process.env.PWD,
+    IS_DEV ? process.cwd() : undefined,
+    getHomeDirectory(),
+    os.homedir(),
+  ];
+
+  for (const candidate of candidates) {
+    const dir = resolveUsableDirectory(candidate);
+    if (dir) return dir;
+  }
+
+  return getHomeDirectory();
+}
+
+function quoteWindowsCmdPath(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function openTerminalForCodeAgents(request?: unknown): CodeAgentTerminalResult {
+  const cwd = resolveCodeAgentsTerminalCwd(request);
   if (process.platform === "darwin") {
     return spawnDetached("open", ["-a", "Terminal", cwd], cwd);
   }
   if (process.platform === "win32") {
     return spawnDetached(
       "cmd.exe",
-      ["/c", "start", "", "cmd.exe", "/K", "cd", "/d", cwd],
+      ["/d", "/k", `cd /d ${quoteWindowsCmdPath(cwd)}`],
       cwd,
     );
   }
@@ -1056,10 +1264,11 @@ ipcMain.handle(
         goalId: goal.id,
       }));
     }
+    const runs = listFileBackedCodeAgentRuns(goal.id);
     return Promise.resolve({
       status: "ok",
       goalId: goal.id,
-      runs: [],
+      runs,
     });
   },
 );
@@ -1075,9 +1284,12 @@ ipcMain.handle(
   (): Promise<CodeAgentRunListResult> => listMigrationRunsForCodeAgents(),
 );
 
-ipcMain.handle(IPC.CODE_AGENTS_OPEN_TERMINAL, (): CodeAgentTerminalResult => {
-  return openTerminalForCodeAgents();
-});
+ipcMain.handle(
+  IPC.CODE_AGENTS_OPEN_TERMINAL,
+  (_event: IpcMainInvokeEvent, request?: unknown): CodeAgentTerminalResult => {
+    return openTerminalForCodeAgents(request);
+  },
+);
 
 // ---------- Native context menus ----------
 // Electron does not provide Chromium's standard right-click menu by default,

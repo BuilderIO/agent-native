@@ -13,7 +13,7 @@ npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 
 **Code Agents** is the product surface for long-running coding work. `/migrate` is a built-in Code Agents goal for moving an existing app, URL, or described product into agent-native. It uses the same long-running harness as the desktop Code Agents hub and the CLI `code` command, so migration behaves like a goal you can resume, inspect, and stop rather than a separate one-off product.
 
-The hidden `migration` app is an internal implementation detail. It provides the run detail/control surface for assessment, approval, task progress, artifacts, and verification. The first output is not blind generated code; it is auditable evidence that lets the agent run and prove what happened.
+By default `/migrate` creates a generic Code Agents session plus a portable migration dossier. The hidden `migration` app is now a legacy/internal detail surface, available with `--app-surface` when a run needs a richer assessment/approval/task/verifier dashboard. It is not the migration product and should not be scaffolded as a normal app/template.
 
 The direct `migrate` command remains a shortcut into the same goal:
 
@@ -45,9 +45,12 @@ For local paths, the source is read-only. Generated output must live outside the
 
 ## Internal Run Surface
 
-The normal command scaffolds the hidden `migration` template and writes `data/migration-source.json` with source metadata. Open this internal surface only when you need to inspect or control a run directly:
+The normal command creates a generic Code Agents session and writes artifacts under the Code Agents run store. It does **not** scaffold an app/template.
+
+Open the legacy hidden `migration` detail surface only when you explicitly want that richer dashboard:
 
 ```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --app-surface
 cd migration
 pnpm install
 pnpm dev
@@ -59,7 +62,7 @@ The local dev URL is printed by Vite. In first-party dev setups it is usually:
 http://localhost:8101/
 ```
 
-Inside the internal surface, the flow is:
+Inside that optional internal surface, the flow is:
 
 1. **Discover** reads the source and creates `01-assessment.md`.
 2. **Plan** creates recipe tasks and writes `02-plan.md` plus `03-tasks.md`.

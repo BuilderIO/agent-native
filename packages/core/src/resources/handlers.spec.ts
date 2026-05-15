@@ -14,6 +14,7 @@ const mockEnsurePersonalDefaults = vi.fn();
 
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
+  WORKSPACE_OWNER: "__workspace__",
   resourceGet: (...args: any[]) => mockResourceGet(...args),
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
@@ -85,10 +86,11 @@ describe("resource handlers", () => {
   });
 
   describe("handleListResources", () => {
-    it("lists all resources (personal + shared) by default", async () => {
+    it("lists all accessible resources by default", async () => {
       mockResourceListAccessible.mockResolvedValue([
         { id: "1", path: "a.md", owner: "test@test.com" },
         { id: "2", path: "b.md", owner: "__shared__" },
+        { id: "3", path: "context/brand.md", owner: "__workspace__" },
       ]);
 
       const event = { _query: {} };
@@ -99,7 +101,7 @@ describe("resource handlers", () => {
         "test@test.com",
         undefined,
       );
-      expect(result.resources).toHaveLength(2);
+      expect(result.resources).toHaveLength(3);
     });
 
     it("lists only personal resources when scope=personal", async () => {
@@ -118,6 +120,15 @@ describe("resource handlers", () => {
       await handleListResources(event);
 
       expect(mockResourceList).toHaveBeenCalledWith("__shared__", undefined);
+    });
+
+    it("lists only workspace resources when scope=workspace", async () => {
+      mockResourceList.mockResolvedValue([]);
+
+      const event = { _query: { scope: "workspace" } };
+      await handleListResources(event);
+
+      expect(mockResourceList).toHaveBeenCalledWith("__workspace__", undefined);
     });
 
     it("passes prefix filter", async () => {
@@ -207,6 +218,25 @@ describe("resource handlers", () => {
 
       expect(lastStatus).toBe(404);
       expect(result).toEqual({ error: "Resource not found" });
+    });
+
+    it("returns inherited workspace resources by id", async () => {
+      const resource = {
+        id: "workspace_1",
+        path: "context/brand.md",
+        owner: "__workspace__",
+        content: "# Brand",
+        mimeType: "text/markdown",
+        size: 7,
+        createdAt: 1000,
+        updatedAt: 2000,
+      };
+      mockResourceGet.mockResolvedValue(resource);
+
+      const event = { _params: { id: "workspace_1" }, _query: {}, context: {} };
+      const result = await handleGetResource(event);
+
+      expect(result).toEqual(resource);
     });
 
     it("strips content from binary resources in JSON response", async () => {

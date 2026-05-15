@@ -61,20 +61,23 @@ export function stableJson(value: unknown): string {
   return JSON.stringify(value ?? {});
 }
 
-export function contentHash(content: string): string {
-  let hash = 5381;
-  for (let i = 0; i < content.length; i += 1) {
-    hash = (hash * 33) ^ content.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(16);
-}
-
 export async function sha256Hex(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+export async function contentHash(content: string): Promise<string> {
+  return sha256Hex(content);
+}
+
+function serializeSourceConfig(config: Record<string, unknown>) {
+  const sanitized = { ...config };
+  delete sanitized.ingestTokenHash;
+  delete sanitized.sourceKey;
+  return sanitized;
 }
 
 export async function readBrainSettings(): Promise<BrainSettings> {
@@ -102,7 +105,7 @@ export function serializeSource(row: typeof schema.brainSources.$inferSelect) {
     title: row.title,
     provider: row.provider as BrainSourceProvider,
     status: row.status as BrainSourceStatus,
-    config: parseJson(row.configJson, {}),
+    config: serializeSourceConfig(parseJson(row.configJson, {})),
     cursor: parseJson(row.cursorJson, {}),
     visibility: row.visibility,
     lastSyncedAt: row.lastSyncedAt,
@@ -232,6 +235,14 @@ export async function createSource(values: {
     title: values.title,
     provider: values.provider,
     status: "active",
+    sourceKey:
+      typeof values.config?.sourceKey === "string"
+        ? values.config.sourceKey
+        : null,
+    ingestTokenHash:
+      typeof values.config?.ingestTokenHash === "string"
+        ? values.config.ingestTokenHash
+        : null,
     configJson: stableJson(values.config ?? {}),
     cursorJson: "{}",
     lastSyncedAt: null,
@@ -271,6 +282,11 @@ export async function ensureManualSource(title = "Manual imports") {
   return createSource({ title, provider: "manual" });
 }
 
+function isUniqueConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /unique constraint|duplicate key|unique/i.test(message);
+}
+
 export async function createCapture(values: {
   id?: string;
   sourceId: string;
@@ -299,22 +315,39 @@ export async function createCapture(values: {
       .limit(1);
     if (existing) return existing;
   }
-  await db.insert(schema.brainRawCaptures).values({
-    id,
-    sourceId: values.sourceId,
-    externalId: values.externalId ?? null,
-    title: values.title,
-    kind: values.kind,
-    content: values.content,
-    contentHash: contentHash(values.content),
-    metadataJson: stableJson(values.metadata ?? {}),
-    capturedAt: values.capturedAt ?? now,
-    importedBy: requireUserEmail(),
-    status: values.status ?? "queued",
-    distilledAt: values.status === "distilled" ? now : null,
-    createdAt: now,
-    updatedAt: now,
-  });
+  try {
+    await db.insert(schema.brainRawCaptures).values({
+      id,
+      sourceId: values.sourceId,
+      externalId: values.externalId ?? null,
+      title: values.title,
+      kind: values.kind,
+      content: values.content,
+      contentHash: await contentHash(values.content),
+      metadataJson: stableJson(values.metadata ?? {}),
+      capturedAt: values.capturedAt ?? now,
+      importedBy: requireUserEmail(),
+      status: values.status ?? "queued",
+      distilledAt: values.status === "distilled" ? now : null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch (err) {
+    if (values.externalId && isUniqueConflict(err)) {
+      const [existing] = await db
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(
+          and(
+            eq(schema.brainRawCaptures.sourceId, values.sourceId),
+            eq(schema.brainRawCaptures.externalId, values.externalId),
+          ),
+        )
+        .limit(1);
+      if (existing) return existing;
+    }
+    throw err;
+  }
   const [capture] = await db
     .select()
     .from(schema.brainRawCaptures)
@@ -337,18 +370,19 @@ export async function validateEvidence(
         `Evidence quote is not an exact substring of capture ${item.captureId}`,
       );
     }
+    const metadata = parseJson<Record<string, unknown>>(
+      access.capture.metadataJson,
+      {},
+    );
+    const sourceUrl =
+      item.sourceUrl ?? item.url ?? metadata.sourceUrl?.toString();
     validated.push({
       captureId: item.captureId,
       sourceId: access.capture.sourceId,
       captureTitle: access.capture.title,
       quote,
       note: item.note,
-      url:
-        item.url ??
-        parseJson<Record<string, unknown>>(
-          access.capture.metadataJson,
-          {},
-        ).sourceUrl?.toString(),
+      sourceUrl,
       timestampMs: item.timestampMs,
     });
   }
@@ -370,6 +404,8 @@ export function applyRedactions(values: {
   title: string;
   body: string;
   summary?: string;
+  tags?: string[];
+  entities?: Array<{ type: string; name: string }>;
   evidence: BrainEvidence[];
   redactions?: string[];
   autoRedactEmails?: boolean;
@@ -398,6 +434,11 @@ export function applyRedactions(values: {
     title: redact(values.title),
     body: redact(values.body),
     summary: values.summary ? redact(values.summary) : "",
+    tags: (values.tags ?? []).map((tag) => redact(tag)),
+    entities: (values.entities ?? []).map((entity) => ({
+      type: redact(entity.type),
+      name: redact(entity.name),
+    })),
     evidence: values.evidence.map((item) => ({
       ...item,
       quote: redact(item.quote),
@@ -493,6 +534,8 @@ export async function writeKnowledgeRecord(
     title: input.title,
     body: input.body,
     summary: input.summary,
+    tags: input.tags,
+    entities: input.entities,
     evidence,
     redactions: input.redactions,
     autoRedactEmails: settings.autoRedactEmails,
@@ -525,8 +568,8 @@ export async function writeKnowledgeRecord(
     body: redacted.body,
     summary: redacted.summary,
     topic: input.topic ?? null,
-    tags: input.tags ?? [],
-    entities: input.entities ?? [],
+    tags: redacted.tags,
+    entities: redacted.entities,
     evidence: redacted.evidence,
     confidence: input.confidence ?? 80,
     publishTier: tier,
@@ -583,8 +626,8 @@ export async function writeKnowledgeRecord(
         body: redacted.body,
         summary: redacted.summary,
         topic: input.topic ?? null,
-        tagsJson: stableJson(input.tags ?? []),
-        entitiesJson: stableJson(input.entities ?? []),
+        tagsJson: stableJson(redacted.tags),
+        entitiesJson: stableJson(redacted.entities),
         evidenceJson: stableJson(redacted.evidence),
         supersedesId: input.supersedesId ?? null,
         confidence: input.confidence ?? 80,
@@ -606,8 +649,8 @@ export async function writeKnowledgeRecord(
       body: redacted.body,
       summary: redacted.summary,
       topic: input.topic ?? null,
-      tagsJson: stableJson(input.tags ?? []),
-      entitiesJson: stableJson(input.entities ?? []),
+      tagsJson: stableJson(redacted.tags),
+      entitiesJson: stableJson(redacted.entities),
       evidenceJson: stableJson(redacted.evidence),
       supersedesId: input.supersedesId ?? null,
       supersededById: null,
@@ -636,7 +679,7 @@ export async function writeKnowledgeRecord(
       summary: redacted.summary,
       body: redacted.body,
       topic: input.topic,
-      tags: input.tags ?? [],
+      tags: redacted.tags,
       evidence: redacted.evidence,
     });
     await db

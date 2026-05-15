@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   recordAudit: vi.fn(),
   searchAgentThreads: vi.fn(),
   getAgentThreadDebug: vi.fn(),
+  listThreadDebugSources: vi.fn(),
   resourceGetByPath: vi.fn(),
   resourceList: vi.fn(),
   resourcePut: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock("./dispatch-store.js", () => ({
 vi.mock("./thread-debug-store.js", () => ({
   searchAgentThreads: mocks.searchAgentThreads,
   getAgentThreadDebug: mocks.getAgentThreadDebug,
+  listThreadDebugSources: mocks.listThreadDebugSources,
 }));
 
 vi.mock("@agent-native/core/resources/store", () => ({
@@ -206,6 +208,28 @@ beforeEach(() => {
     id: "approval-1",
     status: "pending",
   });
+  mocks.listThreadDebugSources.mockResolvedValue({
+    access: {
+      viewerEmail: "owner@example.test",
+      orgId: null,
+      role: null,
+      envAdmin: true,
+      canInspectAll: true,
+      memberCount: 1,
+    },
+    sources: [
+      {
+        id: "current",
+        label: "Current Dispatch DB",
+        kind: "current",
+        current: true,
+        connected: true,
+        databaseUrlEnv: "DATABASE_URL",
+        databaseAuthTokenEnv: null,
+        canInspectAll: true,
+      },
+    ],
+  });
   mocks.recordAudit.mockResolvedValue(undefined);
   mocks.resourceGetByPath.mockResolvedValue(null);
   mocks.resourceList.mockResolvedValue([]);
@@ -286,6 +310,114 @@ describe("listDreamCandidates", () => {
         "explicit-correction",
         "failed-run",
         "tool-error",
+      ]),
+    );
+  });
+
+  it("keeps all-source scans partial when one source times out", async () => {
+    mocks.listThreadDebugSources.mockResolvedValue({
+      access: {
+        viewerEmail: "owner@example.test",
+        orgId: null,
+        role: null,
+        envAdmin: true,
+        canInspectAll: true,
+        memberCount: 1,
+      },
+      sources: [
+        {
+          id: "voice",
+          label: "Voice",
+          kind: "env",
+          current: false,
+          connected: true,
+          databaseUrlEnv: "VOICE_DATABASE_URL",
+          databaseAuthTokenEnv: null,
+          canInspectAll: true,
+        },
+        {
+          id: "mail",
+          label: "Mail",
+          kind: "env",
+          current: false,
+          connected: true,
+          databaseUrlEnv: "MAIL_DATABASE_URL",
+          databaseAuthTokenEnv: null,
+          canInspectAll: true,
+        },
+      ],
+    });
+    mocks.searchAgentThreads.mockImplementation(async ({ sourceId }) => {
+      if (sourceId === "mail") {
+        await new Promise(() => undefined);
+      }
+      return {
+        source: {
+          id: sourceId,
+          label: sourceId === "voice" ? "Voice" : "Mail",
+        },
+        access: { mode: "local" },
+        query: null,
+        threads: [{ id: "voice-thread-1" }],
+      };
+    });
+    mocks.getAgentThreadDebug.mockResolvedValue({
+      thread: {
+        id: "voice-thread-1",
+        ownerEmail: "owner@example.test",
+        title: "Remember correction",
+        preview: "remember",
+        messageCount: 1,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      messages: [
+        {
+          role: "user",
+          text: "Remember to keep dream source scans partial.",
+          index: 0,
+          createdAt: 1,
+        },
+      ],
+      runs: [],
+      feedback: [],
+      evals: [],
+      satisfaction: [],
+      checkpoints: [],
+    });
+
+    const result = await listDreamCandidates({
+      sourceId: "all",
+      allSources: true,
+      limit: 5,
+      sourceTimeoutMs: 5,
+    });
+
+    expect(result.source).toMatchObject({ id: "all" });
+    expect(result.candidateCount).toBe(1);
+    expect(result.inspectedThreadCount).toBe(1);
+    expect(result.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceId: "voice",
+          status: "ok",
+          inspectedThreadCount: 1,
+          candidateCount: 1,
+        }),
+        expect.objectContaining({
+          sourceId: "mail",
+          status: "timed_out",
+          inspectedThreadCount: 0,
+          candidateCount: 0,
+        }),
+      ]),
+    );
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceId: "mail",
+          message: "Timed out after 5ms",
+        }),
       ]),
     );
   });
@@ -444,6 +576,35 @@ describe("buildProposalInputs", () => {
 
     expect(result.proposals).toEqual([]);
     expect(result.guardrailNotes.join("\n")).toContain("Skipped duplicate");
+  });
+
+  it("routes personal-memory proposals to shared learnings when the owner scope is not personal", () => {
+    const result = buildProposalInputs(
+      [candidateWithEvidence([explicitEvidence()])],
+      {
+        personalIndex: "# Memory Index\n",
+        personalNotes: [],
+        sharedLearnings: "",
+      },
+      {
+        personalMemoryAllowed: false,
+        personalMemoryBlockReason:
+          "source evidence includes a thread owned by another user",
+      },
+    );
+
+    expect(result.proposals).toHaveLength(1);
+    expect(result.proposals[0]).toMatchObject({
+      targetType: "shared-learnings",
+      targetPath: "LEARNINGS.md",
+      risk: "medium",
+    });
+    expect(result.proposals[0]?.content).toContain(
+      "Provenance: Personal memory was disabled",
+    );
+    expect(result.guardrailNotes.join("\n")).toContain(
+      "Routed personal-memory dream proposals to shared learnings",
+    );
   });
 });
 

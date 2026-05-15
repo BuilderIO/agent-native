@@ -71,6 +71,10 @@ The connector verifies each configured conversation before reading history and
 rejects DMs and MPIMs. Cursor state is stored on the source so each sync can pick
 up where the last one stopped, including after Slack rate limiting.
 
+Use `test-slack-connection` before a production backfill. It validates the
+Slack bot token with `auth.test` and, when channel refs are provided, checks
+channel metadata without reading message history.
+
 ## Granola Polling
 
 Brain uses the scoped `GRANOLA_API_KEY` credential and polls Granola's public API
@@ -96,6 +100,19 @@ webhooks, and manual imports. Slack and Granola sources can opt into
 `sync-due-sources` for all due accessible sources, or enable
 `RUN_BACKGROUND_JOBS=1` locally to let the Brain background job poll due sources
 from the Nitro process.
+
+## Demo and Eval
+
+Brain ships with a repeatable product-decision demo corpus. `seed-demo-data`
+loads Slack, Clips, Granola, and webhook-style captures; creates cited knowledge
+about retiring freemium, how Decision Digest works, and why product decisions
+are the lead demo; queues a policy-sensitive proposal; redacts an email; and
+keeps a personal aside out of queryable knowledge.
+
+`run-demo-eval` checks the behavior that matters most for trust: recall,
+citations, supersede links, proposal gating, redaction, and personal-content
+exclusion. The Ask page includes **Load demo** and **Run eval** controls so a
+new workspace can show Brain's strongest use case immediately.
 
 ## Developer Notes
 

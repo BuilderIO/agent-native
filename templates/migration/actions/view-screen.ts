@@ -2,8 +2,9 @@ import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import type { ProjectIR } from "@agent-native/migrate";
 import { getDb, schema } from "../server/db/index.js";
-import { getRunRow, loadTasks } from "./_utils.js";
+import { assessmentSourceMetadata, getRunRow, loadTasks } from "./_utils.js";
 
 export default defineAction({
   description:
@@ -21,6 +22,7 @@ export default defineAction({
     if (navigation?.runId) {
       try {
         const row = await getRunRow(navigation.runId);
+        const ir = row.irJson ? (JSON.parse(row.irJson) as ProjectIR) : null;
         screen.run = {
           id: row.id,
           name: row.name,
@@ -33,6 +35,7 @@ export default defineAction({
           assessmentPath: row.assessmentPath,
           planPath: row.planPath,
           reportPath: row.reportPath,
+          assessmentSource: assessmentSourceMetadata(ir),
         };
         const tasks = await loadTasks(row.id);
         const db = getDb();
@@ -69,6 +72,7 @@ function describeGoal(
 ) {
   const pending = tasks.filter((task) => task.status === "pending").length;
   const running = tasks.filter((task) => task.status === "running").length;
+  const covered = tasks.filter((task) => task.status === "covered").length;
   const failedTasks = tasks.filter((task) => task.status === "failed").length;
   const failedVerifiers = verifierResults.filter((result) => !result.ok).length;
   const approvalRequired = Boolean(row.planPath && !row.approved);
@@ -77,6 +81,7 @@ function describeGoal(
     approvalRequired,
     canWriteOutput: row.approved,
     pendingTaskCount: pending + running,
+    coveredTaskCount: covered,
     failedTaskCount: failedTasks,
     failedVerifierCount: failedVerifiers,
     nextAction: !row.irJson

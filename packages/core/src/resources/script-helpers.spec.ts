@@ -8,6 +8,7 @@ const mockResourceListAccessible = vi.fn();
 
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
+  WORKSPACE_OWNER: "__workspace__",
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
   resourceDeleteByPath: (...args: any[]) => mockResourceDeleteByPath(...args),
@@ -65,6 +66,17 @@ describe("resources script-helpers", () => {
       expect(mockResourceGetByPath).toHaveBeenCalledWith(
         "__shared__",
         "file.md",
+      );
+    });
+
+    it("uses __workspace__ owner when scope is workspace", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockResourceGetByPath.mockResolvedValue(null);
+
+      await readResource("context/brand.md", { scope: "workspace" });
+      expect(mockResourceGetByPath).toHaveBeenCalledWith(
+        "__workspace__",
+        "context/brand.md",
       );
     });
   });
@@ -213,6 +225,14 @@ describe("resources script-helpers", () => {
       expect(mockResourceList).toHaveBeenCalledWith("__shared__", undefined);
     });
 
+    it("lists workspace resources when scope is workspace", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockResourceList.mockResolvedValue([]);
+
+      await listResources(undefined, { scope: "workspace" });
+      expect(mockResourceList).toHaveBeenCalledWith("__workspace__", undefined);
+    });
+
     it("can include agent scratch resources", async () => {
       process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourceList.mockResolvedValue([]);
@@ -227,11 +247,12 @@ describe("resources script-helpers", () => {
   });
 
   describe("listAllResources", () => {
-    it("lists both personal and shared resources", async () => {
+    it("lists all inherited and accessible resources", async () => {
       process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourceListAccessible.mockResolvedValue([
         { path: "mine.md", owner: "alice@test.com" },
         { path: "shared.md", owner: "__shared__" },
+        { path: "context/brand.md", owner: "__workspace__" },
       ]);
 
       const result = await listAllResources();
@@ -239,7 +260,7 @@ describe("resources script-helpers", () => {
         "alice@test.com",
         undefined,
       );
-      expect(result).toHaveLength(2);
+      expect(result).toHaveLength(3);
     });
 
     it("filters by prefix", async () => {

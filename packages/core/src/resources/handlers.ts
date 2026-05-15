@@ -54,9 +54,7 @@ async function resolveOwner(event: any, shared?: boolean): Promise<string> {
 }
 
 function canReadOwner(owner: string, email: string): boolean {
-  return (
-    owner === email || owner === SHARED_OWNER || owner === WORKSPACE_OWNER
-  );
+  return owner === email || owner === SHARED_OWNER || owner === WORKSPACE_OWNER;
 }
 
 async function resolveEmail(event: any): Promise<string> {
@@ -207,7 +205,7 @@ export async function handleListResources(event: any) {
       ? await resourceList(SHARED_OWNER, prefix, listOptions)
       : await resourceList(SHARED_OWNER, prefix);
   } else {
-    // "all" — personal + shared
+    // "all" — personal + organization/shared + inherited workspace
     resources = listOptions
       ? await resourceListAccessible(email, prefix, listOptions)
       : await resourceListAccessible(email, prefix);

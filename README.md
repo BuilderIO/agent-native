@@ -172,8 +172,8 @@ npx @agent-native/core@latest code /migrate ./my-next-app --emit ../migration-do
 npx @agent-native/core@latest code resume --last
 ```
 
-`agent-native migrate` still works as a direct shortcut; `code /migrate` is the Code Agents entrypoint for the migration goal. Behind the scenes, `/migrate` may open the hidden migration app as an internal run detail/control surface for assessment, approval, tasks, artifacts, and verification.
-Use `--emit` when you want to hand a portable migration dossier to Codex, Claude Code, Cursor, or another coding agent instead of opening that internal surface first.
+`agent-native migrate` still works as a direct shortcut; `code /migrate` is the Code Agents entrypoint for the migration goal. By default it creates a Code Agents session and portable migration dossier, not a scaffolded app/template. Use `--app-surface` only when you want the legacy hidden migration detail app for assessment, approval, tasks, artifacts, and verification.
+Use `--emit` when you want only the portable dossier for Codex, Claude Code, Cursor, or another coding agent.
 Code Agents also includes lightweight goals such as `/audit`:
 
 ```bash

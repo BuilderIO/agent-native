@@ -25,10 +25,10 @@ Use `getSession(event)` server-side and `useSession()` client-side.
 
 Resources are SQL-backed persistent files for notes, learnings, and context.
 
-**At the start of every conversation, read these resources (both personal and shared scopes):**
+**At the start of every conversation, read these resources (workspace, shared, and personal scopes as relevant):**
 
-1. **`AGENTS.md`** -- user-specific context. Read both `--scope personal` and `--scope shared`.
-2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read both scopes.
+1. **`AGENTS.md`** -- inherited workspace defaults, app/team instructions, and user-specific context.
+2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read personal and shared scopes.
 
 **Update `LEARNINGS.md` when you learn something important.**
 

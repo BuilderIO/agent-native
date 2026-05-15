@@ -4,7 +4,7 @@ import { listWorkspaceResourcesForApp } from "../server/lib/workspace-resources-
 
 export default defineAction({
   description:
-    "List the global and explicitly granted workspace resources an app receives, including auto-loaded instructions and grant sync status.",
+    "List the inherited workspace and explicitly granted resources an app receives, including auto-loaded instructions.",
   schema: z.object({
     appId: z.string().describe("Workspace app ID"),
   }),

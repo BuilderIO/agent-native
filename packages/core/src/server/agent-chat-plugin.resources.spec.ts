@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
+  WORKSPACE_OWNER: "__workspace__",
   ensurePersonalDefaults: (...args: any[]) =>
     mocks.ensurePersonalDefaults(...args),
   resourceGetByPath: (...args: any[]) => mocks.resourceGetByPath(...args),
@@ -41,7 +42,7 @@ const resourcesById = new Map([
     {
       id: "instructions_guardrails",
       path: "instructions/guardrails.md",
-      owner: "__shared__",
+      owner: "__workspace__",
       mimeType: "text/markdown",
       content: "# Workspace Guardrails\n\nProtect customer data.",
     },
@@ -51,7 +52,7 @@ const resourcesById = new Map([
     {
       id: "context_brand",
       path: "context/brand.md",
-      owner: "__shared__",
+      owner: "__workspace__",
       mimeType: "text/markdown",
       content:
         "# Brand Guidelines\n\nUse direct language and keep claims grounded.",
@@ -62,7 +63,7 @@ const resourcesById = new Map([
     {
       id: "context_messaging",
       path: "context/messaging.md",
-      owner: "__shared__",
+      owner: "__workspace__",
       mimeType: "text/markdown",
       content:
         "---\ntitle: Messaging\ndescription: Core value props and proof points.\n---\n\n# Messaging",
@@ -73,7 +74,7 @@ const resourcesById = new Map([
     {
       id: "skills_company_voice",
       path: "skills/company-voice/SKILL.md",
-      owner: "__shared__",
+      owner: "__workspace__",
       mimeType: "text/markdown",
       content:
         "---\nname: company-voice\ndescription: Use the company voice for customer-facing copy.\n---\n\n# Company Voice",
@@ -91,8 +92,13 @@ function meta(id: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
+    if (owner === "__workspace__" && path === "AGENTS.md") {
+      return { content: "# Workspace Instructions\n\nUse global context." };
+    }
     if (owner === "__shared__" && path === "AGENTS.md") {
-      return { content: "# Shared Instructions\n\nUse workspace context." };
+      return {
+        content: "# Organization Instructions\n\nOverride workspace defaults.",
+      };
     }
     if (owner === "__shared__" && path === "LEARNINGS.md") {
       return { content: "# Learnings\n\n- Prefer concise updates." };
@@ -103,19 +109,35 @@ beforeEach(() => {
     return null;
   });
   mocks.resourceList.mockImplementation(async (owner, prefix) => {
+    if (owner === "__workspace__") {
+      if (prefix === "instructions/") {
+        return [meta("instructions_guardrails")];
+      }
+      if (prefix === "skills/") {
+        return [meta("skills_company_voice")];
+      }
+      return [
+        {
+          id: "workspace_agents",
+          path: "AGENTS.md",
+          mimeType: "text/markdown",
+          owner,
+        },
+        meta("instructions_guardrails"),
+        meta("skills_company_voice"),
+        meta("context_brand"),
+        meta("context_messaging"),
+      ];
+    }
     if (owner !== "__shared__") return [];
     if (prefix === "instructions/") {
-      return [meta("instructions_guardrails")];
+      return [];
     }
     if (prefix === "skills/") {
-      return [meta("skills_company_voice")];
+      return [];
     }
     return [
       { id: "shared_agents", path: "AGENTS.md", mimeType: "text/markdown" },
-      meta("instructions_guardrails"),
-      meta("skills_company_voice"),
-      meta("context_brand"),
-      meta("context_messaging"),
     ];
   });
   mocks.resourceListAccessible.mockResolvedValue([
@@ -125,26 +147,28 @@ beforeEach(() => {
 });
 
 describe("loadResourcesForPrompt", () => {
-  it("loads shared global instructions and indexes shared reference resources", async () => {
+  it("loads inherited workspace instructions and indexes workspace reference resources", async () => {
     const prompt = await loadResourcesForPrompt("user@example.test");
 
     expect(mocks.ensurePersonalDefaults).toHaveBeenCalledWith(
       "user@example.test",
     );
+    expect(prompt).toContain('<resource name="AGENTS.md" scope="workspace"');
     expect(prompt).toContain('<resource name="AGENTS.md" scope="shared"');
     expect(prompt).toContain(
-      '<resource name="instructions/guardrails.md" scope="shared-instruction"',
+      '<resource name="instructions/guardrails.md" scope="workspace-instruction"',
     );
     expect(prompt).toContain("Protect customer data.");
     expect(prompt).toContain("<resource-skills>");
     expect(prompt).toContain("`company-voice` at resource");
-    expect(prompt).toContain("<workspace-resources>");
+    expect(prompt).toContain("(workspace)");
+    expect(prompt).toContain('<workspace-resources scope="workspace">');
     expect(prompt).toContain("`context/brand.md` - Brand Guidelines");
     expect(prompt).toContain(
       "`context/messaging.md` - Messaging: Core value props and proof points.",
     );
     expect(prompt).not.toContain(
-      "<workspace-resources>\nShared workspace reference resources are available for company, brand, positioning, persona, product, or domain context. Use `resource-read --path <path> --scope shared` when a task may depend on them; do not assume their contents without reading the relevant file.\n\n- `instructions/guardrails.md`",
+      '<workspace-resources scope="workspace">\nWorkspace reference resources are inherited by every app and are available for company, brand, positioning, persona, product, or domain context. Use `resource-read --path <path> --scope workspace` when a task may depend on them; do not assume their contents without reading the relevant file.\n\n- `instructions/guardrails.md`',
     );
   });
 });

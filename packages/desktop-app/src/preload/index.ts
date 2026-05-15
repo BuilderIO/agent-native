@@ -4,7 +4,9 @@ import {
   type ActiveWebviewTarget,
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
+  type CodeAgentMigrationRun,
   type CodeAgentRunListResult,
+  type CodeAgentTerminalRequest,
   type CodeAgentTerminalResult,
   type DesktopOpenRequest,
   type InterAppMessage,
@@ -119,10 +121,13 @@ const electronAPI = {
         runId,
         command,
       }),
-    listMigrationRuns: (): Promise<CodeAgentRunListResult> =>
-      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MIGRATION_RUNS),
-    openTerminal: (): Promise<CodeAgentTerminalResult> =>
-      ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_TERMINAL),
+    listMigrationRuns: (): Promise<
+      CodeAgentRunListResult<CodeAgentMigrationRun>
+    > => ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MIGRATION_RUNS),
+    openTerminal: (
+      request?: CodeAgentTerminalRequest,
+    ): Promise<CodeAgentTerminalResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_TERMINAL, request),
     onOpenRequest: (
       cb: (request: DesktopOpenRequest) => void,
     ): (() => void) => {

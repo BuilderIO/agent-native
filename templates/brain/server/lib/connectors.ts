@@ -1,6 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { getCredentialContext } from "@agent-native/core/server";
+import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../db/index.js";
 import {
   createCapture,
@@ -24,6 +25,88 @@ export interface ConnectorSyncResult {
   captures: Array<ReturnType<typeof serializeCapture>>;
   message: string;
   stats?: Record<string, unknown>;
+}
+
+export interface SlackPilotOptions {
+  readHistory?: boolean;
+  channelRefs?: string[];
+  resolveNames?: boolean;
+  historyLimit?: number;
+  maxChannels?: number;
+  permalinkLimit?: number;
+  recentDays?: number;
+  oldest?: string;
+}
+
+export interface SlackPilotReport {
+  sourceId: string;
+  sourceTitle: string;
+  ok: boolean;
+  status: "validated" | "blocked" | "synced" | "error";
+  historyRead: boolean;
+  credential: {
+    ok: boolean;
+    team?: string | null;
+    teamId?: string | null;
+    workspaceUrl?: string | null;
+    botUser?: string | null;
+    error?: string | null;
+  };
+  guardrails: {
+    historyReadRequested: boolean;
+    maxChannels: number;
+    historyLimit: number;
+    pagesPerChannel: number;
+    permalinkLimit: number;
+    autoSync: false;
+    oldest?: string;
+  };
+  channelValidation: {
+    requested: number;
+    checked: number;
+    ok: number;
+    excluded: number;
+    missing: number;
+    skipped: number;
+    channels: Array<{
+      ref: string;
+      id?: string;
+      name?: string;
+      status: "ok" | "excluded" | "missing" | "skipped";
+      message: string;
+      directExcluded?: boolean;
+      archived?: boolean;
+      privateChannel?: boolean;
+    }>;
+  };
+  sync?: {
+    runId: string;
+    status: "success" | "error";
+    message: string;
+    stats?: Record<string, unknown>;
+  };
+  capturesCreated: number;
+  captures: Array<{
+    id: string;
+    title: string;
+    capturedAt: string;
+    sourceUrl?: string | null;
+  }>;
+  proposals: {
+    total: number;
+    pending: number;
+    recent: Array<{ id: string; title: string; status: string; createdAt: string }>;
+  };
+  currentKnowledge: {
+    total: number;
+    published: number;
+    draft: number;
+    redacted: number;
+    archived: number;
+    recent: Array<{ id: string; title: string; status: string; updatedAt: string }>;
+  };
+  privacyExclusions: string[];
+  nextSteps: string[];
 }
 
 type SourceRow = typeof schema.brainSources.$inferSelect;
@@ -97,6 +180,15 @@ interface SlackListResponse {
 
 interface SlackPermalinkResponse {
   permalink?: string;
+}
+
+interface SlackAuthTestResponse {
+  url?: string;
+  team?: string;
+  user?: string;
+  team_id?: string;
+  user_id?: string;
+  bot_id?: string;
 }
 
 interface GranolaListNote {
@@ -221,6 +313,20 @@ function configuredList(
   );
 }
 
+export function slackChannelRefsFromConfig(config: Record<string, unknown>) {
+  return configuredList(
+    config,
+    [
+      "channelIds",
+      "channels",
+      "allowedChannels",
+      "allowlistedChannels",
+      "allowList",
+    ],
+    "slack",
+  );
+}
+
 function configuredNumber(
   config: Record<string, unknown>,
   keys: string[],
@@ -245,6 +351,126 @@ function configuredNumber(
     }
   }
   return fallback;
+}
+
+function clampInteger(
+  value: number | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function daysAgoIso(days: number): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function removeSlackHistoryConfig(config: Record<string, unknown>) {
+  const next = { ...config };
+  for (const key of [
+    "channelIds",
+    "channels",
+    "allowedChannels",
+    "allowlistedChannels",
+    "allowList",
+    "transcripts",
+    "sampleTranscripts",
+    "messages",
+    "fixture",
+    "testFixture",
+    "useConfiguredItems",
+  ]) {
+    delete next[key];
+  }
+  const nestedSlack = objectValue(next.slack);
+  for (const key of [
+    "channelIds",
+    "channels",
+    "allowedChannels",
+    "allowlistedChannels",
+    "allowList",
+  ]) {
+    delete nestedSlack[key];
+  }
+  next.slack = nestedSlack;
+  return next;
+}
+
+function sourceUrlFromCapture(
+  capture: ReturnType<typeof serializeCapture>,
+): string | null {
+  const raw = capture.metadata as Record<string, unknown>;
+  return typeof raw.sourceUrl === "string"
+    ? raw.sourceUrl
+    : typeof raw.permalink === "string"
+      ? raw.permalink
+      : null;
+}
+
+async function summarizeSlackPilotSource(sourceId: string) {
+  const db = getDb();
+  const [knowledgeRows, proposalRows] = await Promise.all([
+    db
+      .select()
+      .from(schema.brainKnowledge)
+      .where(
+        and(
+          accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
+          eq(schema.brainKnowledge.sourceId, sourceId),
+        ),
+      ),
+    db
+      .select()
+      .from(schema.brainProposals)
+      .where(
+        and(
+          accessFilter(schema.brainProposals, schema.brainProposalShares),
+          eq(schema.brainProposals.sourceId, sourceId),
+        ),
+      ),
+  ]);
+
+  const sortRecent = <T extends { updatedAt?: unknown; createdAt?: unknown }>(
+    rows: T[],
+  ) =>
+    [...rows].sort((a, b) =>
+      String(b.updatedAt ?? b.createdAt ?? "").localeCompare(
+        String(a.updatedAt ?? a.createdAt ?? ""),
+      ),
+    );
+
+  return {
+    proposals: {
+      total: proposalRows.length,
+      pending: proposalRows.filter((row) => row.status === "pending").length,
+      recent: sortRecent(proposalRows)
+        .slice(0, 3)
+        .map((row) => ({
+          id: String(row.id),
+          title: String(row.title),
+          status: String(row.status),
+          createdAt: String(row.createdAt),
+        })),
+    },
+    currentKnowledge: {
+      total: knowledgeRows.length,
+      published: knowledgeRows.filter((row) => row.status === "published")
+        .length,
+      draft: knowledgeRows.filter((row) => row.status === "draft").length,
+      redacted: knowledgeRows.filter((row) => row.status === "redacted").length,
+      archived: knowledgeRows.filter((row) => row.status === "archived").length,
+      recent: sortRecent(knowledgeRows)
+        .slice(0, 3)
+        .map((row) => ({
+          id: String(row.id),
+          title: String(row.title),
+          status: String(row.status),
+          updatedAt: String(row.updatedAt),
+        })),
+    },
+  };
 }
 
 function isFixtureConfig(config: Record<string, unknown>) {
@@ -463,6 +689,349 @@ async function slackPermalink(
     { channel: channelId, message_ts: ts },
   );
   return data.permalink ?? null;
+}
+
+export async function testSlackConnection(
+  options: {
+    channelRefs?: string[];
+    resolveNames?: boolean;
+  } = {},
+) {
+  const token = await requireConnectorCredential("SLACK_BOT_TOKEN", "Slack");
+  const auth = await slackApi<SlackAuthTestResponse>(token, "auth.test");
+  const channelRefs = Array.from(
+    new Set(
+      (options.channelRefs ?? [])
+        .map((ref) => ref.trim().replace(/^#/, ""))
+        .filter(Boolean),
+    ),
+  ).slice(0, 25);
+  const channels = [];
+
+  for (const ref of channelRefs) {
+    const looksLikeId = /^[CG][A-Z0-9]+$/i.test(ref);
+    if (!looksLikeId && !options.resolveNames) {
+      channels.push({
+        ref,
+        status: "skipped" as const,
+        message:
+          "Name resolution was disabled. Pass a Slack channel ID or set resolveNames=true.",
+      });
+      continue;
+    }
+
+    const channel = await resolveSlackChannel(token, ref);
+    if (!channel) {
+      channels.push({
+        ref,
+        status: "missing" as const,
+        message: "Slack did not return a matching channel.",
+      });
+      continue;
+    }
+
+    const directExcluded = isSlackDirectConversation(channel);
+    const usable = isUsableSlackChannel(channel);
+    channels.push({
+      ref,
+      id: channel.id,
+      name: channel.name,
+      status: usable ? ("ok" as const) : ("excluded" as const),
+      directExcluded,
+      archived: channel.is_archived === true,
+      privateChannel: channel.is_group === true,
+      message: usable
+        ? "Channel can be allow-listed for Brain sync."
+        : directExcluded
+          ? "DMs and MPIMs are structurally excluded."
+          : "Channel is archived or not a supported channel type.",
+    });
+  }
+
+  return {
+    ok: true,
+    team: auth.team ?? null,
+    teamId: auth.team_id ?? null,
+    workspaceUrl: auth.url ?? null,
+    botUser: auth.user ?? null,
+    botUserId: auth.user_id ?? null,
+    botId: auth.bot_id ?? null,
+    checkedChannels: channels.length,
+    channels,
+    historyRead: false,
+  };
+}
+
+function slackPilotPrivacyExclusions(
+  validation: SlackPilotReport["channelValidation"],
+  readHistory: boolean,
+) {
+  const exclusions = [
+    "DMs and MPIMs are structurally excluded before any history read.",
+    "Only explicitly allow-listed public or private channels are eligible.",
+  ];
+  if (validation.excluded > 0) {
+    exclusions.push(
+      `${validation.excluded} channel reference(s) were excluded as unsupported or archived.`,
+    );
+  }
+  if (validation.missing > 0) {
+    exclusions.push(
+      `${validation.missing} channel reference(s) were not found by Slack.`,
+    );
+  }
+  if (validation.skipped > 0) {
+    exclusions.push(
+      `${validation.skipped} channel name(s) were skipped because name resolution was not enabled.`,
+    );
+  }
+  if (!readHistory) {
+    exclusions.push("No Slack message history was read for this pilot report.");
+  }
+  return exclusions;
+}
+
+function slackPilotNextSteps(report: {
+  status: SlackPilotReport["status"];
+  historyRead: boolean;
+  channelValidation: SlackPilotReport["channelValidation"];
+  capturesCreated: number;
+}) {
+  if (report.channelValidation.requested === 0) {
+    return [
+      "Add one or two Slack channel IDs to the source allow-list.",
+      "Run the pilot again before attempting any history sync.",
+    ];
+  }
+  if (report.channelValidation.ok === 0) {
+    return [
+      "Fix the channel allow-list or enable name resolution for channel names.",
+      "Confirm the Slack bot is a member of each private channel.",
+    ];
+  }
+  if (!report.historyRead) {
+    return [
+      "Review the validated channel list.",
+      "Run Pilot sync only if these channels should read a tiny recent sample.",
+    ];
+  }
+  if (report.capturesCreated > 0) {
+    return [
+      "Review the new raw captures and distill only durable company knowledge.",
+      "Keep regular sync disabled until the source rules look right.",
+    ];
+  }
+  return [
+    "No new messages were captured; check channel membership and recent activity.",
+    "Widen the source window deliberately if the pilot needs older messages.",
+  ];
+}
+
+export async function runSlackPilot(
+  source: SourceRow,
+  options: SlackPilotOptions = {},
+): Promise<SlackPilotReport> {
+  const config = parseJson<Record<string, unknown>>(source.configJson, {});
+  const requestedRefs = Array.from(
+    new Set(
+      (options.channelRefs?.length
+        ? options.channelRefs
+        : slackChannelRefsFromConfig(config)
+      )
+        .map((ref) => ref.trim().replace(/^#/, ""))
+        .filter(Boolean),
+    ),
+  );
+  const maxChannels = clampInteger(options.maxChannels, 2, 1, 2);
+  const historyLimit = clampInteger(options.historyLimit, 10, 1, 10);
+  const permalinkLimit = clampInteger(options.permalinkLimit, 10, 0, 10);
+  const recentDays = clampInteger(options.recentDays, 14, 1, 30);
+  const oldest = options.oldest ?? daysAgoIso(recentDays);
+  const baseGuardrails = {
+    historyReadRequested: options.readHistory === true,
+    maxChannels,
+    historyLimit,
+    pagesPerChannel: 1,
+    permalinkLimit,
+    autoSync: false as const,
+    oldest,
+  };
+  const sourceSummary = await summarizeSlackPilotSource(source.id);
+
+  let credential;
+  try {
+    credential = await testSlackConnection({
+      channelRefs: requestedRefs,
+      resolveNames: options.resolveNames === true,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const channelValidation = {
+      requested: requestedRefs.length,
+      checked: 0,
+      ok: 0,
+      excluded: 0,
+      missing: 0,
+      skipped: 0,
+      channels: [],
+    };
+    return {
+      sourceId: source.id,
+      sourceTitle: source.title,
+      ok: false,
+      status: "error",
+      historyRead: false,
+      credential: { ok: false, error: message },
+      guardrails: baseGuardrails,
+      channelValidation,
+      capturesCreated: 0,
+      captures: [],
+      ...sourceSummary,
+      privacyExclusions: slackPilotPrivacyExclusions(channelValidation, false),
+      nextSteps: [
+        "Fix the Slack credential before validating channel allow-lists.",
+        "Then rerun the pilot with history reads still off.",
+      ],
+    };
+  }
+
+  const channels = credential.channels;
+  const channelValidation = {
+    requested: requestedRefs.length,
+    checked: credential.checkedChannels,
+    ok: channels.filter((channel) => channel.status === "ok").length,
+    excluded: channels.filter((channel) => channel.status === "excluded")
+      .length,
+    missing: channels.filter((channel) => channel.status === "missing").length,
+    skipped: channels.filter((channel) => channel.status === "skipped").length,
+    channels,
+  };
+
+  if (requestedRefs.length === 0 || !options.readHistory) {
+    const blocked = requestedRefs.length === 0;
+    const partial = {
+      status: blocked ? ("blocked" as const) : ("validated" as const),
+      historyRead: false,
+      channelValidation,
+      capturesCreated: 0,
+    };
+    return {
+      sourceId: source.id,
+      sourceTitle: source.title,
+      ok: !blocked,
+      ...partial,
+      credential: {
+        ok: true,
+        team: credential.team,
+        teamId: credential.teamId,
+        workspaceUrl: credential.workspaceUrl,
+        botUser: credential.botUser,
+      },
+      guardrails: baseGuardrails,
+      captures: [],
+      ...sourceSummary,
+      privacyExclusions: slackPilotPrivacyExclusions(channelValidation, false),
+      nextSteps: slackPilotNextSteps(partial),
+    };
+  }
+
+  const validatedChannelIds = channels
+    .filter(
+      (channel): channel is (typeof channels)[number] & { id: string } =>
+        channel.status === "ok" && typeof channel.id === "string",
+    )
+    .map((channel) => channel.id)
+    .slice(0, maxChannels);
+
+  if (validatedChannelIds.length === 0) {
+    const partial = {
+      status: "blocked" as const,
+      historyRead: false,
+      channelValidation,
+      capturesCreated: 0,
+    };
+    return {
+      sourceId: source.id,
+      sourceTitle: source.title,
+      ok: false,
+      ...partial,
+      credential: {
+        ok: true,
+        team: credential.team,
+        teamId: credential.teamId,
+        workspaceUrl: credential.workspaceUrl,
+        botUser: credential.botUser,
+      },
+      guardrails: baseGuardrails,
+      captures: [],
+      ...sourceSummary,
+      privacyExclusions: slackPilotPrivacyExclusions(channelValidation, false),
+      nextSteps: slackPilotNextSteps(partial),
+    };
+  }
+
+  const boundedConfig = {
+    ...removeSlackHistoryConfig(config),
+    channelIds: validatedChannelIds,
+    historyLimit,
+    maxChannelsPerSync: maxChannels,
+    pagesPerChannel: 1,
+    permalinkLimit,
+    autoSync: false,
+    oldest,
+    slack: {
+      ...objectValue(removeSlackHistoryConfig(config).slack),
+      channelIds: validatedChannelIds,
+      historyLimit,
+      maxChannelsPerSync: maxChannels,
+      pagesPerChannel: 1,
+      permalinkLimit,
+      autoSync: false,
+      oldest,
+    },
+  };
+  const sync = await runConnectorSync({
+    ...source,
+    configJson: stableJson(boundedConfig),
+  });
+  const updatedSummary = await summarizeSlackPilotSource(source.id);
+  const captures = sync.captures.map((capture) => ({
+    id: capture.id,
+    title: capture.title,
+    capturedAt: capture.capturedAt,
+    sourceUrl: sourceUrlFromCapture(capture),
+  }));
+  const partial = {
+    status: sync.status === "success" ? ("synced" as const) : ("error" as const),
+    historyRead: true,
+    channelValidation,
+    capturesCreated: sync.capturesCreated,
+  };
+
+  return {
+    sourceId: source.id,
+    sourceTitle: source.title,
+    ok: sync.status === "success",
+    ...partial,
+    credential: {
+      ok: true,
+      team: credential.team,
+      teamId: credential.teamId,
+      workspaceUrl: credential.workspaceUrl,
+      botUser: credential.botUser,
+    },
+    guardrails: baseGuardrails,
+    sync: {
+      runId: sync.runId,
+      status: sync.status,
+      message: sync.message,
+      stats: sync.stats,
+    },
+    captures,
+    ...updatedSummary,
+    privacyExclusions: slackPilotPrivacyExclusions(channelValidation, true),
+    nextSteps: slackPilotNextSteps(partial),
+  };
 }
 
 function granolaSpeakerLabel(item: Record<string, unknown>): string {

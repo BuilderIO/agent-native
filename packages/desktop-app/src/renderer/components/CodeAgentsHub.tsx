@@ -49,23 +49,30 @@ export default function CodeAgentsHub({
     useState<CodeAgentGoalId>("migrate");
   const selectedGoal =
     getCodeAgentGoal(selectedGoalId) ?? getDefaultCodeAgentGoal();
+  const [runs, setRuns] = useState<CodeAgentRun[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const selectedRun = useMemo(
+    () => runs.find((run) => run.id === selectedRunId) ?? null,
+    [runs, selectedRunId],
+  );
+  const selectedRunUsesAppSurface = selectedRun
+    ? isMigrationRun(selectedRun)
+    : false;
   const selectedGoalApp = useMemo(
     () =>
-      selectedGoal.surfaceKind === "app"
+      selectedGoal.surfaceKind === "app" && selectedRunUsesAppSurface
         ? getCodeAgentAppConfig(selectedGoal, apps)
         : null,
-    [apps, selectedGoal],
+    [apps, selectedGoal, selectedRunUsesAppSurface],
   );
   const selectedGoalAppDef = useMemo(
     () => (selectedGoalApp ? toAppDefinition(selectedGoalApp) : null),
     [selectedGoalApp],
   );
-  const [runs, setRuns] = useState<CodeAgentMigrationRun[]>([]);
   const [status, setStatus] = useState<RunListStatus>("unavailable");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
 
@@ -73,15 +80,14 @@ export default function CodeAgentsHub({
     async (busy = false) => {
       if (busy) setRefreshing(true);
       try {
-        const result =
-          (await window.electronAPI?.codeAgents?.listRuns?.(selectedGoal.id)) ??
-          (await window.electronAPI?.codeAgents?.listMigrationRuns?.());
-        if (!result) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listRuns) {
           setStatus("unavailable");
           setError("Desktop bridge is not available.");
           setRuns([]);
           return;
         }
+        const result = await api.listRuns(selectedGoal.id);
         setStatus(result.status);
         setError(result.error ?? null);
         setRuns(result.runs);
@@ -122,10 +128,6 @@ export default function CodeAgentsHub({
     setSelectedRunId(runs[0].id);
   }, [runs, selectedRunId]);
 
-  const selectedRun = useMemo(
-    () => runs.find((run) => run.id === selectedRunId) ?? null,
-    [runs, selectedRunId],
-  );
   const summary = useMemo(() => buildSummary(runs), [runs]);
   const visibleRuns = useMemo(
     () => runs.filter((run) => matchesRunFilter(run, runFilter)),
@@ -134,7 +136,11 @@ export default function CodeAgentsHub({
   const workbenchUrlParams = selectedRunId ? { run: selectedRunId } : undefined;
 
   async function openTerminal() {
-    const result = await window.electronAPI?.codeAgents?.openTerminal?.();
+    const terminalRequest = selectedRun
+      ? getRunTerminalRequest(selectedRun)
+      : undefined;
+    const result =
+      await window.electronAPI?.codeAgents?.openTerminal?.(terminalRequest);
     if (result?.ok) {
       toast("Terminal opened", { duration: 1600 });
       return;
@@ -157,9 +163,6 @@ export default function CodeAgentsHub({
     }
     if (command === "resume") {
       setWorkbenchOpen(true);
-    }
-    if (command === "status") {
-      await loadRuns(true);
     }
 
     const result = await window.electronAPI?.codeAgents?.controlRun?.(
@@ -295,7 +298,7 @@ export default function CodeAgentsHub({
                     : "Native feedback surface"}
                 </p>
                 <h2>
-                  {selectedRun?.name ??
+                  {getRunTitle(selectedRun) ??
                     (selectedRunId
                       ? `Session ${selectedRunId}`
                       : selectedGoal.primaryActionLabel)}
@@ -427,14 +430,23 @@ export default function CodeAgentsHub({
   );
 }
 
-function buildSummary(runs: CodeAgentMigrationRun[]) {
+function buildSummary(runs: CodeAgentRun[]) {
   return runs.reduce(
     (acc, run) => {
       acc.total += 1;
-      if (run.phase === "complete") acc.complete += 1;
-      else acc.inProgress += 1;
-      if (run.phase === "approve" && !run.approved) acc.needsApproval += 1;
-      acc.failedTasks += run.failedTaskCount;
+      if (run.status === "completed" || run.phase === "complete") {
+        acc.complete += 1;
+      } else {
+        acc.inProgress += 1;
+      }
+      if (
+        run.needsApproval ||
+        run.status === "needs-approval" ||
+        (isMigrationRun(run) && run.phase === "approve" && !run.approved)
+      ) {
+        acc.needsApproval += 1;
+      }
+      acc.failedTasks += getRunFailedCount(run);
       return acc;
     },
     {
@@ -444,6 +456,15 @@ function buildSummary(runs: CodeAgentMigrationRun[]) {
       complete: 0,
       failedTasks: 0,
     },
+  );
+}
+
+function isMigrationRun(run: CodeAgentRun): run is CodeAgentMigrationRun {
+  return (
+    typeof (run as Partial<CodeAgentMigrationRun>).sourceRoot === "string" &&
+    typeof (run as Partial<CodeAgentMigrationRun>).outputRoot === "string" &&
+    typeof (run as Partial<CodeAgentMigrationRun>).target === "string" &&
+    typeof (run as Partial<CodeAgentMigrationRun>).phase === "string"
   );
 }
 
@@ -474,7 +495,7 @@ function NativeGoalSurface({
           </span>
         </div>
         <div className="code-agents-command-line">
-          agent-native code {goal.slashCommand} --url https://example.com
+          {exampleCommandForGoal(goal)}
         </div>
         <button
           type="button"
@@ -489,12 +510,29 @@ function NativeGoalSurface({
   );
 }
 
-function matchesRunFilter(run: CodeAgentMigrationRun, filter: RunFilter) {
+function exampleCommandForGoal(goal: CodeAgentGoalDefinition): string {
+  if (goal.id === "migrate") {
+    return "agent-native code /migrate ./legacy-app --out ../migrated-app";
+  }
+  return `agent-native code ${goal.slashCommand} --url https://example.com`;
+}
+
+function matchesRunFilter(run: CodeAgentRun, filter: RunFilter) {
   if (filter === "all") return true;
-  if (filter === "complete") return run.phase === "complete";
-  if (filter === "approval") return run.phase === "approve" && !run.approved;
-  if (filter === "issues") return run.failedTaskCount > 0;
-  return run.phase !== "complete";
+  if (filter === "complete") {
+    return run.status === "completed" || run.phase === "complete";
+  }
+  if (filter === "approval") {
+    return (
+      run.needsApproval ||
+      run.status === "needs-approval" ||
+      (isMigrationRun(run) && run.phase === "approve" && !run.approved)
+    );
+  }
+  if (filter === "issues") {
+    return run.status === "errored" || getRunFailedCount(run) > 0;
+  }
+  return run.status !== "completed" && run.phase !== "complete";
 }
 
 function RunRailItem({
@@ -503,28 +541,29 @@ function RunRailItem({
   onSelect,
   onOpen,
 }: {
-  run: CodeAgentMigrationRun;
+  run: CodeAgentRun;
   selected: boolean;
   onSelect: () => void;
   onOpen: () => void;
 }) {
-  const progress = getTaskProgress(run);
+  const progress = getRunProgressPercent(run);
+  const progressLabel = getRunProgressLabel(run);
   return (
     <button
       type="button"
       className={`code-agents-run${selected ? " code-agents-run--active" : ""}`}
       onClick={onSelect}
       onDoubleClick={onOpen}
-      title={run.name}
+      title={getRunTitle(run) ?? undefined}
     >
       <div className="code-agents-run__topline">
-        <span className="code-agents-run__name">{run.name}</span>
+        <span className="code-agents-run__name">{getRunTitle(run)}</span>
         <PhasePill run={run} />
       </div>
-      <p className="code-agents-run__path">{run.sourceRoot}</p>
+      <p className="code-agents-run__path">{getRunSubtitle(run)}</p>
       <div className="code-agents-run__meta">
-        <span>{run.taskCount} tasks</span>
-        <span>{progress}% passed</span>
+        <span>{progressLabel}</span>
+        <span>{progress}%</span>
         <span>{formatRelativeTime(run.updatedAt)}</span>
       </div>
     </button>
@@ -541,7 +580,7 @@ function RunDetailCard({
   onRefreshStatus,
   onStop,
 }: {
-  run: CodeAgentMigrationRun | null;
+  run: CodeAgentRun | null;
   selectedRunId: string | null;
   goal: CodeAgentGoalDefinition;
   onOpenWorkbench: () => void;
@@ -572,21 +611,22 @@ function RunDetailCard({
     );
   }
 
-  const progress = getTaskProgress(run);
+  const progress = getRunProgressPercent(run);
+  const details = getRunDetails(run, goal);
 
   return (
     <div className="code-agents-detail">
       <div className="code-agents-detail__header">
         <div>
           <p className="code-agents-kicker">Selected session</p>
-          <h3>{run.name}</h3>
+          <h3>{getRunTitle(run)}</h3>
         </div>
         <PhasePill run={run} />
       </div>
 
       <div className="code-agents-progress">
         <div className="code-agents-progress__label">
-          <span>Task feedback</span>
+          <span>{run.progress?.label ?? "Task feedback"}</span>
           <span>{progress}%</span>
         </div>
         <div className="code-agents-progress__track">
@@ -595,10 +635,9 @@ function RunDetailCard({
       </div>
 
       <div className="code-agents-detail-grid">
-        <Field label="Source" value={run.sourceRoot} />
-        <Field label="Output" value={run.outputRoot} />
-        <Field label="Target" value={run.target} />
-        <Field label="Updated" value={formatRelativeTime(run.updatedAt)} />
+        {details.map((detail) => (
+          <Field key={detail.label} label={detail.label} value={detail.value} />
+        ))}
       </div>
 
       <div className="code-agents-detail__footer">
@@ -618,7 +657,7 @@ function RunDetailCard({
           <IconRefresh size={14} strokeWidth={1.8} />
           Status
         </button>
-        {run.phase !== "complete" && (
+        {run.status !== "completed" && run.phase !== "complete" && (
           <button type="button" className="code-agents-button" onClick={onStop}>
             <IconAlertCircle size={14} strokeWidth={1.8} />
             Stop
@@ -676,16 +715,18 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PhasePill({ run }: { run: CodeAgentMigrationRun }) {
+function PhasePill({ run }: { run: CodeAgentRun }) {
   const tone =
-    run.phase === "complete"
+    run.status === "completed" || run.phase === "complete"
       ? "complete"
-      : run.phase === "approve" && !run.approved
+      : run.needsApproval ||
+          run.status === "needs-approval" ||
+          (isMigrationRun(run) && run.phase === "approve" && !run.approved)
         ? "approval"
         : "active";
   return (
     <span className={`code-agents-phase code-agents-phase--${tone}`}>
-      {run.phase}
+      {run.phase ?? run.status}
     </span>
   );
 }
@@ -700,9 +741,87 @@ function RunListSkeleton() {
   );
 }
 
-function getTaskProgress(run: CodeAgentMigrationRun): number {
-  if (run.taskCount <= 0) return 0;
-  return Math.round((run.passedTaskCount / run.taskCount) * 100);
+function getRunProgressPercent(run: CodeAgentRun): number {
+  if (typeof run.progress?.percent === "number") {
+    return Math.max(0, Math.min(100, Math.round(run.progress.percent)));
+  }
+  if (isMigrationRun(run) && run.taskCount > 0) {
+    return Math.round((run.passedTaskCount / run.taskCount) * 100);
+  }
+  return run.status === "completed" || run.phase === "complete" ? 100 : 0;
+}
+
+function getRunProgressLabel(run: CodeAgentRun): string {
+  if (run.progress?.total && run.progress.total > 0) {
+    const label = run.progress.label ?? "tasks";
+    return `${run.progress.completed}/${run.progress.total} ${label.toLowerCase()}`;
+  }
+  if (isMigrationRun(run)) return `${run.taskCount} tasks`;
+  return run.status;
+}
+
+function getRunFailedCount(run: CodeAgentRun): number {
+  if (typeof run.progress?.failed === "number") return run.progress.failed;
+  if (isMigrationRun(run)) return run.failedTaskCount;
+  return run.status === "errored" ? 1 : 0;
+}
+
+function getRunTitle(run: CodeAgentRun | null): string | null {
+  if (!run) return null;
+  if (isMigrationRun(run)) return run.name;
+  return run.title || run.id;
+}
+
+function getRunSubtitle(run: CodeAgentRun): string {
+  if (run.subtitle) return run.subtitle;
+  if (isMigrationRun(run)) return run.sourceRoot;
+  return run.goalId ? `${run.goalId} session` : "Code Agent session";
+}
+
+function getRunDetails(
+  run: CodeAgentRun,
+  goal: CodeAgentGoalDefinition,
+): CodeAgentRunDetail[] {
+  const details =
+    run.details?.filter((detail) => detail.value.length > 0) ?? [];
+  if (details.length > 0) {
+    return [
+      ...details,
+      { label: "Updated", value: formatRelativeTime(run.updatedAt) },
+    ];
+  }
+  if (isMigrationRun(run)) {
+    return [
+      { label: "Source", value: run.sourceRoot },
+      { label: "Output", value: run.outputRoot },
+      { label: "Target", value: run.target },
+      { label: "Updated", value: formatRelativeTime(run.updatedAt) },
+    ];
+  }
+  return [
+    { label: "Goal", value: goal.slashCommand },
+    { label: "Status", value: run.status },
+    { label: "Updated", value: formatRelativeTime(run.updatedAt) },
+  ];
+}
+
+function getRunTerminalRequest(
+  run: CodeAgentRun,
+): CodeAgentTerminalRequest | undefined {
+  if (isMigrationRun(run)) {
+    return { sourceRoot: run.sourceRoot, outputRoot: run.outputRoot };
+  }
+  const sourceRoot = getStringMetadata(run, "sourceRoot");
+  const outputRoot = getStringMetadata(run, "outputRoot");
+  const cwd = getStringMetadata(run, "cwd");
+  return sourceRoot || outputRoot || cwd
+    ? { sourceRoot, outputRoot, cwd }
+    : undefined;
+}
+
+function getStringMetadata(run: CodeAgentRun, key: string): string | undefined {
+  const value = run.metadata?.[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function formatRelativeTime(value: string): string {

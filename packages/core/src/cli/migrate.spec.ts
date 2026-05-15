@@ -1,16 +1,20 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { listCodeAgentRunRecords } from "./code-agent-runs.js";
 import {
   emitOwnAgentDossier,
   isExpectedMigrationCliError,
   parseMigrateArgs,
+  runMigrate,
 } from "./migrate.js";
 
 const tmpRoots: string[] = [];
 
 afterEach(() => {
+  delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+  vi.restoreAllMocks();
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -68,6 +72,46 @@ describe("parseMigrateArgs", () => {
       emit: true,
       emitDir: "../dossier",
     });
+    expect(parseMigrateArgs(["./next-app", "--app-surface"])).toEqual({
+      source: "./next-app",
+      appSurface: true,
+    });
+  });
+
+  it("creates a generic Code Agents session by default", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-migrate-"));
+    tmpRoots.push(root);
+    process.env.AGENT_NATIVE_CODE_AGENTS_HOME = path.join(root, "code-agents");
+    const sourceRoot = path.join(root, "source");
+    fs.mkdirSync(path.join(sourceRoot, "pages"), { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceRoot, "package.json"),
+      JSON.stringify({ dependencies: { next: "^16.0.0" } }),
+    );
+    fs.writeFileSync(
+      path.join(sourceRoot, "pages", "index.tsx"),
+      "export default function Home() { return <main />; }\n",
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runMigrate([sourceRoot, "--out", path.join(root, "migrated")]);
+
+    const runs = listCodeAgentRunRecords("migrate");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      goalId: "migrate",
+      status: "needs-approval",
+      phase: "intake",
+    });
+    const dossierRoot = runs[0].metadata?.dossierRoot;
+    expect(typeof dossierRoot).toBe("string");
+    expect(fs.existsSync(path.join(String(dossierRoot), "AGENTS.md"))).toBe(
+      true,
+    );
+    expect(fs.existsSync(path.join(root, "migration"))).toBe(false);
+    expect(log.mock.calls.join("\n")).toContain(
+      "Code Agents /migrate session created.",
+    );
   });
 
   it("emits a dossier outside sourceRoot", async () => {

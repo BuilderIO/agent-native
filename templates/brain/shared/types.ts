@@ -38,6 +38,8 @@ export interface BrainEvidenceInput {
   captureId: string;
   quote: string;
   note?: string;
+  sourceUrl?: string;
+  /** @deprecated use sourceUrl */
   url?: string;
   timestampMs?: number;
 }

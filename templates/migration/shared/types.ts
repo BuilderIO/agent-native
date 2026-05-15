@@ -18,6 +18,7 @@ export interface MigrationRunSummary {
   approved: boolean;
   taskCount: number;
   passedTaskCount: number;
+  coveredTaskCount: number;
   failedTaskCount: number;
   createdAt: string;
   updatedAt: string;

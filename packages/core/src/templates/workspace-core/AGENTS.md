@@ -32,7 +32,8 @@ agent should know.
   `skills/<slug>/SKILL.md` for workspace skills, `context/<slug>.md` for
   personas/positioning/messaging/company facts/brand guidelines, and
   `agents/<slug>.md` for custom agent profiles. Scope them to All apps when
-  every workspace app should inherit them.
+  every workspace app should inherit them. All-app resources are inherited at
+  runtime; do not copy or sync them into individual apps.
 
 ## Adding Apps
 

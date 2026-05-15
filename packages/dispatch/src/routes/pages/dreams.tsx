@@ -7,6 +7,7 @@ import {
   IconCheck,
   IconCircleDashed,
   IconClock,
+  IconDatabase,
   IconPlayerPlay,
   IconRefresh,
   IconX,
@@ -145,6 +146,17 @@ interface CandidateRun {
   evidence?: DreamEvidence[] | null;
 }
 
+interface DreamSourceHealth {
+  sourceId: string;
+  label?: string | null;
+  status: "ok" | "timed_out" | "error" | string;
+  durationMs: number;
+  inspectedThreadCount: number;
+  candidateCount: number;
+  errorCount: number;
+  message?: string | null;
+}
+
 interface DreamDetail {
   dream?: DreamPass | null;
   report?: string | null;
@@ -170,15 +182,20 @@ type ListCandidatesResponse =
       candidates?: CandidateRun[];
       items?: CandidateRun[];
       results?: CandidateRun[];
+      sources?: DreamSourceHealth[];
+      sourceHealth?: DreamSourceHealth[];
     };
 
 type GetDreamResponse = DreamDetail | null;
 
 interface CreateDreamReportParams {
   sourceId?: string;
+  sourceIds?: string[];
+  allSources?: boolean;
   query?: string;
   ownerEmail?: string;
   limit?: number;
+  sourceTimeoutMs?: number;
   title?: string;
 }
 
@@ -198,6 +215,18 @@ function normalizeArray<T>(value: unknown, keys: readonly string[]): T[] {
   const record = value as Record<string, unknown>;
   for (const key of keys) {
     if (Array.isArray(record[key])) return record[key] as T[];
+  }
+  return [];
+}
+
+function normalizeSourceHealth(value: unknown): DreamSourceHealth[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.sources)) {
+    return record.sources as DreamSourceHealth[];
+  }
+  if (Array.isArray(record.sourceHealth)) {
+    return record.sourceHealth as DreamSourceHealth[];
   }
   return [];
 }
@@ -334,12 +363,51 @@ function statusVariant(status: DreamStatus | null | undefined) {
   return "secondary" as const;
 }
 
+function sourceStatusVariant(status: string | null | undefined) {
+  const normalized = String(status || "ok").toLowerCase();
+  if (normalized === "error" || normalized === "timed_out") {
+    return "destructive" as const;
+  }
+  return "secondary" as const;
+}
+
 function StatusBadge({ status }: { status?: DreamStatus | null }) {
   const normalized = String(status || "pending").toLowerCase();
   return (
     <Badge variant={statusVariant(status)} className="capitalize">
       {normalized.replace(/_/g, " ")}
     </Badge>
+  );
+}
+
+function SourceHealthPanel({ sources }: { sources: DreamSourceHealth[] }) {
+  if (sources.length === 0) return null;
+  const unhealthyCount = sources.filter(
+    (source) => String(source.status).toLowerCase() !== "ok",
+  ).length;
+  return (
+    <Alert variant={unhealthyCount > 0 ? "destructive" : "default"}>
+      <IconDatabase className="h-4 w-4" />
+      <AlertTitle>Source health</AlertTitle>
+      <AlertDescription>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {sources.map((source) => (
+            <Badge
+              key={source.sourceId}
+              variant={sourceStatusVariant(source.status)}
+              className="gap-1"
+              title={
+                source.message ||
+                `${source.inspectedThreadCount} inspected, ${source.candidateCount} candidates`
+              }
+            >
+              {source.label || source.sourceId}:{" "}
+              {String(source.status).replace(/_/g, " ")}
+            </Badge>
+          ))}
+        </div>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -583,7 +651,7 @@ export default function DreamsRoute() {
   );
   const candidatesQuery = useActionQuery<ListCandidatesResponse>(
     "list-dream-candidates",
-    { limit: 25 },
+    { limit: 25, sourceTimeoutMs: 15_000 },
     { staleTime: 15_000 },
   );
   const dreamDetailQuery = useActionQuery<GetDreamResponse>(
@@ -608,6 +676,10 @@ export default function DreamsRoute() {
         "items",
         "results",
       ]),
+    [candidatesQuery.data],
+  );
+  const candidateSourceHealth = useMemo(
+    () => normalizeSourceHealth(candidatesQuery.data),
     [candidatesQuery.data],
   );
 
@@ -656,15 +728,23 @@ export default function DreamsRoute() {
   const proposals = detail?.proposals ?? [];
   const inspectedRuns = detail?.inspectedRuns ?? detail?.candidates ?? [];
   const pendingProposalCount = proposals.filter(
-    (proposal) => String(proposal.status || "pending") === "pending",
+    (proposal) =>
+      String(proposal.status || "pending").toLowerCase() === "pending",
   ).length;
   const appliedProposalCount = proposals.filter(
     (proposal) => String(proposal.status || "").toLowerCase() === "applied",
   ).length;
 
-  function runDream() {
+  function runDream(scanAllSources = false) {
     createDream.mutate({
-      limit: candidates.length > 0 ? candidates.length : 20,
+      sourceId: scanAllSources ? "all" : "current",
+      allSources: scanAllSources,
+      limit: scanAllSources
+        ? 8
+        : candidates.length > 0
+          ? candidates.length
+          : 20,
+      sourceTimeoutMs: 15_000,
     });
   }
 
@@ -709,7 +789,22 @@ export default function DreamsRoute() {
               <IconRefresh size={15} className="mr-1.5" />
               Refresh
             </Button>
-            <Button onClick={runDream} disabled={createDream.isPending}>
+            <Button
+              variant="outline"
+              onClick={() => runDream(true)}
+              disabled={createDream.isPending}
+            >
+              {createDream.isPending ? (
+                <Spinner className="mr-1.5 size-3.5" />
+              ) : (
+                <IconDatabase size={15} className="mr-1.5" />
+              )}
+              Run all sources
+            </Button>
+            <Button
+              onClick={() => runDream(false)}
+              disabled={createDream.isPending}
+            >
               {createDream.isPending ? (
                 <Spinner className="mr-1.5 size-3.5" />
               ) : (
@@ -983,6 +1078,13 @@ export default function DreamsRoute() {
                 label="Could not load candidates"
               />
               {candidatesQuery.isLoading ? <DreamListSkeleton /> : null}
+              {!candidatesQuery.isLoading &&
+              !candidatesQuery.error &&
+              candidateSourceHealth.length > 0 ? (
+                <div className="mb-3">
+                  <SourceHealthPanel sources={candidateSourceHealth} />
+                </div>
+              ) : null}
               {!candidatesQuery.isLoading && !candidatesQuery.error ? (
                 candidates.length > 0 ? (
                   <Table>

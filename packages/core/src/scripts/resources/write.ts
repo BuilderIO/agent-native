@@ -108,7 +108,9 @@ Options:
 
   const scope = parsed.scope ?? "personal";
   if (scope === "workspace") {
-    fail("Workspace resources are managed from Dispatch. Use resource-write for personal or shared app resources.");
+    fail(
+      "Workspace resources are managed from Dispatch. Use resource-write for personal or shared app resources.",
+    );
   }
   const mimeType = parsed.mime ?? inferMimeType(resourcePath);
   const visibility = parseVisibility(parsed.visibility);

@@ -38,7 +38,8 @@ export const evidenceSchema = z.object({
   captureId: z.string().min(1).describe("Capture that contains the quote"),
   quote: z.string().min(1).describe("Exact substring from the capture content"),
   note: z.string().optional().describe("Optional note about why this matters"),
-  url: z.string().url().optional().describe("Optional source deeplink"),
+  sourceUrl: z.string().url().optional().describe("Optional source deeplink"),
+  url: z.string().url().optional().describe("Deprecated alias for sourceUrl"),
   timestampMs: z.coerce
     .number()
     .int()

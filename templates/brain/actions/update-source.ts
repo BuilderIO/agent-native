@@ -27,10 +27,17 @@ export default defineAction({
     if (args.title !== undefined) updates.title = args.title;
     if (args.status !== undefined) updates.status = args.status;
     if (args.config !== undefined) {
-      updates.configJson = stableJson({
-        ...parseJson(existing.configJson, {}),
+      const nextConfig: Record<string, unknown> = {
+        ...parseJson<Record<string, unknown>>(existing.configJson, {}),
         ...args.config,
-      });
+      };
+      updates.configJson = stableJson(nextConfig);
+      if (typeof nextConfig.sourceKey === "string") {
+        updates.sourceKey = nextConfig.sourceKey;
+      }
+      if (typeof nextConfig.ingestTokenHash === "string") {
+        updates.ingestTokenHash = nextConfig.ingestTokenHash;
+      }
     }
     if (args.cursor !== undefined) {
       updates.cursorJson = stableJson({

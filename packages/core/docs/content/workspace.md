@@ -54,10 +54,13 @@ The **Workspace** tab in the agent sidebar is where you and the agent share pers
 
 Every agent-native app has a built-in resource system. Resources are SQL-backed files that persist across sessions and deployments. Unlike code files, resources live in the database — not the filesystem — so they work in serverless environments, edge runtimes, and production deploys without any filesystem dependency.
 
-Resources have two scopes:
+Resources have three runtime scopes:
 
 - **Personal** — scoped to a single user (their email). Good for preferences, notes, and per-user context.
-- **Shared** — visible to all users. Good for team instructions, skills, and shared config.
+- **Shared / organization** — visible to all users in the app or organization. Good for app/team instructions, skills, and shared config.
+- **Workspace** — inherited global defaults managed from Dispatch Resources. Good for company facts, positioning, brand guidelines, global guardrails, and workspace-wide skills. Apps read these at runtime; they are not copied into each app.
+
+The in-app Workspace panel edits personal and shared/organization resources. Workspace-scope resources are edited centrally from Dispatch so every app sees the same canonical files.
 
 ## Workspace Panel {#workspace-panel}
 
@@ -399,15 +402,16 @@ Resources can be managed from server code, actions, or the REST API.
 
 REST endpoints mounted automatically:
 
-| Method   | Endpoint                                  | Description               |
-| -------- | ----------------------------------------- | ------------------------- |
-| `GET`    | `/_agent-native/resources?scope=all`      | List resources            |
-| `GET`    | `/_agent-native/resources/tree?scope=all` | Get folder tree           |
-| `POST`   | `/_agent-native/resources`                | Create a resource         |
-| `GET`    | `/_agent-native/resources/:id`            | Get resource with content |
-| `PUT`    | `/_agent-native/resources/:id`            | Update a resource         |
-| `DELETE` | `/_agent-native/resources/:id`            | Delete a resource         |
-| `POST`   | `/_agent-native/resources/upload`         | Upload a file as resource |
+| Method   | Endpoint                                   | Description                        |
+| -------- | ------------------------------------------ | ---------------------------------- |
+| `GET`    | `/_agent-native/resources?scope=all`       | List resources                     |
+| `GET`    | `/_agent-native/resources?scope=workspace` | List inherited workspace resources |
+| `GET`    | `/_agent-native/resources/tree?scope=all`  | Get folder tree                    |
+| `POST`   | `/_agent-native/resources`                 | Create a resource                  |
+| `GET`    | `/_agent-native/resources/:id`             | Get resource with content          |
+| `PUT`    | `/_agent-native/resources/:id`             | Update a resource                  |
+| `DELETE` | `/_agent-native/resources/:id`             | Delete a resource                  |
+| `POST`   | `/_agent-native/resources/upload`          | Upload a file as resource          |
 
 ### Action API {#script-api}
 
@@ -419,6 +423,9 @@ pnpm action resource-list --scope all
 
 # Read a resource
 pnpm action resource-read --path "skills/my-skill/SKILL.md"
+
+# Read inherited workspace context managed by Dispatch
+pnpm action resource-read --scope workspace --path "context/brand.md"
 
 # Write a resource
 pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes..."

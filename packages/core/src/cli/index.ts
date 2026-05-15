@@ -667,8 +667,8 @@ Usage:
                                 for a single-app scaffold.
   agent-native code /migrate    Run a coding-agent goal. Built-ins include
                                 /migrate and /audit.
-  agent-native migrate <source> Scaffold a local Migration Workbench, or use
-                                --emit to create a Code Agent/Desktop dossier.
+  agent-native migrate <source> Create a Code Agents /migrate session, or use
+                                --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to

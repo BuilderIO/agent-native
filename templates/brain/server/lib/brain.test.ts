@@ -5,6 +5,7 @@ type Condition =
   | { op: "or"; conditions: Condition[] }
   | { op: "eq"; col: Column; val: unknown }
   | { op: "isNull"; col: Column }
+  | { op: "lte"; col: Column; val: unknown }
   | { op: "like"; col: Column; val: unknown }
   | { op: "access" };
 
@@ -31,6 +32,8 @@ const mocks = vi.hoisted(() => {
       "title",
       "provider",
       "status",
+      "sourceKey",
+      "ingestTokenHash",
       "configJson",
       "cursorJson",
       "lastSyncedAt",
@@ -118,7 +121,20 @@ const mocks = vi.hoisted(() => {
       "startedAt",
       "completedAt",
     ]),
-    brainIngestQueue: table("brainIngestQueue", ["id"]),
+    brainIngestQueue: table("brainIngestQueue", [
+      "id",
+      "sourceId",
+      "captureId",
+      "operation",
+      "status",
+      "priority",
+      "attempts",
+      "payloadJson",
+      "error",
+      "runAfter",
+      "createdAt",
+      "updatedAt",
+    ]),
   };
 
   const rows = {
@@ -127,6 +143,12 @@ const mocks = vi.hoisted(() => {
     knowledge: [] as Row[],
     proposals: [] as Row[],
     syncRuns: [] as Row[],
+    ingestQueue: [] as Row[],
+  };
+
+  const insertControls = {
+    error: null as Error | null,
+    beforeThrow: null as ((tableRef: Row, row: Row) => void) | null,
   };
 
   const tableRows = (tableRef: Row) => {
@@ -135,6 +157,7 @@ const mocks = vi.hoisted(() => {
     if (tableRef === schema.brainKnowledge) return rows.knowledge;
     if (tableRef === schema.brainProposals) return rows.proposals;
     if (tableRef === schema.brainSyncRuns) return rows.syncRuns;
+    if (tableRef === schema.brainIngestQueue) return rows.ingestQueue;
     return [];
   };
 
@@ -148,26 +171,40 @@ const mocks = vi.hoisted(() => {
       return condition.conditions.some((item) => matches(row, item));
     }
     if (condition.op === "isNull") return row[condition.col.name] == null;
+    if (condition.op === "lte") {
+      const value = row[condition.col.name];
+      return typeof value === "string" && typeof condition.val === "string"
+        ? value <= condition.val
+        : Number(value) <= Number(condition.val);
+    }
     if (condition.op === "like") return true;
     return row[condition.col.name] === condition.val;
   };
 
   const select = vi.fn(() => ({
     from: vi.fn((tableRef: Row) => ({
-      where: vi.fn((condition: Condition) => ({
-        limit: vi.fn(async (limit: number) =>
-          tableRows(tableRef)
-            .filter((row) => matches(row, condition))
-            .slice(0, limit),
-        ),
-        orderBy: vi.fn(() => ({
+      where: vi.fn((condition: Condition) => {
+        const filteredRows = async () =>
+          tableRows(tableRef).filter((row) => matches(row, condition));
+        return {
           limit: vi.fn(async (limit: number) =>
             tableRows(tableRef)
               .filter((row) => matches(row, condition))
               .slice(0, limit),
           ),
-        })),
-      })),
+          orderBy: vi.fn(() => ({
+            limit: vi.fn(async (limit: number) =>
+              tableRows(tableRef)
+                .filter((row) => matches(row, condition))
+                .slice(0, limit),
+            ),
+          })),
+          then: (
+            onFulfilled: (rows: Row[]) => unknown,
+            onRejected?: (reason: unknown) => unknown,
+          ) => filteredRows().then(onFulfilled, onRejected),
+        };
+      }),
       orderBy: vi.fn(() => ({
         limit: vi.fn(async (limit: number) =>
           tableRows(tableRef).slice(0, limit),
@@ -181,6 +218,13 @@ const mocks = vi.hoisted(() => {
 
   const insert = vi.fn((tableRef: Row) => ({
     values: vi.fn(async (row: Row) => {
+      if (insertControls.error) {
+        const error = insertControls.error;
+        insertControls.error = null;
+        insertControls.beforeThrow?.(tableRef, row);
+        insertControls.beforeThrow = null;
+        throw error;
+      }
       tableRows(tableRef).push({ ...row });
     }),
   }));
@@ -199,6 +243,7 @@ const mocks = vi.hoisted(() => {
     schema,
     db: { select, insert, update },
     rows,
+    insertControls,
     userEmail: "owner@example.test",
     orgId: "org-1" as string | null,
     settings: {
@@ -248,16 +293,20 @@ vi.mock("@agent-native/core/db/schema", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: Condition[]) => ({ op: "and", conditions }),
+  asc: (column: Column) => ({ op: "asc", column }),
   desc: (column: Column) => ({ op: "desc", column }),
   eq: (col: Column, val: unknown) => ({ op: "eq", col, val }),
   isNull: (col: Column) => ({ op: "isNull", col }),
   like: (col: Column, val: unknown) => ({ op: "like", col, val }),
+  lte: (col: Column, val: unknown) => ({ op: "lte", col, val }),
   or: (...conditions: Condition[]) => ({ op: "or", conditions }),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mocks.userEmail,
   getRequestOrgId: () => mocks.orgId,
+  runWithRequestContext: async (_context: Row, fn: () => Promise<unknown>) =>
+    fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -265,6 +314,15 @@ vi.mock("@agent-native/core/server", () => ({
     userEmail: mocks.userEmail,
     orgId: mocks.orgId,
   }),
+  readBody: vi.fn(async (event: { body?: unknown }) => event.body),
+}));
+
+vi.mock("h3", () => ({
+  createError: (input: { statusCode: number; statusMessage?: string }) =>
+    Object.assign(new Error(input.statusMessage), input),
+  defineEventHandler: (handler: unknown) => handler,
+  getHeader: (event: { headers?: Record<string, string> }, name: string) =>
+    event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
 }));
 
 vi.mock("@agent-native/core/credentials", () => ({
@@ -328,6 +386,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 import {
   applyRedactions,
+  createCapture,
+  serializeSource,
+  sha256Hex,
   validateEvidence,
   writeKnowledgeRecord,
 } from "./brain.js";
@@ -335,13 +396,19 @@ import {
   isSlackDirectConversation,
   normalizeGranolaNote,
   runConnectorSync,
+  testSlackConnection,
 } from "./connectors.js";
+import { runBrainDemoEval } from "./demo.js";
+import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
+import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
 
 function resetMocks() {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.resourceWrites.length = 0;
+  mocks.insertControls.error = null;
+  mocks.insertControls.beforeThrow = null;
   mocks.userEmail = "owner@example.test";
   mocks.orgId = "org-1";
   mocks.settings = {
@@ -361,6 +428,8 @@ function seedSource(overrides: Row = {}) {
     title: "Brain source",
     provider: "manual",
     status: "active",
+    sourceKey: null,
+    ingestTokenHash: null,
     configJson: "{}",
     cursorJson: "{}",
     lastSyncedAt: null,
@@ -418,6 +487,8 @@ describe("Brain memory quality gates", () => {
       title: "Follow up with alice@example.com",
       body: "alice@example.com owns the launch checklist.",
       summary: "Ask alice@example.com for launch notes.",
+      tags: ["launch", "alice@example.com"],
+      entities: [{ type: "person", name: "alice@example.com" }],
       evidence: [
         {
           captureId: "capture-1",
@@ -433,7 +504,135 @@ describe("Brain memory quality gates", () => {
     expect(result.redacted).toBe(true);
     expect(JSON.stringify(result)).not.toContain("alice@example.com");
     expect(result.title).toBe("Follow up with [redacted]");
+    expect(result.tags).toEqual(["launch", "[redacted]"]);
+    expect(result.entities).toEqual([{ type: "person", name: "[redacted]" }]);
     expect(result.evidence[0].quote).toBe("Contact [redacted].");
+  });
+
+  it("validates evidence with a canonical sourceUrl citation", async () => {
+    seedSource();
+    seedCapture({
+      metadataJson: JSON.stringify({
+        sourceUrl: "https://example.test/captures/1",
+      }),
+    });
+
+    const evidence = await validateEvidence([
+      {
+        captureId: "capture-1",
+        quote: "Decision: ship the beta on May 20.",
+      },
+    ]);
+
+    expect(evidence[0]).toMatchObject({
+      sourceUrl: "https://example.test/captures/1",
+    });
+    expect(evidence[0]).not.toHaveProperty("url");
+  });
+
+  it("serializes sources without signed ingest secrets", () => {
+    const source = seedSource({
+      configJson: JSON.stringify({
+        sourceKey: "clips",
+        ingestTokenHash: "secret-hash",
+        reviewRequired: true,
+      }),
+    });
+
+    expect(serializeSource(source as never).config).toEqual({
+      reviewRequired: true,
+    });
+  });
+
+  it("requires signed ingest payload sourceKey to match the source config", async () => {
+    const tokenHash = await sha256Hex("ingest-token");
+    seedSource({
+      id: "wrong-source-key",
+      configJson: JSON.stringify({
+        sourceKey: "other",
+        ingestTokenHash: tokenHash,
+      }),
+    });
+
+    const handler = ingestHandler as unknown as (event: Row) => Promise<Row>;
+    await expect(
+      handler({
+        headers: { authorization: "Bearer ingest-token" },
+        body: {
+          sourceKey: "clips",
+          externalId: "clip-1",
+          title: "Clip",
+          transcript: "Decision: ship the beta on May 20.",
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    seedSource({
+      id: "clips-source",
+      sourceKey: "clips",
+      ingestTokenHash: tokenHash,
+      configJson: JSON.stringify({
+        sourceKey: "clips",
+        ingestTokenHash: tokenHash,
+      }),
+    });
+
+    const result = await handler({
+      headers: { authorization: "Bearer ingest-token" },
+      body: {
+        sourceKey: "clips",
+        externalId: "clip-1",
+        title: "Clip",
+        transcript: "Decision: ship the beta on May 20.",
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      sourceId: "clips-source",
+    });
+    expect(mocks.rows.captures[0]).toMatchObject({
+      sourceId: "clips-source",
+      externalId: "clip-1",
+    });
+  });
+
+  it("uses a SHA-256 content hash for new captures", async () => {
+    seedSource();
+
+    const capture = await createCapture({
+      sourceId: "source-1",
+      externalId: "capture-ext-1",
+      title: "Planning note",
+      kind: "note",
+      content: "Decision: ship the beta on May 20.",
+    });
+
+    expect(capture.contentHash).toBe(
+      await sha256Hex("Decision: ship the beta on May 20."),
+    );
+    expect(String(capture.contentHash)).toHaveLength(64);
+  });
+
+  it("returns the raced-in capture when source/external unique insert conflicts", async () => {
+    seedSource();
+    mocks.insertControls.error = new Error(
+      "UNIQUE constraint failed: brain_raw_captures.source_id, brain_raw_captures.external_id",
+    );
+    mocks.insertControls.beforeThrow = (_tableRef, row) => {
+      mocks.rows.captures.push({ ...row, id: "capture-from-race" });
+    };
+
+    const capture = await createCapture({
+      sourceId: "source-1",
+      externalId: "external-1",
+      title: "Planning note",
+      kind: "note",
+      content: "Decision: ship the beta on May 20.",
+    });
+
+    expect(capture.id).toBe("capture-from-race");
+    expect(mocks.rows.captures).toHaveLength(1);
   });
 
   it("creates a proposal for company-tier knowledge below the auto-publish confidence gate", async () => {
@@ -524,9 +723,93 @@ describe("Brain memory quality gates", () => {
     expect(JSON.stringify(result.knowledge)).not.toContain("alice@example.com");
     expect(result.knowledge.publishedAt).toBeNull();
   });
+
+  it("keeps distillation queue items queued when no distillation worker completed them", async () => {
+    const now = "2026-05-15T12:00:00.000Z";
+    mocks.rows.ingestQueue.push({
+      id: "queue-1",
+      sourceId: "source-1",
+      captureId: "capture-1",
+      operation: "distill",
+      status: "queued",
+      priority: 50,
+      attempts: 0,
+      payloadJson: "{}",
+      error: null,
+      runAfter: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await processBrainIngestQueueOnce({ limit: 1 });
+
+    expect(result).toMatchObject({
+      processed: [],
+      deferred: ["queue-1"],
+      failed: [],
+    });
+    expect(mocks.rows.ingestQueue[0]).toMatchObject({
+      status: "queued",
+      attempts: 1,
+      error:
+        "Distillation is still queued; no distillation worker completed this item.",
+    });
+    expect(typeof mocks.rows.ingestQueue[0].runAfter).toBe("string");
+  });
 });
 
 describe("Brain connector smoke coverage", () => {
+  it("tests Slack credentials and channel metadata without reading history", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/auth.test")) {
+        return Response.json({
+          ok: true,
+          team: "Acme",
+          team_id: "T123",
+          user: "brain-bot",
+          user_id: "U123",
+          url: "https://acme.slack.com/",
+        });
+      }
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "C123",
+            name: "product-decisions",
+            is_channel: true,
+            is_archived: false,
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "should_not_call_history" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await testSlackConnection({ channelRefs: ["C123"] });
+
+    expect(result).toMatchObject({
+      ok: true,
+      team: "Acme",
+      checkedChannels: 1,
+      historyRead: false,
+      channels: [
+        {
+          id: "C123",
+          name: "product-decisions",
+          status: "ok",
+        },
+      ],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(
+      fetchSpy.mock.calls.some((call) =>
+        String(call[0]).includes("conversations.history"),
+      ),
+    ).toBe(false);
+  });
+
   it("structurally identifies Slack DMs and MPIMs as excluded conversations", () => {
     expect(isSlackDirectConversation({ id: "D123", is_im: true })).toBe(true);
     expect(isSlackDirectConversation({ id: "G123", is_mpim: true })).toBe(true);
@@ -731,5 +1014,52 @@ describe("Brain connector smoke coverage", () => {
         syncRunId: expect.any(String),
       },
     });
+  });
+});
+
+describe("Brain demo eval", () => {
+  it("seeds the product-decision demo corpus and passes the trust checks", async () => {
+    const result = await runBrainDemoEval({ publishCanonical: false });
+
+    expect(result.ok).toBe(true);
+    expect(result.passed).toBe(result.total);
+    expect(result.checks.map((item) => item.id)).toEqual([
+      "freemium-recall",
+      "supersede-chain",
+      "how-it-works-recall",
+      "proposal-gate",
+      "pii-redaction",
+      "personal-exclusion",
+    ]);
+    expect(mocks.rows.sources).toHaveLength(4);
+    expect(mocks.rows.proposals).toHaveLength(1);
+    expect(mocks.rows.knowledge).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Freemium signup retired for enterprise-led growth",
+          status: "published",
+        }),
+        expect.objectContaining({
+          title: "Freemium signup was the default acquisition path",
+          status: "archived",
+        }),
+        expect.objectContaining({
+          title:
+            "Escalation owner notes are redacted when personal data appears",
+          status: "redacted",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(mocks.rows.knowledge)).not.toContain(
+      "ava.cho@example.com",
+    );
+    expect(mocks.rows.captures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalId: "brain-product-decisions-demo-v1:slack:personal-aside",
+          status: "ignored",
+        }),
+      ]),
+    );
   });
 });

@@ -5,6 +5,7 @@ import {
   resourceDeleteByPath,
   resourceGetByPath,
   resourcePut,
+  SHARED_OWNER,
   WORKSPACE_OWNER,
 } from "@agent-native/core/resources/store";
 import {
@@ -95,11 +96,28 @@ async function materializeGlobalResource(
     return;
   }
 
+  const mimeType = mimeTypeForWorkspaceResource(resource);
+  const existing = await resourceGetByPath(
+    WORKSPACE_OWNER,
+    resource.path,
+  ).catch(() => null);
+  const existingMetadata = parseResourceMetadata(existing?.metadata ?? null);
+  if (
+    existing?.content === resource.content &&
+    existing.mimeType === mimeType &&
+    existingMetadata.source === DISPATCH_RESOURCE_METADATA_SOURCE &&
+    existingMetadata.resourceId === resource.id &&
+    existingMetadata.updatedAt === resource.updatedAt
+  ) {
+    await removeMaterializedResourceFromOwner(SHARED_OWNER, resource);
+    return;
+  }
+
   await resourcePut(
     WORKSPACE_OWNER,
     resource.path,
     resource.content,
-    mimeTypeForWorkspaceResource(resource),
+    mimeType,
     {
       createdBy: "system",
       metadata: {
@@ -112,15 +130,24 @@ async function materializeGlobalResource(
       },
     },
   );
+  await removeMaterializedResourceFromOwner(SHARED_OWNER, resource);
 }
 
-async function removeMaterializedGlobalResource(
+async function ensureMaterializedGlobalResources(
+  resources: MaterializableWorkspaceResource[],
+) {
+  for (const resource of resources) {
+    await materializeGlobalResource(resource);
+  }
+}
+
+async function removeMaterializedResourceFromOwner(
+  owner: string,
   resource: Pick<MaterializableWorkspaceResource, "id" | "path">,
 ) {
-  const existing = await resourceGetByPath(
-    WORKSPACE_OWNER,
-    resource.path,
-  ).catch(() => null);
+  const existing = await resourceGetByPath(owner, resource.path).catch(
+    () => null,
+  );
   if (!existing) return;
   const metadata = parseResourceMetadata(existing.metadata);
   if (
@@ -129,7 +156,14 @@ async function removeMaterializedGlobalResource(
   ) {
     return;
   }
-  await resourceDeleteByPath(WORKSPACE_OWNER, resource.path);
+  await resourceDeleteByPath(owner, resource.path);
+}
+
+async function removeMaterializedGlobalResource(
+  resource: Pick<MaterializableWorkspaceResource, "id" | "path">,
+) {
+  await removeMaterializedResourceFromOwner(WORKSPACE_OWNER, resource);
+  await removeMaterializedResourceFromOwner(SHARED_OWNER, resource);
 }
 
 function orgFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
@@ -173,8 +207,9 @@ export interface WorkspaceResourceForApp extends WorkspaceResourceOption {
   syncedAt: number | null;
 }
 
-const STARTER_RESOURCES_VERSION = 1;
+const STARTER_RESOURCES_VERSION = 2;
 const STARTER_RESOURCES_SETTING_KEY = "dispatch-starter-workspace-resources";
+const starterEnsurePromises = new Map<string, Promise<void>>();
 
 export const STARTER_GLOBAL_WORKSPACE_RESOURCES: WorkspaceResourceInput[] = [
   {
@@ -382,6 +417,10 @@ function starterScopeKey(ctx: WorkspaceResourceCtx): string {
   return ctx.orgId ? `org:${ctx.orgId}` : `solo:${ctx.ownerEmail}`;
 }
 
+function starterEnsureKey(ctx: WorkspaceResourceCtx): string {
+  return `${STARTER_RESOURCES_VERSION}:${starterScopeKey(ctx)}`;
+}
+
 function starterResourceId(ctx: WorkspaceResourceCtx, path: string): string {
   const hash = crypto
     .createHash("sha256")
@@ -472,6 +511,19 @@ async function insertStarterWorkspaceResource(
 export async function ensureStarterWorkspaceResources(
   ctx: WorkspaceResourceCtx = requireWorkspaceResourceCtx(),
 ) {
+  const key = starterEnsureKey(ctx);
+  let promise = starterEnsurePromises.get(key);
+  if (!promise) {
+    promise = ensureStarterWorkspaceResourcesOnce(ctx).catch((error) => {
+      starterEnsurePromises.delete(key);
+      throw error;
+    });
+    starterEnsurePromises.set(key, promise);
+  }
+  await promise;
+}
+
+async function ensureStarterWorkspaceResourcesOnce(ctx: WorkspaceResourceCtx) {
   const marker = await readStarterSeedMarker(ctx).catch(() => null);
   if (marker?.version === STARTER_RESOURCES_VERSION) return;
 
@@ -554,11 +606,13 @@ export async function listWorkspaceResources(filter?: { kind?: string }) {
   if (filter?.kind) {
     conditions.push(eq(schema.workspaceResources.kind, filter.kind) as any);
   }
-  return db
+  const resources = await db
     .select()
     .from(schema.workspaceResources)
     .where(and(...conditions))
     .orderBy(desc(schema.workspaceResources.updatedAt));
+  await ensureMaterializedGlobalResources(resources);
+  return resources;
 }
 
 export async function listWorkspaceResourceOptions(filter?: {
@@ -588,6 +642,7 @@ export async function listWorkspaceResourcesForApp(appId: string): Promise<{
   resources: WorkspaceResourceForApp[];
   counts: {
     total: number;
+    workspace: number;
     global: number;
     granted: number;
     autoLoaded: number;
@@ -625,15 +680,12 @@ export async function listWorkspaceResourcesForApp(appId: string): Promise<{
     .filter((resource): resource is WorkspaceResourceForApp => !!resource)
     .sort((a, b) => {
       const sourceOrder =
-        (a.source === "workspace" ? 0 : 1) -
-        (b.source === "workspace" ? 0 : 1);
+        (a.source === "workspace" ? 0 : 1) - (b.source === "workspace" ? 0 : 1);
       if (sourceOrder !== 0) return sourceOrder;
       return a.path.localeCompare(b.path);
     });
 
-  const global = received.filter(
-    (resource) => resource.source === "workspace",
-  );
+  const global = received.filter((resource) => resource.source === "workspace");
   const granted = received.filter((resource) => resource.source === "grant");
 
   return {
@@ -641,6 +693,7 @@ export async function listWorkspaceResourcesForApp(appId: string): Promise<{
     resources: received,
     counts: {
       total: received.length,
+      workspace: global.length,
       global: global.length,
       granted: granted.length,
       autoLoaded: received.filter((resource) => resource.autoLoaded).length,

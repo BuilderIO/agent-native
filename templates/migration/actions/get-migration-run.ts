@@ -3,7 +3,8 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { loadTasks } from "./_utils.js";
+import type { ProjectIR } from "@agent-native/migrate";
+import { assessmentSourceMetadata, loadTasks } from "./_utils.js";
 
 export default defineAction({
   description: "Get a Migration Workbench run with tasks and verifier results.",
@@ -20,6 +21,7 @@ export default defineAction({
       .select()
       .from(schema.migrationVerifierResults)
       .where(eq(schema.migrationVerifierResults.runId, id));
+    const ir = run.irJson ? (JSON.parse(run.irJson) as ProjectIR) : null;
     return {
       run: {
         id: run.id,
@@ -35,11 +37,12 @@ export default defineAction({
         assessmentPath: run.assessmentPath,
         planPath: run.planPath,
         reportPath: run.reportPath,
-        ir: run.irJson ? JSON.parse(run.irJson) : null,
+        ir,
         role: access.role,
         createdAt: run.createdAt,
         updatedAt: run.updatedAt,
       },
+      assessmentSource: assessmentSourceMetadata(ir),
       tasks: await loadTasks(id),
       verifierResults: verifierRows.map((row) => ({
         id: row.verifierId,

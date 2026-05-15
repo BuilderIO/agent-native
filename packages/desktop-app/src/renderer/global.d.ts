@@ -69,14 +69,19 @@ type CodeAgentMigrationRun = CodeAgentRun & {
   updatedAt: string;
 };
 
-type CodeAgentRunListResult<TRun extends CodeAgentRun = CodeAgentMigrationRun> =
-  {
-    status: "ok" | "unauthorized" | "unavailable";
-    goalId?: string;
-    runs: TRun[];
-    workbenchUrl?: string;
-    error?: string;
-  };
+type CodeAgentRunListResult<TRun extends CodeAgentRun = CodeAgentRun> = {
+  status: "ok" | "unauthorized" | "unavailable";
+  goalId?: string;
+  runs: TRun[];
+  workbenchUrl?: string;
+  error?: string;
+};
+
+type CodeAgentTerminalRequest = {
+  cwd?: string;
+  sourceRoot?: string;
+  outputRoot?: string;
+};
 
 type CodeAgentTerminalResult = {
   ok: boolean;
@@ -163,8 +168,10 @@ interface ElectronAPI {
       runId: string,
       command: CodeAgentControlCommand,
     ): Promise<CodeAgentControlResult>;
-    listMigrationRuns(): Promise<CodeAgentRunListResult>;
-    openTerminal(): Promise<CodeAgentTerminalResult>;
+    listMigrationRuns(): Promise<CodeAgentRunListResult<CodeAgentMigrationRun>>;
+    openTerminal(
+      request?: CodeAgentTerminalRequest,
+    ): Promise<CodeAgentTerminalResult>;
     onOpenRequest(cb: (request: DesktopOpenRequest) => void): () => void;
   };
 

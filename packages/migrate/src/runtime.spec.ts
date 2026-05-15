@@ -129,6 +129,9 @@ describe("migration runtime", () => {
     expect(discovered.run.phase).toBe("plan");
     expect(irJson.site.metadata.needsAgentIntrospection).toBe(true);
     await expect(fs.stat(discovered.assessmentPath)).resolves.toBeTruthy();
+    const assessment = await fs.readFile(discovered.assessmentPath, "utf-8");
+    expect(assessment).toContain("Assessment source: `agent-introspection`");
+    expect(assessment).toContain("Needs agent introspection: yes");
 
     const planned = await planMigration(discovered.run, discovered.ir);
     expect(planned.tasks.map((task) => task.recipeName)).toEqual(

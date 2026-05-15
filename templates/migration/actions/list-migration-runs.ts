@@ -30,6 +30,14 @@ export default defineAction({
       .from(schema.migrationTasks)
       .where(eq(schema.migrationTasks.status, "passed"))
       .groupBy(schema.migrationTasks.runId);
+    const covered = await db
+      .select({
+        runId: schema.migrationTasks.runId,
+        count: sql<number>`count(*)`,
+      })
+      .from(schema.migrationTasks)
+      .where(eq(schema.migrationTasks.status, "covered"))
+      .groupBy(schema.migrationTasks.runId);
     const failed = await db
       .select({
         runId: schema.migrationTasks.runId,
@@ -42,6 +50,7 @@ export default defineAction({
       new Map(rows.map((row) => [row.runId, Number(row.count)]));
     const countMap = byRun(counts);
     const passedMap = byRun(passed);
+    const coveredMap = byRun(covered);
     const failedMap = byRun(failed);
     return {
       runs: runs.map((run) => ({
@@ -56,6 +65,7 @@ export default defineAction({
         approved: run.approved,
         taskCount: countMap.get(run.id) ?? 0,
         passedTaskCount: passedMap.get(run.id) ?? 0,
+        coveredTaskCount: coveredMap.get(run.id) ?? 0,
         failedTaskCount: failedMap.get(run.id) ?? 0,
         createdAt: run.createdAt,
         updatedAt: run.updatedAt,

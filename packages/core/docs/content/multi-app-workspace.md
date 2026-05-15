@@ -140,8 +140,8 @@ Use `packages/shared` for code-level defaults that should ship with the repo: pl
 
 Dispatch resources support two scopes:
 
-- **All apps** — global resources for every app in the workspace. In same-database workspaces they are materialized into the shared SQL resource store immediately; `sync-workspace-resources-to-all` also pushes them to reachable app resource endpoints.
-- **Selected apps** — resources granted per app, then pushed with `sync-workspace-resources-to-app`.
+- **All apps** — global resources for every app in the workspace. Dispatch stores them once at workspace scope and every app agent inherits them at runtime; no copy or sync step is required.
+- **Selected apps** — resources granted per app for app-specific context. Use these sparingly; most company, brand, persona, positioning, messaging, and guardrail context should be All apps.
 
 Canonical paths control behavior:
 

@@ -9,6 +9,8 @@ export default runMigrations(
   title TEXT NOT NULL,
   provider TEXT NOT NULL DEFAULT 'manual',
   status TEXT NOT NULL DEFAULT 'active',
+  source_key TEXT,
+  ingest_token_hash TEXT,
   config_json TEXT NOT NULL DEFAULT '{}',
   cursor_json TEXT NOT NULL DEFAULT '{}',
   last_synced_at TEXT,
@@ -186,6 +188,18 @@ export default runMigrations(
     {
       version: 16,
       sql: `ALTER TABLE brain_knowledge ADD COLUMN IF NOT EXISTS superseded_by_id TEXT`,
+    },
+    {
+      version: 17,
+      sql: `ALTER TABLE brain_sources ADD COLUMN IF NOT EXISTS source_key TEXT`,
+    },
+    {
+      version: 18,
+      sql: `ALTER TABLE brain_sources ADD COLUMN IF NOT EXISTS ingest_token_hash TEXT`,
+    },
+    {
+      version: 19,
+      sql: `CREATE INDEX IF NOT EXISTS brain_sources_signed_ingest_idx ON brain_sources (status, source_key, ingest_token_hash)`,
     },
   ],
   { table: "brain_migrations" },

@@ -77,8 +77,9 @@ localhost or dev ports because the active gateway origin owns the port.
 Dispatch vault keys are workspace-wide by default: every saved vault key is
 available to every workspace app and can be synced from Dispatch. Switch the
 Vault page to manual access only when you need explicit per-app key grants.
-Dispatch resources follow the same shape: All-app resources are global, while
-selected resources need grants and a resource sync to the target app.
+Dispatch resources are inherited rather than synced: All-app resources live
+once at workspace scope and every app agent reads them at runtime. Use selected
+resource grants only for genuinely app-specific context.
 
 ## Workspace org identity
 

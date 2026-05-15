@@ -86,7 +86,10 @@ export async function writeResource(
 
 export async function deleteResource(
   path: string,
-  options?: { shared?: boolean; scope?: Exclude<ResourceHelperScope, "workspace"> },
+  options?: {
+    shared?: boolean;
+    scope?: Exclude<ResourceHelperScope, "workspace">;
+  },
 ): Promise<boolean> {
   const owner = getOwnerForScope(resolveScope(options));
   return resourceDeleteByPath(owner, path);

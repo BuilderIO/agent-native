@@ -122,6 +122,108 @@ export interface SourcesResponse {
   sources?: BrainSource[];
 }
 
+export interface SlackConnectionResponse {
+  ok: boolean;
+  sourceId?: string | null;
+  team?: string | null;
+  teamId?: string | null;
+  workspaceUrl?: string | null;
+  botUser?: string | null;
+  checkedChannels: number;
+  historyRead: false;
+  channels: Array<{
+    ref: string;
+    id?: string;
+    name?: string;
+    status: "ok" | "excluded" | "missing" | "skipped";
+    message: string;
+    directExcluded?: boolean;
+    archived?: boolean;
+    privateChannel?: boolean;
+  }>;
+}
+
+export interface SlackPilotReport {
+  sourceId: string;
+  sourceTitle: string;
+  ok: boolean;
+  status: "validated" | "blocked" | "synced" | "error";
+  historyRead: boolean;
+  credential: {
+    ok: boolean;
+    team?: string | null;
+    teamId?: string | null;
+    workspaceUrl?: string | null;
+    botUser?: string | null;
+    error?: string | null;
+  };
+  guardrails: {
+    historyReadRequested: boolean;
+    maxChannels: number;
+    historyLimit: number;
+    pagesPerChannel: number;
+    permalinkLimit: number;
+    autoSync: false;
+    oldest?: string;
+  };
+  channelValidation: {
+    requested: number;
+    checked: number;
+    ok: number;
+    excluded: number;
+    missing: number;
+    skipped: number;
+    channels: Array<{
+      ref: string;
+      id?: string;
+      name?: string;
+      status: "ok" | "excluded" | "missing" | "skipped";
+      message: string;
+      directExcluded?: boolean;
+      archived?: boolean;
+      privateChannel?: boolean;
+    }>;
+  };
+  sync?: {
+    runId: string;
+    status: "success" | "error";
+    message: string;
+    stats?: Record<string, unknown>;
+  };
+  capturesCreated: number;
+  captures: Array<{
+    id: string;
+    title: string;
+    capturedAt: string;
+    sourceUrl?: string | null;
+  }>;
+  proposals: {
+    total: number;
+    pending: number;
+    recent: Array<{
+      id: string;
+      title: string;
+      status: string;
+      createdAt: string;
+    }>;
+  };
+  currentKnowledge: {
+    total: number;
+    published: number;
+    draft: number;
+    redacted: number;
+    archived: number;
+    recent: Array<{
+      id: string;
+      title: string;
+      status: string;
+      updatedAt: string;
+    }>;
+  };
+  privacyExclusions: string[];
+  nextSteps: string[];
+}
+
 export interface BrainSettings {
   requireApprovalForCompanyKnowledge?: boolean;
   autoRedactEmails?: boolean;
@@ -135,6 +237,28 @@ export interface BrainSettings {
 
 export interface SettingsResponse {
   settings?: BrainSettings;
+}
+
+export interface DemoSeedResponse {
+  seedId: string;
+  seededAt: string;
+  suggestedQuestions: string[];
+}
+
+export interface DemoEvalCheck {
+  id: string;
+  label: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface DemoEvalResponse {
+  seedId: string;
+  ok: boolean;
+  passed: number;
+  total: number;
+  score: number;
+  checks: DemoEvalCheck[];
 }
 
 export const navItems: Array<{

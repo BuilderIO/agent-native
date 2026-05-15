@@ -2,6 +2,14 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import {
+  codeAgentRunArtifactsDir,
+  createCodeAgentRunRecord,
+  getLastCodeAgentRunRecord,
+  listCodeAgentRunRecords,
+  writeCodeAgentRunRecord,
+  type CodeAgentRunRecord,
+} from "./code-agent-runs.js";
 import { createApp } from "./create.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,6 +47,7 @@ export interface MigrateCliOptions {
   planOnly?: boolean;
   emit?: boolean;
   emitDir?: string;
+  appSurface?: boolean;
   last?: boolean;
   help?: boolean;
 }
@@ -173,6 +182,8 @@ export function parseMigrateArgs(argv: string[]): MigrateCliOptions {
     } else if (arg.startsWith("--emit-dir=")) {
       opts.emit = true;
       opts.emitDir = arg.slice("--emit-dir=".length);
+    } else if (arg === "--app-surface" || arg === "--workbench") {
+      opts.appSurface = true;
     } else if (arg === "--plan-only") {
       opts.planOnly = true;
     } else if (arg === "--last") {
@@ -231,7 +242,20 @@ export async function runMigrate(argv: string[]): Promise<void> {
     return;
   }
 
-  await scaffoldOrResumeWorkbench(opts);
+  if (opts.appSurface) {
+    await scaffoldOrResumeWorkbench(opts);
+    return;
+  }
+
+  try {
+    await createMigrationCodeAgentSession(opts);
+  } catch (error) {
+    if (isExpectedMigrationCliError(error)) {
+      console.error(`\n${migrationCliErrorMessage(error)}\n`);
+      process.exit(1);
+    }
+    throw error;
+  }
 }
 
 export async function emitOwnAgentDossier(
@@ -379,7 +403,83 @@ async function scaffoldOrResumeWorkbench(
   console.log(renderWorkbenchReady({ appDir, existing, outputRoot, source }));
 }
 
+async function createMigrationCodeAgentSession(
+  opts: MigrateCliOptions,
+): Promise<void> {
+  const cwd = process.cwd();
+  const source = resolveSourceSpec(opts, cwd);
+  if (!source) {
+    console.error(migrateUsage());
+    process.exit(1);
+  }
+
+  const outputRoot = path.resolve(cwd, opts.output ?? DEFAULT_OUTPUT);
+  if (source.sourceRoot) {
+    assertOutsideSourceRoot(source.sourceRoot, outputRoot, "outputRoot");
+  }
+
+  const run = createCodeAgentRunRecord({
+    goalId: "migrate",
+    title: defaultRunName(source),
+    subtitle: formatSourceForDisplay(source),
+    status: "needs-approval",
+    phase: "intake",
+    needsApproval: true,
+    progress: {
+      label: "Intake",
+      completed: 0,
+      total: 1,
+      percent: 0,
+    },
+    cwd,
+    metadata: {
+      source,
+      sourceRoot: source.sourceRoot,
+      outputRoot,
+      target: opts.target ?? DEFAULT_TARGET,
+    },
+  });
+  const artifactRoot = codeAgentRunArtifactsDir(run.id);
+  const dossierRoot = path.join(artifactRoot, "migration-dossier");
+  const dossier = await emitOwnAgentDossier(
+    {
+      ...opts,
+      emit: true,
+      emitDir: dossierRoot,
+      target: opts.target ?? DEFAULT_TARGET,
+    },
+    cwd,
+  );
+
+  const updated: CodeAgentRunRecord = {
+    ...run,
+    artifactRoot,
+    details: [
+      { label: "Source", value: formatSourceForDisplay(source) },
+      { label: "Output", value: outputRoot },
+      { label: "Dossier", value: dossierRoot },
+    ],
+    metadata: {
+      ...(run.metadata ?? {}),
+      dossierRoot,
+      dossierFiles: dossier.files,
+      usedMigrateHelpers: dossier.usedMigrateHelpers,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  writeCodeAgentRunRecord(updated);
+
+  console.log(renderCodeAgentMigrationSession(updated, dossier));
+}
+
 function printMigrationStatus(opts: MigrateCliOptions): void {
+  const last = getLastCodeAgentRunRecord("migrate");
+  const runs = listCodeAgentRunRecords("migrate");
+  if (last || !opts.appSurface) {
+    console.log(renderCodeAgentMigrationStatus(runs));
+    return;
+  }
+
   const appDir = resolveWorkbenchDir(opts);
   const seedPath = path.join(appDir, "data", "migration-source.json");
   const seed = readJsonIfExists(seedPath) as {
@@ -390,7 +490,7 @@ function printMigrationStatus(opts: MigrateCliOptions): void {
     outputRoot?: string;
     target?: string;
   } | null;
-  const runs = readArtifactRuns(appDir);
+  const artifactRuns = readArtifactRuns(appDir);
 
   if (!fs.existsSync(appDir)) {
     console.error(`No Migration Workbench found at ${appDir}.`);
@@ -410,9 +510,11 @@ function printMigrationStatus(opts: MigrateCliOptions): void {
       `  Source:     ${formatSeedSource(seed)}`,
       `  Output:     ${seed?.outputRoot ?? "not set"}`,
       `  Target:     ${seed?.target ?? DEFAULT_TARGET}`,
-      `  Artifacts:  ${runs.length} run${runs.length === 1 ? "" : "s"}`,
-      ...runs.slice(0, 5).map((run) => `    - ${run.id} (${run.phase})`),
-      runs.length > 5 ? `    - ${runs.length - 5} more...` : "",
+      `  Artifacts:  ${artifactRuns.length} run${artifactRuns.length === 1 ? "" : "s"}`,
+      ...artifactRuns
+        .slice(0, 5)
+        .map((run) => `    - ${run.id} (${run.phase})`),
+      artifactRuns.length > 5 ? `    - ${artifactRuns.length - 5} more...` : "",
       "",
       ...credentialStatusLines(),
     ]
@@ -425,17 +527,21 @@ function printMigrationStop(_opts: MigrateCliOptions): void {
   console.log(
     [
       "",
-      "Migration Workbench stop",
+      "Code Agents /migrate stop",
       "",
-      "The migrate CLI does not daemonize the Workbench, so there is no background process to stop here.",
-      "Stop the terminal running `pnpm dev` with Ctrl+C, or stop the Desktop/dev-all process that owns the Workbench.",
-      "",
-      `Common Workbench URL: http://localhost:${MIGRATION_DEV_PORT}/`,
+      "The migrate CLI creates resumable session records and artifacts; it does not daemonize a background process yet.",
+      "Stop the terminal, Desktop run, or external coding agent that is actively working on the session.",
     ].join("\n"),
   );
 }
 
 function printMigrationUi(opts: MigrateCliOptions): void {
+  const last = getLastCodeAgentRunRecord("migrate");
+  if (last && !opts.appSurface) {
+    console.log(renderCodeAgentMigrationUi(last));
+    return;
+  }
+
   const appDir = resolveWorkbenchDir(opts);
   console.log(
     [
@@ -458,6 +564,12 @@ function printMigrationUi(opts: MigrateCliOptions): void {
 }
 
 function printMigrationResume(opts: MigrateCliOptions): void {
+  const last = getLastCodeAgentRunRecord("migrate");
+  if (last && !opts.appSurface) {
+    console.log(renderCodeAgentMigrationResume(last));
+    return;
+  }
+
   const appDir = resolveWorkbenchDir(opts);
   const seedPath = path.join(appDir, "data", "migration-source.json");
   const seed = readJsonIfExists(seedPath);
@@ -525,6 +637,94 @@ function renderWorkbenchReady(args: {
   ].join("\n");
 }
 
+function renderCodeAgentMigrationSession(
+  run: CodeAgentRunRecord,
+  dossier: EmitDossierResult,
+): string {
+  return [
+    "",
+    "Code Agents /migrate session created.",
+    "",
+    `  Run:     ${run.id}`,
+    `  Source:  ${run.subtitle ?? "not set"}`,
+    `  Output:  ${stringMetadata(run, "outputRoot") ?? "not set"}`,
+    `  Dossier: ${stringMetadata(run, "dossierRoot") ?? dossier.dossierRoot}`,
+    "",
+    "Next:",
+    "  agent-native code resume --last",
+    "  agent-native code status --last",
+    "",
+    "Desktop:",
+    "  Open Code Agents in the left sidebar. This run appears as a /migrate session.",
+    "",
+    "Use another agent:",
+    `  Point Codex, Claude Code, Cursor, or another coding agent at ${shellQuote(dossier.dossierRoot)} and ask it to follow AGENTS.md plus MIGRATION_PLAYBOOK.md.`,
+    "",
+    "No hidden app/template was scaffolded. Use --app-surface only if you want the legacy migration detail app.",
+  ].join("\n");
+}
+
+function renderCodeAgentMigrationStatus(runs: CodeAgentRunRecord[]): string {
+  return [
+    "",
+    "Code Agents /migrate status",
+    "",
+    runs.length === 0
+      ? "  No /migrate sessions found."
+      : `  ${runs.length} session${runs.length === 1 ? "" : "s"} found.`,
+    ...runs.slice(0, 8).map((run) => {
+      const output = stringMetadata(run, "outputRoot");
+      const dossier = stringMetadata(run, "dossierRoot");
+      return [
+        `  - ${run.id}`,
+        `    Status:  ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
+        `    Source:  ${run.subtitle ?? "not set"}`,
+        output ? `    Output:  ${output}` : "",
+        dossier ? `    Dossier: ${dossier}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }),
+    runs.length > 8 ? `  - ${runs.length - 8} more...` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function renderCodeAgentMigrationResume(run: CodeAgentRunRecord): string {
+  const dossier = stringMetadata(run, "dossierRoot");
+  return [
+    "",
+    "Code Agents /migrate resume",
+    "",
+    `  Run:     ${run.id}`,
+    `  Status:  ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
+    `  Source:  ${run.subtitle ?? "not set"}`,
+    dossier ? `  Dossier: ${dossier}` : "",
+    "",
+    "Continue in the interactive shell:",
+    "  agent-native code",
+    "",
+    dossier
+      ? `Or hand off to another agent by pointing it at ${shellQuote(dossier)}.`
+      : "No dossier path is recorded on this run.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function renderCodeAgentMigrationUi(run: CodeAgentRunRecord): string {
+  return [
+    "",
+    "Code Agents /migrate UI",
+    "",
+    `  Run: ${run.id}`,
+    "",
+    "Open Agent-Native Desktop and choose Code Agents from the left sidebar.",
+    "The migration detail app is no longer scaffolded by default; it is only an optional legacy surface.",
+  ].join("\n");
+}
+
 function renderEmitResult(result: EmitDossierResult): string {
   return [
     "",
@@ -550,7 +750,7 @@ function migrateUsage(): string {
   return [
     "Usage:",
     "  agent-native code /migrate <source-path-or-url> [--out ../migrated-app]",
-    "  agent-native migrate <source-path-or-url> [--out ../migrated-app] [--name migration]",
+    "  agent-native migrate <source-path-or-url> [--out ../migrated-app]",
     "  agent-native migrate <source> --emit [dossier-dir]",
     '  agent-native migrate --describe "legacy app described in prose" --emit',
     "  agent-native migrate resume --last",
@@ -568,11 +768,12 @@ function migrateUsage(): string {
     "  --source, --path <path>       Local source path",
     "  --url <url>                  Source URL",
     "  --description, --describe    Source description for any-input migrations",
-    "  --emit [dir]                 Emit an own-agent dossier instead of scaffolding the Workbench",
-    "  --out <path>                 Generated output path for Workbench runs",
-    "  --name <name>                Workbench app name (default: migration)",
+    "  --emit [dir]                 Emit an own-agent dossier without recording a session",
+    "  --out <path>                 Generated output path for the migration session",
+    "  --app-surface, --workbench   Scaffold the legacy hidden migration detail app",
+    "  --name <name>                Legacy app-surface name (default: migration)",
     "  --target <name>              Migration target (default: agent-native)",
-    "  --plan-only                  Seed the Workbench in plan-only mode",
+    "  --plan-only                  Legacy app-surface plan-only seed",
   ].join("\n");
 }
 
@@ -990,9 +1191,9 @@ ${source.description ? `- Description: ${source.description}\n` : ""}
 - \`MIGRATION_PLAYBOOK.md\` - ordered workflow for Code Agents/Desktop.
 - \`01-assessment.md\` - initial source assessment.
 - \`ir.json\` - source inventory when available.
-- \`.agents/skills/migration*/SKILL.md\` - extra instruction packs when available from the Workbench template.
+- \`.agents/skills/migration*/SKILL.md\` - extra instruction packs when available from the migration goal surface.
 
-${templateAgents ? `## Workbench Template Instructions\n\n${templateAgents.trim()}\n` : ""}
+${templateAgents ? `## Migration Goal Surface Instructions\n\n${templateAgents.trim()}\n` : ""}
 `;
 }
 
@@ -1105,6 +1306,14 @@ function defaultRunName(source: SourceSpec): string {
     return `Migration from ${source.value}`;
   }
   return "Migration from described source";
+}
+
+function stringMetadata(
+  run: CodeAgentRunRecord,
+  key: string,
+): string | undefined {
+  const value = run.metadata?.[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function formatSeedSource(

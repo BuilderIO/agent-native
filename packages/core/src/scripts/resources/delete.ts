@@ -33,7 +33,9 @@ Options:
 
   const scope = parsed.scope ?? "personal";
   if (scope === "workspace") {
-    fail("Workspace resources are managed from Dispatch. Use resource-delete for personal or shared app resources.");
+    fail(
+      "Workspace resources are managed from Dispatch. Use resource-delete for personal or shared app resources.",
+    );
   }
   let owner: string;
   if (scope === "shared") {

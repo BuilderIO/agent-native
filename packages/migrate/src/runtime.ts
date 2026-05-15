@@ -228,6 +228,12 @@ function renderAssessment(run: MigrationRun, ir: ProjectIR): string {
   const inputKind = run.inputKind ?? inferMigrationInputKind(run.sourceRoot);
   const inputDescription =
     run.inputDescription ?? describeMigrationInput(run.sourceRoot, inputKind);
+  const metadata = ir.site.metadata ?? {};
+  const source =
+    typeof metadata.source === "string" ? metadata.source : ir.site.framework;
+  const needsAgentIntrospection =
+    metadata.needsAgentIntrospection === true ||
+    source === "agent-introspection";
   return `# Migration Assessment
 
 Source: \`${run.sourceRoot}\`
@@ -235,6 +241,9 @@ Input kind: \`${inputKind}\`
 Input: ${inputDescription}
 Output: \`${run.outputRoot}\`
 Target: \`${run.target}\`
+Assessment source: \`${source}\`
+Needs agent introspection: ${needsAgentIntrospection ? "yes" : "no"}
+${needsAgentIntrospection ? "\n> This is a skeleton fallback inventory. Treat route and behavior counts as assumptions until an agent inspects source code, CMS content, or the live app.\n" : ""}
 
 ## Inventory
 

@@ -20,6 +20,8 @@ export const brainSources = table("brain_sources", {
   })
     .notNull()
     .default("active"),
+  sourceKey: text("source_key"),
+  ingestTokenHash: text("ingest_token_hash"),
   configJson: text("config_json").notNull().default("{}"),
   cursorJson: text("cursor_json").notNull().default("{}"),
   lastSyncedAt: text("last_synced_at"),

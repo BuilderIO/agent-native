@@ -38,6 +38,7 @@ vi.mock("./dispatch-store.js", () => ({
 
 vi.mock("@agent-native/core/resources/store", () => ({
   SHARED_OWNER: "__shared__",
+  WORKSPACE_OWNER: "__workspace__",
   resourcePut: (...args: any[]) => mocks.resourcePut(...args),
   resourceGetByPath: (...args: any[]) => mocks.resourceGetByPath(...args),
   resourceDeleteByPath: (...args: any[]) => mocks.resourceDeleteByPath(...args),
@@ -221,7 +222,7 @@ describe("workspace resource materialization", () => {
       STARTER_GLOBAL_WORKSPACE_RESOURCES.length,
     );
     expect(mocks.resourcePut).toHaveBeenCalledWith(
-      "__shared__",
+      "__workspace__",
       "context/company.md",
       expect.stringContaining("# Company Profile"),
       "text/markdown",
@@ -231,7 +232,7 @@ describe("workspace resource materialization", () => {
       "org_123",
       "dispatch-starter-workspace-resources",
       expect.objectContaining({
-        version: 1,
+        version: 2,
         resources: STARTER_GLOBAL_WORKSPACE_RESOURCES.map((resource) => ({
           path: resource.path,
           kind: resource.kind,
@@ -242,7 +243,7 @@ describe("workspace resource materialization", () => {
   });
 
   it("skips starter seeding after the scope marker exists", async () => {
-    mocks.getOrgSetting.mockResolvedValueOnce({ version: 1 });
+    mocks.getOrgSetting.mockResolvedValueOnce({ version: 2 });
 
     await ensureStarterWorkspaceResources({
       ownerEmail: "owner@example.test",
@@ -255,7 +256,7 @@ describe("workspace resource materialization", () => {
   });
 
   it("restores a missing starter resource without rerunning automatic seeding", async () => {
-    mocks.getOrgSetting.mockResolvedValue({ version: 1 });
+    mocks.getOrgSetting.mockResolvedValue({ version: 2 });
     const state = { resources: [] as ResourceRow[] };
     mocks.getDb.mockReturnValue(createStarterFakeDb(state));
     mocks.getDbExec.mockReturnValue(createStarterExec(state));
@@ -276,7 +277,7 @@ describe("workspace resource materialization", () => {
     );
     expect(mocks.putOrgSetting).not.toHaveBeenCalled();
     expect(mocks.resourcePut).toHaveBeenCalledWith(
-      "__shared__",
+      "__workspace__",
       "context/brand.md",
       expect.stringContaining("# Brand Guidelines"),
       "text/markdown",
@@ -289,12 +290,12 @@ describe("workspace resource materialization", () => {
     expect(received.resources).toEqual([
       expect.objectContaining({
         path: "context/brand.md",
-        source: "global",
+        source: "workspace",
       }),
     ]);
   });
 
-  it("materializes scope=all starter resources into the core shared resource store", async () => {
+  it("materializes scope=all starter resources into the core workspace resource store", async () => {
     const created = await createWorkspaceResource({
       kind: "instruction",
       name: "Starter guardrails",
@@ -306,7 +307,7 @@ describe("workspace resource materialization", () => {
 
     expect(created?.scope).toBe("all");
     expect(mocks.resourcePut).toHaveBeenCalledWith(
-      "__shared__",
+      "__workspace__",
       "instructions/starter.md",
       "# Starter\nUse the shared workspace context.",
       "text/markdown",
@@ -334,7 +335,7 @@ describe("workspace resource materialization", () => {
     });
 
     expect(mocks.resourcePut).toHaveBeenCalledWith(
-      "__shared__",
+      "__workspace__",
       "remote-agents/research.json",
       '{"name":"Research"}',
       "application/json",
@@ -377,7 +378,7 @@ describe("workspace resource materialization", () => {
     mocks.getDb.mockReturnValue(createFakeDb(state));
     mocks.resourceGetByPath.mockResolvedValueOnce({
       id: "shared_1",
-      owner: "__shared__",
+      owner: "__workspace__",
       path: "instructions/starter.md",
       metadata: dispatchMetadata(state.resources[0]),
     });
@@ -385,7 +386,7 @@ describe("workspace resource materialization", () => {
     await updateWorkspaceResource("resource_1", { scope: "selected" });
 
     expect(mocks.resourceDeleteByPath).toHaveBeenCalledWith(
-      "__shared__",
+      "__workspace__",
       "instructions/starter.md",
     );
     expect(mocks.resourcePut).not.toHaveBeenCalled();
@@ -413,7 +414,7 @@ describe("workspace resource materialization", () => {
     mocks.getDb.mockReturnValue(createFakeDb(state));
     mocks.resourceGetByPath.mockResolvedValueOnce({
       id: "shared_1",
-      owner: "__shared__",
+      owner: "__workspace__",
       path: "instructions/starter.md",
       metadata: JSON.stringify({
         source: "manual",
@@ -449,7 +450,7 @@ describe("workspace resource materialization", () => {
     mocks.getDb.mockReturnValue(createFakeDb(state));
     mocks.resourceGetByPath.mockResolvedValueOnce({
       id: "shared_1",
-      owner: "__shared__",
+      owner: "__workspace__",
       path: "context/positioning.md",
       metadata: dispatchMetadata(state.resources[0]),
     });
@@ -457,13 +458,13 @@ describe("workspace resource materialization", () => {
     await deleteWorkspaceResource("resource_1");
 
     expect(mocks.resourceDeleteByPath).toHaveBeenCalledWith(
-      "__shared__",
+      "__workspace__",
       "context/positioning.md",
     );
   });
 
-  it("lists the global and granted workspace resources an app receives", async () => {
-    mocks.getOrgSetting.mockResolvedValue({ version: 1 });
+  it("lists the inherited and granted workspace resources an app receives", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ version: 2 });
     const state = {
       resources: [
         {
@@ -540,6 +541,7 @@ describe("workspace resource materialization", () => {
 
     expect(result.counts).toEqual({
       total: 2,
+      workspace: 1,
       global: 1,
       granted: 1,
       autoLoaded: 1,
@@ -550,7 +552,7 @@ describe("workspace resource materialization", () => {
     ]);
     expect(result.resources[0]).toEqual(
       expect.objectContaining({
-        source: "global",
+        source: "workspace",
         autoLoaded: true,
         grantId: null,
       }),

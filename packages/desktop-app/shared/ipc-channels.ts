@@ -145,6 +145,12 @@ export interface CodeAgentRunListResult<
   error?: string;
 }
 
+export interface CodeAgentTerminalRequest {
+  cwd?: string;
+  sourceRoot?: string;
+  outputRoot?: string;
+}
+
 export interface CodeAgentTerminalResult {
   ok: boolean;
   cwd: string;

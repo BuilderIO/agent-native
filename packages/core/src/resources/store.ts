@@ -167,6 +167,10 @@ const DEFAULT_AGENTS_SHARED_MD = `# Agent Instructions
 
 This file customizes how the AI agent behaves in this app. Edit it to add your own instructions, preferences, and context.
 
+Workspace-level resources managed from Dispatch are inherited before this file.
+Use this shared app/organization file to override or narrow those defaults for
+this app or team.
+
 ## What to put here
 
 - **Preferences** — Tone, style, verbosity, response format

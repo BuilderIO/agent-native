@@ -1,6 +1,6 @@
 // guard:allow-unscoped — signed public ingest must resolve the owning source
 // from sourceKey + bearer token before it can establish request context.
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, like, or } from "drizzle-orm";
 import { createError, defineEventHandler, getHeader, type H3Event } from "h3";
 import { readBody } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
@@ -57,6 +57,10 @@ function textFromPayload(payload: z.infer<typeof rawCapturePayloadSchema>) {
     .trim();
 }
 
+function sourceKeyConfigPattern(sourceKey: string) {
+  return `%"sourceKey":${JSON.stringify(sourceKey)}%`;
+}
+
 export default defineEventHandler(async (event) => {
   const payload = rawCapturePayloadSchema.parse(await readBody(event));
   const token = bearerToken(event);
@@ -68,19 +72,32 @@ export default defineEventHandler(async (event) => {
   const sources = await getDb()
     .select()
     .from(schema.brainSources)
-    .where(eq(schema.brainSources.status, "active"));
-  const source =
-    sources.find((row) => {
-      const config = parseJson<Record<string, unknown>>(row.configJson, {});
-      return (
-        config.sourceKey === payload.sourceKey &&
-        config.ingestTokenHash === tokenHash
-      );
-    }) ??
-    sources.find((row) => {
-      const config = parseJson<Record<string, unknown>>(row.configJson, {});
-      return config.ingestTokenHash === tokenHash;
-    });
+    .where(
+      and(
+        eq(schema.brainSources.status, "active"),
+        or(
+          and(
+            eq(schema.brainSources.sourceKey, payload.sourceKey),
+            eq(schema.brainSources.ingestTokenHash, tokenHash),
+          ),
+          and(
+            isNull(schema.brainSources.sourceKey),
+            isNull(schema.brainSources.ingestTokenHash),
+            like(
+              schema.brainSources.configJson,
+              sourceKeyConfigPattern(payload.sourceKey),
+            ),
+          ),
+        ),
+      ),
+    );
+  const source = sources.find((row) => {
+    const config = parseJson<Record<string, unknown>>(row.configJson, {});
+    return (
+      config.sourceKey === payload.sourceKey &&
+      config.ingestTokenHash === tokenHash
+    );
+  });
 
   if (!source) {
     throw createError({ statusCode: 404, statusMessage: "Unknown source" });

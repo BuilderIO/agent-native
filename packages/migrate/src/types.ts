@@ -10,6 +10,7 @@ export type MigrationTaskStatus =
   | "pending"
   | "running"
   | "passed"
+  | "covered"
   | "failed"
   | "manual";
 

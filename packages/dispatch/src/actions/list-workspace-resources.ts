@@ -4,7 +4,7 @@ import { listWorkspaceResources } from "../server/lib/workspace-resources-store.
 
 export default defineAction({
   description:
-    "List all workspace-wide resources (skills, instructions, agent profiles, and reference resources) that can be shared across apps.",
+    "List all workspace-wide resources (skills, instructions, agent profiles, and reference resources) that apps inherit at runtime.",
   schema: z.object({
     kind: z
       .enum(["skill", "instruction", "agent", "knowledge"])

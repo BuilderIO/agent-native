@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { discoverMigration } from "@agent-native/migrate";
 import { getDb, schema } from "../server/db/index.js";
-import { getRunRow, rowToRun } from "./_utils.js";
+import { assessmentSourceMetadata, getRunRow, rowToRun } from "./_utils.js";
 
 export default defineAction({
   description:
@@ -27,9 +27,14 @@ export default defineAction({
         updatedAt: result.run.updatedAt,
       })
       .where(eq(schema.migrationRuns.id, id));
+    const assessmentSource = assessmentSourceMetadata(result.ir);
     return {
       run: result.run,
       assessmentPath: result.assessmentPath,
+      assessmentSource,
+      source: assessmentSource?.source ?? result.ir.site.framework,
+      needsAgentIntrospection:
+        assessmentSource?.needsAgentIntrospection ?? false,
       inputKind: result.run.inputKind,
       inputDescription: result.run.inputDescription,
       routeCount: result.ir.site.routes.length,

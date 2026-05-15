@@ -320,7 +320,9 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
 
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{counts?.total ?? 0} total</Badge>
-            <Badge variant="outline">{counts?.global ?? 0} workspace</Badge>
+            <Badge variant="outline">
+              {counts?.workspace ?? counts?.global ?? 0} workspace
+            </Badge>
             <Badge variant="outline">{counts?.granted ?? 0} granted</Badge>
             <Badge variant="outline">
               {counts?.autoLoaded ?? 0} auto-loaded

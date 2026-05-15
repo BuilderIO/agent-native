@@ -115,7 +115,7 @@ function buildNewWorkspaceAppPrompt(input: {
     `If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.`,
     grantRequest,
     `Requested Dispatch workspace resources for this app:\n${resourceList}`,
-    `Dispatch workspace resources with scope=all are global. After the app exists, sync workspace resources to appId "${input.appId}" so global skills, guardrail instructions, and reference resources reach the new app even when no per-app resources were selected.`,
+    `Dispatch workspace resources with scope=all are inherited workspace context. Do not copy or sync them into the new app; every workspace app reads them at runtime and may override with app shared or personal resources.`,
     ``,
     `Pick a starter template that fits the user's prompt — analytics, calendar, content, design, dispatch, forms, mail, slides, clips, or starter when none of the others fit.`,
     `Use the workspace app layout: create it under apps/${input.appId}, mount it at /${input.appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
@@ -132,7 +132,7 @@ function buildNewWorkspaceAppPrompt(input: {
         ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
         : `Do not grant any Dispatch vault keys unless the user asks later.`,
     input.selectedResources.length
-      ? `After the app exists, grant the selected Dispatch workspace resources to appId "${input.appId}", then sync workspace resources once the app server is available.`
+      ? `After the app exists, grant the selected Dispatch workspace resources to appId "${input.appId}". Do not sync all-app workspace resources; they are inherited.`
       : `Do not grant any selected-only Dispatch workspace resources unless the user asks later.`,
     ``,
     `App readiness requirements before handing off:`,

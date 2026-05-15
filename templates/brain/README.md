@@ -54,6 +54,16 @@ Useful config keys:
   the cadence. Background polling runs when `RUN_BACKGROUND_JOBS=1` in dev, and
   by default in production unless `RUN_BACKGROUND_JOBS=0`.
 
+Before reading real Slack history, run a credential/channel smoke test:
+
+```bash
+pnpm --filter brain action test-slack-connection \
+  --channelRefs '["C0123456789"]'
+```
+
+This calls Slack `auth.test` and optional channel metadata checks only. It never
+calls `conversations.history`.
+
 ## Granola Source Config
 
 Granola uses the scoped `GRANOLA_API_KEY` credential and polls
@@ -121,3 +131,21 @@ Brain stores data in portable SQL through Drizzle:
 - `brain_ingest_queue`
 
 JSON stays in text columns. V1 does not require a vector database.
+
+## Demo and Eval
+
+Load the product-decision demo corpus:
+
+```bash
+pnpm --filter brain action seed-demo-data
+```
+
+Then run the repeatable quality check:
+
+```bash
+pnpm --filter brain action run-demo-eval
+```
+
+The eval checks product-decision recall, citation presence, supersede links,
+proposal gating, PII redaction, and personal-content exclusion. The Ask page
+also exposes **Load demo** and **Run eval** controls for template demos.

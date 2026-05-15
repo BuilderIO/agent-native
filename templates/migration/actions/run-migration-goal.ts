@@ -20,6 +20,7 @@ import {
 } from "@agent-native/migrate";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assessmentSourceMetadata,
   getRunRow,
   loadTasks,
   replaceTasks,
@@ -166,7 +167,7 @@ export default defineAction({
       if (selected) {
         await setTaskStatus(
           selected.id,
-          scaffoldResult.ok ? "passed" : "failed",
+          scaffoldResult.ok ? "covered" : "failed",
         );
       }
       scaffoldExists = await pathExists(manifestPath);
@@ -197,14 +198,14 @@ export default defineAction({
       );
       const advanced = firstPendingTasks(tasks, remainingSlots);
       for (const task of advanced) {
-        await setTaskStatus(task.id, "passed");
+        await setTaskStatus(task.id, "covered");
       }
       steps.push({
         name: "task-sweep",
         status: advanced.length > 0 ? "completed" : "skipped",
         summary:
           advanced.length > 0
-            ? `Advanced ${advanced.length} pending task(s) covered by the scaffold sweep.`
+            ? `Marked ${advanced.length} pending task(s) as covered by scaffold output.`
             : "No additional pending tasks were advanced in this bounded run.",
       });
       tasks = await loadTasks(id);
@@ -333,6 +334,7 @@ function summarizeTasks(tasks: MigrationTask[]) {
     pending: tasks.filter((task) => task.status === "pending").length,
     running: tasks.filter((task) => task.status === "running").length,
     passed: tasks.filter((task) => task.status === "passed").length,
+    covered: tasks.filter((task) => task.status === "covered").length,
     failed: tasks.filter((task) => task.status === "failed").length,
     manual: tasks.filter((task) => task.status === "manual").length,
   };
@@ -364,6 +366,9 @@ function buildStatus(args: {
       planPath: args.row.planPath,
       reportPath: args.reportPath ?? args.row.reportPath,
     },
+    assessmentSource: assessmentSourceMetadata(
+      args.row.irJson ? (JSON.parse(args.row.irJson) as ProjectIR) : null,
+    ),
     approvalRequired: Boolean(args.row.planPath && !args.row.approved),
     taskSummary: summarizeTasks(args.tasks),
     steps: args.steps,

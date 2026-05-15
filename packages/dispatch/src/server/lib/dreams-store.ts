@@ -113,6 +113,11 @@ export interface DreamProposalBuildResult {
   guardrailNotes: string[];
 }
 
+export interface DreamProposalBuildOptions {
+  personalMemoryAllowed?: boolean;
+  personalMemoryBlockReason?: string | null;
+}
+
 function id() {
   return crypto.randomUUID();
 }
@@ -294,6 +299,16 @@ function isNegativeFeedback(row: Record<string, unknown>): boolean {
 
 function lowerString(value: unknown): string {
   return String(value ?? "").toLowerCase();
+}
+
+function sameOwnerEmail(a: unknown, b: unknown): boolean {
+  const left = String(a ?? "")
+    .trim()
+    .toLowerCase();
+  const right = String(b ?? "")
+    .trim()
+    .toLowerCase();
+  return Boolean(left && right && left === right);
 }
 
 function isEvalFailure(row: Record<string, unknown>): boolean {
@@ -656,13 +671,68 @@ function analyzeThreadDebug(debug: any, sourceId: string): DreamCandidate {
   };
 }
 
-export async function listDreamCandidates(input: {
+interface ListDreamCandidatesInput {
   sourceId?: string;
+  sourceIds?: string[];
+  allSources?: boolean;
   query?: string;
   ownerEmail?: string;
   limit?: number;
-}) {
+  sourceTimeoutMs?: number;
+}
+
+interface DreamSourceRef {
+  id: string;
+  label?: string | null;
+}
+
+interface DreamSourceScanResult {
+  source: Record<string, unknown>;
+  access: Record<string, unknown> | null;
+  query: string | null;
+  inspectedThreadCount: number;
+  candidateCount: number;
+  errors: Array<Record<string, unknown>>;
+  candidates: DreamCandidate[];
+  sources: DreamSourceHealth[];
+}
+
+function wantsAllDreamSources(input: ListDreamCandidatesInput): boolean {
+  return Boolean(input.allSources || input.sourceId?.trim() === "all");
+}
+
+async function dreamSourceRefs(
+  input: ListDreamCandidatesInput,
+): Promise<DreamSourceRef[]> {
+  const explicit = Array.from(
+    new Set(
+      (input.sourceIds ?? [])
+        .map((sourceId) => sourceId.trim())
+        .filter(Boolean),
+    ),
+  );
+  if (explicit.length > 0) {
+    return explicit.map((sourceId) => ({ id: sourceId, label: sourceId }));
+  }
+
   const sourceId = input.sourceId?.trim() || "current";
+  if (!wantsAllDreamSources(input)) {
+    return [{ id: sourceId, label: sourceId }];
+  }
+
+  const listed = await listThreadDebugSources();
+  const sources = listed.sources
+    .filter((source) => source.connected)
+    .map((source) => ({ id: source.id, label: source.label }));
+  return sources.length > 0
+    ? sources
+    : [{ id: "current", label: "Current Dispatch DB" }];
+}
+
+async function inspectDreamSource(
+  input: ListDreamCandidatesInput,
+  sourceId: string,
+): Promise<Omit<DreamSourceScanResult, "sources">> {
   const limit = clampLimit(input.limit);
   const search = await searchAgentThreads({
     sourceId,
@@ -709,9 +779,143 @@ export async function listDreamCandidates(input: {
     query: search.query,
     inspectedThreadCount: search.threads.length,
     candidateCount: candidates.length,
-    errors: inspected.map((entry) => entry.error).filter(Boolean),
+    errors: inspected
+      .map((entry) => entry.error)
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry)),
     candidates,
   };
+}
+
+async function scanDreamSource(
+  input: ListDreamCandidatesInput,
+  source: DreamSourceRef,
+  timeoutMs: number,
+): Promise<DreamSourceScanResult> {
+  const startedAt = now();
+  try {
+    const result = await withTimeout(
+      inspectDreamSource(input, source.id),
+      source.id,
+      timeoutMs,
+    );
+    const durationMs = now() - startedAt;
+    const sourceInfo = result.source ?? {};
+    const sourceId = String(sourceInfo.id ?? source.id);
+    const label = String(sourceInfo.label ?? source.label ?? source.id);
+    return {
+      ...result,
+      sources: [
+        {
+          sourceId,
+          label,
+          status: "ok",
+          durationMs,
+          inspectedThreadCount: result.inspectedThreadCount,
+          candidateCount: result.candidateCount,
+          errorCount: result.errors.length,
+        },
+      ],
+    };
+  } catch (error) {
+    const durationMs = now() - startedAt;
+    const timedOut = isDreamSourceTimeout(error);
+    const message = timedOut
+      ? `Timed out after ${timeoutMs}ms`
+      : compactErrorMessage(error);
+    const status: DreamSourceStatus = timedOut ? "timed_out" : "error";
+    return {
+      source: {
+        id: source.id,
+        label: source.label ?? source.id,
+        kind: "unknown",
+        databaseUrlEnv: null,
+      },
+      access: null,
+      query: input.query?.trim() || null,
+      inspectedThreadCount: 0,
+      candidateCount: 0,
+      errors: [{ sourceId: source.id, message }],
+      candidates: [],
+      sources: [
+        {
+          sourceId: source.id,
+          label: source.label ?? source.id,
+          status,
+          durationMs,
+          inspectedThreadCount: 0,
+          candidateCount: 0,
+          errorCount: 1,
+          message,
+        },
+      ],
+    };
+  }
+}
+
+export async function listDreamCandidates(input: ListDreamCandidatesInput) {
+  const timeoutMs = clampSourceTimeoutMs(input.sourceTimeoutMs);
+  const sources = await dreamSourceRefs(input);
+  const scanResults = await mapWithConcurrency(sources, 4, (source) =>
+    scanDreamSource(input, source, timeoutMs),
+  );
+  const aggregate = wantsAllDreamSources(input) || sources.length > 1;
+  const candidates = scanResults
+    .flatMap((result) => result.candidates)
+    .sort(
+      (a, b) => b.score - a.score || b.thread.updatedAt - a.thread.updatedAt,
+    );
+  const sourceHealth = scanResults.flatMap((result) => result.sources);
+
+  return {
+    source: aggregate
+      ? {
+          id: "all",
+          label: "All configured sources",
+          kind: "aggregate",
+          databaseUrlEnv: null,
+        }
+      : scanResults[0]?.source,
+    access: aggregate
+      ? { scope: "combined", sourceCount: sources.length }
+      : scanResults[0]?.access,
+    query: input.query?.trim() || scanResults[0]?.query || null,
+    inspectedThreadCount: scanResults.reduce(
+      (sum, result) => sum + result.inspectedThreadCount,
+      0,
+    ),
+    candidateCount: candidates.length,
+    errors: scanResults.flatMap((result) => result.errors),
+    sources: sourceHealth,
+    candidates,
+  };
+}
+
+function describeOwnerScope(scope: string): string {
+  return scope.includes("@") ? "another user" : `"${scope}"`;
+}
+
+function personalMemoryBlockReasonForDream(
+  result: Awaited<ReturnType<typeof listDreamCandidates>>,
+  creatorEmail: string,
+): string | null {
+  const otherOwnerCount = new Set(
+    result.candidates
+      .map((candidate) => candidate.thread.ownerEmail)
+      .filter((owner) => owner && !sameOwnerEmail(owner, creatorEmail))
+      .map((owner) => owner.trim().toLowerCase()),
+  ).size;
+  if (otherOwnerCount === 1) {
+    return "source evidence includes a thread owned by another user";
+  }
+  if (otherOwnerCount > 1) {
+    return `source evidence includes threads owned by ${otherOwnerCount} other users`;
+  }
+
+  const scope = String((result.access as any)?.scope ?? "").trim();
+  if (scope && !sameOwnerEmail(scope, creatorEmail)) {
+    return `the source owner scope is ${describeOwnerScope(scope)} rather than the dream creator's personal scope`;
+  }
+  return null;
 }
 
 function evidenceSummary(evidence: DreamEvidence[], max = 6): string {
@@ -997,7 +1201,10 @@ function makeReport(input: {
   inspectedThreadCount: number;
   proposals: DreamProposalInput[];
   guardrailNotes?: string[];
+  sourceHealth?: DreamSourceHealth[];
 }) {
+  const completedSourceCount =
+    input.sourceHealth?.filter((source) => source.status === "ok").length ?? 0;
   const lines = [
     `# ${input.title}`,
     "",
@@ -1007,9 +1214,25 @@ function makeReport(input: {
     `Inspected threads: ${input.inspectedThreadCount}`,
     `Candidates: ${input.candidates.length}`,
     `Proposals: ${input.proposals.length}`,
-    "",
-    "## Candidate Signals",
   ];
+
+  if (input.sourceHealth && input.sourceHealth.length > 0) {
+    lines.push(
+      `Sources completed: ${completedSourceCount}/${input.sourceHealth.length}`,
+    );
+    lines.push("", "## Source Health");
+    for (const source of input.sourceHealth) {
+      const label = source.label || source.sourceId;
+      const message = source.message
+        ? ` — ${compactText(source.message, 160)}`
+        : "";
+      lines.push(
+        `- ${label} (${source.sourceId}): ${source.status} in ${source.durationMs}ms, ${source.inspectedThreadCount} inspected, ${source.candidateCount} candidates, ${source.errorCount} errors${message}`,
+      );
+    }
+  }
+
+  lines.push("", "## Candidate Signals");
 
   if (input.candidates.length === 0) {
     lines.push("", "No dream-worthy signals were found in this pass.");
@@ -1064,8 +1287,14 @@ function makeReport(input: {
 export function buildProposalInputs(
   candidates: DreamCandidate[],
   memoryContext: DreamMemoryContext = emptyMemoryContext(),
+  options: DreamProposalBuildOptions = {},
 ): DreamProposalBuildResult {
   const proposals: DreamProposalInput[] = [];
+  const personalMemoryAllowed = options.personalMemoryAllowed ?? true;
+  const personalMemoryBlockReason =
+    options.personalMemoryBlockReason?.trim() ||
+    "source owner scope differs from the dream creator's personal scope";
+  let routedPersonalMemory = false;
   const explicitEvidence = candidates.flatMap((candidate) =>
     candidate.evidence.filter((entry) =>
       ["remember-request", "explicit-correction"].includes(entry.kind),
@@ -1090,25 +1319,47 @@ export function buildProposalInputs(
 
   if (explicitEvidence.length > 0) {
     const title = `Dispatch dream memory ${date}`;
-    proposals.push({
-      targetType: "personal-memory",
-      targetPath: `memory/${slugify(title)}.md`,
-      title: "Save explicit user corrections from recent agent runs",
-      summary:
-        "Recent threads contain explicit user corrections or remember requests that may be worth preserving as personal memory.",
-      rationale:
-        "Explicit user corrections and remember requests are high-signal, user-grounded evidence for personal memory.",
-      content: [
-        "# Dispatch Dream Memory",
-        "",
-        "Recent agent runs contained explicit user-grounded lessons:",
-        "",
-        evidenceSummary(explicitEvidence, 10),
-      ].join("\n"),
-      evidence: explicitEvidence.slice(0, 10),
-      confidence: Math.min(95, 70 + explicitEvidence.length * 5),
-      risk: "low",
-    });
+    if (personalMemoryAllowed) {
+      proposals.push({
+        targetType: "personal-memory",
+        targetPath: `memory/${slugify(title)}.md`,
+        title: "Save explicit user corrections from recent agent runs",
+        summary:
+          "Recent threads contain explicit user corrections or remember requests that may be worth preserving as personal memory.",
+        rationale:
+          "Explicit user corrections and remember requests are high-signal, user-grounded evidence for personal memory.",
+        content: [
+          "# Dispatch Dream Memory",
+          "",
+          "Recent agent runs contained explicit user-grounded lessons:",
+          "",
+          evidenceSummary(explicitEvidence, 10),
+        ].join("\n"),
+        evidence: explicitEvidence.slice(0, 10),
+        confidence: Math.min(95, 70 + explicitEvidence.length * 5),
+        risk: "low",
+      });
+    } else {
+      routedPersonalMemory = true;
+      proposals.push({
+        targetType: "shared-learnings",
+        targetPath: "LEARNINGS.md",
+        title: "Review explicit user corrections as shared learnings",
+        summary:
+          "Recent admin-visible threads contain explicit user corrections or remember requests that should stay reviewable as shared learnings instead of personal memory.",
+        rationale: `Personal memory is blocked because ${personalMemoryBlockReason}. Shared learnings keep the evidence visible for review without writing another user's snippets into the dream creator's memory.`,
+        content: [
+          "Recent Dispatch dream review found explicit user-grounded lessons in admin-visible threads.",
+          "",
+          `Provenance: Personal memory was disabled for this proposal because ${personalMemoryBlockReason}.`,
+          "",
+          evidenceSummary(explicitEvidence, 10),
+        ].join("\n"),
+        evidence: explicitEvidence.slice(0, 10),
+        confidence: Math.min(95, 70 + explicitEvidence.length * 5),
+        risk: "medium",
+      });
+    }
   }
 
   const failureThreadCount = new Set(
@@ -1139,39 +1390,73 @@ export function buildProposalInputs(
     successEvidence.length >= 2 &&
     new Set(successEvidence.map((entry) => entry.threadId)).size >= 2
   ) {
-    proposals.push({
-      targetType: "personal-memory",
-      targetPath: `memory/${slugify(`dispatch-success-patterns-${date}`)}.md`,
-      title: "Preserve successful Dispatch workflow patterns",
-      summary:
-        "Recent successful checkpointed runs may contain reusable workflow patterns.",
-      rationale:
-        "Checkpointed successful runs are lower-risk candidates for personal memory when no correction or failure proposals are present.",
-      content: [
-        "# Successful Dispatch Patterns",
-        "",
-        "Recent checkpointed runs worth reviewing:",
-        "",
-        evidenceSummary(successEvidence, 8),
-      ].join("\n"),
-      evidence: successEvidence.slice(0, 8),
-      confidence: 60,
-      risk: "low",
-    });
+    if (personalMemoryAllowed) {
+      proposals.push({
+        targetType: "personal-memory",
+        targetPath: `memory/${slugify(`dispatch-success-patterns-${date}`)}.md`,
+        title: "Preserve successful Dispatch workflow patterns",
+        summary:
+          "Recent successful checkpointed runs may contain reusable workflow patterns.",
+        rationale:
+          "Checkpointed successful runs are lower-risk candidates for personal memory when no correction or failure proposals are present.",
+        content: [
+          "# Successful Dispatch Patterns",
+          "",
+          "Recent checkpointed runs worth reviewing:",
+          "",
+          evidenceSummary(successEvidence, 8),
+        ].join("\n"),
+        evidence: successEvidence.slice(0, 8),
+        confidence: 60,
+        risk: "low",
+      });
+    } else {
+      routedPersonalMemory = true;
+      proposals.push({
+        targetType: "shared-learnings",
+        targetPath: "LEARNINGS.md",
+        title: "Review successful Dispatch workflow patterns",
+        summary:
+          "Recent successful checkpointed runs may contain reusable workflow patterns, but the source scope is not personal to the dream creator.",
+        rationale: `Personal memory is blocked because ${personalMemoryBlockReason}. Shared learnings keep the cross-owner workflow evidence reviewable.`,
+        content: [
+          "Recent Dispatch dream review found checkpointed runs worth reviewing.",
+          "",
+          `Provenance: Personal memory was disabled for this proposal because ${personalMemoryBlockReason}.`,
+          "",
+          evidenceSummary(successEvidence, 8),
+        ].join("\n"),
+        evidence: successEvidence.slice(0, 8),
+        confidence: 60,
+        risk: "medium",
+      });
+    }
   }
 
-  return applyMemoryGuardrails(proposals, memoryContext);
+  const result = applyMemoryGuardrails(proposals, memoryContext);
+  if (routedPersonalMemory) {
+    result.guardrailNotes.unshift(
+      `Routed personal-memory dream proposals to shared learnings because ${personalMemoryBlockReason}.`,
+    );
+  }
+  return result;
 }
 
 function summarizeDream(
   candidates: DreamCandidate[],
   proposals: number,
+  sourceHealth: DreamSourceHealth[] = [],
 ): string {
+  const failedSources = sourceHealth.filter((source) => source.status !== "ok");
+  const sourcePrefix =
+    sourceHealth.length > 1
+      ? `${sourceHealth.length - failedSources.length}/${sourceHealth.length} sources completed${failedSources.length > 0 ? ` with ${failedSources.length} partial` : ""}. `
+      : "";
   if (candidates.length === 0) {
-    return "No dream-worthy signals were found in the inspected threads.";
+    return `${sourcePrefix}No dream-worthy signals were found in the inspected threads.`;
   }
   const topReason = candidates[0]?.reasons[0]?.label ?? "agent-run signals";
-  return `Reviewed ${candidates.length} candidate thread(s), led by ${topReason}. Created ${proposals} proposal(s).`;
+  return `${sourcePrefix}Reviewed ${candidates.length} candidate thread(s), led by ${topReason}. Created ${proposals} proposal(s).`;
 }
 
 function serializeProposal(row: DreamProposalRow) {
@@ -1223,9 +1508,12 @@ async function getProposalRow(
 
 export async function createDreamReport(input: {
   sourceId?: string;
+  sourceIds?: string[];
+  allSources?: boolean;
   query?: string;
   ownerEmail?: string;
   limit?: number;
+  sourceTimeoutMs?: number;
   title?: string;
 }) {
   const db = getDb();
@@ -1233,7 +1521,9 @@ export async function createDreamReport(input: {
   const ownerEmail = currentOwnerEmail();
   const orgId = currentOrgId();
   const dreamId = id();
-  const sourceId = input.sourceId?.trim() || "current";
+  const allSources =
+    wantsAllDreamSources(input) || (input.sourceIds?.length ?? 0) > 0;
+  const sourceId = allSources ? "all" : input.sourceId?.trim() || "current";
   const query = input.query?.trim() || null;
   const title = input.title?.trim() || `Dispatch dream ${today()}`;
 
@@ -1260,14 +1550,28 @@ export async function createDreamReport(input: {
   try {
     const result = await listDreamCandidates({
       sourceId,
+      sourceIds: input.sourceIds,
+      allSources,
       query: input.query,
       ownerEmail: input.ownerEmail,
       limit: input.limit,
+      sourceTimeoutMs: input.sourceTimeoutMs,
     });
     const memoryContext = await loadDreamMemoryContext(ownerEmail).catch(() =>
       emptyMemoryContext(),
     );
-    const proposalBuild = buildProposalInputs(result.candidates, memoryContext);
+    const personalMemoryBlockReason = personalMemoryBlockReasonForDream(
+      result,
+      ownerEmail,
+    );
+    const proposalBuild = buildProposalInputs(
+      result.candidates,
+      memoryContext,
+      {
+        personalMemoryAllowed: personalMemoryBlockReason == null,
+        personalMemoryBlockReason,
+      },
+    );
     const proposalInputs = proposalBuild.proposals;
     const report = makeReport({
       title,
@@ -1277,8 +1581,13 @@ export async function createDreamReport(input: {
       inspectedThreadCount: result.inspectedThreadCount,
       proposals: proposalInputs,
       guardrailNotes: proposalBuild.guardrailNotes,
+      sourceHealth: result.sources,
     });
-    const summary = summarizeDream(result.candidates, proposalInputs.length);
+    const summary = summarizeDream(
+      result.candidates,
+      proposalInputs.length,
+      result.sources,
+    );
     const completedAt = now();
 
     if (proposalInputs.length > 0) {
@@ -1332,6 +1641,8 @@ export async function createDreamReport(input: {
         candidates: result.candidateCount,
         inspectedThreads: result.inspectedThreadCount,
         proposals: proposalInputs.length,
+        sources: result.sources,
+        personalMemoryBlocked: personalMemoryBlockReason,
       },
     });
 

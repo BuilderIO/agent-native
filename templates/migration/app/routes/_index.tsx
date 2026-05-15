@@ -38,13 +38,23 @@ type RunSummary = {
   approved: boolean;
   taskCount: number;
   passedTaskCount: number;
+  coveredTaskCount: number;
   failedTaskCount: number;
   updatedAt: string;
+};
+
+type AssessmentSource = {
+  source: string;
+  sourceLabel: string;
+  needsAgentIntrospection: boolean;
+  inputKind?: string;
+  inputDescription?: string;
 };
 
 type GoalResult = {
   status: string;
   approvalRequired: boolean;
+  assessmentSource: AssessmentSource | null;
   criticDecision: string | null;
   nextAction: string;
   taskSummary: {
@@ -52,6 +62,7 @@ type GoalResult = {
     pending: number;
     running: number;
     passed: number;
+    covered: number;
     failed: number;
     manual: number;
   };
@@ -167,6 +178,7 @@ export default function MigrateGoalSurfacePage() {
   const detail = runQuery.data as
     | {
         run?: any;
+        assessmentSource?: AssessmentSource | null;
         tasks?: Array<{
           id: string;
           recipeName: string;
@@ -187,9 +199,7 @@ export default function MigrateGoalSurfacePage() {
   const progress =
     tasks.length > 0
       ? Math.round(
-          (tasks.filter((task) => task.status === "passed").length /
-            tasks.length) *
-            100,
+          (tasks.filter(isAdvancedTaskStatus).length / tasks.length) * 100,
         )
       : 0;
   const goalState = selectedRun
@@ -202,6 +212,8 @@ export default function MigrateGoalSurfacePage() {
   const selectedRunApproved = Boolean(
     detail?.run?.approved ?? selectedRun?.approved,
   );
+  const assessmentSource =
+    detail?.assessmentSource ?? goalResult?.assessmentSource ?? null;
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-6 lg:px-8">
@@ -284,7 +296,12 @@ export default function MigrateGoalSurfacePage() {
                     </p>
                     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                       <span>{run.taskCount} tasks</span>
-                      <span>{run.passedTaskCount} passed</span>
+                      {run.passedTaskCount > 0 ? (
+                        <span>{run.passedTaskCount} passed</span>
+                      ) : null}
+                      {run.coveredTaskCount > 0 ? (
+                        <span>{run.coveredTaskCount} covered</span>
+                      ) : null}
                     </div>
                   </button>
                 ))
@@ -376,6 +393,26 @@ export default function MigrateGoalSurfacePage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-5">
+                {assessmentSource?.needsAgentIntrospection ? (
+                  <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium">
+                          Agent introspection fallback
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          This assessment is a skeleton inventory. Treat it as a
+                          starting point until an agent has inspected source
+                          code, CMS content, or the live app.
+                        </p>
+                      </div>
+                      <Badge variant="outline">
+                        {assessmentSource.sourceLabel}
+                      </Badge>
+                    </div>
+                  </div>
+                ) : null}
+
                 {goalState ? (
                   <div className="rounded-lg border border-border bg-muted/30 p-3">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -404,6 +441,7 @@ export default function MigrateGoalSurfacePage() {
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {goalResult.taskSummary.passed} passed,{" "}
+                          {goalResult.taskSummary.covered} covered,{" "}
                           {goalResult.taskSummary.pending} pending,{" "}
                           {goalResult.verification.results.length} verifier
                           result(s)
@@ -413,13 +451,17 @@ export default function MigrateGoalSurfacePage() {
                   </div>
                 ) : null}
 
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-4">
                   <Metric
                     label="Phase"
                     value={detail?.run?.phase ?? selectedRun.phase}
                   />
                   <Metric label="Target" value={selectedRun.target} />
                   <Metric label="Output" value={selectedRun.outputRoot} />
+                  <Metric
+                    label="Assessment"
+                    value={assessmentSource?.sourceLabel ?? "Not assessed"}
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -456,7 +498,9 @@ export default function MigrateGoalSurfacePage() {
                                 {task.recipeName}
                               </p>
                             </div>
-                            <Badge variant="outline">{task.status}</Badge>
+                            <Badge variant="outline">
+                              {taskStatusLabel(task.status)}
+                            </Badge>
                           </div>
                           <p className="mt-2 text-sm text-muted-foreground">
                             {task.summary}
@@ -504,6 +548,15 @@ export default function MigrateGoalSurfacePage() {
       </div>
     </div>
   );
+}
+
+function isAdvancedTaskStatus(task: { status: string }) {
+  return task.status === "passed" || task.status === "covered";
+}
+
+function taskStatusLabel(status: string) {
+  if (status === "covered") return "covered by scaffold";
+  return status;
 }
 
 function describeGoalState(
