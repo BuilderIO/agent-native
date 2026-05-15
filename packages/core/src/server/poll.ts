@@ -436,17 +436,20 @@ async function checkExternalDbChanges(): Promise<void> {
     // marker rows back into extension-source events for targeted client
     // invalidation while preserving user/org scope.
     const extensionMarkerResult = await db.execute({
-      sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? AND updated_at > ? ORDER BY updated_at ASC",
-      args: [EXTENSION_CHANGE_MARKER_KEY, _lastExtensionMarkerTs],
+      sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
+      args: [EXTENSION_CHANGE_MARKER_KEY],
     });
-    if (extensionMarkerResult.rows.length > 0) {
-      const markerTs = extensionMarkerResult.rows.reduce(
+    const changedExtensionMarkers = extensionMarkerResult.rows.filter(
+      (row) => timestampValue(row.updated_at) > _lastExtensionMarkerTs,
+    );
+    if (changedExtensionMarkers.length > 0) {
+      const markerTs = changedExtensionMarkers.reduce(
         (max, row) => Math.max(max, timestampValue(row.updated_at)),
         _lastExtensionMarkerTs,
       );
       if (_lastExtensionMarkerTs > 0) {
         recordExtensionChanges(
-          extensionMarkerResult.rows
+          changedExtensionMarkers
             .map((row) => parseExtensionChangeMarker(row.session_id, row.value))
             .filter((target): target is ExtensionChangeTarget => !!target),
         );
@@ -467,18 +470,21 @@ async function checkExternalDbChanges(): Promise<void> {
     // compatibility fallback for direct table writes, but scope events to the
     // resource owner/share targets instead of broadcasting deployment-wide.
     const extensionResult = await db.execute({
-      sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools WHERE updated_at > ? ORDER BY updated_at ASC",
-      args: [_lastExtensionsTs],
+      sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools ORDER BY updated_at ASC",
+      args: [],
     });
-    if (extensionResult.rows.length > 0) {
-      const extensionsTs = extensionResult.rows.reduce(
+    const changedExtensionRows = extensionResult.rows.filter(
+      (row) => timestampValue(row.updated_at) > _lastExtensionsTs,
+    );
+    if (changedExtensionRows.length > 0) {
+      const extensionsTs = changedExtensionRows.reduce(
         (max, row) => Math.max(max, timestampValue(row.updated_at)),
         _lastExtensionsTs,
       );
       if (_lastExtensionsTs > 0) {
         const targetsByRow = await readExtensionTargetsForRows(
           db,
-          extensionResult.rows,
+          changedExtensionRows,
         );
         for (const targets of targetsByRow) recordExtensionChanges(targets);
       }

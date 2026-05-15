@@ -68,7 +68,7 @@ describe("poll handler", () => {
       if (
         sql.includes("FROM application_state") &&
         sql.includes("key = ?") &&
-        sql.includes("updated_at > ?")
+        sql.includes("SELECT session_id, value, updated_at")
       ) {
         return { rows: [] };
       }
@@ -166,7 +166,7 @@ describe("poll handler", () => {
       if (
         sql.includes("FROM application_state") &&
         sql.includes("key = ?") &&
-        sql.includes("updated_at > ?")
+        sql.includes("SELECT session_id, value, updated_at")
       ) {
         return { rows: [] };
       }
@@ -183,12 +183,7 @@ describe("poll handler", () => {
         sql.includes("SELECT id, owner_email") &&
         sql.includes("FROM tools")
       ) {
-        const since = Number(query.args?.[0]) || 0;
-        return {
-          rows: extensionRows.filter(
-            (row) => Date.parse(String(row.updated_at)) > since,
-          ),
-        };
+        return { rows: extensionRows };
       }
       if (sql.includes("FROM tool_shares")) {
         return { rows: [] };
@@ -225,6 +220,7 @@ describe("poll handler", () => {
         owner: "test@example.com",
       }),
     ]);
+    expect(executedSql()).not.toContain("FROM tools WHERE updated_at > ?");
   });
 
   it("emits extension changes from durable markers for delete and hide fallback", async () => {
@@ -258,14 +254,9 @@ describe("poll handler", () => {
       if (
         sql.includes("FROM application_state") &&
         sql.includes("key = ?") &&
-        sql.includes("updated_at > ?")
+        sql.includes("SELECT session_id, value, updated_at")
       ) {
-        const since = Number(query.args?.[1]) || 0;
-        return {
-          rows: extensionMarkerRows.filter(
-            (row) => Number(row.updated_at) > since,
-          ),
-        };
+        return { rows: extensionMarkerRows };
       }
       if (
         sql.includes("SELECT session_id, key, updated_at") &&
@@ -324,5 +315,14 @@ describe("poll handler", () => {
         owner: "test@example.com",
       }),
     ]);
+    expect(executedSql()).not.toContain(
+      "application_state WHERE key = ? AND updated_at > ?",
+    );
   });
 });
+
+function executedSql(): string {
+  return mockExecute.mock.calls
+    .map(([query]) => (typeof query === "string" ? query : (query?.sql ?? "")))
+    .join("\n");
+}
