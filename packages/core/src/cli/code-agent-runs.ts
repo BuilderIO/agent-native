@@ -153,9 +153,7 @@ export function normalizeCodeAgentPermissionMode(
   value: unknown,
 ): CodeAgentPermissionMode | null {
   if (typeof value !== "string") return null;
-  return CODE_AGENT_PERMISSION_MODES.includes(
-    value as CodeAgentPermissionMode,
-  )
+  return CODE_AGENT_PERMISSION_MODES.includes(value as CodeAgentPermissionMode)
     ? (value as CodeAgentPermissionMode)
     : null;
 }
