@@ -115,6 +115,7 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "Migration Workbench",
         to: "/docs/migration-workbench" as const,
       },
+      { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },
       { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
     ],
   },

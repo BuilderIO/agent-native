@@ -202,10 +202,13 @@ export {
   type ChatThreadData,
 } from "./use-chat-threads.js";
 export {
+  AgentChatSurface,
   AgentPanel,
   AgentSidebar,
   AgentToggleButton,
   focusAgentChat,
+  type AgentChatSurfaceMode,
+  type AgentChatSurfaceProps,
   type AgentPanelProps,
   type AgentSidebarProps,
 } from "./AgentPanel.js";

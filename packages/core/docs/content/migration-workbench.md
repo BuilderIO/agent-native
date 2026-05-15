@@ -1,11 +1,11 @@
 ---
-title: "Code Agents Workspace and /migrate"
-description: "Use the open-source Code Agents workspace for coding sessions, including the built-in /migrate capability."
+title: "Agent-Native Code Workspace and /migrate"
+description: "Use the open-source Agent-Native Code workspace for coding sessions, including the built-in /migrate capability."
 ---
 
-# Code Agents Workspace and /migrate
+# Agent-Native Code Workspace and /migrate
 
-Start from **Code Agents**:
+Start from **Agent-Native Code**:
 
 ```bash
 npx @agent-native/core@latest
@@ -16,9 +16,9 @@ npx @agent-native/core@latest code attach --last
 npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 ```
 
-**Code Agents** is the open-source Claude Code/Codex-like workspace for coding work in Agent-Native. `agent-native` or `agent-native code` launches it with no prompt required, and a bare prompt starts a generic coding task directly. `/migrate` is one built-in capability for moving an existing app, URL, or described product into agent-native. It uses the same session store, transcript, and desktop hub as the CLI `code` command, so migration behaves like a goal you can resume, attach to, inspect, and stop rather than a separate one-off product.
+**Agent-Native Code** is the open-source Claude Code/Codex-like workspace for coding work in Agent-Native. `agent-native` or `agent-native code` launches it with no prompt required, and a bare prompt starts a generic coding task directly. `/migrate` is one built-in capability for moving an existing app, URL, or described product into agent-native. It uses the same session store, transcript, and desktop hub as the CLI `code` command, so migration behaves like a goal you can resume, attach to, inspect, and stop rather than a separate one-off product.
 
-By default `/migrate` creates a generic Code Agents session plus a portable migration dossier. Migration is a slash command in the Code workspace, not a normal template to scaffold. The hidden `migration` app is now a legacy/internal detail surface, available with `--app-surface` when a run needs a richer assessment/approval/task/verifier dashboard.
+By default `/migrate` creates a generic Agent-Native Code session plus a portable migration dossier. Migration is a slash command in the Code workspace, not a normal template to scaffold. The hidden `migration` app is now a legacy/internal detail surface, available with `--app-surface` when a run needs a richer assessment/approval/task/verifier dashboard.
 
 The direct `migrate` command remains a shortcut into the same goal:
 
@@ -27,7 +27,7 @@ npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app
 ```
 
 Both forms print the same handoff: run id, source, output, dossier directory,
-important artifact files, and the exact Code Agents commands to inspect or
+important artifact files, and the exact Agent-Native Code commands to inspect or
 resume the session:
 
 ```bash
@@ -39,7 +39,7 @@ npx @agent-native/core@latest code status --last
 
 ## Code Workspace
 
-`agent-native code` opens the interactive Code Agents shell for coding-agent work. You do not need to pass an initial prompt:
+`agent-native code` opens the interactive Agent-Native Code shell for coding-agent work. You do not need to pass an initial prompt:
 
 ```bash
 npx @agent-native/core@latest code
@@ -68,11 +68,11 @@ npx @agent-native/core@latest code /audit --url https://example.com
 
 Run `agent-native code goals` to see the goals registered in your checkout. A bare prompt starts a local coding-agent session for open-ended code work, streams the run, records transcript/status/tool events, and accepts follow-up prompts through the same run record.
 
-Bare `agent-native` launches the Code Agents workspace in this branch, and `agent-native "prompt"` starts a generic Code Agents task directly, matching the Codex/Claude Code habit of treating unknown text as a coding prompt. If an installed version does not include that top-level entrypoint yet, run `agent-native code` directly.
+Bare `agent-native` launches the Agent-Native Code workspace in this branch, and `agent-native "prompt"` starts a generic Agent-Native Code task directly, matching the Codex/Claude Code habit of treating unknown text as a coding prompt. If an installed version does not include that top-level entrypoint yet, run `agent-native code` directly.
 
 ## Sessions and Modes
 
-The next Code Agents follow-up features make the workspace feel like a local Codex/Claude Code session manager instead of a one-shot command. The CLI and Desktop hub share the same run store, so you can start work in one place and continue it in the other:
+The next Agent-Native Code follow-up features make the workspace feel like a local Codex/Claude Code session manager instead of a one-shot command. The CLI and Desktop hub share the same run store, so you can start work in one place and continue it in the other:
 
 ```bash
 npx @agent-native/core@latest code list
@@ -92,7 +92,7 @@ Run modes make editing policy explicit per session:
 | **Plan mode** | `--plan` | Inspect, plan, and explain without writing files or running mutations.                                   |
 | **Auto mode** | `--auto` | Edit files, run checks, and pause only for genuinely destructive file, git, publish, or data operations. |
 
-Auto mode is the default for local Code Agents sessions. Use Plan mode for assessment, architecture, review, or any task where you want a proposal before edits.
+Auto mode is the default for local Agent-Native Code sessions. Use Plan mode for assessment, architecture, review, or any task where you want a proposal before edits.
 
 ## Project Slash Commands
 
@@ -103,7 +103,7 @@ npx @agent-native/core@latest code /release-check
 npx @agent-native/core@latest code /migrate-storefront ./legacy-shop --out ../agent-shop
 ```
 
-Each Markdown file names the command and contains the prompt/instructions the Code Agent should run. This keeps team-specific workflows close to the repository: release checks, migration variants, framework upgrade playbooks, security audits, or customer-specific handoffs can be versioned without adding code. Source-specific systems such as AEM or Builder.io should stay as optional instruction-pack examples inside those commands, not top-level migration assumptions.
+Each Markdown file names the command and contains the prompt/instructions the Agent-Native Code should run. This keeps team-specific workflows close to the repository: release checks, migration variants, framework upgrade playbooks, security audits, or customer-specific handoffs can be versioned without adding code. Source-specific systems such as AEM or Builder.io should stay as optional instruction-pack examples inside those commands, not top-level migration assumptions.
 
 ## Input Shapes
 
@@ -129,7 +129,7 @@ For local paths, the source is read-only. Generated output must live outside the
 
 ## Internal Run Surface
 
-The normal command creates a generic Code Agents session and writes artifacts under the Code Agents run store. It does **not** scaffold an app/template.
+The normal command creates a generic Agent-Native Code session and writes artifacts under the Agent-Native Code run store. It does **not** scaffold an app/template.
 
 Open the legacy hidden `migration` detail surface only when you explicitly want that richer dashboard:
 
@@ -187,11 +187,11 @@ That gives the flow Claude Code `/goal`-style semantics without making migration
 
 The `/migrate` goal reuses the same credentials system as agent-native. There is no migration-specific key store and no `MIGRATION_*` secret namespace.
 
-In Code Agents, Desktop, or the internal run surface, connect providers through the normal settings and onboarding surfaces. For headless CLI use, existing provider environment variables are detected, including `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, and other provider env vars supported by the framework. Secret values are never copied into migration artifacts.
+In Agent-Native Code, Desktop, or the internal run surface, connect providers through the normal settings and onboarding surfaces. For headless CLI use, existing provider environment variables are detected, including `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, and other provider env vars supported by the framework. Secret values are never copied into migration artifacts.
 
-## Code Agents
+## Agent-Native Code
 
-Agent-Native Desktop includes a **Code Agents** hub for long-running coding-agent sessions. It is the general Code app/surface in Desktop, and it pairs with the `agent-native code` shell as the primary CLI/Desktop coding experience. A bare prompt is the generic coding session, and `/migrate` is one specialized capability there: the hub shows recent and active runs, opens a transcript-first session view, renders tool events and artifacts, sends follow-up prompts, stops tracked runners, opens a terminal in the run workspace, and handles links like:
+Agent-Native Desktop includes a **Agent-Native Code** hub for long-running coding-agent sessions. It is the general Code app/surface in Desktop, and it pairs with the `agent-native code` shell as the primary CLI/Desktop coding experience. A bare prompt is the generic coding session, and `/migrate` is one specialized capability there: the hub shows recent and active runs, opens a transcript-first session view, renders tool events and artifacts, sends follow-up prompts, stops tracked runners, opens a terminal in the run workspace, and handles links like:
 
 ```text
 agentnative://open?goal=migrate&run=<runId>

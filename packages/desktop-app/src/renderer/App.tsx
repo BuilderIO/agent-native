@@ -586,7 +586,7 @@ export default function App() {
       {isCodeAgentsActive ? (
         <div className="tabbar tabbar--shell">
           <div className="tab tab--active tab--locked">
-            <span className="tab-label">Code Agents</span>
+            <span className="tab-label">Agent-Native Code</span>
           </div>
         </div>
       ) : (

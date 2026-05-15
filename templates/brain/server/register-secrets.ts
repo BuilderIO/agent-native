@@ -22,3 +22,15 @@ registerRequiredSecret({
   kind: "api-key",
   required: false,
 });
+
+registerRequiredSecret({
+  key: "GITHUB_TOKEN",
+  label: "GitHub Token",
+  description:
+    "Optional GitHub token for Brain source sync. Used only for configured repositories and Slack-linked GitHub issue or PR URLs.",
+  docsUrl:
+    "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+});

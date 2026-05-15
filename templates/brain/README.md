@@ -221,6 +221,23 @@ Useful config keys:
 - `limit`: bounded page size per repository, capped by the connector.
 - `includeIssues` / `includePullRequests`: disable either side when a source
   should capture only issues or only PRs.
+- `linkedSlackSourceIds`, `slackSourceIds`, or `linkedSourceIds`: import GitHub
+  issue and PR URLs found in accessible Slack Brain captures.
+- `linkedCaptureLimit`, `linkedRefLimit`, `linkedDetailLimit`, `commentLimit`,
+  `reviewLimit`, and `repoDetailLimit`: keep linked imports bounded.
+
+## Workspace Connections
+
+`list-connection-providers` returns the Brain provider catalog plus
+`workspaceConnection` summaries for `appId=brain`. Use those summaries before
+asking for duplicate provider credentials:
+
+- `grantState: "connected"` means Brain already has a granted workspace
+  connection for that provider.
+- `grantState: "needs_grant"` means a workspace connection exists but still
+  needs a Brain grant.
+- Existing source sync stays backward compatible with scoped credentials such as
+  `SLACK_BOT_TOKEN`, `GRANOLA_API_KEY`, and `GITHUB_TOKEN`.
 
 ## Scheduled Sync
 
@@ -289,3 +306,17 @@ pnpm --filter brain action run-demo-eval
 The eval checks product-decision recall, citation presence, supersede links,
 proposal gating, PII redaction, and personal-content exclusion. The Ask page
 also exposes **Load demo** and **Run eval** controls for template demos.
+
+The Slack pilot regression set lives in
+`templates/brain/evals/slack-pilot-corpus.ts`. It contains redacted pilot
+questions for reasoning-effort controls, Fusion PR #13340 missing-branch
+handling, Figma Plugin JSON uploader feedback, non-English support, Slack
+history guardrails, citation requirements, personal-content exclusion, and
+honest not-found behavior.
+
+```bash
+pnpm --filter brain exec vitest --run --config vitest.config.ts evals/slack-pilot-corpus.test.ts
+```
+
+The eval is offline and validates the real `searchEverythingRows` retrieval
+path plus `ask-brain` cited-answer behavior.

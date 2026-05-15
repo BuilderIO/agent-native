@@ -6,7 +6,12 @@ export default defineConfig({
   main: {
     plugins: [
       externalizeDepsPlugin({
-        exclude: ["@agent-native/shared-app-config", "electron-updater"],
+        exclude: [
+          "@agent-native/code-agents-ui",
+          "@agent-native/code-agents-ui/code-agents",
+          "@agent-native/shared-app-config",
+          "electron-updater",
+        ],
       }),
     ],
     resolve: {
@@ -18,7 +23,11 @@ export default defineConfig({
   preload: {
     plugins: [
       externalizeDepsPlugin({
-        exclude: ["@agent-native/shared-app-config"],
+        exclude: [
+          "@agent-native/code-agents-ui",
+          "@agent-native/code-agents-ui/code-agents",
+          "@agent-native/shared-app-config",
+        ],
       }),
     ],
     resolve: {

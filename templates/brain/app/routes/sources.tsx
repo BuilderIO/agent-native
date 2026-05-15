@@ -26,10 +26,15 @@ import {
   IconWebhook,
 } from "@tabler/icons-react";
 import {
+  type BrainConnectionProvider,
   type BrainCaptureReviewStatus,
   type CapturesResponse,
   type BrainPilotReport,
   type BrainSource,
+  type BrainWorkspaceConnectionGrantState,
+  type BrainWorkspaceConnectionStatus,
+  type BrainWorkspaceCredentialRef,
+  type ConnectionProvidersResponse,
   type SlackPilotReport,
   type SourcesResponse,
   formatPercent,
@@ -352,11 +357,452 @@ function queueActionLabel(
   return "Queued";
 }
 
+function isSourceProvider(providerId: string): providerId is Provider {
+  return providers.some((provider) => provider.value === providerId);
+}
+
+function dispatchIntegrationsHref(providerId: string) {
+  const params = new URLSearchParams({ provider: providerId, appId: "brain" });
+  return `/dispatch/integrations?${params.toString()}`;
+}
+
+function grantStateLabel(state: BrainWorkspaceConnectionGrantState) {
+  switch (state) {
+    case "connected":
+      return "Connected";
+    case "granted":
+      return "Granted";
+    case "needs_grant":
+      return "Needs grant";
+    case "not_connected":
+    default:
+      return "Not connected";
+  }
+}
+
+function grantStateDetail(
+  provider: BrainConnectionProvider,
+  state: BrainWorkspaceConnectionGrantState,
+) {
+  const workspace = provider.workspaceConnection;
+  const sourceCount = provider.configuredSourceCount.toLocaleString();
+  switch (state) {
+    case "connected":
+      return `${workspace?.activeConnectionCount ?? 0} active connection${
+        workspace?.activeConnectionCount === 1 ? "" : "s"
+      } granted to Brain`;
+    case "granted":
+      return `Brain can access ${
+        workspace?.grantedConnectionCount ?? 0
+      } connection${workspace?.grantedConnectionCount === 1 ? "" : "s"}`;
+    case "needs_grant":
+      return "Connection exists in Dispatch; grant Brain access to reuse it";
+    case "not_connected":
+    default:
+      return provider.hasConfiguredSources
+        ? `${sourceCount} source${sourceCount === "1" ? "" : "s"} configured with scoped credentials`
+        : "No shared workspace connection yet";
+  }
+}
+
+function grantStateClass(state: BrainWorkspaceConnectionGrantState) {
+  switch (state) {
+    case "connected":
+      return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
+    case "granted":
+      return "border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-400";
+    case "needs_grant":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400";
+    case "not_connected":
+    default:
+      return "border-border bg-muted text-muted-foreground";
+  }
+}
+
+function workspaceStatusLabel(status: BrainWorkspaceConnectionStatus) {
+  switch (status) {
+    case "connected":
+      return "Connected";
+    case "checking":
+      return "Checking";
+    case "needs_reauth":
+      return "Needs reauth";
+    case "error":
+      return "Error";
+    case "disabled":
+    default:
+      return "Disabled";
+  }
+}
+
+function workspaceStatusClass(status: BrainWorkspaceConnectionStatus) {
+  switch (status) {
+    case "connected":
+      return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
+    case "checking":
+      return "border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-400";
+    case "needs_reauth":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400";
+    case "error":
+      return "border-destructive/25 bg-destructive/10 text-destructive";
+    case "disabled":
+    default:
+      return "border-border bg-muted text-muted-foreground";
+  }
+}
+
+function grantStateIcon(state: BrainWorkspaceConnectionGrantState) {
+  switch (state) {
+    case "connected":
+      return IconCircleCheck;
+    case "granted":
+      return IconShieldCheck;
+    case "needs_grant":
+      return IconAlertTriangle;
+    case "not_connected":
+    default:
+      return IconCircleDashed;
+  }
+}
+
+function refLabel(ref: BrainWorkspaceCredentialRef) {
+  return `${ref.key}${ref.scope ? `:${ref.scope}` : ""}`;
+}
+
+function providerWorkspaceCredentialRefs(provider: BrainConnectionProvider) {
+  const refs = new Map<string, BrainWorkspaceCredentialRef>();
+  for (const connection of provider.workspaceConnection?.connections ?? []) {
+    for (const ref of connection.credentialRefs) {
+      refs.set(`${connection.id}:connection:${refLabel(ref)}`, ref);
+    }
+    for (const ref of connection.explicitGrant?.credentialRefs ?? []) {
+      refs.set(`${connection.id}:grant:${refLabel(ref)}`, ref);
+    }
+  }
+  return Array.from(refs.values());
+}
+
+function ProviderCatalog({
+  providers: connectionProviders,
+  loading,
+  workspaceError,
+  onAddSource,
+}: {
+  providers: BrainConnectionProvider[];
+  loading: boolean;
+  workspaceError?: string | null;
+  onAddSource: (provider: Provider) => void;
+}) {
+  const [expandedProviderId, setExpandedProviderId] = useState<string | null>(
+    null,
+  );
+
+  return (
+    <section className="grid gap-3 lg:col-span-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <IconDatabaseImport className="size-4 text-muted-foreground" />
+            <h2 className="text-sm font-medium">Connection providers</h2>
+          </div>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+            Brain sources and reusable workspace integrations in one place.
+            Credential references show names only; values stay in the workspace
+            credential store.
+          </p>
+        </div>
+        <Badge variant="outline">
+          {loading
+            ? "Loading"
+            : `${connectionProviders.length.toLocaleString()} providers`}
+        </Badge>
+      </div>
+
+      {loading ? (
+        <div className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <IconLoader2 className="size-4 animate-spin" />
+            Loading provider catalog...
+          </div>
+        </div>
+      ) : connectionProviders.length ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {connectionProviders.map((provider) => {
+            const workspace = provider.workspaceConnection;
+            const grantState = workspace?.grantState ?? "not_connected";
+            const GrantIcon = grantStateIcon(grantState);
+            const credentialRefs = providerWorkspaceCredentialRefs(provider);
+            const credentialBadges = credentialRefs.length
+              ? credentialRefs.map((ref, index) => ({
+                  key: `${refLabel(ref)}-${index}`,
+                  label: refLabel(ref),
+                }))
+              : provider.credentialKeys.map((credential) => ({
+                  key: credential.key,
+                  label: credential.key,
+                }));
+            const sourceProvider = isSourceProvider(provider.id)
+              ? provider.id
+              : null;
+            const Icon = sourceProvider
+              ? sourceProviderIcon(sourceProvider)
+              : IconDatabaseImport;
+            const expanded = expandedProviderId === provider.id;
+            return (
+              <div
+                key={provider.id}
+                className="grid gap-3 rounded-md border border-border bg-card p-4 shadow-none"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/40">
+                      <Icon className="size-4 text-muted-foreground" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{provider.label}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {provider.hasConfiguredSources
+                          ? `${provider.configuredSourceCount.toLocaleString()} configured`
+                          : "No Brain sources yet"}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={grantStateClass(grantState)}
+                  >
+                    <GrantIcon className="mr-1 size-3" />
+                    {grantStateLabel(grantState)}
+                  </Badge>
+                </div>
+
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {grantStateDetail(provider, grantState)}
+                </p>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {provider.capabilities.map((capability) => (
+                    <Badge key={capability} variant="outline">
+                      {capability}
+                    </Badge>
+                  ))}
+                </div>
+
+                <dl className="grid grid-cols-3 gap-2 rounded-md bg-muted/25 p-2 text-xs">
+                  <div>
+                    <dt className="text-muted-foreground">Connections</dt>
+                    <dd className="mt-1 font-medium">
+                      {(workspace?.connectionCount ?? 0).toLocaleString()}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Brain grants</dt>
+                    <dd className="mt-1 font-medium">
+                      {(
+                        workspace?.grantedConnectionCount ?? 0
+                      ).toLocaleString()}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Sources</dt>
+                    <dd className="mt-1 font-medium">
+                      {provider.configuredSourceCount.toLocaleString()}
+                    </dd>
+                  </div>
+                </dl>
+
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    {credentialRefs.length ? "Credential refs" : "Catalog keys"}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {credentialBadges.length ? (
+                      credentialBadges.map((credential) => (
+                        <Badge key={credential.key} variant="outline">
+                          {credential.label}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        No credential keys required
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {expanded ? (
+                  <div className="grid gap-3 rounded-md border border-border bg-muted/25 p-3 text-sm">
+                    <p className="leading-6 text-muted-foreground">
+                      {provider.description}
+                    </p>
+                    {provider.credentialKeys.length ? (
+                      <div className="grid gap-2">
+                        {provider.credentialKeys.map((credential) => (
+                          <div key={credential.key}>
+                            <p className="font-medium">
+                              {credential.label}
+                              {credential.required ? (
+                                <span className="text-muted-foreground">
+                                  {" "}
+                                  required
+                                </span>
+                              ) : null}
+                            </p>
+                            {credential.description ? (
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                {credential.description}
+                              </p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {workspace?.connections.length ? (
+                      <div className="grid gap-2">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Workspace connections
+                        </p>
+                        {workspace.connections.map((connection) => {
+                          const refs = [
+                            ...connection.credentialRefs,
+                            ...(connection.explicitGrant?.credentialRefs ?? []),
+                          ];
+                          return (
+                            <div
+                              key={connection.id}
+                              className="grid gap-2 rounded-md border border-border bg-card p-3"
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="truncate font-medium">
+                                    {connection.label}
+                                  </p>
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    {connection.accountLabel ??
+                                      connection.accountId ??
+                                      provider.label}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  <Badge
+                                    variant="outline"
+                                    className={workspaceStatusClass(
+                                      connection.status,
+                                    )}
+                                  >
+                                    {workspaceStatusLabel(connection.status)}
+                                  </Badge>
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      connection.grantedToApp
+                                        ? "border-border bg-muted text-muted-foreground"
+                                        : grantStateClass("needs_grant")
+                                    }
+                                  >
+                                    {connection.grantedToApp
+                                      ? "Brain granted"
+                                      : "Needs Brain grant"}
+                                  </Badge>
+                                </div>
+                              </div>
+                              {refs.length ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {refs.map((ref, index) => (
+                                    <Badge
+                                      key={`${connection.id}-${refLabel(ref)}-${index}`}
+                                      variant="outline"
+                                    >
+                                      {refLabel(ref)}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">
+                                  No credential refs on this connection
+                                </p>
+                              )}
+                              {connection.lastError ? (
+                                <p className="text-xs leading-5 text-destructive">
+                                  {connection.lastError}
+                                </p>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        No shared workspace connection has been registered for
+                        this provider yet.
+                      </p>
+                    )}
+                    {!provider.sourceProviderSupported ? (
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        Brain can reuse this connection metadata, but source
+                        setup for this provider has not been added to this
+                        template yet.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-expanded={expanded}
+                    onClick={() =>
+                      setExpandedProviderId((current) =>
+                        current === provider.id ? null : provider.id,
+                      )
+                    }
+                  >
+                    <IconSettings2 className="size-4" />
+                    {expanded ? "Hide details" : "Details"}
+                  </Button>
+                  {grantState === "needs_grant" ? (
+                    <Button size="sm" variant="outline" asChild>
+                      <a href={dispatchIntegrationsHref(provider.id)}>
+                        <IconExternalLink className="size-4" />
+                        Grant in Dispatch
+                      </a>
+                    </Button>
+                  ) : null}
+                  {sourceProvider ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onAddSource(sourceProvider)}
+                    >
+                      <IconDatabaseImport className="size-4" />
+                      Add source
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
+          No Brain connection providers are available from the shared catalog.
+        </div>
+      )}
+      {workspaceError ? (
+        <div className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
+          Workspace integration status is unavailable: {workspaceError}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function SlackPilotReportCard({ report }: { report: SlackPilotReport }) {
   const visibleChannels = report.channelValidation.channels.slice(0, 3);
   const stats = report.sync?.stats ?? {};
   return (
-    <div className="rounded-md border border-border bg-background p-3 text-sm">
+    <div className="rounded-md border border-border bg-card p-3 text-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-medium">
@@ -380,15 +826,15 @@ function SlackPilotReportCard({ report }: { report: SlackPilotReport }) {
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-        <div className="rounded-md bg-muted/40 p-2">
+        <div className="rounded-md bg-muted/35 p-2">
           <p className="text-muted-foreground">Channels OK</p>
           <p className="mt-1 font-medium">{report.channelValidation.ok}</p>
         </div>
-        <div className="rounded-md bg-muted/40 p-2">
+        <div className="rounded-md bg-muted/35 p-2">
           <p className="text-muted-foreground">Captures</p>
           <p className="mt-1 font-medium">{report.capturesCreated}</p>
         </div>
-        <div className="rounded-md bg-muted/40 p-2">
+        <div className="rounded-md bg-muted/35 p-2">
           <p className="text-muted-foreground">Pending</p>
           <p className="mt-1 font-medium">{report.proposals.pending}</p>
         </div>
@@ -399,7 +845,7 @@ function SlackPilotReportCard({ report }: { report: SlackPilotReport }) {
           visibleChannels.map((channel) => (
             <div
               key={`${channel.ref}-${channel.id ?? channel.status}`}
-              className="flex items-start justify-between gap-3 rounded-md bg-muted/30 px-3 py-2"
+              className="flex items-start justify-between gap-3 rounded-md bg-muted/25 px-3 py-2"
             >
               <div className="min-w-0">
                 <p className="truncate font-medium">
@@ -424,7 +870,7 @@ function SlackPilotReportCard({ report }: { report: SlackPilotReport }) {
       </div>
 
       {report.historyRead ? (
-        <div className="mt-3 grid gap-2 rounded-md border border-border p-3 text-xs">
+        <div className="mt-3 grid gap-2 rounded-md border border-border bg-card p-3 text-xs">
           <div className="grid grid-cols-3 gap-2">
             <span>
               Seen{" "}
@@ -481,7 +927,7 @@ function PilotMetric({
   detail: string;
 }) {
   return (
-    <div className="rounded-md border border-border bg-background p-2">
+    <div className="rounded-md border border-border bg-card p-2">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-sm font-medium">{value}</p>
       <p className="mt-1 truncate text-xs text-muted-foreground">{detail}</p>
@@ -500,7 +946,7 @@ function PilotReportCard({
 }) {
   if (loading && !report) {
     return (
-      <div className="rounded-md border border-border bg-background p-3 text-sm">
+      <div className="rounded-md border border-border bg-card p-3 text-sm">
         <div className="flex items-center gap-2 text-muted-foreground">
           <IconLoader2 className="size-4 animate-spin" />
           Loading source pilot report...
@@ -511,7 +957,7 @@ function PilotReportCard({
 
   if (!report) {
     return (
-      <div className="rounded-md border border-border bg-background p-3 text-sm text-muted-foreground">
+      <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
         Report unavailable. Check source access and try again.
       </div>
     );
@@ -534,7 +980,7 @@ function PilotReportCard({
   const health = sourceHealth(report.source);
 
   return (
-    <div className="rounded-md border border-border bg-background p-3 text-sm">
+    <div className="rounded-md border border-border bg-card p-3 text-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -571,7 +1017,7 @@ function PilotReportCard({
       </div>
 
       {report.latestSyncRun?.error ? (
-        <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/30 p-2 text-xs leading-5 text-muted-foreground">
+        <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/25 p-2 text-xs leading-5 text-muted-foreground">
           <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>{report.latestSyncRun.error}</span>
         </div>
@@ -601,7 +1047,7 @@ function PilotReportCard({
       </div>
 
       <div className="mt-3 grid gap-3 xl:grid-cols-2">
-        <div className="rounded-md border border-border bg-muted/30 p-3">
+        <div className="rounded-md border border-border bg-muted/25 p-3">
           <div className="flex items-center gap-2 text-xs font-medium">
             <IconCircleCheck className="size-4 text-muted-foreground" />
             Published knowledge
@@ -620,7 +1066,7 @@ function PilotReportCard({
             </p>
           )}
         </div>
-        <div className="rounded-md border border-border bg-muted/30 p-3">
+        <div className="rounded-md border border-border bg-muted/25 p-3">
           <div className="flex items-center gap-2 text-xs font-medium">
             <IconCircleDashed className="size-4 text-muted-foreground" />
             Pending proposals
@@ -692,6 +1138,10 @@ export default function SourcesRoute() {
       includeArchived: false,
     } as any,
   );
+  const connectionProvidersQuery = useActionQuery<ConnectionProvidersResponse>(
+    "list-connection-providers" as any,
+    {} as any,
+  );
   const updateSource = useActionMutation<
     unknown,
     {
@@ -746,6 +1196,7 @@ export default function SourcesRoute() {
   >("mark-capture-distilled" as any);
 
   const sources = sourcesQuery.data?.sources ?? [];
+  const connectionProviders = connectionProvidersQuery.data?.providers ?? [];
   const selectedSourceId = params.get("sourceId");
   const sourceTypes = useMemo(
     () => [
@@ -870,7 +1321,7 @@ export default function SourcesRoute() {
   }
 
   return (
-    <div className="min-h-full bg-background">
+    <div className="min-h-full bg-muted/20">
       <PageHeader
         eyebrow="Sources"
         title="Source configuration"
@@ -911,6 +1362,15 @@ export default function SourcesRoute() {
       />
 
       <div className="grid gap-5 p-5 lg:grid-cols-3 lg:p-7">
+        <ProviderCatalog
+          providers={connectionProviders}
+          loading={connectionProvidersQuery.isLoading}
+          workspaceError={
+            connectionProvidersQuery.data?.workspaceConnections?.error ?? null
+          }
+          onAddSource={openCreate}
+        />
+
         {sourcesQuery.isLoading ? (
           <div className="lg:col-span-3">
             <LoadingRows rows={3} />
@@ -920,11 +1380,11 @@ export default function SourcesRoute() {
             const Icon = sourceProviderIcon(source.provider);
             const retry = sourceRetryAfter(source);
             return (
-              <Card key={source.id} className="overflow-hidden">
+              <Card key={source.id} className="overflow-hidden shadow-none">
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-start gap-3">
-                      <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/50">
+                      <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/40">
                         <Icon className="size-4 text-muted-foreground" />
                       </span>
                       <div className="min-w-0">
@@ -951,7 +1411,7 @@ export default function SourcesRoute() {
                     </div>
                     <Progress value={(source.coverage ?? 0) * 100} />
                     <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-md border border-border p-3">
+                      <div className="rounded-md border border-border bg-card p-3">
                         <p className="text-xs text-muted-foreground">
                           Captures
                         </p>
@@ -959,7 +1419,7 @@ export default function SourcesRoute() {
                           {(source.recordCount ?? 0).toLocaleString()}
                         </p>
                       </div>
-                      <div className="rounded-md border border-border p-3">
+                      <div className="rounded-md border border-border bg-card p-3">
                         <p className="text-xs text-muted-foreground">
                           Last sync
                         </p>
@@ -970,7 +1430,7 @@ export default function SourcesRoute() {
                     </div>
                   </div>
 
-                  <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-3">
+                  <div className="grid gap-3 rounded-md border border-border bg-muted/25 p-3">
                     <label className="flex items-center justify-between gap-3 text-sm">
                       <span>
                         Enabled
@@ -1025,7 +1485,7 @@ export default function SourcesRoute() {
                   </div>
 
                   {(source.lastError || retry || source.latestRun) && (
-                    <div className="flex gap-2 rounded-md border border-border bg-background p-3 text-sm">
+                    <div className="flex gap-2 rounded-md border border-border bg-card p-3 text-sm">
                       <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                       <p className="leading-5 text-muted-foreground">
                         {syncDetail(source)}
@@ -1146,7 +1606,7 @@ export default function SourcesRoute() {
                     key={provider.value}
                     type="button"
                     onClick={() => openCreate(provider.value)}
-                    className="rounded-md border border-border bg-card p-4 text-left transition hover:border-primary/50 hover:bg-muted/40"
+                    className="rounded-md border border-border bg-card p-4 text-left transition hover:bg-muted/40"
                   >
                     <Icon className="size-5 text-muted-foreground" />
                     <p className="mt-3 font-medium">{provider.label}</p>
@@ -1161,6 +1621,7 @@ export default function SourcesRoute() {
         )}
 
         {sourcesQuery.isError ||
+        connectionProvidersQuery.isError ||
         updateSource.isError ||
         createSource.isError ||
         syncSource.isError ||
@@ -1193,7 +1654,7 @@ export default function SourcesRoute() {
           </SheetHeader>
 
           <div className="mt-6 grid gap-4">
-            <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div className="grid gap-3 rounded-md border border-border bg-muted/25 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
               <div className="grid gap-2 sm:max-w-56">
                 <Label htmlFor="capture-status-filter">Status</Label>
                 <Select
@@ -1279,7 +1740,7 @@ export default function SourcesRoute() {
                             </p>
                           )}
                           {queue ? (
-                            <div className="mt-3 rounded-md border border-border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
+                            <div className="mt-3 rounded-md border border-border bg-muted/25 p-3 text-xs leading-5 text-muted-foreground">
                               <div className="flex flex-wrap items-center gap-2">
                                 <Badge
                                   variant={
@@ -1594,7 +2055,7 @@ export default function SourcesRoute() {
                     />
                   </div>
                 </div>
-                <div className="grid gap-3 rounded-md bg-muted/30 p-3">
+                <div className="grid gap-3 rounded-md bg-muted/25 p-3">
                   <label className="flex items-center justify-between gap-3 text-sm">
                     <span>Include issues</span>
                     <Switch
@@ -1637,7 +2098,7 @@ export default function SourcesRoute() {
               </div>
             )}
 
-            <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-4">
+            <div className="grid gap-3 rounded-md border border-border bg-muted/25 p-4">
               <label className="flex items-center justify-between gap-3 text-sm">
                 <span>
                   Auto-sync

@@ -125,7 +125,7 @@ describe("resolveCodeCommand", () => {
     });
   });
 
-  it("handles resume/status/ui/stop at the generic Code Agents layer", () => {
+  it("handles resume/status/ui/stop at the generic Agent-Native Code layer", () => {
     expect(resolveCodeCommand(["resume", "--last"])).toEqual({
       kind: "control",
       subcommand: "resume",
@@ -316,7 +316,7 @@ describe("handleCodeShellLine", () => {
     });
 
     expect(calls).toEqual([]);
-    expect(output.read()).toContain("Code Agents status");
+    expect(output.read()).toContain("Agent-Native Code status");
     expect(output.read()).toContain("Existing task");
   });
 
@@ -340,7 +340,7 @@ describe("handleCodeShellLine", () => {
     });
 
     expect(calls).toEqual([]);
-    expect(output.read()).toContain(`Code Agents logs: ${run.id}`);
+    expect(output.read()).toContain(`Agent-Native Code logs: ${run.id}`);
     expect(output.read()).toContain("Existing task");
     expect(output.read()).toContain("Events: 0");
   });
@@ -360,7 +360,7 @@ describe("handleCodeShellLine", () => {
     ).resolves.toBe("continue");
 
     expect(calls).toEqual([]);
-    expect(output.read()).toContain("Available Code Agents goals:");
+    expect(output.read()).toContain("Available Agent-Native Code goals:");
   });
 
   it("exits for /exit and /quit", async () => {
@@ -458,7 +458,7 @@ describe("generic task sessions", () => {
     expect(
       listCodeAgentTranscriptEvents(runs[0].id).map((event) => event.kind),
     ).toEqual(["user", "status", "status", "system", "status"]);
-    expect(output.read()).toContain("Code Agents session started.");
+    expect(output.read()).toContain("Agent-Native Code session started.");
     expect(output.read()).toContain("Task complete.");
   });
 
@@ -600,7 +600,7 @@ describe("generic task sessions", () => {
     expect(listCodeAgentTranscriptEvents(latestRun.id)).toEqual([]);
   });
 
-  it("shows generic Code Agents status for the last run", async () => {
+  it("shows generic Agent-Native Code status for the last run", async () => {
     useTempCodeAgentsHome();
     createCodeAgentRunRecord({
       goalId: "task",
@@ -613,7 +613,7 @@ describe("generic task sessions", () => {
     await runCode(["status", "--last"], { output: output.stream });
 
     const text = output.read();
-    expect(text).toContain("Code Agents status");
+    expect(text).toContain("Agent-Native Code status");
     expect(text).toContain("Existing task");
     expect(text).toContain("paused (review)");
   });
@@ -677,7 +677,7 @@ describe("generic task sessions", () => {
       phase: "approval-complete",
       needsApproval: false,
     });
-    expect(output.read()).toContain("Code Agents approve");
+    expect(output.read()).toContain("Agent-Native Code approve");
     expect(output.read()).toContain(
       "Approved command finished with exit code 0",
     );
@@ -696,7 +696,7 @@ describe("generic task sessions", () => {
     await runCode(["list"], { output: output.stream });
 
     const text = output.read();
-    expect(text).toContain("Code Agents sessions");
+    expect(text).toContain("Agent-Native Code sessions");
     expect(text).toContain(run.id);
     expect(text).toContain("Auto mode");
     expect(text).toContain("agent-native code status <runId>");
@@ -717,7 +717,7 @@ describe("generic task sessions", () => {
     await runCode(["resume", run.id], { output: output.stream });
 
     const text = output.read();
-    expect(text).toContain("Code Agents resume");
+    expect(text).toContain("Agent-Native Code resume");
     expect(text).toContain("Title:   Existing task");
     expect(text).toContain("Mode:    Plan mode");
     expect(text).toContain(`agent-native code run ${run.id}`);
@@ -739,8 +739,8 @@ describe("runCode shell", () => {
       },
     });
 
-    expect(output.read()).toContain("Agent-Native Code Agents");
-    expect(output.read()).toContain("Available Code Agents goals:");
+    expect(output.read()).toContain("Agent-Native Code");
+    expect(output.read()).toContain("Available Agent-Native Code goals:");
     expect(output.read()).toContain("code> ");
   });
 });

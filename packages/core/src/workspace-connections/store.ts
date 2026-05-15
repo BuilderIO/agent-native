@@ -49,10 +49,33 @@ export interface WorkspaceConnection {
 
 export type SerializedWorkspaceConnection = WorkspaceConnection;
 
+export interface WorkspaceConnectionGrant {
+  id: string;
+  connectionId: string;
+  provider: string;
+  appId: string;
+  scopes: string[];
+  config: Record<string, unknown>;
+  credentialRefs: WorkspaceConnectionCredentialRef[];
+  grantedByEmail: string;
+  ownerEmail: string;
+  orgId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SerializedWorkspaceConnectionGrant = WorkspaceConnectionGrant;
+
 export interface ListWorkspaceConnectionsOptions {
   provider?: string;
   appId?: string;
   includeDisabled?: boolean;
+}
+
+export interface ListWorkspaceConnectionGrantsOptions {
+  connectionId?: string;
+  appId?: string;
+  provider?: string;
 }
 
 export interface UpsertWorkspaceConnectionInput {
@@ -70,12 +93,28 @@ export interface UpsertWorkspaceConnectionInput {
   lastError?: string | null;
 }
 
+export interface UpsertWorkspaceConnectionGrantInput {
+  id?: string;
+  connectionId: string;
+  appId: string;
+  provider?: string;
+  scopes?: string[];
+  config?: Record<string, unknown>;
+  credentialRefs?: WorkspaceConnectionCredentialRef[];
+}
+
 let _initPromise: Promise<void> | undefined;
 
 function workspaceConnectionsTable(): string {
   return isPostgres()
     ? "public.workspace_connections"
     : "workspace_connections";
+}
+
+function workspaceConnectionGrantsTable(): string {
+  return isPostgres()
+    ? "public.workspace_connection_grants"
+    : "workspace_connection_grants";
 }
 
 function isDuplicateColumnError(err: unknown): boolean {
@@ -92,10 +131,10 @@ function isDuplicateColumnError(err: unknown): boolean {
 
 async function ensureColumn(
   client: DbExec,
+  table: string,
   name: string,
   definition: string,
 ): Promise<void> {
-  const table = workspaceConnectionsTable();
   try {
     await retryOnDdlRace(() =>
       client.execute(
@@ -109,11 +148,120 @@ async function ensureColumn(
   }
 }
 
+async function ensureWorkspaceConnectionColumns(
+  client: DbExec,
+  table: string,
+): Promise<void> {
+  await ensureColumn(client, table, "provider", "TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(client, table, "label", "TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(client, table, "account_id", "TEXT");
+  await ensureColumn(client, table, "account_label", "TEXT");
+  await ensureColumn(
+    client,
+    table,
+    "status",
+    "TEXT NOT NULL DEFAULT 'connected'",
+  );
+  await ensureColumn(
+    client,
+    table,
+    "scopes_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
+  await ensureColumn(
+    client,
+    table,
+    "config_json",
+    "TEXT NOT NULL DEFAULT '{}'",
+  );
+  await ensureColumn(
+    client,
+    table,
+    "allowed_apps_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
+  await ensureColumn(
+    client,
+    table,
+    "credential_refs_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
+  await ensureColumn(client, table, "owner_email", "TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(client, table, "org_id", "TEXT");
+  await ensureColumn(
+    client,
+    table,
+    "created_at",
+    `${intType()} NOT NULL DEFAULT 0`,
+  );
+  await ensureColumn(
+    client,
+    table,
+    "updated_at",
+    `${intType()} NOT NULL DEFAULT 0`,
+  );
+  await ensureColumn(client, table, "last_checked_at", intType());
+  await ensureColumn(client, table, "last_error", "TEXT");
+}
+
+async function ensureWorkspaceConnectionGrantColumns(
+  client: DbExec,
+  table: string,
+): Promise<void> {
+  await ensureColumn(
+    client,
+    table,
+    "connection_id",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  await ensureColumn(client, table, "provider", "TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(client, table, "app_id", "TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(
+    client,
+    table,
+    "scopes_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
+  await ensureColumn(
+    client,
+    table,
+    "config_json",
+    "TEXT NOT NULL DEFAULT '{}'",
+  );
+  await ensureColumn(
+    client,
+    table,
+    "credential_refs_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
+  await ensureColumn(
+    client,
+    table,
+    "granted_by_email",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  await ensureColumn(client, table, "owner_email", "TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(client, table, "org_id", "TEXT");
+  await ensureColumn(
+    client,
+    table,
+    "created_at",
+    `${intType()} NOT NULL DEFAULT 0`,
+  );
+  await ensureColumn(
+    client,
+    table,
+    "updated_at",
+    `${intType()} NOT NULL DEFAULT 0`,
+  );
+}
+
 export async function ensureWorkspaceConnectionsTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
       const table = workspaceConnectionsTable();
+      const grantsTable = workspaceConnectionGrantsTable();
       await retryOnDdlRace(() =>
         client.execute(`
           CREATE TABLE IF NOT EXISTS ${table} (
@@ -137,37 +285,7 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
         `),
       );
 
-      await ensureColumn(client, "provider", "TEXT NOT NULL DEFAULT ''");
-      await ensureColumn(client, "label", "TEXT NOT NULL DEFAULT ''");
-      await ensureColumn(client, "account_id", "TEXT");
-      await ensureColumn(client, "account_label", "TEXT");
-      await ensureColumn(client, "status", "TEXT NOT NULL DEFAULT 'connected'");
-      await ensureColumn(client, "scopes_json", "TEXT NOT NULL DEFAULT '[]'");
-      await ensureColumn(client, "config_json", "TEXT NOT NULL DEFAULT '{}'");
-      await ensureColumn(
-        client,
-        "allowed_apps_json",
-        "TEXT NOT NULL DEFAULT '[]'",
-      );
-      await ensureColumn(
-        client,
-        "credential_refs_json",
-        "TEXT NOT NULL DEFAULT '[]'",
-      );
-      await ensureColumn(client, "owner_email", "TEXT NOT NULL DEFAULT ''");
-      await ensureColumn(client, "org_id", "TEXT");
-      await ensureColumn(
-        client,
-        "created_at",
-        `${intType()} NOT NULL DEFAULT 0`,
-      );
-      await ensureColumn(
-        client,
-        "updated_at",
-        `${intType()} NOT NULL DEFAULT 0`,
-      );
-      await ensureColumn(client, "last_checked_at", intType());
-      await ensureColumn(client, "last_error", "TEXT");
+      await ensureWorkspaceConnectionColumns(client, table);
 
       await retryOnDdlRace(() =>
         client.execute(
@@ -177,6 +295,42 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_workspace_connections_updated_at ON ${table} (updated_at)`,
+        ),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(`
+          CREATE TABLE IF NOT EXISTS ${grantsTable} (
+            id TEXT PRIMARY KEY,
+            connection_id TEXT NOT NULL DEFAULT '',
+            provider TEXT NOT NULL DEFAULT '',
+            app_id TEXT NOT NULL DEFAULT '',
+            scopes_json TEXT NOT NULL DEFAULT '[]',
+            config_json TEXT NOT NULL DEFAULT '{}',
+            credential_refs_json TEXT NOT NULL DEFAULT '[]',
+            granted_by_email TEXT NOT NULL DEFAULT '',
+            owner_email TEXT NOT NULL DEFAULT '',
+            org_id TEXT,
+            created_at ${intType()} NOT NULL DEFAULT 0,
+            updated_at ${intType()} NOT NULL DEFAULT 0
+          )
+        `),
+      );
+
+      await ensureWorkspaceConnectionGrantColumns(client, grantsTable);
+
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_connection_grants_connection_app ON ${grantsTable} (connection_id, app_id)`,
+        ),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE INDEX IF NOT EXISTS idx_workspace_connection_grants_scope_app ON ${grantsTable} (org_id, owner_email, app_id)`,
+        ),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE INDEX IF NOT EXISTS idx_workspace_connection_grants_updated_at ON ${grantsTable} (updated_at)`,
         ),
       );
     })().catch((err) => {
@@ -219,6 +373,14 @@ function normalizeStringArray(value: unknown): string[] {
     .filter((entry): entry is string => typeof entry === "string")
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function normalizeRequiredString(value: unknown, label: string): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized) {
+    throw new Error(`${label} is required.`);
+  }
+  return normalized;
 }
 
 function normalizeObject(value: unknown): Record<string, unknown> {
@@ -353,6 +515,25 @@ function parseRow(row: Record<string, unknown>): WorkspaceConnection {
   });
 }
 
+function parseGrantRow(row: Record<string, unknown>): WorkspaceConnectionGrant {
+  return serializeWorkspaceConnectionGrant({
+    id: String(row.id),
+    connectionId: String(row.connection_id ?? ""),
+    provider: String(row.provider ?? ""),
+    appId: String(row.app_id ?? ""),
+    scopes: normalizeStringArray(safeJsonParse<unknown>(row.scopes_json, [])),
+    config: normalizeObject(safeJsonParse<unknown>(row.config_json, {})),
+    credentialRefs: normalizeCredentialRefs(
+      safeJsonParse<unknown>(row.credential_refs_json, []),
+    ),
+    grantedByEmail: String(row.granted_by_email ?? ""),
+    ownerEmail: String(row.owner_email ?? ""),
+    orgId: row.org_id == null ? null : String(row.org_id),
+    createdAt: iso(row.created_at) ?? new Date(0).toISOString(),
+    updatedAt: iso(row.updated_at) ?? new Date(0).toISOString(),
+  });
+}
+
 export function serializeWorkspaceConnection(
   connection: WorkspaceConnection,
 ): SerializedWorkspaceConnection {
@@ -365,6 +546,37 @@ export function serializeWorkspaceConnection(
   };
 }
 
+export function serializeWorkspaceConnectionGrant(
+  grant: WorkspaceConnectionGrant,
+): SerializedWorkspaceConnectionGrant {
+  return {
+    ...grant,
+    scopes: normalizeStringArray(grant.scopes),
+    config: sanitizeConfig(grant.config),
+    credentialRefs: normalizeCredentialRefs(grant.credentialRefs),
+  };
+}
+
+async function getGrantedConnectionIdsForApp(
+  client: DbExec,
+  scope: ReturnType<typeof requireWorkspaceConnectionScope>,
+  appId: string,
+): Promise<Set<string>> {
+  const table = workspaceConnectionGrantsTable();
+  const where = scopedWhere(scope);
+  const { rows } = await client.execute({
+    sql: `SELECT connection_id FROM ${table} WHERE app_id = ? AND ${where.sql}`,
+    args: [appId, ...where.args],
+  });
+  return new Set(
+    rows
+      .map((row) =>
+        String((row as Record<string, unknown>).connection_id ?? ""),
+      )
+      .filter(Boolean),
+  );
+}
+
 export async function listWorkspaceConnections(
   options: ListWorkspaceConnectionsOptions = {},
 ): Promise<SerializedWorkspaceConnection[]> {
@@ -375,6 +587,7 @@ export async function listWorkspaceConnections(
   const where = scopedWhere(scope);
   const clauses = [where.sql];
   const args: unknown[] = [...where.args];
+  const appId = options.appId?.trim();
 
   if (options.provider) {
     clauses.push("provider = ?");
@@ -392,14 +605,22 @@ export async function listWorkspaceConnections(
     args,
   });
 
-  return rows
-    .map((row) => parseRow(row as Record<string, unknown>))
-    .filter(
-      (connection) =>
-        !options.appId ||
-        connection.allowedApps.length === 0 ||
-        connection.allowedApps.includes(options.appId),
-    );
+  const connections = rows.map((row) =>
+    parseRow(row as Record<string, unknown>),
+  );
+  if (!appId) return connections;
+
+  const grantedConnectionIds = await getGrantedConnectionIdsForApp(
+    client,
+    scope,
+    appId,
+  );
+  return connections.filter(
+    (connection) =>
+      connection.allowedApps.length === 0 ||
+      connection.allowedApps.includes(appId) ||
+      grantedConnectionIds.has(connection.id),
+  );
 }
 
 export async function getWorkspaceConnection(
@@ -512,15 +733,199 @@ export async function upsertWorkspaceConnection(
   return connection;
 }
 
+export async function listWorkspaceConnectionGrants(
+  options: ListWorkspaceConnectionGrantsOptions = {},
+): Promise<SerializedWorkspaceConnectionGrant[]> {
+  await ensureWorkspaceConnectionsTable();
+  const client = getDbExec();
+  const table = workspaceConnectionGrantsTable();
+  const scope = requireWorkspaceConnectionScope();
+  const where = scopedWhere(scope);
+  const clauses = [where.sql];
+  const args: unknown[] = [...where.args];
+  const connectionId = options.connectionId?.trim();
+  const appId = options.appId?.trim();
+  const provider = options.provider?.trim();
+
+  if (connectionId) {
+    clauses.push("connection_id = ?");
+    args.push(connectionId);
+  }
+  if (appId) {
+    clauses.push("app_id = ?");
+    args.push(appId);
+  }
+  if (provider) {
+    clauses.push("provider = ?");
+    args.push(provider);
+  }
+
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM ${table} WHERE ${clauses.join(
+      " AND ",
+    )} ORDER BY updated_at DESC`,
+    args,
+  });
+
+  return rows.map((row) => parseGrantRow(row as Record<string, unknown>));
+}
+
+export async function getWorkspaceConnectionGrant(
+  connectionId: string,
+  appId: string,
+): Promise<SerializedWorkspaceConnectionGrant | null> {
+  await ensureWorkspaceConnectionsTable();
+  const normalizedConnectionId = normalizeRequiredString(
+    connectionId,
+    "getWorkspaceConnectionGrant connectionId",
+  );
+  const normalizedAppId = normalizeRequiredString(
+    appId,
+    "getWorkspaceConnectionGrant appId",
+  );
+  const client = getDbExec();
+  const table = workspaceConnectionGrantsTable();
+  const scope = requireWorkspaceConnectionScope();
+  const where = scopedWhere(scope);
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM ${table} WHERE connection_id = ? AND app_id = ? AND ${where.sql} LIMIT 1`,
+    args: [normalizedConnectionId, normalizedAppId, ...where.args],
+  });
+  if (rows.length === 0) return null;
+  return parseGrantRow(rows[0] as Record<string, unknown>);
+}
+
+export async function upsertWorkspaceConnectionGrant(
+  input: UpsertWorkspaceConnectionGrantInput,
+): Promise<SerializedWorkspaceConnectionGrant> {
+  await ensureWorkspaceConnectionsTable();
+  const connectionId = normalizeRequiredString(
+    input.connectionId,
+    "upsertWorkspaceConnectionGrant connectionId",
+  );
+  const appId = normalizeRequiredString(
+    input.appId,
+    "upsertWorkspaceConnectionGrant appId",
+  );
+
+  const connection = await getWorkspaceConnection(connectionId);
+  if (!connection) {
+    throw new Error(
+      `Workspace connection "${connectionId}" was not found in the current request scope.`,
+    );
+  }
+
+  const client = getDbExec();
+  const table = workspaceConnectionGrantsTable();
+  const scope = requireWorkspaceConnectionScope();
+  const where = scopedWhere(scope);
+  const id = input.id?.trim() || randomUUID();
+  const now = Date.now();
+  const provider = input.provider?.trim() || connection.provider;
+  const scopes = normalizeStringArray(input.scopes);
+  const config = sanitizeConfig(input.config);
+  const credentialRefs = normalizeCredentialRefs(input.credentialRefs);
+
+  const update = await client.execute({
+    sql: `UPDATE ${table}
+      SET provider = ?, scopes_json = ?, config_json = ?,
+        credential_refs_json = ?, granted_by_email = ?, updated_at = ?
+      WHERE connection_id = ? AND app_id = ? AND ${where.sql}`,
+    args: [
+      provider,
+      JSON.stringify(scopes),
+      JSON.stringify(config),
+      JSON.stringify(credentialRefs),
+      scope.ownerEmail,
+      now,
+      connectionId,
+      appId,
+      ...where.args,
+    ],
+  });
+
+  if (update.rowsAffected === 0) {
+    try {
+      await client.execute({
+        sql: `INSERT INTO ${table}
+          (id, connection_id, provider, app_id, scopes_json, config_json,
+            credential_refs_json, granted_by_email, owner_email, org_id,
+            created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          id,
+          connectionId,
+          provider,
+          appId,
+          JSON.stringify(scopes),
+          JSON.stringify(config),
+          JSON.stringify(credentialRefs),
+          scope.ownerEmail,
+          scope.ownerEmail,
+          scope.orgId,
+          now,
+          now,
+        ],
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new Error(
+          `Workspace connection grant for "${connectionId}" and "${appId}" already exists outside the current request scope.`,
+        );
+      }
+      throw err;
+    }
+  }
+
+  const grant = await getWorkspaceConnectionGrant(connectionId, appId);
+  if (!grant) {
+    throw new Error(
+      `Workspace connection grant for "${connectionId}" and "${appId}" was not found after upsert.`,
+    );
+  }
+  return grant;
+}
+
+export async function revokeWorkspaceConnectionGrant(
+  connectionId: string,
+  appId: string,
+): Promise<boolean> {
+  await ensureWorkspaceConnectionsTable();
+  const normalizedConnectionId = normalizeRequiredString(
+    connectionId,
+    "revokeWorkspaceConnectionGrant connectionId",
+  );
+  const normalizedAppId = normalizeRequiredString(
+    appId,
+    "revokeWorkspaceConnectionGrant appId",
+  );
+  const client = getDbExec();
+  const table = workspaceConnectionGrantsTable();
+  const scope = requireWorkspaceConnectionScope();
+  const where = scopedWhere(scope);
+  const result = await client.execute({
+    sql: `DELETE FROM ${table} WHERE connection_id = ? AND app_id = ? AND ${where.sql}`,
+    args: [normalizedConnectionId, normalizedAppId, ...where.args],
+  });
+  return result.rowsAffected > 0;
+}
+
 export async function deleteWorkspaceConnection(id: string): Promise<boolean> {
   await ensureWorkspaceConnectionsTable();
   const client = getDbExec();
   const table = workspaceConnectionsTable();
+  const grantsTable = workspaceConnectionGrantsTable();
   const scope = requireWorkspaceConnectionScope();
   const where = scopedWhere(scope);
   const result = await client.execute({
     sql: `DELETE FROM ${table} WHERE id = ? AND ${where.sql}`,
     args: [id, ...where.args],
   });
+  if (result.rowsAffected > 0) {
+    await client.execute({
+      sql: `DELETE FROM ${grantsTable} WHERE connection_id = ? AND ${where.sql}`,
+      args: [id, ...where.args],
+    });
+  }
   return result.rowsAffected > 0;
 }

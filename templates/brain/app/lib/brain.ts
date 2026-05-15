@@ -195,6 +195,92 @@ export interface SourcesResponse {
   sources?: BrainSource[];
 }
 
+export interface BrainConnectionProviderCredentialKey {
+  key: string;
+  label: string;
+  description?: string;
+  required?: boolean;
+}
+
+export type BrainWorkspaceConnectionGrantState =
+  | "connected"
+  | "granted"
+  | "needs_grant"
+  | "not_connected";
+
+export type BrainWorkspaceConnectionStatus =
+  | "connected"
+  | "checking"
+  | "needs_reauth"
+  | "error"
+  | "disabled";
+
+export interface BrainWorkspaceCredentialRef {
+  key: string;
+  scope?: "user" | "org";
+  provider?: string;
+  label?: string;
+}
+
+export interface BrainWorkspaceConnectionSummaryConnection {
+  id: string;
+  label: string;
+  provider: string;
+  accountId: string | null;
+  accountLabel: string | null;
+  status: BrainWorkspaceConnectionStatus;
+  grantedToApp: boolean;
+  grantScope: "all-apps" | "selected-apps";
+  allowedApps: string[];
+  credentialRefs: BrainWorkspaceCredentialRef[];
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  explicitGrant: {
+    id: string;
+    appId: string;
+    scopes: string[];
+    credentialRefs: BrainWorkspaceCredentialRef[];
+    updatedAt: string;
+  } | null;
+}
+
+export interface BrainWorkspaceConnectionSummary {
+  appId: "brain";
+  grantState: BrainWorkspaceConnectionGrantState;
+  connectionCount: number;
+  grantedConnectionCount: number;
+  activeConnectionCount: number;
+  credentialRefCount: number;
+  hasWorkspaceConnection: boolean;
+  hasGrantedWorkspaceConnection: boolean;
+  hasActiveWorkspaceConnection: boolean;
+  statuses: BrainWorkspaceConnectionStatus[];
+  connections: BrainWorkspaceConnectionSummaryConnection[];
+}
+
+export interface BrainConnectionProvider {
+  id: string;
+  label: string;
+  description: string;
+  capabilities: string[];
+  credentialKeys: BrainConnectionProviderCredentialKey[];
+  configuredSourceCount: number;
+  hasConfiguredSources: boolean;
+  sourceProviderSupported: boolean;
+  workspaceConnection?: BrainWorkspaceConnectionSummary;
+}
+
+export interface ConnectionProvidersResponse {
+  count?: number;
+  appId?: "brain";
+  workspaceConnections?: {
+    appId: "brain";
+    available: boolean;
+    error: string | null;
+  };
+  providers?: BrainConnectionProvider[];
+}
+
 export type BrainCaptureReviewStatus =
   | "queued"
   | "distilling"
@@ -504,6 +590,10 @@ export interface BrainPilotReport {
 }
 
 export interface BrainSettings {
+  companyName?: string;
+  assistantName?: string;
+  assistantTone?: "direct" | "friendly" | "formal" | "technical";
+  sourcePolicy?: "strict" | "balanced" | "exploratory";
   requireApprovalForCompanyKnowledge?: boolean;
   autoRedactEmails?: boolean;
   defaultPublishTier?: "private" | "team" | "company";
@@ -695,6 +785,10 @@ export const sampleSources: BrainSource[] = [
 ];
 
 export const defaultSettings: BrainSettings = {
+  companyName: "",
+  assistantName: "Brain",
+  assistantTone: "direct",
+  sourcePolicy: "balanced",
   requireApprovalForCompanyKnowledge: true,
   autoRedactEmails: true,
   defaultPublishTier: "company",

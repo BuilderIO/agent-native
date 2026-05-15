@@ -660,8 +660,8 @@ switch (command) {
     console.log(`agent-native v${_version}
 
 Usage:
-  agent-native                  Launch Code Agents workspace
-  agent-native "fix tests"      Start a Code Agents coding session
+  agent-native                  Launch Agent-Native Code workspace
+  agent-native "fix tests"      Start an Agent-Native Code coding session
   agent-native dev              Start development server
                                 (or the workspace gateway at a workspace root)
   agent-native build            Build for production (client + server)
@@ -672,9 +672,9 @@ Usage:
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
                                 for a single-app scaffold.
-  agent-native code             Launch Code Agents workspace. Type a task or
+  agent-native code             Launch Agent-Native Code workspace. Type a task or
                                 use goals like /migrate and /audit.
-  agent-native migrate <source> Create a Code Agents /migrate session, or use
+  agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace
   agent-native workspace-dev    Start the multi-app workspace gateway

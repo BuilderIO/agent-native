@@ -1511,6 +1511,150 @@ describe("Brain connector smoke coverage", () => {
     });
   });
 
+  it("imports GitHub PR context linked from Slack captures", async () => {
+    const fetchSpy = vi.fn(
+      async (input: RequestInfo | URL, _init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/repos/acme/brain/issues/42") {
+          return Response.json({
+            id: 420,
+            number: 42,
+            title: "Tighten Slack-linked GitHub imports",
+            body: "Adds bounded issue and pull request context for Brain.",
+            html_url: "https://github.com/acme/brain/pull/42",
+            state: "closed",
+            created_at: "2026-05-14T09:00:00Z",
+            updated_at: "2026-05-14T10:00:00Z",
+            closed_at: "2026-05-14T11:00:00Z",
+            user: { login: "ada" },
+            labels: [{ name: "brain" }],
+            pull_request: {
+              html_url: "https://github.com/acme/brain/pull/42",
+              merged_at: "2026-05-14T11:00:00Z",
+            },
+          });
+        }
+        if (url.pathname === "/repos/acme/brain/issues/42/comments") {
+          expect(url.searchParams.get("per_page")).toBe("2");
+          return Response.json([
+            {
+              id: 1,
+              body: "This should unblock the Slack source follow-up.",
+              html_url: "https://github.com/acme/brain/pull/42#issuecomment-1",
+              updated_at: "2026-05-14T10:15:00Z",
+              user: { login: "grace" },
+            },
+          ]);
+        }
+        if (url.pathname === "/repos/acme/brain/pulls/42") {
+          return Response.json({
+            html_url: "https://github.com/acme/brain/pull/42",
+            merged: true,
+            merged_at: "2026-05-14T11:00:00Z",
+            changed_files: 3,
+          });
+        }
+        if (url.pathname === "/repos/acme/brain/pulls/42/reviews") {
+          expect(url.searchParams.get("per_page")).toBe("2");
+          return Response.json([
+            {
+              id: 2,
+              state: "APPROVED",
+              body: "Looks good with the bounded fetches.",
+              html_url:
+                "https://github.com/acme/brain/pull/42#pullrequestreview-2",
+              submitted_at: "2026-05-14T10:45:00Z",
+              user: { login: "linus" },
+            },
+          ]);
+        }
+        throw new Error(`Unexpected GitHub URL ${url.pathname}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    seedSource({
+      id: "slack-source",
+      title: "Slack product channel",
+      provider: "slack",
+    });
+    seedCapture({
+      id: "slack-capture",
+      sourceId: "slack-source",
+      title: "#product message 2026-05-14",
+      kind: "message",
+      content:
+        "We should bring in https://github.com/acme/brain/pull/42 before the review.",
+      metadataJson: JSON.stringify({
+        provider: "slack",
+        sourceUrl: "https://example.slack.com/archives/C123/p1",
+      }),
+    });
+    const source = seedSource({
+      id: "github-source",
+      title: "GitHub from Slack",
+      provider: "github",
+      configJson: JSON.stringify({
+        linkedSlackSourceIds: ["slack-source"],
+        linkedCaptureLimit: 10,
+        linkedRefLimit: 5,
+        linkedDetailLimit: 5,
+        commentLimit: 2,
+        reviewLimit: 2,
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      provider: "github",
+      status: "success",
+      capturesCreated: 1,
+      stats: {
+        linkedSourceIds: 1,
+        linkedCapturesScanned: 1,
+        linkedRefsFound: 1,
+        linkedRefsImported: 1,
+        detailsFetched: 1,
+        commentsFetched: 1,
+        reviewsFetched: 1,
+      },
+    });
+    expect(result.captures[0]).toMatchObject({
+      externalId: "github:acme/brain:pull:42",
+      title: "Tighten Slack-linked GitHub imports",
+      metadata: expect.objectContaining({
+        provider: "github",
+        repository: "acme/brain",
+        type: "pull_request",
+        merged: true,
+        mergedAt: "2026-05-14T11:00:00Z",
+        bodyExcerpt: "Adds bounded issue and pull request context for Brain.",
+        linkedFrom: expect.objectContaining({
+          sourceId: "slack-source",
+          captureId: "slack-capture",
+          sourceUrl: "https://example.slack.com/archives/C123/p1",
+        }),
+        comments: [
+          expect.objectContaining({
+            author: "grace",
+            bodyExcerpt: "This should unblock the Slack source follow-up.",
+          }),
+        ],
+        reviews: [
+          expect.objectContaining({
+            author: "linus",
+            state: "APPROVED",
+            bodyExcerpt: "Looks good with the bounded fetches.",
+          }),
+        ],
+      }),
+    });
+    expect(result.captures[0].content).toContain("Merged: yes");
+    expect(result.captures[0].content).toContain("Comment summary");
+    expect(result.captures[0].content).toContain("Review summary");
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+  });
+
   it("records GitHub rate limits as retryable connector state", async () => {
     vi.stubGlobal(
       "fetch",

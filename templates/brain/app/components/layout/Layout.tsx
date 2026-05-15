@@ -14,13 +14,14 @@ import { Button } from "@/components/ui/button";
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const isAskRoute = location.pathname === "/";
 
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
 
-  return (
-    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+  const sidebarFrame = (
+    <>
       <div className="hidden md:block">
         <Sidebar />
       </div>
@@ -33,9 +34,41 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <Sidebar />
         </SheetContent>
       </Sheet>
+    </>
+  );
+
+  const contentFrame = (
+    <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card px-3 md:hidden">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => setMobileSidebarOpen(true)}
+          aria-label="Open navigation"
+        >
+          <IconMenu2 className="size-4" />
+        </Button>
+        <span className="text-sm font-semibold">Brain</span>
+      </div>
+      <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+    </div>
+  );
+
+  if (isAskRoute) {
+    return (
+      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+        {sidebarFrame}
+        {contentFrame}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+      {sidebarFrame}
       <AgentSidebar
         position="right"
-        defaultOpen
         emptyStateText="Ask Brain about the company."
         suggestions={[
           "What do we tell enterprise prospects about security?",
@@ -43,21 +76,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           "Which sources have sync problems?",
         ]}
       >
-        <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-3 md:hidden">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setMobileSidebarOpen(true)}
-              aria-label="Open navigation"
-            >
-              <IconMenu2 className="size-4" />
-            </Button>
-            <span className="text-sm font-semibold">Brain</span>
-          </div>
-          <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
-        </div>
+        {contentFrame}
       </AgentSidebar>
     </div>
   );

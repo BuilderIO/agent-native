@@ -65,7 +65,8 @@ export const CODE_AGENT_CLI_GOALS: CodeAgentCliGoal[] = [
     id: "task",
     slashCommand: "/task",
     aliases: ["task", "todo"],
-    summary: "Run a generic coding task as a resumable Code Agent session.",
+    summary:
+      "Run a generic coding task as a resumable Agent-Native Code session.",
     backingCommand: "task",
   },
   {
@@ -374,7 +375,7 @@ export async function handleCodeShellLine(
     }
 
     if (first === "exit" || first === "quit") {
-      writeLine(options.output, "Leaving Agent-Native Code Agents.");
+      writeLine(options.output, "Leaving Agent-Native Code.");
       return "exit";
     }
 
@@ -446,7 +447,7 @@ export async function handleCodeShellLine(
 export function codeUsage(): string {
   return `agent-native code
 
-Open the Agent-Native Code Agents shell or run a coding-agent goal directly.
+Open the Agent-Native Code shell or run a coding-agent goal directly.
 
 Usage:
   agent-native code
@@ -502,12 +503,12 @@ The existing shortcut still works:
 }
 
 export function codeShellIntro(): string {
-  return `Agent-Native Code Agents
+  return `Agent-Native Code
 Type a coding task to start a session, /help for commands, /goals for goals, or /exit to leave.`;
 }
 
 export function codeShellHelp(): string {
-  return `Code Agents shell commands:
+  return `Agent-Native Code shell commands:
   /help        Show this help
   /goals       List available coding-agent goals
   /migrate ... Move a source into agent-native
@@ -533,7 +534,7 @@ Compatibility shortcuts:
 }
 
 export function codeShellFreeTextMessage(): string {
-  return `Bare prompts run as generic Code Agent sessions.
+  return `Bare prompts run as generic Agent-Native Code sessions.
 Use /migrate and /audit for specialized goals.`;
 }
 
@@ -606,7 +607,7 @@ export function parseCodeShellArgs(
 }
 
 function renderGoalList(): string {
-  return `Available Code Agents goals:
+  return `Available Agent-Native Code goals:
 ${renderGoalRows()}
 ${renderProjectCommandRows()}`;
 }
@@ -750,7 +751,7 @@ async function runCodeAgentControl(
     allowPicker,
   );
   if (!effectiveArgs) {
-    writeLine(output, "No Code Agents session selected.");
+    writeLine(output, "No Agent-Native Code session selected.");
     return;
   }
   switch (subcommand) {
@@ -810,7 +811,7 @@ async function promptForRunSelection(
 ): Promise<CodeAgentRunRecord | null> {
   const choices = runs.slice(0, 10);
   writeLine(output, "");
-  writeLine(output, "Select a Code Agents session:");
+  writeLine(output, "Select an Agent-Native Code session:");
   choices.forEach((run, index) => {
     writeLine(output, `  ${index + 1}. ${run.id}`);
     writeLine(
@@ -852,10 +853,10 @@ async function promptForRunSelection(
 function renderCodeAgentSessionList(runs: CodeAgentRunRecord[]): string {
   return [
     "",
-    "Code Agents sessions",
+    "Agent-Native Code sessions",
     "",
     runs.length === 0
-      ? "  No Code Agents sessions found."
+      ? "  No Agent-Native Code sessions found."
       : `  ${runs.length} session${runs.length === 1 ? "" : "s"} found. Most recent first.`,
     ...runs.slice(0, 10).map(renderCodeAgentRunListItem),
     runs.length > 10 ? `  - ${runs.length - 10} more...` : "",
@@ -880,15 +881,15 @@ function renderCodeAgentStatus(
     defaultToLast: args.includes("--last") || hasExplicitRunId(args),
   });
   if (selected) {
-    return renderCodeAgentRunDetail("Code Agents status", selected);
+    return renderCodeAgentRunDetail("Agent-Native Code status", selected);
   }
 
   return [
     "",
-    "Code Agents status",
+    "Agent-Native Code status",
     "",
     runs.length === 0
-      ? "  No Code Agents sessions found."
+      ? "  No Agent-Native Code sessions found."
       : `  ${runs.length} session${runs.length === 1 ? "" : "s"} found.`,
     ...runs.slice(0, 10).map(renderCodeAgentRunListItem),
     runs.length > 10 ? `  - ${runs.length - 10} more...` : "",
@@ -908,9 +909,9 @@ function renderCodeAgentResume(
   if (!run) {
     return [
       "",
-      "Code Agents resume",
+      "Agent-Native Code resume",
       "",
-      "  No Code Agents sessions found.",
+      "  No Agent-Native Code sessions found.",
       "",
       'Start one with: agent-native code "what to change"',
     ].join("\n");
@@ -921,7 +922,7 @@ function renderCodeAgentResume(
   const followUpTarget = args.includes("--last") ? "--last" : run.id;
   return [
     "",
-    "Code Agents resume",
+    "Agent-Native Code resume",
     "",
     `  Run:     ${run.id}`,
     `  Goal:    /${run.goalId}`,
@@ -952,9 +953,9 @@ function renderCodeAgentUi(runs: CodeAgentRunRecord[], args: string[]): string {
   const run = selectCodeAgentRun(runs, args, { defaultToLast: true });
   return [
     "",
-    "Code Agents UI",
+    "Agent-Native Code UI",
     "",
-    "Open Agent-Native Desktop and choose Code Agents from the left sidebar.",
+    "Open Agent-Native Desktop and choose Agent-Native Code from the left sidebar.",
     run ? `Run: ${run.id}` : "No run selected yet.",
     run ? `Deep link: agentnative://open?app=code-agents&run=${run.id}` : "",
   ]
@@ -973,7 +974,7 @@ function stopCodeAgentRun(runs: CodeAgentRunRecord[], args: string[]): string {
   ) {
     return [
       "",
-      "Code Agents stop",
+      "Agent-Native Code stop",
       "",
       `  Run: ${run.id}`,
       `  Status: ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
@@ -997,7 +998,7 @@ function stopCodeAgentRun(runs: CodeAgentRunRecord[], args: string[]): string {
       runId: run.id,
       kind: "status",
       message: killed
-        ? "Stop requested for Code Agent runner."
+        ? "Stop requested for Agent-Native Code runner."
         : "Stop requested; no active runner process was found from the CLI.",
       metadata: {
         source: "cli-stop",
@@ -1025,9 +1026,9 @@ function stopCodeAgentRun(runs: CodeAgentRunRecord[], args: string[]): string {
   }
   return [
     "",
-    "Code Agents stop",
+    "Agent-Native Code stop",
     "",
-    run ? `  Run: ${run.id}` : "  No Code Agents session selected.",
+    run ? `  Run: ${run.id}` : "  No Agent-Native Code session selected.",
     "",
     run
       ? "  Stop requested. If a tracked runner process is active, it received SIGTERM."
@@ -1048,9 +1049,9 @@ async function approveCodeAgentRun(
       output,
       [
         "",
-        "Code Agents approve",
+        "Agent-Native Code approve",
         "",
-        "  No Code Agents session selected.",
+        "  No Agent-Native Code session selected.",
         "",
         "Try: agent-native code approve --last",
       ].join("\n"),
@@ -1062,7 +1063,7 @@ async function approveCodeAgentRun(
     output,
     [
       "",
-      "Code Agents approve",
+      "Agent-Native Code approve",
       "",
       `  Run: ${run.id}`,
       "",
@@ -1076,7 +1077,7 @@ async function approveCodeAgentRun(
       "",
       "Approval step finished.",
       "",
-      "Resume the Code Agent session:",
+      "Resume the Agent-Native Code session:",
       `  agent-native code run ${run.id}`,
     ].join("\n"),
   );
@@ -1090,9 +1091,9 @@ function renderCodeAgentLogs(
   if (!run) {
     return [
       "",
-      "Code Agents logs",
+      "Agent-Native Code logs",
       "",
-      "  No Code Agents session selected.",
+      "  No Agent-Native Code session selected.",
       "",
       "Try: agent-native code logs --last",
     ].join("\n");
@@ -1100,7 +1101,7 @@ function renderCodeAgentLogs(
   const events = listCodeAgentTranscriptEvents(run.id);
   return [
     "",
-    `Code Agents logs: ${run.id}`,
+    `Agent-Native Code logs: ${run.id}`,
     `/${run.goalId} ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
     run.title,
     `Updated: ${run.updatedAt}`,
@@ -1123,9 +1124,9 @@ async function attachCodeAgentRun(
       output,
       [
         "",
-        "Code Agents attach",
+        "Agent-Native Code attach",
         "",
-        "  No Code Agents session selected.",
+        "  No Agent-Native Code session selected.",
         "",
         "Try: agent-native code attach --last",
       ].join("\n"),
@@ -1136,7 +1137,7 @@ async function attachCodeAgentRun(
   const follow = !args.includes("--no-follow");
   const printed = new Set<string>();
   writeLine(output, "");
-  writeLine(output, `Attaching to Code Agent run ${run.id}`);
+  writeLine(output, `Attaching to Agent-Native Code run ${run.id}`);
   writeLine(
     output,
     "Press Ctrl+C to detach. The session keeps its transcript.",
@@ -1299,7 +1300,7 @@ async function runCodeGoal(
     (candidate) => candidate.id === goalId,
   );
   if (!goal) {
-    throw new Error(`Unknown Code Agents goal: ${goalId}`);
+    throw new Error(`Unknown Agent-Native Code goal: ${goalId}`);
   }
 
   switch (goal.backingCommand) {
@@ -1369,7 +1370,7 @@ async function runTask(
   appendCodeAgentTranscriptEvent({
     runId: run.id,
     kind: "status",
-    message: "Starting local Code Agent execution.",
+    message: "Starting local Agent-Native Code execution.",
     metadata: {
       status: "running",
       phase: "starting",
@@ -1428,8 +1429,8 @@ async function recordCodeAgentFollowUpPrompt(
       [
         "",
         runId
-          ? `Code Agents run not found: ${runId}`
-          : "No Code Agents runs found.",
+          ? `Agent-Native Code run not found: ${runId}`
+          : "No Agent-Native Code runs found.",
         "",
         'Start one with: agent-native code "what to change"',
       ].join("\n"),
@@ -1546,7 +1547,7 @@ function truncateForDisplay(value: string, maxLength: number): string {
 function renderTaskStarted(run: CodeAgentRunRecord, prompt: string): string {
   return [
     "",
-    "Code Agents session started.",
+    "Agent-Native Code session started.",
     "",
     `  Run:    ${run.id}`,
     `  Prompt: ${truncateForDisplay(prompt, 160)}`,
@@ -1562,7 +1563,7 @@ function renderFollowUpRecorded(
 ): string {
   return [
     "",
-    "Running follow-up prompt for Code Agent run.",
+    "Running follow-up prompt for Agent-Native Code run.",
     "",
     `  Run:   ${run.id}`,
     `  Goal:  /${run.goalId}`,
@@ -1581,7 +1582,7 @@ function taskUsage(): string {
     '  agent-native code --auto "fix this and verify it"',
     `  agent-native code --permission-mode ${CODE_AGENT_PERMISSION_MODES.join("|")} "what to change"`,
     "",
-    "The task goal starts a local Code Agent session, saves transcript events, and can be resumed with follow-up prompts.",
+    "The task goal starts a local Agent-Native Code session, saves transcript events, and can be resumed with follow-up prompts.",
   ].join("\n");
 }
 

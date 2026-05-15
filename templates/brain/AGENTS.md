@@ -36,27 +36,28 @@ JSON is stored in text columns. There is no vector database.
 
 ## Actions
 
-| Action                                                                              | Purpose                                                                                |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `create-source` / `update-source` / `delete-source` / `get-source` / `list-sources` | Manage source configuration                                                            |
-| `sync-source` / `sync-due-sources`                                                  | Run one source immediately or run due auto-sync sources                                |
-| `test-slack-connection`                                                             | Test Slack credentials/channel allow-lists without reading message history             |
-| `run-slack-pilot`                                                                   | Produce a guarded Slack pilot report; reads no history unless `readHistory: true`      |
-| `get-pilot-report`                                                                  | Summarize one source's sync health, queue state, privacy notes, and rollout next steps |
-| `import-capture`                                                                    | Import arbitrary raw text                                                              |
-| `import-transcript`                                                                 | Import meeting transcripts                                                             |
-| `list-captures` / `get-capture`                                                     | Review raw captures by source/status, including distillation queue state               |
-| `enqueue-distillation`                                                              | Idempotently queue capture distillation                                                |
-| `claim-distillation`                                                                | Claim one queued distillation item before a browser or worker hands it to the agent    |
-| `list-distillation-queue` / `retry-distillation`                                    | Inspect failed/stale distillation work and safely retry accessible items               |
-| `mark-capture-distilled`                                                            | Mark a capture distilled or ignored                                                    |
-| `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior |
-| `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                    |
-| `search-everything`                                                                 | V1.5 search across knowledge, raw captures, and source records                         |
-| `list-proposals` / `update-proposal` / `approve-proposal` / `reject-proposal`       | Review, edit, approve, or reject company-tier or forced proposals                      |
-| `seed-demo-data` / `run-demo-eval`                                                  | Seed and evaluate the product-decision demo corpus                                     |
-| `get-settings` / `set-settings`                                                     | Read/update Brain settings                                                             |
-| `navigate` / `view-screen`                                                          | Keep agent and UI context in sync                                                      |
+| Action                                                                              | Purpose                                                                                                                                |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `create-source` / `update-source` / `delete-source` / `get-source` / `list-sources` | Manage source configuration                                                                                                            |
+| `sync-source` / `sync-due-sources`                                                  | Run one source immediately or run due auto-sync sources                                                                                |
+| `list-connection-providers`                                                         | List Brain-relevant reusable provider metadata, workspace connection grants for `appId=brain`, credential key names, and source status |
+| `test-slack-connection`                                                             | Test Slack credentials/channel allow-lists without reading message history                                                             |
+| `run-slack-pilot`                                                                   | Produce a guarded Slack pilot report; reads no history unless `readHistory: true`                                                      |
+| `get-pilot-report`                                                                  | Summarize one source's sync health, queue state, privacy notes, and rollout next steps                                                 |
+| `import-capture`                                                                    | Import arbitrary raw text                                                                                                              |
+| `import-transcript`                                                                 | Import meeting transcripts                                                                                                             |
+| `list-captures` / `get-capture`                                                     | Review raw captures by source/status, including distillation queue state                                                               |
+| `enqueue-distillation`                                                              | Idempotently queue capture distillation                                                                                                |
+| `claim-distillation`                                                                | Claim one queued distillation item before a browser or worker hands it to the agent                                                    |
+| `list-distillation-queue` / `retry-distillation`                                    | Inspect failed/stale distillation work and safely retry accessible items                                                               |
+| `mark-capture-distilled`                                                            | Mark a capture distilled or ignored                                                                                                    |
+| `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior                                                 |
+| `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                                                                    |
+| `search-everything`                                                                 | V1.5 search across knowledge, raw captures, and source records                                                                         |
+| `list-proposals` / `update-proposal` / `approve-proposal` / `reject-proposal`       | Review, edit, approve, or reject company-tier or forced proposals                                                                      |
+| `seed-demo-data` / `run-demo-eval`                                                  | Seed and evaluate the product-decision demo corpus                                                                                     |
+| `get-settings` / `set-settings`                                                     | Read/update Brain settings                                                                                                             |
+| `navigate` / `view-screen`                                                          | Keep agent and UI context in sync                                                                                                      |
 
 ## Retrieval Rules
 
@@ -145,15 +146,31 @@ GitHub sources are the first reusable connector proof for Brain. They use the
 scoped `GITHUB_TOKEN` credential and fetch bounded issue/PR context from
 configured repositories through GitHub's REST API. Configure `repositories` or
 `repos` as `["owner/repo"]`, with optional `state`, `limit`, `includeIssues`,
-and `includePullRequests`. Treat imported GitHub captures as ingestable company
-context, not full GitHub analytics. This connector can later move to Workspace
-Connections once that reusable connection layer is available.
+and `includePullRequests`. To enrich Slack pilots, configure
+`linkedSlackSourceIds`, `slackSourceIds`, or `linkedSourceIds` so GitHub imports
+PR and issue URLs found in accessible Slack Brain captures. Keep the bounded
+limits small with `linkedCaptureLimit`, `linkedRefLimit`, `linkedDetailLimit`,
+`commentLimit`, `reviewLimit`, and `repoDetailLimit`. Treat imported GitHub
+captures as ingestable company context, not full GitHub analytics. This
+connector can later move to Workspace Connections once that reusable connection
+layer is available.
 
 For new Brain source provider UI or agent guidance, prefer the shared provider
 catalog from `@agent-native/core/connections` for provider ids, labels,
 credential key names, capabilities, and recommended template uses. The catalog
 is metadata only; Brain actions must still read secret values through the
 existing credential vault and must never return them.
+
+Before asking the user for a duplicate Slack, Granola, GitHub, Notion, Google
+Drive, HubSpot, or other provider key, call `list-connection-providers` and
+inspect each provider's `workspaceConnection` summary. A `grantState` of
+`connected` means Brain already has a granted workspace connection for
+`appId=brain`; prefer that shared connection path for new source work. A
+`grantState` of `needs_grant` means a workspace connection exists but has not
+been granted to Brain yet, so ask for the grant instead of a new secret when
+that is the user's intent. Existing Brain connectors remain backward
+compatible with scoped credentials such as `SLACK_BOT_TOKEN`, `GRANOLA_API_KEY`,
+and `GITHUB_TOKEN`.
 
 Auto-sync is controlled per source with `config.autoSync` and
 `config.pollMinutes`. The background job is gated by `RUN_BACKGROUND_JOBS`; use
@@ -175,3 +192,10 @@ a personal aside as an ignored capture.
 Use `run-demo-eval` to verify recall, citations, supersede links, proposal
 gating, redaction, and personal-content exclusion. This is the fastest
 repeatable check that Brain still feels like a trustworthy company memory app.
+
+The Slack pilot regression corpus lives in
+`templates/brain/evals/slack-pilot-corpus.ts`. It covers reasoning-effort
+controls, Fusion PR #13340 missing-branch handling, Figma Plugin JSON uploader
+feedback, non-English support, Slack history guardrails, citation requirements,
+personal-content exclusion, and honest not-found behavior. Run it with
+`pnpm --filter brain exec vitest --run --config vitest.config.ts evals/slack-pilot-corpus.test.ts`.

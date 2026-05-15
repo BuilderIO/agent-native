@@ -6,14 +6,18 @@ description: "Shared provider metadata for connect-once-use-everywhere integrati
 # Workspace Connections
 
 Workspace connections are the framework path toward "connect once, use
-everywhere" integrations. The first layer is intentionally small: a shared,
-typed provider catalog that templates can import to describe the external
-systems they understand.
+everywhere" integrations. They have two shared pieces:
 
-This catalog does not store credentials, run OAuth, persist connection rows, or
-return secrets. It gives templates a common vocabulary for provider ids,
-credential key names, capabilities, and recommended app uses while the existing
-credential vault remains the place where secret values live.
+- A typed provider catalog that templates can import to describe the external
+  systems they understand.
+- A scoped SQL store for connected accounts plus per-app grants, so a workspace
+  can connect Slack, GitHub, Google Drive, or another provider once and then
+  grant individual apps access to that connection.
+
+The store records provider metadata, account labels, non-secret config,
+credential reference names, health state, and grant rows. It does not run OAuth
+or return secret values. Secret values stay in the credential vault and are
+resolved by actions at execution time.
 
 ## Provider Catalog
 
@@ -51,6 +55,52 @@ The initial provider ids are:
 Credential keys are names only, such as `SLACK_BOT_TOKEN` or `GITHUB_TOKEN`.
 Provider metadata must never include actual credential values.
 
+## Connection Store
+
+Import the shared store from `@agent-native/core/workspace-connections`:
+
+```ts
+import {
+  listWorkspaceConnections,
+  upsertWorkspaceConnection,
+  upsertWorkspaceConnectionGrant,
+  revokeWorkspaceConnectionGrant,
+} from "@agent-native/core/workspace-connections";
+
+await upsertWorkspaceConnection({
+  id: "team-slack",
+  provider: "slack",
+  label: "Team Slack",
+  accountLabel: "Acme",
+  credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+});
+
+await upsertWorkspaceConnectionGrant({
+  connectionId: "team-slack",
+  appId: "dispatch",
+});
+
+const dispatchConnections = await listWorkspaceConnections({
+  appId: "dispatch",
+});
+```
+
+Connection rows are scoped to the active org when one is present. Without an
+org, they are scoped to the authenticated user. Grant rows use the same scope,
+which means any member of an org can see org-level grants while other orgs and
+personal scopes cannot.
+
+`allowedApps` on a connection is still supported for compatibility:
+
+- `allowedApps: []` means every app in the same scope may use the connection.
+- `allowedApps: ["dispatch"]` grants access through the legacy field.
+- `workspace_connection_grants` rows add explicit per-app grants alongside the
+  legacy field.
+
+Use `revokeWorkspaceConnectionGrant(connectionId, appId)` to remove an explicit
+grant. Revoking a grant does not change legacy `allowedApps`; if the app is
+still listed there, the connection remains available to that app.
+
 ## How This Complements The Vault
 
 The credential vault answers: "Where is the secret stored, who can access it,
@@ -65,22 +115,25 @@ Use both together:
 1. A template reads provider metadata from the catalog.
 2. The UI or onboarding flow shows the provider label, capabilities, and needed
    credential key names.
-3. Secret values are created or granted through the existing vault and secret
-   APIs.
-4. The template stores only non-secret configuration, cursors, source ids, and
-   user choices in its own SQL tables.
-5. Actions resolve credentials at execution time and never return secret values.
+3. Secret values are created or granted through the vault and secret APIs.
+4. The workspace connection store records the connected account, safe metadata,
+   and app grants.
+5. Templates store only app-specific cursors, source ids, and user choices in
+   their own SQL tables.
+6. Actions resolve credentials at execution time and never return secret values.
 
 ## Path To Connect Once, Use Everywhere
 
-The provider catalog is the foundation for a broader workspace layer:
+The provider catalog and grant store are the foundation for a broader workspace
+layer:
 
 - Shared provider ids and capability names keep templates aligned.
 - Workspace-level inventory can show which providers are configured across
   Brain, Mail, Analytics, Dispatch, and future apps.
-- A later persistence layer can record account labels, status, allowed apps,
-  granted credential refs, and health checks without changing template-facing
-  provider ids.
+- Connection rows record account labels, status, allowed apps, credential refs,
+  and health checks without changing template-facing provider ids.
+- Grant rows let a workspace owner connect once, then enable individual apps as
+  the workspace adopts them.
 - Federated search can ask for providers with `search`, `docs`, `messages`,
   `meetings`, `crm`, or `code` capabilities instead of hardcoding every app's
   connector list.

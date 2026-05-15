@@ -10,7 +10,7 @@ import { jsonRecordSchema, sourceProviderSchema } from "./_schemas.js";
 
 export default defineAction({
   description:
-    "Create a Brain source for manual imports, generic captures, Slack, or Granola.",
+    "Create a Brain source for manual imports, generic captures, Slack, Granola, or GitHub.",
   schema: z.object({
     id: z.string().optional().describe("Optional optimistic source ID"),
     title: z.string().min(1).describe("Human-readable source name"),

@@ -1458,8 +1458,8 @@ function spawnCodeAgentRunner(
       appendCodeAgentStatusEvent(
         runId,
         code === 0
-          ? "Code Agent process exited."
-          : `Code Agent process exited with ${signal ?? code}.`,
+          ? "Agent-Native Code process exited."
+          : `Agent-Native Code process exited with ${signal ?? code}.`,
         { source: "desktop-runner", code, signal },
       );
       touchCodeAgentRunRecord(runId, {
@@ -1474,10 +1474,14 @@ function spawnCodeAgentRunner(
     });
     child.unref();
   } catch (err) {
-    appendCodeAgentStatusEvent(runId, "Could not start Code Agent process.", {
-      source: "desktop-runner",
-      error: err instanceof Error ? err.message : String(err),
-    });
+    appendCodeAgentStatusEvent(
+      runId,
+      "Could not start Agent-Native Code process.",
+      {
+        source: "desktop-runner",
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
     touchCodeAgentRunRecord(runId, {
       status: "errored",
       phase: "runner-error",
@@ -1705,7 +1709,7 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   if (!runFile || !fs.existsSync(runFile)) {
     return {
       ok: false,
-      message: "Code Agent session was not found.",
+      message: "Agent-Native Code session was not found.",
       error: `No run record exists for ${runId}.`,
     };
   }
@@ -1733,7 +1737,9 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   return {
     ok: Boolean(run),
     run: run ?? undefined,
-    message: run ? "Code Agent session updated." : "Session update failed.",
+    message: run
+      ? "Agent-Native Code session updated."
+      : "Session update failed.",
     error: run ? undefined : "Could not read the updated session record.",
   };
 }
@@ -2001,8 +2007,8 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
       ok: false,
       command: command ?? "status",
       action: "none",
-      message: "Unknown Code Agents goal.",
-      error: "Unknown Code Agents goal.",
+      message: "Unknown Agent-Native Code goal.",
+      error: "Unknown Agent-Native Code goal.",
     };
   }
 
@@ -2046,7 +2052,7 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
       ok: true,
       command,
       action: "refresh",
-      message: "Code Agent runner started.",
+      message: "Agent-Native Code runner started.",
     };
   }
 
@@ -2081,7 +2087,7 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
         ok: true,
         command,
         action: "refresh",
-        message: "This Code Agent run is already finished.",
+        message: "This Agent-Native Code run is already finished.",
       };
     }
     const metadata = isObject(record?.metadata) ? record.metadata : null;
@@ -2092,7 +2098,7 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
         activeCodeAgentProcesses.delete(runId);
         appendCodeAgentStatusEvent(
           runId,
-          "Stop requested for Code Agent run.",
+          "Stop requested for Agent-Native Code run.",
           {
             source: "desktop",
             pid,
@@ -2109,21 +2115,21 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
           ok: true,
           command,
           action: "refresh",
-          message: "Stop requested for this Code Agent run.",
+          message: "Stop requested for this Agent-Native Code run.",
         };
       } catch (err) {
         return {
           ok: false,
           command,
           action: "none",
-          message: "Could not stop this Code Agent process.",
+          message: "Could not stop this Agent-Native Code process.",
           error: err instanceof Error ? err.message : String(err),
         };
       }
     }
     appendCodeAgentStatusEvent(
       runId,
-      "Stop requested for Code Agent run, but no active process was registered.",
+      "Stop requested for Agent-Native Code run, but no active process was registered.",
       {
         source: "desktop",
       },
@@ -2140,7 +2146,8 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
       ok: true,
       command,
       action: "refresh",
-      message: "No active Code Agent process is registered for this run.",
+      message:
+        "No active Agent-Native Code process is registered for this run.",
     };
   }
 
@@ -2148,8 +2155,8 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
     ok: false,
     command: "status",
     action: "none",
-    message: "Unsupported Code Agents command.",
-    error: "Unsupported Code Agents command.",
+    message: "Unsupported Agent-Native Code command.",
+    error: "Unsupported Agent-Native Code command.",
   };
 }
 
@@ -2174,7 +2181,7 @@ ipcMain.handle(
         status: "unavailable",
         goalId,
         runs: [],
-        error: `Unknown Code Agents goal: ${goalId}`,
+        error: `Unknown Agent-Native Code goal: ${goalId}`,
       });
     }
     if (goal.id === "migrate") {

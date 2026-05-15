@@ -125,6 +125,23 @@ manual mode, create grants before syncing.
 - `approve-vault-request`: approve a request, creating the secret and grant (admin only)
 - `deny-vault-request`: deny a pending request (admin only)
 
+### Workspace Integrations (shared provider connections)
+
+Dispatch is the control plane for shared workspace integrations. Use these
+actions for third-party provider connections that multiple apps can inherit
+without each app re-entering setup metadata. The provider catalog comes from
+`@agent-native/core/connections`; saved connections and grants come from
+`@agent-native/core/workspace-connections`.
+
+- `list-workspace-connections`: list provider catalog entries, saved workspace connections, app grants, and suggested app grant targets. Pass `provider`, `appId`, `capability`, `templateUse`, or `includeDisabled` to filter.
+- `upsert-workspace-connection`: create or update a shared provider connection. Store labels, account metadata, scopes, non-secret config, credential refs, and `allowedApps`; never store raw secret values in connection config.
+- `set-workspace-connection-grant`: grant or revoke an app's access to a connection. `allowedApps: []` means all apps; selected access uses explicit `workspace_connection_grants` rows while legacy `allowedApps` remains backward compatible.
+- `delete-workspace-connection`: delete a shared provider connection and its app grants.
+
+When `navigation.view === "integrations"`, `view-screen` returns the provider
+catalog, saved connections, grants, suggested app targets, and any connection
+errors so the agent can answer from the same control-plane state the user sees.
+
 ### Workspace Resources (global skills, instructions, agents, reference resources)
 
 - `list-workspace-resources`: list all workspace skills, instructions, agent profiles, and reference resources
@@ -190,7 +207,7 @@ manual mode, create grants before syncing.
 - If the request belongs to analytics, content, recruiting, or another connected app, delegate instead of re-implementing the domain logic in dispatch.
 - Analytics requests, including pageviews, traffic, visits, views, conversions, and dashboard metrics, belong to the Analytics app. Delegate them to the analytics agent with `call-agent`.
 - Keep outbound messages concise and operational.
-- When a user asks about integrations or credentials, use `list-integrations-catalog` to check cross-app status.
+- When a user asks about provider integrations, shared connections, or app access to third-party systems, use `list-workspace-connections` first. Use `list-integrations-catalog` for legacy vault credential requirements and per-app secret setup status.
 - In default all-apps vault mode, do not create per-app grants for new apps; sync the target app when credentials need to be pushed. In manual vault mode, after granting a secret to an app, always offer to sync it immediately with `sync-vault-to-app`.
 - When a user asks to create, build, make, scaffold, or generate an "agent" from Dispatch chat or by tagging `@agent-native` in Slack/email/Telegram, first classify the ask. If it is a simple Dispatch-native behavior like a reminder, digest, monitor, routing rule, saved instruction, or recurring workflow, create or update the recurring job/resource/destination in Dispatch. If it is a robust unique product or teammate that needs its own UI, data model, actions, integrations, or domain workflow, treat it as a new workspace app and use `start-workspace-app-creation`.
 - When a user explicitly asks for a new app or workspace app from Slack, email, Telegram, or chat, use `start-workspace-app-creation`.

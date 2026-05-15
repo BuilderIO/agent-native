@@ -27,6 +27,7 @@ import {
   EmptyActionState,
   LoadingRows,
   PageHeader,
+  StatusBadge,
 } from "@/components/brain/Surface";
 
 type ProposalStatus = "pending" | "approved" | "rejected";
@@ -153,7 +154,7 @@ export default function ReviewRoute() {
   }
 
   return (
-    <div className="min-h-full bg-background">
+    <div className="min-h-full bg-muted/20">
       <PageHeader
         eyebrow="Review"
         title="Proposal review"
@@ -185,7 +186,7 @@ export default function ReviewRoute() {
               const sourceUrl = firstSourceUrl(proposal);
               const canReview = proposal.status === "pending";
               return (
-                <Card key={proposal.id}>
+                <Card key={proposal.id} className="shadow-none">
                   <CardHeader className="pb-3">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
@@ -268,7 +269,7 @@ export default function ReviewRoute() {
                         </div>
                       </div>
 
-                      <div className="grid content-start gap-4 rounded-md border border-border bg-muted/25 p-4">
+                      <div className="grid content-start gap-4 rounded-md border border-border bg-muted/30 p-4">
                         <div className="grid gap-2 text-sm">
                           <MetadataRow
                             label="Source"
@@ -302,7 +303,7 @@ export default function ReviewRoute() {
                               {evidence.slice(0, 3).map((item, index) => (
                                 <div
                                   key={`${proposal.id}-evidence-${index}`}
-                                  className="rounded-md bg-background p-3 text-sm"
+                                  className="rounded-md border border-border bg-card p-3 text-sm"
                                 >
                                   <p className="line-clamp-4 leading-6">
                                     {item.quote ?? "Evidence quote unavailable"}
@@ -432,15 +433,6 @@ function formatDate(value: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const variant = status === "pending" ? "outline" : "secondary";
-  return (
-    <Badge variant={variant} className="capitalize">
-      {status.replace(/_/g, " ")}
-    </Badge>
-  );
 }
 
 function MetadataRow({

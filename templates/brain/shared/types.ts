@@ -52,18 +52,32 @@ export interface BrainEvidence extends BrainEvidenceInput {
 }
 
 export interface BrainSettings {
+  companyName?: string;
+  assistantName?: string;
+  assistantTone?: "direct" | "friendly" | "formal" | "technical";
+  sourcePolicy?: "strict" | "balanced" | "exploratory";
   requireApprovalForCompanyKnowledge: boolean;
   autoRedactEmails: boolean;
   defaultPublishTier: BrainPublishTier;
   distillationInstructions: string;
   connectorPollMinutes: number;
+  requireCitations?: boolean;
+  autoArchiveResolved?: boolean;
+  notifyOnSourceErrors?: boolean;
 }
 
 export const DEFAULT_BRAIN_SETTINGS: BrainSettings = {
+  companyName: "",
+  assistantName: "Brain",
+  assistantTone: "direct",
+  sourcePolicy: "balanced",
   requireApprovalForCompanyKnowledge: true,
   autoRedactEmails: true,
   defaultPublishTier: "company",
   distillationInstructions:
     "Distill durable, reusable institutional knowledge. Preserve short direct quotes as evidence.",
   connectorPollMinutes: 60,
+  requireCitations: true,
+  autoArchiveResolved: true,
+  notifyOnSourceErrors: true,
 };

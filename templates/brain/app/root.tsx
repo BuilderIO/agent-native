@@ -73,7 +73,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
-        <meta name="theme-color" content="#12665d" />
+        <meta name="theme-color" content="#18181b" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
           name="apple-mobile-web-app-status-bar-style"

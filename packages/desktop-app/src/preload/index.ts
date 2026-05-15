@@ -116,7 +116,7 @@ const electronAPI = {
     },
   },
 
-  /** Native Code Agents hub helpers */
+  /** Native Agent-Native Code hub helpers */
   codeAgents: {
     listRuns: (goalId?: string): Promise<CodeAgentRunListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_RUNS, goalId),

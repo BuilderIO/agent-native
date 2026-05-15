@@ -3,6 +3,7 @@ import { readAppState } from "@agent-native/core/application-state";
 import { dispatchActions } from "@agent-native/dispatch/actions";
 import { z } from "zod";
 import { listDispatchUsageMetricsScoped } from "../server/lib/usage-metrics.js";
+import listWorkspaceConnections from "./list-workspace-connections.js";
 
 async function runDispatchAction(name: string, args: Record<string, unknown>) {
   const action = dispatchActions[name];
@@ -89,6 +90,47 @@ export default defineAction({
             }))
         : [];
       screen.vaultPendingRequests = requests;
+    }
+    if (navigation?.view === "integrations") {
+      try {
+        const integrations = await listWorkspaceConnections.run({
+          includeDisabled: true,
+        });
+        screen.workspaceIntegrations = {
+          providers: integrations.providers.map((provider) => ({
+            id: provider.id,
+            label: provider.label,
+            capabilities: provider.capabilities,
+            recommendedTemplateUses: provider.recommendedTemplateUses,
+          })),
+          connections: integrations.connections.map((connection) => ({
+            id: connection.id,
+            provider: connection.provider,
+            label: connection.label,
+            accountLabel: connection.accountLabel,
+            status: connection.status,
+            scopes: connection.scopes,
+            allowedApps:
+              connection.allowedApps.length === 0
+                ? "all-apps"
+                : connection.allowedApps,
+            credentialRefs: connection.credentialRefs.map((ref) => ({
+              key: ref.key,
+              label: ref.label,
+              provider: ref.provider,
+              scope: ref.scope,
+            })),
+            lastCheckedAt: connection.lastCheckedAt,
+            lastError: connection.lastError,
+          })),
+          grants: integrations.grants,
+          suggestedApps: integrations.suggestedApps,
+          counts: integrations.counts,
+        };
+      } catch (error) {
+        screen.workspaceIntegrationsError =
+          error instanceof Error ? error.message : String(error);
+      }
     }
     if (navigation?.view === "workspace" || navigation?.view === "new-app") {
       screen.workspaceResources = await runDispatchAction(

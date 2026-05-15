@@ -22,9 +22,9 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <header className="flex flex-col gap-4 border-b border-border bg-background px-5 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-7">
+    <header className="flex flex-col gap-4 border-b border-border bg-card px-5 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-7">
       <div className="min-w-0">
-        <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
           {eyebrow}
         </p>
         <h1 className="mt-1 text-2xl font-semibold tracking-normal text-foreground">
@@ -47,7 +47,7 @@ export function EmptyActionState({
   detail: string;
 }) {
   return (
-    <div className="rounded-md border border-dashed border-border bg-muted/35 p-5 text-sm">
+    <div className="rounded-md border border-dashed border-border bg-card p-5 text-sm">
       <div className="flex gap-3">
         <IconInfoCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div>
@@ -103,7 +103,7 @@ export function MetricCard({
               tone === "good" && "bg-emerald-500",
               tone === "warning" && "bg-amber-500",
               tone === "danger" && "bg-destructive",
-              tone === "neutral" && "bg-cyan-500",
+              tone === "neutral" && "bg-muted-foreground",
             )}
           />
         </div>
@@ -162,7 +162,7 @@ export function PriorityBadge({ priority }: { priority: string }) {
         priority === "medium" &&
           "bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 dark:text-amber-300",
         priority === "low" &&
-          "bg-cyan-500/10 text-cyan-700 hover:bg-cyan-500/15 dark:text-cyan-300",
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
       )}
     >
       {priority}

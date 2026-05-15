@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
@@ -243,6 +243,19 @@ interface GitHubLabel {
   description?: string | null;
 }
 
+interface GitHubLinkedRef {
+  repo: string;
+  number: number;
+  type?: "issue" | "pull";
+  url: string;
+  linkedFrom?: {
+    sourceId: string;
+    captureId: string;
+    captureTitle: string;
+    sourceUrl?: string | null;
+  };
+}
+
 interface GitHubIssueOrPull {
   id?: number;
   number?: number;
@@ -266,6 +279,50 @@ interface GitHubIssueOrPull {
     patch_url?: string;
     url?: string;
   };
+}
+
+interface GitHubPullDetails {
+  html_url?: string;
+  merged?: boolean;
+  merged_at?: string | null;
+  draft?: boolean;
+  mergeable_state?: string | null;
+  comments?: number;
+  review_comments?: number;
+  commits?: number;
+  additions?: number;
+  deletions?: number;
+  changed_files?: number;
+}
+
+interface GitHubIssueComment {
+  id?: number;
+  body?: string | null;
+  html_url?: string;
+  created_at?: string;
+  updated_at?: string;
+  user?: {
+    login?: string;
+    html_url?: string;
+  } | null;
+}
+
+interface GitHubPullReview {
+  id?: number;
+  state?: string;
+  body?: string | null;
+  html_url?: string;
+  submitted_at?: string;
+  user?: {
+    login?: string;
+    html_url?: string;
+  } | null;
+}
+
+interface GitHubContext {
+  pull?: GitHubPullDetails | null;
+  comments: GitHubIssueComment[];
+  reviews: GitHubPullReview[];
 }
 
 class ConnectorRateLimitError extends Error {
@@ -1205,6 +1262,14 @@ function githubReposFromConfig(config: Record<string, unknown>): string[] {
     .filter((repo): repo is string => Boolean(repo));
 }
 
+function githubLinkedSourceIdsFromConfig(config: Record<string, unknown>) {
+  return configuredList(
+    config,
+    ["linkedSourceIds", "linkedSlackSourceIds", "slackSourceIds", "sourceIds"],
+    "github",
+  );
+}
+
 function configuredBoolean(
   config: Record<string, unknown>,
   keys: string[],
@@ -1254,29 +1319,125 @@ function githubLabels(labels: GitHubIssueOrPull["labels"]): string[] {
     .filter((label): label is string => Boolean(label));
 }
 
-function normalizeGitHubIssue(repo: string, item: GitHubIssueOrPull) {
+function textExcerpt(value: string | null | undefined, maxLength: number) {
+  const trimmed = (value ?? "").trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function sourceUrlFromMetadataRecord(metadata: Record<string, unknown>) {
+  for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
+    const value = metadata[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function summarizeGitHubComments(comments: GitHubIssueComment[]) {
+  return comments
+    .filter((comment) => comment.body?.trim())
+    .slice(0, 5)
+    .map((comment) => {
+      const author = comment.user?.login ?? "unknown";
+      const at = comment.updated_at ?? comment.created_at ?? "unknown time";
+      return `- ${author} at ${at}: ${textExcerpt(comment.body, 280)}`;
+    });
+}
+
+function summarizeGitHubReviews(reviews: GitHubPullReview[]) {
+  return reviews.slice(0, 5).map((review) => {
+    const author = review.user?.login ?? "unknown";
+    const state = review.state ?? "reviewed";
+    const at = review.submitted_at ?? "unknown time";
+    const body = textExcerpt(review.body, 220);
+    return `- ${author} ${state.toLowerCase()} at ${at}${body ? `: ${body}` : ""}`;
+  });
+}
+
+function gitHubRefKey(ref: GitHubLinkedRef) {
+  return `${ref.repo}:${ref.number}`;
+}
+
+function githubRefsFromText(
+  text: string,
+  linkedFrom?: GitHubLinkedRef["linkedFrom"],
+): GitHubLinkedRef[] {
+  const refs: GitHubLinkedRef[] = [];
+  const pattern =
+    /https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(issues|pull)\/(\d+)/gi;
+  for (const match of text.matchAll(pattern)) {
+    const repo = githubRepoFromValue(`${match[1]}/${match[2]}`);
+    const number = Number(match[4]);
+    if (!repo || !Number.isInteger(number) || number <= 0) continue;
+    refs.push({
+      repo,
+      number,
+      type: match[3]?.toLowerCase() === "pull" ? "pull" : "issue",
+      url: `https://github.com/${repo}/${match[3]}/${number}`,
+      linkedFrom,
+    });
+  }
+  return refs;
+}
+
+function normalizeGitHubIssue(
+  repo: string,
+  item: GitHubIssueOrPull,
+  context: GitHubContext = { comments: [], reviews: [] },
+  linkedFrom?: GitHubLinkedRef["linkedFrom"],
+) {
   const isPullRequest = Boolean(item.pull_request);
   const number = item.number ?? item.id ?? "unknown";
   const labels = githubLabels(item.labels);
   const sourceUrl = item.html_url ?? item.pull_request?.html_url ?? null;
+  const merged =
+    context.pull?.merged ??
+    Boolean(item.pull_request?.merged_at ?? context.pull?.merged_at);
+  const mergedAt = context.pull?.merged_at ?? item.pull_request?.merged_at;
   const title =
     item.title ??
     `${repo} ${isPullRequest ? "pull request" : "issue"} #${number}`;
   const author = item.user?.login ?? "unknown";
+  const bodyExcerpt = textExcerpt(item.body, 4000);
+  const commentSummary = summarizeGitHubComments(context.comments);
+  const reviewSummary = summarizeGitHubReviews(context.reviews);
   const header = [
     `GitHub ${repo} ${isPullRequest ? "pull request" : "issue"} #${number}`,
     `State: ${item.state ?? "unknown"}`,
+    isPullRequest
+      ? `Merged: ${merged ? "yes" : "no"}${mergedAt ? ` (${mergedAt})` : ""}`
+      : "",
     `Author: ${author}`,
     labels.length ? `Labels: ${labels.join(", ")}` : "",
     item.created_at ? `Created: ${item.created_at}` : "",
     item.updated_at ? `Updated: ${item.updated_at}` : "",
+    item.closed_at ? `Closed: ${item.closed_at}` : "",
     sourceUrl ? `URL: ${sourceUrl}` : "",
+    linkedFrom
+      ? `Linked from Slack capture: ${linkedFrom.captureTitle} (${linkedFrom.captureId})`
+      : "",
+    linkedFrom?.sourceUrl ? `Slack URL: ${linkedFrom.sourceUrl}` : "",
   ].filter(Boolean);
+  const content = [
+    header.join("\n"),
+    "",
+    `Title\n${title}`,
+    "",
+    bodyExcerpt ? `Body excerpt\n${bodyExcerpt}` : "Body excerpt\n(No body)",
+    commentSummary.length
+      ? `Comment summary\n${commentSummary.join("\n")}`
+      : "",
+    reviewSummary.length ? `Review summary\n${reviewSummary.join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
   return {
     externalId: `github:${repo}:${isPullRequest ? "pull" : "issue"}:${number}`,
     title,
     kind: isPullRequest ? ("document" as const) : ("note" as const),
-    content: [header.join("\n"), "", title, item.body ?? ""].join("\n").trim(),
+    content,
     capturedAt: item.updated_at ?? item.created_at ?? nowIso(),
     metadata: {
       provider: "github",
@@ -1286,16 +1447,40 @@ function normalizeGitHubIssue(repo: string, item: GitHubIssueOrPull) {
       githubId: item.id,
       type: isPullRequest ? "pull_request" : "issue",
       state: item.state,
+      merged: isPullRequest ? merged : undefined,
+      mergedAt,
       author,
       authorUrl: item.user?.html_url,
       labels,
+      bodyExcerpt,
       sourceUrl,
       htmlUrl: item.html_url,
       createdAt: item.created_at,
       updatedAt: item.updated_at,
       closedAt: item.closed_at,
-      pullRequest: item.pull_request,
-      raw: item,
+      linkedFrom,
+      pullRequest: {
+        ...item.pull_request,
+        details: context.pull,
+      },
+      comments: context.comments.map((comment) => ({
+        id: comment.id,
+        author: comment.user?.login,
+        authorUrl: comment.user?.html_url,
+        sourceUrl: comment.html_url,
+        createdAt: comment.created_at,
+        updatedAt: comment.updated_at,
+        bodyExcerpt: textExcerpt(comment.body, 800),
+      })),
+      reviews: context.reviews.map((review) => ({
+        id: review.id,
+        author: review.user?.login,
+        authorUrl: review.user?.html_url,
+        sourceUrl: review.html_url,
+        state: review.state,
+        submittedAt: review.submitted_at,
+        bodyExcerpt: textExcerpt(review.body, 800),
+      })),
     },
   };
 }
@@ -1337,6 +1522,104 @@ async function githubApi<T>(
     throw new Error(`GitHub ${path} failed (${response.status})${suffix}`);
   }
   return (await response.json()) as T;
+}
+
+async function fetchGitHubContext(
+  token: string,
+  repo: string,
+  item: GitHubIssueOrPull,
+  options: {
+    commentLimit: number;
+    reviewLimit: number;
+  },
+): Promise<GitHubContext> {
+  const number = item.number;
+  if (!number) return { comments: [], reviews: [] };
+  const isPullRequest = Boolean(item.pull_request);
+  const [comments, pull, reviews] = await Promise.all([
+    options.commentLimit > 0
+      ? githubApi<GitHubIssueComment[]>(
+          token,
+          `/repos/${repo}/issues/${number}/comments`,
+          { per_page: options.commentLimit },
+        )
+      : Promise.resolve([]),
+    isPullRequest
+      ? githubApi<GitHubPullDetails>(token, `/repos/${repo}/pulls/${number}`)
+      : Promise.resolve(null),
+    isPullRequest && options.reviewLimit > 0
+      ? githubApi<GitHubPullReview[]>(
+          token,
+          `/repos/${repo}/pulls/${number}/reviews`,
+          { per_page: options.reviewLimit },
+        )
+      : Promise.resolve([]),
+  ]);
+  return { comments, pull, reviews };
+}
+
+async function githubRefsFromLinkedSources(
+  config: Record<string, unknown>,
+  options: {
+    captureLimit: number;
+    refLimit: number;
+    stats: Record<string, unknown>;
+  },
+): Promise<GitHubLinkedRef[]> {
+  const sourceIds = githubLinkedSourceIdsFromConfig(config);
+  options.stats.linkedSourceIds = sourceIds.length;
+  if (!sourceIds.length) return [];
+
+  const db = getDb();
+  const refsByKey = new Map<string, GitHubLinkedRef>();
+
+  for (const sourceId of sourceIds) {
+    if (refsByKey.size >= options.refLimit) break;
+    const access = await assertAccess("brain-source", sourceId, "viewer");
+    if (access.resource.provider !== "slack") {
+      options.stats.linkedSourcesSkipped =
+        Number(options.stats.linkedSourcesSkipped) + 1;
+      continue;
+    }
+    const captures = await db
+      .select()
+      .from(schema.brainRawCaptures)
+      .where(eq(schema.brainRawCaptures.sourceId, sourceId))
+      .orderBy(desc(schema.brainRawCaptures.capturedAt))
+      .limit(options.captureLimit);
+
+    options.stats.linkedCapturesScanned =
+      Number(options.stats.linkedCapturesScanned) + captures.length;
+
+    for (const capture of captures) {
+      if (refsByKey.size >= options.refLimit) break;
+      const metadata = parseJson<Record<string, unknown>>(
+        capture.metadataJson,
+        {},
+      );
+      const raw = objectValue(metadata.raw);
+      const linkedFrom = {
+        sourceId,
+        captureId: capture.id,
+        captureTitle: capture.title,
+        sourceUrl: sourceUrlFromMetadataRecord(metadata),
+      };
+      const candidates = [
+        capture.content,
+        typeof raw.text === "string" ? raw.text : "",
+        typeof metadata.sourceUrl === "string" ? metadata.sourceUrl : "",
+        typeof metadata.permalink === "string" ? metadata.permalink : "",
+      ].join("\n");
+
+      for (const ref of githubRefsFromText(candidates, linkedFrom)) {
+        refsByKey.set(gitHubRefKey(ref), ref);
+        if (refsByKey.size >= options.refLimit) break;
+      }
+    }
+  }
+
+  options.stats.linkedRefsFound = refsByKey.size;
+  return Array.from(refsByKey.values());
 }
 
 async function createRun(source: SourceRow) {
@@ -1917,6 +2200,42 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     max: 50,
     nestedKey: "github",
   });
+  const detailLimit = configuredNumber(
+    config,
+    ["detailLimit", "repoDetailLimit", "maxContextItems"],
+    0,
+    { min: 0, max: 20, nestedKey: "github" },
+  );
+  const linkedDetailLimit = configuredNumber(
+    config,
+    ["linkedDetailLimit", "contextLimit", "maxLinkedContextItems"],
+    10,
+    { min: 0, max: 20, nestedKey: "github" },
+  );
+  const commentLimit = configuredNumber(
+    config,
+    ["commentLimit", "commentsPerItem"],
+    5,
+    { min: 0, max: 25, nestedKey: "github" },
+  );
+  const reviewLimit = configuredNumber(
+    config,
+    ["reviewLimit", "reviewsPerPullRequest"],
+    5,
+    { min: 0, max: 25, nestedKey: "github" },
+  );
+  const linkedCaptureLimit = configuredNumber(
+    config,
+    ["linkedCaptureLimit", "slackCaptureLimit"],
+    100,
+    { min: 1, max: 500, nestedKey: "github" },
+  );
+  const linkedRefLimit = configuredNumber(
+    config,
+    ["linkedRefLimit", "maxLinkedRefs"],
+    20,
+    { min: 1, max: 100, nestedKey: "github" },
+  );
   const maxRepositories = configuredNumber(
     config,
     ["maxRepositories", "repoLimit"],
@@ -1943,6 +2262,14 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     itemsSeen: 0,
     issuesSeen: 0,
     pullRequestsSeen: 0,
+    linkedSourceIds: 0,
+    linkedSourcesSkipped: 0,
+    linkedCapturesScanned: 0,
+    linkedRefsFound: 0,
+    linkedRefsImported: 0,
+    detailsFetched: 0,
+    commentsFetched: 0,
+    reviewsFetched: 0,
     capturesCreated: 0,
     state,
     includeIssues,
@@ -1952,9 +2279,15 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
 
   try {
     const token = await requireConnectorCredential("GITHUB_TOKEN", "GitHub");
-    if (!repositories.length) {
+    const linkedRefs = await githubRefsFromLinkedSources(config, {
+      captureLimit: linkedCaptureLimit,
+      refLimit: linkedRefLimit,
+      stats,
+    });
+
+    if (!repositories.length && !linkedRefs.length) {
       throw new Error(
-        "GitHub source must configure repositories or repos as owner/repo values",
+        "GitHub source must configure repositories/repos or linkedSlackSourceIds with Slack captures that contain GitHub issue or PR links",
       );
     }
     if (!includeIssues && !includePullRequests) {
@@ -1987,6 +2320,62 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
       };
     }
 
+    const importedExternalIds = new Set<string>();
+    let linkedDetailBudget = linkedDetailLimit;
+    let detailBudget = detailLimit;
+
+    for (const ref of linkedRefs) {
+      const item = await githubApi<GitHubIssueOrPull>(
+        token,
+        `/repos/${ref.repo}/issues/${ref.number}`,
+      );
+      const isPullRequest = Boolean(item.pull_request);
+      if (isPullRequest) {
+        stats.pullRequestsSeen = Number(stats.pullRequestsSeen) + 1;
+        if (!includePullRequests) continue;
+      } else {
+        stats.issuesSeen = Number(stats.issuesSeen) + 1;
+        if (!includeIssues) continue;
+      }
+
+      let context: GitHubContext = { comments: [], reviews: [] };
+      if (linkedDetailBudget > 0) {
+        context = await fetchGitHubContext(token, ref.repo, item, {
+          commentLimit,
+          reviewLimit,
+        });
+        linkedDetailBudget -= 1;
+        stats.detailsFetched = Number(stats.detailsFetched) + 1;
+        stats.commentsFetched =
+          Number(stats.commentsFetched) + context.comments.length;
+        stats.reviewsFetched =
+          Number(stats.reviewsFetched) + context.reviews.length;
+      }
+
+      const normalized = normalizeGitHubIssue(
+        ref.repo,
+        item,
+        context,
+        ref.linkedFrom,
+      );
+      importedExternalIds.add(normalized.externalId);
+      const capture = await createCapture({
+        sourceId: source.id,
+        externalId: normalized.externalId,
+        title: normalized.title,
+        kind: normalized.kind,
+        content: normalized.content,
+        capturedAt: normalized.capturedAt,
+        metadata: {
+          ...normalized.metadata,
+          syncRunId: runId,
+        },
+      });
+      captures.push(serializeCapture(capture));
+      stats.itemsSeen = Number(stats.itemsSeen) + 1;
+      stats.linkedRefsImported = Number(stats.linkedRefsImported) + 1;
+    }
+
     for (const repo of repositories.slice(0, maxRepositories)) {
       stats.scannedRepositories = Number(stats.scannedRepositories) + 1;
       const repoCursor = nextCursor.repositories?.[repo] ?? {};
@@ -2013,8 +2402,25 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
           stats.issuesSeen = Number(stats.issuesSeen) + 1;
           if (!includeIssues) continue;
         }
+        const externalId = `github:${repo}:${isPullRequest ? "pull" : "issue"}:${item.number ?? item.id ?? "unknown"}`;
+        if (importedExternalIds.has(externalId)) continue;
 
-        const normalized = normalizeGitHubIssue(repo, item);
+        let context: GitHubContext = { comments: [], reviews: [] };
+        if (detailBudget > 0) {
+          context = await fetchGitHubContext(token, repo, item, {
+            commentLimit,
+            reviewLimit,
+          });
+          detailBudget -= 1;
+          stats.detailsFetched = Number(stats.detailsFetched) + 1;
+          stats.commentsFetched =
+            Number(stats.commentsFetched) + context.comments.length;
+          stats.reviewsFetched =
+            Number(stats.reviewsFetched) + context.reviews.length;
+        }
+
+        const normalized = normalizeGitHubIssue(repo, item, context);
+        importedExternalIds.add(normalized.externalId);
         const capture = await createCapture({
           sourceId: source.id,
           externalId: normalized.externalId,

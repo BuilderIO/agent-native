@@ -46,7 +46,7 @@ export const IPC = {
   /** Broadcast (main → renderer) */
   UPDATE_STATUS_CHANGED: "update:status-changed",
 
-  /** Code Agents hub (renderer ↔ main) */
+  /** Agent-Native Code hub (renderer ↔ main) */
   CODE_AGENTS_LIST_RUNS: "code-agents:list-runs",
   CODE_AGENTS_CREATE_RUN: "code-agents:create-run",
   CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",

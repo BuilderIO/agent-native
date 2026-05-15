@@ -1,18 +1,35 @@
 import { useEffect, useMemo, useState } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-import { IconAdjustments, IconDeviceFloppy } from "@tabler/icons-react";
+import {
+  IconAdjustments,
+  IconBuilding,
+  IconDeviceFloppy,
+  IconFileText,
+  IconGauge,
+  IconMessageCircle,
+  IconShieldCheck,
+} from "@tabler/icons-react";
 import {
   type BrainSettings,
   type SettingsResponse,
   defaultSettings,
 } from "@/lib/brain";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -21,6 +38,50 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyActionState, PageHeader } from "@/components/brain/Surface";
+
+const toneOptions = [
+  {
+    value: "direct",
+    label: "Direct",
+    description: "Concise, concrete, and decision-oriented.",
+  },
+  {
+    value: "friendly",
+    label: "Friendly",
+    description: "Warm and plainspoken without losing precision.",
+  },
+  {
+    value: "formal",
+    label: "Formal",
+    description: "Careful, policy-ready, and executive-facing.",
+  },
+  {
+    value: "technical",
+    label: "Technical",
+    description: "Detailed, source-heavy, and implementation-aware.",
+  },
+] as const;
+
+const sourcePolicyOptions = [
+  {
+    value: "strict",
+    label: "Strict",
+    description: "Answer from approved memory and citations only.",
+  },
+  {
+    value: "balanced",
+    label: "Balanced",
+    description: "Prefer approved memory, then identify source gaps.",
+  },
+  {
+    value: "exploratory",
+    label: "Exploratory",
+    description: "Use weaker signals but label uncertainty clearly.",
+  },
+] as const;
+
+type ToneValue = (typeof toneOptions)[number]["value"];
+type SourcePolicyValue = (typeof sourcePolicyOptions)[number]["value"];
 
 export default function SettingsRoute() {
   const settingsQuery = useActionQuery<SettingsResponse>(
@@ -41,6 +102,18 @@ export default function SettingsRoute() {
     setSettings(loaded);
   }, [loaded]);
 
+  const isDirty = useMemo(
+    () => JSON.stringify(settings) !== JSON.stringify(loaded),
+    [loaded, settings],
+  );
+
+  const toneDescription =
+    toneOptions.find((option) => option.value === settings.assistantTone)
+      ?.description ?? toneOptions[0].description;
+  const sourcePolicyDescription =
+    sourcePolicyOptions.find((option) => option.value === settings.sourcePolicy)
+      ?.description ?? sourcePolicyOptions[1].description;
+
   function update<K extends keyof BrainSettings>(
     key: K,
     value: BrainSettings[K],
@@ -51,94 +124,198 @@ export default function SettingsRoute() {
   return (
     <div className="min-h-full bg-background">
       <PageHeader
-        eyebrow="Settings"
-        title="Extraction settings"
-        description="Tune how Brain turns source material into cited, reviewable company memory."
+        eyebrow="Customize"
+        title="Customize Brain"
+        description="Name the assistant, shape its voice, and set the policies it follows when turning company sources into memory."
         actions={
           <Button
             size="sm"
-            disabled={saveSettings.isPending}
+            disabled={saveSettings.isPending || !isDirty}
             onClick={() => saveSettings.mutate(settings)}
           >
             <IconDeviceFloppy className="size-4" />
-            Save settings
+            {saveSettings.isPending
+              ? "Saving"
+              : isDirty
+                ? "Save changes"
+                : "Saved"}
           </Button>
         }
       />
 
-      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:p-7">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <IconAdjustments className="size-4 text-primary" />
-              Extraction and answer policy
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-6">
-            <div className="grid gap-5 md:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="publish-tier">Default publish tier</Label>
-                <Select
-                  value={settings.defaultPublishTier}
-                  onValueChange={(value) =>
-                    update(
-                      "defaultPublishTier",
-                      value as BrainSettings["defaultPublishTier"],
-                    )
+      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-7">
+        <main className="grid gap-5">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <IconBuilding className="size-4 text-primary" />
+                Identity
+              </CardTitle>
+              <CardDescription>
+                The names Brain uses when it describes itself and the workspace
+                it is protecting.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-5 md:grid-cols-2">
+              <TextField
+                id="company-name"
+                label="Company name"
+                value={settings.companyName ?? ""}
+                placeholder="Acme"
+                onChange={(value) => update("companyName", value)}
+              />
+              <TextField
+                id="assistant-name"
+                label="Assistant name"
+                value={settings.assistantName ?? ""}
+                placeholder="Brain"
+                onChange={(value) => update("assistantName", value)}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <IconMessageCircle className="size-4 text-primary" />
+                Assistant Behavior
+              </CardTitle>
+              <CardDescription>
+                The default voice and source posture for answers and distilled
+                memory proposals.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-6">
+              <div className="grid gap-5 md:grid-cols-2">
+                <SelectField
+                  id="assistant-tone"
+                  label="Tone"
+                  value={(settings.assistantTone ?? "direct") as ToneValue}
+                  options={toneOptions}
+                  onChange={(value) => update("assistantTone", value)}
+                />
+                <SelectField
+                  id="source-policy"
+                  label="Source policy"
+                  value={
+                    (settings.sourcePolicy ?? "balanced") as SourcePolicyValue
                   }
-                >
-                  <SelectTrigger id="publish-tier">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="private">Private</SelectItem>
-                    <SelectItem value="team">Team</SelectItem>
-                    <SelectItem value="company">Company</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  Sets the default visibility for newly distilled knowledge.
+                  options={sourcePolicyOptions}
+                  onChange={(value) => update("sourcePolicy", value)}
+                />
+              </div>
+              <div className="grid gap-5 md:grid-cols-2">
+                <p className="rounded-md border border-border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
+                  {toneDescription}
+                </p>
+                <p className="rounded-md border border-border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
+                  {sourcePolicyDescription}
                 </p>
               </div>
+              <Separator />
+              <div className="grid gap-2">
+                <Label htmlFor="distillation-instructions">
+                  Core instructions
+                </Label>
+                <Textarea
+                  id="distillation-instructions"
+                  value={settings.distillationInstructions ?? ""}
+                  onChange={(event) =>
+                    update("distillationInstructions", event.target.value)
+                  }
+                  className="min-h-36 resize-y leading-6"
+                />
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Guidance for turning raw captures into durable institutional
+                  knowledge.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
-              <NumberField
-                id="connector-poll-minutes"
-                label="Connector poll interval"
-                value={settings.connectorPollMinutes ?? 60}
-                suffix="min"
-                onChange={(value) => update("connectorPollMinutes", value)}
-              />
-            </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <IconAdjustments className="size-4 text-primary" />
+                Publishing And Review
+              </CardTitle>
+              <CardDescription>
+                Defaults for visibility, approval, and connector cadence.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-6">
+              <div className="grid gap-5 md:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="publish-tier">Default publish tier</Label>
+                  <Select
+                    value={settings.defaultPublishTier}
+                    onValueChange={(value) =>
+                      update(
+                        "defaultPublishTier",
+                        value as BrainSettings["defaultPublishTier"],
+                      )
+                    }
+                  >
+                    <SelectTrigger id="publish-tier">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="private">Private</SelectItem>
+                        <SelectItem value="team">Team</SelectItem>
+                        <SelectItem value="company">Company</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Sets the default visibility for newly distilled knowledge.
+                  </p>
+                </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="distillation-instructions">
-                Distillation instructions
-              </Label>
-              <Textarea
-                id="distillation-instructions"
-                value={settings.distillationInstructions ?? ""}
-                onChange={(event) =>
-                  update("distillationInstructions", event.target.value)
-                }
-                className="min-h-32 resize-none leading-6"
-              />
-              <p className="text-xs leading-5 text-muted-foreground">
-                Instructions for turning raw captures into durable company
-                memory.
-              </p>
-            </div>
+                <NumberField
+                  id="connector-poll-minutes"
+                  label="Connector poll interval"
+                  value={settings.connectorPollMinutes ?? 60}
+                  min={5}
+                  max={1440}
+                  suffix="min"
+                  onChange={(value) => update("connectorPollMinutes", value)}
+                />
+              </div>
 
-            <Separator />
+              <Separator />
 
-            <div className="grid gap-4">
-              <SettingSwitch
-                label="Require approval for company knowledge"
-                description="Queue company-wide memory candidates for human review before publishing."
-                checked={Boolean(settings.requireApprovalForCompanyKnowledge)}
-                onChange={(checked) =>
-                  update("requireApprovalForCompanyKnowledge", checked)
-                }
-              />
+              <div className="grid gap-4">
+                <SettingSwitch
+                  label="Require approval for company knowledge"
+                  description="Queue company-wide memory candidates for human review before publishing."
+                  checked={Boolean(settings.requireApprovalForCompanyKnowledge)}
+                  onChange={(checked) =>
+                    update("requireApprovalForCompanyKnowledge", checked)
+                  }
+                />
+                <SettingSwitch
+                  label="Auto-archive resolved review items"
+                  description="Remove approved or rejected queue items from the active review lane."
+                  checked={Boolean(settings.autoArchiveResolved)}
+                  onChange={(checked) => update("autoArchiveResolved", checked)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <IconShieldCheck className="size-4 text-primary" />
+                Safety And Evidence
+              </CardTitle>
+              <CardDescription>
+                Redaction and citation rules for answers that leave the review
+                queue.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4">
               <SettingSwitch
                 label="Auto-redact emails"
                 description="Remove email addresses from distilled knowledge unless they are essential evidence."
@@ -152,37 +329,49 @@ export default function SettingsRoute() {
                 onChange={(checked) => update("requireCitations", checked)}
               />
               <SettingSwitch
-                label="Auto-archive resolved review items"
-                description="Remove approved or rejected queue items from the active review lane."
-                checked={Boolean(settings.autoArchiveResolved)}
-                onChange={(checked) => update("autoArchiveResolved", checked)}
-              />
-              <SettingSwitch
                 label="Notify on source errors"
                 description="Surface degraded or failing connectors in the review flow."
                 checked={Boolean(settings.notifyOnSourceErrors)}
                 onChange={(checked) => update("notifyOnSourceErrors", checked)}
               />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </main>
 
         <aside className="grid content-start gap-5">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Current policy</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <IconFileText className="size-4 text-primary" />
+                Current Policy
+              </CardTitle>
+              <CardDescription>
+                The effective settings saved for this Brain workspace.
+              </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 text-sm">
+              <PolicyRow
+                label="Assistant"
+                value={settings.assistantName || "Brain"}
+              />
+              <PolicyRow
+                label="Company"
+                value={settings.companyName || "Not set"}
+              />
+              <PolicyRow
+                label="Tone"
+                value={settings.assistantTone ?? "direct"}
+              />
+              <PolicyRow
+                label="Sources"
+                value={settings.sourcePolicy ?? "balanced"}
+              />
               <PolicyRow
                 label="Publish tier"
                 value={settings.defaultPublishTier ?? "team"}
               />
               <PolicyRow
-                label="Poll interval"
-                value={`${settings.connectorPollMinutes ?? 60} min`}
-              />
-              <PolicyRow
-                label="Company approval"
+                label="Approval"
                 value={
                   settings.requireApprovalForCompanyKnowledge
                     ? "required"
@@ -193,6 +382,32 @@ export default function SettingsRoute() {
                 label="Redaction"
                 value={settings.autoRedactEmails ? "enabled" : "disabled"}
               />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <IconGauge className="size-4 text-primary" />
+                Auto-publish Gate
+              </CardTitle>
+              <CardDescription>
+                Runtime policy for company-tier knowledge.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">
+                  Confidence threshold
+                </span>
+                <Badge variant="secondary">90%+</Badge>
+              </div>
+              <Progress value={90} className="h-2" />
+              <p className="text-xs leading-5 text-muted-foreground">
+                High-confidence company knowledge can publish automatically when
+                it is new, unredacted, and does not require an explicit
+                proposal.
+              </p>
             </CardContent>
           </Card>
 
@@ -208,16 +423,80 @@ export default function SettingsRoute() {
   );
 }
 
+function TextField({
+  id,
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
+function SelectField<TValue extends string>({
+  id,
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: TValue;
+  options: ReadonlyArray<{ value: TValue; label: string }>;
+  onChange: (value: TValue) => void;
+}) {
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Select value={value} onValueChange={(next) => onChange(next as TValue)}>
+        <SelectTrigger id={id}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function NumberField({
   id,
   label,
   value,
+  min,
+  max,
   suffix,
   onChange,
 }: {
   id: string;
   label: string;
   value: number;
+  min: number;
+  max: number;
   suffix: string;
   onChange: (value: number) => void;
 }) {
@@ -228,7 +507,8 @@ function NumberField({
         <Input
           id={id}
           type="number"
-          min={0}
+          min={min}
+          max={max}
           value={value}
           onChange={(event) => onChange(Number(event.target.value))}
           className="rounded-r-none"
@@ -237,6 +517,9 @@ function NumberField({
           {suffix}
         </div>
       </div>
+      <p className="text-xs leading-5 text-muted-foreground">
+        Must be between {min} and {max} minutes.
+      </p>
     </div>
   );
 }
@@ -269,7 +552,9 @@ function PolicyRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium capitalize">{value.replace(/_/g, " ")}</span>
+      <span className="max-w-40 truncate text-right font-medium capitalize">
+        {value.replace(/_/g, " ")}
+      </span>
     </div>
   );
 }

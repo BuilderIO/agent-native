@@ -44,7 +44,7 @@ export function Sidebar() {
                 end={item.href === "/"}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                    "flex h-9 items-center gap-3 rounded-md px-3 text-sm transition-colors",
                     isActive
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
                       : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
@@ -58,9 +58,9 @@ export function Sidebar() {
           })}
         </div>
 
-        <div className="mt-5 rounded-md border border-sidebar-border bg-sidebar-accent/35 p-3">
+        <div className="mt-5 rounded-md border border-sidebar-border bg-sidebar-accent/40 p-3">
           <div className="mb-3 flex items-center gap-2">
-            <IconCircleCheck className="size-4 text-emerald-300" />
+            <IconCircleCheck className="size-4 text-sidebar-foreground" />
             <span className="text-xs font-medium text-sidebar-accent-foreground">
               Memory ops
             </span>
@@ -82,7 +82,7 @@ export function Sidebar() {
 
         <div className="mt-5 rounded-md border border-sidebar-border bg-sidebar-accent/20 p-3">
           <div className="flex items-start gap-2">
-            <IconCircleDashed className="mt-0.5 size-4 shrink-0 text-cyan-300" />
+            <IconCircleDashed className="mt-0.5 size-4 shrink-0 text-sidebar-foreground" />
             <p className="text-xs leading-5 text-sidebar-foreground/75">
               Ask uses cited company knowledge first. Review decides what
               becomes durable memory.

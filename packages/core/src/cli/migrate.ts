@@ -520,7 +520,7 @@ async function createMigrationCodeAgentSession(
     runId: run.id,
     kind: "status",
     message:
-      "Migration dossier is ready. Resume the /migrate session from Code Agents when you are ready to approve or continue.",
+      "Migration dossier is ready. Resume the /migrate session from Agent-Native Code when you are ready to approve or continue.",
     metadata: { status: "needs-approval", phase: "intake" },
   });
 
@@ -553,7 +553,7 @@ function printMigrationStatus(opts: MigrateCliOptions): void {
       `Create one with: npx @agent-native/core@latest code /migrate <source>`,
     );
     console.error(
-      `The direct migrate command is a shortcut into that same Code Agents slash command.`,
+      `The direct migrate command is a shortcut into that same Agent-Native Code slash command.`,
     );
     process.exit(1);
   }
@@ -585,7 +585,7 @@ function printMigrationStop(_opts: MigrateCliOptions): void {
   console.log(
     [
       "",
-      "Code Agents /migrate stop",
+      "Agent-Native Code /migrate stop",
       "",
       "The migrate CLI creates resumable session records and artifacts; it does not daemonize a background process yet.",
       "Stop the terminal, Desktop run, or external coding agent that is actively working on the session.",
@@ -701,7 +701,7 @@ function renderCodeAgentMigrationSession(
 ): string {
   return [
     "",
-    "Code Agents /migrate session created.",
+    "Agent-Native Code /migrate session created.",
     "",
     `  Run:     ${run.id}`,
     "  Goal:    /migrate",
@@ -730,13 +730,13 @@ function renderCodeAgentMigrationSession(
     "  agent-native code status --last",
     "",
     "Desktop:",
-    "  Open Code Agents in the left sidebar. This run appears as a /migrate session.",
+    "  Open Agent-Native Code in the left sidebar. This run appears as a /migrate session.",
     "",
     "Use another agent:",
     `  Point Codex, Claude Code, Cursor, or another coding agent at ${shellQuote(dossier.dossierRoot)} and ask it to follow AGENTS.md plus MIGRATION_PLAYBOOK.md.`,
     "",
     "Default surface:",
-    "  Migration stays in Code Agents. No hidden app/template was scaffolded.",
+    "  Migration stays in Agent-Native Code. No hidden app/template was scaffolded.",
     "  Use --app-surface only when you explicitly want the legacy migration detail app.",
   ].join("\n");
 }
@@ -744,7 +744,7 @@ function renderCodeAgentMigrationSession(
 function renderCodeAgentMigrationStatus(runs: CodeAgentRunRecord[]): string {
   return [
     "",
-    "Code Agents /migrate status",
+    "Agent-Native Code /migrate status",
     "",
     runs.length === 0
       ? "  No /migrate sessions found. Start one with `agent-native code /migrate <source>`."
@@ -770,7 +770,7 @@ function renderCodeAgentMigrationStatus(runs: CodeAgentRunRecord[]): string {
     runs.length > 8 ? `  - ${runs.length - 8} more...` : "",
     "",
     "Shortcuts:",
-    "  agent-native migrate status --last shows the same Code Agents sessions.",
+    "  agent-native migrate status --last shows the same Agent-Native Code sessions.",
     "  Add --app-surface only to inspect the legacy hidden migration app.",
   ]
     .filter(Boolean)
@@ -781,7 +781,7 @@ function renderCodeAgentMigrationResume(run: CodeAgentRunRecord): string {
   const dossier = stringMetadata(run, "dossierRoot");
   return [
     "",
-    "Code Agents /migrate resume",
+    "Agent-Native Code /migrate resume",
     "",
     `  Run:     ${run.id}`,
     `  Status:  ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
@@ -806,11 +806,11 @@ function renderCodeAgentMigrationResume(run: CodeAgentRunRecord): string {
 function renderCodeAgentMigrationUi(run: CodeAgentRunRecord): string {
   return [
     "",
-    "Code Agents /migrate UI",
+    "Agent-Native Code /migrate UI",
     "",
     `  Run: ${run.id}`,
     "",
-    "Open Agent-Native Desktop and choose Code Agents from the left sidebar.",
+    "Open Agent-Native Desktop and choose Agent-Native Code from the left sidebar.",
     "The migration detail app is no longer scaffolded by default; it is only an optional legacy surface.",
   ].join("\n");
 }
@@ -828,7 +828,7 @@ function renderEmitResult(result: EmitDossierResult): string {
     "Files:",
     ...result.files.map((file) => `  - ${file}`),
     "",
-    "Use with Code Agents/Desktop:",
+    "Use with Agent-Native Code/Desktop:",
     `  Point the agent at ${shellQuote(result.dossierRoot)} and ask it to follow AGENTS.md plus MIGRATION_PLAYBOOK.md.`,
     "",
     "Safety:",
@@ -855,7 +855,7 @@ function migrateUsage(): string {
     '  npx @agent-native/core@latest code /migrate --describe "A Rails admin app with reporting dashboards" --emit',
     "",
     "Default:",
-    "  Migration is a Code Agents slash command. The hidden migration app is not scaffolded unless --app-surface is passed.",
+    "  Migration is an Agent-Native Code slash command. The hidden migration app is not scaffolded unless --app-surface is passed.",
     "",
     "Options:",
     "  --source, --path <path>       Local source path",
@@ -1246,7 +1246,7 @@ Target: \`${DEFAULT_TARGET}\`
 
 ## Inventory
 
-No local source path was provided, so this dossier does not include file-level IR. Use the URL or description as the intake brief, then let a Code Agent or Desktop session inspect the real source before writing output.
+No local source path was provided, so this dossier does not include file-level IR. Use the URL or description as the intake brief, then let an Agent-Native Code or Desktop session inspect the real source before writing output.
 
 ## Agent-Native Focus Areas
 
@@ -1281,7 +1281,7 @@ ${source.description ? `- Description: ${source.description}\n` : ""}
 
 ## Files In This Dossier
 
-- \`MIGRATION_PLAYBOOK.md\` - ordered workflow for Code Agents/Desktop.
+- \`MIGRATION_PLAYBOOK.md\` - ordered workflow for Agent-Native Code/Desktop.
 - \`01-assessment.md\` - initial source assessment.
 - \`ir.json\` - source inventory when available.
 - \`.agents/skills/migration*/SKILL.md\` - extra instruction packs when available from the migration goal surface.
@@ -1320,7 +1320,7 @@ Migrate one representative route or workflow first. Verify it, tune the pattern,
 
 Run typecheck/build plus route, action, and data checks that fit the migrated app. Capture unresolved gaps in a report before handing off.
 
-## 6. Use With Code Agents Or Desktop
+## 6. Use With Agent-Native Code Or Desktop
 
 Point Codex, Claude Code, another code agent, or Agent-Native Desktop at this dossier directory. Ask it to follow \`AGENTS.md\`, then implement the plan in a separate output project.
 `;
@@ -1457,7 +1457,7 @@ function credentialStatusLines(): string[] {
   }
   return [
     `Headless credentials: none of ${MODEL_CREDENTIAL_ENV_NAMES.join(", ")} are set in this shell.`,
-    "Set credentials in the Workbench app env or use Desktop/Code Agent credentials; the migrate CLI will not store them.",
+    "Set credentials in the Workbench app env or use Desktop/Agent-Native Code credentials; the migrate CLI will not store them.",
   ];
 }
 
