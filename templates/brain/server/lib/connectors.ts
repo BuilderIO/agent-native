@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { getCredentialContext } from "@agent-native/core/server";
-import { accessFilter } from "@agent-native/core/sharing";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../db/index.js";
 import {
   createCapture,
@@ -95,7 +95,12 @@ export interface SlackPilotReport {
   proposals: {
     total: number;
     pending: number;
-    recent: Array<{ id: string; title: string; status: string; createdAt: string }>;
+    recent: Array<{
+      id: string;
+      title: string;
+      status: string;
+      createdAt: string;
+    }>;
   };
   currentKnowledge: {
     total: number;
@@ -103,7 +108,12 @@ export interface SlackPilotReport {
     draft: number;
     redacted: number;
     archived: number;
-    recent: Array<{ id: string; title: string; status: string; updatedAt: string }>;
+    recent: Array<{
+      id: string;
+      title: string;
+      status: string;
+      updatedAt: string;
+    }>;
   };
   privacyExclusions: string[];
   nextSteps: string[];
@@ -1002,7 +1012,8 @@ export async function runSlackPilot(
     sourceUrl: sourceUrlFromCapture(capture),
   }));
   const partial = {
-    status: sync.status === "success" ? ("synced" as const) : ("error" as const),
+    status:
+      sync.status === "success" ? ("synced" as const) : ("error" as const),
     historyRead: true,
     channelValidation,
     capturesCreated: sync.capturesCreated,
@@ -1197,7 +1208,12 @@ async function syncFromConfiguredItems(
         status: "active",
         updatedAt: nowIso(),
       })
-      .where(eq(schema.brainSources.id, source.id));
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
     return {
       runId,
       sourceId: source.id,
@@ -1218,7 +1234,12 @@ async function syncFromConfiguredItems(
     await getDb()
       .update(schema.brainSources)
       .set({ lastError: message, status: "error", updatedAt: nowIso() })
-      .where(eq(schema.brainSources.id, source.id));
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
     return {
       runId,
       sourceId: source.id,
@@ -1428,7 +1449,12 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         status: "active",
         updatedAt: nowIso(),
       })
-      .where(eq(schema.brainSources.id, source.id));
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
     return {
       runId,
       sourceId: source.id,
@@ -1466,7 +1492,12 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         status: isRateLimit ? "active" : "error",
         updatedAt: nowIso(),
       })
-      .where(eq(schema.brainSources.id, source.id));
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
     return {
       runId,
       sourceId: source.id,
@@ -1601,7 +1632,12 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
         status: "active",
         updatedAt: nowIso(),
       })
-      .where(eq(schema.brainSources.id, source.id));
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
     return {
       runId,
       sourceId: source.id,
@@ -1638,7 +1674,12 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
         status: isRateLimit ? "active" : "error",
         updatedAt: nowIso(),
       })
-      .where(eq(schema.brainSources.id, source.id));
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
     return {
       runId,
       sourceId: source.id,
@@ -1685,5 +1726,6 @@ const connectors: Record<BrainSourceProvider, Connector> = {
 };
 
 export async function runConnectorSync(source: SourceRow) {
+  await assertAccess("brain-source", source.id, "editor");
   return connectors[source.provider as BrainSourceProvider].sync(source);
 }

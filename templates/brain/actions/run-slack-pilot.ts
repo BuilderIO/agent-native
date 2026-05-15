@@ -77,7 +77,9 @@ export default defineAction({
       : await resolveAccess("brain-source", args.sourceId);
     if (!access) throw new Error(`No access to brain source ${args.sourceId}`);
     if (access.resource.provider !== "slack") {
-      throw new Error("run-slack-pilot sourceId must reference a Slack source.");
+      throw new Error(
+        "run-slack-pilot sourceId must reference a Slack source.",
+      );
     }
     return runSlackPilot(access.resource, args);
   },
