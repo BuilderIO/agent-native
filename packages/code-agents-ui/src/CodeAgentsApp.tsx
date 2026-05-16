@@ -2938,17 +2938,12 @@ function MobileConnectorPanel({
               title="Open Agent Native mobile Sessions"
               bgColor="#ffffff"
               fgColor="#111111"
-              imageSettings={
-                brandIconUrl
-                  ? {
-                      src: brandIconUrl,
-                      height: 34,
-                      width: 34,
-                      excavate: true,
-                    }
-                  : undefined
-              }
             />
+            {brandIconUrl && (
+              <span className="code-agents-mobile-qr-badge" aria-hidden="true">
+                <img src={brandIconUrl} alt="" />
+              </span>
+            )}
           </div>
 
           <div className="code-agents-mobile-link-row">

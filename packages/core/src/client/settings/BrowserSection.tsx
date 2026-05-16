@@ -21,6 +21,12 @@ export function BrowserSection() {
         flow: "browser_automation",
       })
     : null;
+  const builderReconnectHref = builderConnectUrl
+    ? withBuilderConnectTrackingParams(builderConnectUrl, {
+        source: "browser_settings_reconnect",
+        flow: "browser_automation",
+      })
+    : null;
 
   return (
     <SettingsSection
@@ -49,9 +55,9 @@ export function BrowserSection() {
               connect-builder
             </code>
           </p>
-          {builderConnectHref && (
+          {builderReconnectHref && (
             <a
-              href={builderConnectHref}
+              href={builderReconnectHref}
               target="_blank"
               rel="noreferrer"
               onClick={() => {

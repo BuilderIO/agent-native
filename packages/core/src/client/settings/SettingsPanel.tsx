@@ -373,7 +373,9 @@ function UseBuilderCard({
             {connectUrl && (
               <button
                 type="button"
-                onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
+                onClick={() =>
+                  builderFlow.start({ trackingSource, trackingFlow })
+                }
                 disabled={builderFlow.connecting}
                 className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60"
               >

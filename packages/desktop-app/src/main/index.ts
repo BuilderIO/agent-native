@@ -4268,6 +4268,12 @@ function buildDesktopBuilderCliAuthUrl(callbackUrl: string): string {
   authUrl.searchParams.set("redirect_url", callback.toString());
   authUrl.searchParams.set("preview_url", callback.origin);
   authUrl.searchParams.set("framework", "agent-native");
+  authUrl.searchParams.set("signupSource", "agent-native");
+  authUrl.searchParams.set("agentNativeFlow", "desktop_code");
+  authUrl.searchParams.set(
+    "agentNativeConnectSource",
+    "desktop_code_provider_settings",
+  );
   return authUrl.toString();
 }
 

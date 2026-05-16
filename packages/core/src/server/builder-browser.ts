@@ -78,13 +78,15 @@ export function getBuilderConnectTrackingParams(
 export function builderConnectTrackingProperties(
   tracking: BuilderConnectTrackingParams,
 ): Record<string, string> {
-  return Object.fromEntries(
-    [
-      ["signup_source", tracking.signupSource],
-      ["agent_native_flow", tracking.agentNativeFlow],
-      ["agent_native_connect_source", tracking.agentNativeConnectSource],
-    ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-  );
+  const properties: Record<string, string> = {};
+  if (tracking.signupSource) properties.signup_source = tracking.signupSource;
+  if (tracking.agentNativeFlow) {
+    properties.agent_native_flow = tracking.agentNativeFlow;
+  }
+  if (tracking.agentNativeConnectSource) {
+    properties.agent_native_connect_source = tracking.agentNativeConnectSource;
+  }
+  return properties;
 }
 
 function applyBuilderConnectTrackingParams(

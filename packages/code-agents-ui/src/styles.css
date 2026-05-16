@@ -703,6 +703,7 @@
 }
 
 .code-agents-mobile-qr-shell {
+  position: relative;
   width: 264px;
   aspect-ratio: 1;
   display: grid;
@@ -716,6 +717,27 @@
 .code-agents-mobile-qr-shell svg {
   width: 224px;
   height: 224px;
+}
+
+.code-agents-mobile-qr-badge {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border: 5px solid #ffffff;
+  border-radius: 16px;
+  background: #111111;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  transform: translate(-50%, -50%);
+}
+
+.code-agents-mobile-qr-badge img {
+  width: 34px;
+  height: auto;
+  display: block;
 }
 
 .code-agents-mobile-link-row {
