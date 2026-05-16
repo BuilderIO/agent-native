@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import {
   defineEventHandler,
   getMethod,
@@ -276,10 +278,49 @@ export interface AuthOptions {
  * signs the user into all of them. Per-app suffixes would defeat the
  * shared cookie since each subdomain reads a different name.
  */
-const APP_NAME_SLUG = (process.env.APP_NAME || "")
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, "_")
-  .replace(/^_+|_+$/g, "");
+function readPackageJsonName(): string {
+  try {
+    const pkgPath = path.join(process.cwd(), "package.json");
+    const raw = fs.readFileSync(pkgPath, "utf8");
+    const parsed = JSON.parse(raw) as { name?: unknown };
+    return typeof parsed.name === "string" ? parsed.name : "";
+  } catch {
+    return "";
+  }
+}
+
+function slugifyAppName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/**
+ * Resolve the per-app cookie suffix.
+ *
+ * - Explicit `APP_NAME` wins everywhere (prod + dev).
+ * - In dev only, fall back to `npm_package_name` (set automatically by
+ *   npm/pnpm/yarn/bun when running a script) and then to `package.json:name`
+ *   so two templates running side-by-side on `localhost:<portA>` and
+ *   `localhost:<portB>` do not stomp on a shared `an_session` cookie.
+ *   Browsers scope cookies by host (NOT host+port — RFC 6265), so a single
+ *   `an_session` is shared across every `localhost:*` dev server otherwise.
+ * - In production this fallback is intentionally disabled — switching a
+ *   live deploy from `an_session` to `an_session_<name>` would invalidate
+ *   every existing user session (the server only reads `COOKIE_NAME`).
+ *   Real prod deploys set `APP_NAME` or `COOKIE_DOMAIN` explicitly.
+ */
+function resolveAppNameSlug(): string {
+  const explicit = process.env.APP_NAME;
+  if (explicit) return slugifyAppName(explicit);
+  if (process.env.NODE_ENV === "production") return "";
+  const fromNpm = process.env.npm_package_name;
+  if (fromNpm) return slugifyAppName(fromNpm);
+  return slugifyAppName(readPackageJsonName());
+}
+
+const APP_NAME_SLUG = resolveAppNameSlug();
 const IS_WORKSPACE_MODE = process.env.AGENT_NATIVE_WORKSPACE === "1";
 
 /**
@@ -303,6 +344,17 @@ export const COOKIE_NAME = HAS_COOKIE_DOMAIN
     : APP_NAME_SLUG
       ? `an_session_${APP_NAME_SLUG}`
       : "an_session";
+
+/**
+ * Cookie prefix used by Better Auth. In prod it stays `"an"` so existing
+ * session cookies (`an.session_token`, `an.session_data`, `an.csrf_token`)
+ * keep working. In dev with a resolved slug, it becomes `"an_<slug>"`
+ * so two templates on `localhost` do not collide.
+ */
+export const BETTER_AUTH_COOKIE_PREFIX =
+  HAS_COOKIE_DOMAIN || IS_WORKSPACE_MODE || !APP_NAME_SLUG
+    ? "an"
+    : `an_${APP_NAME_SLUG}`;
 
 /**
  * Cookie domain attribute spread into every `setCookie`/`deleteCookie`.

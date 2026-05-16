@@ -2489,6 +2489,68 @@ describe("server/auth", () => {
       );
     });
   });
+
+  describe("COOKIE_NAME — dev-mode auto-suffix", () => {
+    it("uses npm_package_name as the suffix in dev when APP_NAME is unset", async () => {
+      vi.stubEnv("APP_NAME", "");
+      vi.stubEnv("COOKIE_DOMAIN", "");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "");
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("npm_package_name", "calendar");
+      const { COOKIE_NAME, BETTER_AUTH_COOKIE_PREFIX } =
+        await import("./auth.js");
+      expect(COOKIE_NAME).toBe("an_session_calendar");
+      expect(BETTER_AUTH_COOKIE_PREFIX).toBe("an_calendar");
+    });
+
+    it("keeps the unsuffixed cookie in production even when npm_package_name is set", async () => {
+      vi.stubEnv("APP_NAME", "");
+      vi.stubEnv("COOKIE_DOMAIN", "");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "");
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("npm_package_name", "calendar");
+      const { COOKIE_NAME, BETTER_AUTH_COOKIE_PREFIX } =
+        await import("./auth.js");
+      expect(COOKIE_NAME).toBe("an_session");
+      expect(BETTER_AUTH_COOKIE_PREFIX).toBe("an");
+    });
+
+    it("explicit APP_NAME wins over the dev fallback", async () => {
+      vi.stubEnv("APP_NAME", "mail");
+      vi.stubEnv("COOKIE_DOMAIN", "");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "");
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("npm_package_name", "calendar");
+      const { COOKIE_NAME, BETTER_AUTH_COOKIE_PREFIX } =
+        await import("./auth.js");
+      expect(COOKIE_NAME).toBe("an_session_mail");
+      expect(BETTER_AUTH_COOKIE_PREFIX).toBe("an_mail");
+    });
+
+    it("COOKIE_DOMAIN keeps the shared `an_session` cookie name", async () => {
+      vi.stubEnv("APP_NAME", "");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "");
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("COOKIE_DOMAIN", ".agent-native.com");
+      vi.stubEnv("npm_package_name", "calendar");
+      const { COOKIE_NAME, BETTER_AUTH_COOKIE_PREFIX } =
+        await import("./auth.js");
+      expect(COOKIE_NAME).toBe("an_session");
+      expect(BETTER_AUTH_COOKIE_PREFIX).toBe("an");
+    });
+
+    it("workspace mode keeps `an_session_workspace`", async () => {
+      vi.stubEnv("APP_NAME", "");
+      vi.stubEnv("COOKIE_DOMAIN", "");
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("npm_package_name", "calendar");
+      const { COOKIE_NAME, BETTER_AUTH_COOKIE_PREFIX } =
+        await import("./auth.js");
+      expect(COOKIE_NAME).toBe("an_session_workspace");
+      expect(BETTER_AUTH_COOKIE_PREFIX).toBe("an");
+    });
+  });
 });
 
 // --- Mock helpers ---

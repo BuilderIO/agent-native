@@ -18,6 +18,7 @@ import {
   renderVerifySignupEmail,
 } from "./email-templates.js";
 import { getAppProductionUrl } from "./app-url.js";
+import { BETTER_AUTH_COOKIE_PREFIX } from "./auth.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
@@ -785,7 +786,7 @@ async function createBetterAuthInstance(
       },
     },
     advanced: {
-      cookiePrefix: "an",
+      cookiePrefix: BETTER_AUTH_COOKIE_PREFIX,
       // Emit `SameSite=None; Secure` when the app is served over HTTPS so
       // session cookies are delivered inside third-party iframes (e.g. the
       // Builder.io editor). Plain-HTTP dev keeps the default (Lax) because
