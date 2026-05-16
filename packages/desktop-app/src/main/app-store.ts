@@ -177,11 +177,10 @@ function loadCodeAgentProviderStore(): CodeAgentProviderStore {
 
 function saveCodeAgentProviderStore(store: CodeAgentProviderStore): void {
   const storePath = getCodeAgentProviderStorePath();
-  fs.writeFileSync(
-    storePath,
-    JSON.stringify(store, null, 2),
-    { encoding: "utf-8", mode: 0o600 },
-  );
+  fs.writeFileSync(storePath, JSON.stringify(store, null, 2), {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
   try {
     fs.chmodSync(storePath, 0o600);
   } catch {
