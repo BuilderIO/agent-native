@@ -66,20 +66,23 @@ function assertSourceContract(): void {
   );
   assert.match(
     codeAgentsApp,
-    /<PromptComposer[\s\S]*className=\{`code-agents-standard-composer code-agents-composer-shell/,
+    /<PromptComposer[\s\S]*className="code-agents-standard-composer code-agents-composer-shell"[\s\S]*layoutVariant=\{variant\}/,
     "Agent-Native Code should render the shared PromptComposer shell",
   );
   assert.match(
     codeAgentsApp,
-    /<NewSessionComposer[\s\S]*<\/NewSessionComposer>[\s\S]*<ProjectFolderPicker[\s\S]*variant="bar"/,
+    /<NewSessionComposer[\s\S]*\/>[\s\S]*<ProjectFolderPicker[\s\S]*variant="bar"/,
     "Agent-Native Code should keep the folder picker below the new-session composer",
   );
 
   const toolbarStart = tiptapComposer.indexOf("agent-composer-toolbar");
   const plusIndex = tiptapComposer.indexOf("<ComposerPlusMenu", toolbarStart);
-  const modeIndex = tiptapComposer.indexOf("{modeControl}", toolbarStart);
+  const hostSlotIndex = tiptapComposer.indexOf(
+    "{toolbarSlot ?? modeControl}",
+    toolbarStart,
+  );
   const spacerIndex = tiptapComposer.indexOf(
-    'className="flex-1"',
+    'data-agent-composer-slot="toolbar-spacer"',
     toolbarStart,
   );
   const modelIndex = tiptapComposer.indexOf("<ModelSelector", toolbarStart);
@@ -92,21 +95,21 @@ function assertSourceContract(): void {
     "TiptapComposer should render a composer toolbar",
   );
   assert.ok(
-    plusIndex < modeIndex &&
-      modeIndex < spacerIndex &&
+    plusIndex < hostSlotIndex &&
+      hostSlotIndex < spacerIndex &&
       spacerIndex < modelIndex &&
       modelIndex < sendIndex,
-    "TiptapComposer toolbar order should stay plus, mode, spacer, model, send",
+    "TiptapComposer toolbar order should stay plus, host slot, spacer, model, send",
   );
 
   assert.match(
     codeStyles,
-    /\.code-agents-standard-composer \.agent-composer-toolbar[\s\S]*justify-content:\s*flex-start/,
+    /\.code-agents-standard-composer \[data-agent-composer-slot="toolbar"\][\s\S]*justify-content:\s*flex-start/,
     "Code composer toolbar should remain a normal left-to-right flex row",
   );
   assert.match(
     codeStyles,
-    /\.code-agents-standard-composer \.agent-composer-toolbar > \.flex-1[\s\S]*flex:\s*1 1 auto/,
+    /\.code-agents-standard-composer[\s\S]*\[data-agent-composer-slot="toolbar"\][\s\S]*>\s*\[data-agent-composer-slot="toolbar-spacer"\][\s\S]*flex:\s*1 1 auto/,
     "Code composer toolbar should keep a flex spacer before the right controls",
   );
   assert.match(
@@ -116,7 +119,7 @@ function assertSourceContract(): void {
   );
   assert.match(
     codeStyles,
-    /\.code-agents-standard-composer \.agent-composer-model-button[\s\S]*font-size:\s*11px !important/,
+    /\.code-agents-standard-composer \[data-agent-composer-slot="model-button"\][\s\S]*font-size:\s*11px !important/,
     "Code model picker should match the compact composer font size",
   );
 }
@@ -207,22 +210,24 @@ function fixtureHtml(): string {
             <h2>What should we build in framework?</h2>
             <div
               data-smoke="code-composer"
-              class="agent-composer-area shrink-0 px-3 py-2 text-left code-agents-standard-composer code-agents-composer-shell code-agents-composer-shell--hero"
+              data-agent-composer-variant="hero"
+              data-agent-composer-slot="area"
+              class="agent-composer-area shrink-0 px-3 py-2 text-left code-agents-standard-composer code-agents-composer-shell agent-composer-area--hero"
             >
-              <div class="agent-composer-root flex flex-col rounded-lg border border-input bg-background">
-                <div class="agent-composer-editor-wrap px-2 pt-2 pb-1">
-                  <div class="agent-composer-editor aui-composer flex-1 min-w-0 px-0.5">
-                    <div class="ProseMirror" contenteditable="true">Describe a task or ask a question</div>
+              <div data-agent-composer-variant="hero" data-agent-composer-slot="root" class="agent-composer-root flex flex-col rounded-lg border border-input bg-background agent-composer-root--hero">
+                <div data-agent-composer-variant="hero" data-agent-composer-slot="editor-wrap" class="agent-composer-editor-wrap px-2 pt-2 pb-1">
+                  <div data-agent-composer-variant="hero" data-agent-composer-slot="editor" class="agent-composer-editor aui-composer flex-1 min-w-0 px-0.5">
+                    <div data-agent-composer-variant="hero" data-agent-composer-slot="editor-input" class="ProseMirror agent-composer-prosemirror" contenteditable="true">Describe a task or ask a question</div>
                   </div>
                 </div>
-                <div class="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5">
+                <div data-agent-composer-variant="hero" data-agent-composer-slot="toolbar" class="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5">
                   <button class="code-composer-plus" aria-label="Add attachment" type="button">+</button>
                   <div class="code-agents-composer-mode-slot">
                     <button class="desktop-select-trigger code-agents-mode-select" aria-label="Mode" type="button">Auto</button>
                   </div>
-                  <div class="flex-1"></div>
-                  <button class="agent-composer-model-button" aria-label="Model" type="button"><span>Claude Sonnet 4.6</span></button>
-                  <button class="agent-composer-send-button shrink-0" aria-label="Send message" type="button">↑</button>
+                  <div data-agent-composer-slot="toolbar-spacer" class="flex-1"></div>
+                  <button data-agent-composer-slot="model-button" class="agent-composer-model-button" aria-label="Model" type="button"><span>Claude Sonnet 4.6</span></button>
+                  <button data-agent-composer-slot="send-button" class="agent-composer-send-button shrink-0" aria-label="Send message" type="button">↑</button>
                 </div>
               </div>
             </div>
@@ -243,18 +248,18 @@ function fixtureHtml(): string {
     </section>
     <section data-smoke="sidebar-composer" class="standard-sidebar-fixture">
       <div class="agent-composer-area shrink-0 px-3 py-2">
-        <div class="agent-composer-root flex flex-col rounded-lg border border-input bg-background">
-          <div class="agent-composer-editor-wrap px-2 pt-2 pb-1">
-            <div class="agent-composer-editor aui-composer flex-1 min-w-0 px-0.5">
-              <div class="ProseMirror" contenteditable="true">Ask the agent</div>
+        <div data-agent-composer-slot="root" class="agent-composer-root flex flex-col rounded-lg border border-input bg-background">
+          <div data-agent-composer-slot="editor-wrap" class="agent-composer-editor-wrap px-2 pt-2 pb-1">
+            <div data-agent-composer-slot="editor" class="agent-composer-editor aui-composer flex-1 min-w-0 px-0.5">
+              <div data-agent-composer-slot="editor-input" class="ProseMirror" contenteditable="true">Ask the agent</div>
             </div>
           </div>
-          <div class="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5">
+          <div data-agent-composer-slot="toolbar" class="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5">
             <button class="sidebar-composer-plus agent-composer-mode-button" aria-label="Add attachment" type="button">+</button>
-            <button class="agent-composer-mode-button" aria-label="Mode" type="button">Chat</button>
-            <div class="flex-1"></div>
-            <button class="agent-composer-model-button" aria-label="Model" type="button"><span>Claude Sonnet</span></button>
-            <button class="agent-composer-send-button shrink-0" aria-label="Send message" type="button">↑</button>
+            <button data-agent-composer-slot="mode-button" class="agent-composer-mode-button" aria-label="Mode" type="button">Chat</button>
+            <div data-agent-composer-slot="toolbar-spacer" class="flex-1"></div>
+            <button data-agent-composer-slot="model-button" class="agent-composer-model-button" aria-label="Model" type="button"><span>Claude Sonnet</span></button>
+            <button data-agent-composer-slot="send-button" class="agent-composer-send-button shrink-0" aria-label="Send message" type="button">↑</button>
           </div>
         </div>
       </div>
@@ -374,11 +379,15 @@ async function captureSnapshot(
     folder?: string;
   },
 ): Promise<SmokeSnapshot> {
-  return page.evaluate(
-    ({ rootSelector, selectors }) => {
-      function readElement(selector: string) {
+  const payloadJson = JSON.stringify({ rootSelector, selectors }).replace(
+    /</g,
+    "\\u003c",
+  );
+  return page.evaluate(`(() => {
+      const { rootSelector, selectors } = ${payloadJson};
+      function readElement(selector) {
         const element = document.querySelector(selector);
-        if (!element) throw new Error(`Missing selector: ${selector}`);
+        if (!element) throw new Error("Missing selector: " + selector);
         const rect = element.getBoundingClientRect();
         const style = getComputedStyle(element);
         return {
@@ -399,14 +408,14 @@ async function captureSnapshot(
         };
       }
 
-      const root = readElement(`${rootSelector} .agent-composer-root`).rect;
+      const root = readElement(rootSelector + " .agent-composer-root").rect;
       const toolbar = readElement(
-        `${rootSelector} .agent-composer-toolbar`,
+        rootSelector + " .agent-composer-toolbar",
       ).rect;
       const plus = readElement(selectors.plus).rect;
       const mode = readElement(selectors.mode);
       const spacer = readElement(
-        `${rootSelector} .agent-composer-toolbar > .flex-1`,
+        rootSelector + " [data-agent-composer-slot=\\"toolbar-spacer\\"]",
       ).rect;
       const model = readElement(selectors.model);
       const send = readElement(selectors.send).rect;
@@ -426,9 +435,7 @@ async function captureSnapshot(
         modeStyle: mode.style,
         modelStyle: model.style,
       };
-    },
-    { rootSelector, selectors },
-  );
+    })()`);
 }
 
 async function main(): Promise<void> {
