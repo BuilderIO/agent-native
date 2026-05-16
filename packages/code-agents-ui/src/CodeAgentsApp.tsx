@@ -1895,7 +1895,7 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
     return {
       blocked: true,
       description:
-        "Connect Anthropic, OpenAI, Gemini, or Builder before starting a coding chat.",
+        "Connect Builder.io to start with free credits, or add your own API key instead.",
     };
   }
   return {
@@ -1912,10 +1912,34 @@ function ProviderGateNotice({
   onOpenSettings?: () => void;
 }) {
   return (
-    <div className="code-agents-provider-gate">
+    <CodeProviderNotice
+      className="code-agents-provider-gate"
+      title="Connect a provider to chat"
+      description={description}
+      actionLabel="Settings"
+      onOpenSettings={onOpenSettings}
+    />
+  );
+}
+
+function CodeProviderNotice({
+  className,
+  title,
+  description,
+  actionLabel,
+  onOpenSettings,
+}: {
+  className: string;
+  title: string;
+  description: string;
+  actionLabel: string;
+  onOpenSettings?: () => void;
+}) {
+  return (
+    <div className={className}>
       <IconAlertCircle size={16} strokeWidth={1.8} />
       <div>
-        <strong>Connect a provider to chat</strong>
+        <strong>{title}</strong>
         <span>{description}</span>
       </div>
       {onOpenSettings && (
@@ -1924,7 +1948,7 @@ function ProviderGateNotice({
           className="code-agents-button"
           onClick={onOpenSettings}
         >
-          Settings
+          {actionLabel}
         </button>
       )}
     </div>
@@ -3163,26 +3187,13 @@ function RunDetailCard({
       </div>
 
       {hasCredentialGap && (
-        <div className="code-agents-credential-callout">
-          <IconAlertCircle size={16} strokeWidth={1.8} />
-          <div>
-            <strong>Credentials needed</strong>
-            <span>
-              Connect a provider in settings, or run from a terminal with
-              ANTHROPIC_API_KEY, OPENAI_API_KEY, or
-              GOOGLE_GENERATIVE_AI_API_KEY.
-            </span>
-          </div>
-          {onOpenSettings && (
-            <button
-              type="button"
-              className="code-agents-button"
-              onClick={onOpenSettings}
-            >
-              Settings
-            </button>
-          )}
-        </div>
+        <CodeProviderNotice
+          className="code-agents-credential-callout"
+          title="Provider needed"
+          description="Connect Builder.io to continue this Code session. You can add your own API key instead."
+          actionLabel="Connect Builder.io"
+          onOpenSettings={onOpenSettings}
+        />
       )}
 
       {pendingApproval && (

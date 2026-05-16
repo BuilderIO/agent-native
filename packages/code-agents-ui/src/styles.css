@@ -1424,6 +1424,27 @@
   color: hsl(45 92% 82%);
 }
 
+.code-agents-callout > div,
+.code-agents-callout--degraded > div,
+.code-agents-callout--unauthorized > div,
+.code-agents-credential-callout > div,
+.code-agents-approval-callout > div {
+  min-width: 0;
+}
+
+.code-agents-callout strong,
+.code-agents-callout span,
+.code-agents-callout--degraded strong,
+.code-agents-callout--degraded span,
+.code-agents-callout--unauthorized strong,
+.code-agents-callout--unauthorized span,
+.code-agents-credential-callout strong,
+.code-agents-credential-callout span,
+.code-agents-approval-callout strong,
+.code-agents-approval-callout span {
+  display: block;
+}
+
 .code-agents-kicker {
   margin: 0;
   color: hsl(var(--muted-foreground) / 0.7);
@@ -1574,6 +1595,28 @@
 .code-agents-detail--chat .code-agents-credential-callout strong,
 .code-agents-detail--chat .code-agents-approval-callout strong {
   color: hsl(var(--foreground));
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.code-agents-detail--chat .code-agents-credential-callout span,
+.code-agents-detail--chat .code-agents-approval-callout span {
+  margin-top: 2px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.code-agents-detail--chat .code-agents-credential-callout svg,
+.code-agents-detail--chat .code-agents-approval-callout svg {
+  color: hsl(var(--muted-foreground));
+}
+
+.code-agents-detail--chat .code-agents-credential-callout .code-agents-button {
+  border-color: hsl(var(--foreground) / 0.12);
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
 }
 
 .code-agents-detail--chat .code-agents-standard-composer.agent-composer-area {
