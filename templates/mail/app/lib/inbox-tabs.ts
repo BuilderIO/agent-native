@@ -34,9 +34,7 @@ export function resolvePinnedLabels(
 }
 
 /** Pinned labels that act as inbox triage tabs (drop system views). */
-export function pinnedTriageLabels(
-  pinnedLabels: readonly string[],
-): string[] {
+export function pinnedTriageLabels(pinnedLabels: readonly string[]): string[] {
   return pinnedLabels.filter(
     (id) => !(COLLAPSIBLE_VIEW_IDS as readonly string[]).includes(id),
   );
@@ -96,9 +94,7 @@ export function qualifiesForInboxTab(
 }
 
 /** Latest message per thread, by date. */
-function latestByThread(
-  emails: EmailMessage[],
-): Map<string, EmailMessage> {
+function latestByThread(emails: EmailMessage[]): Map<string, EmailMessage> {
   const map = new Map<string, EmailMessage>();
   for (const e of emails) {
     const key = e.threadId || e.id;

@@ -70,7 +70,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { normalizeMailLabel } from "@shared/gmail-labels";
-import { qualifiesForInboxTab, pinnedTriageLabels } from "@/lib/inbox-tabs";
+import {
+  qualifiesForInboxTab,
+  pinnedTriageLabels,
+  augmentSelfSentLabels,
+} from "@/lib/inbox-tabs";
 
 const BARE_ROUTES = new Set(["/email"]);
 
@@ -267,19 +271,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         (label) => (label.totalCount ?? 0) > 0 || (label.unreadCount ?? 0) > 0,
       ));
   // Augment emails: self-sent → "important" (or "note-to-self" if pinned)
-  const inboxEmails = useMemo(() => {
-    if (!isGoogleConnected) return rawInboxEmails;
-    return rawInboxEmails.map((e) => {
-      const isSelfSent = connectedEmails.has(e.from.email.toLowerCase());
-      if (!isSelfSent) return e;
-      const virtualLabel = hasNoteToSelf ? "note-to-self" : "important";
-      if (e.labelIds.includes(virtualLabel)) return e;
-      let labelIds = [...e.labelIds];
-      if (hasNoteToSelf) labelIds = labelIds.filter((l) => l !== "important");
-      if (!labelIds.includes(virtualLabel)) labelIds.push(virtualLabel);
-      return { ...e, labelIds };
-    });
-  }, [rawInboxEmails, isGoogleConnected, connectedEmails, hasNoteToSelf]);
+  const inboxEmails = useMemo(
+    () =>
+      augmentSelfSentLabels(rawInboxEmails, {
+        isGoogleConnected,
+        connectedEmails,
+        hasNoteToSelf,
+      }),
+    [rawInboxEmails, isGoogleConnected, connectedEmails, hasNoteToSelf],
+  );
   const tabsLoading =
     labelsLoading || settingsLoading || emailsLoading || allLocalEmailsLoading;
   const [sidebarOpen, setSidebarOpen] = useState(false);
