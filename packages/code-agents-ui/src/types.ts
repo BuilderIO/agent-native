@@ -304,6 +304,16 @@ export interface CodeAgentRemoteConnectorPairResult {
   error?: string;
 }
 
+export interface CodeAgentProviderConnectResult {
+  ok: boolean;
+  message: string;
+  error?: string;
+  settings?: {
+    configured?: boolean;
+    configuredProviders?: string[];
+  };
+}
+
 export type CodeAgentControlCommand = "resume" | "status" | "stop" | "approve";
 
 export interface CodeAgentControlResult {

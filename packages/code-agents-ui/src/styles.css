@@ -1299,6 +1299,13 @@
   color: hsl(var(--muted-foreground));
 }
 
+.code-agents-provider-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .code-agents-provider-gate + .code-agents-standard-composer {
   opacity: 0.64;
 }
@@ -1378,6 +1385,12 @@
   cursor: pointer;
 }
 
+.code-agents-button--primary {
+  border-color: hsl(var(--foreground));
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
+}
+
 .code-agents-icon-button {
   width: 28px;
   height: 28px;
@@ -1392,6 +1405,11 @@
   color: hsl(var(--foreground));
 }
 
+.code-agents-button--primary:hover {
+  background: hsl(var(--foreground) / 0.9);
+  color: hsl(var(--background));
+}
+
 .code-agents-button:disabled,
 .code-agents-button--primary:disabled,
 .code-agents-icon-button:disabled {
@@ -1404,6 +1422,11 @@
 .code-agents-icon-button:disabled:hover {
   background: hsl(var(--card));
   color: hsl(var(--muted-foreground));
+}
+
+.code-agents-button--primary:disabled:hover {
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
 }
 
 .code-agents-callout,

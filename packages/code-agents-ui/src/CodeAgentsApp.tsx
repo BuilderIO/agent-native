@@ -78,6 +78,7 @@ import type {
   CodeAgentModelListResult,
   CodeAgentModelOption,
   CodeAgentModelSelection,
+  CodeAgentProviderConnectResult,
   CodeAgentPromptAttachment,
   CodeAgentProjectFolder,
   CodeAgentProjectListResult,
@@ -144,6 +145,7 @@ export interface CodeAgentsHost {
   pairRemoteConnector?(
     request?: CodeAgentRemoteConnectorPairRequest,
   ): Promise<CodeAgentRemoteConnectorPairResult>;
+  connectBuilderProvider?(): Promise<CodeAgentProviderConnectResult>;
 }
 
 export type CodeAgentsRenderAppSurface = (input: {
@@ -338,6 +340,10 @@ export default function CodeAgentsApp({
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [hostMetadata, setHostMetadata] =
     useState<CodeAgentHostMetadata | null>(null);
+  const [builderConnecting, setBuilderConnecting] = useState(false);
+  const [builderConnectMessage, setBuilderConnectMessage] = useState<
+    string | null
+  >(null);
   const selectedModelSelection = useMemo(
     () => normalizeModelSelection(modelSelection, modelOptions),
     [modelOptions, modelSelection],
@@ -466,6 +472,19 @@ export default function CodeAgentsApp({
     }
   }, [host]);
 
+  const loadHostMetadata = useCallback(async () => {
+    if (!host.getHostMetadata) return;
+    try {
+      const result = await host.getHostMetadata();
+      setHostMetadata(result);
+    } catch (err) {
+      setHostMetadata({
+        status: "unavailable",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [host]);
+
   useEffect(() => {
     if (!host.getHostMetadata) return;
     let cancelled = false;
@@ -486,6 +505,38 @@ export default function CodeAgentsApp({
       cancelled = true;
     };
   }, [host, refreshKey]);
+
+  const connectBuilderProvider = useCallback(async () => {
+    setBuilderConnectMessage(null);
+    if (!host.connectBuilderProvider) {
+      onOpenSettings?.();
+      return;
+    }
+
+    setBuilderConnecting(true);
+    try {
+      const result = await host.connectBuilderProvider();
+      const message = result.error ?? result.message;
+      setBuilderConnectMessage(result.ok ? null : message);
+      if (result.ok) {
+        toast("Builder.io connected", {
+          description: "Code can now use Builder credits.",
+        });
+      } else {
+        toast("Builder.io connect did not finish", {
+          description: message,
+        });
+      }
+      await loadHostMetadata();
+      await loadRuns(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setBuilderConnectMessage(message);
+      toast("Builder.io connect did not finish", { description: message });
+    } finally {
+      setBuilderConnecting(false);
+    }
+  }, [host, loadHostMetadata, loadRuns, onOpenSettings]);
 
   useEffect(() => {
     if (!host.getRemoteConnectorStatus) return;
@@ -1464,6 +1515,9 @@ export default function CodeAgentsApp({
                     onApprove={() => controlRun("approve")}
                     onRetry={host.retryRun ? retrySelectedRun : undefined}
                     onRerun={host.rerunRun ? rerunSelectedRun : undefined}
+                    builderConnecting={builderConnecting}
+                    builderConnectMessage={builderConnectMessage}
+                    onConnectBuilder={connectBuilderProvider}
                     onOpenSettings={onOpenSettings}
                   />
                 ) : (
@@ -1472,6 +1526,9 @@ export default function CodeAgentsApp({
                     {providerGate.blocked && (
                       <ProviderGateNotice
                         description={providerGate.description}
+                        connecting={builderConnecting}
+                        message={builderConnectMessage}
+                        onConnectBuilder={connectBuilderProvider}
                         onOpenSettings={onOpenSettings}
                       />
                     )}
@@ -1906,17 +1963,26 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
 
 function ProviderGateNotice({
   description,
+  connecting,
+  message,
+  onConnectBuilder,
   onOpenSettings,
 }: {
   description: string;
+  connecting: boolean;
+  message: string | null;
+  onConnectBuilder: () => void;
   onOpenSettings?: () => void;
 }) {
   return (
     <CodeProviderNotice
       className="code-agents-provider-gate"
       title="Connect a provider to chat"
-      description={description}
-      actionLabel="Settings"
+      description={message ?? description}
+      primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
+      primaryDisabled={connecting}
+      onPrimaryAction={onConnectBuilder}
+      secondaryActionLabel="Settings"
       onOpenSettings={onOpenSettings}
     />
   );
@@ -1926,13 +1992,19 @@ function CodeProviderNotice({
   className,
   title,
   description,
-  actionLabel,
+  primaryActionLabel,
+  primaryDisabled,
+  onPrimaryAction,
+  secondaryActionLabel,
   onOpenSettings,
 }: {
   className: string;
   title: string;
   description: string;
-  actionLabel: string;
+  primaryActionLabel?: string;
+  primaryDisabled?: boolean;
+  onPrimaryAction?: () => void;
+  secondaryActionLabel?: string;
   onOpenSettings?: () => void;
 }) {
   return (
@@ -1942,15 +2014,27 @@ function CodeProviderNotice({
         <strong>{title}</strong>
         <span>{description}</span>
       </div>
-      {onOpenSettings && (
-        <button
-          type="button"
-          className="code-agents-button"
-          onClick={onOpenSettings}
-        >
-          {actionLabel}
-        </button>
-      )}
+      <div className="code-agents-provider-actions">
+        {onPrimaryAction && primaryActionLabel && (
+          <button
+            type="button"
+            className="code-agents-button--primary"
+            onClick={onPrimaryAction}
+            disabled={primaryDisabled}
+          >
+            {primaryActionLabel}
+          </button>
+        )}
+        {onOpenSettings && secondaryActionLabel && (
+          <button
+            type="button"
+            className="code-agents-button"
+            onClick={onOpenSettings}
+          >
+            {secondaryActionLabel}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -3058,6 +3142,9 @@ function RunDetailCard({
   onApprove,
   onRetry,
   onRerun,
+  builderConnecting,
+  builderConnectMessage,
+  onConnectBuilder,
   onOpenSettings,
 }: {
   run: CodeAgentRun | null;
@@ -3090,6 +3177,9 @@ function RunDetailCard({
   onApprove: () => void;
   onRetry?: () => void;
   onRerun?: () => void;
+  builderConnecting: boolean;
+  builderConnectMessage: string | null;
+  onConnectBuilder: () => void;
   onOpenSettings?: () => void;
 }) {
   if (!run) {
@@ -3186,8 +3276,16 @@ function RunDetailCard({
         <CodeProviderNotice
           className="code-agents-credential-callout"
           title="Provider needed"
-          description="Connect Builder.io to continue this Code session. You can add your own API key instead."
-          actionLabel="Connect Builder.io"
+          description={
+            builderConnectMessage ??
+            "Connect Builder.io for free credits, or add your own API key."
+          }
+          primaryActionLabel={
+            builderConnecting ? "Waiting..." : "Connect Builder.io"
+          }
+          primaryDisabled={builderConnecting}
+          onPrimaryAction={onConnectBuilder}
+          secondaryActionLabel="Settings"
           onOpenSettings={onOpenSettings}
         />
       )}
