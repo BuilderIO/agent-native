@@ -2,6 +2,14 @@ import { resolve } from "path";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import react from "@vitejs/plugin-react-swc";
 
+const workspaceRendererPackages = [
+  "@agent-native/code-agents-ui",
+  "@agent-native/code-agents-ui/code-agents",
+  "@agent-native/core",
+  "@agent-native/core/client",
+  "@agent-native/shared-app-config",
+];
+
 export default defineConfig({
   main: {
     plugins: [
@@ -37,6 +45,9 @@ export default defineConfig({
     },
   },
   renderer: {
+    optimizeDeps: {
+      exclude: workspaceRendererPackages,
+    },
     resolve: {
       alias: {
         "@shared": resolve("shared"),

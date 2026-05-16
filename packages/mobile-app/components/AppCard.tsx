@@ -9,6 +9,7 @@ const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   BarChart2: "bar-chart-2",
   GalleryHorizontal: "layout",
   Video: "video",
+  Brain: "database",
   Image: "image",
   Globe: "globe",
   Code: "code",

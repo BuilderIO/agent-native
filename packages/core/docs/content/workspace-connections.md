@@ -19,6 +19,9 @@ They have three shared pieces:
 - A scoped SQL store for connected accounts plus per-app grants, so Dispatch or
   another workspace setup flow can connect Slack, GitHub, Google Drive, Granola,
   or another provider once and then grant individual apps access.
+- A conservative provider-reader registry/runtime that standardizes provider
+  `search`, `get`, and `listRecent` contracts and calls registered handlers
+  through granted workspace connections.
 - An app-local boundary: the shared connection owns provider identity,
   credential refs, account metadata, and grants; each app owns the source
   choices and interpretation that only make sense inside that app.
@@ -30,10 +33,12 @@ resolved by actions at execution time from the request's user/org/workspace
 scope.
 
 That boundary is intentional. What is reusable today is provider identity,
-credential-reference resolution, per-app grants, provider readiness, and safe
-account metadata. What is not yet generic is provider-specific data reading,
-OAuth flow ownership, ingestion cursors, source filters, sync cadence, and
-domain interpretation. Those stay in the app that owns the workflow.
+credential-reference resolution, per-app grants, provider readiness, safe
+account metadata, and the normalized provider-reader contract. What is not yet
+generic is most live provider API reading, OAuth flow ownership, ingestion
+cursors, source filters, sync cadence, and domain interpretation. Those stay in
+the app that owns the workflow unless a reader implementation is explicitly
+promoted to shared.
 
 Dispatch exposes the first control-plane implementation through the
 `list-workspace-connections`, `upsert-workspace-connection`, and
@@ -41,6 +46,22 @@ Dispatch exposes the first control-plane implementation through the
 same records. Brain uses `list-connection-providers`; Analytics uses
 `data-source-status`; future apps should expose the same kind of readiness
 summary before asking users for duplicate provider keys.
+
+## Provider Reader Runtime
+
+The provider-reader layer is a contract first, not a promise that every
+provider has a shared live reader. Reader definitions describe supported
+operations, credential requirements, and implementation status:
+`metadata-only`, `template-owned`, or `shared`. The runtime resolves the granted
+workspace connection and credential refs for an app, calls a registered handler,
+and returns normalized items without exposing secret values.
+
+Initial providers such as Slack, GitHub, Notion, HubSpot, Gmail, Google Drive,
+and generic sources have conservative definitions. Most live handlers remain
+template-owned today, which means Brain still owns Slack/GitHub ingestion
+behavior and Analytics still owns analytics interpretation. Promote a reader to
+`shared` only when the provider-specific API calls, pagination, permissions,
+and result semantics are truly reusable across templates.
 
 ## Provider Catalog
 
@@ -243,9 +264,9 @@ three layers:
 Do not duplicate OAuth/token storage in each app. The connection record should
 say "this is Acme Slack and its token lives at `SLACK_BOT_TOKEN`"; the app-local
 source should say "Brain may ingest `#product` and `#dev-fusion` from that
-Slack connection." The Slack reader, cursor, retry policy, and distillation
-rules still belong to Brain unless and until those pieces are promoted to a
-shared provider runtime.
+Slack connection." The Slack API handler, cursor, retry policy, and
+distillation rules still belong to Brain unless and until those pieces are
+promoted to a shared provider-reader implementation.
 
 ### Dispatch control-plane setup
 

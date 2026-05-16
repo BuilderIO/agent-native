@@ -52,7 +52,9 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { createCameraCompositeStream } from "./camera-composite";
 import {
+  createLocalRecordingFolderName,
   prepareLocalRecordingExport,
+  type LocalRecordingExportHandle,
   type LocalExportedFile,
   type LocalRecordingTarget,
 } from "./local-export";
@@ -623,6 +625,12 @@ interface NativeFullscreenUploadResult {
   height?: number;
 }
 
+interface NativeFullscreenSaveResult {
+  recordingId: string;
+  folderPath: string;
+  file: LocalExportedFile;
+}
+
 async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture | null> {
   const maxRestarts = 60;
   let committedText = "";
@@ -939,10 +947,6 @@ async function waitForVideoDimensions(
   return video.videoWidth > 0 && video.videoHeight > 0;
 }
 
-function waitMs(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 async function captureStreamThumbnailBlob(
   stream: MediaStream | null,
 ): Promise<Blob | null> {
@@ -1172,8 +1176,15 @@ async function startNativeFullscreenRecording(
   recordingStartCue: RecordingStartCue,
 ): Promise<RecorderHandle> {
   console.log("[clips-recorder] using native full-screen capture");
+  const localRecordingMode = params.localRecordingMode ?? "off";
+  const localOnly = localRecordingMode !== "off";
+  const localFolderName = localOnly ? createLocalRecordingFolderName() : "";
   const streamCleanups: Array<() => void> = [recordingStartCue.cleanup];
   let id = "";
+  let localCameraExport: LocalRecordingExportHandle | null = null;
+  let localCameraStream: MediaStream | null = null;
+  let localOwnsCameraStream = false;
+  let bubbleCaptureExcluded = false;
   let nativeTranscriptCapture: NativeTranscriptCapture | null = null;
   let nativeTranscriptFailureSaved = false;
   const saveTranscriptFailure = async (failureReason: string) => {
@@ -1190,12 +1201,43 @@ async function startNativeFullscreenRecording(
   try {
     await invoke("park_popover_offscreen").catch(() => {});
     emit("clips:popover-visible", false).catch(() => {});
-    const captureTitle = await captureTitleForRecording({
-      mode: params.mode,
-      source: "full-screen",
-    });
 
-    console.log("[clips-recorder] invoking show_countdown + createRecording");
+    if (localOnly && localRecordingMode === "separate" && wantsCamera) {
+      localCameraStream =
+        params.preAcquiredCameraStream ??
+        (await navigator.mediaDevices.getUserMedia({
+          video: params.cameraId
+            ? { deviceId: { exact: params.cameraId } }
+            : true,
+          audio: false,
+        }));
+      localOwnsCameraStream =
+        localCameraStream !== params.preAcquiredCameraStream;
+      localCameraExport = await prepareLocalRecordingExport(
+        [
+          {
+            role: "camera",
+            stream: streamFromTracks(localCameraStream.getVideoTracks()),
+          },
+        ],
+        { folderName: localFolderName },
+      );
+      await invoke("set_bubble_capture_excluded", {
+        excluded: true,
+      }).catch((err) => {
+        console.warn(
+          "[clips-recorder] could not exclude bubble from native local desktop capture:",
+          err,
+        );
+      });
+      bubbleCaptureExcluded = true;
+    }
+
+    console.log(
+      localOnly
+        ? "[clips-recorder] invoking show_countdown for native local recording"
+        : "[clips-recorder] invoking show_countdown + createRecording",
+    );
     const countdownPromise = (async () => {
       try {
         await invoke("show_countdown");
@@ -1208,38 +1250,60 @@ async function startNativeFullscreenRecording(
         console.warn("[clips-recorder] countdown timed out — proceeding");
       }
     })();
-    console.time("[clips-recorder] createRecording duration");
-    const recordingPromise = createRecording(
-      params.serverUrl,
-      wantsCamera,
-      wantsAudio,
-      captureTitle,
-    ).finally(() => {
-      console.timeEnd("[clips-recorder] createRecording duration");
-    });
-    const [, createRes] = await Promise.all([
-      countdownPromise,
-      recordingPromise,
-    ]);
-    id = createRes.id;
+    if (localOnly) {
+      await countdownPromise;
+      id = localFolderName;
+    } else {
+      const captureTitle = await captureTitleForRecording({
+        mode: params.mode,
+        source: "full-screen",
+      });
+      console.time("[clips-recorder] createRecording duration");
+      const recordingPromise = createRecording(
+        params.serverUrl,
+        wantsCamera,
+        wantsAudio,
+        captureTitle,
+      ).finally(() => {
+        console.timeEnd("[clips-recorder] createRecording duration");
+      });
+      const [, createRes] = await Promise.all([
+        countdownPromise,
+        recordingPromise,
+      ]);
+      id = createRes.id;
+    }
 
     await invoke("native_fullscreen_recording_start", {
       recordingId: id,
       includeAudio: wantsAudio,
     });
-    await showRegionGuidesForRecording(true);
-    nativeTranscriptCapture = wantsAudio
-      ? await startNativeTranscriptCapture()
-      : null;
-    if (wantsAudio && !nativeTranscriptCapture) {
-      void saveTranscriptFailure(
-        "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
-      );
+    localCameraExport?.start(2_000);
+
+    if (!localOnly) {
+      await showRegionGuidesForRecording(true);
+      nativeTranscriptCapture = wantsAudio
+        ? await startNativeTranscriptCapture()
+        : null;
+      if (wantsAudio && !nativeTranscriptCapture) {
+        void saveTranscriptFailure(
+          "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
+        );
+      }
     }
   } catch (err) {
     await nativeTranscriptCapture?.cancel().catch(() => {});
+    await localCameraExport?.cancel().catch(() => {});
+    if (bubbleCaptureExcluded) {
+      await invoke("set_bubble_capture_excluded", {
+        excluded: false,
+      }).catch(() => {});
+    }
+    if (localOwnsCameraStream) {
+      localCameraStream?.getTracks().forEach((track) => track.stop());
+    }
     streamCleanups.forEach((cleanup) => cleanup());
-    if (id) {
+    if (!localOnly && id) {
       await abortRecordingUpload(
         params.serverUrl,
         id,
@@ -1251,8 +1315,7 @@ async function startNativeFullscreenRecording(
 
   const startedAt = Date.now();
   let stopped = false;
-  let stopPromise: Promise<{ recordingId: string; viewUrl: string }> | null =
-    null;
+  let stopPromise: Promise<RecorderStopResult> | null = null;
   let cancelPromise: Promise<void> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
   let tickHandle: ReturnType<typeof setInterval> | null = null;
@@ -1277,6 +1340,49 @@ async function startNativeFullscreenRecording(
         }
         stateUnlistens.forEach((u) => u());
         stateUnlistens = [];
+
+        if (localOnly) {
+          const durationMs = Math.max(0, Date.now() - startedAt);
+          try {
+            const [nativeResult, cameraFiles] = await Promise.all([
+              invoke<NativeFullscreenSaveResult>(
+                "native_fullscreen_recording_stop_and_save",
+                {
+                  folderName: localFolderName,
+                  fileRole:
+                    localRecordingMode === "composed" ? "composed" : "desktop",
+                },
+              ),
+              localCameraExport
+                ? localCameraExport.stop(durationMs)
+                : Promise.resolve([]),
+            ]);
+            await invoke("hide_recording_chrome").catch((err) =>
+              console.error(
+                "[clips-recorder] hide_recording_chrome failed:",
+                err,
+              ),
+            );
+            return {
+              recordingId: nativeResult.recordingId,
+              viewUrl: "",
+              localOnly: true,
+              localFolder: nativeResult.folderPath,
+              localFiles: [nativeResult.file, ...cameraFiles],
+            };
+          } finally {
+            if (bubbleCaptureExcluded) {
+              await invoke("set_bubble_capture_excluded", {
+                excluded: false,
+              }).catch(() => {});
+              bubbleCaptureExcluded = false;
+            }
+            if (localOwnsCameraStream) {
+              localCameraStream?.getTracks().forEach((track) => track.stop());
+            }
+            streamCleanups.forEach((cleanup) => cleanup());
+          }
+        }
 
         let uploadResult: NativeFullscreenUploadResult | null = null;
         try {
@@ -1393,15 +1499,25 @@ async function startNativeFullscreenRecording(
         stateUnlistens.forEach((u) => u());
         stateUnlistens = [];
         await nativeTranscriptCapture?.cancel().catch(() => {});
+        await localCameraExport?.cancel().catch(() => {});
         await invoke("native_fullscreen_recording_cancel").catch((err) =>
           console.warn(
             "[clips-recorder] native fullscreen cancel failed:",
             err,
           ),
         );
+        if (bubbleCaptureExcluded) {
+          await invoke("set_bubble_capture_excluded", {
+            excluded: false,
+          }).catch(() => {});
+          bubbleCaptureExcluded = false;
+        }
+        if (localOwnsCameraStream) {
+          localCameraStream?.getTracks().forEach((track) => track.stop());
+        }
         streamCleanups.forEach((cleanup) => cleanup());
         await invoke("hide_overlays").catch(() => {});
-        if (id) {
+        if (!localOnly && id) {
           await abortRecordingUpload(
             params.serverUrl,
             id,
@@ -1638,11 +1754,7 @@ async function startNativeRecordingInner(
     wantsAudio,
   });
 
-  if (
-    localRecordingMode === "off" &&
-    wantsScreen &&
-    shouldUseNativeFullscreenRecording(captureSource)
-  ) {
+  if (wantsScreen && shouldUseNativeFullscreenRecording(captureSource)) {
     return startNativeFullscreenRecording(
       params,
       wantsCamera,
@@ -1987,17 +2099,7 @@ async function startNativeRecordingInner(
     ]);
     stateUnlistens = toolbarUnlistens;
 
-    // Local file exports should be raw capture artifacts, not Loom-style UI.
-    // Browser full-screen capture includes our overlay windows, so close every
-    // Clips chrome window before the MediaRecorders start writing frames.
-    await invoke("hide_overlays").catch((err) =>
-      console.error(
-        "[clips-recorder] hide_overlays before local start failed:",
-        err,
-      ),
-    );
-    await waitMs(150);
-
+    await showRegionGuidesForRecording(wantsScreen);
     localExport.start(2_000);
     recordingStartCue.play();
     emit("clips:toolbar-enabled", true).catch(() => {});

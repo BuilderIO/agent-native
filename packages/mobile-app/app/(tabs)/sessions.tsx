@@ -13,16 +13,20 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import {
   appendRemoteFollowUp,
+  clearRemoteSessionToken,
   createRemoteRun,
   decidePendingCommand,
   getPendingCommand,
   getRemoteRunDetail,
   getRemoteRelayBaseUrl,
   isRemoteRunActive,
+  isRemoteAuthError,
   listPairedHosts,
   listRemoteRuns,
+  REMOTE_AUTH_MESSAGE,
   readRemoteTranscript,
   revokeRemoteHost,
   stopRemoteRun,
@@ -38,9 +42,10 @@ import { useRemotePushRegistration } from "@/lib/use-remote-push-registration";
 
 const POLL_INTERVAL_MS = 4000;
 const GOAL_ID = "task";
-type RelayState = "checking" | "online" | "offline" | "error";
+type RelayState = "checking" | "online" | "offline" | "error" | "signed-out";
 
 export default function SessionsScreen() {
+  const router = useRouter();
   const [hosts, setHosts] = useState<RemoteHost[]>([]);
   const [runs, setRuns] = useState<RemoteRun[]>([]);
   const [events, setEvents] = useState<RemoteTranscriptEvent[]>([]);
@@ -62,6 +67,7 @@ export default function SessionsScreen() {
   const [acting, setActing] = useState<"approve" | "deny" | "stop" | null>(
     null,
   );
+  const [authRequired, setAuthRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const pushRegistration = useRemotePushRegistration();
@@ -89,6 +95,7 @@ export default function SessionsScreen() {
     const result = await listPairedHosts();
     if (result.ok) {
       const nextHosts = result.data ?? [];
+      setAuthRequired(false);
       setHosts(nextHosts);
       setSelectedHostId((current) => {
         if (current && nextHosts.some((host) => host.id === current)) {
@@ -96,6 +103,10 @@ export default function SessionsScreen() {
         }
         return nextHosts[0]?.id;
       });
+    } else if (isRemoteAuthError(result)) {
+      setAuthRequired(true);
+      setError(null);
+      setHosts([]);
     } else {
       setError(result.error ?? "Could not load paired hosts.");
     }
@@ -106,6 +117,7 @@ export default function SessionsScreen() {
     const result = await listRemoteRuns(GOAL_ID);
     if (result.ok) {
       const nextRuns = result.data ?? [];
+      setAuthRequired(false);
       setRuns(nextRuns);
       setSelectedRunId((current) => {
         if (current && nextRuns.some((run) => run.id === current))
@@ -113,6 +125,11 @@ export default function SessionsScreen() {
         return nextRuns[0]?.id ?? null;
       });
       if (nextRuns.length > 0) setError(null);
+    } else if (isRemoteAuthError(result)) {
+      setAuthRequired(true);
+      setError(null);
+      setRuns([]);
+      setSelectedRunId(null);
     } else {
       setError(result.error ?? "Could not load sessions.");
     }
@@ -125,6 +142,10 @@ export default function SessionsScreen() {
     if (result.ok) {
       setEvents(result.data ?? []);
       setError(null);
+    } else if (isRemoteAuthError(result)) {
+      setAuthRequired(true);
+      setEvents([]);
+      setError(null);
     } else if (!quiet) {
       setEvents([]);
       setError(result.error ?? "Could not load the transcript.");
@@ -134,10 +155,14 @@ export default function SessionsScreen() {
 
   const loadRunDetail = useCallback(async (runId: string) => {
     const result = await getRemoteRunDetail(runId);
-    if (result.ok && result.data) {
+      if (result.ok && result.data) {
+      setAuthRequired(false);
       setRuns((current) =>
         current.map((run) => (run.id === runId ? result.data! : run)),
       );
+    } else if (isRemoteAuthError(result)) {
+      setAuthRequired(true);
+      setError(null);
     }
   }, []);
 
@@ -148,7 +173,12 @@ export default function SessionsScreen() {
         loadHosts(),
         loadRuns(),
       ]);
-      if (hostsResult.ok || runsResult.ok) {
+      if (isRemoteAuthError(hostsResult) || isRemoteAuthError(runsResult)) {
+        setAuthRequired(true);
+        setRelayState("signed-out");
+        setLastSyncedAt(null);
+      } else if (hostsResult.ok || runsResult.ok) {
+        setAuthRequired(false);
         setRelayState("online");
         setLastSyncedAt(new Date().toISOString());
       } else if (hostsResult.status === 0 || runsResult.status === 0) {
@@ -160,6 +190,15 @@ export default function SessionsScreen() {
     },
     [loadHosts, loadRuns],
   );
+
+  const handleConnectPhone = useCallback(async () => {
+    await clearRemoteSessionToken();
+    setAuthRequired(false);
+    setError(null);
+    setNotice(null);
+    setRelayState("checking");
+    router.push("/dispatch" as never);
+  }, [router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -211,7 +250,13 @@ export default function SessionsScreen() {
       permissionMode: "full-auto",
     });
     if (!result.ok || !result.data?.run) {
+      if (isRemoteAuthError(result)) {
+        setAuthRequired(true);
+        setRelayState("signed-out");
+        setError(null);
+      } else {
       setError(result.error ?? "Could not start the session.");
+      }
       setCreating(false);
       return;
     }
@@ -268,7 +313,13 @@ export default function SessionsScreen() {
         current.filter((event) => event.id !== optimisticEvent.id),
       );
       setFollowUpPrompt(prompt);
-      setError(result.error ?? "Could not send the follow-up.");
+      if (isRemoteAuthError(result)) {
+        setAuthRequired(true);
+        setRelayState("signed-out");
+        setError(null);
+      } else {
+        setError(result.error ?? "Could not send the follow-up.");
+      }
     } else {
       setNotice(result.data?.message ?? "Follow-up queued.");
       if (result.data?.event) {
@@ -303,7 +354,13 @@ export default function SessionsScreen() {
         decision,
       });
       if (!result.ok) {
-        setError(result.error ?? `Could not ${decision} the command.`);
+        if (isRemoteAuthError(result)) {
+          setAuthRequired(true);
+          setRelayState("signed-out");
+          setError(null);
+        } else {
+          setError(result.error ?? `Could not ${decision} the command.`);
+        }
       } else {
         setNotice(result.data?.message ?? `Command ${decision}d.`);
         setRuns((current) =>
@@ -330,7 +387,13 @@ export default function SessionsScreen() {
       selectedRun.hostId ?? selectedHostId,
     );
     if (!result.ok) {
-      setError(result.error ?? "Could not stop the session.");
+      if (isRemoteAuthError(result)) {
+        setAuthRequired(true);
+        setRelayState("signed-out");
+        setError(null);
+      } else {
+        setError(result.error ?? "Could not stop the session.");
+      }
     } else {
       setNotice(result.data?.message ?? "Stop requested.");
       setRuns((current) =>
@@ -367,7 +430,13 @@ export default function SessionsScreen() {
       );
       await refresh(true);
     } else {
-      setError(result.error ?? "Could not revoke this host.");
+      if (isRemoteAuthError(result)) {
+        setAuthRequired(true);
+        setRelayState("signed-out");
+        setError(null);
+      } else {
+        setError(result.error ?? "Could not revoke this host.");
+      }
     }
     setConfirmingRevokeHostId(null);
     setRevokingHostId(null);

@@ -166,12 +166,15 @@ grants shared provider accounts; the vault stores secret values; Brain owns
 source ingestion, distillation, review, search, and citations; Analytics owns
 data-source interpretation, metric definitions, dashboards, and analyses.
 Today the reusable layer covers credential refs, grant checks, provider
-readiness, safe account metadata, and control-plane audit. It does not make
-OAuth flows, provider-specific readers, ingestion cursors, or app-local source
-configuration generic. When a user asks Dispatch to "connect Slack for Brain"
-or "give Analytics HubSpot", create or reuse the workspace connection and grant
-the target app; leave channel allow-lists, repository lists, metric semantics,
-dashboards, and sync rules in the target app.
+readiness, safe account metadata, control-plane audit, and conservative
+provider-reader contracts. The provider-reader runtime can call registered
+handlers through granted workspace connections, but live provider API readers
+remain template-owned until explicitly promoted to shared. It does not make
+OAuth flows, ingestion cursors, or app-local source configuration generic. When
+a user asks Dispatch to "connect Slack for Brain" or "give Analytics HubSpot",
+create or reuse the workspace connection and grant the target app; leave
+channel allow-lists, repository lists, metric semantics, dashboards, and sync
+rules in the target app.
 
 New templates should reuse
 `listWorkspaceConnectionProviderCatalogForApp()`,
@@ -253,8 +256,8 @@ serialization, so apps do not need to duplicate app-grant logic.
 - When a user asks to create, build, make, scaffold, or generate an "agent" from Dispatch chat or by tagging `@agent-native` in Slack/email/Telegram, first classify the ask. If it is a simple Dispatch-native behavior like a reminder, digest, monitor, routing rule, saved instruction, or recurring workflow, create or update the recurring job/resource/destination in Dispatch. If it is a robust unique product or teammate that needs its own UI, data model, actions, integrations, or domain workflow, treat it as a new workspace app and use `start-workspace-app-creation`.
 - When a user explicitly asks for a new app or workspace app from Slack, email, Telegram, or chat, use `start-workspace-app-creation`.
 - New-app requests from Dispatch create a **new workspace app** that appears in the workspace apps list. Do not satisfy them by adding a route, page, component, or file inside `apps/starter` or any other existing app unless the user explicitly asks to modify that existing app.
-- Treat first-party apps such as Mail, Calendar, Analytics, and Dispatch as existing hosted/connected neighbors available through links and A2A/default connected agents. For example, Mail, Calendar, and Analytics already exist at `https://mail.agent-native.com`, `https://calendar.agent-native.com`, and `https://analytics.agent-native.com`.
-- If a new app needs to use Mail, Calendar, Analytics, or similar first-party data/agents, build only the genuinely new workflow and delegate/link to those existing apps. Do not create wrapper apps, child apps, nested template copies, or cloned Mail/Calendar/Analytics implementations inside the new app just to provide access.
+- Treat first-party apps such as Mail, Calendar, Analytics, Brain, and Dispatch as existing hosted/connected neighbors available through links and A2A/default connected agents. For example, Mail, Calendar, Analytics, and Brain already exist at `https://mail.agent-native.com`, `https://calendar.agent-native.com`, `https://analytics.agent-native.com`, and `https://brain.agent-native.com`.
+- If a new app needs to use Mail, Calendar, Analytics, Brain, or similar first-party data/agents, build only the genuinely new workflow and delegate/link to those existing apps. Do not create wrapper apps, child apps, nested template copies, or cloned Mail/Calendar/Analytics/Brain implementations inside the new app just to provide access.
 - Only create a first-party app copy when the user explicitly asks for a customized fork/copy of that app. Otherwise prefer the hosted/shared app so base template improvements continue to flow automatically.
 - If `start-workspace-app-creation` returns `mode: "builder"`, send the Builder branch URL back to the user; Builder is responsible for creating the separate workspace app under `apps/<app-id>` and mounting it at `/<app-id>`. If it returns `mode: "local-agent"`, continue by using the returned prompt to create the app locally under `apps/<app-id>`, mounted at `/<app-id>`, using the workspace shared database. If it returns `mode: "coming-soon"` or `mode: "builder-unavailable"`, ask them to connect/configure Builder or set a Builder project for app creation.
 - Local new app scaffolding should use the CLI from the workspace root: `pnpm exec agent-native create <app-id> --template=<template>`. The workspace dev gateway auto-detects new `apps/<app-id>` directories and starts their dev servers without a restart.

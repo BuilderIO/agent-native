@@ -121,6 +121,27 @@ pub struct NativeFullscreenUploadResult {
     bytes: u64,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeLocalRecordingFile {
+    role: String,
+    path: String,
+    file_name: String,
+    mime_type: String,
+    bytes: u64,
+    duration_ms: u128,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeFullscreenSaveResult {
+    recording_id: String,
+    folder_path: String,
+    file: NativeLocalRecordingFile,
+}
+
 impl From<&SavedNativeRecording> for PendingNativeRecording {
     fn from(saved: &SavedNativeRecording) -> Self {
         Self {
@@ -279,6 +300,30 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 }
 
 #[tauri::command]
+pub async fn native_fullscreen_recording_stop_and_save(
+    app: AppHandle,
+    state: State<'_, NativeFullscreenRecordingState>,
+    folder_name: String,
+    file_role: String,
+) -> Result<NativeFullscreenSaveResult, String> {
+    let mut session = {
+        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+        guard.take()
+    }
+    .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+
+    let stop_outcome = stop_native_recording(&mut session.backend);
+    let duration_ms = session.started_at.elapsed().as_millis();
+    if let Err(err) = &stop_outcome {
+        eprintln!(
+            "[clips-tray] native local recording stop reported an error; attempting to save file anyway: {err}"
+        );
+    }
+
+    save_native_recording_to_local_export(&app, &session, &folder_name, &file_role, duration_ms)
+}
+
+#[tauri::command]
 pub async fn native_fullscreen_capture_thumbnail(
     app: AppHandle,
     server_url: String,
@@ -433,6 +478,96 @@ fn pending_recording_path(
         std::process::id(),
         extension.trim_start_matches('.')
     )))
+}
+
+fn sanitize_path_component(value: &str, fallback: &str) -> String {
+    let safe: String = value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if safe.is_empty() {
+        fallback.to_string()
+    } else {
+        safe
+    }
+}
+
+fn native_extension_for_mime_type(mime_type: &str) -> &'static str {
+    if mime_type.eq_ignore_ascii_case(MP4_RECORDING_MIME_TYPE) {
+        "mp4"
+    } else {
+        "mov"
+    }
+}
+
+fn local_role_file_stem(role: &str) -> &'static str {
+    match role {
+        "composed" => "clip",
+        "desktop" => "desktop",
+        _ => "desktop",
+    }
+}
+
+fn move_or_copy_file(from: &Path, to: &Path) -> Result<(), String> {
+    if let Err(rename_err) = std::fs::rename(from, to) {
+        std::fs::copy(from, to).map_err(|copy_err| {
+            format!("local recording copy failed: {copy_err}; rename failed: {rename_err}")
+        })?;
+        std::fs::remove_file(from)
+            .map_err(|remove_err| format!("local recording cleanup failed: {remove_err}"))?;
+    }
+    Ok(())
+}
+
+fn save_native_recording_to_local_export(
+    app: &AppHandle,
+    session: &NativeFullscreenSession,
+    folder_name: &str,
+    file_role: &str,
+    duration_ms: u128,
+) -> Result<NativeFullscreenSaveResult, String> {
+    let safe_folder_name = sanitize_path_component(folder_name, "clip");
+    let safe_role = match file_role {
+        "composed" | "desktop" => file_role,
+        _ => "desktop",
+    };
+    let folder = app
+        .path()
+        .video_dir()
+        .map_err(|e| format!("videos directory unavailable: {e}"))?
+        .join("Clips")
+        .join(&safe_folder_name);
+    std::fs::create_dir_all(&folder)
+        .map_err(|e| format!("local recording folder unavailable: {e}"))?;
+
+    let extension = native_extension_for_mime_type(session.mime_type);
+    let file_name = format!("{}.{}", local_role_file_stem(safe_role), extension);
+    let destination = folder.join(&file_name);
+    let _ = std::fs::remove_file(&destination);
+    move_or_copy_file(&session.path, &destination)?;
+
+    let bytes = std::fs::metadata(&destination)
+        .map_err(|e| format!("local recording metadata unavailable: {e}"))?
+        .len();
+    if bytes == 0 {
+        let _ = std::fs::remove_file(&destination);
+        return Err("Native recording produced an empty file.".into());
+    }
+
+    Ok(NativeFullscreenSaveResult {
+        recording_id: safe_folder_name,
+        folder_path: folder.to_string_lossy().to_string(),
+        file: NativeLocalRecordingFile {
+            role: safe_role.to_string(),
+            path: destination.to_string_lossy().to_string(),
+            file_name,
+            mime_type: session.mime_type.to_string(),
+            bytes,
+            duration_ms,
+            width: session.width,
+            height: session.height,
+        },
+    })
 }
 
 fn saved_recording_metadata_path(app: &AppHandle, recording_id: &str) -> Result<PathBuf, String> {

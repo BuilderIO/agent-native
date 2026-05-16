@@ -2,6 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 
 export const SESSION_TOKEN_KEY = "agent-native:session-token";
+export const REMOTE_AUTH_MESSAGE =
+  "Connect this phone to Dispatch to use remote sessions.";
 
 export const REMOTE_SESSIONS_ENDPOINTS = {
   hosts: "/_agent-native/integrations/remote/hosts",
@@ -239,6 +241,16 @@ export function getRemoteRelayBaseUrl(): string {
   return normalizeBaseUrl(DEFAULT_REMOTE_RELAY_BASE_URL);
 }
 
+export async function clearRemoteSessionToken(): Promise<void> {
+  await AsyncStorage.removeItem(SESSION_TOKEN_KEY);
+}
+
+export function isRemoteAuthError(
+  result: RemoteApiResult<unknown>,
+): boolean {
+  return result.status === 401;
+}
+
 async function remoteFetch<T>(
   path: string,
   options: FetchOptions = {},
@@ -248,7 +260,7 @@ async function remoteFetch<T>(
     return {
       ok: false,
       status: 401,
-      error: "Sign in to Agent Native on this device to connect sessions.",
+      error: REMOTE_AUTH_MESSAGE,
     };
   }
 
@@ -270,10 +282,12 @@ async function remoteFetch<T>(
         status: response.status,
         data: payload as T,
         error:
-          response.status === 404
-            ? "Remote sessions are not available on this relay yet."
-            : messageFromPayload(
-                payload,
+          response.status === 401
+            ? REMOTE_AUTH_MESSAGE
+            : response.status === 404
+              ? "Remote sessions are not available on this relay yet."
+              : messageFromPayload(
+                  payload,
                 `Request failed (${response.status}).`,
               ),
       };

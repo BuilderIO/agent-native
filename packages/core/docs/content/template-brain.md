@@ -26,7 +26,7 @@ or issue.
 
 Brain is intentionally on an open-source, Glean-shaped path, but it is not a
 complete Glean replacement today. V1 is company chat plus cited memory over
-reviewed knowledge. V1.5 adds universal Brain search across knowledge,
+reviewed knowledge. V1.5 adds Brain-wide search across knowledge,
 captures, and sources, plus reusable workspace connections for source
 credentials. V2 points toward federated app/source search, permission-aware
 result filtering, ranking, and an expertise graph as a future platform layer.
@@ -61,7 +61,9 @@ result filtering, ranking, and an expertise graph as a future platform layer.
   reusable workspace connection grants and provider readiness. Reusable
   integrations own provider identity, credential references, and app grants;
   Brain sources own app-specific choices such as channels, repositories,
-  cursors, review posture, and distillation state.
+  cursors, review posture, and distillation state. The provider-reader runtime
+  gives shared provider search/get contracts; live provider API calls stay
+  template-owned unless a reader is explicitly promoted to shared.
 - **Ambient context.** Canonical approved entries can mirror into workspace
   resources under `context/company-brain/...` for cross-app context. The Review
   route exposes this as a per-proposal switch; the Knowledge route can publish
@@ -83,7 +85,7 @@ Brain search has three layers:
 - **V1 Company Brain search:** answer from reviewed, distilled knowledge first.
   This is the trust layer for decisions, policies, product facts, processes,
   and durable summaries.
-- **V1.5 universal Brain search:** use `search-everything` as the broad first
+- **V1.5 Brain-wide search:** use `search-everything` as the broad first
   pass across knowledge, raw captures, and sources. Then call `get-knowledge`
   for reviewed entries or `get-capture` for exact source context and links.
   The action also returns `federatedCoverage`: Brain source/provider coverage,

@@ -456,7 +456,9 @@
 }
 
 .code-agents-standard-composer.agent-composer-area {
+  align-self: stretch;
   width: 100% !important;
+  inline-size: 100% !important;
   max-width: none;
   box-sizing: border-box;
   padding-left: 0 !important;
@@ -474,6 +476,7 @@
 
 .code-agents-standard-composer [data-agent-composer-slot="root"] {
   width: 100%;
+  inline-size: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -902,6 +905,7 @@
 }
 
 .code-agents-provider-gate {
+  align-self: stretch;
   width: 100%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -975,6 +979,7 @@
 }
 
 .code-agents-suggestions {
+  align-self: stretch;
   width: 100%;
   display: grid;
 }
@@ -1198,7 +1203,8 @@
 }
 
 .code-agents-detail--chat .code-agents-standard-composer.agent-composer-area {
-  width: 100%;
+  align-self: stretch;
+  width: 100% !important;
 }
 
 .code-agents-progress__label,

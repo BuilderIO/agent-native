@@ -1341,8 +1341,9 @@ export function App() {
   const bubbleStreamTransferredToRecorder = useRef(false);
   const wantsCamera = mode !== "screen" && cameraOn;
   const nativeFullscreenRecordingActive =
-    localRecordingMode === "off" && shouldUseNativeFullscreenRecording(source);
-  const bubbleUsesLocalCamera = nativeFullscreenRecordingActive;
+    mode !== "camera" && shouldUseNativeFullscreenRecording(source);
+  const bubbleUsesLocalCamera =
+    nativeFullscreenRecordingActive && localRecordingMode !== "separate";
   // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
   // captures the dep-snapshot value) can still see the CURRENT flow state
   // at the moment it actually runs. Without this, if `recordingFlowActive`
@@ -1375,9 +1376,7 @@ export function App() {
   // The toolbar is recording chrome, not pre-record chrome. Showing it while
   // the popover is merely open leaves a disabled 0:00 Stop/Pause pill on the
   // desktop, which reads as a stuck recorder and can trap accessibility clicks.
-  const localRecordingHidesOverlays = localRecordingMode !== "off";
-  const toolbarActive =
-    (isRecording || recordingFlowActive) && !localRecordingHidesOverlays;
+  const toolbarActive = isRecording || recordingFlowActive;
 
   useEffect(() => {
     if (!toolbarActive) return;

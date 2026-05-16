@@ -12,7 +12,7 @@ distills them into reviewable SQL-backed knowledge with source links.
 
 The product direction is intentionally Glean-shaped, but the shipped V1 is not a
 full enterprise search replacement. Brain starts with open-source company memory
-over reviewed knowledge, then expands toward universal, permission-aware
+over reviewed knowledge, then expands toward broader, permission-aware
 workspace search.
 
 ## Version Direction
@@ -26,8 +26,11 @@ workspace search.
   names Brain source/provider coverage, workspace connection readiness, compact
   discovered agent metadata when available, and deterministic delegation hints.
   It does not directly search sibling apps.
-- **V1.5 shared credentials:** reusable workspace connections let Brain source
+- **V1.5 shared integrations:** reusable workspace connections let Brain source
   sync use provider credentials granted from Dispatch or the workspace layer.
+  The provider-reader runtime gives shared contracts for provider search/get
+  shapes, but live provider API calls stay template-owned unless a reader is
+  explicitly promoted to shared.
 - **V2 platform direction:** federated search across apps and sources,
   permission-aware result ranking, and an expertise graph as a future/platform
   layer.
@@ -56,7 +59,9 @@ workspace search.
   generic webhook, and manual sources; reviews captures; queues distillation;
   and shows reusable workspace connection grants/readiness beside Brain source
   records. Sources are org-shared by default so approved memory benefits the
-  whole workspace.
+  whole workspace. Slack rollout should stay in the pilot loop: test the
+  connection, sample narrowly, review captures, distill/propose durable memory,
+  then approve before broad sync.
 - **Ops and settings:** Ops tracks queued, processing, stale, failed, and done
   distillation work. Settings controls assistant identity, source posture,
   default publish tier, company-memory approval, citations, redaction, and

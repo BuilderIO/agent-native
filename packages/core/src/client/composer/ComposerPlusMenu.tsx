@@ -48,37 +48,23 @@ interface ComposerPlusMenuProps {
 type View = "menu" | "mcp-server";
 
 function UploadOnlyAttachButton() {
-  // Mirrors the hidden-AddAttachment + visible-button pattern used in the full
-  // ComposerPlusMenu. Rendering AddAttachment directly as the visible button
-  // can disappear when the runtime reports no eligible adapter; the hidden
-  // delegate keeps the visible "+" button reliably mounted.
-  const hiddenRef = useRef<HTMLButtonElement>(null);
   return (
-    <>
-      <ComposerPrimitive.AddAttachment asChild>
-        <button
-          ref={hiddenRef}
-          type="button"
-          className="hidden"
-          style={{ display: "none" }}
-          tabIndex={-1}
-          aria-hidden
-        />
-      </ComposerPrimitive.AddAttachment>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => hiddenRef.current?.click()}
-            className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            aria-label="Upload file"
-          >
-            <IconPlus className="h-4 w-4" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Upload</TooltipContent>
-      </Tooltip>
-    </>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex shrink-0">
+          <ComposerPrimitive.AddAttachment asChild>
+            <button
+              type="button"
+              className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              aria-label="Upload"
+            >
+              <IconPlus className="h-4 w-4" />
+            </button>
+          </ComposerPrimitive.AddAttachment>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>Upload</TooltipContent>
+    </Tooltip>
   );
 }
 

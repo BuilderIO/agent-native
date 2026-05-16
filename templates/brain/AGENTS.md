@@ -16,7 +16,7 @@ broader permission-aware workspace search layer over time.
 
 - **V1 Company Brain:** company chat over distilled knowledge. Agents should
   answer from reviewed, cited entries whenever possible.
-- **V1.5 universal search:** add a Search route and `search-everything` action
+- **V1.5 Brain-wide search:** add a Search route and `search-everything` action
   that search knowledge, raw captures, and source records together, then let
   agents drill into specific knowledge/capture records for citations.
 - **V2 platform layer:** federated app/source search, permission-aware results,
@@ -25,7 +25,10 @@ broader permission-aware workspace search layer over time.
 - **Reusable integrations:** workspace integrations are a framework primitive
   for provider identity, safe credential refs, and per-app grants. Brain still
   owns source config such as channel allow-lists, repositories, cursors, review
-  posture, and distillation state.
+  posture, and distillation state. The provider-reader runtime adds a
+  conservative shared contract for provider search/get/listRecent operations;
+  live provider API readers remain template-owned until explicitly marked
+  shared.
 - **Federated answers:** Brain should answer from Brain knowledge when it has
   cited support. When a question needs live app-owned data, delegate to the
   specialized app agent or action instead of expanding Brain into every
@@ -80,13 +83,13 @@ When answering company-memory questions:
    context, and apply its effective guidance. The settings control assistant
    name, company name, tone, citation requirements, source policy, default
    publish tier, redaction, and distillation instructions.
-2. Start with `search-everything` when it is available. It is the V1.5 universal
-   search surface and should return candidate knowledge entries, raw captures,
-   and sources the current user can access. Its `federatedCoverage` section is
-   metadata only: it lists Brain source/provider coverage, reusable workspace
-   connection readiness, compact discovered agent metadata when available, and
-   deterministic hints for where to delegate next. It does not search sibling
-   app databases or call other agents.
+2. Start with `search-everything` when it is available. It is the V1.5
+   Brain-wide search surface and should return candidate knowledge entries, raw
+   captures, and sources the current user can access. Its `federatedCoverage`
+   section is metadata only: it lists Brain source/provider coverage, reusable
+   workspace connection readiness, compact discovered agent metadata when
+   available, and deterministic hints for where to delegate next. It does not
+   search sibling app databases or call other agents.
 3. Drill into promising results with `get-knowledge` for durable facts and
    `get-capture` for source context. `get-capture` is redacted by default; use
    `includeRawContent: true` only for editor-authorized distillation or exact
@@ -256,10 +259,12 @@ identity, credential ref names, account metadata, and app grants; Dispatch is
 the usual admin control plane for connecting, repairing, and granting them; the
 vault owns the secret values; Brain owns source-specific configuration and the
 ingestion/distillation/review/search/citation pipeline.
-Credential resolution, grants, provider readiness, and safe metadata are shared
-today. OAuth flows, provider-specific readers, ingestion cursors, source
-filters, and review semantics remain Brain-local unless a provider runtime is
-explicitly promoted into the framework.
+Credential resolution, grants, provider readiness, safe metadata, and
+provider-reader contracts are shared today. The provider-reader runtime can call
+registered handlers through granted workspace connections, but initial live
+handlers are still template-owned. OAuth flows, provider-specific API readers,
+ingestion cursors, source filters, and review semantics remain Brain-local
+unless a reader is explicitly promoted to shared.
 
 Before asking the user for a duplicate Slack, Granola, GitHub, Notion, Google
 Drive, HubSpot, or other provider key, call `list-connection-providers` and

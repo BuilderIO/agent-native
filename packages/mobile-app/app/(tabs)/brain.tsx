@@ -3,12 +3,12 @@ import AppWebView from "@/components/AppWebView";
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { getAppUrl } from "@/lib/get-app-url";
 
-const dispatch = TEMPLATE_APPS.find((a) => a.id === "dispatch")!;
+const brain = TEMPLATE_APPS.find((a) => a.id === "brain")!;
 
-export default function DispatchTab() {
+export default function BrainTab() {
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={getAppUrl(dispatch)} captureSessionToken />
+      <AppWebView url={getAppUrl(brain)} />
     </SafeAreaView>
   );
 }
