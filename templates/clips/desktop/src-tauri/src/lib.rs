@@ -170,6 +170,7 @@ pub fn run() {
             config::sync_launch_at_login(app.handle());
             shortcuts::register_shortcuts(app)?;
             shortcuts::install_popover_dismiss_handler(app);
+            shortcuts::install_countdown_shortcut_handler(app);
 
             // Spawn the upcoming-meetings poller. Idempotent — gated by a
             // OnceLock inside `spawn_watcher`. The frontend wires the

@@ -1812,6 +1812,46 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   line-height: 1;
 }
 
+.countdown-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-pill);
+  background: rgba(10, 12, 16, 0.28);
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  transform: translateX(-50%);
+  backdrop-filter: blur(8px);
+}
+
+.countdown-hint span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.countdown-hint kbd {
+  min-width: 24px;
+  padding: 3px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.74);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+}
+
 @keyframes cd-pop {
   0% {
     transform: scale(0.6);

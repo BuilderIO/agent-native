@@ -18,10 +18,20 @@ fn escape_shortcut() -> Shortcut {
     Shortcut::new(None, Code::Escape)
 }
 
+fn enter_shortcut() -> Shortcut {
+    Shortcut::new(None, Code::Enter)
+}
+
+fn numpad_enter_shortcut() -> Shortcut {
+    Shortcut::new(None, Code::NumpadEnter)
+}
+
 static CUSTOM_VOICE_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static CUSTOM_POPOVER_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static FN_TAP_ENABLED: AtomicBool = AtomicBool::new(false);
 static FN_TAP_INSTALL_STARTED: AtomicBool = AtomicBool::new(false);
+static POPOVER_DISMISS_SHORTCUT_ACTIVE: AtomicBool = AtomicBool::new(false);
+static COUNTDOWN_SHORTCUTS_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 fn custom_voice_shortcut() -> &'static Mutex<Option<Shortcut>> {
     CUSTOM_VOICE_SHORTCUT.get_or_init(|| Mutex::new(None))
@@ -183,6 +193,7 @@ pub fn install_popover_dismiss_handler(app: &tauri::App) {
         // within its own callback.
         std::thread::spawn(move || {
             let visible: bool = serde_json::from_str(&payload).unwrap_or(false);
+            POPOVER_DISMISS_SHORTCUT_ACTIVE.store(visible, Ordering::SeqCst);
             let shortcut = escape_shortcut();
             let gs = handle.global_shortcut();
             if visible {
@@ -191,11 +202,60 @@ pub fn install_popover_dismiss_handler(app: &tauri::App) {
                         eprintln!("[clips-tray] failed to register Escape: {err}");
                     }
                 }
-            } else if gs.is_registered(shortcut) {
+            } else if !COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
+                && gs.is_registered(shortcut)
+            {
                 let _ = gs.unregister(shortcut);
             }
         });
     });
+}
+
+pub fn install_countdown_shortcut_handler(app: &tauri::App) {
+    let handle = app.handle().clone();
+    app.listen("clips:countdown-shortcuts-active", move |event| {
+        let payload = event.payload().to_string();
+        let handle = handle.clone();
+        let active: bool = serde_json::from_str(&payload).unwrap_or(false);
+        set_countdown_shortcuts_active(handle, active);
+    });
+}
+
+fn set_countdown_shortcuts_active(app: AppHandle, active: bool) {
+    COUNTDOWN_SHORTCUTS_ACTIVE.store(active, Ordering::SeqCst);
+    thread::spawn(move || {
+        let gs = app.global_shortcut();
+        let escape = escape_shortcut();
+        let enter = enter_shortcut();
+        let numpad_enter = numpad_enter_shortcut();
+        if active {
+            for shortcut in [escape, enter, numpad_enter] {
+                if !gs.is_registered(shortcut) {
+                    if let Err(err) = gs.register(shortcut) {
+                        eprintln!("[clips-tray] failed to register countdown shortcut: {err}");
+                    }
+                }
+            }
+            return;
+        }
+
+        for shortcut in [enter, numpad_enter] {
+            if gs.is_registered(shortcut) {
+                let _ = gs.unregister(shortcut);
+            }
+        }
+        if !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst) && gs.is_registered(escape) {
+            let _ = gs.unregister(escape);
+        }
+    });
+}
+
+fn finish_countdown_from_shortcut(app: &AppHandle, event: &'static str) {
+    let _ = app.emit(event, ());
+    if let Some(window) = app.get_webview_window("countdown") {
+        let _ = window.close();
+    }
+    set_countdown_shortcuts_active(app.clone(), false);
 }
 
 /// Build the global shortcut plugin with its handler. Called from `run()` to
@@ -214,6 +274,25 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             .map(|custom| custom == *shortcut)
             .unwrap_or(false);
         let is_escape = shortcut.matches(Modifiers::empty(), Code::Escape);
+        let is_enter = shortcut.matches(Modifiers::empty(), Code::Enter);
+        let is_numpad_enter = shortcut.matches(Modifiers::empty(), Code::NumpadEnter);
+        if (is_escape || is_enter || is_numpad_enter)
+            && COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
+        {
+            if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                return;
+            }
+            if app.get_webview_window("countdown").is_some() {
+                let event = if is_escape {
+                    "clips:countdown-cancel"
+                } else {
+                    "clips:countdown-done"
+                };
+                finish_countdown_from_shortcut(app, event);
+                return;
+            }
+            set_countdown_shortcuts_active(app.clone(), false);
+        }
         if is_escape {
             if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
                 return;

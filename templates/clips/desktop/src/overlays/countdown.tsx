@@ -1,24 +1,30 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
  * Full-screen transparent countdown overlay. Runs 3 → 2 → 1, then emits
- * `clips:countdown-done` and closes its own window. The popover listens for
- * that event and kicks off MediaRecorder.
+ * `clips:countdown-done` and closes its own window. The recorder waits for
+ * that event before it starts capturing.
  */
 export function Countdown() {
   const [n, setN] = useState(3);
+  const closingRef = useRef(false);
 
-  const closeWithEvent = (eventName: "clips:countdown-done" | "clips:countdown-cancel") => {
-    emit(eventName)
-      .finally(() => emit("clips:countdown-shortcuts-active", false))
-      .finally(() => {
-        getCurrentWindow()
-          .close()
-          .catch(() => {});
-      });
-  };
+  const closeWithEvent = useCallback(
+    (eventName: "clips:countdown-done" | "clips:countdown-cancel") => {
+      if (closingRef.current) return;
+      closingRef.current = true;
+      emit(eventName)
+        .finally(() => emit("clips:countdown-shortcuts-active", false))
+        .finally(() => {
+          getCurrentWindow()
+            .close()
+            .catch(() => {});
+        });
+    },
+    [],
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -35,7 +41,7 @@ export function Countdown() {
       window.removeEventListener("keydown", onKeyDown);
       emit("clips:countdown-shortcuts-active", false).catch(() => {});
     };
-  }, []);
+  }, [closeWithEvent]);
 
   useEffect(() => {
     if (n <= 0) {
@@ -44,7 +50,7 @@ export function Countdown() {
     }
     const t = setTimeout(() => setN((v) => v - 1), 850);
     return () => clearTimeout(t);
-  }, [n]);
+  }, [closeWithEvent, n]);
 
   return (
     <div className="countdown-root">

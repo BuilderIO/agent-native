@@ -17,6 +17,7 @@ import {
   IconExternalLink,
   IconFolder,
   IconFolderPlus,
+  IconLink,
   IconPinned,
   IconPinnedOff,
   IconPlus,
@@ -24,6 +25,7 @@ import {
   IconQrcode,
   IconRefresh,
   IconRoute,
+  IconSearch,
   IconSettings,
   IconTerminal2,
 } from "@tabler/icons-react";
@@ -164,6 +166,13 @@ export interface CodeAgentsAppProps {
 type RunListStatus = CodeAgentRunListResult["status"];
 type CodeAgentRunMode = "plan" | "auto";
 
+interface CodeAgentSearchResult {
+  run: CodeAgentRun;
+  match: string;
+  matchType: "Recent" | "Session" | "Transcript";
+  rank: number;
+}
+
 interface CodeAgentHostMetadata {
   status: "ok" | "unavailable";
   llmProvider?: {
@@ -303,6 +312,14 @@ export default function CodeAgentsApp({
   >(null);
   const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
   const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
+  const [searchPanelOpen, setSearchPanelOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchRuns, setSearchRuns] = useState<CodeAgentRun[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchTranscriptLoading, setSearchTranscriptLoading] =
+    useState(false);
+  const [searchTranscriptVersion, setSearchTranscriptVersion] = useState(0);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [hostMetadata, setHostMetadata] =
     useState<CodeAgentHostMetadata | null>(null);
@@ -315,6 +332,10 @@ export default function CodeAgentsApp({
     [apps, remoteConnectorStatus?.relayUrl],
   );
   const newPromptRef = useRef<TiptapComposerHandle | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchTranscriptCacheRef = useRef(
+    new Map<string, CodeAgentTranscriptEvent[]>(),
+  );
 
   const seedNewPrompt = useCallback((value: string) => {
     setNewPrompt(value);
@@ -341,6 +362,38 @@ export default function CodeAgentsApp({
     },
     [host, selectedGoal.id],
   );
+
+  const loadSearchRuns = useCallback(async () => {
+    setSearchLoading(true);
+    setSearchError(null);
+    try {
+      const results = await Promise.all(
+        CODE_AGENT_GOALS.map(
+          async (goal): Promise<CodeAgentRunListResult> => {
+            try {
+              return await host.listRuns(goal.id);
+            } catch (err) {
+              return {
+                status: "unavailable",
+                goalId: goal.id,
+                runs: [],
+                error: err instanceof Error ? err.message : String(err),
+              };
+            }
+          },
+        ),
+      );
+      const runsById = new Map<string, CodeAgentRun>();
+      for (const result of results) {
+        for (const run of result.runs) runsById.set(run.id, run);
+      }
+      setSearchRuns(sortRunsForRail([...runsById.values()]));
+      const firstError = results.find((result) => result.status !== "ok");
+      setSearchError(firstError?.error ?? null);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [host]);
 
   const loadTranscript = useCallback(
     async (runId: string | null = selectedRunId, busy = false) => {
@@ -440,6 +493,8 @@ export default function CodeAgentsApp({
     if (nextGoal) setSelectedGoalId(nextGoal.id);
     setSelectedRunId(openRequest.runId ?? null);
     setWorkbenchOpen(true);
+    setSearchPanelOpen(false);
+    setMobilePanelOpen(false);
     void loadRuns(true);
   }, [loadRuns, openRequest]);
 
@@ -459,10 +514,70 @@ export default function CodeAgentsApp({
     () => getProviderGate(hostMetadata),
     [hostMetadata],
   );
+  const normalizedSearchQuery = searchQuery.trim();
+  const searchResults = useMemo(
+    () =>
+      buildSearchRunResults(
+        searchRuns,
+        searchQuery,
+        searchTranscriptCacheRef.current,
+      ),
+    [searchRuns, searchQuery, searchTranscriptVersion],
+  );
 
   useEffect(() => {
     setSelectedPermissionMode(selectedRunStoredPermissionMode);
   }, [selectedRunId, selectedRunStoredPermissionMode]);
+
+  useEffect(() => {
+    if (!searchPanelOpen) return;
+    void loadSearchRuns();
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [loadSearchRuns, refreshKey, searchPanelOpen]);
+
+  useEffect(() => {
+    if (
+      !searchPanelOpen ||
+      normalizedSearchQuery.length < 2 ||
+      searchRuns.length === 0
+    ) {
+      return;
+    }
+
+    const missingRuns = searchRuns.filter(
+      (run) => !searchTranscriptCacheRef.current.has(run.id),
+    );
+    if (missingRuns.length === 0) return;
+
+    let cancelled = false;
+    setSearchTranscriptLoading(true);
+    void Promise.all(
+      missingRuns.map(async (run) => {
+        try {
+          const result = await host.readTranscript({
+            goalId: run.goalId,
+            runId: run.id,
+          });
+          if (!cancelled) {
+            searchTranscriptCacheRef.current.set(
+              run.id,
+              result.status === "ok" ? result.events : [],
+            );
+          }
+        } catch {
+          if (!cancelled) searchTranscriptCacheRef.current.set(run.id, []);
+        }
+      }),
+    ).finally(() => {
+      if (cancelled) return;
+      setSearchTranscriptLoading(false);
+      setSearchTranscriptVersion((version) => version + 1);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [host, normalizedSearchQuery, searchPanelOpen, searchRuns]);
 
   useEffect(() => {
     let cancelled = false;
@@ -582,6 +697,8 @@ export default function CodeAgentsApp({
       setSelectedGoalId(matchingGoal.id);
       setSelectedRunId(null);
       setWorkbenchOpen(false);
+      setSearchPanelOpen(false);
+      setMobilePanelOpen(false);
       seedNewPrompt(
         matchingGoal.id === "task" ? "" : `${matchingGoal.slashCommand} `,
       );
@@ -593,6 +710,8 @@ export default function CodeAgentsApp({
     setSelectedGoalId("task");
     setSelectedRunId(null);
     setWorkbenchOpen(false);
+    setSearchPanelOpen(false);
+    setMobilePanelOpen(false);
     seedNewPrompt(
       matchingSkill
         ? `Use the ${matchingSkill.name} skill to `
@@ -633,10 +752,120 @@ export default function CodeAgentsApp({
     });
   }
 
+  function openSearchPanel() {
+    setSearchPanelOpen(true);
+    setMobilePanelOpen(false);
+    setWorkbenchOpen(false);
+  }
+
+  function openSearchResult(run: CodeAgentRun) {
+    const goal = getCodeAgentGoal(run.goalId) ?? getDefaultCodeAgentGoal();
+    setSelectedGoalId(goal.id);
+    setRuns((current) =>
+      current.some((item) => item.id === run.id) ? current : [run, ...current],
+    );
+    setSelectedRunId(run.id);
+    setSearchPanelOpen(false);
+    setMobilePanelOpen(false);
+    setWorkbenchOpen(false);
+  }
+
+  function openMobilePanel() {
+    setSearchPanelOpen(false);
+    setMobilePanelOpen(true);
+    setWorkbenchOpen(false);
+  }
+
+  async function pairRemoteConnector(relayUrl: string) {
+    if (!host.pairRemoteConnector) {
+      toast("Mobile pairing is not available here", {
+        description: "Open Agent-Native Desktop to pair this Mac.",
+        duration: 3200,
+      });
+      return;
+    }
+    const trimmedRelayUrl = relayUrl.trim();
+    if (!trimmedRelayUrl) {
+      toast("Choose a relay first", {
+        description: "A Dispatch relay URL is needed before pairing.",
+        duration: 3200,
+      });
+      return;
+    }
+    setRemoteConnectorPairing(true);
+    setRemoteConnectorMessage(null);
+    try {
+      const result = await host.pairRemoteConnector({
+        relayUrl: trimmedRelayUrl,
+        label: "Agent Native Desktop",
+      });
+      setRemoteConnectorStatus(result.status);
+      setRemoteConnectorMessage(result.error ?? result.message ?? null);
+      toast(result.ok ? "Mobile pairing ready" : "Mobile pairing failed", {
+        description: result.error ?? result.message,
+        duration: result.ok ? 2200 : 3600,
+      });
+      if (result.ok) void loadRemoteConnectorStatus();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setRemoteConnectorMessage(message);
+      toast("Mobile pairing failed", {
+        description: message,
+        duration: 3600,
+      });
+    } finally {
+      setRemoteConnectorPairing(false);
+    }
+  }
+
+  async function setRemoteConnectorEnabled(enabled: boolean) {
+    if (!host.setRemoteConnectorEnabled) {
+      toast("Mobile pairing controls are not available here", {
+        description: "Open Agent-Native Desktop to manage mobile pairing.",
+        duration: 3200,
+      });
+      return;
+    }
+    setRemoteConnectorUpdating(true);
+    setRemoteConnectorMessage(null);
+    try {
+      const result = await host.setRemoteConnectorEnabled(enabled);
+      setRemoteConnectorStatus(result.status);
+      setRemoteConnectorMessage(result.error ?? null);
+      toast(enabled ? "Mobile pairing resumed" : "Mobile pairing paused", {
+        description: result.error,
+        duration: result.ok ? 1800 : 3600,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setRemoteConnectorMessage(message);
+      toast("Could not update mobile pairing", {
+        description: message,
+        duration: 3600,
+      });
+    } finally {
+      setRemoteConnectorUpdating(false);
+    }
+  }
+
+  async function copyMobileLink(link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast("Mobile link copied", { duration: 1600 });
+    } catch (err) {
+      toast("Could not copy mobile link", {
+        description: err instanceof Error ? err.message : String(err),
+        duration: 3200,
+      });
+    }
+  }
+
   function openSelectedGoal() {
     setSelectedGoalId("task");
     setSelectedRunId(null);
     setWorkbenchOpen(false);
+    setSearchPanelOpen(false);
+    setMobilePanelOpen(false);
     setFollowUpPrompt("");
     setTranscriptEvents([]);
     setTranscriptError(null);
@@ -726,6 +955,8 @@ export default function CodeAgentsApp({
         setRuns((current) => [result.run!, ...current]);
         setSelectedRunId(result.run.id);
         setWorkbenchOpen(false);
+        setSearchPanelOpen(false);
+        setMobilePanelOpen(false);
         if (result.event) setTranscriptEvents([result.event]);
       }
       await loadRuns(true);
@@ -791,6 +1022,8 @@ export default function CodeAgentsApp({
         setSelectedGoalId(typedGoal.id);
       }
       setWorkbenchOpen(false);
+      setSearchPanelOpen(false);
+      setMobilePanelOpen(false);
       if (result.event) setTranscriptEvents([result.event]);
       toast(result.message, { duration: 2200 });
       if (typedGoal.id === selectedGoal.id) {
@@ -1023,17 +1256,34 @@ export default function CodeAgentsApp({
         <div className="code-agents-nav-list" aria-label="Code navigation">
           <button
             type="button"
-            className="code-agents-nav-link"
+            className={`code-agents-nav-link${
+              !searchPanelOpen && !mobilePanelOpen && !selectedRunId
+                ? " code-agents-nav-link--active"
+                : ""
+            }`}
             onClick={openSelectedGoal}
+            aria-pressed={!searchPanelOpen && !mobilePanelOpen && !selectedRunId}
           >
             <IconPlus size={15} strokeWidth={1.8} />
-            <span>New session</span>
+            <span>New chat</span>
+          </button>
+          <button
+            type="button"
+            className={`code-agents-nav-link${
+              searchPanelOpen ? " code-agents-nav-link--active" : ""
+            }`}
+            onClick={openSearchPanel}
+            aria-pressed={searchPanelOpen}
+          >
+            <IconSearch size={15} strokeWidth={1.8} />
+            <span>Search</span>
           </button>
           {host.getRemoteConnectorStatus && (
             <MobileRailItem
               status={remoteConnectorStatus}
               error={remoteConnectorError}
-              onOpenSettings={onOpenSettings}
+              active={mobilePanelOpen}
+              onOpen={openMobilePanel}
             />
           )}
         </div>
@@ -1051,10 +1301,14 @@ export default function CodeAgentsApp({
             <GroupedRunList
               runs={runs}
               selectedRunId={selectedRunId}
-              onSelect={(run) => setSelectedRunId(run.id)}
+              onSelect={(run) => {
+                setSelectedRunId(run.id);
+                setMobilePanelOpen(false);
+              }}
               onOpen={(run) => {
                 setSelectedRunId(run.id);
                 setWorkbenchOpen(true);
+                setMobilePanelOpen(false);
               }}
               onTogglePin={toggleRunPinned}
             />
@@ -1113,98 +1367,119 @@ export default function CodeAgentsApp({
           </div>
         ) : (
           <div className="code-agents-overview">
-            {status !== "ok" && (
-              <div
-                className={`code-agents-callout code-agents-callout--${status}`}
-              >
-                <IconAlertCircle size={17} strokeWidth={1.8} />
-                <span>
-                  {status === "unauthorized"
-                    ? `Open ${selectedGoal.surfaceLabel} and sign in to see sessions.`
-                    : (error ??
-                      `${selectedGoal.surfaceLabel} is not reporting sessions yet.`)}
-                </span>
-              </div>
-            )}
-
-            {selectedRun ? (
-              <RunDetailCard
-                run={selectedRun}
-                selectedRunId={selectedRunId}
-                goal={selectedGoal}
-                transcriptEvents={transcriptEvents}
-                transcriptLoading={transcriptLoading}
-                transcriptError={transcriptError}
-                followUpPrompt={followUpPrompt}
-                followUpMode={followUpMode}
-                submittingFollowUp={submittingFollowUp}
-                permissionMode={selectedPermissionMode}
-                modelSelection={selectedModelSelection}
-                modelOptions={modelOptions}
-                updatingPermissionMode={updatingPermissionMode}
-                onFollowUpPromptChange={setFollowUpPrompt}
-                onFollowUpModeChange={setFollowUpMode}
-                onPermissionModeChange={changeSelectedPermissionMode}
-                onModelSelectionChange={setModelSelection}
-                onSubmitFollowUp={submitFollowUp}
-                onOpenWorkbench={() => setWorkbenchOpen(true)}
-                onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
-                onResume={() => controlRun("resume")}
-                onRefreshStatus={() => controlRun("status")}
-                onStop={() => controlRun("stop")}
-                onApprove={() => controlRun("approve")}
-                onRetry={host.retryRun ? retrySelectedRun : undefined}
-                onRerun={host.rerunRun ? rerunSelectedRun : undefined}
+            {mobilePanelOpen ? (
+              <MobileConnectorPanel
+                status={remoteConnectorStatus}
+                error={remoteConnectorError}
+                message={remoteConnectorMessage}
+                relayUrl={remoteRelayUrl}
+                brandIconUrl={brandIconUrl}
+                pairing={remoteConnectorPairing}
+                updating={remoteConnectorUpdating}
+                canPair={Boolean(host.pairRemoteConnector)}
+                canToggle={Boolean(host.setRemoteConnectorEnabled)}
+                onPair={pairRemoteConnector}
+                onSetEnabled={setRemoteConnectorEnabled}
+                onRefresh={loadRemoteConnectorStatus}
+                onCopyLink={copyMobileLink}
                 onOpenSettings={onOpenSettings}
               />
             ) : (
-              <div className="code-agents-start">
-                <h2>What should we build?</h2>
-                {providerGate.blocked && (
-                  <ProviderGateNotice
-                    description={providerGate.description}
+              <>
+                {status !== "ok" && (
+                  <div
+                    className={`code-agents-callout code-agents-callout--${status}`}
+                  >
+                    <IconAlertCircle size={17} strokeWidth={1.8} />
+                    <span>
+                      {status === "unauthorized"
+                        ? `Open ${selectedGoal.surfaceLabel} and sign in to see sessions.`
+                        : (error ??
+                          `${selectedGoal.surfaceLabel} is not reporting sessions yet.`)}
+                    </span>
+                  </div>
+                )}
+
+                {selectedRun ? (
+                  <RunDetailCard
+                    run={selectedRun}
+                    selectedRunId={selectedRunId}
+                    goal={selectedGoal}
+                    transcriptEvents={transcriptEvents}
+                    transcriptLoading={transcriptLoading}
+                    transcriptError={transcriptError}
+                    followUpPrompt={followUpPrompt}
+                    followUpMode={followUpMode}
+                    submittingFollowUp={submittingFollowUp}
+                    permissionMode={selectedPermissionMode}
+                    modelSelection={selectedModelSelection}
+                    modelOptions={modelOptions}
+                    updatingPermissionMode={updatingPermissionMode}
+                    onFollowUpPromptChange={setFollowUpPrompt}
+                    onFollowUpModeChange={setFollowUpMode}
+                    onPermissionModeChange={changeSelectedPermissionMode}
+                    onModelSelectionChange={setModelSelection}
+                    onSubmitFollowUp={submitFollowUp}
+                    onOpenWorkbench={() => setWorkbenchOpen(true)}
+                    onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
+                    onResume={() => controlRun("resume")}
+                    onRefreshStatus={() => controlRun("status")}
+                    onStop={() => controlRun("stop")}
+                    onApprove={() => controlRun("approve")}
+                    onRetry={host.retryRun ? retrySelectedRun : undefined}
+                    onRerun={host.rerunRun ? rerunSelectedRun : undefined}
                     onOpenSettings={onOpenSettings}
                   />
+                ) : (
+                  <div className="code-agents-start">
+                    <h2>What should we build?</h2>
+                    {providerGate.blocked && (
+                      <ProviderGateNotice
+                        description={providerGate.description}
+                        onOpenSettings={onOpenSettings}
+                      />
+                    )}
+                    <NewSessionComposer
+                      prompt={newPrompt}
+                      promptSeed={newPromptSeed}
+                      inputRef={newPromptRef}
+                      creating={creatingRun}
+                      permissionMode={newRunPermissionMode}
+                      modelSelection={selectedModelSelection}
+                      modelOptions={modelOptions}
+                      slashCommands={slashCommands}
+                      disabled={providerGate.blocked}
+                      onPromptChange={setNewPrompt}
+                      onPermissionModeChange={setNewRunPermissionMode}
+                      onModelSelectionChange={setModelSelection}
+                      onSlashCommand={handleSlashCommand}
+                      onSubmit={createRunFromPrompt}
+                    />
+                    {(projects.length > 0 || canChooseProjectFolder) && (
+                      <ProjectFolderPicker
+                        variant="bar"
+                        projects={projects}
+                        selectedPath={selectedProjectPath}
+                        loading={loadingProjects}
+                        canChoose={canChooseProjectFolder}
+                        onSelect={selectProjectFolder}
+                        onChoose={chooseProjectFolder}
+                      />
+                    )}
+                    <div className="code-agents-suggestions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedGoalId("task");
+                          seedNewPrompt("Review the current changes");
+                        }}
+                      >
+                        Review the current changes
+                      </button>
+                    </div>
+                  </div>
                 )}
-                <NewSessionComposer
-                  prompt={newPrompt}
-                  promptSeed={newPromptSeed}
-                  inputRef={newPromptRef}
-                  creating={creatingRun}
-                  permissionMode={newRunPermissionMode}
-                  modelSelection={selectedModelSelection}
-                  modelOptions={modelOptions}
-                  slashCommands={slashCommands}
-                  disabled={providerGate.blocked}
-                  onPromptChange={setNewPrompt}
-                  onPermissionModeChange={setNewRunPermissionMode}
-                  onModelSelectionChange={setModelSelection}
-                  onSlashCommand={handleSlashCommand}
-                  onSubmit={createRunFromPrompt}
-                />
-                {(projects.length > 0 || canChooseProjectFolder) && (
-                  <ProjectFolderPicker
-                    variant="bar"
-                    projects={projects}
-                    selectedPath={selectedProjectPath}
-                    loading={loadingProjects}
-                    canChoose={canChooseProjectFolder}
-                    onSelect={selectProjectFolder}
-                    onChoose={chooseProjectFolder}
-                  />
-                )}
-                <div className="code-agents-suggestions">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedGoalId("task");
-                      seedNewPrompt("Review the current changes");
-                    }}
-                  >
-                    Review the current changes
-                  </button>
-                </div>
-              </div>
+              </>
             )}
           </div>
         )}
@@ -2154,19 +2429,23 @@ function RunRailItem({
 function MobileRailItem({
   status,
   error,
-  onOpenSettings,
+  active,
+  onOpen,
 }: {
   status: CodeAgentRemoteConnectorStatus | null;
   error: string | null;
-  onOpenSettings?: () => void;
+  active: boolean;
+  onOpen: () => void;
 }) {
   const copy = mobileConnectorCopy(status, error);
   return (
     <button
       type="button"
-      className="code-agents-nav-link code-agents-mobile-link"
-      onClick={onOpenSettings}
-      disabled={!onOpenSettings}
+      className={`code-agents-nav-link code-agents-mobile-link${
+        active ? " code-agents-nav-link--active" : ""
+      }`}
+      onClick={onOpen}
+      aria-pressed={active}
       title={copy.description}
     >
       <IconDeviceMobile size={15} strokeWidth={1.8} />
@@ -2176,6 +2455,123 @@ function MobileRailItem({
         aria-hidden="true"
       />
     </button>
+  );
+}
+
+function MobileConnectorPanel({
+  status,
+  error,
+  message,
+  relayUrl,
+  pairing,
+  updating,
+  canPair,
+  canToggle,
+  onPair,
+  onSetEnabled,
+  onRefresh,
+  onCopyLink,
+  onOpenSettings,
+}: {
+  status: CodeAgentRemoteConnectorStatus | null;
+  error: string | null;
+  message: string | null;
+  relayUrl: string;
+  brandIconUrl?: string;
+  pairing: boolean;
+  updating: boolean;
+  canPair: boolean;
+  canToggle: boolean;
+  onPair: (relayUrl: string) => void | Promise<void>;
+  onSetEnabled: (enabled: boolean) => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
+  onCopyLink: (link: string) => void | Promise<void>;
+  onOpenSettings?: () => void;
+}) {
+  const copy = mobileConnectorCopy(status, error);
+  const connected = Boolean(status?.configured);
+  const enabled = Boolean(status?.enabled);
+  const displayRelayUrl = relayUrl || DEFAULT_REMOTE_RELAY_URL;
+
+  return (
+    <div className="code-agents-detail">
+      <div className="code-agents-session-details__body">
+        <div className="code-agents-toolbar">
+          <div>
+            <p className="code-agents-kicker">Mobile</p>
+            <h2>Pair this Mac</h2>
+          </div>
+          <div className="code-agents-toolbar-actions">
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={onRefresh}
+            >
+              <IconRefresh size={14} strokeWidth={1.8} />
+              Refresh
+            </button>
+            {onOpenSettings && (
+              <button
+                type="button"
+                className="code-agents-button"
+                onClick={onOpenSettings}
+              >
+                <IconSettings size={14} strokeWidth={1.8} />
+                Settings
+              </button>
+            )}
+          </div>
+        </div>
+
+        {(error || message) && (
+          <div className="code-agents-callout">
+            <IconAlertCircle size={16} strokeWidth={1.8} />
+            <span>{error ?? message}</span>
+          </div>
+        )}
+
+        <div className="code-agents-detail-grid">
+          <div className="code-agents-field">
+            <span>Status</span>
+            <strong>{copy.description}</strong>
+          </div>
+          <div className="code-agents-field">
+            <span>Relay</span>
+            <strong>{displayRelayUrl}</strong>
+          </div>
+        </div>
+
+        <div className="code-agents-toolbar-actions">
+          <button
+            type="button"
+            className="code-agents-button--primary"
+            onClick={() => onPair(displayRelayUrl)}
+            disabled={!canPair || pairing}
+          >
+            <IconQrcode size={14} strokeWidth={1.8} />
+            {pairing ? "Pairing..." : connected ? "Repair" : "Pair this Mac"}
+          </button>
+          <button
+            type="button"
+            className="code-agents-button"
+            onClick={() => onCopyLink(displayRelayUrl)}
+          >
+            <IconCopy size={14} strokeWidth={1.8} />
+            Copy relay
+          </button>
+          {connected && (
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={() => onSetEnabled(!enabled)}
+              disabled={!canToggle || updating}
+            >
+              {enabled ? "Pause" : "Resume"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2231,6 +2627,23 @@ function mobileConnectorCopy(
   };
 }
 
+function appUrlForRemotePairing(app: AppConfig): string {
+  if ((app.mode ?? "prod") === "dev") {
+    return app.devUrl || (app.devPort ? `http://localhost:${app.devPort}` : "");
+  }
+  return app.url || app.devUrl || "";
+}
+
+function defaultRemoteRelayUrl(apps: AppConfig[]): string {
+  const app =
+    apps.find((item) => item.id === "dispatch" && Boolean(item.url)) ??
+    apps.find((item) => Boolean(item.url)) ??
+    apps.find((item) => Boolean(item.devUrl || item.devPort)) ??
+    apps[0];
+  const relayUrl = app ? appUrlForRemotePairing(app) : "";
+  return relayUrl || DEFAULT_REMOTE_RELAY_URL;
+}
+
 function hostForDisplay(url: string | undefined): string {
   if (!url) return "relay";
   try {
@@ -2238,6 +2651,232 @@ function hostForDisplay(url: string | undefined): string {
   } catch {
     return url;
   }
+}
+
+function mobileDeepLinkForRelay(
+  relayUrl: string,
+  platform: "ios" | "android",
+): string {
+  const url = relayUrl || DEFAULT_REMOTE_RELAY_URL;
+  return `agentnative:///sessions?relayUrl=${encodeURIComponent(
+    url,
+  )}&platform=${platform}`;
+}
+
+function connectorStatusTitle(
+  status: CodeAgentRemoteConnectorStatus | null,
+  error: string | null,
+): string {
+  if (error || status?.state === "error") return "Needs attention";
+  if (!status) return "Checking connector";
+  if (!status.configured) return "Pair this Mac";
+  if (!status.enabled) return "Pairing paused";
+  if (status.state === "running") return "Connected";
+  if (status.state === "starting") return "Connecting";
+  return "Ready to pair";
+}
+
+function MobileConnectorPanel({
+  status,
+  error,
+  message,
+  relayUrl,
+  brandIconUrl,
+  pairing,
+  updating,
+  canPair,
+  canToggle,
+  onPair,
+  onSetEnabled,
+  onRefresh,
+  onCopyLink,
+  onOpenSettings,
+}: {
+  status: CodeAgentRemoteConnectorStatus | null;
+  error: string | null;
+  message: string | null;
+  relayUrl: string;
+  brandIconUrl?: string;
+  pairing: boolean;
+  updating: boolean;
+  canPair: boolean;
+  canToggle: boolean;
+  onPair: (relayUrl: string) => Promise<void>;
+  onSetEnabled: (enabled: boolean) => Promise<void>;
+  onRefresh: () => Promise<void>;
+  onCopyLink: (link: string) => Promise<void>;
+  onOpenSettings?: () => void;
+}) {
+  const [platform, setPlatform] = useState<"ios" | "android">("ios");
+  const copy = mobileConnectorCopy(status, error);
+  const mobileLink = mobileDeepLinkForRelay(relayUrl, platform);
+  const needsPairing =
+    !status?.configured || Boolean(error) || status?.state === "error";
+  const paused = Boolean(status?.configured && !status.enabled);
+  const busy = pairing || updating;
+  const primaryLabel = needsPairing
+    ? pairing
+      ? "Pairing..."
+      : "Pair this Mac"
+    : paused
+      ? updating
+        ? "Turning on..."
+        : "Resume pairing"
+      : "Copy mobile link";
+  const primaryDisabled =
+    busy ||
+    !relayUrl ||
+    (needsPairing && !canPair) ||
+    (paused && !canToggle);
+  const statusMessage = error ?? status?.error ?? message;
+  const statusTitle = connectorStatusTitle(status, error);
+
+  function handlePrimaryAction() {
+    if (needsPairing) {
+      void onPair(relayUrl);
+      return;
+    }
+    if (paused) {
+      void onSetEnabled(true);
+      return;
+    }
+    void onCopyLink(mobileLink);
+  }
+
+  return (
+    <section className="code-agents-mobile-panel" aria-label="Mobile pairing">
+      <div className="code-agents-mobile-panel__header">
+        <p className="code-agents-mobile-panel__eyebrow">
+          <IconQrcode size={15} strokeWidth={1.8} />
+          Mobile
+        </p>
+        <h2>Agent Native mobile</h2>
+        <p>
+          Scan the QR code to open Sessions on your phone, then pair this Mac to
+          start and continue local Code work from mobile.
+        </p>
+      </div>
+
+      <div className="code-agents-mobile-panel__layout">
+        <div className="code-agents-mobile-qr-card">
+          <div
+            className="code-agents-mobile-platform-tabs"
+            role="tablist"
+            aria-label="Mobile platform"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={platform === "ios"}
+              className={
+                platform === "ios"
+                  ? "code-agents-mobile-platform-tab code-agents-mobile-platform-tab--active"
+                  : "code-agents-mobile-platform-tab"
+              }
+              onClick={() => setPlatform("ios")}
+            >
+              iOS
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={platform === "android"}
+              className={
+                platform === "android"
+                  ? "code-agents-mobile-platform-tab code-agents-mobile-platform-tab--active"
+                  : "code-agents-mobile-platform-tab"
+              }
+              onClick={() => setPlatform("android")}
+            >
+              Android
+            </button>
+          </div>
+
+          <div className="code-agents-mobile-qr-shell">
+            <QRCodeSVG
+              value={mobileLink}
+              size={224}
+              level="H"
+              marginSize={3}
+              title="Open Agent Native mobile Sessions"
+              bgColor="#ffffff"
+              fgColor="#111111"
+              imageSettings={
+                brandIconUrl
+                  ? {
+                      src: brandIconUrl,
+                      height: 34,
+                      width: 34,
+                      excavate: true,
+                    }
+                  : undefined
+              }
+            />
+          </div>
+
+          <div className="code-agents-mobile-link-row">
+            <IconLink size={14} strokeWidth={1.8} />
+            <span>{hostForDisplay(relayUrl)}</span>
+          </div>
+        </div>
+
+        <div className="code-agents-mobile-side">
+          <div
+            className={`code-agents-mobile-status-card code-agents-mobile-status-card--${copy.tone}`}
+          >
+            <span
+              className={`code-agents-mobile-indicator code-agents-mobile-indicator--${copy.tone}`}
+              aria-hidden="true"
+            />
+            <div>
+              <strong>{statusTitle}</strong>
+              <span>{copy.description}</span>
+            </div>
+          </div>
+
+          {statusMessage && (
+            <div className="code-agents-mobile-message">{statusMessage}</div>
+          )}
+
+          <div className="code-agents-mobile-actions">
+            <button
+              type="button"
+              className="code-agents-button code-agents-button--primary"
+              disabled={primaryDisabled}
+              onClick={handlePrimaryAction}
+            >
+              {needsPairing ? (
+                <IconDeviceMobile size={14} strokeWidth={1.8} />
+              ) : paused ? (
+                <IconCheck size={14} strokeWidth={1.8} />
+              ) : (
+                <IconCopy size={14} strokeWidth={1.8} />
+              )}
+              {primaryLabel}
+            </button>
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={() => void onRefresh()}
+            >
+              <IconRefresh size={14} strokeWidth={1.8} />
+              Refresh
+            </button>
+            {onOpenSettings && (
+              <button
+                type="button"
+                className="code-agents-button"
+                onClick={onOpenSettings}
+              >
+                <IconSettings size={14} strokeWidth={1.8} />
+                Manage
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function RunDetailCard({

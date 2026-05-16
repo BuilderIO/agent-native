@@ -181,6 +181,7 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_countdown invoked");
     mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
+        let _ = app.emit("clips:countdown-shortcuts-active", false);
         let _ = existing.close();
     }
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
@@ -208,6 +209,7 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
     let _ = win.show();
+    let _ = app.emit("clips:countdown-shortcuts-active", true);
     dlog!("[clips-tray] countdown shown");
     Ok(())
 }
@@ -512,6 +514,7 @@ pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Resu
 
 #[tauri::command]
 pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
+    let _ = app.emit("clips:countdown-shortcuts-active", false);
     for label in [
         COUNTDOWN_LABEL,
         TOOLBAR_LABEL,
@@ -537,6 +540,7 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
 /// popover-close).
 #[tauri::command]
 pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
+    let _ = app.emit("clips:countdown-shortcuts-active", false);
     for label in [COUNTDOWN_LABEL, TOOLBAR_LABEL, REGION_GUIDES_LABEL] {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();

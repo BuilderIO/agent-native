@@ -216,6 +216,24 @@ export default function CodeAgentsHub({
         }
         return api.setRemoteConnectorEnabled(enabled);
       },
+      async pairRemoteConnector(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.pairRemoteConnector) {
+          return {
+            ok: false,
+            status: {
+              state: "error",
+              enabled: false,
+              configured: false,
+              configPath: "",
+              restartCount: 0,
+              error: "Desktop bridge is not available.",
+            },
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.pairRemoteConnector(request);
+      },
     }),
     [],
   );
