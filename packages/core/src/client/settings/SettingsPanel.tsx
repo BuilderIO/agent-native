@@ -26,6 +26,7 @@ import {
   IconMail,
   IconKey,
   IconMicrophone,
+  IconEyeOff,
   IconBolt,
   IconGauge,
   IconUserCircle,
@@ -42,6 +43,7 @@ import { AgentsSection } from "./AgentsSection.js";
 import { UsageSection } from "./UsageSection.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
+import { DemoModeSection } from "./DemoModeSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
 import {
@@ -1842,6 +1844,7 @@ type SettingsSectionId =
   | "app-models"
   | "limits"
   | "voice"
+  | "demo-mode"
   | "automations"
   | "secrets"
   | "hosting"
@@ -1861,6 +1864,7 @@ const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
   "app-models",
   "limits",
   "voice",
+  "demo-mode",
   "automations",
   "secrets",
   "hosting",
@@ -2276,6 +2280,17 @@ export function SettingsPanel({
         onToggle={() => toggle("voice")}
       >
         <VoiceTranscriptionSection />
+      </SettingsSection>
+
+      {/* Demo mode */}
+      <SettingsSection
+        icon={<IconEyeOff size={14} />}
+        title="Demo mode"
+        subtitle="Replace names, emails, and numbers with realistic fake data everywhere — in the UI and what the agent sees. IDs and structure are preserved so the app keeps working."
+        open={openSection === "demo-mode"}
+        onToggle={() => toggle("demo-mode")}
+      >
+        <DemoModeSection />
       </SettingsSection>
 
       {/* Automations */}

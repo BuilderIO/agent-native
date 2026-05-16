@@ -168,7 +168,7 @@ function SidebarAddButton({ onClick }: { onClick: () => void }) {
       aria-label="Add an app"
     >
       <span className="icon-wrapper">
-        <IconPlus size={21} strokeWidth={1.8} />
+        <IconPlus size={18} strokeWidth={1.75} />
       </span>
       <span className="item-label">Add</span>
     </button>

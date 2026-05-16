@@ -115,6 +115,9 @@ function providerStatusCopy(provider: CodeAgentProviderStatus | undefined): {
 
 function builderConnectErrorMessage(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
+  if (message.includes("ERR_ABORTED") || message.includes("loading 'http")) {
+    return "Builder.io connect was opened. Finish the browser flow to continue.";
+  }
   if (
     message.includes("No handler registered") ||
     message.includes("code-agents:provider-builder:connect")
@@ -217,10 +220,17 @@ export function CodeProviderSettings({
         return;
       }
       setBuilderConnecting(true);
+      setProviderMessage(
+        "Opened Builder.io in your browser. Finish the flow there to continue.",
+      );
       try {
         const result = await api.connectBuilderProvider();
         onSettingsChanged(result.settings);
-        setProviderMessage(result.error ?? result.message);
+        setProviderMessage(
+          result.error
+            ? builderConnectErrorMessage(result.error)
+            : result.message,
+        );
         onProvidersChanged?.();
       } catch (err) {
         setProviderMessage(builderConnectErrorMessage(err));

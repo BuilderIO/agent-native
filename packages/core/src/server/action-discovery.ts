@@ -492,6 +492,7 @@ export async function mergeCoreSharingActions(
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],
+    ["toggle-demo-mode", () => import("../demo/actions/toggle-demo-mode.js")],
   ];
   for (const [name, loader] of entries) {
     if (registry[name]) continue;

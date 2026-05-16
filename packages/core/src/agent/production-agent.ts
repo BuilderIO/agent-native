@@ -32,6 +32,8 @@ import {
 import { userFacingLlmCredentialError } from "./engine/credential-errors.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import { readAppState } from "../application-state/script-helpers.js";
+import { isDemoModeEnabled } from "../demo/config.js";
+import { redactDemoData, redactDemoString } from "../demo/redact.js";
 import {
   startRun,
   subscribeToRun,
@@ -1650,8 +1652,31 @@ export async function runAgentLoop(opts: {
             );
           }),
         ]);
+        // Demo mode: the agent must see the same fake data the UI shows, so
+        // it can't read out a real name/email on a live screen share. Redact
+        // the structured result (not the JSON string) so IDs/dates/URLs stay
+        // intact and follow-up tool calls still work. Gated — the expensive
+        // walk only runs when demo mode is on.
+        let redacted: unknown = raw;
+        if (await isDemoModeEnabled()) {
+          if (typeof raw === "string") {
+            try {
+              redacted = JSON.stringify(
+                redactDemoData(JSON.parse(raw)),
+                null,
+                2,
+              );
+            } catch {
+              redacted = redactDemoString(raw);
+            }
+          } else {
+            redacted = redactDemoData(raw);
+          }
+        }
         let resultStr =
-          typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+          typeof redacted === "string"
+            ? redacted
+            : JSON.stringify(redacted, null, 2);
         if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
           const truncated = resultStr.slice(0, MAX_TOOL_RESULT_CHARS);
           resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${MAX_TOOL_RESULT_CHARS.toLocaleString()} shown]`;

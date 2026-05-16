@@ -362,18 +362,16 @@ body {
   margin-top: 4px;
 }
 
+/* Same size and resting color as its siblings — the only distinction
+   is a faint dashed outline that reads as "action, not destination". */
 .sidebar-item--add .icon-wrapper {
-  width: 40px;
-  height: 36px;
-  border: 1px dashed rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.035);
-  color: rgba(255, 255, 255, 0.58);
+  border: 1px dashed rgba(255, 255, 255, 0.13);
 }
 
 .sidebar-item--add:hover .icon-wrapper {
-  border-color: rgba(255, 255, 255, 0.26);
-  background: rgba(255, 255, 255, 0.085);
-  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.22);
+  background: var(--item-hover-bg);
+  color: var(--icon-hover);
 }
 
 /* ─── Item label ─────────────────────────────────────────────── */
@@ -1055,16 +1053,12 @@ body {
   padding: 12px;
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 8px;
-  background: linear-gradient(
-    135deg,
-    rgba(20, 184, 166, 0.1),
-    rgba(255, 255, 255, 0.025) 45%
-  );
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .settings-builder-connect-card--ok {
-  border-color: rgba(34, 197, 94, 0.18);
-  background: rgba(34, 197, 94, 0.045);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .settings-builder-connect-copy {
@@ -1088,6 +1082,7 @@ body {
 
 .settings-builder-actions {
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .settings-builder-connect-button {
@@ -1239,6 +1234,8 @@ body {
   color: #888;
   font-size: 11px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .settings-remote-card {
