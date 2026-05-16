@@ -2,15 +2,32 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useState, useEffect } from "react";
 
-interface FeatureConfig {
+export type LocalRecordingMode = "off" | "composed" | "separate";
+
+export interface RegionGuideRect {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface RegionGuidesConfig {
+  enabled: boolean;
+  rects: RegionGuideRect[];
+}
+
+export interface FeatureConfig {
   clipsEnabled: boolean;
   meetingsEnabled: boolean;
   voiceEnabled: boolean;
   launchAtLoginEnabled: boolean;
   autoHidePopoverEnabled: boolean;
   meetingTranscriptionMode: "manual" | "ask" | "auto";
+  localRecordingMode: LocalRecordingMode;
   showMeetingWidgetEnabled: boolean;
   showInScreenCapture: boolean;
+  regionGuides: RegionGuidesConfig;
   onboardingComplete: boolean;
 }
 

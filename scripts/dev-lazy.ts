@@ -1018,15 +1018,37 @@ function listen(port: number, attempts = 20): void {
     }
 
     if (includeDesktop) {
-      // Matches dev:all:desktop: boot the Tauri clips tray only. The Electron
-      // desktop-app + its frame renderer are intentionally skipped here — they
-      // require a working `electron` binary in node_modules and aren't what
-      // anyone reaches for via dev:lazy:desktop.
-      startBackgroundProcess("tray", "pnpm", [
-        "--filter",
-        "clips-desktop",
-        "dev",
-      ]);
+      // Boot the Tauri clips tray after its backend is reachable. The tray's
+      // Google sign-in opens the Clips backend URL directly in the browser.
+      const startClipsTray = () => {
+        if (shuttingDown) return;
+        startBackgroundProcess("tray", "pnpm", [
+          "--filter",
+          "clips-desktop",
+          "dev",
+        ]);
+      };
+      const clipsApp = selectedById.get("clips");
+      if (clipsApp) {
+        startApp(clipsApp);
+        void waitForPort(clipsApp.port, Date.now() + proxyReadyTimeoutMs).then(
+          (ready) => {
+            if (ready) {
+              clipsApp.ready = true;
+            } else {
+              console.warn(
+                `[dev-lazy] Clips server did not become ready before starting tray; Google sign-in may fail until 127.0.0.1:${clipsApp.port} is reachable.`,
+              );
+            }
+            startClipsTray();
+          },
+        );
+      } else {
+        console.warn(
+          "[dev-lazy] --desktop starts the Clips tray, but the clips template is not selected.",
+        );
+        startClipsTray();
+      }
     }
 
     if (includeElectron) {

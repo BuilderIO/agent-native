@@ -1,12 +1,13 @@
 import {
-  appendCodeAgentTranscriptEvent,
   executeCodeAgentRun,
   executeExistingCodeAgentRun,
   getCodeAgentRunRecord,
-  isActiveCodeAgentRun,
-  listCodeAgentTranscriptEvents,
-  queueCodeAgentFollowUp,
+  localCodeBackgroundAgentController,
+  listBackgroundAgentTranscriptEvents,
+  toBackgroundAgentRun,
   updateCodeAgentRunRecord,
+  type BackgroundAgentTranscriptEvent,
+  type BackgroundAgentRun,
   type CodeAgentFollowUpMode,
   type CodeAgentPermissionMode,
   type CodeAgentRunRecord,
@@ -19,11 +20,18 @@ import type {
 } from "@agent-native/code-agents-ui/types";
 
 export function toUiRun(record: CodeAgentRunRecord): CodeAgentRun {
+  return backgroundRunToUiRun(toBackgroundAgentRun(record));
+}
+
+export function backgroundRunToUiRun(record: BackgroundAgentRun): CodeAgentRun {
   return {
     id: record.id,
     goalId: record.goalId,
     title: record.title,
     subtitle: record.subtitle,
+    kind: record.kind,
+    source: record.source,
+    sourceLabel: record.sourceLabel,
     status: record.status,
     phase: record.phase,
     needsApproval: record.needsApproval,
@@ -42,7 +50,7 @@ export function toUiRun(record: CodeAgentRunRecord): CodeAgentRun {
 }
 
 export function toUiTranscriptEvent(
-  event: StoredTranscriptEvent,
+  event: StoredTranscriptEvent | BackgroundAgentTranscriptEvent,
 ): CodeAgentTranscriptEvent {
   const type =
     event.kind === "note"
@@ -65,7 +73,9 @@ export function toUiTranscriptEvent(
   };
 }
 
-export function transcriptTitle(event: StoredTranscriptEvent): string {
+export function transcriptTitle(
+  event: StoredTranscriptEvent | BackgroundAgentTranscriptEvent,
+): string {
   if (event.kind === "user") return "User prompt";
   if (event.kind === "artifact") return "Artifact";
   if (event.metadata?.role === "assistant") return "Assistant";
@@ -75,7 +85,7 @@ export function transcriptTitle(event: StoredTranscriptEvent): string {
 }
 
 export function listUiTranscript(runId: string): CodeAgentTranscriptEvent[] {
-  return listCodeAgentTranscriptEvents(runId).map(toUiTranscriptEvent);
+  return listBackgroundAgentTranscriptEvents(runId).map(toUiTranscriptEvent);
 }
 
 export function runCodeAgentInBackground(input: {
@@ -103,7 +113,7 @@ export function resumeCodeAgentInBackground(runId: string): void {
   }, 0);
 }
 
-export function appendFollowUpAndRun(input: {
+export async function appendFollowUpAndRun(input: {
   runId: string;
   prompt: string;
   permissionMode?: CodeAgentPermissionMode;
@@ -111,7 +121,7 @@ export function appendFollowUpAndRun(input: {
   model?: string;
   effort?: CodeAgentReasoningEffort;
   followUpMode?: CodeAgentFollowUpMode;
-}): CodeAgentTranscriptEvent {
+}): Promise<CodeAgentTranscriptEvent> {
   const record = getCodeAgentRunRecord(input.runId);
   if (!record)
     throw new Error(`Agent-Native Code run not found: ${input.runId}`);
@@ -134,38 +144,26 @@ export function appendFollowUpAndRun(input: {
       },
     });
   }
-  const event = appendCodeAgentTranscriptEvent({
+  const result = await localCodeBackgroundAgentController.sendFollowUp({
     runId: input.runId,
-    kind: "user",
-    message: input.prompt,
+    prompt: input.prompt,
+    mode: input.followUpMode ?? "immediate",
+    permissionMode: input.permissionMode,
+    model: input.model,
+    reasoningEffort: input.effort === "auto" ? undefined : input.effort,
+    source: "code-template-follow-up",
     metadata: {
-      source: "code-template-follow-up",
-      permissionMode: input.permissionMode,
       engine: input.engine,
       model: input.model,
       effort: input.effort,
-      followUpMode: input.followUpMode ?? "immediate",
     },
   });
-  if (isActiveCodeAgentRun(record)) {
-    queueCodeAgentFollowUp({
-      runId: input.runId,
-      prompt: input.prompt,
-      mode: input.followUpMode ?? "immediate",
-      eventId: event.id,
-      permissionMode: input.permissionMode,
-      source: "code-template-follow-up",
-      createdAt: event.createdAt,
-    });
-    return toUiTranscriptEvent(event);
-  }
-  runCodeAgentInBackground({
-    runId: input.runId,
-    prompt: input.prompt,
-    appendUserEvent: false,
-    model: input.model,
-    reasoningEffort: input.effort,
-  });
+  if (!result.ok) throw new Error(result.error ?? "Follow-up failed.");
+  const events = await Promise.resolve(
+    localCodeBackgroundAgentController.transcript(input.runId),
+  );
+  const event = events[events.length - 1];
+  if (!event) throw new Error("Follow-up was recorded without a transcript.");
   return toUiTranscriptEvent(event);
 }
 

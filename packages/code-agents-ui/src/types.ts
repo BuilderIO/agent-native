@@ -123,6 +123,9 @@ export interface CodeAgentRun {
   goalId: string;
   title: string;
   subtitle?: string;
+  source?: string;
+  sourceLabel?: string;
+  kind?: string;
   status: CodeAgentRunStatus;
   phase?: string;
   needsApproval?: boolean;

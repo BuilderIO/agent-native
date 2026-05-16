@@ -20,8 +20,10 @@ import {
   retryBrowserRecordingBackup,
   shouldUseNativeFullscreenRecording,
   startNativeRecording,
+  type LocalExportedFile,
   type PendingBrowserRecordingUpload,
   type RecorderHandle,
+  type RecorderStopResult,
 } from "./lib/recorder";
 import {
   installDesktopVoiceDictation,
@@ -31,11 +33,13 @@ import {
 } from "./lib/voice-dictation";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { FeedbackButton } from "./components/FeedbackButton";
-import { useFeatureConfig } from "./shared/config";
+import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import {
   IconArrowLeft,
+  IconPencil,
   IconInfoCircle,
   IconRefresh,
+  IconTrash,
   IconUpload,
 } from "@tabler/icons-react";
 
@@ -64,6 +68,11 @@ interface PendingNativeUpload {
 }
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
+
+interface LocalRecordingNotice {
+  folderPath?: string;
+  files: LocalExportedFile[];
+}
 
 type TranscriptSource = "mic" | "system";
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
@@ -514,12 +523,22 @@ export function App() {
   const [voiceInstructions, setVoiceInstructions] = useState<string>(() =>
     loadString(VOICE_INSTRUCTIONS_KEY, ""),
   );
+  const localRecordingMode: LocalRecordingMode =
+    featureConfig?.localRecordingMode ?? "off";
+  const regionGuides = featureConfig?.regionGuides ?? {
+    enabled: false,
+    rects: [],
+  };
+  const regionGuidesEnabled =
+    regionGuides.enabled === true && (regionGuides.rects?.length ?? 0) > 0;
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [pendingUploads, setPendingUploads] = useState<PendingDesktopUpload[]>(
     [],
   );
   const [retryingUploadId, setRetryingUploadId] = useState<string | null>(null);
+  const [localRecordingNotice, setLocalRecordingNotice] =
+    useState<LocalRecordingNotice | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [readinessOpen, setReadinessOpen] = useState<boolean>(
     () => !loadBool(READINESS_REVIEWED_KEY, false),
@@ -1321,7 +1340,9 @@ export function App() {
   // symptoms). Reset to false once the recording is fully torn down.
   const bubbleStreamTransferredToRecorder = useRef(false);
   const wantsCamera = mode !== "screen" && cameraOn;
-  const bubbleUsesLocalCamera = shouldUseNativeFullscreenRecording(source);
+  const nativeFullscreenRecordingActive =
+    localRecordingMode === "off" && shouldUseNativeFullscreenRecording(source);
+  const bubbleUsesLocalCamera = nativeFullscreenRecordingActive;
   // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
   // captures the dep-snapshot value) can still see the CURRENT flow state
   // at the moment it actually runs. Without this, if `recordingFlowActive`
@@ -1333,6 +1354,18 @@ export function App() {
   useEffect(() => {
     recordingFlowGateRef.current = isRecording || recordingFlowActive;
   }, [isRecording, recordingFlowActive]);
+  const previewRegionGuidesActive = popoverVisible && regionGuidesEnabled;
+  useEffect(() => {
+    if (!previewRegionGuidesActive) return;
+    invoke("show_region_guides").catch((err) => {
+      console.warn("[clips-popover] show_region_guides failed:", err);
+    });
+    return () => {
+      if (!recordingFlowGateRef.current) {
+        invoke("hide_region_guides").catch(() => {});
+      }
+    };
+  }, [previewRegionGuidesActive]);
   const bubbleActive =
     wantsCamera &&
     (popoverVisible ||
@@ -1733,15 +1766,17 @@ export function App() {
   async function startRecording() {
     if (recorder) return;
     setRecError(null);
+    setLocalRecordingNotice(null);
     console.log("[clips-popover] startRecording clicked", {
       serverUrl,
       mode,
       source,
+      localRecordingMode,
       cameraOn,
       micOn,
     });
 
-    if (mode !== "camera" && shouldUseNativeFullscreenRecording(source)) {
+    if (mode !== "camera" && nativeFullscreenRecordingActive) {
       try {
         const granted = await invoke<boolean>(
           "request_macos_screen_recording_access",
@@ -1833,6 +1868,7 @@ export function App() {
         cookie: typeof document !== "undefined" ? document.cookie || "" : "",
         cameraOn,
         micOn,
+        localRecordingMode,
         preAcquiredCameraStream,
       });
       // Park the popover to its 2×2 pinhole IMMEDIATELY — we want the
@@ -1971,10 +2007,18 @@ export function App() {
     track(
       listen("clips:recorder-stop", async () => {
         let stopFailed = false;
+        let stopResult: RecorderStopResult | null = null;
         try {
-          const { recordingId } = await recorder.stop();
+          stopResult = await recorder.stop();
           if (cancelled) return;
-          setLastRecordingId(recordingId);
+          if (stopResult.localOnly) {
+            setLocalRecordingNotice({
+              folderPath: stopResult.localFolder,
+              files: stopResult.localFiles ?? [],
+            });
+          } else {
+            setLastRecordingId(stopResult.recordingId);
+          }
         } catch (err) {
           stopFailed = true;
           if (!cancelled) {
@@ -1996,7 +2040,7 @@ export function App() {
             setRecorder(null);
             setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
-            if (stopFailed) {
+            if (stopFailed || stopResult?.localOnly) {
               invoke("show_popover").catch(() => {});
             } else {
               // Close the popover — recorder.stop() already opened the
@@ -2007,7 +2051,9 @@ export function App() {
                 .catch(() => {});
               emit("clips:popover-visible", false).catch(() => {});
             }
-            fetchRecent();
+            if (!stopResult?.localOnly) {
+              fetchRecent();
+            }
           }
         }
       }),
@@ -2161,6 +2207,23 @@ export function App() {
         />
       ) : null}
 
+      {localRecordingMode !== "off" ? (
+        <LocalRecordingModeBanner mode={localRecordingMode} />
+      ) : null}
+
+      {localRecordingNotice ? (
+        <LocalRecordingSavedBanner
+          notice={localRecordingNotice}
+          onDismiss={() => setLocalRecordingNotice(null)}
+          onOpenFolder={() => {
+            if (!localRecordingNotice.folderPath) return;
+            openExternal(localRecordingNotice.folderPath).catch((err) => {
+              console.error("[clips-tray] open local folder failed:", err);
+            });
+          }}
+        />
+      ) : null}
+
       <div className="panel">
         {showSourceRow ? (
           <SourceRow value={source} onChange={setSource} />
@@ -2198,7 +2261,9 @@ export function App() {
       />
 
       <button className="primary start" onClick={startRecording}>
-        Start recording
+        {localRecordingMode === "off"
+          ? "Start recording"
+          : "Start local recording"}
       </button>
       {recError ? (
         recError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
@@ -2522,6 +2587,73 @@ function PendingUploadBanner({
       >
         <IconRefresh size={14} stroke={2} />
         {retrying ? "Retrying" : "Retry"}
+      </button>
+    </div>
+  );
+}
+
+function localRecordingModeLabel(mode: Exclude<LocalRecordingMode, "off">) {
+  return mode === "separate"
+    ? "Local desktop + camera files"
+    : "Local composed video";
+}
+
+function LocalRecordingModeBanner({
+  mode,
+}: {
+  mode: Exclude<LocalRecordingMode, "off">;
+}) {
+  return (
+    <div className="local-recording-banner">
+      <IconInfoCircle size={16} stroke={1.8} aria-hidden />
+      <span>
+        {localRecordingModeLabel(mode)} is on. Clips will save to Movies/Clips
+        and skip upload.
+      </span>
+    </div>
+  );
+}
+
+function localFileRoleLabel(role: LocalExportedFile["role"]) {
+  return {
+    composed: "Video",
+    desktop: "Desktop",
+    camera: "Camera",
+  }[role];
+}
+
+function LocalRecordingSavedBanner({
+  notice,
+  onOpenFolder,
+  onDismiss,
+}: {
+  notice: LocalRecordingNotice;
+  onOpenFolder: () => void;
+  onDismiss: () => void;
+}) {
+  const fileSummary = notice.files
+    .map((file) =>
+      [localFileRoleLabel(file.role), formatFileSize(file.bytes)]
+        .filter(Boolean)
+        .join(" "),
+    )
+    .join(" · ");
+
+  return (
+    <div className="local-save-banner">
+      <div className="local-save-copy">
+        <div className="local-save-title">Saved locally</div>
+        <div className="local-save-sub">
+          {fileSummary || "Recording saved to Movies/Clips"}
+        </div>
+      </div>
+      {notice.folderPath ? (
+        <button type="button" onClick={onOpenFolder}>
+          Open folder
+        </button>
+      ) : null}
+      <button type="button" className="local-save-dismiss" onClick={onDismiss}>
+        Dismiss
       </button>
     </div>
   );
@@ -3393,6 +3525,13 @@ function Setup({
   const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
   const autoHidePopoverEnabled = featureConfig?.autoHidePopoverEnabled === true;
   const showInScreenCapture = featureConfig?.showInScreenCapture === true;
+  const localRecordingMode = featureConfig?.localRecordingMode ?? "off";
+  const regionGuides = featureConfig?.regionGuides ?? {
+    enabled: false,
+    rects: [],
+  };
+  const regionGuideRects = regionGuides.rects ?? [];
+  const regionGuideCount = regionGuideRects.length;
   const meetingTranscriptionMode: MeetingTranscriptionMode =
     featureConfig?.meetingTranscriptionMode ?? "ask";
   const showMeetingWidgetEnabled =
@@ -3447,6 +3586,49 @@ function Setup({
     if (!featureConfig) return;
     invoke("set_feature_config", {
       config: { ...featureConfig, showInScreenCapture: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function openRegionGuideEditor() {
+    invoke("show_region_guide_editor").catch((err) =>
+      console.error("[settings] show_region_guide_editor failed", err),
+    );
+  }
+
+  function setRegionGuidesEnabled(enabled: boolean) {
+    if (!featureConfig) return;
+    if (enabled && regionGuideCount === 0) {
+      openRegionGuideEditor();
+      return;
+    }
+    invoke("set_feature_config", {
+      config: {
+        ...featureConfig,
+        regionGuides: { ...regionGuides, enabled, rects: regionGuideRects },
+      },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function clearRegionGuidePreset() {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: {
+        ...featureConfig,
+        regionGuides: { enabled: false, rects: [] },
+      },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function setLocalRecordingMode(mode: LocalRecordingMode) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, localRecordingMode: mode },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
@@ -3730,6 +3912,75 @@ function Setup({
           />
         </div>
       </div>
+
+      <details className="setup-advanced">
+        <summary className="setup-advanced-summary">Advanced recording</summary>
+        <div className="setup-advanced-body">
+          <div className="setup-section">
+            <SettingLabel
+              label="Save recordings locally"
+              hint="Advanced local-only mode. Local recordings save to Movies/Clips and do not upload or create a Clip."
+              htmlFor="local-recording-mode"
+            />
+            <select
+              id="local-recording-mode"
+              className="setup-select"
+              value={localRecordingMode}
+              onChange={(event) =>
+                setLocalRecordingMode(event.target.value as LocalRecordingMode)
+              }
+            >
+              <option value="off">Cloud Clips (default)</option>
+              <option value="composed">One local composed video</option>
+              <option value="separate">
+                Two local files: desktop + camera
+              </option>
+            </select>
+            <p className="setup-hint">
+              Two-file mode records desktop with audio and a raw rectangular
+              camera video with no audio.
+            </p>
+          </div>
+
+          <div className="setup-section">
+            <div className="setup-toggle-row">
+              <SettingLabel
+                label="Screen region guides"
+                hint="Show private rectangle guides over your screen while recording. They stay out of the saved Clip."
+              />
+              <Switch
+                on={regionGuides.enabled}
+                onChange={setRegionGuidesEnabled}
+                label="Show screen region guides while recording"
+              />
+            </div>
+            <div className="setup-button-row">
+              <button
+                type="button"
+                className="secondary"
+                onClick={openRegionGuideEditor}
+              >
+                <IconPencil size={15} stroke={1.9} />
+                Edit preset
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={clearRegionGuidePreset}
+                disabled={regionGuideCount === 0}
+              >
+                <IconTrash size={15} stroke={1.9} />
+                Clear
+              </button>
+            </div>
+            <p className="setup-hint">
+              {regionGuideCount === 0
+                ? "No guide preset saved yet."
+                : `${regionGuideCount} ${regionGuideCount === 1 ? "rectangle" : "rectangles"} saved.`}
+            </p>
+          </div>
+        </div>
+      </details>
 
       <div className="setup-section">
         <div className="setup-toggle-row">

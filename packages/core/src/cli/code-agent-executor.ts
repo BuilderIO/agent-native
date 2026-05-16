@@ -149,7 +149,7 @@ export async function executeCodeAgentRun(
     return updateCodeAgentRunRecord(existing.id, {
       status: "paused",
       phase: "missing-credentials",
-      needsApproval: true,
+      needsApproval: false,
       progress: {
         label: "Missing credentials",
         completed: 0,

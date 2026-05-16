@@ -187,7 +187,7 @@ The [Dispatch](/docs/dispatch) app is the workspace's runtime control plane. It 
 | Who can access secrets          | —                             | Vault policy, grants, request workflow                       |
 | What instructions agents follow | —                             | Global workspace resources (AGENTS.md, instructions, skills) |
 | Which agents are shared         | —                             | Workspace agent profiles                                     |
-| Integration inventory           | —                             | Integrations catalog                                         |
+| Integration inventory           | —                             | Workspace connections and integrations catalog               |
 | Runtime change approval         | —                             | Dispatch approval flow                                       |
 | Audit trail                     | `git log` / `git blame`       | Vault audit + dispatch audit logs                            |
 | Messaging & routing             | —                             | Slack / Telegram integration                                 |
@@ -197,7 +197,11 @@ The [Dispatch](/docs/dispatch) app is the workspace's runtime control plane. It 
 ### What Dispatch Manages
 
 - **Vault** — store credentials centrally and sync on demand. The default policy makes all vault keys available to all workspace apps; manual mode requires specific app grants. Non-admins can request access; admins approve.
-- **Integrations catalog** — see which credentials each app needs, what's configured, what's missing, what's granted from the vault.
+- **Reusable integrations** — connect provider accounts once, store safe
+  credential refs and account metadata, and grant apps access without copying
+  secrets. Dispatch is the control plane for provider inventory, repair,
+  grants, and audit; the vault/secrets layer owns values; each app keeps its
+  own source configuration and interpretation.
 - **Workspace resources** — manage global skills, always-on guardrail instructions, reusable agent profiles, and reference resources inherited by apps. Use `AGENTS.md` or `instructions/<slug>.md` for instructions loaded every turn, `skills/<slug>/SKILL.md` for on-demand skills, and `context/<slug>.md` for brand/company/product knowledge. Scope to All apps for workspace defaults; apps read those defaults at runtime with no copy or manual sync step, and app shared or personal resources can override locally. The Resources page highlights the starter global context files, can restore missing starter files, and each app card shows the exact inherited/granted resources that app receives.
 - **Approvals** — require review before runtime changes (destinations, settings) take effect.
 - **Audit** — full history of secret access, grants, syncs, and changes.
@@ -253,6 +257,9 @@ For a new workspace, after running `agent-native create`:
 - [ ] Add shared secrets to the vault (API keys, OAuth credentials, etc.)
 - [ ] Keep the default all-apps vault policy or switch to manual per-app grants
 - [ ] Sync vault secrets to push them to apps
+- [ ] Register reusable workspace connections for shared provider accounts, then
+      grant apps such as Brain, Analytics, Mail, or Dispatch only when they need
+      that account
 - [ ] Add workspace-wide skills, guardrail instructions, and brand/company reference resources via the Resources page: `context/company.md`, `context/brand.md`, `context/messaging.md`, `instructions/guardrails.md`, and `skills/company-voice/SKILL.md`
 - [ ] Configure the approval policy and approver emails
 - [ ] Set up SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) for admin notifications

@@ -30,6 +30,21 @@ The `create` command defaults to a workspace monorepo. It shows a multi-select p
 
 Open the URL the dev server prints. Workspace apps use app-specific ports, often `http://localhost:8080` or another 808x port; standalone apps usually use `http://localhost:3000`.
 
+### Testing local framework changes {#testing-local-framework-changes}
+
+Framework contributors can scaffold against the current checkout instead of the
+published packages:
+
+```bash
+AGENT_NATIVE_CREATE_USE_LOCAL_CORE=1 pnpm --filter @agent-native/core create my-platform
+```
+
+With that flag, generated workspaces link both the local `@agent-native/core`
+and local `@agent-native/dispatch` packages. Use it when you need to verify
+unpublished template or package changes end-to-end in a freshly generated
+workspace. The packages run their `prepack` build first, so the linked packages
+serve fresh `dist` output instead of stale build artifacts.
+
 ## Creating vs adding apps {#creating-vs-adding-apps}
 
 Run `create` from the folder where you want a brand-new workspace:
@@ -68,14 +83,17 @@ That parity between agent and UI is the whole point — see [What Is Agent-Nativ
 
 ## Try one concrete next step {#first-next-step}
 
-From here, use any AI coding tool (Claude Code, Cursor, Windsurf, Builder.io) to customize the app. The agent instructions in `AGENTS.md` are already set up so any tool understands the codebase.
+From here, use any AI coding tool (Agent-Native Code, Claude Code, Cursor, Windsurf, Builder.io) to customize the app. The agent instructions in `AGENTS.md` are already set up so any tool understands the codebase.
 
 Good first moves:
 
+- **Open Agent-Native Code** — run `npx @agent-native/core@latest` or `npx @agent-native/core@latest code` from the project. A bare command opens the local Claude Code/Codex-like workspace; a bare prompt such as `npx @agent-native/core@latest "rename the app"` starts a Code task directly.
 - **Ask the built-in agent what it sees** — open the agent panel and type "what app am I looking at, and what can you do here?" This verifies the app, UI state, and agent loop are all talking to each other.
 - **Make a tiny customization** — ask your coding tool to rename the app, change the first screen copy, or add one field to a form. It will read `AGENTS.md` for the framework conventions.
 - **Add another app to the same workspace** — use `npx @agent-native/core add-app` from inside the workspace folder. The command starts at `npx`.
 - **Single app instead of a monorepo?** Pass `--standalone` when creating: `npx @agent-native/core create my-app --standalone --template mail`.
+
+Agent-Native Code understands built-in slash goals such as `/migrate` and `/audit`, plus project commands in `.agents/commands/*.md`. Use `agent-native code list`, `status`, `resume`, `stop`, or `ui` to inspect and control the same run from the CLI, the local UI, or the Desktop Code tab.
 
 ## Next docs to read {#next-docs}
 
@@ -91,19 +109,19 @@ Once your app is running, the most useful follow-ups are:
 
 Each template is a complete app with UI, agent actions, database schema, and AI instructions ready to go:
 
-| Template                            | Replaces                                         |
-| ----------------------------------- | ------------------------------------------------ |
-| [Calendar](/templates/calendar)     | Google Calendar, Calendly                        |
-| [Content](/templates/content)       | Notion, Google Docs                              |
-| [Brain](/templates/brain)           | Company chat, cited memory, and review queue     |
-| [Slides](/templates/slides)         | Google Slides, Pitch                             |
-| [Analytics](/templates/analytics)   | Amplitude, Mixpanel, Looker                      |
-| [Mail](/templates/mail)             | Superhuman, Gmail                                |
-| [Clips](/templates/clips)           | Replaces Loom — screen + camera recording        |
-| [Design](/templates/design)         | HTML prototyping studios                         |
-| [Forms](/docs/template-forms)       | Typeform                                         |
-| [Dispatch](/docs/template-dispatch) | Workspace control plane — secrets, routing, jobs |
-| [Starter](/docs/template-starter)   | Minimal scaffold — build from scratch            |
+| Template                            | Replaces                                        |
+| ----------------------------------- | ----------------------------------------------- |
+| [Calendar](/templates/calendar)     | Google Calendar, Calendly                       |
+| [Content](/templates/content)       | Notion, Google Docs                             |
+| [Brain](/templates/brain)           | Company chat with cited institutional memory    |
+| [Slides](/templates/slides)         | Google Slides, Pitch                            |
+| [Analytics](/templates/analytics)   | Amplitude, Mixpanel, Looker                     |
+| [Mail](/templates/mail)             | Superhuman, Gmail                               |
+| [Clips](/templates/clips)           | Replaces Loom — screen + camera recording       |
+| [Design](/templates/design)         | HTML prototyping studios                        |
+| [Forms](/docs/template-forms)       | Typeform                                        |
+| [Dispatch](/docs/template-dispatch) | Workspace control plane — integrations, routing |
+| [Starter](/docs/template-starter)   | Minimal scaffold — build from scratch           |
 
 Browse the [template gallery](/templates) for live demos, or see [Templates](/docs/cloneable-saas) for the full list and the clone → customize → deploy flow.
 

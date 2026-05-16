@@ -170,6 +170,8 @@ const mocks = vi.hoisted(() => {
   return {
     schema,
     rows,
+    listWorkspaceConnectionProviderCatalogForApp: vi.fn(),
+    discoverAgents: vi.fn(),
     db: {
       select: vi.fn(() => ({ from })),
     },
@@ -183,6 +185,15 @@ vi.mock("../db/index.js", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: () => ({ op: "access" }),
+}));
+
+vi.mock("@agent-native/core/workspace-connections", () => ({
+  listWorkspaceConnectionProviderCatalogForApp:
+    mocks.listWorkspaceConnectionProviderCatalogForApp,
+}));
+
+vi.mock("@agent-native/core/server/agent-discovery", () => ({
+  discoverAgents: mocks.discoverAgents,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -202,6 +213,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 import {
+  buildFederatedSearchCoverage,
   buildSnippet,
   escapeLikeTerm,
   normalizeSearchTerms,
@@ -213,6 +225,50 @@ import {
 
 function resetRows() {
   for (const values of Object.values(mocks.rows)) values.length = 0;
+  mocks.listWorkspaceConnectionProviderCatalogForApp.mockResolvedValue({
+    providers: [
+      {
+        id: "slack",
+        label: "Slack",
+        capabilities: ["messages"],
+        readiness: { status: "ready" },
+        workspaceConnection: {
+          grantState: "granted",
+          hasActiveWorkspaceConnection: true,
+          activeConnectionCount: 1,
+          grantedConnectionCount: 1,
+        },
+      },
+      {
+        id: "google",
+        label: "Google Workspace",
+        capabilities: ["mail", "calendar", "drive"],
+        readiness: { status: "needs_grant" },
+        workspaceConnection: {
+          grantState: "needs_grant",
+          hasActiveWorkspaceConnection: true,
+          activeConnectionCount: 1,
+          grantedConnectionCount: 0,
+        },
+      },
+    ],
+  });
+  mocks.discoverAgents.mockResolvedValue([
+    {
+      id: "analytics",
+      name: "Analytics",
+      description: "Dashboards and data analysis",
+      url: "https://analytics.example.test",
+      color: "#123456",
+    },
+    {
+      id: "mail",
+      name: "Mail",
+      description: "Mailbox and Gmail search",
+      url: "https://mail.example.test",
+      color: "#654321",
+    },
+  ]);
   const now = "2026-05-15T12:00:00.000Z";
   mocks.rows.sources.push(
     {
@@ -451,6 +507,47 @@ describe("Brain universal search helpers", () => {
     expect(sourceUrlFromMetadata({ sourceUrl: "https://docs.example/a" })).toBe(
       "https://docs.example/a",
     );
+  });
+
+  it("summarizes federated coverage without searching other apps", async () => {
+    const coverage = await buildFederatedSearchCoverage({
+      query: "Which dashboard explains mailbox conversion?",
+      provider: "slack",
+    });
+
+    expect(coverage.mode).toBe("brain-index-plus-delegation-hints");
+    expect(coverage.brainSourceProviders).toContainEqual(
+      expect.objectContaining({
+        id: "slack",
+        configuredSourceCount: 1,
+        activeSourceCount: 1,
+      }),
+    );
+    expect(coverage.workspaceProviderCoverage.providers).toContainEqual(
+      expect.objectContaining({
+        id: "slack",
+        readiness: "ready",
+        grantState: "granted",
+        connected: true,
+      }),
+    );
+    expect(coverage.delegationHints.map((hint) => hint.target)).toEqual([
+      "analytics",
+      "mail",
+    ]);
+    expect(coverage.discoveredAgents.agents).toEqual([
+      {
+        id: "analytics",
+        name: "Analytics",
+        description: "Dashboards and data analysis",
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        description: "Mailbox and Gmail search",
+      },
+    ]);
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("brain");
   });
 });
 

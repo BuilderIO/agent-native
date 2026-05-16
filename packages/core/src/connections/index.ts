@@ -14,3 +14,18 @@ export {
   type WorkspaceConnectionProviderId,
   type WorkspaceConnectionTemplateUse,
 } from "./catalog.js";
+
+export {
+  PROVIDER_READERS,
+  defineProviderReader,
+  getProviderReader,
+  listProviderReaders,
+  providerReaderSupports,
+  type ListProviderReadersOptions,
+  type ProviderReaderCapability,
+  type ProviderReaderDefinition,
+  type ProviderReaderImplementationStatus,
+  type ProviderReaderOperation,
+  type ProviderReaderOperationDescriptor,
+  type ProviderReaderOperationParameter,
+} from "./reader.js";

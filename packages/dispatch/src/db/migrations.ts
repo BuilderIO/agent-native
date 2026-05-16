@@ -218,7 +218,7 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
   {
     version: 4,
     sql: `
-      ALTER TABLE dispatch_dreams ADD COLUMN source_health TEXT;
+      ALTER TABLE dispatch_dreams ADD COLUMN IF NOT EXISTS source_health TEXT;
     `,
   },
 ];

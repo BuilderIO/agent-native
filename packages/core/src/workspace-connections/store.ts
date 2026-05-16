@@ -49,6 +49,7 @@ export interface WorkspaceConnection {
   orgId: string | null;
   createdAt: string;
   updatedAt: string;
+  lastUsedAt?: string | null;
   lastCheckedAt: string | null;
   lastError: string | null;
 }
@@ -68,6 +69,7 @@ export interface WorkspaceConnectionGrant {
   orgId: string | null;
   createdAt: string;
   updatedAt: string;
+  lastUsedAt?: string | null;
 }
 
 export type SerializedWorkspaceConnectionGrant = WorkspaceConnectionGrant;
@@ -167,6 +169,7 @@ export interface WorkspaceConnectionExplicitGrantSummary {
   scopes: string[];
   credentialRefs: WorkspaceConnectionPublicCredentialRef[];
   updatedAt: string;
+  lastUsedAt: string | null;
 }
 
 export interface WorkspaceConnectionForAppSummary {
@@ -181,6 +184,7 @@ export interface WorkspaceConnectionForAppSummary {
   appAccess: WorkspaceConnectionAppAccess;
   allowedApps: string[];
   credentialRefs: WorkspaceConnectionPublicCredentialRef[];
+  lastUsedAt: string | null;
   lastCheckedAt: string | null;
   lastError: string | null;
   explicitGrant: WorkspaceConnectionExplicitGrantSummary | null;
@@ -214,6 +218,7 @@ export interface WorkspaceConnectionProviderAppSummary {
   hasWorkspaceConnection: boolean;
   hasGrantedWorkspaceConnection: boolean;
   hasActiveWorkspaceConnection: boolean;
+  lastUsedAt: string | null;
   statuses: WorkspaceConnectionStatus[];
   connections: WorkspaceConnectionForAppSummary[];
 }
@@ -260,6 +265,18 @@ export interface ListWorkspaceConnectionProviderCatalogForAppOptions {
   templateUse?: WorkspaceConnectionTemplateUse;
   includeDisabled?: boolean;
   includeConnections?: "all" | "granted";
+}
+
+export interface MarkWorkspaceConnectionUsedOptions {
+  connectionId: string;
+  appId?: string | null;
+  usedAt?: Date | number | string | null;
+}
+
+export interface MarkWorkspaceConnectionUsedResult {
+  connectionUpdated: boolean;
+  grantUpdated: boolean;
+  lastUsedAt: string;
 }
 
 export interface WorkspaceConnectionProviderCatalogForAppItem extends WorkspaceConnectionProvider {
@@ -378,6 +395,7 @@ async function ensureWorkspaceConnectionColumns(
     `${intType()} NOT NULL DEFAULT 0`,
   );
   await ensureColumn(client, table, "last_checked_at", intType());
+  await ensureColumn(client, table, "last_used_at", intType());
   await ensureColumn(client, table, "last_error", "TEXT");
 }
 
@@ -431,6 +449,7 @@ async function ensureWorkspaceConnectionGrantColumns(
     "updated_at",
     `${intType()} NOT NULL DEFAULT 0`,
   );
+  await ensureColumn(client, table, "last_used_at", intType());
 }
 
 export async function ensureWorkspaceConnectionsTable(): Promise<void> {
@@ -456,6 +475,7 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             org_id TEXT,
             created_at ${intType()} NOT NULL DEFAULT 0,
             updated_at ${intType()} NOT NULL DEFAULT 0,
+            last_used_at ${intType()},
             last_checked_at ${intType()},
             last_error TEXT
           )
@@ -488,7 +508,8 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             owner_email TEXT NOT NULL DEFAULT '',
             org_id TEXT,
             created_at ${intType()} NOT NULL DEFAULT 0,
-            updated_at ${intType()} NOT NULL DEFAULT 0
+            updated_at ${intType()} NOT NULL DEFAULT 0,
+            last_used_at ${intType()}
           )
         `),
       );
@@ -687,6 +708,7 @@ function parseRow(row: Record<string, unknown>): WorkspaceConnection {
     orgId: row.org_id == null ? null : String(row.org_id),
     createdAt: iso(row.created_at) ?? new Date(0).toISOString(),
     updatedAt: iso(row.updated_at) ?? new Date(0).toISOString(),
+    lastUsedAt: iso(row.last_used_at),
     lastCheckedAt: iso(row.last_checked_at),
     lastError: row.last_error == null ? null : String(row.last_error),
   });
@@ -708,6 +730,7 @@ function parseGrantRow(row: Record<string, unknown>): WorkspaceConnectionGrant {
     orgId: row.org_id == null ? null : String(row.org_id),
     createdAt: iso(row.created_at) ?? new Date(0).toISOString(),
     updatedAt: iso(row.updated_at) ?? new Date(0).toISOString(),
+    lastUsedAt: iso(row.last_used_at),
   });
 }
 
@@ -819,6 +842,15 @@ function uniqueStrings(values: string[]): string[] {
   );
 }
 
+function latestIso(values: Array<string | null | undefined>): string | null {
+  const latest = values.reduce<number | null>((current, value) => {
+    const parsed = value ? Date.parse(value) : NaN;
+    if (!Number.isFinite(parsed)) return current;
+    return current == null || parsed > current ? parsed : current;
+  }, null);
+  return latest == null ? null : new Date(latest).toISOString();
+}
+
 function publicCredentialRefs(
   refs: WorkspaceConnectionCredentialRef[],
   source: WorkspaceConnectionPublicCredentialRef["source"],
@@ -898,6 +930,7 @@ function serializeConnectionForApp(
       connection.credentialRefs,
       "connection",
     ),
+    lastUsedAt: latestIso([connection.lastUsedAt, explicitGrant?.lastUsedAt]),
     lastCheckedAt: connection.lastCheckedAt,
     lastError: connection.lastError,
     explicitGrant: explicitGrant
@@ -910,6 +943,7 @@ function serializeConnectionForApp(
             "grant",
           ),
           updatedAt: explicitGrant.updatedAt,
+          lastUsedAt: explicitGrant.lastUsedAt ?? null,
         }
       : null,
   };
@@ -985,6 +1019,13 @@ export function summarizeWorkspaceConnectionProviderForApp({
   }, 0);
   const visibleConnections =
     includeConnections === "all" ? allConnections : grantedConnections;
+  const lastUsedAt = latestIso(
+    grantedConnections.flatMap((connection) => [
+      connection.lastUsedAt,
+      explicitGrantForConnection(connection.id, grants, normalizedAppId)
+        ?.lastUsedAt,
+    ]),
+  );
 
   return {
     appId: normalizedAppId,
@@ -1009,6 +1050,7 @@ export function summarizeWorkspaceConnectionProviderForApp({
     hasWorkspaceConnection: allConnections.length > 0,
     hasGrantedWorkspaceConnection: grantedConnections.length > 0,
     hasActiveWorkspaceConnection: connectedConnections.length > 0,
+    lastUsedAt,
     statuses: uniqueStrings(
       allConnections.map((connection) => connection.status),
     ) as WorkspaceConnectionStatus[],
@@ -1524,6 +1566,50 @@ export async function getWorkspaceConnectionGrant(
   });
   if (rows.length === 0) return null;
   return parseGrantRow(rows[0] as Record<string, unknown>);
+}
+
+export async function markWorkspaceConnectionUsed({
+  connectionId,
+  appId,
+  usedAt,
+}: MarkWorkspaceConnectionUsedOptions): Promise<MarkWorkspaceConnectionUsedResult> {
+  await ensureWorkspaceConnectionsTable();
+  const normalizedConnectionId = normalizeRequiredString(
+    connectionId,
+    "markWorkspaceConnectionUsed connectionId",
+  );
+  const normalizedAppId = appId?.trim();
+  const usedAtMillis = millis(usedAt) ?? Date.now();
+  const client = getDbExec();
+  const connectionsTable = workspaceConnectionsTable();
+  const grantsTable = workspaceConnectionGrantsTable();
+  const scope = requireWorkspaceConnectionScope();
+  const where = scopedWhere(scope);
+
+  const connectionUpdate = await client.execute({
+    sql: `UPDATE ${connectionsTable} SET last_used_at = ? WHERE id = ? AND ${where.sql}`,
+    args: [usedAtMillis, normalizedConnectionId, ...where.args],
+  });
+
+  let grantUpdated = false;
+  if (normalizedAppId) {
+    const grantUpdate = await client.execute({
+      sql: `UPDATE ${grantsTable} SET last_used_at = ? WHERE connection_id = ? AND app_id = ? AND ${where.sql}`,
+      args: [
+        usedAtMillis,
+        normalizedConnectionId,
+        normalizedAppId,
+        ...where.args,
+      ],
+    });
+    grantUpdated = grantUpdate.rowsAffected > 0;
+  }
+
+  return {
+    connectionUpdated: connectionUpdate.rowsAffected > 0,
+    grantUpdated,
+    lastUsedAt: new Date(usedAtMillis).toISOString(),
+  };
 }
 
 export async function upsertWorkspaceConnectionGrant(

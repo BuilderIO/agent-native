@@ -2026,8 +2026,12 @@ describe("Brain demo eval", () => {
       "freemium-recall",
       "freemium-search-quality",
       "search-citation-links",
+      "product-rationale-search",
       "supersede-chain",
+      "superseded-search-narration",
       "how-it-works-recall",
+      "process-policy-recall",
+      "architecture-search-quality",
       "proposal-gate",
       "proposal-not-queryable",
       "pii-redaction",
@@ -2057,6 +2061,11 @@ describe("Brain demo eval", () => {
     expect(JSON.stringify(mocks.rows.knowledge)).not.toContain(
       "ava.cho@example.com",
     );
+    expect(JSON.stringify(mocks.rows.knowledge)).not.toContain(
+      "+1 415 555 1212",
+    );
+    expect(JSON.stringify(result.seeded)).not.toContain("ava.cho@example.com");
+    expect(JSON.stringify(result.seeded)).not.toContain("+1 415 555 1212");
     expect(mocks.rows.captures).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -2077,15 +2086,21 @@ describe("Brain demo eval", () => {
       workspaceHadSupport: false,
       fallbackSeeded: true,
       ok: true,
-      passed: 4,
-      total: 4,
+      passed: 10,
+      total: 10,
       score: 1,
     });
     expect(result.checks.map((item) => item.id)).toEqual([
       "dev-fusion-stale-branch",
       "dev-fusion-no-branch-repair",
       "dev-fusion-citation",
+      "connector-eval-gate-rationale",
+      "import-review-policy",
+      "retrieval-architecture-how-it-works",
+      "superseded-connector-rollout-narration",
+      "privacy-redaction-output",
       "unsupported-cleanup-cron",
+      "unsupported-payroll-provider",
     ]);
     expect(mocks.rows.sources).toEqual(
       expect.arrayContaining([
@@ -2102,8 +2117,25 @@ describe("Brain demo eval", () => {
             "Stale Fusion branches are reported without moving workspace branches",
           status: "published",
         }),
+        expect.objectContaining({
+          title: "Brain connector rollout waits for retrieval eval gates",
+          status: "published",
+        }),
+        expect.objectContaining({
+          title:
+            "Connector marketplace first was superseded by eval-first gating",
+          status: "published",
+        }),
+        expect.objectContaining({
+          title: "Connector marketplace was the first Brain expansion bet",
+          status: "archived",
+        }),
       ]),
     );
+    expect(JSON.stringify(result.checks)).not.toContain("ava.cho@example.com");
+    expect(JSON.stringify(result.checks)).not.toContain("+1 415 555 1212");
+    expect(JSON.stringify(result.seeded)).not.toContain("ava.cho@example.com");
+    expect(JSON.stringify(result.seeded)).not.toContain("+1 415 555 1212");
     expect(JSON.stringify(result.checks)).toContain(
       "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778264400000100",
     );
@@ -2134,6 +2166,92 @@ describe("Brain demo eval", () => {
       }),
       status: "distilled",
     });
+    seedCapture({
+      id: "real-dev-fusion-connector-eval-gate",
+      sourceId: "real-dev-fusion-source",
+      externalId: "real-dev-fusion-connector-eval-gate",
+      title: "Brain connector rollout waits for retrieval eval gates",
+      kind: "message",
+      content: [
+        "Slack #dev-fusion thread",
+        "Product decision: pause additional Brain connectors; connectors amplify weak retrieval.",
+        "The eval gate covers product decisions, process/policy knowledge, architecture how-it-works, privacy redaction, superseded decision narration, and honest not-found behavior.",
+      ].join("\n"),
+      metadataJson: JSON.stringify({
+        provider: "slack",
+        permalink:
+          "https://workspace.slack.com/archives/CDEVFUSION/p1778265300000200",
+      }),
+      status: "distilled",
+    });
+    seedCapture({
+      id: "real-dev-fusion-import-review-policy",
+      sourceId: "real-dev-fusion-source",
+      externalId: "real-dev-fusion-import-review-policy",
+      title: "Brain import policy keeps company memory review-gated",
+      kind: "message",
+      content: [
+        "Slack #dev-fusion thread",
+        "Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable memory.",
+        "Low-confidence policy items stay pending proposals and out of published search until review.",
+      ].join("\n"),
+      metadataJson: JSON.stringify({
+        provider: "slack",
+        permalink:
+          "https://workspace.slack.com/archives/CDEVFUSION/p1778266200000300",
+      }),
+      status: "distilled",
+    });
+    seedCapture({
+      id: "real-dev-fusion-retrieval-architecture",
+      sourceId: "real-dev-fusion-source",
+      externalId: "real-dev-fusion-retrieval-architecture",
+      title:
+        "Brain retrieval uses SQL knowledge first with raw capture fallback",
+      kind: "message",
+      content: [
+        "Slack #dev-fusion thread",
+        "Engineering architecture: Brain retrieval starts with portable SQL over brain_knowledge.",
+        "Raw capture fallback only runs when source policy allows.",
+        "V1 has no vector database requirement.",
+      ].join("\n"),
+      metadataJson: JSON.stringify({
+        provider: "slack",
+        permalink:
+          "https://workspace.slack.com/archives/CDEVFUSION/p1778267100000400",
+      }),
+      status: "distilled",
+    });
+    seedCapture({
+      id: "real-dev-fusion-connector-replacement",
+      sourceId: "real-dev-fusion-source",
+      externalId: "real-dev-fusion-connector-replacement",
+      title: "Connector marketplace first was superseded by eval-first gating",
+      kind: "message",
+      content:
+        "Slack #dev-fusion thread\nCurrent decision: originally connector marketplace first, then changed to eval-first connector gate with both citations.",
+      metadataJson: JSON.stringify({
+        provider: "slack",
+        permalink:
+          "https://workspace.slack.com/archives/CDEVFUSION/p1778268000000600",
+      }),
+      status: "distilled",
+    });
+    seedCapture({
+      id: "real-dev-fusion-privacy-redaction",
+      sourceId: "real-dev-fusion-source",
+      externalId: "real-dev-fusion-privacy-redaction",
+      title: "#dev-fusion privacy redaction output",
+      kind: "message",
+      content:
+        "Slack #dev-fusion thread\nPrivacy note: Brain retrieval may preserve durable escalation rotation context, but emails like ava.cho@example.com and phone +1 415 555 1212 must display as [redacted] before results leave Brain.",
+      metadataJson: JSON.stringify({
+        provider: "slack",
+        permalink:
+          "https://workspace.slack.com/archives/CDEVFUSION/p1778268900000700",
+      }),
+      status: "distilled",
+    });
 
     const result = await runBrainRetrievalEval({ seedIfMissing: true });
 
@@ -2143,12 +2261,12 @@ describe("Brain demo eval", () => {
       workspaceHadSupport: true,
       fallbackSeeded: false,
       ok: true,
-      passed: 4,
-      total: 4,
+      passed: 10,
+      total: 10,
     });
     expect(result.seeded).toBeNull();
     expect(mocks.rows.sources).toHaveLength(1);
-    expect(mocks.rows.captures).toHaveLength(1);
+    expect(mocks.rows.captures).toHaveLength(6);
     expect(mocks.rows.knowledge).toHaveLength(0);
   });
 });

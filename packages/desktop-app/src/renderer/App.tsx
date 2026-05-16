@@ -586,7 +586,7 @@ export default function App() {
       {isCodeAgentsActive ? (
         <div className="tabbar tabbar--shell">
           <div className="tab tab--active tab--locked">
-            <span className="tab-label">Agent-Native Code</span>
+            <span className="tab-label">Code</span>
           </div>
         </div>
       ) : (
@@ -623,20 +623,21 @@ export default function App() {
               />
             </div>
           )}
-          {allWebviews.map(({ tab, app, appDef, isActive }) => (
-            <AppWebview
-              key={tab.id}
-              ref={(instance) => {
-                if (instance) webviewRefs.current.set(tab.id, instance);
-                else webviewRefs.current.delete(tab.id);
-              }}
-              app={appDef}
-              appConfig={app}
-              isActive={isActive}
-              refreshKey={isActive ? refreshKey : 0}
-              onAppsChanged={handleAppsChanged}
-            />
-          ))}
+          {!isCodeAgentsActive &&
+            allWebviews.map(({ tab, app, appDef, isActive }) => (
+              <AppWebview
+                key={tab.id}
+                ref={(instance) => {
+                  if (instance) webviewRefs.current.set(tab.id, instance);
+                  else webviewRefs.current.delete(tab.id);
+                }}
+                app={appDef}
+                appConfig={app}
+                isActive={isActive}
+                refreshKey={isActive ? refreshKey : 0}
+                onAppsChanged={handleAppsChanged}
+              />
+            ))}
         </div>
       </div>
 
@@ -645,6 +646,7 @@ export default function App() {
           apps={apps}
           onClose={() => setShowSettings(false)}
           onAppsChanged={handleAppsChanged}
+          onCodeAgentProvidersChanged={() => setRefreshKey((n) => n + 1)}
           onAddAppClick={() => {
             setShowSettings(false);
             setShowAddApp(true);

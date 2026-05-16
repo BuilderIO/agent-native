@@ -17,6 +17,14 @@ function stripUndefined(args: Record<string, unknown>) {
   );
 }
 
+function optionalTimestamp(source: object, key: string) {
+  if (!Object.prototype.hasOwnProperty.call(source, key)) return undefined;
+  const value = (source as Record<string, unknown>)[key];
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
 export default defineAction({
   description:
     "See what the user is currently looking at in the dispatch UI, including navigation state and a compact operational summary.",
@@ -104,27 +112,32 @@ export default defineAction({
             recommendedTemplateUses: provider.recommendedTemplateUses,
             readiness: provider.readiness,
           })),
-          connections: integrations.connections.map((connection) => ({
-            id: connection.id,
-            provider: connection.provider,
-            label: connection.label,
-            accountLabel: connection.accountLabel,
-            status: connection.status,
-            scopes: connection.scopes,
-            allowedApps:
-              connection.allowedApps.length === 0
-                ? "all-apps"
-                : connection.allowedApps,
-            credentialRefs: connection.credentialRefs.map((ref) => ({
-              key: ref.key,
-              label: ref.label,
-              provider: ref.provider,
-              scope: ref.scope,
-            })),
-            lastCheckedAt: connection.lastCheckedAt,
-            lastError: connection.lastError,
-          })),
+          connections: integrations.connections.map((connection) => {
+            const lastUsedAt = optionalTimestamp(connection, "lastUsedAt");
+            return {
+              id: connection.id,
+              provider: connection.provider,
+              label: connection.label,
+              accountLabel: connection.accountLabel,
+              status: connection.status,
+              scopes: connection.scopes,
+              allowedApps:
+                connection.allowedApps.length === 0
+                  ? "all-apps"
+                  : connection.allowedApps,
+              credentialRefs: connection.credentialRefs.map((ref) => ({
+                key: ref.key,
+                label: ref.label,
+                provider: ref.provider,
+                scope: ref.scope,
+              })),
+              lastCheckedAt: connection.lastCheckedAt,
+              ...(lastUsedAt !== undefined ? { lastUsedAt } : {}),
+              lastError: connection.lastError,
+            };
+          }),
           grants: integrations.grants,
+          grantSummaries: integrations.grantSummaries,
           suggestedApps: integrations.suggestedApps,
           counts: integrations.counts,
         };

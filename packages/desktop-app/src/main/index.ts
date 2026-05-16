@@ -47,12 +47,23 @@ import {
   type CodeAgentRemoteConnectorPairRequest,
   type CodeAgentRemoteConnectorPairResult,
   type CodeAgentRemoteConnectorStatus,
+  type CodeAgentProviderCredentialKey,
+  type CodeAgentProviderSettings,
+  type CodeAgentProviderSettingsUpdate,
+  type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
   type InterAppMessage,
   type UpdateStatus,
 } from "@shared/ipc-channels";
 import { FRAME_PORT, getTemplateGatewayAppUrl } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
+import {
+  getBackgroundAgentRun,
+  listBackgroundAgentRuns,
+  listBackgroundAgentTranscriptEvents,
+  type BackgroundAgentRun,
+  type BackgroundAgentTranscriptEvent,
+} from "../../../core/src/code-agents/background-run.js";
 import {
   CODE_AGENTS_SURFACE_ID,
   CODE_AGENT_GOALS,
@@ -92,6 +103,54 @@ let pendingDeepLink: string | null = null;
 let mainWindow: BrowserWindow | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
+];
+
+type DesktopBackgroundAgentControlCommand =
+  | "approve"
+  | "resume"
+  | "retry"
+  | "stop";
+
+interface DesktopBackgroundAgentControlInput {
+  runId: string;
+  command: DesktopBackgroundAgentControlCommand;
+}
+
+interface DesktopBackgroundAgentFollowUpInput {
+  runId: string;
+  prompt: string;
+  mode?: "immediate" | "queued";
+  permissionMode?: CodeAgentPermissionMode;
+  source?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface DesktopBackgroundAgentControlResult {
+  ok: boolean;
+  runId: string;
+  run: BackgroundAgentRun | null;
+  queued?: boolean;
+  message?: string;
+  error?: string;
+}
+
+interface DesktopBackgroundAgentController {
+  list(options?: { goalId?: string }): BackgroundAgentRun[];
+  get(runId: string): BackgroundAgentRun | null;
+  transcript(runId: string): BackgroundAgentTranscriptEvent[];
+  sendFollowUp(
+    input: DesktopBackgroundAgentFollowUpInput,
+  ): Promise<DesktopBackgroundAgentControlResult>;
+  control(
+    input: DesktopBackgroundAgentControlInput,
+  ): Promise<DesktopBackgroundAgentControlResult>;
+}
 
 function isDeepLinkArg(arg: string): boolean {
   return arg.startsWith(`${DEEP_LINK_PROTOCOL}:`);
@@ -1278,80 +1337,51 @@ function codeAgentEventFilePath(runId: string): string | null {
   return path.join(codeAgentEventsDir(), `${safeRunId}.jsonl`);
 }
 
-function listFileBackedCodeAgentRuns(goalId?: string): CodeAgentRun[] {
-  const runsDir = codeAgentRunsDir();
-  if (!fs.existsSync(runsDir)) return [];
-  return fs
-    .readdirSync(runsDir)
-    .filter((file) => file.endsWith(".json"))
-    .map((file) => readFileBackedCodeAgentRun(path.join(runsDir, file)))
-    .filter((run): run is CodeAgentRun => Boolean(run))
-    .filter((run) => !goalId || run.goalId === goalId)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
+  const runs = desktopCodeBackgroundAgentController.list({
+    goalId,
+  }) as BackgroundAgentRun[];
+  return runs.map(backgroundRunToDesktopRun);
 }
 
-function readFileBackedCodeAgentRun(filePath: string): CodeAgentRun | null {
-  const row = readJsonObjectFile(filePath);
-  if (!row) return null;
-  try {
-    const id = typeof row.id === "string" ? row.id : "";
-    const goalId = typeof row.goalId === "string" ? row.goalId : "";
-    const title = typeof row.title === "string" ? row.title : id;
-    const status =
-      typeof row.status === "string"
-        ? (row.status as CodeAgentRun["status"])
-        : "unknown";
-    const createdAt =
-      typeof row.createdAt === "string"
-        ? row.createdAt
-        : new Date().toISOString();
-    const updatedAt =
-      typeof row.updatedAt === "string" ? row.updatedAt : createdAt;
-    if (!id || !goalId || !title) return null;
-    const metadata = isObject(row.metadata)
-      ? { ...(row.metadata as Record<string, unknown>) }
-      : {};
-    if (typeof row.cwd === "string") metadata.cwd = row.cwd;
-    if (typeof row.permissionMode === "string") {
-      metadata.permissionMode = row.permissionMode;
-    }
-    if (typeof row.artifactRoot === "string") {
-      metadata.artifactRoot = row.artifactRoot;
-    }
-    if (isObject(row.queue)) {
-      metadata.queue = row.queue;
-    }
-    if (isObject(row.steering)) {
-      metadata.steering = row.steering;
-    }
-    const activeProcess = activeCodeAgentProcesses.get(id);
-    if (activeProcess) {
-      metadata.runnerState = "running";
-      metadata.runnerPid = activeProcess.pid;
-      metadata.runnerStartedAt = activeProcess.startedAt;
-    }
-    return {
-      id,
-      goalId,
-      title,
-      subtitle: typeof row.subtitle === "string" ? row.subtitle : undefined,
-      status,
-      phase: typeof row.phase === "string" ? row.phase : undefined,
-      needsApproval:
-        typeof row.needsApproval === "boolean" ? row.needsApproval : undefined,
-      progress: normalizeCodeAgentProgress(row.progress),
-      details: Array.isArray(row.details)
-        ? (row.details as unknown as CodeAgentRun["details"])
-        : undefined,
-      surfaceUrl:
-        typeof row.surfaceUrl === "string" ? row.surfaceUrl : undefined,
-      createdAt,
-      updatedAt,
-      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-    };
-  } catch {
-    return null;
+function readDesktopCodeAgentRun(runId: string): CodeAgentRun | null {
+  const run = desktopCodeBackgroundAgentController.get(
+    runId,
+  ) as BackgroundAgentRun | null;
+  return run ? backgroundRunToDesktopRun(run) : null;
+}
+
+function backgroundRunToDesktopRun(record: BackgroundAgentRun): CodeAgentRun {
+  const metadata: Record<string, unknown> = {
+    ...(record.metadata ?? {}),
+    artifactRoot: record.artifactRoot,
+    cwd: record.cwd,
+  };
+  if (record.permissionMode) metadata.permissionMode = record.permissionMode;
+  const activeProcess = activeCodeAgentProcesses.get(record.id);
+  if (activeProcess) {
+    metadata.runnerState = "running";
+    metadata.runnerPid = activeProcess.pid;
+    metadata.runnerStartedAt = activeProcess.startedAt;
   }
+  return {
+    id: record.id,
+    goalId: record.goalId,
+    title: record.title,
+    subtitle: record.subtitle,
+    kind: record.kind,
+    source: record.source,
+    sourceLabel: record.sourceLabel,
+    status: record.status,
+    phase: record.phase,
+    needsApproval: record.needsApproval,
+    progress: record.progress,
+    details: record.details,
+    surfaceUrl: record.surfaceUrl,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+  };
 }
 
 function readJsonObjectFile(filePath: string): Record<string, unknown> | null {
@@ -1371,28 +1401,6 @@ function readCodeAgentRunRecord(runId: string): Record<string, unknown> | null {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function normalizeCodeAgentProgress(value: unknown): CodeAgentRun["progress"] {
-  if (!isObject(value)) return undefined;
-  const completed = Number(value.completed);
-  const total = Number(value.total);
-  const percent = Number(value.percent);
-  if (
-    !Number.isFinite(completed) ||
-    !Number.isFinite(total) ||
-    !Number.isFinite(percent)
-  ) {
-    return undefined;
-  }
-  const failed = Number(value.failed);
-  return {
-    label: typeof value.label === "string" ? value.label : undefined,
-    completed,
-    total,
-    failed: Number.isFinite(failed) ? failed : undefined,
-    percent,
-  };
 }
 
 function firstStringValue(...values: unknown[]): string | undefined {
@@ -1503,17 +1511,8 @@ function isActiveDesktopCodeAgentRun(
   );
 }
 
-function readDesktopPendingFollowUps(
-  value: unknown,
-): Record<string, unknown>[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is Record<string, unknown> =>
-    isObject(item),
-  );
-}
-
 function countQueuedCodeAgentRuns(goalId: string): number {
-  return listFileBackedCodeAgentRuns(goalId).filter(
+  return listDesktopCodeAgentRuns(goalId).filter(
     (run) => run.status === "queued",
   ).length;
 }
@@ -1869,6 +1868,14 @@ const activeCodeAgentProcesses = new Map<
   }
 >();
 
+const desktopCodeBackgroundAgentController: DesktopBackgroundAgentController = {
+  list: listBackgroundAgentRuns,
+  get: getBackgroundAgentRun,
+  transcript: listBackgroundAgentTranscriptEvents,
+  sendFollowUp: sendDesktopCodeBackgroundAgentFollowUp,
+  control: controlDesktopCodeBackgroundAgentRun,
+};
+
 function appendCodeAgentStatusEvent(
   runId: string,
   message: string,
@@ -2121,6 +2128,287 @@ function spawnCodeAgentApprovalRunner(
   }
 }
 
+async function sendDesktopCodeBackgroundAgentFollowUp(
+  input: DesktopBackgroundAgentFollowUpInput,
+): Promise<DesktopBackgroundAgentControlResult> {
+  const runRecord = readCodeAgentRunRecord(input.runId);
+  if (!runRecord) {
+    return {
+      ok: false,
+      runId: input.runId,
+      run: null,
+      error: `Run not found: ${input.runId}`,
+    };
+  }
+
+  const prompt = input.prompt.trim();
+  if (!prompt) {
+    return {
+      ok: false,
+      runId: input.runId,
+      run: desktopCodeBackgroundAgentController.get(input.runId),
+      error: "Follow-up prompt is required.",
+    };
+  }
+
+  const runIsActive =
+    activeCodeAgentProcesses.has(input.runId) ||
+    isActiveDesktopCodeAgentRun(runRecord);
+  const mode = input.mode ?? "immediate";
+  const event = createDesktopUserTranscriptEvent(
+    input.runId,
+    prompt,
+    undefined,
+    {
+      ...(input.metadata ?? {}),
+      source: input.source ?? "desktop-background-agent-controller",
+      permissionMode: input.permissionMode,
+      followUpMode: mode,
+      delivery: runIsActive ? mode : "run-now",
+      promptKind: "follow-up",
+    },
+  );
+  appendCodeAgentTranscriptEvent(event);
+
+  if (runIsActive) {
+    const metadata = isObject(runRecord.metadata) ? runRecord.metadata : {};
+    touchCodeAgentRunRecord(input.runId, {
+      ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+      metadata: {
+        ...(input.permissionMode
+          ? { permissionMode: input.permissionMode }
+          : {}),
+        pendingFollowUps: [
+          ...readDesktopPendingFollowUps(metadata.pendingFollowUps),
+          {
+            id: `followup-${timestampSlug(event.createdAt)}-${randomUUID().slice(0, 8)}`,
+            prompt,
+            mode,
+            createdAt: event.createdAt,
+            eventId: event.id,
+            permissionMode: input.permissionMode,
+            source: input.source ?? "desktop-background-agent-controller",
+          },
+        ],
+      },
+    });
+    return {
+      ok: true,
+      runId: input.runId,
+      run: desktopCodeBackgroundAgentController.get(input.runId),
+      queued: true,
+      message: "Follow-up queued for the active Agent-Native Code run.",
+    };
+  }
+
+  const cwd =
+    getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
+  const goal =
+    getCodeAgentGoal(getRecordString(runRecord, "goalId")) ??
+    CODE_AGENT_GOALS[0];
+  if (goal.surfaceKind === "native") {
+    spawnCodeAgentRunner(input.runId, cwd, input.permissionMode);
+  }
+  return {
+    ok: true,
+    runId: input.runId,
+    run: desktopCodeBackgroundAgentController.get(input.runId),
+    queued: false,
+    message: "Follow-up recorded for the Agent-Native Code run.",
+  };
+}
+
+function readDesktopPendingFollowUps(
+  value: unknown,
+): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is Record<string, unknown> =>
+    isObject(item),
+  );
+}
+
+function stopDesktopCodeBackgroundAgentRunWithoutSignal(
+  runId: string,
+): DesktopBackgroundAgentControlResult {
+  appendCodeAgentStatusEvent(
+    runId,
+    "Stop requested for Agent-Native Code run. No process signal was sent.",
+    {
+      source: "desktop-background-agent-controller",
+      stoppedWithoutSignal: true,
+    },
+  );
+  touchCodeAgentRunRecord(runId, {
+    status: "paused",
+    phase: "stopped",
+    metadata: {
+      runnerState: "stopped",
+      runnerStoppedAt: new Date().toISOString(),
+      stoppedBy: "desktop-background-agent-controller",
+      stopSignalSent: false,
+    },
+  });
+  return {
+    ok: true,
+    runId,
+    run: desktopCodeBackgroundAgentController.get(runId),
+    message:
+      "Agent-Native Code run marked stopped without signaling a process.",
+  };
+}
+
+async function controlDesktopCodeBackgroundAgentRun(
+  input: DesktopBackgroundAgentControlInput,
+): Promise<DesktopBackgroundAgentControlResult> {
+  const runRecord = readCodeAgentRunRecord(input.runId);
+  if (!runRecord) {
+    return {
+      ok: false,
+      runId: input.runId,
+      run: null,
+      error: `Run not found: ${input.runId}`,
+    };
+  }
+
+  if (input.command === "stop") {
+    const active = activeCodeAgentProcesses.get(input.runId);
+    const status = getRecordString(runRecord, "status");
+    const phase = getRecordString(runRecord, "phase");
+    if (
+      status === "completed" ||
+      status === "errored" ||
+      phase === "complete" ||
+      phase === "error"
+    ) {
+      return {
+        ok: true,
+        runId: input.runId,
+        run: desktopCodeBackgroundAgentController.get(
+          input.runId,
+        ) as BackgroundAgentRun | null,
+        message: "This Agent-Native Code run is already finished.",
+      };
+    }
+
+    if (active?.pid) {
+      try {
+        process.kill(active.pid, "SIGTERM");
+        activeCodeAgentProcesses.delete(input.runId);
+        appendCodeAgentStatusEvent(
+          input.runId,
+          "Stop requested for Agent-Native Code run.",
+          {
+            source: "desktop",
+            pid: active.pid,
+          },
+        );
+        touchCodeAgentRunRecord(input.runId, {
+          status: "paused",
+          phase: "stopped",
+          metadata: {
+            runnerStoppedAt: new Date().toISOString(),
+          },
+        });
+        return {
+          ok: true,
+          runId: input.runId,
+          run: desktopCodeBackgroundAgentController.get(
+            input.runId,
+          ) as BackgroundAgentRun | null,
+          message: "Stop requested for this Agent-Native Code run.",
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          runId: input.runId,
+          run: desktopCodeBackgroundAgentController.get(
+            input.runId,
+          ) as BackgroundAgentRun | null,
+          message: "Could not stop this Agent-Native Code process.",
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
+    return stopDesktopCodeBackgroundAgentRunWithoutSignal(input.runId);
+  }
+
+  if (input.command === "approve") {
+    const metadata = isObject(runRecord.metadata) ? runRecord.metadata : null;
+    const pendingApproval = isObject(metadata?.pendingApproval)
+      ? metadata.pendingApproval
+      : null;
+    if (!pendingApproval) {
+      return {
+        ok: true,
+        runId: input.runId,
+        run: desktopCodeBackgroundAgentController.get(
+          input.runId,
+        ) as BackgroundAgentRun | null,
+        message: "No pending approval was found for this run.",
+      };
+    }
+    const cwd =
+      getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
+    const result = spawnCodeAgentApprovalRunner(input.runId, cwd);
+    return desktopControlResultToBackgroundResult(input.runId, result);
+  }
+
+  if (input.command === "resume") {
+    const cwd =
+      getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
+    appendCodeAgentStatusEvent(input.runId, "Resume requested from Desktop.", {
+      source: "desktop",
+      command: "resume",
+    });
+    spawnCodeAgentRunner(input.runId, cwd);
+    return {
+      ok: true,
+      runId: input.runId,
+      run: desktopCodeBackgroundAgentController.get(
+        input.runId,
+      ) as BackgroundAgentRun | null,
+      message: "Agent-Native Code runner started.",
+    };
+  }
+
+  return {
+    ok: false,
+    runId: input.runId,
+    run: desktopCodeBackgroundAgentController.get(input.runId),
+    error: `Unsupported command: ${input.command}`,
+  };
+}
+
+function desktopControlResultToBackgroundResult(
+  runId: string,
+  result: CodeAgentControlResult,
+): DesktopBackgroundAgentControlResult {
+  return {
+    ok: result.ok,
+    runId,
+    run: desktopCodeBackgroundAgentController.get(
+      runId,
+    ) as BackgroundAgentRun | null,
+    message: result.message,
+    error: result.error,
+  };
+}
+
+function backgroundControlResultToDesktopControlResult(
+  command: CodeAgentControlCommand,
+  result: DesktopBackgroundAgentControlResult,
+): CodeAgentControlResult {
+  return {
+    ok: result.ok,
+    command,
+    action: result.ok ? "refresh" : "none",
+    run: result.run ? backgroundRunToDesktopRun(result.run) : undefined,
+    message: result.message ?? (result.ok ? "Status refreshed." : "Failed."),
+    error: result.error,
+  };
+}
+
 function resolveRepositoryRoot(cwd: string): string {
   const candidates = [
     process.env.AGENT_NATIVE_FRAMEWORK_ROOT,
@@ -2190,6 +2478,14 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
       ok: false,
       message: "Enter a prompt to start a coding session.",
       error: "Missing prompt.",
+    };
+  }
+  if (!hasCodeAgentLlmProvider()) {
+    return {
+      ok: false,
+      message: "Connect a model provider before starting a coding chat.",
+      error:
+        "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or Builder credentials, then restart Agent Native Desktop.",
     };
   }
 
@@ -2422,7 +2718,9 @@ function rerunCodeAgentRun(input: unknown): CodeAgentRerunResult {
   };
 }
 
-function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
+async function appendCodeAgentFollowUp(
+  input: unknown,
+): Promise<CodeAgentFollowUpResult> {
   const payload = isObject(input) ? input : {};
   const runId = normalizeCodeAgentRunId(payload.runId);
   const prompt = firstStringValue(payload.prompt) ?? "";
@@ -2452,6 +2750,14 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
       error: "Missing prompt.",
     };
   }
+  if (!hasCodeAgentLlmProvider()) {
+    return {
+      ok: false,
+      message: "Connect a model provider before chatting.",
+      error:
+        "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or Builder credentials, then restart Agent Native Desktop.",
+    };
+  }
   if (requestedPermissionMode && !permissionMode) {
     return {
       ok: false,
@@ -2463,9 +2769,6 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
   try {
     const goalId = firstStringValue(payload.goalId);
     const runRecord = readCodeAgentRunRecord(runId);
-    const recordMetadata = isObject(runRecord?.metadata)
-      ? runRecord.metadata
-      : {};
     const runIsActive =
       activeCodeAgentProcesses.has(runId) ||
       isActiveDesktopCodeAgentRun(runRecord);
@@ -2479,15 +2782,6 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
       effort,
       attachments,
     });
-    const event = createDesktopUserTranscriptEvent(runId, prompt, goalId, {
-      ...userMetadata,
-      steering,
-      attachments,
-      followUpMode,
-      delivery: runIsActive ? followUpMode : "run-now",
-      promptKind: "follow-up",
-    });
-    const eventFile = appendCodeAgentTranscriptEvent(event);
     const now = new Date().toISOString();
     touchCodeAgentRunRecord(runId, {
       updatedAt: now,
@@ -2500,38 +2794,40 @@ function appendCodeAgentFollowUp(input: unknown): CodeAgentFollowUpResult {
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
         ...(attachments ? { attachments } : {}),
-        ...(runIsActive
-          ? {
-              pendingFollowUps: [
-                ...readDesktopPendingFollowUps(recordMetadata.pendingFollowUps),
-                {
-                  id: `followup-${timestampSlug(event.createdAt)}-${randomUUID().slice(0, 8)}`,
-                  prompt,
-                  mode: followUpMode,
-                  createdAt: event.createdAt,
-                  eventId: event.id,
-                  permissionMode,
-                  source: "desktop-follow-up",
-                },
-              ],
-            }
-          : {}),
         steering,
       },
     });
-    const goal = getCodeAgentGoal(goalId ?? "task") ?? CODE_AGENT_GOALS[0];
-    if (goal.surfaceKind === "native" && !runIsActive) {
-      spawnCodeAgentRunner(runId, cwd, permissionMode);
-    }
+    const result = await desktopCodeBackgroundAgentController.sendFollowUp({
+      runId,
+      prompt,
+      mode: followUpMode,
+      permissionMode,
+      source: "desktop-follow-up",
+      metadata: {
+        ...userMetadata,
+        steering,
+        attachments,
+        engine,
+        model,
+        effort,
+        followUpMode,
+        promptKind: "follow-up",
+      },
+    });
+    const transcript = readCodeAgentTranscript({ runId });
+    const event = transcript.events.at(-1);
     return {
-      ok: true,
+      ok: result.ok,
       event,
-      eventFile,
-      message: runIsActive
-        ? followUpMode === "queued"
-          ? "Follow-up queued."
-          : "Steering prompt recorded."
-        : "Follow-up recorded.",
+      eventFile: transcript.eventFile,
+      message:
+        result.message ??
+        (runIsActive
+          ? followUpMode === "queued"
+            ? "Follow-up queued."
+            : "Steering prompt recorded."
+          : "Follow-up recorded."),
+      error: result.error,
     };
   } catch (err) {
     return {
@@ -2630,7 +2926,7 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
     });
   }
 
-  const run = readFileBackedCodeAgentRun(runFile);
+  const run = readDesktopCodeAgentRun(runId);
   return {
     ok: Boolean(run),
     run: run ?? undefined,
@@ -3069,6 +3365,75 @@ function parseSimpleFrontmatter(raw: string): {
   return { data };
 }
 
+function getCodeAgentLlmProviderStatus(): NonNullable<
+  CodeAgentHostMetadata["llmProvider"]
+> {
+  if (process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE !== undefined) {
+    return {
+      configured: true,
+      label: "Fake Agent-Native Code",
+      configuredProviders: ["Fake Agent-Native Code"],
+      missingEnvVars: [],
+    };
+  }
+
+  const settings = AppStore.getCodeAgentProviderSettingsStatus();
+  const configuredProviders = [
+    ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
+    ...settings.configuredProviders,
+  ];
+
+  return {
+    configured: configuredProviders.length > 0,
+    label: configuredProviders[0],
+    configuredProviders,
+    missingEnvVars: CODE_AGENT_PROVIDER_SETTING_KEYS.filter(
+      (key) => !process.env[key],
+    ),
+  };
+}
+
+function hasCodeAgentLlmProvider(): boolean {
+  return getCodeAgentLlmProviderStatus().configured;
+}
+
+function getCodeAgentProviderSettings(): CodeAgentProviderSettings {
+  return AppStore.getCodeAgentProviderSettingsStatus();
+}
+
+function updateCodeAgentProviderSettings(
+  input: unknown,
+): CodeAgentProviderSettingsUpdateResult {
+  const payload = isObject(input) ? input : {};
+  const updates: CodeAgentProviderSettingsUpdate = {};
+  for (const key of CODE_AGENT_PROVIDER_SETTING_KEYS) {
+    if (!(key in payload)) continue;
+    const value = payload[key];
+    if (value === null) {
+      updates[key] = null;
+    } else if (typeof value === "string") {
+      updates[key] = value;
+    }
+  }
+  try {
+    const settings = AppStore.saveCodeAgentProviderCredentials(updates);
+    return {
+      ok: true,
+      settings,
+      message: settings.configured
+        ? "Code provider settings saved."
+        : "Code provider settings cleared.",
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      settings: AppStore.getCodeAgentProviderSettingsStatus(),
+      message: "Could not save code provider settings.",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
   try {
     const cwd = resolveCodeAgentsTerminalCwd({});
@@ -3097,6 +3462,7 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
         cliEntry,
         available: fs.existsSync(cliEntry),
       },
+      llmProvider: getCodeAgentLlmProviderStatus(),
       capabilities: {
         fileBackedRuns: true,
         nativeTaskRunner: true,
@@ -3123,6 +3489,7 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
       storeRoot: codeAgentStoreRoot(),
       runsDir: codeAgentRunsDir(),
       transcriptsDir: codeAgentEventsDir(),
+      llmProvider: getCodeAgentLlmProviderStatus(),
       capabilities: {
         fileBackedRuns: true,
         nativeTaskRunner: false,
@@ -3174,9 +3541,7 @@ function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
   if (activeCodeAgentProcesses.has(runId)) {
     return {
       ok: true,
-      run:
-        readFileBackedCodeAgentRun(codeAgentRunFilePath(runId) ?? "") ??
-        undefined,
+      run: readDesktopCodeAgentRun(runId) ?? undefined,
       message: "This Agent-Native Code run is already running.",
     };
   }
@@ -3228,14 +3593,14 @@ function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
   spawnCodeAgentRunner(runId, cwd, permissionMode);
   return {
     ok: true,
-    run:
-      readFileBackedCodeAgentRun(codeAgentRunFilePath(runId) ?? "") ??
-      undefined,
+    run: readDesktopCodeAgentRun(runId) ?? undefined,
     message: "Retry started for this Agent-Native Code run.",
   };
 }
 
-function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
+async function controlCodeAgentRun(
+  input: unknown,
+): Promise<CodeAgentControlResult> {
   const payload = input && typeof input === "object" ? input : {};
   const record = payload as Record<string, unknown>;
   const command = record.command as CodeAgentControlCommand | undefined;
@@ -3279,32 +3644,19 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
     };
   }
 
+  if (permissionMode) {
+    touchCodeAgentRunRecord(runId, {
+      permissionMode,
+      metadata: { permissionMode },
+    });
+  }
+
   if (command === "approve" && goal.surfaceKind === "native") {
-    const runRecord = readCodeAgentRunRecord(runId);
-    if (!runRecord) {
-      return {
-        ok: false,
-        command,
-        action: "none",
-        message: "Agent-Native Code session was not found.",
-        error: `No run record exists for ${runId}.`,
-      };
-    }
-    const metadata = isObject(runRecord.metadata) ? runRecord.metadata : null;
-    const pendingApproval = isObject(metadata?.pendingApproval)
-      ? metadata.pendingApproval
-      : null;
-    if (!pendingApproval) {
-      return {
-        ok: true,
-        command,
-        action: "refresh",
-        message: "No pending approval was found for this run.",
-      };
-    }
-    const cwd =
-      getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
-    return spawnCodeAgentApprovalRunner(runId, cwd);
+    const result = await desktopCodeBackgroundAgentController.control({
+      runId,
+      command,
+    });
+    return backgroundControlResultToDesktopControlResult(command, result);
   }
 
   if (command === "approve") {
@@ -3317,27 +3669,11 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
   }
 
   if (command === "resume" && goal.surfaceKind === "native") {
-    const runRecord = readCodeAgentRunRecord(runId);
-    const cwd =
-      getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
-    appendCodeAgentStatusEvent(runId, "Resume requested from Desktop.", {
-      source: "desktop",
-      command: "resume",
-      ...(permissionMode ? { permissionMode } : {}),
-    });
-    if (permissionMode) {
-      touchCodeAgentRunRecord(runId, {
-        permissionMode,
-        metadata: { permissionMode },
-      });
-    }
-    spawnCodeAgentRunner(runId, cwd, permissionMode);
-    return {
-      ok: true,
+    const result = await desktopCodeBackgroundAgentController.control({
+      runId,
       command,
-      action: "refresh",
-      message: "Agent-Native Code runner started.",
-    };
+    });
+    return backgroundControlResultToDesktopControlResult(command, result);
   }
 
   if (command === "resume") {
@@ -3357,82 +3693,11 @@ function controlCodeAgentRun(input: unknown): CodeAgentControlResult {
     };
   }
   if (command === "stop") {
-    const active = activeCodeAgentProcesses.get(runId);
-    const record = readCodeAgentRunRecord(runId);
-    const status = getRecordString(record, "status");
-    const phase = getRecordString(record, "phase");
-    if (
-      status === "completed" ||
-      status === "errored" ||
-      phase === "complete" ||
-      phase === "error"
-    ) {
-      return {
-        ok: true,
-        command,
-        action: "refresh",
-        message: "This Agent-Native Code run is already finished.",
-      };
-    }
-    const metadata = isObject(record?.metadata) ? record.metadata : null;
-    const pid = active?.pid ?? Number(metadata?.runnerPid);
-    if (Number.isFinite(pid) && pid > 0) {
-      try {
-        process.kill(pid, "SIGTERM");
-        activeCodeAgentProcesses.delete(runId);
-        appendCodeAgentStatusEvent(
-          runId,
-          "Stop requested for Agent-Native Code run.",
-          {
-            source: "desktop",
-            pid,
-          },
-        );
-        touchCodeAgentRunRecord(runId, {
-          status: "paused",
-          phase: "stopped",
-          metadata: {
-            runnerStoppedAt: new Date().toISOString(),
-          },
-        });
-        return {
-          ok: true,
-          command,
-          action: "refresh",
-          message: "Stop requested for this Agent-Native Code run.",
-        };
-      } catch (err) {
-        return {
-          ok: false,
-          command,
-          action: "none",
-          message: "Could not stop this Agent-Native Code process.",
-          error: err instanceof Error ? err.message : String(err),
-        };
-      }
-    }
-    appendCodeAgentStatusEvent(
+    const result = await desktopCodeBackgroundAgentController.control({
       runId,
-      "Stop requested for Agent-Native Code run, but no active process was registered.",
-      {
-        source: "desktop",
-      },
-    );
-    touchCodeAgentRunRecord(runId, {
-      status: "paused",
-      phase: "stopped",
-      metadata: {
-        runnerState: "stopped",
-        runnerStoppedAt: new Date().toISOString(),
-      },
-    });
-    return {
-      ok: true,
       command,
-      action: "refresh",
-      message:
-        "No active Agent-Native Code process is registered for this run.",
-    };
+    });
+    return backgroundControlResultToDesktopControlResult(command, result);
   }
 
   return {
@@ -3468,7 +3733,7 @@ ipcMain.handle(
         error: `Unknown Agent-Native Code goal: ${goalId}`,
       });
     }
-    const runs = listFileBackedCodeAgentRuns(goal.id);
+    const runs = listDesktopCodeAgentRuns(goal.id);
     return Promise.resolve({
       status: "ok",
       goalId: goal.id,
@@ -3491,8 +3756,10 @@ ipcMain.handle(
 
 ipcMain.handle(
   IPC.CODE_AGENTS_APPEND_FOLLOW_UP,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentFollowUpResult =>
-    appendCodeAgentFollowUp(input),
+  (
+    _event: IpcMainInvokeEvent,
+    input: unknown,
+  ): Promise<CodeAgentFollowUpResult> => appendCodeAgentFollowUp(input),
 );
 
 ipcMain.handle(
@@ -3515,13 +3782,29 @@ ipcMain.handle(
 
 ipcMain.handle(
   IPC.CODE_AGENTS_CONTROL_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentControlResult =>
-    controlCodeAgentRun(input),
+  (
+    _event: IpcMainInvokeEvent,
+    input: unknown,
+  ): Promise<CodeAgentControlResult> => controlCodeAgentRun(input),
 );
 
 ipcMain.handle(
   IPC.CODE_AGENTS_GET_HOST_METADATA,
   (): CodeAgentHostMetadata => getCodeAgentHostMetadata(),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_PROVIDER_SETTINGS_GET,
+  (): CodeAgentProviderSettings => getCodeAgentProviderSettings(),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_PROVIDER_SETTINGS_UPDATE,
+  (
+    _event: IpcMainInvokeEvent,
+    input: unknown,
+  ): CodeAgentProviderSettingsUpdateResult =>
+    updateCodeAgentProviderSettings(input),
 );
 
 ipcMain.handle(
@@ -3564,7 +3847,7 @@ ipcMain.handle(
     Promise.resolve({
       status: "ok",
       goalId: "migrate",
-      runs: listFileBackedCodeAgentRuns("migrate"),
+      runs: listDesktopCodeAgentRuns("migrate"),
     }),
 );
 
@@ -4027,6 +4310,30 @@ function openMatchedOAuthUrl(
   openOAuthWindow(url, sourceSession, provider, sourceUrl);
 }
 
+function isAllowedOAuthChildPopup(provider: OAuthProvider, url: URL): boolean {
+  const host = url.hostname.toLowerCase();
+  if (provider.name === "builder") {
+    return (
+      host === "accounts.google.com" ||
+      host.endsWith(".google.com") ||
+      host.endsWith(".gstatic.com") ||
+      host.endsWith(".firebaseapp.com") ||
+      host === "builder.io" ||
+      host.endsWith(".builder.io") ||
+      host === "builder.my" ||
+      host.endsWith(".builder.my")
+    );
+  }
+  if (provider.name === "google") {
+    return (
+      host === "accounts.google.com" ||
+      host.endsWith(".google.com") ||
+      host.endsWith(".gstatic.com")
+    );
+  }
+  return provider.matches(url);
+}
+
 function openOAuthWindow(
   url: string,
   sourceSession: Electron.Session | undefined,
@@ -4072,6 +4379,10 @@ function openOAuthWindow(
     try {
       const parsed = new URL(childUrl);
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        return { action: "deny" as const };
+      }
+      if (!isAllowedOAuthChildPopup(provider, parsed)) {
+        openExternalUrl(childUrl);
         return { action: "deny" as const };
       }
     } catch {
@@ -4235,6 +4546,39 @@ function openOAuthFromWebviewNavigation(
   }
 }
 
+function handleWindowOpenForContents(
+  contents: Electron.WebContents,
+  url: string,
+) {
+  if (handleDesktopProtocolUrl(url)) {
+    return { action: "deny" as const };
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return { action: "deny" as const };
+    }
+    const provider = matchOAuthProvider(url, {
+      sourceUrl: contents.getURL(),
+    });
+    if (provider) {
+      openMatchedOAuthUrl(
+        url,
+        parsed,
+        contents.session,
+        provider,
+        contents.getURL(),
+      );
+    } else {
+      openExternalUrl(url);
+    }
+  } catch {
+    // malformed URL — ignore
+  }
+  return { action: "deny" as const };
+}
+
 function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
   if (webviewOAuthNavigationHandlers.has(contents)) return;
   webviewOAuthNavigationHandlers.add(contents);
@@ -4273,31 +4617,16 @@ app.on("web-contents-created", (_event, contents) => {
   installContextMenu(contents);
 
   if (contents.getType() !== "webview") {
+    contents.setWindowOpenHandler(({ url }) =>
+      handleWindowOpenForContents(contents, url),
+    );
     contents.on("did-attach-webview" as any, (_e: any, wc: any) => {
       installContextMenu(wc);
       installWebviewReloadGuard(wc);
       installWebviewOAuthNavigationHandler(wc);
 
       wc.setWindowOpenHandler(({ url }: any) => {
-        if (handleDesktopProtocolUrl(url)) {
-          return { action: "deny" as const };
-        }
-
-        try {
-          const parsed = new URL(url);
-          if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-            return { action: "deny" as const };
-          }
-          const provider = matchOAuthProvider(url, { sourceUrl: wc.getURL() });
-          if (provider) {
-            openMatchedOAuthUrl(url, parsed, wc.session, provider, wc.getURL());
-          } else {
-            shell.openExternal(url).catch(() => {});
-          }
-        } catch {
-          // malformed URL — ignore
-        }
-        return { action: "deny" as const };
+        return handleWindowOpenForContents(wc, url);
       });
     });
     return;
@@ -4307,33 +4636,7 @@ app.on("web-contents-created", (_event, contents) => {
   installWebviewOAuthNavigationHandler(contents);
 
   contents.setWindowOpenHandler(({ url }) => {
-    if (handleDesktopProtocolUrl(url)) {
-      return { action: "deny" };
-    }
-
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-        return { action: "deny" };
-      }
-      const provider = matchOAuthProvider(url, {
-        sourceUrl: contents.getURL(),
-      });
-      if (provider) {
-        openMatchedOAuthUrl(
-          url,
-          parsed,
-          contents.session,
-          provider,
-          contents.getURL(),
-        );
-      } else {
-        shell.openExternal(url).catch(() => {});
-      }
-    } catch {
-      // malformed URL — ignore
-    }
-    return { action: "deny" };
+    return handleWindowOpenForContents(contents, url);
   });
 
   // Forward keyboard shortcuts from focused webview guests to the shell
@@ -4545,6 +4848,8 @@ app.whenReady().then(() => {
     { role: "windowMenu" as const },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+
+  AppStore.applyCodeAgentProviderCredentialsToEnv();
 
   const win = createWindow();
   remoteConnectorEnabled = AppStore.loadRemoteConnectorSettings().enabled;

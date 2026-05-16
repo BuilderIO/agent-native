@@ -28,6 +28,7 @@ import {
 } from "@tabler/icons-react";
 import {
   type BrainConnectionProvider,
+  type BrainHealthResponse,
   type BrainCaptureReviewStatus,
   type BrainCaptureReviewItem,
   type EnqueueCapturesDistillationResponse,
@@ -1895,6 +1896,68 @@ function PilotReportCard({
   );
 }
 
+function BrainHealthStrip({
+  health,
+  loading,
+}: {
+  health?: BrainHealthResponse;
+  loading: boolean;
+}) {
+  const attention =
+    (health?.sources.needsSetup ?? 0) +
+    (health?.sources.needsSync ?? 0) +
+    (health?.sources.stale ?? 0) +
+    (health?.sources.error ?? 0);
+  const lastEval = health?.retrieval.lastEval;
+  const nextStep = health?.setup.nextSteps[0];
+
+  return (
+    <section className="grid gap-3 rounded-md border border-border bg-card p-4 shadow-none lg:col-span-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <IconReportAnalytics className="size-4 text-muted-foreground" />
+            <h2 className="text-sm font-medium">Brain health</h2>
+            {loading ? (
+              <Badge variant="outline" className="gap-1.5">
+                <IconLoader2 className="size-3 animate-spin" />
+                Checking
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            {nextStep ??
+              "Sources, review queue, and retrieval checks are ready for normal use."}
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-flow-col sm:auto-cols-max">
+          <Badge variant="outline" className="justify-center gap-1.5">
+            <IconCircleCheck className="size-3" />
+            {health?.sources.healthy ?? 0}/{health?.sources.total ?? 0} healthy
+          </Badge>
+          {attention ? (
+            <Badge variant="outline" className="justify-center gap-1.5">
+              <IconAlertTriangle className="size-3" />
+              {attention} attention
+            </Badge>
+          ) : null}
+          <Badge variant="outline" className="justify-center gap-1.5">
+            <IconClock className="size-3" />
+            {health?.sources.lastSyncedAt
+              ? `Last sync ${shortDate(health.sources.lastSyncedAt)}`
+              : "No sync yet"}
+          </Badge>
+          {lastEval ? (
+            <Badge variant="outline" className="justify-center gap-1.5">
+              Eval {Math.round(lastEval.score * 100)}%
+            </Badge>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function SourcesRoute() {
   const [params, setParams] = useSearchParams();
   const type = params.get("type") ?? "all";
@@ -1927,6 +1990,10 @@ export default function SourcesRoute() {
   );
   const connectionProvidersQuery = useActionQuery<ConnectionProvidersResponse>(
     "list-connection-providers" as any,
+    {} as any,
+  );
+  const healthQuery = useActionQuery<BrainHealthResponse>(
+    "get-brain-health" as any,
     {} as any,
   );
   const updateSource = useActionMutation<
@@ -2228,6 +2295,11 @@ export default function SourcesRoute() {
       />
 
       <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-3 lg:p-7">
+        <BrainHealthStrip
+          health={healthQuery.data}
+          loading={healthQuery.isLoading}
+        />
+
         <ProviderCatalog
           providers={connectionProviders}
           loading={connectionProvidersQuery.isLoading}

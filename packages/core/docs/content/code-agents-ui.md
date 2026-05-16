@@ -5,13 +5,21 @@ description: "Build and customize Agent-Native Code surfaces with the shared UI 
 
 # Agent-Native Code UI
 
-Agent-Native Code is the Agent-Native coding surface: a local Claude Code/Codex-style workspace for coding sessions, slash commands, migrations, audits, transcripts, and follow-ups.
+Agent-Native Code is the Agent-Native coding surface: a local Claude Code/Codex-style workspace for coding sessions, slash commands, migrations, audits, transcripts, run controls, and follow-ups. A bare `npx @agent-native/core@latest` or installed `agent-native` command opens this workspace; `agent-native code` is the explicit subcommand for the same experience.
 
 There are three layers:
 
-- **CLI**: `npx @agent-native/core@latest code` starts and resumes runs.
-- **Desktop**: the left-sidebar Code surface adds native terminal launch, app webviews, and desktop deep links.
+- **CLI**: `npx @agent-native/core@latest`, `agent-native`, and `agent-native code` start, resume, inspect, and stop runs.
+- **Desktop**: the left-sidebar Code tab adds native terminal launch, app webviews, and desktop deep links while using the same run model.
 - **Shared UI**: `@agent-native/code-agents-ui` renders the reusable React surface.
+
+The current split is intentionally converging: the standard agent sidebar and
+Agent Teams run on the core `run-manager` lifecycle, while Agent-Native Code
+uses local long-running sessions backed by the file-based Code run store and the
+shared background-run controller vocabulary. New surfaces should build on the
+shared background-run adapter/foundation instead of inventing another
+lifecycle, so CLI, Desktop, background sessions, and sub-agents keep moving
+toward one run model.
 
 The shared UI is host-driven. It does not know whether it is running in Electron, a browser template, or a future hosted shell. Hosts provide a `CodeAgentsHost` implementation.
 
@@ -36,6 +44,13 @@ export function CodeSurface() {
   return <CodeAgentsApp apps={[]} host={host} />;
 }
 ```
+
+Hosts can mix run sources in the same list. Local Agent-Native Code sessions
+can appear next to Agent Teams or other background-run adapters as long as each
+entry normalizes to `CodeAgentRun`. When a host supplies `sourceLabel`,
+`source`, or `kind`, the hub renders a small source label such as "Local Code"
+or "Agent Teams" in the run list and selected-session header. Omit those fields
+for a single-source surface; the empty state and base layout stay unchanged.
 
 ## Desktop Host
 
@@ -81,6 +96,75 @@ The template wraps the local run store through normal actions:
 - `control-code-agent-run`
 
 It uses `@agent-native/core/code-agents`, which exposes the same file-backed run store and executor used by the CLI.
+
+## CLI Run Controls
+
+The top-level CLI behaves like Claude Code or Codex:
+
+```bash
+npx @agent-native/core@latest
+agent-native
+agent-native "fix the failing auth tests"
+agent-native code
+```
+
+Use `agent-native code` when you want the explicit namespace. Built-in slash
+goals and project commands can run inside the interactive workspace or directly
+from the shell:
+
+```bash
+agent-native code /migrate ./legacy-app --emit ./migration-dossier
+agent-native code /audit --url https://example.com
+agent-native code /release-check
+```
+
+Project commands come from `.agents/commands/*.md`; project skills come from
+`.agents/skills/*/SKILL.md`. The control commands operate on the same run
+records that the Desktop Code tab and shared UI display:
+
+```bash
+agent-native code list
+agent-native code status --last
+agent-native code attach --last
+agent-native code logs --last
+agent-native code resume --last
+agent-native code stop --last
+agent-native code ui
+```
+
+`resume` appends context and continues a run, `status` reports the latest run
+state, `stop` asks the active controller to halt work, and `ui` opens the local
+Code surface. These are run controls, not a separate implementation path.
+
+For cross-surface lists, dashboards, or monitoring panes, prefer the shared
+background-run exports from `@agent-native/core/code-agents` over reading Code
+run files directly. They normalize local Code sessions into the same vocabulary
+used by hosted background work: run id, status, cwd, needs-input,
+needs-approval, transcript events, and artifact root.
+
+Hosted Agent Teams are also exposed from the agent chat route for browser
+hosts that need a Code hub-compatible list without direct server imports:
+`GET /_agent-native/agent-chat/runs/list?goalId=agent-team` returns
+`{ status: "ok", goalId, runs }`, where each run includes `kind`,
+`source`, `sourceLabel`, `status`, `title`, timestamps, and task metadata.
+`GET /_agent-native/agent-chat/runs/:id/background-events` returns the
+shared background transcript events for an Agent Teams run.
+
+Adapter-backed hosts may also attach source metadata:
+
+```ts
+{
+  id: run.id,
+  goalId: "task",
+  title: run.title,
+  source: "agent-teams",
+  sourceLabel: "Agent Teams",
+  kind: "background-run",
+  status: run.status,
+  createdAt: run.createdAt,
+  updatedAt: run.updatedAt,
+}
+```
 
 ## Run Store
 
@@ -170,6 +254,8 @@ Background coding-agent work should reuse the same harness as the rest of
 Agent-Native:
 
 - Use the Code run store/executor for local Code sessions.
+- Use the shared background-run adapter/foundation when a surface needs to list,
+  inspect, or bridge local Code sessions alongside other background work.
 - Use core `run-manager` for hosted agent runs so streams, aborts, heartbeats,
   resumability, soft timeouts, and stuck-run cleanup behave consistently.
 - Use `agent-teams` / `spawnTask()` when the UI is delegating work to a
@@ -179,6 +265,11 @@ Do not add a parallel background-agent runner just because a new surface needs a
 different layout. Build a host adapter or UI slot on top of the shared harness
 instead.
 
+Regression rule for new prompt or background surfaces: Code, Brain, and the
+standard sidebar must keep using `PromptComposer` through the shared composer
+stack, and background work must use the Code run store, the background-run
+adapter, `run-manager`, or `agent-teams` rather than a bespoke queue/runner.
+
 ## Follow-Ups
 
 Follow-ups on active runs support two delivery modes:
@@ -187,6 +278,11 @@ Follow-ups on active runs support two delivery modes:
 - **Queue** runs after the current turn finishes.
 
 Inactive runs keep the compatible behavior: the follow-up is appended and the run resumes immediately.
+
+That gives Code the same user-facing two-way messaging shape as Agent Teams:
+the user can keep talking to active work, but execution only consumes that
+message at a safe continuation point. If a runner cannot steer immediately, it
+must persist the follow-up as queued work rather than dropping or racing it.
 
 ## Remote Dispatch
 

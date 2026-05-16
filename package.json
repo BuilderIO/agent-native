@@ -46,7 +46,7 @@
     "dev:all": "node scripts/dev-all.ts",
     "dev:all:desktop": "node scripts/dev-all.ts --desktop",
     "dev:lazy": "node scripts/dev-lazy.ts",
-    "dev:lazy:desktop": "node scripts/dev-lazy.ts --desktop",
+    "dev:lazy:desktop": "node scripts/dev-lazy.ts --desktop --electron",
     "dev:docs": "pnpm --filter @agent-native/docs dev",
     "dev:electron": "node scripts/dev-electron.ts",
     "dev:electron:lazy": "node scripts/dev-lazy.ts --electron",

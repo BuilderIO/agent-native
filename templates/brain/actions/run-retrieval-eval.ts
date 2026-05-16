@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+import { writeBrainEvalSnapshot } from "../server/lib/brain-health.js";
 import { runBrainRetrievalEval } from "../server/lib/demo.js";
 
 export default defineAction({
@@ -19,6 +20,12 @@ export default defineAction({
         "When seeding fallback data, also publish selected canonical facts to workspace resources.",
       ),
   }),
-  run: async ({ seedIfMissing, publishCanonical }) =>
-    runBrainRetrievalEval({ seedIfMissing, publishCanonical }),
+  run: async ({ seedIfMissing, publishCanonical }) => {
+    const result = await runBrainRetrievalEval({
+      seedIfMissing,
+      publishCanonical,
+    });
+    await writeBrainEvalSnapshot(result);
+    return result;
+  },
 });

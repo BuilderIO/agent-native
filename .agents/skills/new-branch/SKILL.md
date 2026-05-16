@@ -1,6 +1,9 @@
 ---
 name: new-branch
-description: Only when explicitly asked for /new-branch or a fresh git branch: stash local changes, update main, and create it. Do not auto-run for normal coding, PR, Builder.io, or Fusion branch workflows.
+description: >-
+  Only when explicitly asked for /new-branch or a fresh git branch: stash local
+  changes, update main, and create it. Do not auto-run for normal coding, PR,
+  Builder.io, or Fusion branch workflows.
 user_invocable: true
 ---
 

@@ -236,6 +236,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 import askBrainAction from "../actions/ask-brain.js";
+import { tryAnswerBrainA2AQuestion } from "../server/lib/a2a-fallback.js";
 import { searchEverythingRows } from "../server/lib/search.js";
 
 function resetRows() {
@@ -321,7 +322,7 @@ beforeEach(resetRows);
 
 describe("Brain Slack pilot eval corpus", () => {
   it("covers the real pilot follow-up topics with a durable question set", () => {
-    expect(slackPilotEvalCases).toHaveLength(12);
+    expect(slackPilotEvalCases).toHaveLength(16);
     expect(slackPilotEvalCases.map((item) => item.id)).toEqual([
       "reasoning-effort-control",
       "fusion-missing-branch-pr-13340",
@@ -334,6 +335,10 @@ describe("Brain Slack pilot eval corpus", () => {
       "pilot-eval-citations",
       "dev-fusion-project-settings-revert",
       "dev-fusion-tanstack-compromise",
+      "connector-eval-gate-product-rationale",
+      "import-review-policy",
+      "architecture-sql-retrieval",
+      "superseded-decisions-narration",
       "unsupported-office-catering",
     ]);
   });
@@ -349,8 +354,8 @@ describe("Brain Slack pilot eval corpus", () => {
     expect(report.checks.filter((check) => !check.passed)).toEqual([]);
     expect(report).toMatchObject({
       ok: true,
-      passed: 12,
-      total: 12,
+      passed: 16,
+      total: 16,
       score: 1,
     });
   });
@@ -451,5 +456,29 @@ describe("Brain Slack pilot eval corpus", () => {
     expect(result.citations).toEqual([]);
     expect(result.knowledge).toEqual([]);
     expect(result.captures).toEqual([]);
+  });
+
+  it("answers Brain A2A questions deterministically when citations exist", async () => {
+    const result = await tryAnswerBrainA2AQuestion(
+      "What should Brain do when citation support is missing?",
+    );
+
+    expect(result).toContain("When citation support is missing");
+    expect(result).toContain("Sources:");
+    expect(result).toContain("https://slack.example.com/");
+  });
+
+  it("leaves unanswerable or mutating A2A messages for the normal agent path", async () => {
+    await expect(
+      tryAnswerBrainA2AQuestion(
+        "Which office snack supplier catered the Friday lunch?",
+      ),
+    ).resolves.toBeNull();
+
+    await expect(
+      tryAnswerBrainA2AQuestion(
+        "Import what should Brain do when citation support is missing?",
+      ),
+    ).resolves.toBeNull();
   });
 });

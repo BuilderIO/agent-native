@@ -13,7 +13,9 @@
     "meeting-notif",
     "meeting-nub",
     "flow-bar",
-    "recording-pill"
+    "recording-pill",
+    "region-guides",
+    "region-guide-editor"
   ],
   "permissions": [
     "core:default",
@@ -32,6 +34,7 @@
     "process:default",
     "autostart:default",
     "process:allow-restart",
-    "notification:default"
+    "notification:default",
+    "fs:allow-video-write-recursive"
   ]
 }

@@ -1,4 +1,4 @@
-import { app } from "electron";
+import { app, safeStorage } from "electron";
 import fs from "fs";
 import path from "path";
 import {
@@ -6,11 +6,62 @@ import {
   TEMPLATE_APPS,
   type AppConfig,
 } from "@shared/app-registry";
+import type {
+  CodeAgentProviderCredentialKey,
+  CodeAgentProviderSettings,
+  CodeAgentProviderSettingsUpdate,
+  CodeAgentProviderStatus,
+} from "@shared/ipc-channels";
 
 const STORE_FILE = "app-config.json";
 const FRAME_STORE_FILE = "frame-config.json";
 const REMOTE_CONNECTOR_STORE_FILE = "remote-connector-config.json";
+const CODE_AGENT_PROVIDER_STORE_FILE = "code-agent-providers.json";
 const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
+
+type StoredSecret =
+  | { encoding: "safeStorage-v1"; value: string; updatedAt?: string }
+  | { encoding: "plain"; value: string; updatedAt?: string };
+
+interface CodeAgentProviderStore {
+  version: 1;
+  credentials: Partial<Record<CodeAgentProviderCredentialKey, StoredSecret>>;
+}
+
+const CODE_AGENT_PROVIDER_DEFINITIONS: Array<{
+  id: CodeAgentProviderStatus["id"];
+  label: string;
+  keys: CodeAgentProviderCredentialKey[];
+}> = [
+  {
+    id: "builder",
+    label: "Builder.io",
+    keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    keys: ["ANTHROPIC_API_KEY"],
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    keys: ["OPENAI_API_KEY"],
+  },
+  {
+    id: "google",
+    label: "Gemini",
+    keys: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+  },
+];
+
+const CODE_AGENT_PROVIDER_KEYS = CODE_AGENT_PROVIDER_DEFINITIONS.flatMap(
+  (provider) => provider.keys,
+);
+
+const INITIAL_CODE_AGENT_PROVIDER_ENV = new Map(
+  CODE_AGENT_PROVIDER_KEYS.map((key) => [key, process.env[key]]),
+);
 
 /** Settings for the local dev frame */
 export interface FrameSettings {
@@ -97,6 +148,157 @@ function getFrameStorePath(): string {
 
 function getRemoteConnectorStorePath(): string {
   return path.join(app.getPath("userData"), REMOTE_CONNECTOR_STORE_FILE);
+}
+
+function getCodeAgentProviderStorePath(): string {
+  return path.join(app.getPath("userData"), CODE_AGENT_PROVIDER_STORE_FILE);
+}
+
+function defaultCodeAgentProviderStore(): CodeAgentProviderStore {
+  return { version: 1, credentials: {} };
+}
+
+function loadCodeAgentProviderStore(): CodeAgentProviderStore {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(getCodeAgentProviderStorePath(), "utf-8"),
+    ) as Partial<CodeAgentProviderStore>;
+    return {
+      version: 1,
+      credentials:
+        raw.credentials && typeof raw.credentials === "object"
+          ? raw.credentials
+          : {},
+    };
+  } catch {
+    return defaultCodeAgentProviderStore();
+  }
+}
+
+function saveCodeAgentProviderStore(store: CodeAgentProviderStore): void {
+  const storePath = getCodeAgentProviderStorePath();
+  fs.writeFileSync(
+    storePath,
+    JSON.stringify(store, null, 2),
+    { encoding: "utf-8", mode: 0o600 },
+  );
+  try {
+    fs.chmodSync(storePath, 0o600);
+  } catch {
+    // Best effort: the file still lives inside Electron's userData directory.
+  }
+}
+
+function encryptProviderSecret(value: string): StoredSecret {
+  if (safeStorage.isEncryptionAvailable()) {
+    return {
+      encoding: "safeStorage-v1",
+      value: safeStorage.encryptString(value).toString("base64"),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  return {
+    encoding: "plain",
+    value,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function decryptProviderSecret(
+  secret: StoredSecret | undefined,
+): string | null {
+  if (!secret?.value) return null;
+  if (secret.encoding === "plain") return secret.value;
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(secret.value, "base64"));
+  } catch {
+    return null;
+  }
+}
+
+export function loadCodeAgentProviderCredentials(): Partial<
+  Record<CodeAgentProviderCredentialKey, string>
+> {
+  const store = loadCodeAgentProviderStore();
+  const credentials: Partial<Record<CodeAgentProviderCredentialKey, string>> =
+    {};
+  for (const key of CODE_AGENT_PROVIDER_KEYS) {
+    const value = decryptProviderSecret(store.credentials[key]);
+    if (value) credentials[key] = value;
+  }
+  return credentials;
+}
+
+export function saveCodeAgentProviderCredentials(
+  updates: CodeAgentProviderSettingsUpdate,
+): CodeAgentProviderSettings {
+  const store = loadCodeAgentProviderStore();
+  for (const key of CODE_AGENT_PROVIDER_KEYS) {
+    if (!(key in updates)) continue;
+    const value = updates[key]?.trim() ?? "";
+    if (!value) {
+      delete store.credentials[key];
+    } else {
+      store.credentials[key] = encryptProviderSecret(value);
+    }
+  }
+  saveCodeAgentProviderStore(store);
+  applyCodeAgentProviderCredentialsToEnv();
+  return getCodeAgentProviderSettingsStatus();
+}
+
+export function applyCodeAgentProviderCredentialsToEnv(): void {
+  const credentials = loadCodeAgentProviderCredentials();
+  for (const key of CODE_AGENT_PROVIDER_KEYS) {
+    const value = credentials[key] ?? INITIAL_CODE_AGENT_PROVIDER_ENV.get(key);
+    if (value) {
+      process.env[key] = value;
+    } else {
+      delete process.env[key];
+    }
+  }
+}
+
+export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings {
+  const savedCredentials = loadCodeAgentProviderCredentials();
+  const providers = CODE_AGENT_PROVIDER_DEFINITIONS.map((provider) => {
+    const configuredKeys = provider.keys.filter((key) =>
+      Boolean(process.env[key]),
+    );
+    const savedKeys = provider.keys.filter((key) =>
+      Boolean(savedCredentials[key]),
+    );
+    const missingKeys = provider.keys.filter((key) => !process.env[key]);
+    const configured = missingKeys.length === 0;
+    const hasSaved = savedKeys.length > 0;
+    const hasEnv = configuredKeys.some((key) => !savedCredentials[key]);
+    const source: CodeAgentProviderStatus["source"] | undefined = configured
+      ? hasSaved && hasEnv
+        ? "mixed"
+        : hasSaved
+          ? "desktop-settings"
+          : "environment"
+      : undefined;
+    return {
+      id: provider.id,
+      label: provider.label,
+      configured,
+      configuredKeys,
+      missingKeys,
+      savedKeys,
+      source,
+    };
+  });
+  return {
+    configured: providers.some((provider) => provider.configured),
+    configuredProviders: providers
+      .filter((provider) => provider.configured)
+      .map((provider) => provider.label),
+    providers,
+    encryptionAvailable: safeStorage.isEncryptionAvailable(),
+    storagePath: getCodeAgentProviderStorePath(),
+  };
 }
 
 export function loadFrameSettings(): FrameSettings {

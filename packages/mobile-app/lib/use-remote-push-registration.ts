@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
-import * as Notifications from "expo-notifications";
 
 import { registerRemotePushToken } from "@/lib/remote-sessions-api";
 
@@ -24,27 +23,50 @@ type ExpoConstantsWithEas = typeof Constants & {
   };
 };
 
+type ExpoExtra = {
+  disableRemotePush?: boolean;
+  eas?: { projectId?: string };
+};
+
+function getExpoExtra(): ExpoExtra | undefined {
+  return Constants.expoConfig?.extra as ExpoExtra | undefined;
+}
+
+function isRemotePushDisabled(): boolean {
+  return getExpoExtra()?.disableRemotePush === true;
+}
+
 function getProjectId(): string | undefined {
   const constants = Constants as ExpoConstantsWithEas;
-  const extra = constants.expoConfig?.extra as
-    | { eas?: { projectId?: string } }
-    | undefined;
+  const extra = getExpoExtra();
   return extra?.eas?.projectId ?? constants.easConfig?.projectId;
 }
 
 export function useRemotePushRegistration() {
+  const pushDisabled = isRemotePushDisabled();
   const [state, setState] = useState<PushRegistrationState>({
-    status: "idle",
-    message: "Push alerts are off for remote code-agent sessions.",
+    status: pushDisabled ? "unsupported" : "idle",
+    message: pushDisabled
+      ? "Push alerts are disabled for this preview build."
+      : "Push alerts are off for remote code-agent sessions.",
   });
 
   const register = useCallback(async () => {
+    if (pushDisabled) {
+      setState({
+        status: "unsupported",
+        message: "Push alerts are disabled for this preview build.",
+      });
+      return;
+    }
+
     setState({
       status: "requesting",
       message: "Requesting notification permission...",
     });
 
     try {
+      const Notifications = await import("expo-notifications");
       const existing = await Notifications.getPermissionsAsync();
       const permission =
         existing.status === "granted"
@@ -88,7 +110,7 @@ export function useRemotePushRegistration() {
         message: error instanceof Error ? error.message : String(error),
       });
     }
-  }, []);
+  }, [pushDisabled]);
 
   return {
     ...state,

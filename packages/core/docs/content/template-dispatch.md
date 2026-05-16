@@ -27,7 +27,10 @@ If you're running an [multi-app workspace](/docs/multi-app-workspace) with many 
 - **Orchestrator, not specialist.** Dispatch does _not_ try to be the email app or the analytics app. When someone asks "summarize last week's signups," Dispatch calls the analytics agent over A2A and returns the answer. When someone asks "draft a reply to Alice," Dispatch calls the mail agent.
 - **Secrets vault.** A central store for API keys, OAuth tokens, and shared credentials. Apps in the workspace resolve secrets from Dispatch instead of duplicating them in every `.env`. Requests + approvals for sensitive access.
 - **Workspace resources.** Global skills, guardrail instructions, custom agent profiles, and reference resources can be created once in Dispatch. All-app resources are inherited at runtime by every app with no copy or manual sync step; selected grants are for app-specific exceptions.
-- **Integrations catalog.** One page showing every third-party integration — Slack, Telegram, SendGrid, Apollo, etc. — with a "configured / not configured / pending approval" status per app.
+- **Reusable integrations.** One place to connect provider accounts, track
+  credential refs, and grant apps access. Dispatch owns provider identity and
+  app grants; domain apps still own app-specific source choices such as Brain's
+  Slack channel allow-list or Analytics' metric/dashboard configuration.
 - **Scheduled jobs hub.** Cross-app [recurring jobs](/docs/recurring-jobs) live here: "every weekday at 7, pull yesterday's key metrics from analytics and draft a morning summary email."
 - **Dreams.** Dispatch can review recent agent runs, failures, feedback, and successful patterns to propose memory, skill, job, and instruction improvements before anything durable is applied.
 - **Approval flow.** Destructive or external actions (sending money, shipping an outbound email, posting to Slack at scale) can require an admin OK before they fire. Dispatch owns the queue.
@@ -49,6 +52,10 @@ Day-to-day, Dispatch is the place admins and ops folks open to keep the workspac
 
 - **Connect Slack, email, and Telegram** so people can message your agent from wherever they already work. See [Messaging](/docs/messaging) for the wiring steps.
 - **Save shared secrets once.** API keys, OAuth tokens, and service credentials live in the vault and the other apps in your workspace pull from there instead of every team member juggling their own `.env`.
+- **Connect providers once.** Reusable integrations store safe account metadata
+  and credential references, then grant apps such as Brain, Analytics, Mail, or
+  Dispatch access without copying raw secrets. App-specific source
+  configuration stays in the app that uses the provider.
 - **Keep company context global.** Put personas, positioning, messaging, company facts, brand guidelines, and guardrails in Dispatch Resources once, then preview the effective workspace -> app/org -> personal stack for any app/user or inspect the stack from an app card's Context view.
 - **Set up recurring jobs.** "Every Monday at 7am, ask the analytics agent for last week's signups and email me a summary." See [Recurring Jobs](/docs/recurring-jobs).
 - **Review dream proposals.** Dispatch Dreams inspect prior agent runs and create source-backed proposals for what the workspace should remember, which stale notes should be cleaned up, and which repeated lessons should become skills or jobs.

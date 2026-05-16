@@ -129,16 +129,21 @@ manual mode, create grants before syncing.
 
 Dispatch is the control plane for shared workspace integrations. Use these
 actions for third-party provider connections that multiple apps can inherit
-without each app re-entering setup metadata. The provider catalog comes from
-`@agent-native/core/connections`; saved connections and grants come from
-`@agent-native/core/workspace-connections`.
+without each app re-entering setup metadata. Reusable integrations are a
+framework primitive for provider identity, non-secret account metadata, safe
+credential refs, and per-app grants; app-specific source choices stay with the
+app. The provider catalog comes from `@agent-native/core/connections`; saved
+connections and grants come from `@agent-native/core/workspace-connections`.
 
 The `/integrations` UI is the user-facing control plane for this model. It
 lists the reusable provider catalog, saved connected accounts, provider
 readiness, credential ref gaps, and per-app grants for Brain, Analytics, Mail,
 Dispatch, and any discovered workspace apps.
 
-- `list-workspace-connections`: list provider catalog entries, provider readiness, saved workspace connections, app grants, and suggested app grant targets. Pass `provider`, `appId`, `capability`, `templateUse`, or `includeDisabled` to filter. Provider readiness includes `status`, connection counts, required credential ref names, and missing required ref names.
+- `list-workspace-connections`: list provider catalog entries, provider readiness, saved workspace connections, app grants, compact per-connection grant summaries, and suggested app grant targets. Pass `provider`, `appId`, `capability`, `templateUse`, or `includeDisabled` to filter. Provider readiness includes `status`, connection counts, required credential ref names, and missing required ref names. When core audit columns are present, connection and grant rows may include `lastUsedAt`; absent audit fields mean the workspace is on an older schema, while `lastUsedAt: null` means "never used."
+- `plan-workspace-connection-setup`: read-only setup/repair planner for `/integrations`. Pass `provider` for a new connection or `connectionId` for repair. Returns provider metadata, required credential ref names, suggested credential refs, suggested app grants, grant recommendation, and warnings. It never returns secret values.
+- `apply-workspace-connection-setup`: apply a planned setup or repair using credential ref names only. Pass `provider`, optional `connectionId`, label/account metadata, `credentialRefs`, and either `grantMode: "all-apps"` or `grantMode: "selected-apps"` with `selectedApps`. The action rejects obvious raw token shapes; store secret values in Vault/OAuth and pass only ref names here.
+- `preview-workspace-connection-impact`: read-only preview for `revoke-connection`, `disable-connection`, `delete-connection`, or `revoke-app-grant`. Pass `connectionId` and, for app grant revocation, `appId`. It returns safe connection metadata, provider catalog/readiness summary, current grants, used-by apps, likely affected apps such as Brain, Analytics, Mail, and Dispatch, usage recency when available, and recommended confirmation copy. It never returns secret values.
 - `upsert-workspace-connection`: create or update a shared provider connection. Store labels, account metadata, scopes, non-secret config, credential refs, and `allowedApps`; never store raw secret values in connection config. `credentialRefs` are strict references only: `{ key, scope, provider, label }`, where `key` is a Vault/OAuth ref name such as `SLACK_BOT_TOKEN`, not the secret value.
 - `set-workspace-connection-grant`: grant or revoke an app's access to a connection. `allowedApps: []` means all apps; selected access uses explicit `workspace_connection_grants` rows while legacy `allowedApps` remains backward compatible. Common grant targets are `dispatch`, `brain`, `analytics`, and `mail`.
 - `delete-workspace-connection`: delete a shared provider connection and its app grants.
@@ -146,6 +151,27 @@ Dispatch, and any discovered workspace apps.
 When `navigation.view === "integrations"`, `view-screen` returns the provider
 catalog, saved connections, grants, suggested app targets, and any connection
 errors so the agent can answer from the same control-plane state the user sees.
+It also returns compact grant summaries and optional usage recency fields when
+available.
+
+When creating or repairing a shared integration, call
+`plan-workspace-connection-setup` first and then
+`apply-workspace-connection-setup`. Ask the user for credential ref names if
+they are missing; do not ask for or store raw secret values in workspace
+connections. Use selected-app grants for app-specific provider access and
+all-app access only when the provider account is intentionally shared broadly.
+
+Keep the ownership boundary crisp: Dispatch connects, repairs, audits, and
+grants shared provider accounts; the vault stores secret values; Brain owns
+source ingestion, distillation, review, search, and citations; Analytics owns
+data-source interpretation, metric definitions, dashboards, and analyses.
+Today the reusable layer covers credential refs, grant checks, provider
+readiness, safe account metadata, and control-plane audit. It does not make
+OAuth flows, provider-specific readers, ingestion cursors, or app-local source
+configuration generic. When a user asks Dispatch to "connect Slack for Brain"
+or "give Analytics HubSpot", create or reuse the workspace connection and grant
+the target app; leave channel allow-lists, repository lists, metric semantics,
+dashboards, and sync rules in the target app.
 
 New templates should reuse
 `listWorkspaceConnectionProviderCatalogForApp()`,
@@ -222,6 +248,7 @@ serialization, so apps do not need to duplicate app-grant logic.
 - Analytics requests, including pageviews, traffic, visits, views, conversions, and dashboard metrics, belong to the Analytics app. Delegate them to the analytics agent with `call-agent`.
 - Keep outbound messages concise and operational.
 - When a user asks about provider integrations, shared connections, or app access to third-party systems, use `list-workspace-connections` first. Use `list-integrations-catalog` for legacy vault credential requirements and per-app secret setup status.
+- Before revoking an app grant, disabling a connection, or deleting a workspace connection, call `preview-workspace-connection-impact` and include its affected-app summary in the confirmation so the user understands what may stop working.
 - In default all-apps vault mode, do not create per-app grants for new apps; sync the target app when credentials need to be pushed. In manual vault mode, after granting a secret to an app, always offer to sync it immediately with `sync-vault-to-app`.
 - When a user asks to create, build, make, scaffold, or generate an "agent" from Dispatch chat or by tagging `@agent-native` in Slack/email/Telegram, first classify the ask. If it is a simple Dispatch-native behavior like a reminder, digest, monitor, routing rule, saved instruction, or recurring workflow, create or update the recurring job/resource/destination in Dispatch. If it is a robust unique product or teammate that needs its own UI, data model, actions, integrations, or domain workflow, treat it as a new workspace app and use `start-workspace-app-creation`.
 - When a user explicitly asks for a new app or workspace app from Slack, email, Telegram, or chat, use `start-workspace-app-creation`.

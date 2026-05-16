@@ -5,6 +5,7 @@ import {
   readDistillationQueue,
   type ListDistillationQueueArgs,
 } from "./list-distillation-queue.js";
+import { readBrainHealth } from "./get-brain-health.js";
 
 const queueStatuses = ["queued", "processing", "done", "failed"] as const;
 const queueIssues = ["all", "failed", "stale", "retryable"] as const;
@@ -19,6 +20,7 @@ export default defineAction({
     const screen = await readBrainScreen();
     const navigation = (screen as { navigation?: unknown }).navigation;
     const demoState = demoStateFromNavigation(navigation);
+    screen.brainHealth = await readBrainHealth();
     if (demoState) {
       screen.demo = demoState;
     }

@@ -579,6 +579,17 @@ function ModelSelector({
   onEffortChange?: (effort: ReasoningEffort) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const autoModelGroup = engines.find((group) => group.models.includes("auto"));
+  const providerGroups = useMemo(
+    () =>
+      engines
+        .map((group) => ({
+          ...group,
+          models: group.models.filter((candidate) => candidate !== "auto"),
+        }))
+        .filter((group) => group.models.length > 0),
+    [engines],
+  );
   const effortOptions =
     model === "auto"
       ? ([
@@ -595,9 +606,9 @@ function ModelSelector({
   // currently-selected model stays expanded so the user sees their pick at
   // a glance; clicking another family's header expands it inline.
   const selectedGroupKey = useMemo(() => {
-    const found = engines.find((g) => g.models.includes(model));
+    const found = providerGroups.find((g) => g.models.includes(model));
     return found ? `${found.engine}:${found.label}` : null;
-  }, [engines, model]);
+  }, [model, providerGroups]);
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     () => new Set(selectedGroupKey ? [selectedGroupKey] : []),
@@ -689,7 +700,27 @@ function ModelSelector({
               <div className="my-1 border-t border-border" />
             </>
           )}
-          {engines.map((group) => {
+          {autoModelGroup && (
+            <button
+              type="button"
+              onClick={() => {
+                onChange("auto", autoModelGroup.engine);
+                setOpen(false);
+              }}
+              className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+            >
+              <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                Auto
+              </span>
+              {model === "auto" && (
+                <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+              )}
+            </button>
+          )}
+          {autoModelGroup && providerGroups.length > 0 && (
+            <div className="my-1 border-t border-border" />
+          )}
+          {providerGroups.map((group) => {
             const models = latestModelsOnly(group.models);
             const groupKey = `${group.engine}:${group.label}`;
             const isExpanded = expandedGroups.has(groupKey);

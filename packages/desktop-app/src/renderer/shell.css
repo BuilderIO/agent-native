@@ -458,6 +458,24 @@ body {
   min-width: 0;
   min-height: 0;
   background: var(--shell-bg);
+  isolation: isolate;
+  transform: translate3d(0, 0, 0);
+}
+
+.code-agents-embedded-app-surface {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--shell-bg);
+}
+
+.code-agents-embedded-app-surface .webview-slot {
+  inset: 0;
+  z-index: 0;
+  transform: translate3d(0, 0, 0);
 }
 
 /* ─── Webview slot ───────────────────────────────────────────── */
@@ -996,6 +1014,124 @@ body {
   color: #777;
 }
 
+.settings-provider-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-provider-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-provider-card-header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-provider-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-provider-row {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-provider-row--ok {
+  border-color: rgba(34, 197, 94, 0.14);
+}
+
+.settings-provider-summary,
+.settings-provider-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-provider-summary {
+  justify-content: space-between;
+}
+
+.settings-provider-configure {
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #a3a3a3;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 9px;
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+
+.settings-provider-configure:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.settings-provider-form {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-provider-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #888;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.settings-provider-form input[type="password"] {
+  min-width: 0;
+  height: 34px;
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  padding: 0 10px;
+  color: #fff;
+  font-size: 12px;
+  outline: none;
+}
+
+.settings-provider-form input[type="password"]:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.settings-provider-actions {
+  justify-content: flex-end;
+}
+
+.settings-provider-actions .settings-btn {
+  width: auto;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+.settings-provider-message {
+  color: #888;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .settings-remote-card {
   display: grid;
   gap: 10px;
@@ -1308,7 +1444,8 @@ body {
 }
 
 .settings-form input[type="text"],
-.settings-form input[type="url"] {
+.settings-form input[type="url"],
+.settings-form input[type="password"] {
   background: #111;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
@@ -1320,7 +1457,8 @@ body {
 }
 
 .settings-form input[type="text"]:focus,
-.settings-form input[type="url"]:focus {
+.settings-form input[type="url"]:focus,
+.settings-form input[type="password"]:focus {
   border-color: rgba(59, 130, 246, 0.5);
 }
 

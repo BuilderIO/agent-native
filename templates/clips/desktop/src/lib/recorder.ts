@@ -51,8 +51,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { createCameraCompositeStream } from "./camera-composite";
+import {
+  prepareLocalRecordingExport,
+  type LocalExportedFile,
+  type LocalRecordingTarget,
+} from "./local-export";
 import { loadVocabulary } from "./personal-vocabulary";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
+import type { LocalRecordingMode } from "../shared/config";
+
+export type { LocalExportedFile } from "./local-export";
 
 export type CaptureMode = "screen" | "screen-camera" | "camera";
 export type CaptureSource = "full-screen" | "window";
@@ -112,6 +120,7 @@ export interface StartParams {
   cookie?: string;
   micOn: boolean;
   cameraOn: boolean;
+  localRecordingMode?: LocalRecordingMode;
   /**
    * Pre-acquired camera stream owned by the popover's session effect. The
    * popover keeps the camera open + the bubble visible + the frame pump
@@ -132,9 +141,17 @@ export interface StartParams {
 
 export interface RecorderHandle {
   /** Stop the recording and resolve once the server has finalized. */
-  stop(): Promise<{ recordingId: string; viewUrl: string }>;
+  stop(): Promise<RecorderStopResult>;
   /** Discard the recording without saving. */
   cancel(): Promise<void>;
+}
+
+export interface RecorderStopResult {
+  recordingId: string;
+  viewUrl: string;
+  localOnly?: boolean;
+  localFolder?: string;
+  localFiles?: LocalExportedFile[];
 }
 
 export interface PendingBrowserRecordingUpload {
@@ -153,6 +170,49 @@ export interface PendingBrowserRecordingUpload {
   retryCount: number;
   chunkCount: number;
   mimeType: string;
+}
+
+function streamFromTracks(tracks: MediaStreamTrack[]): MediaStream {
+  const stream = new MediaStream();
+  tracks.forEach((track) => stream.addTrack(track));
+  return stream;
+}
+
+function localRecordingTargetsForMode({
+  localRecordingMode,
+  displayStream,
+  bubbleCameraStream,
+  audioStream,
+  combined,
+}: {
+  localRecordingMode: Exclude<LocalRecordingMode, "off">;
+  displayStream: MediaStream | null;
+  bubbleCameraStream: MediaStream | null;
+  audioStream: MediaStream | null;
+  combined: MediaStream;
+}): LocalRecordingTarget[] {
+  if (localRecordingMode === "composed") {
+    return [{ role: "composed", stream: combined }];
+  }
+
+  const targets: LocalRecordingTarget[] = [];
+  if (displayStream) {
+    const desktopTracks = [
+      ...displayStream.getVideoTracks(),
+      ...(audioStream?.getAudioTracks() ?? displayStream.getAudioTracks()),
+    ];
+    targets.push({
+      role: "desktop",
+      stream: streamFromTracks(desktopTracks),
+    });
+  }
+  if (bubbleCameraStream) {
+    targets.push({
+      role: "camera",
+      stream: streamFromTracks(bubbleCameraStream.getVideoTracks()),
+    });
+  }
+  return targets;
 }
 
 interface BrowserRecordingBackupMeta extends Omit<
@@ -1094,6 +1154,13 @@ async function waitForEvent(name: string, timeoutMs = 15_000): Promise<void> {
   });
 }
 
+async function showRegionGuidesForRecording(wantsScreen: boolean) {
+  if (!wantsScreen) return;
+  await invoke("show_region_guides").catch((err) => {
+    console.warn("[clips-recorder] show_region_guides failed:", err);
+  });
+}
+
 async function startNativeFullscreenRecording(
   params: StartParams,
   wantsCamera: boolean,
@@ -1156,6 +1223,7 @@ async function startNativeFullscreenRecording(
       recordingId: id,
       includeAudio: wantsAudio,
     });
+    await showRegionGuidesForRecording(true);
     nativeTranscriptCapture = wantsAudio
       ? await startNativeTranscriptCapture()
       : null;
@@ -1535,6 +1603,7 @@ export async function startNativeRecording(
   try {
     return await startNativeRecordingInner(params);
   } catch (err) {
+    await invoke("hide_recording_chrome").catch(() => {});
     const e = err as { name?: string; message?: string } | null;
     console.error(
       "[clips-recorder] startNativeRecording threw:",
@@ -1554,16 +1623,22 @@ async function startNativeRecordingInner(
   const wantsAudio = params.micOn;
   const recordingStartCue = createRecordingStartCue();
   const captureSource = params.source ?? "window";
+  const localRecordingMode = params.localRecordingMode ?? "off";
   console.log("[clips-recorder] startNativeRecording", {
     serverUrl: params.serverUrl,
     mode: params.mode,
     source: captureSource,
+    localRecordingMode,
     wantsScreen,
     wantsCamera,
     wantsAudio,
   });
 
-  if (wantsScreen && shouldUseNativeFullscreenRecording(captureSource)) {
+  if (
+    localRecordingMode === "off" &&
+    wantsScreen &&
+    shouldUseNativeFullscreenRecording(captureSource)
+  ) {
     return startNativeFullscreenRecording(
       params,
       wantsCamera,
@@ -1777,7 +1852,10 @@ async function startNativeRecordingInner(
   let nativeTranscriptCapture: NativeTranscriptCapture | null = null;
 
   const recordedScreenCameraStream =
-    params.mode === "screen-camera" && displayStream && bubbleCameraStream
+    localRecordingMode !== "separate" &&
+    params.mode === "screen-camera" &&
+    displayStream &&
+    bubbleCameraStream
       ? createCameraCompositeStream({
           displayStream,
           cameraStream: bubbleCameraStream,
@@ -1809,6 +1887,194 @@ async function startNativeRecordingInner(
     audioStream.getAudioTracks().forEach((t) => combined.addTrack(t));
   } else if (displayStream) {
     displayStream.getAudioTracks().forEach((t) => combined.addTrack(t));
+  }
+
+  // The popover owns the camera stream when we're reusing a pre-acquired
+  // one — its session effect decides when to close the stream + hide the
+  // bubble + stop the pump. The recorder must NOT stop those tracks on
+  // stop/cancel. For camera-only mode (rare path where popover didn't
+  // hand us a stream) we own it ourselves.
+  const popoverOwnsCamera = bubbleCameraStream === reusedCameraStream;
+
+  if (localRecordingMode !== "off") {
+    console.log("[clips-recorder] starting local-only recording", {
+      localRecordingMode,
+    });
+    const targets = localRecordingTargetsForMode({
+      localRecordingMode,
+      displayStream,
+      bubbleCameraStream,
+      audioStream,
+      combined,
+    });
+
+    const countdownPromise = (async () => {
+      try {
+        await invoke("show_countdown");
+      } catch (err) {
+        console.error("[clips-recorder] show_countdown failed:", err);
+      }
+      try {
+        await waitForEvent("clips:countdown-done", 4000);
+      } catch {
+        console.warn("[clips-recorder] countdown timed out — proceeding");
+      }
+    })();
+    const localExportPromise = prepareLocalRecordingExport(targets);
+    let localExport: Awaited<ReturnType<typeof prepareLocalRecordingExport>>;
+    try {
+      [, localExport] = await Promise.all([
+        countdownPromise,
+        localExportPromise,
+      ]);
+    } catch (err) {
+      [displayStream, audioStream].forEach((stream) =>
+        stream?.getTracks().forEach((track) => track.stop()),
+      );
+      streamCleanups.forEach((cleanup) => cleanup());
+      if (!popoverOwnsCamera) {
+        bubbleCameraStream?.getTracks().forEach((track) => track.stop());
+      }
+      throw err;
+    }
+
+    const id = `local-${Date.now().toString(36)}`;
+    const startedAt = Date.now();
+    let pausedAt: number | null = null;
+    let accumulatedPauseMs = 0;
+    let stopped = false;
+    let stateUnlistens: UnlistenFn[] = [];
+
+    function emitState(paused: boolean) {
+      const now = Date.now();
+      const pausedNowMs = paused && pausedAt ? now - pausedAt : 0;
+      const elapsedMs = now - startedAt - accumulatedPauseMs - pausedNowMs;
+      emit("clips:recorder-state", {
+        paused,
+        elapsedMs,
+      }).catch(() => {});
+    }
+    const tickHandle = setInterval(() => emitState(pausedAt != null), 500);
+
+    const toolbarUnlistens = await Promise.all([
+      listen("clips:recorder-pause", () => {
+        localExport.pause();
+        pausedAt = Date.now();
+        emitState(true);
+      }),
+      listen("clips:recorder-resume", () => {
+        localExport.resume();
+        if (pausedAt) accumulatedPauseMs += Date.now() - pausedAt;
+        pausedAt = null;
+        emitState(false);
+      }),
+      listen("clips:recorder-stop", () => {
+        console.log("[clips-recorder] local stop event received");
+        handle.stop().catch((err) => {
+          console.error("[clips-recorder] local handle.stop() threw:", err);
+        });
+      }),
+      listen("clips:recorder-cancel", () => {
+        console.log("[clips-recorder] local cancel event received");
+        handle.cancel().catch((err) => {
+          console.error("[clips-recorder] local handle.cancel() threw:", err);
+        });
+      }),
+    ]);
+    stateUnlistens = toolbarUnlistens;
+
+    await showRegionGuidesForRecording(wantsScreen);
+    localExport.start(2_000);
+    recordingStartCue.play();
+    emit("clips:toolbar-enabled", true).catch(() => {});
+    emitState(false);
+
+    const detachCombinedStream = () => {
+      try {
+        combined.getTracks().forEach((track) => combined.removeTrack(track));
+      } catch {
+        // ignore — best-effort
+      }
+      for (const target of targets) {
+        try {
+          target.stream
+            .getTracks()
+            .forEach((track) => target.stream.removeTrack(track));
+        } catch {
+          // ignore — best-effort
+        }
+      }
+    };
+
+    const stopOwnedStreams = () => {
+      [displayStream, audioStream].forEach((stream) =>
+        stream?.getTracks().forEach((track) => track.stop()),
+      );
+      streamCleanups.forEach((cleanup) => cleanup());
+      if (!popoverOwnsCamera) {
+        bubbleCameraStream?.getTracks().forEach((track) => track.stop());
+      }
+    };
+
+    const hideChrome = async () => {
+      const chromeCmd = popoverOwnsCamera
+        ? "hide_recording_chrome"
+        : "hide_overlays";
+      await invoke(chromeCmd).catch((err) =>
+        console.error(`[clips-recorder] ${chromeCmd} failed:`, err),
+      );
+    };
+
+    const handle: RecorderHandle = {
+      async stop() {
+        if (stopped) {
+          return {
+            recordingId: id,
+            viewUrl: "",
+            localOnly: true,
+            localFolder: localExport.folderPath,
+            localFiles: [],
+          };
+        }
+        stopped = true;
+        clearInterval(tickHandle);
+        stateUnlistens.forEach((unlisten) => unlisten());
+        stateUnlistens = [];
+        const durationMs = Math.max(
+          0,
+          Math.round(Date.now() - startedAt - accumulatedPauseMs),
+        );
+        let files: LocalExportedFile[] = [];
+        try {
+          files = await localExport.stop(durationMs);
+        } finally {
+          detachCombinedStream();
+          stopOwnedStreams();
+          await hideChrome();
+        }
+        return {
+          recordingId: id,
+          viewUrl: "",
+          localOnly: true,
+          localFolder: localExport.folderPath,
+          localFiles: files,
+        };
+      },
+
+      async cancel() {
+        if (stopped) return;
+        stopped = true;
+        clearInterval(tickHandle);
+        stateUnlistens.forEach((unlisten) => unlisten());
+        stateUnlistens = [];
+        await localExport.cancel();
+        detachCombinedStream();
+        stopOwnedStreams();
+        await hideChrome();
+      },
+    };
+
+    return handle;
   }
 
   // 2+3. Countdown + create-recording happen IN PARALLEL. The countdown is
@@ -1956,13 +2222,6 @@ async function startNativeRecordingInner(
   let stopped = false;
   let stateUnlistens: UnlistenFn[] = [];
 
-  // The popover owns the camera stream when we're reusing a pre-acquired
-  // one — its session effect decides when to close the stream + hide the
-  // bubble + stop the pump. The recorder must NOT stop those tracks on
-  // stop/cancel. For camera-only mode (rare path where popover didn't
-  // hand us a stream) we own it ourselves.
-  const popoverOwnsCamera = bubbleCameraStream === reusedCameraStream;
-
   function emitState(paused: boolean) {
     const now = Date.now();
     const pausedNowMs = paused && pausedAt ? now - pausedAt : 0;
@@ -2022,6 +2281,7 @@ async function startNativeRecordingInner(
       "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
     );
   }
+  await showRegionGuidesForRecording(wantsScreen);
   recorder.start(2_000);
   recordingStartCue.play();
   // The toolbar is already open (the popover's bubble-session effect

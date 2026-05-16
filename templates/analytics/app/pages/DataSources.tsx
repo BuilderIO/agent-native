@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,8 +48,13 @@ import {
 } from "@/lib/data-sources";
 import {
   getOptionalCredentialKeys,
+  getSharedConnectionStatus,
+  isSourceReady,
   isSourceConfigured,
+  credentialRowsFromStatus,
+  type DataSourceStatusResponse,
   type EnvKeyStatus,
+  type SharedConnectionStatus,
 } from "@/lib/data-source-status";
 import {
   appApiPath,
@@ -100,15 +106,6 @@ const firstPartyAnalyticsEndpoint =
   (import.meta.env as Record<string, string | undefined>)
     .VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
   "https://analytics.agent-native.com/track";
-
-async function fetchEnvStatus(): Promise<EnvKeyStatus[]> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/credential-status"), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return [];
-  return res.json();
-}
 
 async function saveEnvVars(
   vars: Array<{ key: string; value: string }>,
@@ -444,6 +441,138 @@ function GitHubOAuthView({
         <div className="flex items-center gap-2 text-xs text-rose-400">
           <IconAlertCircle className="h-3.5 w-3.5" />
           {(connectMutation.error as Error).message}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SharedConnectionBadge({ status }: { status: SharedConnectionStatus }) {
+  const tone =
+    status.kind === "ready"
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+      : status.kind === "needs_grant"
+        ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+        : status.kind === "local_credentials"
+          ? "border-border/60 bg-muted text-muted-foreground"
+          : "border-border/60 bg-background text-muted-foreground";
+
+  return (
+    <Badge variant="outline" className={tone}>
+      {status.label}
+    </Badge>
+  );
+}
+
+function SharedConnectionStatusRow({
+  status,
+}: {
+  status: SharedConnectionStatus;
+}) {
+  const message =
+    status.kind === "ready"
+      ? "Analytics can use this provider through a workspace connection granted from Dispatch."
+      : status.kind === "needs_grant"
+        ? "A workspace connection exists. Open Dispatch to grant Analytics access."
+        : status.kind === "local_credentials"
+          ? "Using credentials saved in this app. For reuse across apps, connect and grant this provider in Dispatch."
+          : "Connect or grant this provider in Dispatch to reuse it across apps, or save local credentials below.";
+
+  return (
+    <div className="mb-4 flex items-start justify-between gap-3 rounded-md border border-border/50 bg-muted/20 p-3">
+      <div className="min-w-0 space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs font-medium text-foreground">
+            Shared integration
+          </p>
+          <SharedConnectionBadge status={status} />
+        </div>
+        <p className="text-xs text-muted-foreground">{message}</p>
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceReadyView({
+  source,
+  onSaved,
+  onAddLocalCredentials,
+}: {
+  source: DataSource;
+  onSaved: () => void;
+  onAddLocalCredentials: () => void;
+}) {
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    error?: string;
+  } | null>(null);
+
+  const testMutation = useMutation({
+    mutationFn: () => testConnection(source.id),
+    onSuccess: (result) => {
+      setTestResult(result);
+      onSaved();
+    },
+  });
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        This source is ready through a shared workspace connection. Manage
+        shared access in Dispatch, or add local credentials for this app only.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setTestResult(null);
+            testMutation.mutate();
+          }}
+          disabled={testMutation.isPending}
+          className="text-xs"
+        >
+          {testMutation.isPending ? (
+            <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
+          ) : (
+            <IconCheck className="mr-1.5 h-3 w-3" />
+          )}
+          {testMutation.isPending ? "Testing..." : "Test connection"}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onAddLocalCredentials}
+          className="text-xs"
+        >
+          Add local credentials
+        </Button>
+        {source.docsUrl && (
+          <a
+            href={source.docsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+          >
+            Docs <IconExternalLink className="h-3 w-3" />
+          </a>
+        )}
+      </div>
+      {testResult && (
+        <div
+          className={`flex items-center gap-2 text-xs ${testResult.ok ? "text-emerald-500" : "text-rose-400"}`}
+        >
+          {testResult.ok ? (
+            <>
+              <IconCheck className="h-3.5 w-3.5" />
+              Connection successful
+            </>
+          ) : (
+            <>
+              <IconAlertCircle className="h-3.5 w-3.5" />
+              {testResult.error || "Connection failed"}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -865,13 +994,17 @@ function ConnectedView({
 
 function DataSourceCard({
   source,
-  connected,
+  locallyConfigured,
+  ready,
+  sharedConnectionStatus,
   envStatus,
   isStatusLoading,
   onSaved,
 }: {
   source: DataSource;
-  connected: boolean;
+  locallyConfigured: boolean;
+  ready: boolean;
+  sharedConnectionStatus: SharedConnectionStatus | null;
   envStatus: EnvKeyStatus[];
   isStatusLoading: boolean;
   onSaved: () => void;
@@ -879,6 +1012,7 @@ function DataSourceCard({
   const [expanded, setExpanded] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
+  const [showLocalCredentials, setShowLocalCredentials] = useState(false);
   const totalSteps = source.walkthroughSteps.length;
 
   const saveMutation = useMutation({
@@ -897,6 +1031,9 @@ function DataSourceCard({
 
   const Icon = source.icon;
   const hasInputValues = Object.values(inputValues).some((v) => v.trim());
+  const readyViaWorkspace = sharedConnectionStatus?.kind === "ready";
+  const showCredentialSetup =
+    !locallyConfigured && (!readyViaWorkspace || showLocalCredentials);
 
   return (
     <Card className="bg-card border-border/50">
@@ -906,31 +1043,38 @@ function DataSourceCard({
       >
         <CardHeader className="p-5">
           <div className="flex items-center justify-between gap-6">
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Icon className="h-5 w-5" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">
                   {source.name}
                 </CardTitle>
-                <CardDescription className="text-xs mt-0.5">
+                <CardDescription className="mt-0.5 line-clamp-2 text-xs">
                   {source.description}
                 </CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               {isStatusLoading ? (
                 <Skeleton className="h-4 w-20 rounded-full" />
-              ) : connected ? (
+              ) : ready ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
-                  Configured
+                  {readyViaWorkspace && !locallyConfigured
+                    ? "Ready"
+                    : "Configured"}
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
                   <IconCircle className="h-3 w-3" />
                   Not configured
+                </span>
+              )}
+              {!isStatusLoading && sharedConnectionStatus && (
+                <span className="hidden sm:inline-flex">
+                  <SharedConnectionBadge status={sharedConnectionStatus} />
                 </span>
               )}
               {expanded ? (
@@ -947,14 +1091,26 @@ function DataSourceCard({
         <CardContent className="border-t border-border/50 px-5 py-4">
           {source.id === "github" && (
             <div className="mb-4">
-              <GitHubOAuthView connected={connected} onSaved={onSaved} />
+              <GitHubOAuthView
+                connected={locallyConfigured}
+                onSaved={onSaved}
+              />
             </div>
           )}
-          {connected ? (
+          {sharedConnectionStatus && (
+            <SharedConnectionStatusRow status={sharedConnectionStatus} />
+          )}
+          {locallyConfigured ? (
             <ConnectedView
               source={source}
               onSaved={onSaved}
               envStatus={envStatus}
+            />
+          ) : readyViaWorkspace && !showCredentialSetup ? (
+            <WorkspaceReadyView
+              source={source}
+              onSaved={onSaved}
+              onAddLocalCredentials={() => setShowLocalCredentials(true)}
             />
           ) : (
             <>
@@ -1209,21 +1365,21 @@ function FirstPartyAnalyticsCard() {
       >
         <CardHeader className="p-5">
           <div className="flex items-center justify-between gap-6">
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <IconKey className="h-5 w-5" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">
                   First-party Analytics
                 </CardTitle>
-                <CardDescription className="text-xs mt-0.5">
+                <CardDescription className="mt-0.5 line-clamp-2 text-xs">
                   Receive product events at your first-party endpoint and query
                   them as a dashboard data source.
                 </CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               {isLoading ? (
                 <Skeleton className="h-4 w-20 rounded-full" />
               ) : connected ? (
@@ -1385,18 +1541,24 @@ export default function DataSources() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
 
-  const { data: envStatus = [], isLoading: isStatusLoading } = useQuery({
-    queryKey: ["env-status"],
-    queryFn: fetchEnvStatus,
-    staleTime: 10_000,
-  });
+  const { data: rawStatusData, isLoading: isStatusLoading } = useActionQuery(
+    "data-source-status",
+    undefined,
+    {
+      staleTime: 10_000,
+    },
+  );
+  const statusData = rawStatusData as DataSourceStatusResponse | undefined;
+  const envStatus = credentialRowsFromStatus(statusData);
 
   const configuredCount = dataSources.filter((s) =>
-    isSourceConfigured(s, envStatus),
+    isSourceReady(s, statusData, envStatus),
   ).length;
 
   const handleSaved = () => {
-    queryClient.invalidateQueries({ queryKey: ["env-status"] });
+    queryClient.invalidateQueries({
+      queryKey: ["action", "data-source-status"],
+    });
   };
 
   const searchLower = search.toLowerCase();
@@ -1423,7 +1585,7 @@ export default function DataSources() {
       </p>
 
       {/* Search bar + Add Data Source */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <input
@@ -1445,7 +1607,13 @@ export default function DataSources() {
               <DataSourceCard
                 key={source.id}
                 source={source}
-                connected={isSourceConfigured(source, envStatus)}
+                locallyConfigured={isSourceConfigured(source, envStatus)}
+                ready={isSourceReady(source, statusData, envStatus)}
+                sharedConnectionStatus={getSharedConnectionStatus(
+                  source,
+                  statusData,
+                  envStatus,
+                )}
                 envStatus={envStatus}
                 isStatusLoading={isStatusLoading}
                 onSaved={handleSaved}
@@ -1472,7 +1640,13 @@ export default function DataSources() {
                   <DataSourceCard
                     key={source.id}
                     source={source}
-                    connected={isSourceConfigured(source, envStatus)}
+                    locallyConfigured={isSourceConfigured(source, envStatus)}
+                    ready={isSourceReady(source, statusData, envStatus)}
+                    sharedConnectionStatus={getSharedConnectionStatus(
+                      source,
+                      statusData,
+                      envStatus,
+                    )}
                     envStatus={envStatus}
                     isStatusLoading={isStatusLoading}
                     onSaved={handleSaved}

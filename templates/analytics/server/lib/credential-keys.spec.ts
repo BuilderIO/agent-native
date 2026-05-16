@@ -25,6 +25,10 @@ describe("credential key lookup", () => {
     ]);
     expect(keysFor("github")).toEqual(["GITHUB_TOKEN"]);
     expect(keysFor("github-code")).toEqual(["GITHUB_TOKEN"]);
+    expect(keysFor("hubspot")).toEqual([
+      "HUBSPOT_PRIVATE_APP_TOKEN",
+      "HUBSPOT_ACCESS_TOKEN",
+    ]);
     expect(keysFor("google-analytics")).toEqual([
       "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       "GA4_PROPERTY_ID",

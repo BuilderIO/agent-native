@@ -33,8 +33,11 @@ let sharedClient: FrameworkClient = {
     return { rows: [], rowsAffected: 0 };
   },
 };
+let previousSecretsEncryptionKey: string | undefined;
 
 beforeAll(() => {
+  previousSecretsEncryptionKey = process.env.SECRETS_ENCRYPTION_KEY;
+  process.env.SECRETS_ENCRYPTION_KEY = "workspace-connections-test-key";
   sqlite = new Database(":memory:");
   sharedClient = {
     async execute(arg) {
@@ -52,6 +55,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  delete process.env.SLACK_BOT_TOKEN;
   try {
     sqlite.prepare("DELETE FROM workspace_connection_grants").run();
   } catch {
@@ -62,9 +66,24 @@ beforeEach(() => {
   } catch {
     // The first test creates the table through the store initializer.
   }
+  try {
+    sqlite.prepare("DELETE FROM app_secrets").run();
+  } catch {
+    // The first secret-backed test creates the table through the store.
+  }
+  try {
+    sqlite.prepare("DELETE FROM settings").run();
+  } catch {
+    // Credential fallback tests create the settings table on demand.
+  }
 });
 
 afterAll(() => {
+  if (previousSecretsEncryptionKey === undefined) {
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+  } else {
+    process.env.SECRETS_ENCRYPTION_KEY = previousSecretsEncryptionKey;
+  }
   sqlite.close();
 });
 
@@ -437,6 +456,88 @@ describe("workspace connection store", () => {
       () => listWorkspaceConnectionGrants({ appId: "dispatch" }),
     );
     expect(otherOrgGrants).toEqual([]);
+  });
+
+  it("marks scoped workspace connection and grant usage metadata", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const {
+      listWorkspaceConnectionProviderCatalogForApp,
+      listWorkspaceConnectionGrants,
+      listWorkspaceConnections,
+      markWorkspaceConnectionUsed,
+      upsertWorkspaceConnection,
+      upsertWorkspaceConnectionGrant,
+    } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-used",
+          provider: "slack",
+          label: "Team Slack",
+          allowedApps: ["dispatch"],
+        });
+        await upsertWorkspaceConnectionGrant({
+          id: "grant-brain",
+          connectionId: "conn-used",
+          appId: "brain",
+          credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+        });
+      },
+    );
+
+    const usedAt = "2026-05-16T12:34:56.000Z";
+    const marked = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        markWorkspaceConnectionUsed({
+          connectionId: "conn-used",
+          appId: "brain",
+          usedAt,
+        }),
+    );
+    expect(marked).toEqual({
+      connectionUpdated: true,
+      grantUpdated: true,
+      lastUsedAt: usedAt,
+    });
+
+    const [connections, grants, catalog] = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        Promise.all([
+          listWorkspaceConnections({ provider: "slack" }),
+          listWorkspaceConnectionGrants({ connectionId: "conn-used" }),
+          listWorkspaceConnectionProviderCatalogForApp({
+            appId: "brain",
+            provider: "slack",
+          }),
+        ]),
+    );
+
+    expect(connections[0]).toMatchObject({
+      id: "conn-used",
+      lastUsedAt: usedAt,
+    });
+    expect(grants[0]).toMatchObject({
+      id: "grant-brain",
+      lastUsedAt: usedAt,
+    });
+    expect(catalog.providers[0].workspaceConnection).toMatchObject({
+      lastUsedAt: usedAt,
+      connections: [
+        expect.objectContaining({
+          id: "conn-used",
+          lastUsedAt: usedAt,
+          explicitGrant: expect.objectContaining({
+            id: "grant-brain",
+            lastUsedAt: usedAt,
+          }),
+        }),
+      ],
+    });
   });
 
   it("filters connections by legacy allowed apps and explicit grants", async () => {
@@ -946,5 +1047,257 @@ describe("workspace connection store", () => {
     const serialized = serializeWorkspaceConnectionGrant(grant);
     expect(JSON.stringify(serialized)).not.toContain("sk-should-not-leak");
     expect(JSON.stringify(serialized)).not.toContain("refresh-should-not-leak");
+  });
+
+  it("resolves runtime credentials from granted workspace connection refs", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { writeAppSecret } = await import("../secrets/index.js");
+    const { resolveWorkspaceConnectionCredentialForApp } =
+      await import("./credentials.js");
+    const {
+      getWorkspaceConnection,
+      getWorkspaceConnectionGrant,
+      upsertWorkspaceConnection,
+      upsertWorkspaceConnectionGrant,
+    } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-slack",
+          provider: "slack",
+          label: "Team Slack",
+          allowedApps: ["dispatch"],
+        });
+        await upsertWorkspaceConnectionGrant({
+          id: "grant-brain",
+          connectionId: "conn-slack",
+          appId: "brain",
+          credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+        });
+        await writeAppSecret({
+          key: "SLACK_BOT_TOKEN",
+          value: "xoxb-runtime-token",
+          scope: "org",
+          scopeId: "org-1",
+        });
+      },
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionCredentialForApp({
+          appId: "brain",
+          provider: "slack",
+          key: "SLACK_BOT_TOKEN",
+        }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: true,
+      status: "resolved",
+      value: "xoxb-runtime-token",
+      provenance: {
+        source: "workspace_connection",
+        provider: "slack",
+        requestedKey: "SLACK_BOT_TOKEN",
+        resolvedKey: "SLACK_BOT_TOKEN",
+        connectionId: "conn-slack",
+        connectionLabel: "Team Slack",
+        grantId: "grant-brain",
+        appAccessMode: "explicit-grant",
+        secretScope: "org",
+        backend: "secrets",
+        credentialRef: {
+          key: "SLACK_BOT_TOKEN",
+          source: "grant",
+        },
+      },
+    });
+
+    const [connection, grant] = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        Promise.all([
+          getWorkspaceConnection("conn-slack"),
+          getWorkspaceConnectionGrant("conn-slack", "brain"),
+        ]),
+    );
+    expect(connection?.lastUsedAt).toEqual(expect.any(String));
+    expect(grant?.lastUsedAt).toEqual(expect.any(String));
+    expect(Date.parse(connection?.lastUsedAt ?? "")).toBeGreaterThan(0);
+    expect(grant?.lastUsedAt).toBe(connection?.lastUsedAt);
+  });
+
+  it("reports missing workspace connections and missing grants without reading env credentials", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionCredentialForApp } =
+      await import("./credentials.js");
+    const { upsertWorkspaceConnection } = await import("./store.js");
+
+    process.env.SLACK_BOT_TOKEN = "env-token-must-not-be-used";
+
+    const missingConnection = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionCredentialForApp({
+          appId: "brain",
+          provider: "slack",
+          key: "SLACK_BOT_TOKEN",
+        }),
+    );
+    expect(missingConnection).toMatchObject({
+      available: false,
+      status: "not_available",
+    });
+    expect(missingConnection.value).toBeUndefined();
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "conn-dispatch",
+          provider: "slack",
+          label: "Dispatch Slack",
+          allowedApps: ["dispatch"],
+          credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+        }),
+    );
+
+    const missingGrant = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionCredentialForApp({
+          appId: "brain",
+          provider: "slack",
+          key: "SLACK_BOT_TOKEN",
+          connectionId: "conn-dispatch",
+        }),
+    );
+    expect(missingGrant).toMatchObject({
+      available: false,
+      status: "not_available",
+      checked: [
+        expect.objectContaining({
+          status: "not_available",
+          connectionId: "conn-dispatch",
+          appAccessMode: "unavailable",
+        }),
+      ],
+    });
+    expect(missingGrant.reason).toMatch(/grant brain access/i);
+    expect(missingGrant.value).toBeUndefined();
+  });
+
+  it("resolves provider credential key aliases for workspace connection refs", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { writeAppSecret } = await import("../secrets/index.js");
+    const { resolveWorkspaceConnectionCredentialForApp } =
+      await import("./credentials.js");
+    const { upsertWorkspaceConnection } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-hubspot",
+          provider: "hubspot",
+          label: "Team HubSpot",
+          credentialRefs: [{ key: "HUBSPOT_PRIVATE_APP_TOKEN", scope: "org" }],
+        });
+        await writeAppSecret({
+          key: "HUBSPOT_ACCESS_TOKEN",
+          value: "pat-alias-token",
+          scope: "org",
+          scopeId: "org-1",
+        });
+      },
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionCredentialForApp({
+          appId: "analytics",
+          provider: "hubspot",
+          key: "HUBSPOT_ACCESS_TOKEN",
+        }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: true,
+      status: "resolved",
+      value: "pat-alias-token",
+      provenance: {
+        requestedKey: "HUBSPOT_ACCESS_TOKEN",
+        resolvedKey: "HUBSPOT_ACCESS_TOKEN",
+        credentialRef: {
+          key: "HUBSPOT_PRIVATE_APP_TOKEN",
+          source: "connection",
+        },
+      },
+    });
+  });
+
+  it("falls back to legacy scoped credentials and reports multi-key misses", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { saveCredential } = await import("../credentials/index.js");
+    const { resolveWorkspaceConnectionCredentialsForApp } =
+      await import("./credentials.js");
+    const { upsertWorkspaceConnection } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-github",
+          provider: "github",
+          label: "Team GitHub",
+          credentialRefs: [
+            { key: "GITHUB_TOKEN", scope: "org" },
+            { key: "GITHUB_WEBHOOK_SECRET", scope: "org" },
+          ],
+        });
+        await saveCredential("GITHUB_TOKEN", "legacy-github-token", {
+          userEmail: "alice@example.com",
+          orgId: "org-1",
+          scope: "org",
+        });
+      },
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionCredentialsForApp({
+          appId: "brain",
+          provider: "github",
+          keys: ["GITHUB_TOKEN", "GITHUB_WEBHOOK_SECRET"],
+        }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: false,
+      values: { GITHUB_TOKEN: "legacy-github-token" },
+      missingKeys: ["GITHUB_WEBHOOK_SECRET"],
+      results: {
+        GITHUB_TOKEN: {
+          status: "resolved",
+          provenance: {
+            backend: "credentials",
+            secretScope: "org",
+          },
+        },
+        GITHUB_WEBHOOK_SECRET: {
+          status: "missing_secret",
+        },
+      },
+    });
   });
 });

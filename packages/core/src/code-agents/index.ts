@@ -1,4 +1,28 @@
 export {
+  createCompositeBackgroundAgentController,
+  createLocalCodeBackgroundAgentController,
+  localCodeBackgroundAgentController,
+  type BackgroundAgentController,
+  type BackgroundAgentControlCommand,
+  type BackgroundAgentControlInput,
+  type BackgroundAgentControlResult,
+  type BackgroundAgentFollowUpInput,
+} from "./background-controller.js";
+export {
+  getBackgroundAgentRun,
+  listBackgroundAgentRuns,
+  listBackgroundAgentTranscriptEvents,
+  toBackgroundAgentRun,
+  toBackgroundAgentTranscriptEvent,
+  type BackgroundAgentRun,
+  type BackgroundAgentRunKind,
+  type BackgroundAgentRunSource,
+  type BackgroundAgentRunSourceRecord,
+  type BackgroundAgentRunStatus,
+  type BackgroundAgentTranscriptEvent,
+  type ListBackgroundAgentRunsOptions,
+} from "./background-run.js";
+export {
   CODE_AGENT_PERMISSION_MODES,
   appendCodeAgentTranscriptEvent,
   codeAgentRunArtifactsDir,

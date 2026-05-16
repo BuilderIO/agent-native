@@ -206,6 +206,128 @@ export interface SourcesResponse {
   sources?: BrainSource[];
 }
 
+export type BrainSourceHealthState =
+  | "healthy"
+  | "needs_setup"
+  | "needs_sync"
+  | "stale"
+  | "paused"
+  | "error";
+
+export interface BrainHealthStep {
+  id: string;
+  label: string;
+  detail: string;
+  status: "done" | "next" | "todo";
+  href?: string;
+  action?: string;
+}
+
+export interface BrainHealthResponse {
+  generatedAt: string;
+  sources: {
+    total: number;
+    configured: number;
+    active: number;
+    healthy: number;
+    needsSetup: number;
+    needsSync: number;
+    stale: number;
+    paused: number;
+    error: number;
+    lastSyncedAt?: string | null;
+    latestRunAt?: string | null;
+    byProvider?: Array<{ provider: string; count: number }>;
+    attention?: Array<{
+      id: string;
+      title: string;
+      provider: string;
+      status: string;
+      health: BrainSourceHealthState;
+      demo?: boolean;
+      autoSync?: boolean;
+      reviewRequired?: boolean;
+      hasChannelAllowList?: boolean | null;
+      lastSyncedAt?: string | null;
+      nextSyncAt?: string | null;
+      lastError?: string | null;
+      latestRun?: {
+        id: string;
+        status: "running" | "success" | "error" | string;
+        startedAt?: string | null;
+        completedAt?: string | null;
+        error?: string | null;
+      } | null;
+    }>;
+  };
+  connections: {
+    available: boolean;
+    error?: string | null;
+    connectedProviders: number;
+    configuredProviders: number;
+    providers?: Array<{
+      id: string;
+      label: string;
+      configuredSources: number;
+      connected: boolean;
+      grantState: string;
+      activeConnectionCount: number;
+      grantedConnectionCount: number;
+      unhealthyGrantedConnectionCount: number;
+    }>;
+  };
+  captures: {
+    total: number;
+    lastCapturedAt?: string | null;
+    counts?: Record<string, number>;
+  };
+  proposals: {
+    pending: number;
+    approved: number;
+    rejected: number;
+    total: number;
+    counts?: Record<string, number>;
+  };
+  knowledge: {
+    published: number;
+    draft: number;
+    redacted: number;
+    archived: number;
+    total: number;
+    counts?: Record<string, number>;
+  };
+  distillationQueue: {
+    pending: number;
+    failed: number;
+    stale: number;
+    total: number;
+    counts?: Record<string, number>;
+  };
+  retrieval: {
+    lastEval?: {
+      mode: "product-demo" | "retrieval" | string;
+      seedId?: string;
+      dataset?: string;
+      dataMode?: string;
+      ok: boolean;
+      passed: number;
+      total: number;
+      score: number;
+      workspaceHadSupport?: boolean;
+      fallbackSeeded?: boolean;
+      ranAt: string;
+    } | null;
+    suggestedQuestions?: string[];
+  };
+  setup: {
+    firstRun: boolean;
+    completed: number;
+    total: number;
+    steps: BrainHealthStep[];
+    nextSteps: string[];
+  };
+}
+
 export interface BrainConnectionProviderCredentialKey {
   key: string;
   label: string;

@@ -10,6 +10,7 @@ import {
 } from "./code-agent-runs.js";
 import {
   CODE_AGENT_CLI_GOALS,
+  codeShellIntro,
   codeUsage,
   handleCodeShellLine,
   parseCodeShellArgs,
@@ -269,6 +270,22 @@ describe("codeUsage", () => {
     expect(text).toContain("/release-check <version>");
     expect(text).toContain("Run release checks");
     expect(text).not.toContain("Shadow migrate");
+  });
+});
+
+describe("codeShellIntro", () => {
+  it("shows version, cwd, and default mode without terminal-only formatting", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-code-intro-"));
+    tmpRoots.push(root);
+    process.chdir(root);
+    const cwd = process.cwd();
+
+    const intro = codeShellIntro();
+
+    expect(intro).toContain("Agent-Native Code v");
+    expect(intro).toContain(`cwd: ${cwd}`);
+    expect(intro).toContain("default: Auto mode (full-auto)");
+    expect(intro).not.toContain("\u001b[");
   });
 });
 
@@ -682,11 +699,13 @@ describe("generic task sessions", () => {
 
   it("shows generic Agent-Native Code status for the last run", async () => {
     useTempCodeAgentsHome();
+    const cwd = process.cwd();
     createCodeAgentRunRecord({
       goalId: "task",
       title: "Existing task",
       status: "paused",
       phase: "review",
+      cwd,
     });
     const output = createStringOutput();
 
@@ -696,6 +715,7 @@ describe("generic task sessions", () => {
     expect(text).toContain("Agent-Native Code status");
     expect(text).toContain("Existing task");
     expect(text).toContain("paused (review)");
+    expect(text).toContain(`Cwd:        ${cwd}`);
   });
 
   it("does not rewrite completed runs when stop is requested", async () => {
@@ -809,6 +829,10 @@ describe("generic task sessions", () => {
 
 describe("runCode shell", () => {
   it("can run with scripted stdin for tests", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-code-shell-"));
+    tmpRoots.push(root);
+    process.chdir(root);
+    const cwd = process.cwd();
     const output = createStringOutput();
 
     await runCode([], {
@@ -819,9 +843,12 @@ describe("runCode shell", () => {
       },
     });
 
-    expect(output.read()).toContain("Agent-Native Code");
-    expect(output.read()).toContain("Available Agent-Native Code goals:");
-    expect(output.read()).toContain("code> ");
+    const text = output.read();
+    expect(text).toContain("Agent-Native Code v");
+    expect(text).toContain(`cwd: ${cwd}`);
+    expect(text).toContain("default: Auto mode (full-auto)");
+    expect(text).toContain("Available Agent-Native Code goals:");
+    expect(text).toContain("code> ");
   });
 });
 

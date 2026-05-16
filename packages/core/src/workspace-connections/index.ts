@@ -8,6 +8,7 @@ export {
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
   listWorkspaceConnectionsForApp,
+  markWorkspaceConnectionUsed,
   resolveWorkspaceConnectionForApp,
   revokeWorkspaceConnectionGrant,
   serializeWorkspaceConnectionGrant,
@@ -20,6 +21,8 @@ export {
   type ListWorkspaceConnectionGrantsOptions,
   type ListWorkspaceConnectionsOptions,
   type ListWorkspaceConnectionsForAppOptions,
+  type MarkWorkspaceConnectionUsedOptions,
+  type MarkWorkspaceConnectionUsedResult,
   type ResolvedWorkspaceConnectionForApp,
   type ResolveWorkspaceConnectionForAppOptions,
   type SerializedWorkspaceConnectionGrant,
@@ -48,3 +51,16 @@ export {
   type WorkspaceConnectionStatus,
   workspaceConnectionIsAvailableToApp,
 } from "./store.js";
+
+export {
+  resolveWorkspaceConnectionCredentialForApp,
+  resolveWorkspaceConnectionCredentialsForApp,
+  type ResolveWorkspaceConnectionCredentialForAppOptions,
+  type ResolveWorkspaceConnectionCredentialsForAppOptions,
+  type WorkspaceConnectionCredentialBackend,
+  type WorkspaceConnectionCredentialProvenance,
+  type WorkspaceConnectionCredentialResolution,
+  type WorkspaceConnectionCredentialResolutionCheck,
+  type WorkspaceConnectionCredentialResolutionStatus,
+  type WorkspaceConnectionCredentialsResolution,
+} from "./credentials.js";

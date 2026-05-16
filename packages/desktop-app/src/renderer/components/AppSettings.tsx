@@ -25,9 +25,79 @@ interface AppSettingsProps {
   onClose: () => void;
   onAppsChanged: (apps: AppConfig[]) => void;
   onAddAppClick?: () => void;
+  onCodeAgentProvidersChanged?: () => void;
 }
 
 type RemoteStatusTone = "ok" | "pending" | "offline" | "error";
+type ProviderStatusTone = "ok" | "offline";
+
+const EMPTY_PROVIDER_DRAFTS: Record<CodeAgentProviderCredentialKey, string> = {
+  ANTHROPIC_API_KEY: "",
+  OPENAI_API_KEY: "",
+  GOOGLE_GENERATIVE_AI_API_KEY: "",
+  BUILDER_PRIVATE_KEY: "",
+  BUILDER_PUBLIC_KEY: "",
+};
+
+const CODE_AGENT_PROVIDER_FIELDSETS: Array<{
+  id: CodeAgentProviderId;
+  label: string;
+  fields: Array<{
+    key: CodeAgentProviderCredentialKey;
+    label: string;
+    placeholder: string;
+  }>;
+}> = [
+  {
+    id: "builder",
+    label: "Builder.io",
+    fields: [
+      {
+        key: "BUILDER_PRIVATE_KEY",
+        label: "Private key",
+        placeholder: "Paste Builder private key",
+      },
+      {
+        key: "BUILDER_PUBLIC_KEY",
+        label: "Public key",
+        placeholder: "Paste Builder public key",
+      },
+    ],
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    fields: [
+      {
+        key: "ANTHROPIC_API_KEY",
+        label: "API key",
+        placeholder: "Paste Anthropic API key",
+      },
+    ],
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    fields: [
+      {
+        key: "OPENAI_API_KEY",
+        label: "API key",
+        placeholder: "Paste OpenAI API key",
+      },
+    ],
+  },
+  {
+    id: "google",
+    label: "Gemini",
+    fields: [
+      {
+        key: "GOOGLE_GENERATIVE_AI_API_KEY",
+        label: "API key",
+        placeholder: "Paste Gemini API key",
+      },
+    ],
+  },
+];
 
 function inferPortFromUrl(url: string): number {
   try {
@@ -122,11 +192,47 @@ function remoteStatusCopy(status: CodeAgentRemoteConnectorStatus | null): {
   };
 }
 
+function providerStatusCopy(provider: CodeAgentProviderStatus | undefined): {
+  label: string;
+  description: string;
+  tone: ProviderStatusTone;
+} {
+  if (!provider) {
+    return {
+      label: "Unavailable",
+      description: "Provider status is not available.",
+      tone: "offline",
+    };
+  }
+  if (provider.configured) {
+    const source =
+      provider.source === "desktop-settings"
+        ? "Desktop settings"
+        : provider.source === "environment"
+          ? "environment"
+          : "settings and environment";
+    return {
+      label: "Connected",
+      description: `Ready from ${source}.`,
+      tone: "ok",
+    };
+  }
+  return {
+    label: "Not connected",
+    description:
+      provider.missingKeys.length > 1
+        ? `${provider.missingKeys.length} keys needed.`
+        : "Key needed.",
+    tone: "offline",
+  };
+}
+
 export default function AppSettings({
   apps,
   onClose,
   onAppsChanged,
   onAddAppClick,
+  onCodeAgentProvidersChanged,
 }: AppSettingsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -139,6 +245,14 @@ export default function AppSettings({
   const [remotePairing, setRemotePairing] = useState(false);
   const [showRemotePairing, setShowRemotePairing] = useState(false);
   const [remoteMessage, setRemoteMessage] = useState<string | null>(null);
+  const [providerSettings, setProviderSettings] =
+    useState<CodeAgentProviderSettings | null>(null);
+  const [providerDrafts, setProviderDrafts] = useState(EMPTY_PROVIDER_DRAFTS);
+  const [expandedProviderId, setExpandedProviderId] =
+    useState<CodeAgentProviderId | null>(null);
+  const [providerSavingId, setProviderSavingId] =
+    useState<CodeAgentProviderId | null>(null);
+  const [providerMessage, setProviderMessage] = useState<string | null>(null);
 
   // Load frame settings
   useEffect(() => {
@@ -146,6 +260,24 @@ export default function AppSettings({
       window.electronAPI.frame.load().then(setFrameSettings);
     }
   }, []);
+
+  const refreshProviderSettings = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.getProviderSettings) return;
+    try {
+      const settings = await api.getProviderSettings();
+      setProviderSettings(settings);
+      setExpandedProviderId((current) =>
+        current || settings.configured ? current : "builder",
+      );
+    } catch (err) {
+      setProviderMessage(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshProviderSettings();
+  }, [refreshProviderSettings]);
 
   const refreshRemoteStatus = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
@@ -210,6 +342,85 @@ export default function AppSettings({
       setRemotePairing(false);
     }
   }, [remotePairUrl]);
+
+  const updateProviderDraft = useCallback(
+    (key: CodeAgentProviderCredentialKey, value: string) => {
+      setProviderDrafts((current) => ({ ...current, [key]: value }));
+    },
+    [],
+  );
+
+  const clearProviderDrafts = useCallback(
+    (fields: Array<{ key: CodeAgentProviderCredentialKey }>) => {
+      setProviderDrafts((current) => {
+        const next = { ...current };
+        for (const field of fields) next[field.key] = "";
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleSaveProvider = useCallback(
+    async (providerId: CodeAgentProviderId) => {
+      const api = window.electronAPI?.codeAgents;
+      if (!api?.updateProviderSettings) return;
+      const definition = CODE_AGENT_PROVIDER_FIELDSETS.find(
+        (provider) => provider.id === providerId,
+      );
+      if (!definition) return;
+      const updates: CodeAgentProviderSettingsUpdate = {};
+      for (const field of definition.fields) {
+        const value = providerDrafts[field.key].trim();
+        if (value) updates[field.key] = value;
+      }
+      if (Object.keys(updates).length === 0) {
+        setProviderMessage("Paste a key to save.");
+        return;
+      }
+      setProviderSavingId(providerId);
+      setProviderMessage(null);
+      try {
+        const result = await api.updateProviderSettings(updates);
+        setProviderSettings(result.settings);
+        setProviderMessage(result.error ?? result.message);
+        clearProviderDrafts(definition.fields);
+        onCodeAgentProvidersChanged?.();
+      } catch (err) {
+        setProviderMessage(err instanceof Error ? err.message : String(err));
+      } finally {
+        setProviderSavingId(null);
+      }
+    },
+    [clearProviderDrafts, onCodeAgentProvidersChanged, providerDrafts],
+  );
+
+  const handleRemoveProvider = useCallback(
+    async (providerId: CodeAgentProviderId) => {
+      const api = window.electronAPI?.codeAgents;
+      if (!api?.updateProviderSettings) return;
+      const definition = CODE_AGENT_PROVIDER_FIELDSETS.find(
+        (provider) => provider.id === providerId,
+      );
+      if (!definition) return;
+      const updates: CodeAgentProviderSettingsUpdate = {};
+      for (const field of definition.fields) updates[field.key] = null;
+      setProviderSavingId(providerId);
+      setProviderMessage(null);
+      try {
+        const result = await api.updateProviderSettings(updates);
+        setProviderSettings(result.settings);
+        setProviderMessage(result.error ?? result.message);
+        clearProviderDrafts(definition.fields);
+        onCodeAgentProvidersChanged?.();
+      } catch (err) {
+        setProviderMessage(err instanceof Error ? err.message : String(err));
+      } finally {
+        setProviderSavingId(null);
+      }
+    },
+    [clearProviderDrafts, onCodeAgentProvidersChanged],
+  );
 
   const handleToggle = useCallback(
     async (id: string, enabled: boolean) => {
@@ -335,6 +546,128 @@ export default function AppSettings({
                   Dev
                 </button>
               </div>
+            </div>
+          )}
+
+          {providerSettings && (
+            <div className="settings-provider-card">
+              <div className="settings-provider-card-header">
+                <div>
+                  <span className="settings-mode-card-title">
+                    Code providers
+                  </span>
+                  <span className="settings-mode-card-status">
+                    {providerSettings.configured
+                      ? `${providerSettings.configuredProviders.join(", ")} ready`
+                      : "Connect a provider before chatting in Code."}
+                  </span>
+                </div>
+              </div>
+
+              <div className="settings-provider-list">
+                {CODE_AGENT_PROVIDER_FIELDSETS.map((definition) => {
+                  const provider = providerSettings.providers.find(
+                    (item) => item.id === definition.id,
+                  );
+                  const copy = providerStatusCopy(provider);
+                  const expanded = expandedProviderId === definition.id;
+                  const hasSavedKeys = Boolean(provider?.savedKeys.length);
+                  const isSaving = providerSavingId === definition.id;
+                  return (
+                    <div
+                      key={definition.id}
+                      className={`settings-provider-row settings-provider-row--${copy.tone}`}
+                    >
+                      <div className="settings-provider-summary">
+                        <div className="settings-remote-title">
+                          <span
+                            className={`settings-remote-dot settings-remote-dot--${copy.tone}`}
+                          />
+                          <div>
+                            <span className="settings-mode-card-title">
+                              {definition.label}
+                            </span>
+                            <span className="settings-mode-card-status">
+                              {copy.label} · {copy.description}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="settings-provider-configure"
+                          onClick={() =>
+                            setExpandedProviderId(
+                              expanded ? null : definition.id,
+                            )
+                          }
+                        >
+                          {expanded ? "Done" : "Configure"}
+                        </button>
+                      </div>
+
+                      {expanded && (
+                        <div className="settings-provider-form">
+                          {definition.fields.map((field) => (
+                            <label key={field.key}>
+                              {field.label}
+                              <input
+                                type="password"
+                                value={providerDrafts[field.key]}
+                                onChange={(e) =>
+                                  updateProviderDraft(field.key, e.target.value)
+                                }
+                                placeholder={
+                                  provider?.configuredKeys.includes(field.key)
+                                    ? "Leave blank to keep existing key"
+                                    : field.placeholder
+                                }
+                                autoComplete="off"
+                              />
+                            </label>
+                          ))}
+                          <span className="settings-field-hint">
+                            Saved locally for new Code chats.
+                          </span>
+                          <div className="settings-provider-actions">
+                            <button
+                              type="button"
+                              className="settings-btn settings-btn--primary"
+                              onClick={() => handleSaveProvider(definition.id)}
+                              disabled={isSaving}
+                            >
+                              {isSaving ? "Saving..." : "Save"}
+                            </button>
+                            {hasSavedKeys && (
+                              <button
+                                type="button"
+                                className="settings-btn settings-btn--ghost"
+                                onClick={() =>
+                                  handleRemoveProvider(definition.id)
+                                }
+                                disabled={isSaving}
+                              >
+                                Remove saved keys
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {providerMessage && (
+                <div className="settings-provider-message">
+                  {providerMessage}
+                </div>
+              )}
+              {!providerSettings.encryptionAvailable && (
+                <div className="settings-provider-message">
+                  Secure OS storage is unavailable, so keys are stored in a
+                  local file with restricted permissions.
+                </div>
+              )}
             </div>
           )}
 

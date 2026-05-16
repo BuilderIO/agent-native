@@ -60,7 +60,16 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // Stripe
   { key: "STRIPE_SECRET_KEY", label: "Stripe", required: false },
   // HubSpot
-  { key: "HUBSPOT_ACCESS_TOKEN", label: "HubSpot", required: false },
+  {
+    key: "HUBSPOT_PRIVATE_APP_TOKEN",
+    label: "HubSpot private app token",
+    required: false,
+  },
+  {
+    key: "HUBSPOT_ACCESS_TOKEN",
+    label: "HubSpot access token (legacy)",
+    required: false,
+  },
   // Gong
   { key: "GONG_ACCESS_KEY", label: "Gong Access Key", required: false },
   { key: "GONG_ACCESS_SECRET", label: "Gong Access Secret", required: false },
@@ -288,7 +297,7 @@ const credentialAliases: Record<string, string[]> = {
   gcloud: ["GOOGLE_APPLICATION_CREDENTIALS_JSON"],
   gong: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
   grafana: ["GRAFANA_URL", "GRAFANA_API_TOKEN"],
-  hubspot: ["HUBSPOT_ACCESS_TOKEN"],
+  hubspot: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
   jira: ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"],
   mixpanel: ["MIXPANEL_PROJECT_ID", "MIXPANEL_SERVICE_ACCOUNT"],
   notion: ["NOTION_API_KEY"],

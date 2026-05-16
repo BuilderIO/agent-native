@@ -1,10 +1,12 @@
 # Agent-Native Brain
 
-Brain is a Company Brain template: whole-company institutional memory for
-agents and humans. V1 turns raw captures (Slack channel messages, Clips
-recordings, Granola notes, transcripts, documents, and generic text) into
-reviewed, searchable, SQL-backed knowledge with source quotes preserved as
-evidence.
+Brain is a Company Brain template: clean company chat backed by cited
+institutional memory. The Ask route is the primary product surface for humans
+and agents; Sources, Review, Knowledge, Ops, and Settings are support/admin
+surfaces for ingestion, trust, and operations. V1 turns raw captures (Slack
+channel messages, Clips recordings, Granola notes, transcripts, documents, and
+generic text) into reviewed, searchable, SQL-backed knowledge with source
+quotes preserved as evidence.
 
 Brain is not a full Glean replacement today. Position it honestly as an
 open-source, Glean-shaped foundation: durable company memory first, then a
@@ -12,14 +14,22 @@ broader permission-aware workspace search layer over time.
 
 ## Product Direction
 
-- **V1 Company Brain:** search over distilled knowledge. Agents should answer
-  from reviewed, cited entries whenever possible.
+- **V1 Company Brain:** company chat over distilled knowledge. Agents should
+  answer from reviewed, cited entries whenever possible.
 - **V1.5 universal search:** add a Search route and `search-everything` action
   that search knowledge, raw captures, and source records together, then let
   agents drill into specific knowledge/capture records for citations.
-- **V2 platform layer:** reusable workspace connections, federated app/source
-  search, permission-aware results, and an expertise graph. Treat the expertise
-  graph as future platform direction, not a shipped V1 claim.
+- **V2 platform layer:** federated app/source search, permission-aware results,
+  and an expertise graph. Treat the expertise graph as future platform
+  direction, not a shipped V1 claim.
+- **Reusable integrations:** workspace integrations are a framework primitive
+  for provider identity, safe credential refs, and per-app grants. Brain still
+  owns source config such as channel allow-lists, repositories, cursors, review
+  posture, and distillation state.
+- **Federated answers:** Brain should answer from Brain knowledge when it has
+  cited support. When a question needs live app-owned data, delegate to the
+  specialized app agent or action instead of expanding Brain into every
+  provider reader.
 - **Portability:** V1 uses portable SQL text search and agentic query expansion.
   There is no vector database requirement in V1.
 
@@ -41,6 +51,7 @@ JSON is stored in text columns. There is no vector database.
 | `create-source` / `update-source` / `delete-source` / `get-source` / `list-sources` | Manage source configuration                                                                                                            |
 | `sync-source` / `sync-due-sources`                                                  | Run one source immediately or run due auto-sync sources                                                                                |
 | `list-connection-providers`                                                         | List Brain-relevant reusable provider metadata, workspace connection grants for `appId=brain`, credential key names, and source status |
+| `get-brain-health`                                                                  | Summarize first-run setup, configured/connected sources, sync freshness, queue/proposal counts, and the latest eval score              |
 | `test-slack-connection`                                                             | Test Slack credentials/channel allow-lists without reading message history                                                             |
 | `run-slack-pilot`                                                                   | Produce a guarded Slack pilot report; reads no history unless `readHistory: true`                                                      |
 | `get-pilot-report`                                                                  | Summarize one source's sync health, queue state, privacy notes, and rollout next steps                                                 |
@@ -55,7 +66,7 @@ JSON is stored in text columns. There is no vector database.
 | `preview-canonical-resource`                                                        | Preview the exact Markdown Brain will mirror under `context/company-brain/...` before approval or publish/unpublish                    |
 | `set-knowledge-canonical`                                                           | Publish or unpublish approved Brain knowledge as shared `context/company-brain/...` workspace context                                  |
 | `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                                                                    |
-| `search-everything`                                                                 | V1.5 search across knowledge, raw captures, and source records                                                                         |
+| `search-everything`                                                                 | V1.5 search across Brain-indexed knowledge, raw captures, and source records, plus federated coverage/delegation hints                 |
 | `list-proposals` / `update-proposal` / `approve-proposal` / `reject-proposal`       | Review, edit, approve, or reject company-tier or forced proposals                                                                      |
 | `seed-demo-data` / `run-demo-eval` / `run-retrieval-eval`                           | Seed and evaluate product-decision demos and offline real-channel-style retrieval checks                                               |
 | `get-settings` / `set-settings`                                                     | Read/update Brain settings                                                                                                             |
@@ -71,7 +82,11 @@ When answering company-memory questions:
    publish tier, redaction, and distillation instructions.
 2. Start with `search-everything` when it is available. It is the V1.5 universal
    search surface and should return candidate knowledge entries, raw captures,
-   and sources the current user can access.
+   and sources the current user can access. Its `federatedCoverage` section is
+   metadata only: it lists Brain source/provider coverage, reusable workspace
+   connection readiness, compact discovered agent metadata when available, and
+   deterministic hints for where to delegate next. It does not search sibling
+   app databases or call other agents.
 3. Drill into promising results with `get-knowledge` for durable facts and
    `get-capture` for source context. `get-capture` is redacted by default; use
    `includeRawContent: true` only for editor-authorized distillation or exact
@@ -89,12 +104,23 @@ When answering company-memory questions:
    been distilled and reviewed.
 7. If search does not find support, say so plainly. Do not invent an answer or
    imply Brain contains information it did not return.
+8. When `federatedCoverage.delegationHints` points at another app, delegate from
+   the agent loop with `call-agent` rather than inside Brain actions. Examples:
+   Analytics owns dashboards/metrics, Mail/Gmail owns mailbox-native search,
+   and Dispatch owns workspace resources, provider grants, approvals, secrets,
+   recurring jobs, and cross-app routing.
+
+Use the `ask-across-everything` skill for prompts that mix Brain memory with
+live/app-owned data. It encodes the Brain-first, inspect coverage, delegate,
+then synthesize-with-boundaries loop.
 
 ## Knowledge Rules
 
 - `write-knowledge.evidence[].quote` must be an exact substring of the referenced capture.
 - `publishTier: "private"` writes draft/private knowledge.
 - `publishTier: "team"` and `"company"` use org visibility.
+- New shared/company memory should default to org-shared visibility only after
+  source allow-lists, exclusions, redaction, and review gates have been applied.
 - Company-tier writes create a proposal by default when `requireApprovalForCompanyKnowledge` is true.
 - Use `proposalMode: "never"` only when the user explicitly wants to bypass review.
 - Pending proposals may be edited with `update-proposal` before approval; keep reviewer notes on the approve/reject action.
@@ -217,6 +243,16 @@ names, explicit grant metadata, and connection counts used by Dispatch and
 Analytics, so Brain should not reimplement `allowedApps` or explicit grant
 checks locally.
 
+The ownership boundary is strict: reusable workspace integrations own provider
+identity, credential ref names, account metadata, and app grants; Dispatch is
+the usual admin control plane for connecting, repairing, and granting them; the
+vault owns the secret values; Brain owns source-specific configuration and the
+ingestion/distillation/review/search/citation pipeline.
+Credential resolution, grants, provider readiness, and safe metadata are shared
+today. OAuth flows, provider-specific readers, ingestion cursors, source
+filters, and review semantics remain Brain-local unless a provider runtime is
+explicitly promoted into the framework.
+
 Before asking the user for a duplicate Slack, Granola, GitHub, Notion, Google
 Drive, HubSpot, or other provider key, call `list-connection-providers` and
 inspect each provider's `workspaceConnection` summary. A `grantState` of
@@ -232,6 +268,25 @@ for `appId=brain`, Brain-local credentials, then vault-backed registered
 secrets. It does not fall back to deploy-level environment variables for source
 credentials. Never include resolved credential values in action responses,
 stats, errors, or logs.
+
+For "ask across everything" requests, do not treat Brain as the owner of every
+workspace system. Use Brain search for reviewed memory and accessible captures.
+If the user asks for live metrics, dashboard numbers, CRM pipeline analysis,
+mailbox state, calendar availability, Dispatch policy, or another app-owned
+surface, call the specialized app agent/action through A2A when available and
+ground the answer in that result. Brain may summarize and cite the handoff, but
+it should not fabricate live data or bypass the owning app's permissions and
+domain rules.
+
+## A2A Retrieval
+
+Brain's public A2A capability is read-only, citation-backed retrieval for
+company-memory questions. Treat the public agent card as discovery metadata, not
+anonymous data access. Actual retrieval still runs through the authenticated
+A2A/action context and must obey access filters, source policy, redaction,
+review gates, and citation requirements. If a request asks Brain to mutate
+state, sync a source, approve/reject review items, or write knowledge, it should
+go through authenticated app actions instead of the public retrieval fallback.
 
 Auto-sync is controlled per source with `config.autoSync` and
 `config.pollMinutes`. The background job is gated by `RUN_BACKGROUND_JOBS`; use

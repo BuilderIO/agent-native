@@ -85,6 +85,11 @@ pub fn set_capture_excluded(window: &WebviewWindow) {
 }
 
 #[cfg(target_os = "macos")]
+pub fn set_capture_excluded_always(window: &WebviewWindow) {
+    set_window_capture_excluded(window, true);
+}
+
+#[cfg(target_os = "macos")]
 pub fn set_capture_included(window: &WebviewWindow) {
     set_window_capture_excluded(window, false);
 }
@@ -93,6 +98,11 @@ pub fn set_capture_included(window: &WebviewWindow) {
 pub fn set_capture_excluded(_window: &WebviewWindow) {
     // No-op on non-macOS platforms. Screen-capture exclusion isn't a public
     // Windows API; Linux doesn't even have a universal screen-capture API.
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_capture_excluded_always(_window: &WebviewWindow) {
+    // No-op on non-macOS platforms.
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -111,6 +121,9 @@ pub fn set_capture_included(_window: &WebviewWindow) {
 /// the toggle, so the next `show_popover` / `park_popover_offscreen` call
 /// picks up the new setting. Rewriting it here would clobber the parked
 /// state mid-recording.
+///
+/// Region-guide overlays are private recorder aids, not Clips chrome demos, so
+/// they stay excluded even when the debug toggle makes the rest visible.
 pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
@@ -120,7 +133,8 @@ pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
             if label.as_str() == "popover" {
                 continue;
             }
-            set_window_capture_excluded(window, !visible);
+            let private_guide = matches!(label.as_str(), "region-guides" | "region-guide-editor");
+            set_window_capture_excluded(window, private_guide || !visible);
         }
     }
     #[cfg(not(target_os = "macos"))]

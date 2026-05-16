@@ -75,10 +75,7 @@ function UploadOnlyAttachButton() {
             <IconPlus className="h-4 w-4" />
           </button>
         </TooltipTrigger>
-        <TooltipContent>
-          Upload image, PDF, PPTX, DOCX, text, Markdown, JSON, CSV, HTML, CSS,
-          or XML
-        </TooltipContent>
+        <TooltipContent>Upload</TooltipContent>
       </Tooltip>
     </>
   );

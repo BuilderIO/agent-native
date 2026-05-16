@@ -36,6 +36,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-autostart = "2.5.1"
+tauri-plugin-fs = "2.5.1"
 # Native macOS / cross-platform desktop notifications. v2.3.x is the
 # current latest at the time of writing (verified via `cargo search
 # tauri-plugin-notification`). Powers the Granola-style "Meeting starting

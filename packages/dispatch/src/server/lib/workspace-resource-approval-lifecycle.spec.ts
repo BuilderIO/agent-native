@@ -26,13 +26,6 @@ function restoreEnv() {
   }
 }
 
-function statementList(sql: string) {
-  return sql
-    .split(";")
-    .map((statement) => statement.trim())
-    .filter(Boolean);
-}
-
 beforeEach(async () => {
   tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "dispatch-resource-lifecycle-"),
@@ -44,16 +37,13 @@ beforeEach(async () => {
   delete process.env.DISPATCH_DATABASE_AUTH_TOKEN;
   vi.resetModules();
 
-  const [{ getDbExec }, { dispatchMigrations }] = await Promise.all([
+  const [{ runMigrations }, { dispatchMigrations }] = await Promise.all([
     import("@agent-native/core/db"),
     import("../../db/migrations.js"),
   ]);
-  const exec = getDbExec();
-  for (const migration of dispatchMigrations) {
-    for (const statement of statementList(migration.sql)) {
-      await exec.execute(statement);
-    }
-  }
+  await runMigrations(dispatchMigrations, {
+    table: "dispatch_migrations",
+  })({});
 });
 
 afterEach(async () => {

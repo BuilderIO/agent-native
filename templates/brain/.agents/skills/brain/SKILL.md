@@ -15,3 +15,8 @@ Use Brain actions rather than raw SQL.
 6. If `write-knowledge` returns `mode: "proposal"`, leave it in review unless the user asks to approve.
 
 Search starts with `search-everything` when available and uses `search-knowledge` for distilled knowledge only; there is no vector index. Follow `sourcePolicy`: `strict` means reviewed knowledge only, `balanced` means raw captures are labeled fallback context, and `exploratory` means raw captures and sources can be labeled leads.
+
+For "ask across everything" requests, follow the `ask-across-everything` skill:
+search Brain first, inspect `federatedCoverage`, delegate live/app-owned data
+requests with `call-agent`, and never claim Brain searched sibling app databases
+directly.

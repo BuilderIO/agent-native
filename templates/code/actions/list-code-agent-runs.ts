@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
-import { listCodeAgentRunRecords } from "@agent-native/core/code-agents";
+import { localCodeBackgroundAgentController } from "@agent-native/core/code-agents";
 import { z } from "zod";
-import { toUiRun } from "./_code-agent-ui.js";
+import { backgroundRunToUiRun } from "./_code-agent-ui.js";
 
 export default defineAction({
   description:
@@ -10,9 +10,14 @@ export default defineAction({
     goalId: z.string().optional(),
   }),
   http: { method: "GET" },
-  run: async (args) => ({
-    status: "ok" as const,
-    goalId: args.goalId,
-    runs: listCodeAgentRunRecords(args.goalId).map(toUiRun),
-  }),
+  run: async (args) => {
+    const runs = await Promise.resolve(
+      localCodeBackgroundAgentController.list({ goalId: args.goalId }),
+    );
+    return {
+      status: "ok" as const,
+      goalId: args.goalId,
+      runs: runs.map(backgroundRunToUiRun),
+    };
+  },
 });

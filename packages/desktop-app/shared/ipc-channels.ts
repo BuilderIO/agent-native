@@ -67,6 +67,8 @@ export const IPC = {
   CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED:
     "code-agents:remote-connector:set-enabled",
   CODE_AGENTS_REMOTE_CONNECTOR_PAIR: "code-agents:remote-connector:pair",
+  CODE_AGENTS_PROVIDER_SETTINGS_GET: "code-agents:provider-settings:get",
+  CODE_AGENTS_PROVIDER_SETTINGS_UPDATE: "code-agents:provider-settings:update",
 
   /** Deep links (main → renderer) */
   DEEP_LINK_OPEN: "deep-link:open",
@@ -221,6 +223,9 @@ export interface CodeAgentRun {
   goalId: string;
   title: string;
   subtitle?: string;
+  kind?: string;
+  source?: string;
+  sourceLabel?: string;
   status: CodeAgentRunStatus;
   phase?: string;
   needsApproval?: boolean;
@@ -401,6 +406,44 @@ export interface CodeAgentRemoteConnectorPairResult {
   error?: string;
 }
 
+export type CodeAgentProviderId = "builder" | "anthropic" | "openai" | "google";
+
+export type CodeAgentProviderCredentialKey =
+  | "ANTHROPIC_API_KEY"
+  | "OPENAI_API_KEY"
+  | "GOOGLE_GENERATIVE_AI_API_KEY"
+  | "BUILDER_PRIVATE_KEY"
+  | "BUILDER_PUBLIC_KEY";
+
+export interface CodeAgentProviderStatus {
+  id: CodeAgentProviderId;
+  label: string;
+  configured: boolean;
+  configuredKeys: CodeAgentProviderCredentialKey[];
+  missingKeys: CodeAgentProviderCredentialKey[];
+  savedKeys: CodeAgentProviderCredentialKey[];
+  source?: "desktop-settings" | "environment" | "mixed";
+}
+
+export interface CodeAgentProviderSettings {
+  configured: boolean;
+  configuredProviders: string[];
+  providers: CodeAgentProviderStatus[];
+  encryptionAvailable: boolean;
+  storagePath: string;
+}
+
+export type CodeAgentProviderSettingsUpdate = Partial<
+  Record<CodeAgentProviderCredentialKey, string | null>
+>;
+
+export interface CodeAgentProviderSettingsUpdateResult {
+  ok: boolean;
+  settings: CodeAgentProviderSettings;
+  message: string;
+  error?: string;
+}
+
 export type CodeAgentControlCommand = "resume" | "status" | "stop" | "approve";
 
 export type CodeAgentHostControlCommand =
@@ -468,6 +511,12 @@ export interface CodeAgentHostMetadata {
   runsDir: string;
   transcriptsDir: string;
   codePack?: CodeAgentCodePackMetadata;
+  llmProvider?: {
+    configured: boolean;
+    label?: string;
+    configuredProviders?: string[];
+    missingEnvVars?: string[];
+  };
   capabilities: {
     fileBackedRuns: boolean;
     nativeTaskRunner: boolean;

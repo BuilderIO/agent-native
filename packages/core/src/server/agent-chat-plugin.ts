@@ -432,6 +432,24 @@ function filterPublicAgentActions(
   );
 }
 
+export function buildPublicAgentA2ASkills(
+  actions: Record<string, ActionEntry>,
+): Array<{
+  id: string;
+  name: string;
+  description: string;
+  publicAgent: ActionEntry["publicAgent"];
+}> {
+  return Object.entries(filterPublicAgentActions(actions)).map(
+    ([name, entry]) => ({
+      id: name,
+      name,
+      description: entry.tool.description,
+      publicAgent: entry.publicAgent,
+    }),
+  );
+}
+
 function resolveArtifactBaseUrl(event: any | undefined): string | undefined {
   const fromEnv =
     process.env.APP_URL ||
@@ -1964,6 +1982,23 @@ export interface AgentChatPluginOptions {
    * Defaults to `false`.
    */
   nativeActionsInDev?: boolean;
+  /**
+   * Optional A2A-only deterministic response path. Runs after inbound A2A text
+   * and user context are resolved, but before an agent engine/model is loaded.
+   * Return a message to complete the A2A task without invoking the LLM, or
+   * null/undefined to continue through the normal agent loop.
+   */
+  a2aMessageFallback?: (details: {
+    message: import("../a2a/types.js").Message;
+    text: string;
+    context: import("../a2a/types.js").A2AHandlerContext;
+    userEmail: string | undefined;
+  }) =>
+    | import("../a2a/types.js").Message
+    | string
+    | null
+    | undefined
+    | Promise<import("../a2a/types.js").Message | string | null | undefined>;
 }
 
 /**
@@ -3398,12 +3433,7 @@ export function createAgentChatPlugin(
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
           : "Agent",
         description: `Agent-native ${options?.appId ?? "app"} agent`,
-        skills: Object.entries(allScripts).map(([name, entry]) => ({
-          id: name,
-          name,
-          description: entry.tool.description,
-          publicAgent: entry.publicAgent,
-        })),
+        skills: buildPublicAgentA2ASkills(allScripts),
         publicSkillsOnly: true,
         streaming: true,
         handler: async function* (message, context) {
@@ -3533,6 +3563,24 @@ export function createAgentChatPlugin(
             return;
           }
 
+          if (!userEmail) throw new Error("no authenticated user");
+
+          const fallbackResponse = await options?.a2aMessageFallback?.({
+            message,
+            text,
+            context,
+            userEmail,
+          });
+          if (fallbackResponse) {
+            yield typeof fallbackResponse === "string"
+              ? {
+                  role: "agent" as const,
+                  parts: [{ type: "text" as const, text: fallbackResponse }],
+                }
+              : fallbackResponse;
+            return;
+          }
+
           // Use the SAME agent setup as the interactive chat — identical tools,
           // prompt, and capabilities. The A2A agent IS the app's agent.
           const a2aEngine = await resolveEngine({
@@ -3546,7 +3594,6 @@ export function createAgentChatPlugin(
           const handler = devActive && devHandler ? devHandler : prodHandler;
 
           // Build the same system prompt the interactive agent uses
-          if (!userEmail) throw new Error("no authenticated user");
           const owner = userEmail;
           const resources = await loadResourcesForPrompt(
             owner,
@@ -5488,10 +5535,30 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
         `${routePath}/runs`,
         defineEventHandler(async (event) => {
           // Auth check — ensure the user is authenticated
-          await getOwnerFromEvent(event);
+          const owner = await getOwnerFromEvent(event);
 
           const method = getMethod(event);
           const url = event.node?.req?.url || event.path || "";
+
+          // Route: GET /runs/list?goalId=agent-team
+          // Returns hosted Agent Teams in the Code hub-compatible run shape.
+          const listMatch =
+            url.match(/\/runs\/list(?:[/?]|$)/) ||
+            url.match(/^\/list(?:[/?]|$)/);
+          if (listMatch && method === "GET") {
+            const query = getQuery(event);
+            const goalId = query.goalId ? String(query.goalId) : undefined;
+            const runs = await runWithRequestContext(
+              { userEmail: owner },
+              async () => {
+                if (goalId && goalId !== "agent-team") return [];
+                const { listAgentTeamBackgroundRuns } =
+                  await import("./agent-teams.js");
+                return listAgentTeamBackgroundRuns();
+              },
+            );
+            return { status: "ok", goalId, runs };
+          }
 
           // Route: POST /runs/:id/abort
           // Match both full URL (/runs/{id}/abort) and h3 prefix-stripped (/{id}/abort)
@@ -5511,6 +5578,31 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             }
             abortRun(runId, reason); // Aborts in-memory + marks aborted in SQL
             return { ok: true };
+          }
+
+          // Route: GET /runs/:id/background-events
+          // Returns Agent Teams transcript events in the shared background-run shape.
+          const backgroundEventsMatch =
+            url.match(/\/runs\/([^/?]+)\/background-events/) ||
+            url.match(/^\/([^/?]+)\/background-events/);
+          if (backgroundEventsMatch && method === "GET") {
+            const runId = decodeURIComponent(backgroundEventsMatch[1]);
+            const {
+              getAgentTeamBackgroundRun,
+              listAgentTeamBackgroundTranscriptEvents,
+            } = await import("./agent-teams.js");
+            const run = await runWithRequestContext({ userEmail: owner }, () =>
+              getAgentTeamBackgroundRun(runId),
+            );
+            if (!run) {
+              setResponseStatus(event, 404);
+              return { status: "unavailable", runId, events: [] };
+            }
+            const events = await runWithRequestContext(
+              { userEmail: owner },
+              () => listAgentTeamBackgroundTranscriptEvents(runId),
+            );
+            return { status: "ok", runId, events };
           }
 
           // Route: GET /runs/:id/events?after=N

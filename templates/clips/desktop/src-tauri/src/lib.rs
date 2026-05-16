@@ -60,6 +60,9 @@ pub fn run() {
             clips::show_bubble,
             clips::hide_overlays,
             clips::hide_recording_chrome,
+            clips::show_region_guides,
+            clips::hide_region_guides,
+            clips::show_region_guide_editor,
             clips::close_bubble,
             clips::show_popover,
             clips::park_popover_offscreen,
@@ -129,6 +132,7 @@ pub fn run() {
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("Clips")

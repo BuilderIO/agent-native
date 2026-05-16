@@ -93,7 +93,7 @@ describe("executeCodeAgentRun", () => {
     expect(updated).toMatchObject({
       status: "paused",
       phase: "missing-credentials",
-      needsApproval: true,
+      needsApproval: false,
     });
     expect(listCodeAgentTranscriptEvents(run.id).at(-1)?.message).toContain(
       "No LLM provider key was found",

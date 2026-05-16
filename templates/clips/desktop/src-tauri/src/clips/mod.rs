@@ -16,8 +16,8 @@ use crate::state::{
 };
 use crate::util::{
     build_overlay_url, hide_voice_wake_popover, is_recording_active, mark_popover_shown,
-    primary_monitor_physical_size, set_capture_excluded, set_capture_included,
-    set_dictation_active,
+    primary_monitor_physical_size, set_capture_excluded, set_capture_excluded_always,
+    set_capture_included, set_dictation_active,
 };
 
 /// Native overlay windows for the recording experience. These render the same
@@ -27,6 +27,8 @@ const TOOLBAR_LABEL: &str = "toolbar";
 const BUBBLE_LABEL: &str = "bubble";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
+const REGION_GUIDES_LABEL: &str = "region-guides";
+const REGION_GUIDE_EDITOR_LABEL: &str = "region-guide-editor";
 
 /// Physical-pixel bubble sizes. Logical px on retina = physical / 2, so these
 /// map to ~96 (small) and ~180 (medium) logical px — matching Loom's camera
@@ -258,6 +260,101 @@ pub async fn hide_finalizing(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Full-screen, click-through recording guides. The React view renders the
+/// saved translucent rectangles, while AppKit marks the whole overlay as
+/// non-shareable so the guides stay private to the recorder.
+#[tauri::command]
+pub async fn show_region_guides(app: AppHandle) -> Result<(), String> {
+    let guides = crate::config::feature_config(&app).region_guides;
+    if !guides.enabled || guides.rects.is_empty() {
+        if let Some(existing) = app.get_webview_window(REGION_GUIDES_LABEL) {
+            let _ = existing.close();
+        }
+        return Ok(());
+    }
+
+    if let Some(existing) = app.get_webview_window(REGION_GUIDES_LABEL) {
+        let _ = existing.show();
+        return Ok(());
+    }
+
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    let win = WebviewWindowBuilder::new(
+        &app,
+        REGION_GUIDES_LABEL,
+        build_overlay_url("region-guides"),
+    )
+    .title("Clips Region Guides")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .shadow(false)
+    .visible(false)
+    .focused(false)
+    .build()
+    .map_err(|e| {
+        eprintln!("[clips-tray] region guides build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(0, 0));
+    let _ = win.set_ignore_cursor_events(true);
+    set_capture_excluded_always(&win);
+    crate::util::show_without_activation(&win);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_region_guides(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(REGION_GUIDES_LABEL) {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
+/// Interactive full-screen editor for the region-guide preset. It is also
+/// capture-excluded so opening it during an active recording won't leak the
+/// preset UI into the video.
+#[tauri::command]
+pub async fn show_region_guide_editor(app: AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window(REGION_GUIDE_EDITOR_LABEL) {
+        let _ = existing.close();
+    }
+
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(
+        &app,
+        REGION_GUIDE_EDITOR_LABEL,
+        build_overlay_url("region-guides-editor"),
+    )
+    .title("Edit Clips Region Guides")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .shadow(false)
+    .visible(false)
+    .focused(true);
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.accept_first_mouse(true);
+    }
+    let win = builder.build().map_err(|e| {
+        eprintln!("[clips-tray] region guide editor build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(0, 0));
+    set_capture_excluded_always(&win);
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
 /// Vertical recording pill anchored to the left edge. Stop + timer + pause,
 /// matching Loom's left-rail placement. Draggable, always on top.
 #[tauri::command]
@@ -408,6 +505,7 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
         BUBBLE_LABEL,
         FINALIZING_LABEL,
         FLOW_BAR_LABEL,
+        REGION_GUIDES_LABEL,
     ] {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
@@ -426,7 +524,7 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
 /// popover-close).
 #[tauri::command]
 pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
-    for label in [COUNTDOWN_LABEL, TOOLBAR_LABEL] {
+    for label in [COUNTDOWN_LABEL, TOOLBAR_LABEL, REGION_GUIDES_LABEL] {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
         }
@@ -974,6 +1072,9 @@ pub async fn reset_state(app: AppHandle) -> Result<(), String> {
         if let Ok(mut g) = state.0.lock() {
             *g = false;
         }
+    }
+    if let Some(w) = app.get_webview_window(REGION_GUIDES_LABEL) {
+        let _ = w.close();
     }
     if let Some(window) = app.get_webview_window("popover") {
         // Restore normal size in case the window was shrunk to a pinhole

@@ -5,25 +5,35 @@ description: "Shared provider metadata, grants, and credential refs for connect-
 
 # Workspace Connections
 
-Workspace connections are the framework path toward "connect once, grant apps,
-use everywhere" integrations. The workspace/Dispatch layer records provider
-accounts once, grants apps such as Brain, Analytics, Mail, and Dispatch access,
-and lets each app's UI and agent inspect safe integration metadata before
-asking for another credential.
+Workspace connections are the framework primitive for reusable integration
+metadata. They make "connect once, grant apps, reuse credentials" possible
+without pretending every provider is fully generic. The workspace/Dispatch
+layer records provider accounts once, grants apps such as Brain, Analytics,
+Mail, and Dispatch access, and lets each app's UI and agent inspect safe
+integration metadata before asking for another credential.
 
-They have two shared pieces:
+They have three shared pieces:
 
 - A typed provider catalog that templates import to describe the external
   systems they understand.
 - A scoped SQL store for connected accounts plus per-app grants, so Dispatch or
   another workspace setup flow can connect Slack, GitHub, Google Drive, Granola,
   or another provider once and then grant individual apps access.
+- An app-local boundary: the shared connection owns provider identity,
+  credential refs, account metadata, and grants; each app owns the source
+  choices and interpretation that only make sense inside that app.
 
 The store records provider ids, account labels, non-secret config, credential
 reference names, health state, and grant rows. It does not run OAuth and never
 returns secret values. Secret values stay in the credential vault and are
 resolved by actions at execution time from the request's user/org/workspace
 scope.
+
+That boundary is intentional. What is reusable today is provider identity,
+credential-reference resolution, per-app grants, provider readiness, and safe
+account metadata. What is not yet generic is provider-specific data reading,
+OAuth flow ownership, ingestion cursors, source filters, sync cadence, and
+domain interpretation. Those stay in the app that owns the workflow.
 
 Dispatch exposes the first control-plane implementation through the
 `list-workspace-connections`, `upsert-workspace-connection`, and
@@ -169,15 +179,15 @@ it?"
 Use both together:
 
 1. Dispatch or another workspace setup flow creates/grants the underlying vault
-   secret.
+   secret or OAuth credential reference.
 2. The workspace connection store records the provider account, safe metadata,
    credential refs, and app grants.
 3. Each app reads provider metadata from the catalog and connection/grant
    summaries from the shared store.
 4. The app UI shows readiness: connected, granted but unhealthy, needs grant,
    missing credentials, or metadata-only.
-5. App-specific SQL stores only app-specific source ids, cursors, filters, and
-   user choices.
+5. App-specific SQL stores only app-specific source ids, cursors, filters,
+   sync windows, metric definitions, review rules, and user choices.
 6. App actions resolve credentials at execution time through granted connection
    refs and the vault, and never return secret values.
 
@@ -210,10 +220,10 @@ Use a connect-once flow before app-specific source setup:
    filters, cursors, or sync cadence.
 5. Agents inspect readiness and grants before asking for new credentials.
 
-This keeps the UX clean: users connect Slack, GitHub, HubSpot, Google Drive,
-Granola, and similar providers once, then choose which apps may use that
-connection without duplicating secrets or scattering account setup across every
-template.
+This keeps the UX clean without overclaiming the abstraction: users connect
+Slack, GitHub, HubSpot, Google Drive, Granola, and similar providers once, then
+choose which apps may use the credential/account metadata. Each app still
+decides what data to read, how to read it, and what the data means.
 
 ## Build A Reusable Connector Once
 
@@ -233,7 +243,9 @@ three layers:
 Do not duplicate OAuth/token storage in each app. The connection record should
 say "this is Acme Slack and its token lives at `SLACK_BOT_TOKEN`"; the app-local
 source should say "Brain may ingest `#product` and `#dev-fusion` from that
-Slack connection."
+Slack connection." The Slack reader, cursor, retry policy, and distillation
+rules still belong to Brain unless and until those pieces are promoted to a
+shared provider runtime.
 
 ### Dispatch control-plane setup
 
@@ -452,6 +464,19 @@ await upsertWorkspaceConnectionGrant({
 | **Mail**      | A Mail readiness action using the same catalog helper   | Mailboxes, labels, reply rules, CRM enrichment preferences        |
 | **Agents**    | App readiness actions before asking for secrets         | No secret values; only cite provider ids, grant state, next steps |
 
+Analytics data sources are app-owned even when their credentials come from a
+workspace connection. A HubSpot or GitHub grant tells Analytics which provider
+account it may use; the Analytics app still owns the source-of-truth decision,
+warehouse-vs-live-provider choice, metric definitions, dashboard semantics, and
+saved analyses.
+
+Brain's "ask across everything" direction should be federated rather than
+centralized. Brain can answer from reviewed Brain knowledge and raw captures it
+is allowed to search. When a question needs live app-owned data such as current
+analytics metrics, mail state, calendar availability, or Dispatch runtime
+policy, Brain should delegate to the specialized app agent or action and cite
+that result instead of trying to own every app's reader locally.
+
 Agents should follow a simple rule: if a user asks to connect Slack, GitHub,
 HubSpot, Gmail, Google Drive, Granola, or another shared provider, inspect the
 workspace connection catalog first. If the provider is `connected`, use it. If
@@ -504,6 +529,9 @@ layer:
 - Federated search can ask for providers with `search`, `docs`, `messages`,
   `meetings`, `crm`, or `code` capabilities instead of hardcoding every app's
   connector list.
+- Provider-specific readers, OAuth refresh flows, ingestion checkpoints, and
+  app-owned data models can become shared later, but they are not implied by a
+  workspace connection today.
 
 Keep the boundary strict: provider metadata is safe to show; credential values
 stay in the vault.
