@@ -322,6 +322,8 @@ function UseBuilderCard({
   orgName,
   envManaged,
   credentialSource,
+  trackingSource = "settings_panel_builder_card",
+  trackingFlow = "connect_llm",
   label = "Connect Builder.io",
   subtitle = "Free credits to start — no API key needed.",
   dim,
@@ -332,6 +334,8 @@ function UseBuilderCard({
   orgName?: string;
   envManaged?: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
+  trackingSource?: string;
+  trackingFlow?: string;
   label?: string;
   subtitle?: string;
   dim?: boolean;
@@ -369,7 +373,7 @@ function UseBuilderCard({
             {connectUrl && (
               <button
                 type="button"
-                onClick={builderFlow.start}
+                onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
                 disabled={builderFlow.connecting}
                 className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60"
               >
@@ -393,7 +397,7 @@ function UseBuilderCard({
   return (
     <button
       type="button"
-      onClick={builderFlow.start}
+      onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
       disabled={builderFlow.connecting}
       className={`block w-full rounded-md border border-border px-3 py-3 text-left no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70`}
     >
@@ -861,6 +865,8 @@ function LLMSectionInner({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="llm_settings"
+            trackingFlow="connect_llm"
             label="Connect Builder.io"
           />
           {!builderConnected && (
@@ -2310,6 +2316,8 @@ export function SettingsPanel({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="hosting_settings"
+            trackingFlow="hosting"
           />
           <ManualSetupCard
             hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
@@ -2336,6 +2344,8 @@ export function SettingsPanel({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="database_settings"
+            trackingFlow="database"
           />
           <ManualSetupCard
             hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, or any Postgres/SQLite database."
@@ -2362,6 +2372,8 @@ export function SettingsPanel({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="file_upload_settings"
+            trackingFlow="file_upload"
           />
           <ManualSetupCard
             hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
@@ -2388,6 +2400,8 @@ export function SettingsPanel({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="auth_settings"
+            trackingFlow="auth"
           />
           <ManualSetupCard
             hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
@@ -2419,6 +2433,8 @@ export function SettingsPanel({
           orgName={orgName}
           envManaged={envManaged}
           credentialSource={credentialSource}
+          trackingSource="browser_settings"
+          trackingFlow="browser_automation"
         />
       </SettingsSection>
 
@@ -2438,6 +2454,8 @@ export function SettingsPanel({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="background_agent_settings"
+            trackingFlow="background_agent"
           />
         </SettingsSection>
       )}

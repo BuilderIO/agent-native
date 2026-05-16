@@ -39,8 +39,67 @@ function escapeHtml(value: string): string {
 export const BUILDER_STATE_PARAM = "_an_state";
 export const BUILDER_CONNECT_PARAM = "_an_connect";
 export const BUILDER_CONNECT_OWNER_COOKIE = "an_builder_connect_owner";
+export const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
+export const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
+export const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM =
+  "agentNativeConnectSource";
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
+const BUILDER_SIGNUP_SOURCE = "agent-native";
+
+export interface BuilderConnectTrackingParams {
+  signupSource?: string;
+  agentNativeFlow?: string;
+  agentNativeConnectSource?: string;
+}
+
+function cleanTrackingParam(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 120) : undefined;
+}
+
+export function getBuilderConnectTrackingParams(
+  params: URLSearchParams,
+): BuilderConnectTrackingParams {
+  return {
+    signupSource:
+      cleanTrackingParam(params.get(BUILDER_SIGNUP_SOURCE_PARAM)) ??
+      BUILDER_SIGNUP_SOURCE,
+    agentNativeFlow: cleanTrackingParam(
+      params.get(BUILDER_AGENT_NATIVE_FLOW_PARAM),
+    ),
+    agentNativeConnectSource: cleanTrackingParam(
+      params.get(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM),
+    ),
+  };
+}
+
+export function builderConnectTrackingProperties(
+  tracking: BuilderConnectTrackingParams,
+): Record<string, string> {
+  return Object.fromEntries(
+    [
+      ["signup_source", tracking.signupSource],
+      ["agent_native_flow", tracking.agentNativeFlow],
+      ["agent_native_connect_source", tracking.agentNativeConnectSource],
+    ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
+}
+
+function applyBuilderConnectTrackingParams(
+  params: URLSearchParams,
+  tracking: BuilderConnectTrackingParams,
+) {
+  params.set(
+    BUILDER_SIGNUP_SOURCE_PARAM,
+    cleanTrackingParam(tracking.signupSource) ?? BUILDER_SIGNUP_SOURCE,
+  );
+  const flow = cleanTrackingParam(tracking.agentNativeFlow);
+  if (flow) params.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, flow);
+  const source = cleanTrackingParam(tracking.agentNativeConnectSource);
+  if (source) params.set(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM, source);
+}
 
 export interface BuilderBrowserStatus {
   configured: boolean;
@@ -415,7 +474,10 @@ function isBuilderOpenerOriginSafe(value: string | null | undefined): boolean {
 export function buildBuilderCliAuthUrl(
   callbackOrigin: string,
   state: string | null = null,
-  options: { previewOrigin?: string } = {},
+  options: {
+    previewOrigin?: string;
+    tracking?: BuilderConnectTrackingParams;
+  } = {},
 ): string {
   const normalizedCallbackOrigin = normalizeOrigin(callbackOrigin);
   const requestedPreviewOrigin = normalizeOrigin(
@@ -447,6 +509,11 @@ export function buildBuilderCliAuthUrl(
   ) {
     callbackUrl.searchParams.set(BUILDER_OPENER_PARAM, requestedPreviewOrigin);
   }
+  const tracking = {
+    signupSource: BUILDER_SIGNUP_SOURCE,
+    ...options.tracking,
+  };
+  applyBuilderConnectTrackingParams(callbackUrl.searchParams, tracking);
   const url = new URL("/cli-auth", getBuilderAppHost());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("host", BUILDER_BROWSER_HOST);
@@ -457,6 +524,7 @@ export function buildBuilderCliAuthUrl(
     `${normalizedPreviewOrigin}${appBasePath}`,
   );
   url.searchParams.set("framework", "agent-native");
+  applyBuilderConnectTrackingParams(url.searchParams, tracking);
   return url.toString();
 }
 

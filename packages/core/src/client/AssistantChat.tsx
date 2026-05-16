@@ -2458,7 +2458,7 @@ function BuilderConnectCta({
       </div>
       <button
         type="button"
-        onClick={start}
+        onClick={() => start()}
         disabled={connecting}
         className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
         aria-busy={connecting}
@@ -2821,7 +2821,7 @@ function RunErrorRecoveryCard({
         {shouldShowBuilderReconnect && !builderReconnectResolved && (
           <button
             type="button"
-            onClick={builderReconnect.start}
+            onClick={() => builderReconnect.start()}
             disabled={builderReconnect.connecting}
             className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
           >

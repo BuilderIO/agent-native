@@ -109,8 +109,17 @@ export interface BuilderConnectFlowOptions {
   popupUrl?: string;
   /** Low-cardinality label for the UI surface that opened Builder connect. */
   trackingSource?: string;
+  /** Product flow that needed Builder connect, e.g. connect_llm. */
+  trackingFlow?: string;
   /** Invoked after the status poll first sees `configured: true`. */
   onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
+}
+
+export interface BuilderConnectStartOptions {
+  /** Override the hook-level source for this click. */
+  trackingSource?: string;
+  /** Override the hook-level flow for this click. */
+  trackingFlow?: string;
 }
 
 export interface BuilderConnectFlow {
@@ -140,7 +149,7 @@ export interface BuilderConnectFlow {
    */
   hasFetchedStatus: boolean;
   /** Open the popup and begin polling. Must be called from a user-gesture handler. */
-  start: () => void;
+  start: (options?: BuilderConnectStartOptions) => void;
 }
 
 const POLL_INTERVAL_MS = 2000;
@@ -150,7 +159,81 @@ const CALLBACK_SUCCESS_STATUS_RETRY_MS = 500;
 const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
 const BUILDER_STATE_PARAM = "_an_state";
+const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
+const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
+const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM =
+  "agentNativeConnectSource";
+const BUILDER_SIGNUP_SOURCE = "agent-native";
 const STATUS_CONNECT_URL_TTL_MS = 9 * 60 * 1000;
+
+function cleanTrackingParam(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.slice(0, 120) : null;
+}
+
+function inferBuilderConnectTrackingFlow(source: string | undefined): string {
+  const normalized = source?.toLowerCase() ?? "";
+  if (normalized.includes("background_agent")) return "background_agent";
+  if (
+    normalized.includes("code_required") ||
+    normalized.includes("code_access") ||
+    normalized.includes("connect_builder_card")
+  ) {
+    return "background_agent";
+  }
+  if (normalized.includes("browser")) return "browser_automation";
+  if (
+    normalized.includes("voice") ||
+    normalized.includes("transcription")
+  ) {
+    return "voice_transcription";
+  }
+  if (normalized.includes("upload")) return "file_upload";
+  if (normalized.includes("hosting")) return "hosting";
+  if (normalized.includes("database")) return "database";
+  if (normalized.includes("auth_settings")) return "auth";
+  return "connect_llm";
+}
+
+export function withBuilderConnectTrackingParams(
+  url: string,
+  options: { source?: string; flow?: string } = {},
+): string {
+  const source = cleanTrackingParam(options.source);
+  const flow = cleanTrackingParam(options.flow) ?? inferBuilderConnectTrackingFlow(source ?? undefined);
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "http://localhost";
+
+  try {
+    const parsed = new URL(url, origin);
+    parsed.searchParams.set(BUILDER_SIGNUP_SOURCE_PARAM, BUILDER_SIGNUP_SOURCE);
+    parsed.searchParams.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, flow);
+    if (source) {
+      parsed.searchParams.set(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM, source);
+    }
+
+    const redirectUrl = parsed.searchParams.get("redirect_url");
+    if (redirectUrl) {
+      const parsedRedirect = new URL(redirectUrl);
+      parsedRedirect.searchParams.set(
+        BUILDER_SIGNUP_SOURCE_PARAM,
+        BUILDER_SIGNUP_SOURCE,
+      );
+      parsedRedirect.searchParams.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, flow);
+      if (source) {
+        parsedRedirect.searchParams.set(
+          BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM,
+          source,
+        );
+      }
+      parsed.searchParams.set("redirect_url", parsedRedirect.toString());
+    }
+
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
 
 function isAgentNativeDesktop() {
   if (typeof navigator === "undefined") return false;
@@ -288,12 +371,14 @@ function isTrustedBuilderConnectMessageOrigin(origin: string): boolean {
 export interface OpenBuilderConnectPopupOptions {
   url?: string;
   source?: string;
+  flow?: string;
   features?: string;
 }
 
 export function openBuilderConnectPopup({
   url,
   source = "builder_connect",
+  flow,
   features = "noopener,noreferrer",
 }: OpenBuilderConnectPopupOptions = {}): Window | null {
   if (typeof window === "undefined") return null;
@@ -301,32 +386,41 @@ export function openBuilderConnectPopup({
   const href =
     url ??
     new URL(agentNativePath("/_agent-native/builder/connect"), origin).href;
+  const trackedHref =
+    href === "about:blank"
+      ? href
+      : withBuilderConnectTrackingParams(href, { source, flow });
   const connectUrlKind = url ? "provided" : "default";
+  const trackingFlow =
+    cleanTrackingParam(flow) ?? inferBuilderConnectTrackingFlow(source);
   trackEvent("builder connect clicked", {
     feature: "builder",
     stage: "client",
     source,
+    flow: trackingFlow,
     connect_url_kind: connectUrlKind,
   });
   try {
-    const opened = window.open(href, "_blank", features);
+    const opened = window.open(trackedHref, "_blank", features);
     if (!opened && !/AgentNativeDesktop/i.test(navigator.userAgent || "")) {
       trackEvent("builder connect popup blocked", {
         feature: "builder",
         stage: "client",
         source,
+        flow: trackingFlow,
         connect_url_kind: connectUrlKind,
       });
     }
     return opened;
   } catch {
-    trackEvent("builder connect failed", {
-      feature: "builder",
-      stage: "client",
-      reason: "popup_open_exception",
-      source,
-      connect_url_kind: connectUrlKind,
-    });
+      trackEvent("builder connect failed", {
+        feature: "builder",
+        stage: "client",
+        reason: "popup_open_exception",
+        source,
+        flow: trackingFlow,
+        connect_url_kind: connectUrlKind,
+      });
     return null;
   }
 }
@@ -337,6 +431,7 @@ export function useBuilderConnectFlow(
   const {
     popupUrl,
     trackingSource = "builder_connect_flow",
+    trackingFlow,
     onConnected,
   } = opts;
   const [configured, setConfigured] = useState(false);
@@ -459,9 +554,12 @@ export function useBuilderConnectFlow(
     };
   }, [fetchStatus, stopPoll]);
 
-  const start = useCallback(() => {
+  const start = useCallback((startOptions?: BuilderConnectStartOptions) => {
     stopPoll();
     const started = Date.now();
+    const clickTrackingSource =
+      startOptions?.trackingSource ?? trackingSource;
+    const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
     let openedPopup: Window | null = null;
     let popupClosedAt: number | null = null;
     connectStartedAtRef.current = started;
@@ -494,7 +592,8 @@ export function useBuilderConnectFlow(
     if (isAgentNativeDesktop()) {
       const opened = openBuilderConnectPopup({
         url: directUrl,
-        source: trackingSource,
+        source: clickTrackingSource,
+        flow: clickTrackingFlow,
       });
       openedPopup = opened;
       if (!opened) {
@@ -504,7 +603,8 @@ export function useBuilderConnectFlow(
     } else {
       const opened = openBuilderConnectPopup({
         url: "about:blank",
-        source: trackingSource,
+        source: clickTrackingSource,
+        flow: clickTrackingFlow,
         features: "width=600,height=700",
       });
       if (!opened) {
@@ -551,7 +651,11 @@ export function useBuilderConnectFlow(
           );
           return;
         }
-        if (!navigateBuilderConnectPopup(opened, freshUrl)) {
+        const trackedFreshUrl = withBuilderConnectTrackingParams(freshUrl, {
+          source: clickTrackingSource,
+          flow: clickTrackingFlow,
+        });
+        if (!navigateBuilderConnectPopup(opened, trackedFreshUrl)) {
           stopPoll();
           connectStartedAtRef.current = null;
           setConnecting(false);
@@ -607,7 +711,10 @@ export function useBuilderConnectFlow(
             feature: "builder",
             stage: "client",
             reason: "popup_closed_without_status",
-            source: trackingSource,
+            source: clickTrackingSource,
+            flow:
+              cleanTrackingParam(clickTrackingFlow) ??
+              inferBuilderConnectTrackingFlow(clickTrackingSource),
           });
           setError(
             "Builder finished, but this workspace couldn't confirm the saved credentials. Refresh this page or try Connect Builder.io again.",
@@ -621,14 +728,24 @@ export function useBuilderConnectFlow(
           feature: "builder",
           stage: "client",
           reason: "timeout",
-          source: trackingSource,
+          source: clickTrackingSource,
+          flow:
+            cleanTrackingParam(clickTrackingFlow) ??
+            inferBuilderConnectTrackingFlow(clickTrackingSource),
         });
         setError(
           "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
         );
       }
     }, POLL_INTERVAL_MS);
-  }, [fetchStatus, popupUrl, statusConnectUrl, stopPoll, trackingSource]);
+  }, [
+    fetchStatus,
+    popupUrl,
+    statusConnectUrl,
+    stopPoll,
+    trackingFlow,
+    trackingSource,
+  ]);
 
   // Popup-side fast path: the callback page broadcasts a message so we stop
   // polling immediately rather than waiting for the next 2s tick.

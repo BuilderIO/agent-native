@@ -228,6 +228,22 @@ const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
 const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
 const DEFAULT_REMOTE_RELAY_URL = "https://dispatch.agent-native.com";
 
+function appUrlForRemotePairing(app: AppConfig): string {
+  if ((app.mode ?? "prod") === "dev") {
+    return app.devUrl || (app.devPort ? `http://localhost:${app.devPort}` : "");
+  }
+  return app.url || app.devUrl || "";
+}
+
+function defaultRemoteRelayUrl(apps: AppConfig[]): string {
+  const app =
+    apps.find((item) => item.id === "dispatch" && Boolean(item.url)) ??
+    apps.find((item) => Boolean(item.url)) ??
+    apps.find((item) => Boolean(item.devUrl || item.devPort));
+  const relayUrl = app ? appUrlForRemotePairing(app) : "";
+  return relayUrl || DEFAULT_REMOTE_RELAY_URL;
+}
+
 const codeAgentComposerAreaStyle = {
   alignSelf: "stretch",
   width: "100%",
@@ -317,8 +333,7 @@ export default function CodeAgentsApp({
   const [searchRuns, setSearchRuns] = useState<CodeAgentRun[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [searchTranscriptLoading, setSearchTranscriptLoading] =
-    useState(false);
+  const [searchTranscriptLoading, setSearchTranscriptLoading] = useState(false);
   const [searchTranscriptVersion, setSearchTranscriptVersion] = useState(0);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [hostMetadata, setHostMetadata] =
@@ -366,22 +381,22 @@ export default function CodeAgentsApp({
   const loadSearchRuns = useCallback(async () => {
     setSearchLoading(true);
     setSearchError(null);
+    searchTranscriptCacheRef.current.clear();
+    setSearchTranscriptVersion((version) => version + 1);
     try {
       const results = await Promise.all(
-        CODE_AGENT_GOALS.map(
-          async (goal): Promise<CodeAgentRunListResult> => {
-            try {
-              return await host.listRuns(goal.id);
-            } catch (err) {
-              return {
-                status: "unavailable",
-                goalId: goal.id,
-                runs: [],
-                error: err instanceof Error ? err.message : String(err),
-              };
-            }
-          },
-        ),
+        CODE_AGENT_GOALS.map(async (goal): Promise<CodeAgentRunListResult> => {
+          try {
+            return await host.listRuns(goal.id);
+          } catch (err) {
+            return {
+              status: "unavailable",
+              goalId: goal.id,
+              runs: [],
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        }),
       );
       const runsById = new Map<string, CodeAgentRun>();
       for (const result of results) {
@@ -541,13 +556,17 @@ export default function CodeAgentsApp({
       normalizedSearchQuery.length < 2 ||
       searchRuns.length === 0
     ) {
+      setSearchTranscriptLoading(false);
       return;
     }
 
     const missingRuns = searchRuns.filter(
       (run) => !searchTranscriptCacheRef.current.has(run.id),
     );
-    if (missingRuns.length === 0) return;
+    if (missingRuns.length === 0) {
+      setSearchTranscriptLoading(false);
+      return;
+    }
 
     let cancelled = false;
     setSearchTranscriptLoading(true);
@@ -1262,7 +1281,9 @@ export default function CodeAgentsApp({
                 : ""
             }`}
             onClick={openSelectedGoal}
-            aria-pressed={!searchPanelOpen && !mobilePanelOpen && !selectedRunId}
+            aria-pressed={
+              !searchPanelOpen && !mobilePanelOpen && !selectedRunId
+            }
           >
             <IconPlus size={15} strokeWidth={1.8} />
             <span>New chat</span>
@@ -1303,11 +1324,13 @@ export default function CodeAgentsApp({
               selectedRunId={selectedRunId}
               onSelect={(run) => {
                 setSelectedRunId(run.id);
+                setSearchPanelOpen(false);
                 setMobilePanelOpen(false);
               }}
               onOpen={(run) => {
                 setSelectedRunId(run.id);
                 setWorkbenchOpen(true);
+                setSearchPanelOpen(false);
                 setMobilePanelOpen(false);
               }}
               onTogglePin={toggleRunPinned}
@@ -1383,6 +1406,19 @@ export default function CodeAgentsApp({
                 onRefresh={loadRemoteConnectorStatus}
                 onCopyLink={copyMobileLink}
                 onOpenSettings={onOpenSettings}
+              />
+            ) : searchPanelOpen ? (
+              <SearchChatsPanel
+                query={searchQuery}
+                results={searchResults}
+                totalRuns={searchRuns.length}
+                loading={searchLoading}
+                transcriptLoading={searchTranscriptLoading}
+                error={searchError}
+                inputRef={searchInputRef}
+                onQueryChange={setSearchQuery}
+                onSelectRun={openSearchResult}
+                onRefresh={loadSearchRuns}
               />
             ) : (
               <>
@@ -2169,6 +2205,129 @@ function sortRunsForRail(runs: CodeAgentRun[]): CodeAgentRun[] {
   return [...pinned, ...unpinned];
 }
 
+function buildSearchRunResults(
+  runs: CodeAgentRun[],
+  query: string,
+  transcriptCache: Map<string, CodeAgentTranscriptEvent[]>,
+): CodeAgentSearchResult[] {
+  const tokens = getSearchTokens(query);
+  const sortedRuns = sortRunsForRail(runs);
+  if (tokens.length === 0) {
+    return sortedRuns.map((run, index) => ({
+      run,
+      match: getRunSubtitle(run),
+      matchType: "Recent",
+      rank: index,
+    }));
+  }
+
+  return sortedRuns
+    .flatMap((run): CodeAgentSearchResult[] => {
+      const runText = getRunSearchText(run);
+      const sessionMatch = textMatchesSearch(runText, tokens);
+      const transcriptMatch = findTranscriptSearchMatch(
+        transcriptCache.get(run.id) ?? [],
+        tokens,
+      );
+
+      if (!sessionMatch && !transcriptMatch) return [];
+
+      const title = getRunTitle(run) ?? "";
+      const titleMatch = textMatchesSearch(title, tokens);
+      return [
+        {
+          run,
+          match: transcriptMatch ?? getSearchMatchSnippet(runText, tokens),
+          matchType: transcriptMatch ? "Transcript" : "Session",
+          rank: titleMatch ? 0 : sessionMatch ? 1 : 2,
+        },
+      ];
+    })
+    .sort(
+      (a, b) =>
+        a.rank - b.rank || b.run.updatedAt.localeCompare(a.run.updatedAt),
+    );
+}
+
+function getSearchTokens(query: string): string[] {
+  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+function textMatchesSearch(text: string, tokens: string[]): boolean {
+  const normalized = normalizeSearchText(text);
+  return tokens.every((token) => normalized.includes(token));
+}
+
+function getRunSearchText(run: CodeAgentRun): string {
+  const details =
+    run.details?.map((detail) => `${detail.label} ${detail.value}`).join(" ") ??
+    "";
+  const metadata = run.metadata
+    ? Object.values(run.metadata)
+        .filter(
+          (value) =>
+            typeof value === "string" ||
+            typeof value === "number" ||
+            typeof value === "boolean",
+        )
+        .join(" ")
+    : "";
+  const goalLabel = getCodeAgentGoal(run.goalId)?.label ?? run.goalId;
+  return [
+    run.id,
+    run.title,
+    run.subtitle,
+    run.source,
+    run.sourceLabel,
+    run.kind,
+    run.status,
+    run.phase,
+    goalLabel,
+    details,
+    metadata,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function findTranscriptSearchMatch(
+  events: CodeAgentTranscriptEvent[],
+  tokens: string[],
+): string | null {
+  const event = events.find((item) => textMatchesSearch(item.text, tokens));
+  return event ? getSearchMatchSnippet(event.text, tokens) : null;
+}
+
+function getSearchMatchSnippet(text: string, tokens: string[]): string {
+  const compact = text.trim().replace(/\s+/g, " ");
+  if (!compact) return "";
+  const lower = compact.toLowerCase();
+  const firstMatch = tokens
+    .map((token) => lower.indexOf(token))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)[0];
+  const anchor = firstMatch ?? 0;
+  const start = Math.max(0, anchor - 44);
+  const end = Math.min(compact.length, anchor + 136);
+  return `${start > 0 ? "..." : ""}${compact.slice(start, end)}${
+    end < compact.length ? "..." : ""
+  }`;
+}
+
+function normalizeSearchText(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ");
+}
+
+function getSearchResultMeta(run: CodeAgentRun): string {
+  return [
+    getCodeAgentGoal(run.goalId)?.label,
+    getRunSourceLabel(run),
+    getRunStatusText(run),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function transcriptEventsForChat(
   events: CodeAgentTranscriptEvent[],
   options: { hideCredentialMessages?: boolean } = {},
@@ -2426,6 +2585,121 @@ function RunRailItem({
   );
 }
 
+function SearchChatsPanel({
+  query,
+  results,
+  totalRuns,
+  loading,
+  transcriptLoading,
+  error,
+  inputRef,
+  onQueryChange,
+  onSelectRun,
+  onRefresh,
+}: {
+  query: string;
+  results: CodeAgentSearchResult[];
+  totalRuns: number;
+  loading: boolean;
+  transcriptLoading: boolean;
+  error: string | null;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onQueryChange: (value: string) => void;
+  onSelectRun: (run: CodeAgentRun) => void;
+  onRefresh: () => void;
+}) {
+  const hasQuery = query.trim().length > 0;
+  const statusText = loading
+    ? "Loading chats..."
+    : transcriptLoading && hasQuery
+      ? "Searching transcripts..."
+      : hasQuery
+        ? `${results.length} matches`
+        : `${Math.min(results.length, totalRuns)} recent chats`;
+
+  return (
+    <div className="code-agents-search-panel">
+      <div className="code-agents-search-header">
+        <div>
+          <p className="code-agents-kicker">Search</p>
+          <h2>Search chats</h2>
+        </div>
+        <button
+          type="button"
+          className="code-agents-button"
+          onClick={onRefresh}
+          disabled={loading}
+        >
+          <IconRefresh size={14} strokeWidth={1.8} />
+          Refresh
+        </button>
+      </div>
+
+      <label className="code-agents-search-box">
+        <IconSearch size={16} strokeWidth={1.8} />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(event) => onQueryChange(event.currentTarget.value)}
+          placeholder="Search chats"
+          aria-label="Search chats"
+        />
+      </label>
+
+      <div className="code-agents-search-meta">
+        <span>{statusText}</span>
+        {totalRuns > 0 && <span>{totalRuns} total</span>}
+      </div>
+
+      {error && (
+        <div className="code-agents-transcript__error">
+          <IconAlertCircle size={15} strokeWidth={1.8} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="code-agents-search-results">
+        {loading && results.length === 0 ? (
+          <>
+            <div className="code-agents-run-skeleton" />
+            <div className="code-agents-run-skeleton" />
+            <div className="code-agents-run-skeleton" />
+          </>
+        ) : results.length === 0 ? (
+          <div className="code-agents-detail code-agents-detail--empty">
+            <IconSearch size={30} strokeWidth={1.5} />
+            <h3>{hasQuery ? "No chats found" : "No chats yet"}</h3>
+            <p>
+              {hasQuery
+                ? "Try a title, folder, command, or phrase from the conversation."
+                : "Start a chat and it will show up here."}
+            </p>
+          </div>
+        ) : (
+          results.map((result) => (
+            <button
+              key={result.run.id}
+              type="button"
+              className="code-agents-search-result"
+              onClick={() => onSelectRun(result.run)}
+            >
+              <div className="code-agents-search-result__topline">
+                <span>{getRunTitle(result.run)}</span>
+                <em>{formatRelativeTime(result.run.updatedAt)}</em>
+              </div>
+              <div className="code-agents-search-result__meta">
+                <span>{result.matchType}</span>
+                <span>{getSearchResultMeta(result.run)}</span>
+              </div>
+              <p>{result.match}</p>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MobileRailItem({
   status,
   error,
@@ -2455,123 +2729,6 @@ function MobileRailItem({
         aria-hidden="true"
       />
     </button>
-  );
-}
-
-function MobileConnectorPanel({
-  status,
-  error,
-  message,
-  relayUrl,
-  pairing,
-  updating,
-  canPair,
-  canToggle,
-  onPair,
-  onSetEnabled,
-  onRefresh,
-  onCopyLink,
-  onOpenSettings,
-}: {
-  status: CodeAgentRemoteConnectorStatus | null;
-  error: string | null;
-  message: string | null;
-  relayUrl: string;
-  brandIconUrl?: string;
-  pairing: boolean;
-  updating: boolean;
-  canPair: boolean;
-  canToggle: boolean;
-  onPair: (relayUrl: string) => void | Promise<void>;
-  onSetEnabled: (enabled: boolean) => void | Promise<void>;
-  onRefresh: () => void | Promise<void>;
-  onCopyLink: (link: string) => void | Promise<void>;
-  onOpenSettings?: () => void;
-}) {
-  const copy = mobileConnectorCopy(status, error);
-  const connected = Boolean(status?.configured);
-  const enabled = Boolean(status?.enabled);
-  const displayRelayUrl = relayUrl || DEFAULT_REMOTE_RELAY_URL;
-
-  return (
-    <div className="code-agents-detail">
-      <div className="code-agents-session-details__body">
-        <div className="code-agents-toolbar">
-          <div>
-            <p className="code-agents-kicker">Mobile</p>
-            <h2>Pair this Mac</h2>
-          </div>
-          <div className="code-agents-toolbar-actions">
-            <button
-              type="button"
-              className="code-agents-button"
-              onClick={onRefresh}
-            >
-              <IconRefresh size={14} strokeWidth={1.8} />
-              Refresh
-            </button>
-            {onOpenSettings && (
-              <button
-                type="button"
-                className="code-agents-button"
-                onClick={onOpenSettings}
-              >
-                <IconSettings size={14} strokeWidth={1.8} />
-                Settings
-              </button>
-            )}
-          </div>
-        </div>
-
-        {(error || message) && (
-          <div className="code-agents-callout">
-            <IconAlertCircle size={16} strokeWidth={1.8} />
-            <span>{error ?? message}</span>
-          </div>
-        )}
-
-        <div className="code-agents-detail-grid">
-          <div className="code-agents-field">
-            <span>Status</span>
-            <strong>{copy.description}</strong>
-          </div>
-          <div className="code-agents-field">
-            <span>Relay</span>
-            <strong>{displayRelayUrl}</strong>
-          </div>
-        </div>
-
-        <div className="code-agents-toolbar-actions">
-          <button
-            type="button"
-            className="code-agents-button--primary"
-            onClick={() => onPair(displayRelayUrl)}
-            disabled={!canPair || pairing}
-          >
-            <IconQrcode size={14} strokeWidth={1.8} />
-            {pairing ? "Pairing..." : connected ? "Repair" : "Pair this Mac"}
-          </button>
-          <button
-            type="button"
-            className="code-agents-button"
-            onClick={() => onCopyLink(displayRelayUrl)}
-          >
-            <IconCopy size={14} strokeWidth={1.8} />
-            Copy relay
-          </button>
-          {connected && (
-            <button
-              type="button"
-              className="code-agents-button"
-              onClick={() => onSetEnabled(!enabled)}
-              disabled={!canToggle || updating}
-            >
-              {enabled ? "Pause" : "Resume"}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -2625,23 +2782,6 @@ function mobileConnectorCopy(
     description: "Set up mobile pairing",
     tone: "idle",
   };
-}
-
-function appUrlForRemotePairing(app: AppConfig): string {
-  if ((app.mode ?? "prod") === "dev") {
-    return app.devUrl || (app.devPort ? `http://localhost:${app.devPort}` : "");
-  }
-  return app.url || app.devUrl || "";
-}
-
-function defaultRemoteRelayUrl(apps: AppConfig[]): string {
-  const app =
-    apps.find((item) => item.id === "dispatch" && Boolean(item.url)) ??
-    apps.find((item) => Boolean(item.url)) ??
-    apps.find((item) => Boolean(item.devUrl || item.devPort)) ??
-    apps[0];
-  const relayUrl = app ? appUrlForRemotePairing(app) : "";
-  return relayUrl || DEFAULT_REMOTE_RELAY_URL;
 }
 
 function hostForDisplay(url: string | undefined): string {
@@ -2724,10 +2864,7 @@ function MobileConnectorPanel({
         : "Resume pairing"
       : "Copy mobile link";
   const primaryDisabled =
-    busy ||
-    !relayUrl ||
-    (needsPairing && !canPair) ||
-    (paused && !canToggle);
+    busy || !relayUrl || (needsPairing && !canPair) || (paused && !canToggle);
   const statusMessage = error ?? status?.error ?? message;
   const statusTitle = connectorStatusTitle(status, error);
 
