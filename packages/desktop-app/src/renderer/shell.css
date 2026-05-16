@@ -362,18 +362,16 @@ body {
   margin-top: 4px;
 }
 
+/* Same size and resting color as its siblings — the only distinction
+   is a faint dashed outline that reads as "action, not destination". */
 .sidebar-item--add .icon-wrapper {
-  width: 40px;
-  height: 36px;
-  border: 1px dashed rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.035);
-  color: rgba(255, 255, 255, 0.58);
+  border: 1px dashed rgba(255, 255, 255, 0.13);
 }
 
 .sidebar-item--add:hover .icon-wrapper {
-  border-color: rgba(255, 255, 255, 0.26);
-  background: rgba(255, 255, 255, 0.085);
-  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.22);
+  background: var(--item-hover-bg);
+  color: var(--icon-hover);
 }
 
 /* ─── Item label ─────────────────────────────────────────────── */
