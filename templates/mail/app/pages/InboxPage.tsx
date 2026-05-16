@@ -27,6 +27,12 @@ import {
   mailLabelsInclude,
   mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
+import {
+  resolvePinnedLabels,
+  pinnedTriageLabels,
+  augmentSelfSentLabels,
+  filterInboxTabEmails,
+} from "@/lib/inbox-tabs";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 function ContactPanel({
