@@ -525,12 +525,6 @@ export function App() {
   );
   const localRecordingMode: LocalRecordingMode =
     featureConfig?.localRecordingMode ?? "off";
-  const regionGuides = featureConfig?.regionGuides ?? {
-    enabled: false,
-    rects: [],
-  };
-  const regionGuidesEnabled =
-    regionGuides.enabled === true && (regionGuides.rects?.length ?? 0) > 0;
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [pendingUploads, setPendingUploads] = useState<PendingDesktopUpload[]>(
@@ -1355,18 +1349,6 @@ export function App() {
   useEffect(() => {
     recordingFlowGateRef.current = isRecording || recordingFlowActive;
   }, [isRecording, recordingFlowActive]);
-  const previewRegionGuidesActive = popoverVisible && regionGuidesEnabled;
-  useEffect(() => {
-    if (!previewRegionGuidesActive) return;
-    invoke("show_region_guides").catch((err) => {
-      console.warn("[clips-popover] show_region_guides failed:", err);
-    });
-    return () => {
-      if (!recordingFlowGateRef.current) {
-        invoke("hide_region_guides").catch(() => {});
-      }
-    };
-  }, [previewRegionGuidesActive]);
   const bubbleActive =
     wantsCamera &&
     (popoverVisible ||

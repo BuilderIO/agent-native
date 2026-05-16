@@ -291,6 +291,19 @@ export interface CodeAgentRemoteConnectorControlResult {
   error?: string;
 }
 
+export interface CodeAgentRemoteConnectorPairRequest {
+  relayUrl?: string;
+  label?: string;
+}
+
+export interface CodeAgentRemoteConnectorPairResult {
+  ok: boolean;
+  status: CodeAgentRemoteConnectorStatus;
+  deviceId?: string;
+  message?: string;
+  error?: string;
+}
+
 export type CodeAgentControlCommand = "resume" | "status" | "stop" | "approve";
 
 export interface CodeAgentControlResult {

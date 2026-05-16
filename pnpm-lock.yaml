@@ -104,6 +104,9 @@ importers:
       '@tabler/icons-react':
         specifier: ^3.44.0
         version: 3.44.0(react@19.2.6)
+      qrcode.react:
+        specifier: 4.2.0
+        version: 4.2.0(react@19.2.6)
       react:
         specifier: ^19.0.0
         version: 19.2.6
@@ -16306,6 +16309,11 @@ packages:
   pwacompat@2.0.17:
     resolution: {integrity: sha512-6Du7IZdIy7cHiv7AhtDy4X2QRM8IAD5DII69mt5qWibC2d15ZU8DmBG1WdZKekG11cChSu4zkSUGPF9sweOl6w==}
 
+  qrcode.react@4.2.0:
+    resolution: {integrity: sha512-QpgqWi8rD9DsS9EP3z7BT+5lY5SFhsqGjpgW5DY/i3mK4M9DTBNz3ErMi8BWYEfI3L0d8GIbGmcdFAS1uIRGjA==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   qs@6.15.0:
     resolution: {integrity: sha512-mAZTtNCeetKMH+pSjrb76NAM8V9a05I9aBZOHztWy/UqcJdQYNsf59vrRKWnojAT9Y+GbIvoTBC++CPHqpDBhQ==}
     engines: {node: '>=0.6'}
@@ -32233,6 +32241,10 @@ snapshots:
   punycode@2.3.1: {}
 
   pwacompat@2.0.17: {}
+
+  qrcode.react@4.2.0(react@19.2.6):
+    dependencies:
+      react: 19.2.6
 
   qs@6.15.0:
     dependencies:

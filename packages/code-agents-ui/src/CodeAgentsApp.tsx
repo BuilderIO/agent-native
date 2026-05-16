@@ -8,8 +8,10 @@ import {
 } from "react";
 import {
   IconAlertCircle,
+  IconCheck,
   IconClock,
   IconCode,
+  IconCopy,
   IconDeviceMobile,
   IconDots,
   IconExternalLink,
@@ -19,10 +21,13 @@ import {
   IconPinnedOff,
   IconPlus,
   IconPlayerPlay,
+  IconQrcode,
   IconRefresh,
   IconRoute,
+  IconSettings,
   IconTerminal2,
 } from "@tabler/icons-react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   PromptComposer,
   type PromptComposerFile,
@@ -77,6 +82,8 @@ import type {
   CodeAgentProjectSelectResult,
   CodeAgentReasoningEffort,
   CodeAgentRemoteConnectorControlResult,
+  CodeAgentRemoteConnectorPairRequest,
+  CodeAgentRemoteConnectorPairResult,
   CodeAgentRemoteConnectorStatus,
   CodeAgentRerunRequest,
   CodeAgentRerunResult,
@@ -132,6 +139,9 @@ export interface CodeAgentsHost {
   setRemoteConnectorEnabled?(
     enabled: boolean,
   ): Promise<CodeAgentRemoteConnectorControlResult>;
+  pairRemoteConnector?(
+    request?: CodeAgentRemoteConnectorPairRequest,
+  ): Promise<CodeAgentRemoteConnectorPairResult>;
 }
 
 export type CodeAgentsRenderAppSurface = (input: {
@@ -207,6 +217,7 @@ const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
 
 const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
 const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
+const DEFAULT_REMOTE_RELAY_URL = "https://dispatch.agent-native.com";
 
 const codeAgentComposerAreaStyle = {
   alignSelf: "stretch",
@@ -287,11 +298,21 @@ export default function CodeAgentsApp({
   const [remoteConnectorError, setRemoteConnectorError] = useState<
     string | null
   >(null);
+  const [remoteConnectorMessage, setRemoteConnectorMessage] = useState<
+    string | null
+  >(null);
+  const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
+  const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [hostMetadata, setHostMetadata] =
     useState<CodeAgentHostMetadata | null>(null);
   const selectedModelSelection = useMemo(
     () => normalizeModelSelection(modelSelection, modelOptions),
     [modelOptions, modelSelection],
+  );
+  const remoteRelayUrl = useMemo(
+    () => remoteConnectorStatus?.relayUrl ?? defaultRemoteRelayUrl(apps),
+    [apps, remoteConnectorStatus?.relayUrl],
   );
   const newPromptRef = useRef<TiptapComposerHandle | null>(null);
 
@@ -1599,11 +1620,6 @@ function ProviderGateNotice({
   );
 }
 
-function baseNameForPath(value: string): string {
-  const parts = value.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? value;
-}
-
 function normalizeModelSelection(
   value: CodeAgentModelSelection,
   models: CodeAgentModelOption[],
@@ -1781,7 +1797,7 @@ function NativeGoalSurface({
   onOpenTerminal,
 }: {
   goal: CodeAgentGoalDefinition;
-  onOpenTerminal: () => void;
+  onOpenTerminal?: () => void;
 }) {
   return (
     <div className="code-agents-native-surface">
@@ -1792,14 +1808,16 @@ function NativeGoalSurface({
         <div className="code-agents-command-line">
           {exampleCommandForGoal(goal)}
         </div>
-        <button
-          type="button"
-          className="code-agents-button code-agents-button--primary"
-          onClick={onOpenTerminal}
-        >
-          <IconTerminal2 size={14} strokeWidth={1.8} />
-          Open Terminal
-        </button>
+        {onOpenTerminal && (
+          <button
+            type="button"
+            className="code-agents-button code-agents-button--primary"
+            onClick={onOpenTerminal}
+          >
+            <IconTerminal2 size={14} strokeWidth={1.8} />
+            Open Terminal
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1979,7 +1997,7 @@ function runControlButtons({
   onRetry?: () => void;
   onRerun?: () => void;
   onOpenWorkbench: () => void;
-  onOpenTerminal: () => void;
+  onOpenTerminal?: () => void;
 }): Array<{
   key: string;
   label: string;
@@ -2035,12 +2053,16 @@ function runControlButtons({
       icon: <IconExternalLink size={14} strokeWidth={1.8} />,
       onClick: onOpenWorkbench,
     },
-    {
-      key: "terminal",
-      label: "Terminal",
-      icon: <IconTerminal2 size={14} strokeWidth={1.8} />,
-      onClick: onOpenTerminal,
-    },
+    ...(onOpenTerminal
+      ? [
+          {
+            key: "terminal",
+            label: "Terminal",
+            icon: <IconTerminal2 size={14} strokeWidth={1.8} />,
+            onClick: onOpenTerminal,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -2270,7 +2292,7 @@ function RunDetailCard({
     followUpMode?: CodeAgentFollowUpMode,
   ) => void;
   onOpenWorkbench: () => void;
-  onOpenTerminal: () => void;
+  onOpenTerminal?: () => void;
   onResume: () => void;
   onRefreshStatus: () => void;
   onStop: () => void;
@@ -2734,14 +2756,15 @@ function getRunDetails(
   run: CodeAgentRun,
   goal: CodeAgentGoalDefinition,
 ): CodeAgentRunDetail[] {
-  const permissionMode = getRunPermissionMode(run);
   const sourceDetail = getRunSourceDetail(run);
   const details =
-    run.details?.filter((detail) => detail.value.length > 0) ?? [];
+    run.details?.filter(
+      (detail) => detail.value.length > 0 && !isPermissionDetail(detail.label),
+    ) ?? [];
   if (details.length > 0) {
     return [
       ...(sourceDetail ? [sourceDetail] : []),
-      ...withPermissionDetail(details, permissionMode),
+      ...details,
       { label: "Updated", value: formatRelativeTime(run.updatedAt) },
     ];
   }
@@ -2751,7 +2774,6 @@ function getRunDetails(
       { label: "Source", value: run.sourceRoot },
       { label: "Output", value: run.outputRoot },
       { label: "Target", value: run.target },
-      { label: "Mode", value: formatPermissionMode(permissionMode) },
       { label: "Updated", value: formatRelativeTime(run.updatedAt) },
     ];
   }
@@ -2759,7 +2781,6 @@ function getRunDetails(
     ...(sourceDetail ? [sourceDetail] : []),
     { label: "Goal", value: goal.slashCommand },
     { label: "Status", value: run.status },
-    { label: "Mode", value: formatPermissionMode(permissionMode) },
     { label: "Updated", value: formatRelativeTime(run.updatedAt) },
   ];
 }

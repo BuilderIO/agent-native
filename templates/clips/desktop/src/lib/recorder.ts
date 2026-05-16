@@ -1113,51 +1113,83 @@ async function abortRecordingUpload(
   }
 }
 
-async function waitForEvent(name: string, timeoutMs = 15_000): Promise<void> {
+class CountdownCancelledError extends Error {
+  constructor() {
+    super("Recording cancelled during countdown");
+    this.name = "AbortError";
+  }
+}
+
+function isCountdownCancelledError(err: unknown) {
+  return (
+    err instanceof Error &&
+    err.name === "AbortError" &&
+    /countdown/i.test(err.message)
+  );
+}
+
+function waitForCountdownEvent(timeoutMs = 4000): Promise<void> {
   return new Promise((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let un: UnlistenFn | null = null;
+    const unlistens: UnlistenFn[] = [];
     // Flag so that if the timeout fires BEFORE `listen()` resolves we can
     // still call the unlisten the instant it arrives — otherwise the
     // event handler closure stays registered for the life of the webview
     // (leaks the `resolve` / `reject` closures + anything they pin).
     let done = false;
-    listen(name, () => {
-      if (done) return;
-      done = true;
+
+    const cleanup = () => {
       if (timer) {
         clearTimeout(timer);
         timer = null;
       }
-      un?.();
-      resolve();
-    })
-      .then((u) => {
-        if (done) {
-          // Timeout already fired — unregister immediately.
-          try {
-            u();
-          } catch {
-            // ignore
+      for (const unlisten of unlistens.splice(0)) {
+        try {
+          unlisten();
+        } catch {
+          // ignore
+        }
+      }
+    };
+    const finish = (kind: "done" | "cancel") => {
+      if (done) return;
+      done = true;
+      cleanup();
+      if (kind === "cancel") {
+        reject(new CountdownCancelledError());
+      } else {
+        resolve();
+      }
+    };
+    const track = (listener: Promise<UnlistenFn>) => {
+      listener
+        .then((u) => {
+          if (done) {
+            try {
+              u();
+            } catch {
+              // ignore
+            }
+            return;
           }
-          return;
-        }
-        un = u;
-      })
-      .catch((err) => {
-        if (done) return;
-        done = true;
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
-        reject(err);
-      });
+          unlistens.push(u);
+        })
+        .catch((err) => {
+          if (done) return;
+          done = true;
+          cleanup();
+          reject(err);
+        });
+    };
+
+    track(listen("clips:countdown-done", () => finish("done")));
+    track(listen("clips:countdown-cancel", () => finish("cancel")));
+
     timer = setTimeout(() => {
       if (done) return;
       done = true;
-      un?.();
-      reject(new Error(`timeout waiting for ${name}`));
+      cleanup();
+      reject(new Error("timeout waiting for clips:countdown-done"));
     }, timeoutMs);
   });
 }
@@ -1167,6 +1199,42 @@ async function showRegionGuidesForRecording(wantsScreen: boolean) {
   await invoke("show_region_guides").catch((err) => {
     console.warn("[clips-recorder] show_region_guides failed:", err);
   });
+}
+
+async function runRecordingCountdown(wantsScreen: boolean) {
+  const countdownEvent = waitForCountdownEvent(4000);
+  await showRegionGuidesForRecording(wantsScreen);
+  try {
+    await invoke("show_countdown");
+  } catch (err) {
+    console.error("[clips-recorder] show_countdown failed:", err);
+  }
+  try {
+    await countdownEvent;
+  } catch (err) {
+    if (isCountdownCancelledError(err)) {
+      await invoke("hide_recording_chrome").catch(() => {});
+      throw err;
+    }
+    console.warn("[clips-recorder] countdown timed out — proceeding");
+  }
+}
+
+function abortCreatedRecordingOnCountdownCancel(
+  err: unknown,
+  recordingPromise: Promise<{ id: string }>,
+  serverUrl: string,
+) {
+  if (!isCountdownCancelledError(err)) return;
+  void recordingPromise
+    .then((recording) =>
+      abortRecordingUpload(
+        serverUrl,
+        recording.id,
+        "Recording cancelled during countdown",
+      ),
+    )
+    .catch(() => {});
 }
 
 async function startNativeFullscreenRecording(
@@ -1238,18 +1306,7 @@ async function startNativeFullscreenRecording(
         ? "[clips-recorder] invoking show_countdown for native local recording"
         : "[clips-recorder] invoking show_countdown + createRecording",
     );
-    const countdownPromise = (async () => {
-      try {
-        await invoke("show_countdown");
-      } catch (err) {
-        console.error("[clips-recorder] show_countdown failed:", err);
-      }
-      try {
-        await waitForEvent("clips:countdown-done", 4000);
-      } catch {
-        console.warn("[clips-recorder] countdown timed out — proceeding");
-      }
-    })();
+    const countdownPromise = runRecordingCountdown(true);
     if (localOnly) {
       await countdownPromise;
       id = localFolderName;
@@ -1267,10 +1324,17 @@ async function startNativeFullscreenRecording(
       ).finally(() => {
         console.timeEnd("[clips-recorder] createRecording duration");
       });
-      const [, createRes] = await Promise.all([
-        countdownPromise,
-        recordingPromise,
-      ]);
+      let createRes: Awaited<ReturnType<typeof createRecording>>;
+      try {
+        [, createRes] = await Promise.all([countdownPromise, recordingPromise]);
+      } catch (err) {
+        abortCreatedRecordingOnCountdownCancel(
+          err,
+          recordingPromise,
+          params.serverUrl,
+        );
+        throw err;
+      }
       id = createRes.id;
     }
 
@@ -2024,18 +2088,7 @@ async function startNativeRecordingInner(
       combined,
     });
 
-    const countdownPromise = (async () => {
-      try {
-        await invoke("show_countdown");
-      } catch (err) {
-        console.error("[clips-recorder] show_countdown failed:", err);
-      }
-      try {
-        await waitForEvent("clips:countdown-done", 4000);
-      } catch {
-        console.warn("[clips-recorder] countdown timed out — proceeding");
-      }
-    })();
+    const countdownPromise = runRecordingCountdown(wantsScreen);
     const localExportPromise = prepareLocalRecordingExport(targets);
     let localExport: Awaited<ReturnType<typeof prepareLocalRecordingExport>>;
     try {
@@ -2198,18 +2251,7 @@ async function startNativeRecordingInner(
   // 3-2-1 feel laggy after the user picks a screen. Kick both off and
   // wait at the end before starting the MediaRecorder.
   console.log("[clips-recorder] invoking show_countdown + createRecording");
-  const countdownPromise = (async () => {
-    try {
-      await invoke("show_countdown");
-    } catch (err) {
-      console.error("[clips-recorder] show_countdown failed:", err);
-    }
-    try {
-      await waitForEvent("clips:countdown-done", 4000);
-    } catch {
-      console.warn("[clips-recorder] countdown timed out — proceeding");
-    }
-  })();
+  const countdownPromise = runRecordingCountdown(wantsScreen);
   console.time("[clips-recorder] createRecording duration");
   const recordingPromise = createRecording(
     params.serverUrl,
@@ -2220,7 +2262,17 @@ async function startNativeRecordingInner(
     console.timeEnd("[clips-recorder] createRecording duration");
   });
   console.log("[clips-recorder] awaiting countdown + createRecording");
-  const [, createRes] = await Promise.all([countdownPromise, recordingPromise]);
+  let createRes: Awaited<ReturnType<typeof createRecording>>;
+  try {
+    [, createRes] = await Promise.all([countdownPromise, recordingPromise]);
+  } catch (err) {
+    abortCreatedRecordingOnCountdownCancel(
+      err,
+      recordingPromise,
+      params.serverUrl,
+    );
+    throw err;
+  }
   const { id } = createRes;
   console.log(
     "[clips-recorder] countdown + createRecording both resolved, id=",

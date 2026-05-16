@@ -56,12 +56,6 @@ export default function CodeAgentsPage() {
           command,
           permissionMode,
         }),
-      openTerminal: async (request) => ({
-        ok: false,
-        cwd: request?.cwd ?? request?.outputRoot ?? request?.sourceRoot ?? "",
-        error:
-          "This browser template cannot open a native terminal. Use Agent-Native Desktop for terminal launch.",
-      }),
     }),
     [],
   );

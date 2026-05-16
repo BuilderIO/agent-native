@@ -590,7 +590,7 @@ export function PromptComposer(props: PromptComposerProps) {
   return (
     <TooltipProvider delayDuration={200}>
       <AssistantRuntimeProvider runtime={runtime}>
-        <ThreadPrimitive.Root className="contents">
+        <ThreadPrimitive.Root className="contents" style={{ display: "contents" }}>
           <PromptComposerInner {...props} />
         </ThreadPrimitive.Root>
       </AssistantRuntimeProvider>

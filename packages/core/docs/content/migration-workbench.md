@@ -74,11 +74,11 @@ npx @agent-native/core@latest code /audit --url https://example.com
 
 Run `agent-native code goals` to see the goals registered in your checkout. A bare prompt starts a local coding-agent session for open-ended code work, streams the run, records transcript/status/tool events, and accepts follow-up prompts through the same run record.
 
-Bare `agent-native` launches the Agent-Native Code workspace in this branch, and `agent-native "prompt"` starts a generic Agent-Native Code task directly, matching the Codex/Claude Code habit of treating unknown text as a coding prompt. If an installed version does not include that top-level entrypoint yet, run `agent-native code` directly.
+Installed `agent-native` with no arguments launches the Agent-Native Code workspace, and `agent-native "prompt"` starts a generic Agent-Native Code task directly. Use `agent-native create` when you want to scaffold apps or workspaces.
 
 ## Sessions and Modes
 
-The next Agent-Native Code follow-up features make the workspace feel like a local Codex/Claude Code session manager instead of a one-shot command. The CLI and Desktop hub share the same run store, so you can start work in one place and continue it in the other:
+Agent-Native Code makes migration feel like a local Codex/Claude Code session instead of a one-shot command. The CLI and Desktop hub share the same run store, so you can start work in one place and continue it in the other:
 
 ```bash
 npx @agent-native/core@latest code list
