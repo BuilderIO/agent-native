@@ -1375,7 +1375,9 @@ export function App() {
   // The toolbar is recording chrome, not pre-record chrome. Showing it while
   // the popover is merely open leaves a disabled 0:00 Stop/Pause pill on the
   // desktop, which reads as a stuck recorder and can trap accessibility clicks.
-  const toolbarActive = isRecording || recordingFlowActive;
+  const localRecordingHidesOverlays = localRecordingMode !== "off";
+  const toolbarActive =
+    (isRecording || recordingFlowActive) && !localRecordingHidesOverlays;
 
   useEffect(() => {
     if (!toolbarActive) return;
@@ -2217,7 +2219,9 @@ export function App() {
           onDismiss={() => setLocalRecordingNotice(null)}
           onOpenFolder={() => {
             if (!localRecordingNotice.folderPath) return;
-            openExternal(localRecordingNotice.folderPath).catch((err) => {
+            invoke("open_local_recording_folder", {
+              path: localRecordingNotice.folderPath,
+            }).catch((err) => {
               console.error("[clips-tray] open local folder failed:", err);
             });
           }}

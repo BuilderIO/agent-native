@@ -824,6 +824,30 @@ export interface BrainPilotReport {
   };
   privacyNotes: string[];
   recommendedNextSteps: string[];
+  pilotTrustLane?: {
+    targetChannel: string;
+    status:
+      | "blocked"
+      | "ready-to-sample"
+      | "needs-distillation"
+      | "needs-review"
+      | "needs-eval"
+      | "ready-to-expand";
+    label: string;
+    summary: string;
+    checks: Array<{
+      id: string;
+      label: string;
+      status: "ok" | "pending" | "attention";
+      detail: string;
+    }>;
+    nextActions: Array<{
+      action: string;
+      args: Record<string, unknown>;
+      why: string;
+    }>;
+    evalQuestions: string[];
+  };
 }
 
 export interface BrainSettings {

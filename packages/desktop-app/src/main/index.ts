@@ -13,6 +13,8 @@ import {
 } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createServer, type Server as HttpServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -110,6 +112,7 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
   "BUILDER_PRIVATE_KEY",
   "BUILDER_PUBLIC_KEY",
 ];
+const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
 
 type DesktopBackgroundAgentControlCommand =
   | "approve"
@@ -3805,6 +3808,12 @@ ipcMain.handle(
     input: unknown,
   ): CodeAgentProviderSettingsUpdateResult =>
     updateCodeAgentProviderSettings(input),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_PROVIDER_BUILDER_CONNECT,
+  (): Promise<CodeAgentProviderSettingsUpdateResult> =>
+    connectDesktopBuilderProvider(),
 );
 
 ipcMain.handle(

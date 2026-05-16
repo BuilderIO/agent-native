@@ -25,6 +25,7 @@
   --sidebar-accent: 220 4% 10%;
   --sidebar-accent-foreground: 0 0% 90%;
   --sidebar-border: 220 4% 10%;
+  --code-agents-chat-max: 800px;
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-muted-foreground: hsl(var(--muted-foreground));
@@ -227,7 +228,7 @@
 }
 
 .code-agents-project-picker--bar {
-  width: min(100%, 1120px);
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -444,7 +445,7 @@
   justify-content: center;
   gap: 18px;
   width: 100%;
-  max-width: 1280px;
+  max-width: var(--code-agents-chat-max);
   margin: 0 auto;
 }
 
@@ -455,13 +456,13 @@
 }
 
 .code-agents-standard-composer.agent-composer-area {
-  width: min(100%, 920px);
+  width: 100%;
   max-width: none;
   color: hsl(var(--foreground));
 }
 
 .code-agents-standard-composer[data-agent-composer-variant="hero"] {
-  width: min(100%, 1120px);
+  width: 100%;
 }
 
 .code-agents-standard-composer[data-agent-composer-variant="compact"] {
@@ -881,7 +882,7 @@
 }
 
 .code-agents-provider-gate {
-  width: min(100%, 1120px);
+  width: 100%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 10px;
@@ -954,7 +955,7 @@
 }
 
 .code-agents-suggestions {
-  width: min(100%, 1120px);
+  width: 100%;
   display: grid;
 }
 
@@ -1032,7 +1033,7 @@
 }
 
 .code-agents-detail {
-  max-width: min(100%, 1120px);
+  max-width: min(100%, var(--code-agents-chat-max));
   margin: 0 auto;
   padding: 8px 0;
   color: hsl(var(--foreground));
@@ -1117,10 +1118,13 @@
   justify-content: center;
   gap: 6px;
   padding: 0 8px;
+  border: 0;
   border-radius: calc(var(--radius) - 2px);
+  background: transparent;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
   list-style: none;
+  font: inherit;
 }
 
 .code-agents-session-details summary::-webkit-details-marker {
@@ -1151,6 +1155,13 @@
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   background: hsl(var(--card));
+}
+
+.code-agents-session-details__header {
+  display: flex;
+  justify-content: flex-end;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
 }
 
 .code-agents-detail--chat .code-agents-credential-callout,

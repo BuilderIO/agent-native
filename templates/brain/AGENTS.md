@@ -54,7 +54,7 @@ JSON is stored in text columns. There is no vector database.
 | `get-brain-health`                                                                  | Summarize first-run setup, configured/connected sources, sync freshness, queue/proposal counts, and the latest eval score              |
 | `test-slack-connection`                                                             | Test Slack credentials/channel allow-lists without reading message history                                                             |
 | `run-slack-pilot`                                                                   | Produce a guarded Slack pilot report; reads no history unless `readHistory: true`                                                      |
-| `get-pilot-report`                                                                  | Summarize one source's sync health, queue state, privacy notes, and rollout next steps                                                 |
+| `get-pilot-report`                                                                  | Summarize one source's sync health, queue state, privacy notes, rollout next steps, and the compact #dev-fusion trust lane             |
 | `import-capture`                                                                    | Import arbitrary raw text                                                                                                              |
 | `import-transcript`                                                                 | Import meeting transcripts                                                                                                             |
 | `list-captures` / `get-capture`                                                     | Review raw captures by source/status, including distillation queue state                                                               |
@@ -156,6 +156,14 @@ history. Only pass `readHistory: true` when the user explicitly asks for a tiny
 pilot sync; the action caps the read to at most two validated channels, one
 history page per channel, ten messages per page, ten permalinks, `autoSync:
 false`, and a recent default history window.
+
+For the real `#dev-fusion` Slack pilot, keep the loop concrete and narrow:
+validate the source, run one safe sample, review captures, distill/propose only
+durable company memory, approve proposal-gated items, then call
+`get-pilot-report`. Its `pilotTrustLane` field summarizes whether the source is
+blocked, ready to sample, waiting on distillation, waiting on review, waiting on
+retrieval eval, or ready for a narrow expansion. Use the returned
+`nextActions` and `evalQuestions` before enabling broader sync.
 
 In the Sources UI, Slack source cards expose the same safe sequence as
 first-class controls: Test connection, run a safe pilot sample, review captures,

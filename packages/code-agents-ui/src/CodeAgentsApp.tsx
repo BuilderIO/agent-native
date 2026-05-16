@@ -2350,6 +2350,10 @@ function RunDetailCard({
             <span>Details</span>
           </summary>
           <div className="code-agents-session-details__body">
+            <div className="code-agents-session-details__header">
+              <span>{getRunStatusText(run)}</span>
+            </div>
+
             <div className="code-agents-progress">
               <div className="code-agents-progress__label">
                 <span>{run.progress?.label ?? "Progress"}</span>

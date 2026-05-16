@@ -939,6 +939,10 @@ async function waitForVideoDimensions(
   return video.videoWidth > 0 && video.videoHeight > 0;
 }
 
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 async function captureStreamThumbnailBlob(
   stream: MediaStream | null,
 ): Promise<Blob | null> {
@@ -1983,7 +1987,17 @@ async function startNativeRecordingInner(
     ]);
     stateUnlistens = toolbarUnlistens;
 
-    await showRegionGuidesForRecording(wantsScreen);
+    // Local file exports should be raw capture artifacts, not Loom-style UI.
+    // Browser full-screen capture includes our overlay windows, so close every
+    // Clips chrome window before the MediaRecorders start writing frames.
+    await invoke("hide_overlays").catch((err) =>
+      console.error(
+        "[clips-recorder] hide_overlays before local start failed:",
+        err,
+      ),
+    );
+    await waitMs(150);
+
     localExport.start(2_000);
     recordingStartCue.play();
     emit("clips:toolbar-enabled", true).catch(() => {});

@@ -26,6 +26,7 @@
     "qa:dispatch-workspace-resources": "tsx scripts/qa-dispatch-workspace-resources-smoke.ts",
     "qa:template-routes": "tsx scripts/qa-template-route-matrix.ts",
     "lint": "pnpm fmt:check && pnpm typecheck",
+    "dev:cli": "tsx packages/core/src/cli/index.ts",
     "guard:no-drizzle-push": "node scripts/guard-no-drizzle-push.mjs",
     "guard:no-unscoped-queries": "node scripts/guard-no-unscoped-queries.mjs",
     "guard:no-env-credentials": "node scripts/guard-no-env-credentials.mjs",

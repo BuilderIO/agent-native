@@ -431,6 +431,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 import getCaptureAction from "../../actions/get-capture.js";
+import { buildPilotTrustLane } from "../../actions/get-pilot-report.js";
 import listCapturesAction from "../../actions/list-captures.js";
 import {
   applyRedactions,
@@ -1481,6 +1482,52 @@ describe("Brain connector smoke coverage", () => {
       true,
     );
     expect(mocks.rows.captures).toHaveLength(2);
+  });
+
+  it("builds a concrete #dev-fusion trust lane from pilot report counts", () => {
+    const statusCounts = <T extends string>(
+      statuses: readonly T[],
+      values: Partial<Record<T, number>> = {},
+    ) =>
+      ({
+        total: Object.values(
+          values as Record<string, number | undefined>,
+        ).reduce((total, value) => total + Number(value ?? 0), 0),
+        other: 0,
+        ...Object.fromEntries(statuses.map((status) => [status, 0])),
+        ...values,
+      }) as Record<T, number> & { total: number; other: number };
+
+    const lane = buildPilotTrustLane({
+      targetChannel: "#dev-fusion",
+      sourceProvider: "slack",
+      latestSyncStatus: "success",
+      captureCounts: statusCounts(
+        ["queued", "distilling", "distilled", "ignored"],
+        { distilled: 2 },
+      ),
+      queueCounts: statusCounts(["queued", "processing", "done", "failed"], {
+        done: 2,
+      }),
+      knowledgeCounts: statusCounts(
+        ["published", "redacted", "draft", "archived"],
+        { published: 2 },
+      ),
+      proposalCounts: statusCounts(["pending", "approved", "rejected"], {
+        approved: 1,
+      }),
+      staleQueue: { total: 0, processing: 0, overdueQueued: 0 },
+    });
+
+    expect(lane).toMatchObject({
+      targetChannel: "#dev-fusion",
+      status: "ready-to-expand",
+      nextActions: [{ action: "get-pilot-report" }],
+    });
+    expect(lane.evalQuestions).toContain(
+      "Why did project settings revert in #dev-fusion?",
+    );
+    expect(lane.checks.every((check) => check.status === "ok")).toBe(true);
   });
 
   it("structurally identifies Slack DMs and MPIMs as excluded conversations", () => {

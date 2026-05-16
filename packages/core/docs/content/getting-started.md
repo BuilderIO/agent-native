@@ -45,6 +45,14 @@ unpublished template or package changes end-to-end in a freshly generated
 workspace. The packages run their `prepack` build first, so the linked packages
 serve fresh `dist` output instead of stale build artifacts.
 
+To exercise the repo-local CLI itself without building first, run it through
+the root script:
+
+```bash
+pnpm dev:cli --help
+pnpm dev:cli code goals
+```
+
 ## Creating vs adding apps {#creating-vs-adding-apps}
 
 Run `create` from the folder where you want a brand-new workspace:

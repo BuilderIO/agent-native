@@ -547,6 +547,7 @@ interface ElectronAPI {
     updateProviderSettings(
       request: CodeAgentProviderSettingsUpdate,
     ): Promise<CodeAgentProviderSettingsUpdateResult>;
+    connectBuilderProvider(): Promise<CodeAgentProviderSettingsUpdateResult>;
     onOpenRequest(cb: (request: DesktopOpenRequest) => void): () => void;
   };
 

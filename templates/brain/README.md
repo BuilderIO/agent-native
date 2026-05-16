@@ -283,7 +283,9 @@ pnpm --filter brain action get-pilot-report \
 
 The report summarizes sync health, capture counts, distillation queue state,
 published knowledge, pending proposals, privacy notes, and recommended next
-steps without returning raw capture bodies.
+steps without returning raw capture bodies. It also includes a compact
+`pilotTrustLane` for the real `#dev-fusion` pilot: a status, four checks,
+minimal next actions, and eval questions to run before broadening sync.
 
 The Sources page exposes the same review inventory from each source card. Open
 **Captures** to inspect queued records, enable short previews only when needed,
@@ -295,7 +297,9 @@ minimal four-step flow: **Test** validates credentials and the allow-list
 without history reads, **Safe pilot** imports a tiny capped sample,
 **Review captures** opens the raw inventory, and **Review queue** takes
 reviewers to proposal approval before memories become durable company
-knowledge.
+knowledge. Opening **Report** shows the same trust lane inline so operators can
+see whether `#dev-fusion` is blocked, needs distillation, needs review, needs
+retrieval eval, or is ready for a narrow expansion.
 
 Distillation has two worker paths. When a Brain tab is open, the app shell
 claims queued items with `claim-distillation` and hands them to the app agent in

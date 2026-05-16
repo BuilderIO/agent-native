@@ -686,6 +686,15 @@ function summarizeGrant(
   return `${labels.join(", ")}${suffix}`;
 }
 
+function summarizeAppList(appIds: string[], grantApps: GrantApp[]): string {
+  const labels = appIds
+    .map((appId) => grantApps.find((app) => app.id === appId)?.label ?? appId)
+    .slice(0, 3);
+  const suffix =
+    appIds.length > labels.length ? ` +${appIds.length - labels.length}` : "";
+  return labels.length > 0 ? `${labels.join(", ")}${suffix}` : "No apps";
+}
+
 function ProviderCard({
   provider,
   connections,
@@ -915,8 +924,12 @@ function ConnectionRow({
               </h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {connection.allowedApps.length === 0
-                  ? "Available to every workspace app"
-                  : "Only selected apps can reuse this account"}
+                  ? "Every workspace app can reuse this account"
+                  : `${summarizeGrant(
+                      connection,
+                      grantApps,
+                      grants,
+                    )} can reuse this account`}
               </p>
             </div>
             <Pill className="border-border bg-muted text-muted-foreground">
@@ -1640,6 +1653,12 @@ function SetupWizard({
 
             {step === 2 ? (
               <div className="grid gap-4">
+                <GrantPreview
+                  providerLabel={provider.label}
+                  grantMode={form.grantMode}
+                  selectedAppIds={selectedApps}
+                  grantApps={suggestedGrantApps}
+                />
                 <RadioGroup
                   value={form.grantMode}
                   onValueChange={(value) =>
@@ -1789,6 +1808,35 @@ function SetupWizard({
         )}
       </DialogFooter>
     </Modal>
+  );
+}
+
+function GrantPreview({
+  providerLabel,
+  grantMode,
+  selectedAppIds,
+  grantApps,
+}: {
+  providerLabel: string;
+  grantMode: SetupWizardFormState["grantMode"];
+  selectedAppIds: string[];
+  grantApps: GrantApp[];
+}) {
+  const selectedLabel = summarizeAppList(selectedAppIds, grantApps);
+  return (
+    <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+      <div className="flex items-center gap-2 font-medium text-foreground">
+        <IconShieldCheck size={14} className="text-muted-foreground" />
+        Grant preview
+      </div>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+        {grantMode === "all-apps"
+          ? `Every workspace app can use ${providerLabel}. Secret values stay in Vault or OAuth.`
+          : selectedAppIds.length > 0
+            ? `${selectedLabel} can use ${providerLabel}. App-specific channels, repos, cursors, and sync rules stay in those apps.`
+            : `Choose which apps can use ${providerLabel}, or switch to all apps.`}
+      </p>
+    </div>
   );
 }
 
@@ -2207,7 +2255,7 @@ export default function WorkspaceIntegrationsRoute() {
   return (
     <DispatchShell
       title="Integrations"
-      description="Shared provider connections and app-level grants for the workspace."
+      description="Connect provider accounts once, then grant them to workspace apps."
     >
       <div className="space-y-6">
         <section
@@ -2323,7 +2371,12 @@ export default function WorkspaceIntegrationsRoute() {
                 className="mx-auto text-muted-foreground"
               />
               <p className="mt-3 text-sm font-medium text-foreground">
-                No shared connections yet.
+                No shared accounts yet.
+              </p>
+              <p className="mx-auto mt-1 max-w-md text-sm leading-5 text-muted-foreground">
+                Pick a provider from the catalog above, save its credential ref
+                names, then grant the shared account to Brain, Analytics, Mail,
+                Dispatch, or another workspace app.
               </p>
             </div>
           ) : (
@@ -2404,19 +2457,17 @@ function IntegrationOnboarding() {
       icon: IconPlugConnected,
       title: "Connect once",
       detail:
-        "Save provider metadata and vault ref names in one workspace place.",
+        "Save safe account metadata and credential ref names in Dispatch.",
     },
     {
       icon: IconShieldCheck,
       title: "Grant apps",
-      detail:
-        "Enable Brain, Analytics, Mail, or Dispatch without copying secrets.",
+      detail: "Let Brain, Analytics, Mail, or Dispatch reuse the account.",
     },
     {
       icon: IconDatabase,
-      title: "Configure locally",
-      detail:
-        "Each app keeps its own channels, repos, cursors, and sync rules.",
+      title: "Keep app setup local",
+      detail: "Channels, repos, cursors, and sync rules stay with each app.",
     },
   ];
 
@@ -2425,11 +2476,11 @@ function IntegrationOnboarding() {
       <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)] lg:items-center">
         <div>
           <h2 className="text-sm font-semibold text-foreground">
-            Connect once, use everywhere
+            Connect once, grant to apps
           </h2>
           <p className="mt-1 text-sm leading-5 text-muted-foreground">
-            Shared connections keep provider setup in Dispatch while each app
-            owns its source-specific choices.
+            Dispatch owns shared provider accounts. Each app owns how it uses
+            the account.
           </p>
         </div>
         <div className="grid gap-2 sm:grid-cols-3">

@@ -4,6 +4,19 @@ import {
   type WorkspaceConnectionCredentialKey,
   type WorkspaceConnectionProviderId,
 } from "./catalog.js";
+import {
+  resolveWorkspaceConnectionCredentialsForApp,
+  type ResolveWorkspaceConnectionCredentialsForAppOptions,
+  type WorkspaceConnectionCredentialRef,
+  type WorkspaceConnectionCredentialsResolution,
+  type WorkspaceConnectionForApp,
+  type WorkspaceConnectionPublicCredentialRef,
+} from "../workspace-connections/index.js";
+import {
+  resolveWorkspaceConnectionForApp,
+  type ResolvedWorkspaceConnectionForApp,
+  type ResolveWorkspaceConnectionForAppOptions,
+} from "../workspace-connections/store.js";
 
 export type ProviderReaderOperation = "search" | "get" | "listRecent";
 
@@ -52,10 +65,147 @@ export interface ListProviderReadersOptions {
   implementationStatus?: ProviderReaderImplementationStatus;
 }
 
+export type ProviderReaderRuntimeErrorCode =
+  | "unsupported_provider"
+  | "unsupported_operation"
+  | "connection_not_available"
+  | "credentials_unavailable";
+
+export interface ProviderReaderRequest<
+  TParams extends Record<string, unknown> = Record<string, unknown>,
+> {
+  providerId: WorkspaceConnectionProviderId;
+  operation: ProviderReaderOperation;
+  params?: TParams;
+  connectionId?: string | null;
+  userEmail?: string | null;
+  orgId?: string | null;
+}
+
+export interface ProviderReaderRuntimeItem {
+  id: string;
+  type: string;
+  title?: string;
+  url?: string;
+  text?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProviderReaderRuntimeResponse {
+  providerId: WorkspaceConnectionProviderId;
+  operation: ProviderReaderOperation;
+  connectionId: string;
+  items?: ProviderReaderRuntimeItem[];
+  item?: ProviderReaderRuntimeItem | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProviderReaderRuntimeConnection {
+  id: string;
+  provider: string;
+  label: string;
+  accountId: string | null;
+  accountLabel: string | null;
+  credentialRefs: WorkspaceConnectionPublicCredentialRef[];
+}
+
+export interface ProviderReaderCredentialRequirement {
+  values: Record<string, string>;
+  resolution: WorkspaceConnectionCredentialsResolution;
+}
+
+export interface ProviderReaderRuntimeContext {
+  appId: string;
+  providerId: WorkspaceConnectionProviderId;
+  reader: ProviderReaderDefinition;
+  connection: ProviderReaderRuntimeConnection;
+  resolveCredentials(
+    keys?: readonly string[],
+  ): Promise<WorkspaceConnectionCredentialsResolution>;
+  requireCredentials(
+    keys?: readonly string[],
+  ): Promise<ProviderReaderCredentialRequirement>;
+}
+
+export type ProviderReaderRuntimeHandler<
+  TParams extends Record<string, unknown> = Record<string, unknown>,
+> = (
+  params: TParams,
+  context: ProviderReaderRuntimeContext,
+) => ProviderReaderRuntimeResponse | Promise<ProviderReaderRuntimeResponse>;
+
+export interface ProviderReaderRuntimeImplementation<
+  TProviderId extends WorkspaceConnectionProviderId =
+    WorkspaceConnectionProviderId,
+> {
+  providerId: TProviderId;
+  operations: Partial<
+    Record<ProviderReaderOperation, ProviderReaderRuntimeHandler>
+  >;
+}
+
+export interface ProviderReaderRuntimeConnectionResolverOptions extends Pick<
+  ResolveWorkspaceConnectionForAppOptions,
+  "appId" | "connectionId"
+> {
+  providerId: WorkspaceConnectionProviderId;
+}
+
+export interface ProviderReaderRuntimeCredentialsResolverOptions extends Pick<
+  ResolveWorkspaceConnectionCredentialsForAppOptions,
+  "appId" | "connectionId" | "keys" | "userEmail" | "orgId"
+> {
+  providerId: WorkspaceConnectionProviderId;
+}
+
+export interface ProviderReaderRuntimeOptions {
+  appId: string;
+  readers: readonly ProviderReaderRuntimeImplementation[];
+  resolveConnection?: (
+    options: ProviderReaderRuntimeConnectionResolverOptions,
+  ) => Promise<ResolvedWorkspaceConnectionForApp>;
+  resolveCredentials?: (
+    options: ProviderReaderRuntimeCredentialsResolverOptions,
+  ) => Promise<WorkspaceConnectionCredentialsResolution>;
+}
+
+export interface ProviderReaderRuntime {
+  read<TParams extends Record<string, unknown> = Record<string, unknown>>(
+    request: ProviderReaderRequest<TParams>,
+  ): Promise<ProviderReaderRuntimeResponse>;
+}
+
+export class ProviderReaderRuntimeError extends Error {
+  readonly code: ProviderReaderRuntimeErrorCode;
+  readonly providerId: string;
+  readonly operation?: ProviderReaderOperation;
+
+  constructor(
+    code: ProviderReaderRuntimeErrorCode,
+    message: string,
+    options: {
+      providerId: string;
+      operation?: ProviderReaderOperation;
+    },
+  ) {
+    super(message);
+    this.name = "ProviderReaderRuntimeError";
+    this.code = code;
+    this.providerId = options.providerId;
+    this.operation = options.operation;
+  }
+}
+
 export function defineProviderReader<const T extends ProviderReaderDefinition>(
   reader: T,
 ): T {
   return reader;
+}
+
+export function defineProviderReaderImplementation<
+  const T extends ProviderReaderRuntimeImplementation,
+>(implementation: T): T {
+  return implementation;
 }
 
 const searchParameters = [
@@ -562,6 +712,144 @@ export function providerReaderSupports(
   );
 }
 
+export function createProviderReaderRuntime(
+  options: ProviderReaderRuntimeOptions,
+): ProviderReaderRuntime {
+  const appId = options.appId.trim();
+  if (!appId) {
+    throw new Error("createProviderReaderRuntime appId is required.");
+  }
+
+  const implementations = new Map<
+    WorkspaceConnectionProviderId,
+    ProviderReaderRuntimeImplementation
+  >();
+  for (const implementation of options.readers) {
+    implementations.set(implementation.providerId, implementation);
+  }
+
+  const connectionResolver =
+    options.resolveConnection ??
+    ((resolverOptions: ProviderReaderRuntimeConnectionResolverOptions) =>
+      resolveWorkspaceConnectionForApp({
+        appId: resolverOptions.appId,
+        provider: resolverOptions.providerId,
+        connectionId: resolverOptions.connectionId,
+        includeDisabled: false,
+        requireConnected: true,
+      }));
+  const credentialsResolver =
+    options.resolveCredentials ??
+    ((resolverOptions: ProviderReaderRuntimeCredentialsResolverOptions) =>
+      resolveWorkspaceConnectionCredentialsForApp({
+        appId: resolverOptions.appId,
+        provider: resolverOptions.providerId,
+        connectionId: resolverOptions.connectionId,
+        keys: resolverOptions.keys,
+        userEmail: resolverOptions.userEmail,
+        orgId: resolverOptions.orgId,
+      }));
+
+  return {
+    async read<
+      TParams extends Record<string, unknown> = Record<string, unknown>,
+    >(
+      request: ProviderReaderRequest<TParams>,
+    ): Promise<ProviderReaderRuntimeResponse> {
+      const reader = getProviderReader(request.providerId);
+      if (!reader) {
+        throw new ProviderReaderRuntimeError(
+          "unsupported_provider",
+          `No provider reader metadata is registered for ${request.providerId}.`,
+          { providerId: request.providerId, operation: request.operation },
+        );
+      }
+
+      const operation = reader.operations.find(
+        (entry) => entry.operation === request.operation,
+      );
+      if (!operation) {
+        throw new ProviderReaderRuntimeError(
+          "unsupported_operation",
+          `${reader.label} does not support ${request.operation}.`,
+          { providerId: request.providerId, operation: request.operation },
+        );
+      }
+
+      const implementation = implementations.get(request.providerId);
+      if (!implementation) {
+        throw new ProviderReaderRuntimeError(
+          "unsupported_provider",
+          `${reader.label} has no runtime implementation registered.`,
+          { providerId: request.providerId, operation: request.operation },
+        );
+      }
+
+      const handler = implementation.operations[request.operation];
+      if (!handler) {
+        throw new ProviderReaderRuntimeError(
+          "unsupported_operation",
+          `${reader.label} has no runtime handler for ${request.operation}.`,
+          { providerId: request.providerId, operation: request.operation },
+        );
+      }
+
+      const resolvedConnection = await connectionResolver({
+        appId,
+        providerId: request.providerId,
+        connectionId: request.connectionId?.trim() || undefined,
+      });
+      if (!resolvedConnection.available || !resolvedConnection.connection) {
+        throw new ProviderReaderRuntimeError(
+          "connection_not_available",
+          resolvedConnection.reason,
+          { providerId: request.providerId, operation: request.operation },
+        );
+      }
+
+      const connection = publicRuntimeConnection(resolvedConnection.connection);
+      const context: ProviderReaderRuntimeContext = {
+        appId,
+        providerId: request.providerId,
+        reader,
+        connection,
+        resolveCredentials: (keys = reader.requiredCredentialKeys) =>
+          credentialsResolver({
+            appId,
+            providerId: request.providerId,
+            connectionId: connection.id,
+            keys: [...keys],
+            userEmail: request.userEmail,
+            orgId: request.orgId,
+          }),
+        requireCredentials: async (keys = reader.requiredCredentialKeys) => {
+          const resolution = await credentialsResolver({
+            appId,
+            providerId: request.providerId,
+            connectionId: connection.id,
+            keys: [...keys],
+            userEmail: request.userEmail,
+            orgId: request.orgId,
+          });
+          if (!resolution.available) {
+            throw new ProviderReaderRuntimeError(
+              "credentials_unavailable",
+              `Missing workspace connection credentials for ${reader.label}: ${resolution.missingKeys.join(", ")}.`,
+              {
+                providerId: request.providerId,
+                operation: request.operation,
+              },
+            );
+          }
+          return { values: resolution.values, resolution };
+        },
+      };
+
+      return handler((request.params ?? {}) as TParams, context);
+    },
+  };
+}
+
 function cloneProviderReader(
   reader: ProviderReaderDefinition,
 ): ProviderReaderDefinition {
@@ -580,5 +868,44 @@ function cloneProviderReader(
         ...parameter,
       })),
     })),
+  };
+}
+
+function publicRuntimeConnection(
+  connection: WorkspaceConnectionForApp,
+): ProviderReaderRuntimeConnection {
+  return {
+    id: connection.id,
+    provider: connection.provider,
+    label: connection.label,
+    accountId: connection.accountId,
+    accountLabel: connection.accountLabel,
+    credentialRefs: publicCredentialRefs(connection),
+  };
+}
+
+function publicCredentialRefs(
+  connection: WorkspaceConnectionForApp,
+): WorkspaceConnectionPublicCredentialRef[] {
+  return [
+    ...(connection.explicitGrant?.credentialRefs ?? []).map((ref) =>
+      publicCredentialRef(ref, "grant"),
+    ),
+    ...connection.credentialRefs.map((ref) =>
+      publicCredentialRef(ref, "connection"),
+    ),
+  ];
+}
+
+function publicCredentialRef(
+  ref: WorkspaceConnectionCredentialRef,
+  source: WorkspaceConnectionPublicCredentialRef["source"],
+): WorkspaceConnectionPublicCredentialRef {
+  return {
+    key: ref.key,
+    scope: ref.scope,
+    provider: ref.provider,
+    label: ref.label,
+    source,
   };
 }

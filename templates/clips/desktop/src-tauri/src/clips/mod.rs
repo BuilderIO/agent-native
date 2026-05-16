@@ -1,8 +1,9 @@
 #[cfg(target_os = "macos")]
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::Command;
 #[cfg(target_os = "macos")]
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::thread;
 use std::time::Duration;
 use tauri::{
@@ -646,6 +647,63 @@ pub fn open_macos_privacy_settings(pane: String) -> Result<(), String> {
             .status()
             .map_err(|e| format!("failed to open System Settings: {e}"))?;
         Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn open_local_recording_folder(path: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("local recording folder path is empty".to_string());
+    }
+
+    let folder = PathBuf::from(trimmed);
+    if !folder.exists() {
+        return Err(format!("local recording folder does not exist: {trimmed}"));
+    }
+    if !folder.is_dir() {
+        return Err(format!("local recording path is not a folder: {trimmed}"));
+    }
+
+    open_folder_in_file_manager(&folder)
+}
+
+#[cfg(target_os = "macos")]
+fn open_folder_in_file_manager(folder: &PathBuf) -> Result<(), String> {
+    let status = Command::new("open")
+        .arg(folder)
+        .status()
+        .map_err(|e| format!("failed to open local recording folder: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("open exited with {status}"))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn open_folder_in_file_manager(folder: &PathBuf) -> Result<(), String> {
+    let status = Command::new("explorer")
+        .arg(folder)
+        .status()
+        .map_err(|e| format!("failed to open local recording folder: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("explorer exited with {status}"))
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_folder_in_file_manager(folder: &PathBuf) -> Result<(), String> {
+    let status = Command::new("xdg-open")
+        .arg(folder)
+        .status()
+        .map_err(|e| format!("failed to open local recording folder: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("xdg-open exited with {status}"))
     }
 }
 

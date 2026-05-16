@@ -488,6 +488,32 @@ describe("generic task sessions", () => {
     expect(output.read()).toContain("Task complete.");
   });
 
+  it("routes direct CLI command text as the generic task prompt", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Direct task done.";
+    const output = createStringOutput();
+
+    await runCode(["fix", "the", "failing", "tests"], {
+      output: output.stream,
+    });
+
+    const runs = listCodeAgentRunRecords("task");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      goalId: "task",
+      title: "fix the failing tests",
+      metadata: {
+        prompt: "fix the failing tests",
+        source: "agent-native code",
+      },
+    });
+    expect(listCodeAgentTranscriptEvents(runs[0].id)[0]).toMatchObject({
+      kind: "user",
+      message: "fix the failing tests",
+    });
+    expect(output.read()).toContain("Direct task done.");
+  });
+
   it("stores run mode on generic task sessions", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Read-only pass.";
@@ -741,6 +767,45 @@ describe("generic task sessions", () => {
     });
   });
 
+  it("marks an active session stopped from the CLI", async () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Active task",
+      status: "running",
+      phase: "executing",
+      metadata: { runnerPid: 999_999 },
+    });
+    const output = createStringOutput();
+
+    await runCode(["stop", "--last"], { output: output.stream });
+
+    const [updated] = listCodeAgentRunRecords("task");
+    expect(output.read()).toContain("Agent-Native Code stop");
+    expect(output.read()).toContain("Stop requested");
+    expect(updated).toMatchObject({
+      id: run.id,
+      status: "paused",
+      phase: "stopped",
+      progress: { label: "Stopped", completed: 0, total: 1, percent: 0 },
+      metadata: {
+        runnerPid: 999_999,
+        stoppedBy: "cli",
+        stopSignalSent: false,
+      },
+    });
+    expect(listCodeAgentTranscriptEvents(run.id).at(-1)).toMatchObject({
+      kind: "status",
+      message:
+        "Stop requested; no active runner process was found from the CLI.",
+      metadata: {
+        source: "cli-stop",
+        pid: 999_999,
+        killed: false,
+      },
+    });
+  });
+
   it("approves a pending command and points back to resume", async () => {
     const root = useTempCodeAgentsHome();
     const cwd = path.join(root, "workspace");
@@ -832,6 +897,7 @@ describe("runCode shell", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-code-shell-"));
     tmpRoots.push(root);
     process.chdir(root);
+    useTempCodeAgentsHome();
     const cwd = process.cwd();
     const output = createStringOutput();
 
@@ -849,6 +915,7 @@ describe("runCode shell", () => {
     expect(text).toContain("default: Auto mode (full-auto)");
     expect(text).toContain("Available Agent-Native Code goals:");
     expect(text).toContain("code> ");
+    expect(listCodeAgentRunRecords()).toEqual([]);
   });
 });
 

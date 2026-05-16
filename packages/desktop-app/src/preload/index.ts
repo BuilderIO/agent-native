@@ -202,6 +202,9 @@ const electronAPI = {
       request: CodeAgentProviderSettingsUpdate,
     ): Promise<CodeAgentProviderSettingsUpdateResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_PROVIDER_SETTINGS_UPDATE, request),
+    connectBuilderProvider:
+      (): Promise<CodeAgentProviderSettingsUpdateResult> =>
+        ipcRenderer.invoke(IPC.CODE_AGENTS_PROVIDER_BUILDER_CONNECT),
     onOpenRequest: (
       cb: (request: DesktopOpenRequest) => void,
     ): (() => void) => {

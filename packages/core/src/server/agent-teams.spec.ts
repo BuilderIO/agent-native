@@ -1,6 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const appState = vi.hoisted(() => new Map<string, Record<string, unknown>>());
+const tmpRoots: string[] = [];
 
 vi.mock("../application-state/script-helpers.js", () => ({
   readAppState: vi.fn(async (key: string) => appState.get(key) ?? null),
@@ -19,6 +24,13 @@ describe("agent teams message queue", () => {
   beforeEach(() => {
     appState.clear();
     vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+    for (const root of tmpRoots.splice(0)) {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("appends task messages instead of overwriting and reports queue depth", async () => {
@@ -270,4 +282,75 @@ describe("agent teams message queue", () => {
       run: { status: "errored", phase: "Scanning" },
     });
   });
+
+  it("preserves source labels when local Code and Agent Teams runs are mixed", async () => {
+    const {
+      createCodeAgentRunRecord,
+      createCompositeBackgroundAgentController,
+      createLocalCodeBackgroundAgentController,
+    } = await import("../code-agents/index.js");
+    const { createAgentTeamBackgroundAgentController } =
+      await import("./agent-teams.js");
+    useTempCodeAgentsHome();
+    const localRun = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Fix auth tests",
+      status: "paused",
+      phase: "review",
+      cwd: "/repo",
+    });
+    appState.set("agent-task:task-1", {
+      taskId: "task-1",
+      threadId: "thread-1",
+      description: "Review the launch plan",
+      status: "running",
+      preview: "Checking milestones",
+      summary: "",
+      currentStep: "Reading docs",
+      createdAt: Date.parse("2026-05-16T10:00:00.000Z"),
+    });
+
+    const controller = createCompositeBackgroundAgentController([
+      createLocalCodeBackgroundAgentController(),
+      createAgentTeamBackgroundAgentController(),
+    ]);
+
+    await expect(Promise.resolve(controller.list())).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: localRun.id,
+          kind: "code",
+          source: "local-code",
+          sourceLabel: "Local Code",
+        }),
+        expect.objectContaining({
+          id: "run-task-task-1",
+          kind: "agent-team",
+          source: "hosted-agent-team",
+          sourceLabel: "Agent Teams",
+        }),
+      ]),
+    );
+    await expect(Promise.resolve(controller.get(localRun.id))).resolves.toEqual(
+      expect.objectContaining({
+        id: localRun.id,
+        sourceLabel: "Local Code",
+      }),
+    );
+    await expect(
+      Promise.resolve(controller.get("run-task-task-1")),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: "run-task-task-1",
+        sourceLabel: "Agent Teams",
+      }),
+    );
+  });
 });
+
+function useTempCodeAgentsHome(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-teams-code-"));
+  tmpRoots.push(root);
+  process.env.AGENT_NATIVE_CODE_AGENTS_HOME = root;
+  return root;
+}

@@ -60,6 +60,7 @@ function UploadOnlyAttachButton() {
           ref={hiddenRef}
           type="button"
           className="hidden"
+          style={{ display: "none" }}
           tabIndex={-1}
           aria-hidden
         />
@@ -303,6 +304,7 @@ function ComposerPlusMenuFull({
           ref={fileUploadRef}
           type="button"
           className="hidden"
+          style={{ display: "none" }}
           tabIndex={-1}
           aria-hidden
         />

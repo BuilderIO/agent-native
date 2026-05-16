@@ -108,6 +108,10 @@ agent-native "fix the failing auth tests"
 agent-native code
 ```
 
+Inside the framework checkout, use `pnpm dev:cli ...` to exercise the source
+CLI before a build, for example `pnpm dev:cli --help` or
+`pnpm dev:cli code goals`.
+
 Use `agent-native code` when you want the explicit namespace. Built-in slash
 goals and project commands can run inside the interactive workspace or directly
 from the shell:

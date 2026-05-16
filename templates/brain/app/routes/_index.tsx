@@ -423,18 +423,79 @@ function BrainChatNotice({
     (health?.sources.error ?? 0);
   const lastEval = health?.retrieval.lastEval;
   const nextStep = health?.setup.nextSteps[0];
+  const queueIssues =
+    (health?.distillationQueue.failed ?? 0) +
+    (health?.distillationQueue.stale ?? 0);
+  const rawFallback =
+    (health?.captures.counts?.queued ?? 0) +
+    (health?.captures.counts?.distilling ?? 0);
+  const citationCoverage = lastEval ? Math.round(lastEval.score * 100) : null;
 
   return (
-    <div className="flex flex-col gap-2 bg-background/95 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <Badge variant="secondary" className="gap-1.5">
-          <IconMessageCircle className="size-3" />
-          Company memory chat
-        </Badge>
-        <Badge variant="outline" className="gap-1.5">
-          <IconShieldCheck className="size-3" />
-          Cited, review-gated
-        </Badge>
+    <div className="grid gap-3 border-t border-border bg-background/95 px-3 py-3 lg:grid-cols-[1fr_auto] lg:items-center">
+      <div className="min-w-0">
+        <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
+          <Badge variant="secondary" className="gap-1.5">
+            <IconMessageCircle className="size-3" />
+            Answer quality
+          </Badge>
+          <Badge variant="outline" className="gap-1.5">
+            <IconShieldCheck className="size-3" />
+            Cited, review-gated
+          </Badge>
+          {message ? (
+            <DemoStatusText status={status} message={message} inline />
+          ) : nextStep ? (
+            <span className="max-w-[520px] truncate text-xs text-muted-foreground">
+              Next: {nextStep}
+            </span>
+          ) : null}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          <TrustMetric
+            icon={IconReportAnalytics}
+            label="Citation coverage"
+            value={citationCoverage === null ? "n/a" : `${citationCoverage}%`}
+            detail={lastEval ? "latest eval" : "no eval yet"}
+            tone={
+              citationCoverage === null
+                ? "neutral"
+                : citationCoverage >= 80
+                  ? "good"
+                  : "warning"
+            }
+          />
+          <TrustMetric
+            icon={IconChecks}
+            label="Proposal backlog"
+            value={reviewCount}
+            detail="waiting review"
+            tone={reviewCount ? "warning" : "good"}
+          />
+          <TrustMetric
+            icon={IconDatabase}
+            label="Queue health"
+            value={queueIssues ? queueIssues : "clear"}
+            detail={`${health?.distillationQueue.pending ?? 0} pending`}
+            tone={queueIssues ? "danger" : "good"}
+          />
+          <TrustMetric
+            icon={IconBolt}
+            label="Raw fallback"
+            value={rawFallback ? rawFallback : "off"}
+            detail={`${health?.captures.total ?? 0} captures`}
+            tone={rawFallback ? "warning" : "good"}
+          />
+          <TrustMetric
+            icon={IconClock}
+            label="Latest eval"
+            value={lastEval ? `${lastEval.passed}/${lastEval.total}` : "none"}
+            detail={lastEval ? shortDate(lastEval.ranAt) : "not run"}
+            tone={lastEval?.ok ? "good" : lastEval ? "warning" : "neutral"}
+          />
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:justify-end">
         <Badge variant="outline" className="gap-1.5">
           <IconDatabase className="size-3" />
           {healthySources}/{sources} sources healthy
@@ -445,33 +506,6 @@ function BrainChatNotice({
             {attentionCount} need attention
           </Badge>
         ) : null}
-        {reviewCount > 0 ? (
-          <Badge variant="outline" className="gap-1.5">
-            <IconChecks className="size-3" />
-            {reviewCount} to review
-          </Badge>
-        ) : null}
-        {health?.sources.lastSyncedAt ? (
-          <Badge variant="outline" className="gap-1.5">
-            <IconClock className="size-3" />
-            Synced {shortDate(health.sources.lastSyncedAt)}
-          </Badge>
-        ) : null}
-        {lastEval ? (
-          <Badge variant="outline" className="gap-1.5">
-            <IconReportAnalytics className="size-3" />
-            Eval {Math.round(lastEval.score * 100)}%
-          </Badge>
-        ) : null}
-        {message ? (
-          <DemoStatusText status={status} message={message} inline />
-        ) : nextStep ? (
-          <span className="max-w-[520px] truncate text-xs text-muted-foreground">
-            Next: {nextStep}
-          </span>
-        ) : null}
-      </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:shrink-0 sm:justify-end">
         {firstRunReady || status !== "idle" ? (
           <Button
             variant={firstRunReady ? "default" : "outline"}
@@ -513,6 +547,46 @@ function BrainChatNotice({
           </>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function TrustMetric({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  icon: typeof IconReportAnalytics;
+  label: string;
+  value: string | number;
+  detail: string;
+  tone: "neutral" | "good" | "warning" | "danger";
+}) {
+  return (
+    <div className="min-w-0 rounded-md border border-border bg-card px-3 py-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Icon className="size-3.5 shrink-0" />
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="mt-1 flex items-end justify-between gap-2">
+        <span className="truncate text-sm font-semibold tabular-nums text-foreground">
+          {value}
+        </span>
+        <span
+          className={
+            tone === "good"
+              ? "size-2 rounded-full bg-primary"
+              : tone === "warning"
+                ? "size-2 rounded-full bg-amber-500"
+                : tone === "danger"
+                  ? "size-2 rounded-full bg-destructive"
+                  : "size-2 rounded-full bg-muted-foreground"
+          }
+        />
+      </div>
+      <p className="mt-0.5 truncate text-xs text-muted-foreground">{detail}</p>
     </div>
   );
 }

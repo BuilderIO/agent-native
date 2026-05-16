@@ -32,6 +32,7 @@ const PROPOSAL_STATUSES = ["pending", "approved", "rejected"] as const;
 
 const RECENT_LIMIT = 8;
 const STALE_PROCESSING_MS = 15 * 60 * 1000;
+const DEFAULT_TRUST_LANE_TARGET = "#dev-fusion";
 
 type StatusCount<TStatus extends string> = Record<TStatus, number> & {
   total: number;
@@ -235,15 +236,217 @@ function buildRecommendedNextSteps(args: {
   return steps;
 }
 
+export type PilotTrustLaneStatus =
+  | "blocked"
+  | "ready-to-sample"
+  | "needs-distillation"
+  | "needs-review"
+  | "needs-eval"
+  | "ready-to-expand";
+
+export interface PilotTrustLaneInput {
+  targetChannel?: string;
+  sourceProvider: string;
+  latestSyncStatus: string | null;
+  captureCounts: StatusCount<(typeof CAPTURE_STATUSES)[number]>;
+  knowledgeCounts: StatusCount<(typeof KNOWLEDGE_STATUSES)[number]>;
+  proposalCounts: StatusCount<(typeof PROPOSAL_STATUSES)[number]>;
+  queueCounts: StatusCount<(typeof QUEUE_STATUSES)[number]>;
+  staleQueue: ReturnType<typeof distillationQueueStaleCounts>;
+}
+
+function trustLaneStatus(args: PilotTrustLaneInput): PilotTrustLaneStatus {
+  if (args.sourceProvider !== "slack" || args.latestSyncStatus === "error") {
+    return "blocked";
+  }
+  if (!args.latestSyncStatus) return "ready-to-sample";
+  if (
+    args.captureCounts.queued > 0 ||
+    args.captureCounts.distilling > 0 ||
+    args.queueCounts.queued > 0 ||
+    args.queueCounts.processing > 0 ||
+    args.staleQueue.total > 0
+  ) {
+    return "needs-distillation";
+  }
+  if (args.proposalCounts.pending > 0) return "needs-review";
+  if (args.knowledgeCounts.published === 0) return "needs-eval";
+  return "ready-to-expand";
+}
+
+function trustLaneLabel(status: PilotTrustLaneStatus) {
+  switch (status) {
+    case "blocked":
+      return "Blocked";
+    case "ready-to-sample":
+      return "Ready to sample";
+    case "needs-distillation":
+      return "Needs distillation";
+    case "needs-review":
+      return "Needs review";
+    case "needs-eval":
+      return "Needs eval";
+    case "ready-to-expand":
+      return "Ready to expand";
+  }
+}
+
+function trustLaneSummary(status: PilotTrustLaneStatus, targetChannel: string) {
+  switch (status) {
+    case "blocked":
+      return `${targetChannel} pilot is blocked until the Slack source and latest sync are healthy.`;
+    case "ready-to-sample":
+      return `${targetChannel} is ready for one bounded Slack pilot sample.`;
+    case "needs-distillation":
+      return `${targetChannel} has imported material that needs distillation or queue cleanup before trust review.`;
+    case "needs-review":
+      return `${targetChannel} has pending proposed memories to approve or reject.`;
+    case "needs-eval":
+      return `${targetChannel} needs retrieval eval confirmation before broadening sync.`;
+    case "ready-to-expand":
+      return `${targetChannel} has cited published memory and is ready for a narrow expansion.`;
+  }
+}
+
+function syncStatusLabel(status: string) {
+  return status
+    .split(/[-_\s]+/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function checkStatus(ok: boolean, pending = false) {
+  if (ok) return "ok" as const;
+  return pending ? ("pending" as const) : ("attention" as const);
+}
+
+export function buildPilotTrustLane(args: PilotTrustLaneInput) {
+  const targetChannel = args.targetChannel ?? DEFAULT_TRUST_LANE_TARGET;
+  const status = trustLaneStatus(args);
+  const hasSync = Boolean(args.latestSyncStatus);
+  const hasQueueWork =
+    args.captureCounts.queued > 0 ||
+    args.captureCounts.distilling > 0 ||
+    args.queueCounts.queued > 0 ||
+    args.queueCounts.processing > 0 ||
+    args.staleQueue.total > 0;
+  const pendingReview = args.proposalCounts.pending > 0;
+  const hasPublishedKnowledge = args.knowledgeCounts.published > 0;
+
+  return {
+    targetChannel,
+    status,
+    label: trustLaneLabel(status),
+    summary: trustLaneSummary(status, targetChannel),
+    checks: [
+      {
+        id: "sample",
+        label: "Bounded sample",
+        status: checkStatus(hasSync, status === "ready-to-sample"),
+        detail: hasSync
+          ? `Latest sync ${syncStatusLabel(args.latestSyncStatus ?? "unknown")}.`
+          : "Run a safe pilot sample before reviewing retrieval trust.",
+      },
+      {
+        id: "distillation",
+        label: "Distillation clear",
+        status: checkStatus(!hasQueueWork, hasSync),
+        detail: hasQueueWork
+          ? `${args.captureCounts.queued + args.captureCounts.distilling + args.queueCounts.queued + args.queueCounts.processing + args.staleQueue.total} item(s) need distillation attention.`
+          : "No queued, processing, or stale distillation work is blocking review.",
+      },
+      {
+        id: "review",
+        label: "Review queue",
+        status: checkStatus(!pendingReview, hasSync),
+        detail: pendingReview
+          ? `${args.proposalCounts.pending} proposal(s) are waiting for review.`
+          : "No pending proposals from this source.",
+      },
+      {
+        id: "retrieval",
+        label: "Retrieval trust",
+        status: checkStatus(hasPublishedKnowledge, hasSync && !hasQueueWork),
+        detail: hasPublishedKnowledge
+          ? `${args.knowledgeCounts.published} published item(s) are available for cited answers.`
+          : "Run the retrieval eval after durable items are published.",
+      },
+    ],
+    nextActions:
+      status === "ready-to-sample"
+        ? [
+            {
+              action: "run-slack-pilot",
+              args: { readHistory: true },
+              why: "Import one tiny capped sample before distillation.",
+            },
+          ]
+        : status === "needs-distillation"
+          ? [
+              {
+                action: "list-captures",
+                args: { status: "queued" },
+                why: "Review imported captures without raw bodies first.",
+              },
+              {
+                action: "enqueue-captures-distillation",
+                args: { priority: 60 },
+                why: "Queue only durable company context for extraction.",
+              },
+            ]
+          : status === "needs-review"
+            ? [
+                {
+                  action: "list-proposals",
+                  args: { status: "pending" },
+                  why: "Approve or reject proposed company memories.",
+                },
+              ]
+            : status === "needs-eval"
+              ? [
+                  {
+                    action: "run-retrieval-eval",
+                    args: { seedIfMissing: false },
+                    why: "Verify real workspace data before fallback seeding.",
+                  },
+                ]
+              : status === "ready-to-expand"
+                ? [
+                    {
+                      action: "get-pilot-report",
+                      args: {},
+                      why: "Recheck this report after the next bounded sync.",
+                    },
+                  ]
+                : [
+                    {
+                      action: "test-slack-connection",
+                      args: {},
+                      why: "Fix credentials or channel validation before sampling.",
+                    },
+                  ],
+    evalQuestions: [
+      `Why did project settings revert in ${targetChannel}?`,
+      `What was concluded about the TanStack compromise in ${targetChannel}?`,
+      `What should Brain say when ${targetChannel} has no cited support?`,
+    ],
+  };
+}
+
 export default defineAction({
   description:
     "Return a structured pilot quality report for one Brain source, including sync health, counts, privacy notes, and recommended next steps.",
   schema: z.object({
     sourceId: z.string().min(1),
+    targetChannel: z
+      .string()
+      .default(DEFAULT_TRUST_LANE_TARGET)
+      .describe("Pilot trust lane target, usually #dev-fusion."),
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ sourceId }) => {
+  run: async ({ sourceId, targetChannel }) => {
     const access = await getAccessibleSource(sourceId);
     const db = getDb();
 
@@ -445,6 +648,19 @@ export default defineAction({
       queueCounts,
       staleQueue,
     });
+    const pilotTrustLane =
+      access.resource.provider === "slack"
+        ? buildPilotTrustLane({
+            targetChannel,
+            sourceProvider: access.resource.provider,
+            latestSyncStatus: latestSyncRun?.status ?? null,
+            captureCounts,
+            knowledgeCounts,
+            proposalCounts,
+            queueCounts,
+            staleQueue,
+          })
+        : undefined;
 
     return {
       source: {
@@ -496,6 +712,7 @@ export default defineAction({
       },
       privacyNotes,
       recommendedNextSteps,
+      pilotTrustLane,
     };
   },
 });

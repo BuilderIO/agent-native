@@ -202,6 +202,8 @@ npx @agent-native/core@latest code resume --last "check the auth edge cases next
 
 Slash goals can run from the interactive shell or directly from the command line, and `agent-native code goals` shows the goals registered in your checkout. A bare prompt starts a local coding-agent session, streams work, records transcript/status/tool events, and accepts follow-up prompts; `/migrate` is one specialized capability inside that general Code workspace. Project-specific slash commands live in `.agents/commands/*.md`, so teams can add prompts such as `/release-check` or `/migrate-commerce` without changing the framework. Bare `agent-native` launches the Code workspace in builds with the top-level entrypoint, while a bare prompt such as `agent-native "fix tests"` starts an Agent-Native Code task directly.
 
+Working inside this repository? Use `pnpm dev:cli ...` to run the source CLI without building first, for example `pnpm dev:cli --help` or `pnpm dev:cli code goals`.
+
 The Code workspace uses the familiar Codex/Claude-style session loop: pick a previous session, list runs, check status, attach to live output, print logs, stop work, resume with context, open the local UI, and continue the same run from Desktop or CLI. The Desktop Code tab, `agent-native code ui`, background sessions, and sub-agent sessions all converge on the shared run harness/controller model instead of separate ad hoc runners. The primary modes are intentionally simple:
 
 - **Plan mode** (`--plan`) inspects, explains, and proposes without writing files.

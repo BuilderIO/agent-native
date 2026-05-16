@@ -1759,6 +1759,7 @@ function PilotReportCard({
     .filter((item) => item.status === "pending")
     .slice(0, 2);
   const health = sourceHealth(report.source);
+  const trustLane = report.pilotTrustLane;
 
   return (
     <div className="rounded-md border border-border bg-card p-3 text-sm">
@@ -1801,6 +1802,55 @@ function PilotReportCard({
         <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/25 p-2 text-xs leading-5 text-muted-foreground">
           <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>{report.latestSyncRun.error}</span>
+        </div>
+      ) : null}
+
+      {trustLane ? (
+        <div className="mt-3 rounded-md border border-border bg-muted/25 p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <IconChecks className="size-4 text-muted-foreground" />
+                <p className="text-xs font-medium">
+                  {trustLane.targetChannel} trust lane
+                </p>
+                <Badge variant="outline">{trustLane.label}</Badge>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {trustLane.summary}
+              </p>
+            </div>
+            {trustLane.nextActions[0] ? (
+              <Badge variant="secondary" className="w-fit">
+                {trustLane.nextActions[0].action}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {trustLane.checks.slice(0, 4).map((check) => (
+              <div
+                key={check.id}
+                className="rounded-md border border-border bg-card p-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="truncate text-xs font-medium">{check.label}</p>
+                  <Badge
+                    variant={check.status === "ok" ? "secondary" : "outline"}
+                  >
+                    {check.status}
+                  </Badge>
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                  {check.detail}
+                </p>
+              </div>
+            ))}
+          </div>
+          {trustLane.evalQuestions.length ? (
+            <p className="mt-2 truncate text-xs text-muted-foreground">
+              Eval: {trustLane.evalQuestions[0]}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
