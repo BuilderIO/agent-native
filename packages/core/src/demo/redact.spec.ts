@@ -1,5 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { redactDemoData, redactDemoString } from "./redact.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  __resetDemoRedactCacheForTests,
+  redactDemoData,
+  redactDemoString,
+} from "./redact.js";
+
+beforeEach(() => {
+  // Caches are process-global by design; isolate tests from each other.
+  __resetDemoRedactCacheForTests();
+});
 
 const UUID = "550e8400-e29b-41d4-a716-446655440000";
 const NANOID = "V1StGXR8_Z5jdHi6B-myT";
@@ -54,17 +63,21 @@ describe("determinism", () => {
 });
 
 describe("emails", () => {
-  it("replaces emails with example.com addresses", () => {
+  it("replaces emails with realistic (non-example.com) addresses", () => {
     const out = redactDemoString("Email me at jane.doe@acme.io please");
     expect(out).not.toContain("jane.doe@acme.io");
-    expect(out).toMatch(/[a-z]+\.[a-z]+@example\.com/);
+    expect(out).not.toContain("example.com");
+    const m = out.match(/\S+@[a-z0-9.-]+\.[a-z]{2,}/i);
+    expect(m).not.toBeNull();
+    expect(m![0]).not.toContain("example.com");
   });
 
   it("keeps email consistent across occurrences", () => {
     const out = redactDemoString("a@x.com then again a@x.com", { salt: "k" });
-    const emails = out.match(/[a-z.]+@example\.com/g) ?? [];
+    const emails = out.match(/[a-z0-9._]+@[a-z0-9.-]+\.[a-z]{2,}/gi) ?? [];
     expect(emails.length).toBe(2);
     expect(emails[0]).toBe(emails[1]);
+    expect(emails[0]).not.toContain("example.com");
   });
 });
 
@@ -272,7 +285,31 @@ describe("ID-safety (critical)", () => {
     ) as { name: string; from: string; sender: string };
     expect(out.name).toBe(NANOID);
     expect(out.from).toBe(UUID);
-    expect(out.sender).toMatch(/@example\.com$/);
+    expect(out.sender).not.toBe("jane.doe@acme.com");
+    expect(out.sender).not.toContain("example.com");
+    expect(out.sender).toMatch(/\S+@[a-z0-9.-]+\.[a-z]{2,}/i);
+  });
+
+  it("is stable across edits: produced names/emails round-trip unchanged", () => {
+    // Simulate the real scenario: data is redacted for display → the user
+    // edits the (now fake) draft → it autosaves → it's refetched and
+    // redacted again. Names/emails must NOT drift on the round-trip.
+    const real = {
+      from: "Jane Cooper",
+      to: "jane.cooper@acme.com",
+      body: "Thanks Jane Cooper — reply to jane.cooper@acme.com.",
+    };
+    const first = redactDemoData(real, { salt: "demo" }) as typeof real;
+    const second = redactDemoData(first, { salt: "demo" }) as typeof real;
+    expect(second.from).toBe(first.from);
+    expect(second.to).toBe(first.to);
+    expect(second.body).toBe(first.body);
+    // An unrelated edit around the already-fake content keeps them identical.
+    const edited = { ...first, body: `${first.body} Cheers!` };
+    const third = redactDemoData(edited, { salt: "demo" }) as typeof real;
+    expect(third.from).toBe(first.from);
+    expect(third.to).toBe(first.to);
+    expect(third.body.startsWith(first.body)).toBe(true);
   });
 });
 
