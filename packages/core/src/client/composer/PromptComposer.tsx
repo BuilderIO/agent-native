@@ -9,7 +9,6 @@ import {
 } from "react";
 import {
   AssistantRuntimeProvider,
-  ComposerPrimitive,
   ThreadPrimitive,
   useAui,
   useComposer,
@@ -28,9 +27,11 @@ import {
 } from "@assistant-ui/react";
 import { IconX } from "@tabler/icons-react";
 import { cn } from "../utils.js";
+import { AgentComposerFrame } from "./AgentComposerFrame.js";
 import { TiptapComposer, type TiptapComposerHandle } from "./TiptapComposer.js";
-import type { Reference } from "./types.js";
+import type { Reference, SkillResult, SlashCommand } from "./types.js";
 import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
+import { TooltipProvider } from "../components/ui/tooltip.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
@@ -87,6 +88,16 @@ export interface PromptComposerProps {
   initialTextKey?: string | number;
   /** Optional host-owned control rendered directly after the "+" button. */
   modeControl?: ReactNode;
+  /** Additional slash commands surfaced in the shared / menu. */
+  slashCommands?: SlashCommand[];
+  /** Additional slash skills surfaced in the shared / menu. */
+  slashSkills?: SkillResult[];
+  /** Include built-in sidebar slash commands like /clear and /help. Default true. */
+  includeDefaultSlashCommands?: boolean;
+  /** Include app-discovered skills from the default agent endpoint. Default true. */
+  includeDefaultSlashSkills?: boolean;
+  /** Called when a slash command from the shared / menu is executed. */
+  onSlashCommand?: (command: string) => void;
   /** External model list for hosts that already resolve models outside the app. */
   availableModels?: EngineModelGroup[];
   selectedModel?: string;
@@ -419,6 +430,11 @@ function PromptComposerInner({
   initialText,
   initialTextKey,
   modeControl,
+  slashCommands,
+  slashSkills,
+  includeDefaultSlashCommands,
+  includeDefaultSlashSkills,
+  onSlashCommand,
   availableModels,
   selectedModel,
   selectedEngine,
@@ -488,37 +504,35 @@ function PromptComposerInner({
   );
 
   return (
-    <div
-      className={cn(
-        "agent-composer-area flex flex-col rounded-lg border border-input bg-background text-left focus-within:ring-1 focus-within:ring-ring",
-        className,
-      )}
-    >
-      <ComposerPrimitive.Root className="flex flex-col">
-        <PromptAttachmentStrip />
-        <TiptapComposer
-          focusRef={handleRef}
-          disabled={disabled}
-          placeholder={placeholder}
-          initialText={initialText}
-          initialTextKey={initialTextKey}
-          onSubmit={handleSubmit}
-          clearOnSubmit={!preserveDraftOnSubmit}
-          plusMenuMode={
-            plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
-          }
-          modeControl={modeControl}
-          voiceEnabled={voiceEnabled}
-          onTextChange={onTextChange}
-          draftScope={draftScope}
-          selectedModel={composerModel}
-          selectedEffort={composerEffort}
-          availableModels={composerModelGroups}
-          onModelChange={handleModelChange}
-          onEffortChange={handleEffortChange}
-        />
-      </ComposerPrimitive.Root>
-    </div>
+    <AgentComposerFrame className={cn("text-left", className)}>
+      <PromptAttachmentStrip />
+      <TiptapComposer
+        focusRef={handleRef}
+        disabled={disabled}
+        placeholder={placeholder}
+        initialText={initialText}
+        initialTextKey={initialTextKey}
+        onSubmit={handleSubmit}
+        clearOnSubmit={!preserveDraftOnSubmit}
+        plusMenuMode={
+          plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
+        }
+        modeControl={modeControl}
+        slashCommands={slashCommands}
+        slashSkills={slashSkills}
+        includeDefaultSlashCommands={includeDefaultSlashCommands}
+        includeDefaultSlashSkills={includeDefaultSlashSkills}
+        onSlashCommand={onSlashCommand}
+        voiceEnabled={voiceEnabled}
+        onTextChange={onTextChange}
+        draftScope={draftScope}
+        selectedModel={composerModel}
+        selectedEffort={composerEffort}
+        availableModels={composerModelGroups}
+        onModelChange={handleModelChange}
+        onEffortChange={handleEffortChange}
+      />
+    </AgentComposerFrame>
   );
 }
 
@@ -548,10 +562,12 @@ export function PromptComposer(props: PromptComposerProps) {
   });
 
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadPrimitive.Root className="contents">
-        <PromptComposerInner {...props} />
-      </ThreadPrimitive.Root>
-    </AssistantRuntimeProvider>
+    <TooltipProvider delayDuration={200}>
+      <AssistantRuntimeProvider runtime={runtime}>
+        <ThreadPrimitive.Root className="contents">
+          <PromptComposerInner {...props} />
+        </ThreadPrimitive.Root>
+      </AssistantRuntimeProvider>
+    </TooltipProvider>
   );
 }

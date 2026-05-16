@@ -59,6 +59,7 @@ import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
 import restoreStarterWorkspaceResources from "./restore-starter-workspace-resources.js";
 import scaffoldWorkspaceApp from "./scaffold-workspace-app.js";
 import searchAgentThreads from "./search-agent-threads.js";
+import sendCodeAgentRemoteCommand from "./send-code-agent-remote-command.js";
 import sendPlatformMessage from "./send-platform-message.js";
 import setAppCreationSettings from "./set-app-creation-settings.js";
 import setDispatchApprovalPolicy from "./set-dispatch-approval-policy.js";
@@ -141,6 +142,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "restore-starter-workspace-resources": restoreStarterWorkspaceResources,
   "scaffold-workspace-app": scaffoldWorkspaceApp,
   "search-agent-threads": searchAgentThreads,
+  "send-code-agent-remote-command": sendCodeAgentRemoteCommand,
   "send-platform-message": sendPlatformMessage,
   "set-app-creation-settings": setAppCreationSettings,
   "set-dispatch-approval-policy": setDispatchApprovalPolicy,

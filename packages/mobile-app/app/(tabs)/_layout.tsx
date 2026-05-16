@@ -246,6 +246,16 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="sessions"
+          options={{
+            title: "Sessions",
+            headerShown: false,
+            tabBarIcon: ({ color, size }) => (
+              <Feather name="terminal" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="more"
           options={{
             title: "More",

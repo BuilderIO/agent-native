@@ -41,7 +41,9 @@ workspace search.
   records with `get-knowledge` or `get-capture`.
 - **Review queue:** the Review route lists pending/approved/rejected proposals,
   lets reviewers edit proposed memory text, inspect evidence/source links, and
-  approve or reject.
+  approve or reject. Reviewers can publish approved proposals as shared
+  `context/company-brain/...` workspace context when the memory should be
+  ambient for Dispatch and other apps.
 - **Source setup:** the Sources route configures Slack, Clips, Granola, GitHub,
   generic webhook, and manual sources; reviews captures; queues distillation;
   and shows reusable workspace connection grants/readiness beside Brain source
@@ -93,7 +95,11 @@ pnpm --filter brain build
    `list-distillation-queue` and `retry-distillation`.
 6. Review queued proposals in the Review route. Reviewers can edit a pending
    proposal with `update-proposal`, then approve it with `approve-proposal` or
-   reject it with `reject-proposal`.
+   reject it with `reject-proposal`. Use `--publishCanonical true` only for
+   approved memories that should also be mirrored into workspace context. Brain
+   previews the exact Markdown first with `preview-canonical-resource`; the
+   Knowledge route and `set-knowledge-canonical` action can publish or unpublish
+   canonical context later without deleting the Brain knowledge row.
 7. Ask Brain or another workspace agent to search broadly with
    `search-everything` when the V1.5 search surface is available, then drill
    into `get-knowledge` / `get-capture` for cited answers. In V1-only
@@ -172,6 +178,12 @@ configured source:
 
 Private channels require inviting the bot to the channel. Public channels may
 also require an explicit join/invite depending on the Slack app posture.
+
+For CLI/action-runner tests, store `SLACK_BOT_TOKEN` through a workspace
+connection or Brain/app credential first. The source credential resolver does
+not read process environment variables directly; a token in `.env.local` alone
+is only useful after it has been copied into the local credential store for the
+test user.
 
 Before reading real Slack history, run a credential/channel smoke test:
 

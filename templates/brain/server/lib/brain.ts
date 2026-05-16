@@ -5,7 +5,11 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { getSetting, putSetting } from "@agent-native/core/settings";
-import { resourcePut, SHARED_OWNER } from "@agent-native/core/resources/store";
+import {
+  resourceDeleteByPath,
+  resourcePut,
+  SHARED_OWNER,
+} from "@agent-native/core/resources/store";
 import {
   accessFilter,
   assertAccess,
@@ -668,6 +672,66 @@ function slugify(value: string): string {
   );
 }
 
+export interface BrainCanonicalResourcePreview {
+  source: "knowledge" | "proposal";
+  knowledgeId: string | null;
+  proposalId?: string | null;
+  title: string;
+  path: string;
+  pathExact: boolean;
+  contentType: "text/markdown";
+  markdown: string;
+  canPublish: boolean;
+  alreadyPublishedPath?: string | null;
+  warnings: string[];
+}
+
+interface CanonicalResourceValues {
+  id?: string | null;
+  title: string;
+  summary?: string | null;
+  body: string;
+  topic?: string | null;
+  tags?: string[];
+  evidence: BrainEvidence[];
+}
+
+export function buildCanonicalKnowledgePath(title: string, id?: string | null) {
+  const suffix = id?.trim() || "<new-id>";
+  return `context/company-brain/${slugify(title)}-${suffix}.md`;
+}
+
+export function buildCanonicalKnowledgeMarkdown(
+  values: CanonicalResourceValues,
+) {
+  const citations = values.evidence
+    .map((item, index) => {
+      const where = item.sourceUrl ? ` (${item.sourceUrl})` : "";
+      const captureTitle = item.captureTitle || item.captureId || "Source";
+      return `${index + 1}. ${captureTitle}${where}: "${item.quote}"`;
+    })
+    .join("\n");
+  return [
+    `# ${values.title}`,
+    values.summary ? `\n${values.summary}` : "",
+    `\n${values.body}`,
+    values.topic ? `\nTopic: ${values.topic}` : "",
+    values.tags?.length ? `\nTags: ${values.tags.join(", ")}` : "",
+    citations ? `\n## Citations\n${citations}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildCanonicalResource(values: CanonicalResourceValues) {
+  return {
+    path: buildCanonicalKnowledgePath(values.title, values.id),
+    pathExact: Boolean(values.id),
+    markdown: buildCanonicalKnowledgeMarkdown(values),
+    contentType: "text/markdown" as const,
+  };
+}
+
 function sourceUrlFromCaptureMetadata(metadataJson: string) {
   const metadata = parseJson<Record<string, unknown>>(metadataJson, {});
   for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
@@ -686,33 +750,253 @@ async function publishKnowledgeResource(values: {
   tags: string[];
   evidence: BrainEvidence[];
 }) {
-  const path = `context/company-brain/${slugify(values.title)}-${values.id}.md`;
-  const citations = values.evidence
-    .map((item, index) => {
-      const where = item.sourceUrl ? ` (${item.sourceUrl})` : "";
-      return `${index + 1}. ${item.captureTitle}${where}: "${item.quote}"`;
-    })
-    .join("\n");
-  const content = [
-    `# ${values.title}`,
-    values.summary ? `\n${values.summary}` : "",
-    `\n${values.body}`,
-    values.topic ? `\nTopic: ${values.topic}` : "",
-    values.tags.length ? `\nTags: ${values.tags.join(", ")}` : "",
-    citations ? `\n## Citations\n${citations}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-  await resourcePut(SHARED_OWNER, path, content, "text/markdown", {
-    createdBy: "agent",
-    visibility: "workspace",
-    metadata: {
-      app: "brain",
-      type: "company-brain-knowledge",
-      knowledgeId: values.id,
+  const resource = buildCanonicalResource(values);
+  await resourcePut(
+    SHARED_OWNER,
+    resource.path,
+    resource.markdown,
+    "text/markdown",
+    {
+      createdBy: "agent",
+      visibility: "workspace",
+      metadata: {
+        app: "brain",
+        type: "company-brain-knowledge",
+        knowledgeId: values.id,
+      },
     },
-  });
-  return path;
+  );
+  return resource.path;
+}
+
+export async function setKnowledgeCanonicalResource(
+  knowledgeId: string,
+  published: boolean,
+) {
+  const access = await assertAccess("brain-knowledge", knowledgeId, "editor");
+  const row = access.resource;
+  const db = getDb();
+
+  if (!published) {
+    if (row.publishedResourcePath) {
+      await resourceDeleteByPath(SHARED_OWNER, row.publishedResourcePath);
+    }
+    await db
+      .update(schema.brainKnowledge)
+      .set({ publishedResourcePath: null, updatedAt: nowIso() })
+      .where(eq(schema.brainKnowledge.id, knowledgeId));
+  } else {
+    if (row.status !== "published") {
+      throw new Error(
+        "Only published Brain knowledge can become company context.",
+      );
+    }
+    const publishedResourcePath = await publishKnowledgeResource({
+      id: row.id,
+      title: row.title,
+      summary: row.summary,
+      body: row.body,
+      topic: row.topic,
+      tags: parseJson<string[]>(row.tagsJson, []),
+      evidence: parseJson<BrainEvidence[]>(row.evidenceJson, []),
+    });
+    await db
+      .update(schema.brainKnowledge)
+      .set({ publishedResourcePath, updatedAt: nowIso() })
+      .where(eq(schema.brainKnowledge.id, knowledgeId));
+  }
+
+  const [updated] = await db
+    .select()
+    .from(schema.brainKnowledge)
+    .where(eq(schema.brainKnowledge.id, knowledgeId))
+    .limit(1);
+  return serializeKnowledge(updated);
+}
+
+function canonicalValuesFromKnowledgeRow(
+  row: typeof schema.brainKnowledge.$inferSelect,
+): CanonicalResourceValues {
+  return {
+    id: row.id,
+    title: row.title,
+    summary: row.summary,
+    body: row.body,
+    topic: row.topic,
+    tags: parseJson<string[]>(row.tagsJson, []),
+    evidence: parseJson<BrainEvidence[]>(row.evidenceJson, []),
+  };
+}
+
+function canonicalEvidenceFromUnknown(value: unknown): BrainEvidence[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): BrainEvidence | null => {
+      if (!item || typeof item !== "object") return null;
+      const evidence = item as Record<string, unknown>;
+      const captureId =
+        typeof evidence.captureId === "string" ? evidence.captureId : "";
+      const sourceId =
+        typeof evidence.sourceId === "string" ? evidence.sourceId : "";
+      const quote = typeof evidence.quote === "string" ? evidence.quote : "";
+      if (!captureId || !quote) return null;
+      const result: BrainEvidence = {
+        captureId,
+        sourceId,
+        captureTitle:
+          typeof evidence.captureTitle === "string"
+            ? evidence.captureTitle
+            : captureId,
+        quote,
+      };
+      if (typeof evidence.note === "string") result.note = evidence.note;
+      if (typeof evidence.sourceUrl === "string") {
+        result.sourceUrl = evidence.sourceUrl;
+      } else if (typeof evidence.url === "string") {
+        result.sourceUrl = evidence.url;
+      }
+      if (typeof evidence.timestampMs === "number") {
+        result.timestampMs = evidence.timestampMs;
+      }
+      return result;
+    })
+    .filter((item): item is BrainEvidence => Boolean(item));
+}
+
+function stringArrayFromUnknown(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : null))
+    .filter((item): item is string => Boolean(item));
+}
+
+function canonicalValuesFromProposalRow(
+  row: typeof schema.brainProposals.$inferSelect,
+  draft?: {
+    title?: string;
+    summary?: string;
+    body?: string;
+  },
+): {
+  values: CanonicalResourceValues;
+  payload: WriteKnowledgeInput & Record<string, unknown>;
+} {
+  const payload = parseJson<WriteKnowledgeInput & Record<string, unknown>>(
+    row.payloadJson,
+    {
+      title: row.title,
+      body: row.body,
+      evidence: [],
+    },
+  );
+  const normalizedEvidence = canonicalEvidenceFromUnknown(payload.evidence);
+  const payloadEvidence =
+    normalizedEvidence.length > 0
+      ? normalizedEvidence
+      : parseJson<BrainEvidence[]>(row.evidenceJson, []);
+  return {
+    payload,
+    values: {
+      id: payload.knowledgeId ?? row.knowledgeId ?? null,
+      title: draft?.title ?? payload.title ?? row.title,
+      summary: draft?.summary ?? payload.summary ?? "",
+      body: draft?.body ?? payload.body ?? row.body,
+      topic: payload.topic ?? null,
+      tags: stringArrayFromUnknown(payload.tags),
+      evidence: payloadEvidence,
+    },
+  };
+}
+
+export async function previewKnowledgeCanonicalResource(input: {
+  knowledgeId?: string;
+  proposalId?: string;
+  operation?: "publish" | "unpublish";
+  draft?: {
+    title?: string;
+    summary?: string;
+    body?: string;
+  };
+}): Promise<BrainCanonicalResourcePreview> {
+  if (input.knowledgeId && input.proposalId) {
+    throw new Error("Preview either a knowledge item or a proposal, not both.");
+  }
+  if (!input.knowledgeId && !input.proposalId) {
+    throw new Error("A knowledgeId or proposalId is required.");
+  }
+
+  if (input.knowledgeId) {
+    const access = await assertAccess(
+      "brain-knowledge",
+      input.knowledgeId,
+      "viewer",
+    );
+    const row = access.resource;
+    const values = canonicalValuesFromKnowledgeRow(row);
+    const resource = buildCanonicalResource(values);
+    const warnings: string[] = [];
+    if (row.status !== "published") {
+      warnings.push(
+        "Only published Brain knowledge can become company context.",
+      );
+    }
+    if (input.operation === "unpublish" && !row.publishedResourcePath) {
+      warnings.push(
+        "This memory is not currently mirrored to workspace context.",
+      );
+    }
+    return {
+      source: "knowledge",
+      knowledgeId: row.id,
+      title: row.title,
+      path: row.publishedResourcePath || resource.path,
+      pathExact: true,
+      contentType: resource.contentType,
+      markdown: resource.markdown,
+      canPublish: row.status === "published",
+      alreadyPublishedPath: row.publishedResourcePath,
+      warnings,
+    };
+  }
+
+  const access = await assertAccess(
+    "brain-proposal",
+    input.proposalId!,
+    "viewer",
+  );
+  const row = access.resource;
+  const { payload, values } = canonicalValuesFromProposalRow(row, input.draft);
+  const resource = buildCanonicalResource(values);
+  const status =
+    typeof payload.status === "string"
+      ? payload.status
+      : statusForTier(payload.publishTier ?? "company");
+  const warnings: string[] = [];
+  if (status !== "published") {
+    warnings.push(
+      "Approving this proposal would not publish canonical context because its resulting knowledge status is not published.",
+    );
+  }
+  if (!values.id) {
+    warnings.push(
+      "Approval will assign the final knowledge id, so the Markdown is exact but the path suffix is shown as <new-id>.",
+    );
+  }
+  if (row.status !== "pending") {
+    warnings.push(`This proposal is already ${row.status}.`);
+  }
+  return {
+    source: "proposal",
+    proposalId: row.id,
+    knowledgeId: values.id ?? null,
+    title: values.title,
+    path: resource.path,
+    pathExact: resource.pathExact,
+    contentType: resource.contentType,
+    markdown: resource.markdown,
+    canPublish: status === "published",
+    warnings,
+  };
 }
 
 export async function writeKnowledgeRecord(
@@ -985,6 +1269,29 @@ export async function readBrainScreen() {
     const knowledge = await resolveAccess("brain-knowledge", nav.knowledgeId);
     if (knowledge) screen.knowledge = serializeKnowledge(knowledge.resource);
   }
+  const proposalId = nav?.proposalId ?? nav?.reviewItemId;
+  if (proposalId) {
+    const proposal = await resolveAccess("brain-proposal", proposalId);
+    if (proposal) screen.proposal = serializeProposal(proposal.resource);
+  }
+  if (nav?.view === "review") {
+    const params = searchParamsFromPath(nav.path);
+    const status = proposalStatusFromNavigation(
+      typeof nav.status === "string" ? nav.status : params.get("status"),
+    );
+    const proposals = await getDb()
+      .select()
+      .from(schema.brainProposals)
+      .where(
+        and(
+          accessFilter(schema.brainProposals, schema.brainProposalShares),
+          eq(schema.brainProposals.status, status),
+        ),
+      )
+      .orderBy(desc(schema.brainProposals.updatedAt))
+      .limit(10);
+    screen.proposals = proposals.map(serializeProposal);
+  }
   if (nav?.captureId) {
     const capture = await getAccessibleCapture(nav.captureId);
     if (capture) screen.capture = serializeCapture(capture.capture);
@@ -1028,4 +1335,16 @@ export async function readBrainScreen() {
   screen.sources = sources.map(serializeSource);
   screen.recentKnowledge = knowledge.map(serializeKnowledge);
   return screen;
+}
+
+function searchParamsFromPath(value: unknown) {
+  if (typeof value !== "string") return new URLSearchParams();
+  const queryStart = value.indexOf("?");
+  if (queryStart === -1) return new URLSearchParams();
+  return new URLSearchParams(value.slice(queryStart + 1));
+}
+
+function proposalStatusFromNavigation(value: string | null | undefined) {
+  if (value === "approved" || value === "rejected") return value;
+  return "pending";
 }

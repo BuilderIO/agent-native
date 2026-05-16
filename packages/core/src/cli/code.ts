@@ -44,6 +44,7 @@ export type CodeCliCommand =
   | { kind: "shell" }
   | { kind: "help" }
   | { kind: "list-goals" }
+  | { kind: "serve"; relayUrl?: string }
   | { kind: "execute-existing-run"; runId: string }
   | { kind: "control"; subcommand: CodeAgentControlSubcommand; args: string[] }
   | {
@@ -158,6 +159,10 @@ export function resolveCodeCommand(argv: string[]): CodeCliCommand {
   const first = normalizeGoalToken(rawFirst);
   if (first === "goals") {
     return { kind: "list-goals" };
+  }
+
+  if (first === "serve") {
+    return { kind: "serve", relayUrl: parseRelayUrlOption(rest) };
   }
 
   if (first === "exec" || first === "e") {
@@ -276,6 +281,16 @@ export async function runCode(
 
   if (command.kind === "list-goals") {
     writeLine(output, renderGoalList());
+    return;
+  }
+
+  if (command.kind === "serve") {
+    const { runCodeAgentConnector } = await import("./code-agent-connector.js");
+    const exitCode = await runCodeAgentConnector({
+      relayUrl: command.relayUrl,
+      output,
+    });
+    if (exitCode !== 0) process.exitCode = exitCode;
     return;
   }
 
@@ -480,6 +495,7 @@ Usage:
   agent-native code --continue "follow-up prompt"
   agent-native code resume --last
   agent-native code status --last
+  agent-native code serve --relay-url <url>
   agent-native code ui --last
   agent-native code run <runId>
   agent-native code goals
@@ -500,6 +516,7 @@ Session commands:
   resume ...   Continue the latest or selected run
   status ...   Show run status
   stop ...     Stop a tracked Desktop/CLI runner
+  serve ...    Run the remote relay connector
 
 Modes:
   --plan, --auto
@@ -750,6 +767,18 @@ function parseResumeSelectorAndPrompt(
 
 function looksLikeRunId(value: string): boolean {
   return /^[a-z][a-z0-9-]*-(?:\d{14}|\d{8}t\d{6}z)-[a-f0-9]{8}$/i.test(value);
+}
+
+function parseRelayUrlOption(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--relay-url" && args[i + 1]) return args[i + 1];
+    if (arg.startsWith("--relay-url=")) {
+      const value = arg.slice("--relay-url=".length).trim();
+      if (value) return value;
+    }
+  }
+  return undefined;
 }
 
 async function runCodeAgentControl(

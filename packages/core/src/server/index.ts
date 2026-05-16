@@ -224,6 +224,7 @@ export {
 export {
   createIntegrationsPlugin,
   defaultIntegrationsPlugin,
+  enqueueRemoteCommand,
   slackAdapter,
   telegramAdapter,
   whatsappAdapter,

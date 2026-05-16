@@ -44,6 +44,15 @@ describe("resolveCodeCommand", () => {
     expect(resolveCodeCommand(["goals"])).toEqual({ kind: "list-goals" });
   });
 
+  it("serves the remote connector", () => {
+    expect(
+      resolveCodeCommand(["serve", "--relay-url", "https://app.test"]),
+    ).toEqual({
+      kind: "serve",
+      relayUrl: "https://app.test",
+    });
+  });
+
   it("lists sessions through Codex-style session commands", () => {
     expect(resolveCodeCommand(["list"])).toEqual({
       kind: "control",

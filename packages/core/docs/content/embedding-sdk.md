@@ -184,6 +184,124 @@ Backend actions should be the default for anything that must survive refreshes, 
 
 Client actions are a live bridge to one browser tab. The host advertises them with `source: "client"` and `availability: "browser-session"`, and the sidecar should treat that manifest as temporary. Re-list actions when route or selection changes, and fall back to backend actions when the tab disappears.
 
+## Portable Extensions
+
+The SDK also supports user-defined extensions: sandboxed Alpine.js mini-apps that a host SaaS can render in named slots. Use this when the customer wants to build their own small panels, calculators, dashboards, or workflow helpers against the same action/context surface that the agent uses.
+
+```tsx
+import {
+  AgentNativeExtensionSlot,
+  createHttpAgentNativeExtensionStorage,
+  defineClientAction,
+} from "@agent-native/core/client";
+
+const storage = createHttpAgentNativeExtensionStorage({
+  endpoint: "/api/agent-native/extensions/storage",
+  headers: () => ({ Authorization: `Bearer ${sessionToken()}` }),
+});
+
+const actions = [
+  defineClientAction({
+    name: "list-at-risk-customers",
+    description: "List customers currently at risk",
+    schema: { type: "object", properties: {} },
+    run: () => crmApi.customers.list({ status: "at-risk" }),
+  }),
+];
+
+const customerHealthExtension = {
+  id: "customer-health",
+  name: "Customer health",
+  description: "Shows at-risk customers and quick notes.",
+  manifest: {
+    slots: ["crm.customer.sidebar"],
+    requestedActions: ["list-at-risk-customers"],
+    requestedCommands: ["openResource", "refreshData"],
+    storageScopes: ["user", "org"],
+  },
+  content: `
+    <div x-data="{
+      customers: [],
+      note: '',
+      async init() {
+        this.customers = await appAction('list-at-risk-customers', {})
+        const row = await extensionData.get('notes', slotContext.customerId, { scope: 'user' })
+        this.note = row?.data?.text || ''
+      },
+      async save() {
+        await extensionData.set('notes', slotContext.customerId, { text: this.note }, { scope: 'user' })
+        await agentNative.refresh({ customerId: slotContext.customerId })
+      }
+    }" x-init="init()" class="space-y-3">
+      <textarea class="w-full rounded-md border bg-background p-2" x-model="note"></textarea>
+      <button class="rounded-md bg-primary px-3 py-2 text-primary-foreground" @click="save()">Save</button>
+    </div>
+  `,
+};
+
+export function CustomerSidebar({ customer, userExtensions }) {
+  return (
+    <AgentNativeExtensionSlot
+      id="crm.customer.sidebar"
+      extensions={[customerHealthExtension, ...userExtensions]}
+      context={{ customerId: customer.id, plan: customer.plan }}
+      actions={actions}
+      storage={storage}
+      storageContext={{
+        userId: currentUser().id,
+        organizationId: currentOrganization().id,
+      }}
+      getContext={() => ({
+        resource: { type: "customer", id: customer.id, name: customer.name },
+      })}
+      commands={{
+        refreshData: async () => queryClient.invalidateQueries(),
+      }}
+    />
+  );
+}
+```
+
+The manifest is the install contract. When `requestedActions`, `requestedCommands`, or `storageScopes` are present, the SDK enforces them in the host before an iframe request reaches the action bridge or storage adapter. When `slots` is present, `AgentNativeExtensionSlot` only renders the extension in matching slots. Hosts can still override policy per slot with `allowedActions`, `allowedCommands`, and `allowedStorageScopes`.
+
+An extension is plain HTML. The iframe runtime provides the same safe bridge primitives to the mini-app:
+
+```html
+<div
+  x-data="{ customers: [], async init() { this.customers = await appAction('list-at-risk-customers', {}) } }"
+  x-init="init()"
+>
+  <template x-for="customer in customers" :key="customer.id">
+    <button
+      class="block w-full rounded-md px-3 py-2 text-left hover:bg-muted"
+      x-text="customer.name"
+      @click="agentNative.command('openResource', { type: 'customer', id: customer.id })"
+    ></button>
+  </template>
+</div>
+```
+
+Available globals inside the iframe:
+
+| Helper                         | Purpose                                                |
+| ------------------------------ | ------------------------------------------------------ |
+| `appAction(name, args)`        | Run a host-declared action.                            |
+| `agentNative.context()`        | Read current host page, resource, slot, and user data. |
+| `agentNative.command(name, p)` | Ask the host to navigate, refresh, remount, or open.   |
+| `agentNative.refresh(payload)` | Shortcut for `refreshData`.                            |
+| `extensionData.*`              | Persist extension-local data through the host adapter. |
+
+By default, `extensionData` uses browser `localStorage`, which is useful for prototypes and local widgets. Production SaaS hosts should pass a backend-backed `storage` adapter so user and org scoped extension data is durable, auditable, and governed by the app's permissions. The generic HTTP adapter sends POST bodies like `{ operation, extensionId, slotId, collection, id, data, options, context }` and expects either `{ result }` or the result JSON directly.
+
+This portable SDK layer is separate from the framework's built-in SQL-backed extension store. In an Agent-Native app, use the existing `ExtensionSlot`/`EmbeddedExtension` components and the `create-extension` action. In a hosted SaaS embedding scenario, use `AgentNativeExtensionSlot` when the SaaS already owns extension definitions, approval, marketplace, storage, and billing.
+
+Security model:
+
+- Extension iframes are sandboxed without `allow-same-origin`; the mini-app cannot read the parent DOM, cookies, or app runtime directly.
+- Extensions can only call the actions and commands allowed by the host and extension manifest.
+- Risky actions should set `destructive` or `requiresApproval` so the host can show an approval flow.
+- Treat user-authored extension HTML as untrusted. Review marketplace installs, log action usage, and scope backend storage by user/org.
+
 ## Sessions And Tabs
 
 The host bridge is scoped to one iframe/host-window pair. If the same user opens multiple tabs, each tab has its own `session`, context, selection, client actions, and pending command responses. Do not assume a client action discovered in one tab can run in another tab, or that it will still exist after navigation.

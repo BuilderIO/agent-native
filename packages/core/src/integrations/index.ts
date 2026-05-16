@@ -11,7 +11,17 @@ export type {
 export {
   createIntegrationsPlugin,
   defaultIntegrationsPlugin,
+  enqueueRemoteCommand,
 } from "./plugin.js";
+
+export { listRemoteDevicesForOwner } from "./remote-devices-store.js";
+export { listRemoteCommandsForOwner } from "./remote-commands-store.js";
+export type {
+  PublicRemoteDevice,
+  RemoteCommand,
+  RemoteDevice,
+  RemoteRunEvent,
+} from "./remote-types.js";
 
 // Adapters
 export { slackAdapter } from "./adapters/slack.js";

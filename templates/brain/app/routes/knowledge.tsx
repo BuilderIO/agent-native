@@ -1,14 +1,27 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { useActionQuery } from "@agent-native/core/client";
-import { IconFilter, IconSearch, IconTable } from "@tabler/icons-react";
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  IconBook,
+  IconCheck,
+  IconFilter,
+  IconSearch,
+  IconTable,
+  IconX,
+} from "@tabler/icons-react";
 import {
   type KnowledgeResponse,
+  type KnowledgeRow,
   formatPercent,
   sampleKnowledgeRows,
   statusLabel,
 } from "@/lib/brain";
+import {
+  type CanonicalPreviewData,
+  CanonicalPreviewSheet,
+} from "@/components/brain/CanonicalPreviewSheet";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -60,6 +73,13 @@ export default function KnowledgeRoute() {
   const query = params.get("q") ?? "";
   const status = params.get("status") ?? "all";
   const type = params.get("type") ?? "all";
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [canonicalPreview, setCanonicalPreview] =
+    useState<CanonicalPreviewData | null>(null);
+  const [previewRow, setPreviewRow] = useState<KnowledgeRow | null>(null);
+  const [previewOperation, setPreviewOperation] = useState<
+    "publish" | "unpublish"
+  >("publish");
 
   const knowledgeQuery = useActionQuery<KnowledgeResponse>(
     "search-knowledge" as any,
@@ -69,6 +89,14 @@ export default function KnowledgeRoute() {
       sourceType: type === "all" ? undefined : type,
     } as any,
   );
+  const setCanonical = useActionMutation<
+    unknown,
+    { knowledgeId: string; published: boolean }
+  >("set-knowledge-canonical" as any);
+  const previewCanonical = useActionMutation<
+    { preview: CanonicalPreviewData },
+    { knowledgeId: string; operation: "publish" | "unpublish" }
+  >("preview-canonical-resource" as any);
 
   const actionRows =
     knowledgeQuery.data?.rows ?? knowledgeQuery.data?.knowledge;
@@ -92,6 +120,29 @@ export default function KnowledgeRoute() {
     if (!value || value === "all") next.delete(key);
     else next.set(key, value);
     setParams(next, { replace: true });
+  }
+
+  async function openCanonicalPreview(row: KnowledgeRow) {
+    const operation = row.publishedResourcePath ? "unpublish" : "publish";
+    const result = await previewCanonical.mutateAsync({
+      knowledgeId: row.id,
+      operation,
+    });
+    setCanonicalPreview(result.preview);
+    setPreviewRow(row);
+    setPreviewOperation(operation);
+    setPreviewOpen(true);
+  }
+
+  async function confirmCanonicalChange() {
+    if (!previewRow) return;
+    await setCanonical.mutateAsync({
+      knowledgeId: previewRow.id,
+      published: previewOperation === "publish",
+    });
+    setPreviewOpen(false);
+    setCanonicalPreview(null);
+    setPreviewRow(null);
   }
 
   return (
@@ -165,6 +216,7 @@ export default function KnowledgeRoute() {
                   <TableHead>Memory</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Company context</TableHead>
                   <TableHead className="text-right">Confidence</TableHead>
                   <TableHead className="text-right">Cites</TableHead>
                 </TableRow>
@@ -201,6 +253,15 @@ export default function KnowledgeRoute() {
                     <TableCell>
                       <StatusBadge status={row.status} />
                     </TableCell>
+                    <TableCell>
+                      <CanonicalControl
+                        row={row}
+                        pending={
+                          setCanonical.isPending || previewCanonical.isPending
+                        }
+                        onPreview={() => void openCanonicalPreview(row)}
+                      />
+                    </TableCell>
                     <TableCell className="text-right">
                       {typeof row.confidence === "number"
                         ? formatPercent(row.confidence)
@@ -221,6 +282,17 @@ export default function KnowledgeRoute() {
           />
         )}
 
+        {setCanonical.isError || previewCanonical.isError ? (
+          <EmptyActionState
+            title="Company context update failed"
+            detail={
+              setCanonical.error?.message ??
+              previewCanonical.error?.message ??
+              "Brain could not update the workspace context resource."
+            }
+          />
+        ) : null}
+
         {knowledgeQuery.isError ? (
           <EmptyActionState
             title="Waiting on search-knowledge"
@@ -234,6 +306,64 @@ export default function KnowledgeRoute() {
           source type filters.
         </div>
       </div>
+      <CanonicalPreviewSheet
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        preview={canonicalPreview}
+        operation={previewOperation}
+        loading={previewCanonical.isPending || setCanonical.isPending}
+        error={previewCanonical.error?.message ?? null}
+        primaryLabel={
+          previewOperation === "publish"
+            ? "Publish company context"
+            : "Unpublish company context"
+        }
+        primaryDisabled={!previewRow || setCanonical.isPending}
+        onPrimaryAction={() => void confirmCanonicalChange()}
+      />
     </div>
+  );
+}
+
+function CanonicalControl({
+  row,
+  pending,
+  onPreview,
+}: {
+  row: KnowledgeRow;
+  pending: boolean;
+  onPreview: () => void;
+}) {
+  const isPublished = Boolean(row.publishedResourcePath);
+  const canPublish = row.status === "published";
+
+  if (!canPublish && !isPublished) {
+    return (
+      <Badge variant="outline" className="gap-1.5 text-muted-foreground">
+        <IconX className="size-3" />
+        Not eligible
+      </Badge>
+    );
+  }
+
+  return (
+    <Button
+      size="sm"
+      variant={isPublished ? "secondary" : "outline"}
+      disabled={pending}
+      onClick={onPreview}
+      title={
+        isPublished
+          ? row.publishedResourcePath || "Published to company context"
+          : "Publish this memory to context/company-brain"
+      }
+    >
+      {isPublished ? (
+        <IconCheck className="size-4" />
+      ) : (
+        <IconBook className="size-4" />
+      )}
+      {isPublished ? "Published" : "Publish"}
+    </Button>
   );
 }

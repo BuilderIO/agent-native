@@ -55,6 +55,36 @@ type CodeAgentReasoningEffort =
   | "xhigh"
   | "max";
 
+type CodeAgentRemoteConnectorState =
+  | "disabled"
+  | "unconfigured"
+  | "starting"
+  | "running"
+  | "stopped"
+  | "error";
+
+type CodeAgentRemoteConnectorStatus = {
+  state: CodeAgentRemoteConnectorState;
+  enabled: boolean;
+  configured: boolean;
+  configPath: string;
+  relayUrl?: string;
+  pid?: number;
+  startedAt?: string;
+  lastExitAt?: string;
+  lastExitCode?: number | null;
+  lastExitSignal?: string | null;
+  restartCount: number;
+  nextRestartAt?: string;
+  error?: string;
+};
+
+type CodeAgentRemoteConnectorControlResult = {
+  ok: boolean;
+  status: CodeAgentRemoteConnectorStatus;
+  error?: string;
+};
+
 type CodeAgentPromptAttachment = {
   name: string;
   type?: string;
@@ -92,6 +122,29 @@ type CodeAgentCodePack = {
 type CodeAgentCodePackResult = {
   status: "ok" | "unavailable";
   pack?: CodeAgentCodePack;
+  error?: string;
+};
+
+type CodeAgentProjectFolder = {
+  id: string;
+  path: string;
+  name: string;
+  updatedAt?: string;
+};
+
+type CodeAgentProjectListResult = {
+  status: "ok" | "unavailable";
+  projects: CodeAgentProjectFolder[];
+  selectedPath?: string;
+  defaultPath?: string;
+  error?: string;
+};
+
+type CodeAgentProjectSelectResult = {
+  ok: boolean;
+  project?: CodeAgentProjectFolder;
+  projects: CodeAgentProjectFolder[];
+  selectedPath?: string;
   error?: string;
 };
 
@@ -415,11 +468,18 @@ interface ElectronAPI {
       permissionMode?: CodeAgentPermissionMode,
     ): Promise<CodeAgentControlResult>;
     getHostMetadata(): Promise<CodeAgentHostMetadata>;
-    listCodePacks(): Promise<CodeAgentCodePackResult>;
+    listCodePacks(cwd?: string): Promise<CodeAgentCodePackResult>;
+    listProjects(): Promise<CodeAgentProjectListResult>;
+    selectProject(cwd: string): Promise<CodeAgentProjectSelectResult>;
+    chooseProject(): Promise<CodeAgentProjectSelectResult>;
     listMigrationRuns(): Promise<CodeAgentRunListResult<CodeAgentMigrationRun>>;
     openTerminal(
       request?: CodeAgentTerminalRequest,
     ): Promise<CodeAgentTerminalResult>;
+    getRemoteConnectorStatus(): Promise<CodeAgentRemoteConnectorStatus>;
+    setRemoteConnectorEnabled(
+      enabled: boolean,
+    ): Promise<CodeAgentRemoteConnectorControlResult>;
     onOpenRequest(cb: (request: DesktopOpenRequest) => void): () => void;
   };
 

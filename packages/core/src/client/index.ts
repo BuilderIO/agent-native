@@ -79,6 +79,33 @@ export {
   type AgentNativeFrameProps,
 } from "./AgentNativeFrame.js";
 export {
+  AgentNativeExtensionFrame,
+  AgentNativeExtensionSlot,
+  type AgentNativeExtensionFrameProps,
+  type AgentNativeExtensionPermissionList,
+  type AgentNativeExtensionSlotProps,
+  type AgentNativeExtensionStorageScopeList,
+} from "./extensions/AgentNativeExtensionFrame.js";
+export {
+  AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
+  buildAgentNativeExtensionHtml,
+  createHttpAgentNativeExtensionStorage,
+  createLocalStorageAgentNativeExtensionStorage,
+  getAgentNativeExtensionManifest,
+  isAgentNativeExtensionAllowedInSlot,
+  normalizeAgentNativeExtensionSandbox,
+  type AgentNativeExtensionDefinition,
+  type AgentNativeExtensionManifest,
+  type AgentNativeExtensionMessageType,
+  type AgentNativeExtensionStorage,
+  type AgentNativeExtensionStorageContext,
+  type AgentNativeExtensionStorageOptions,
+  type AgentNativeExtensionStorageRow,
+  type AgentNativeExtensionStorageScope,
+  type BuildAgentNativeExtensionHtmlOptions,
+  type CreateHttpAgentNativeExtensionStorageOptions,
+} from "./extensions/portable-extension.js";
+export {
   AGENT_NATIVE_HOST_BRIDGE_VERSION,
   AGENT_NATIVE_HOST_MESSAGE_TYPES,
   announceAgentNativeFrameReady,
@@ -172,11 +199,15 @@ export {
 } from "./use-run-stuck-detection.js";
 export { createAgentChatAdapter } from "./agent-chat-adapter.js";
 export {
+  AgentComposerFrame,
+  type AgentComposerFrameProps,
   PromptComposer,
   type PromptComposerProps,
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
-} from "./composer/PromptComposer.js";
+  type SlashCommand,
+  type SkillResult,
+} from "./composer/index.js";
 export type { TiptapComposerHandle } from "./composer/TiptapComposer.js";
 export {
   GuidedQuestionFlow,

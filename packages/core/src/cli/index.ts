@@ -674,6 +674,7 @@ Usage:
                                 for a single-app scaffold.
   agent-native code             Launch Agent-Native Code workspace. Type a task or
                                 use goals like /migrate and /audit.
+  agent-native code serve       Run the Agent-Native Code remote connector.
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace

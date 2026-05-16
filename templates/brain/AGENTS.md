@@ -52,6 +52,8 @@ JSON is stored in text columns. There is no vector database.
 | `list-distillation-queue` / `retry-distillation`                                    | Inspect queue counts, failed/stale/retryable work, failure reasons, and safely retry one, selected, or all accessible items            |
 | `mark-capture-distilled`                                                            | Mark a capture distilled or ignored                                                                                                    |
 | `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior                                                 |
+| `preview-canonical-resource`                                                        | Preview the exact Markdown Brain will mirror under `context/company-brain/...` before approval or publish/unpublish                    |
+| `set-knowledge-canonical`                                                           | Publish or unpublish approved Brain knowledge as shared `context/company-brain/...` workspace context                                  |
 | `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                                                                    |
 | `search-everything`                                                                 | V1.5 search across knowledge, raw captures, and source records                                                                         |
 | `list-proposals` / `update-proposal` / `approve-proposal` / `reject-proposal`       | Review, edit, approve, or reject company-tier or forced proposals                                                                      |
@@ -96,6 +98,8 @@ When answering company-memory questions:
 - Company-tier writes create a proposal by default when `requireApprovalForCompanyKnowledge` is true.
 - Use `proposalMode: "never"` only when the user explicitly wants to bypass review.
 - Pending proposals may be edited with `update-proposal` before approval; keep reviewer notes on the approve/reject action.
+- Call `preview-canonical-resource` before approving a proposal with `publishCanonical: true` or publishing/unpublishing a knowledge item with `set-knowledge-canonical`; show the Markdown to the user when they ask what will become ambient context.
+- Use `approve-proposal --publishCanonical=true` when a reviewed item should become ambient company context for Dispatch and other apps. Otherwise leave canonical publishing off and use `set-knowledge-canonical` later for an intentional publish/unpublish decision.
 - Redactions are applied before storage. Explicit `redactions` replace matching text with `[redacted]`; settings can also auto-redact email addresses.
 
 ## Connector Notes

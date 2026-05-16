@@ -8,9 +8,11 @@ import {
   nowIso,
   parseJson,
   serializeProposal,
+  stableJson,
   writeKnowledgeRecord,
 } from "../server/lib/brain.js";
 import type { WriteKnowledgeInput } from "../server/lib/brain.js";
+import { booleanishSchema } from "./_schemas.js";
 
 export default defineAction({
   description:
@@ -18,8 +20,13 @@ export default defineAction({
   schema: z.object({
     proposalId: z.string().min(1),
     reviewerNotes: z.string().optional(),
+    publishCanonical: booleanishSchema
+      .optional()
+      .describe(
+        "Override whether approval mirrors the resulting knowledge into context/company-brain workspace resources.",
+      ),
   }),
-  run: async ({ proposalId, reviewerNotes }) => {
+  run: async ({ proposalId, reviewerNotes, publishCanonical }) => {
     const access = await assertAccess("brain-proposal", proposalId, "editor");
     const proposal = access.resource;
     if (proposal.status !== "pending") {
@@ -31,15 +38,20 @@ export default defineAction({
       evidence: [],
       proposalMode: "never",
     });
-    const result = await writeKnowledgeRecord(
-      { ...payload, proposalMode: "never" },
-      { bypassProposal: true },
-    );
+    const nextPayload: WriteKnowledgeInput = {
+      ...payload,
+      publishCanonical: publishCanonical ?? payload.publishCanonical,
+      proposalMode: "never",
+    };
+    const result = await writeKnowledgeRecord(nextPayload, {
+      bypassProposal: true,
+    });
     await getDb()
       .update(schema.brainProposals)
       .set({
         status: "approved",
         reviewerNotes: reviewerNotes ?? null,
+        payloadJson: stableJson(nextPayload),
         reviewedBy: getRequestUserEmail() ?? null,
         reviewedAt: nowIso(),
         updatedAt: nowIso(),

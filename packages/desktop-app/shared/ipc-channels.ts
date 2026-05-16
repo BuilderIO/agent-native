@@ -57,8 +57,15 @@ export const IPC = {
   CODE_AGENTS_RERUN_RUN: "code-agents:rerun-run",
   CODE_AGENTS_GET_HOST_METADATA: "code-agents:get-host-metadata",
   CODE_AGENTS_LIST_CODE_PACKS: "code-agents:list-code-packs",
+  CODE_AGENTS_LIST_PROJECTS: "code-agents:list-projects",
+  CODE_AGENTS_SELECT_PROJECT: "code-agents:select-project",
+  CODE_AGENTS_CHOOSE_PROJECT: "code-agents:choose-project",
   CODE_AGENTS_LIST_MIGRATION_RUNS: "code-agents:list-migration-runs",
   CODE_AGENTS_OPEN_TERMINAL: "code-agents:open-terminal",
+  CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS:
+    "code-agents:remote-connector:get-status",
+  CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED:
+    "code-agents:remote-connector:set-enabled",
 
   /** Deep links (main → renderer) */
   DEEP_LINK_OPEN: "deep-link:open",
@@ -162,6 +169,29 @@ export interface CodeAgentCodePack {
 export interface CodeAgentCodePackResult {
   status: "ok" | "unavailable";
   pack?: CodeAgentCodePack;
+  error?: string;
+}
+
+export interface CodeAgentProjectFolder {
+  id: string;
+  path: string;
+  name: string;
+  updatedAt?: string;
+}
+
+export interface CodeAgentProjectListResult {
+  status: "ok" | "unavailable";
+  projects: CodeAgentProjectFolder[];
+  selectedPath?: string;
+  defaultPath?: string;
+  error?: string;
+}
+
+export interface CodeAgentProjectSelectResult {
+  ok: boolean;
+  project?: CodeAgentProjectFolder;
+  projects: CodeAgentProjectFolder[];
+  selectedPath?: string;
   error?: string;
 }
 
@@ -324,6 +354,36 @@ export interface CodeAgentTerminalRequest {
 export interface CodeAgentTerminalResult {
   ok: boolean;
   cwd: string;
+  error?: string;
+}
+
+export type CodeAgentRemoteConnectorState =
+  | "disabled"
+  | "unconfigured"
+  | "starting"
+  | "running"
+  | "stopped"
+  | "error";
+
+export interface CodeAgentRemoteConnectorStatus {
+  state: CodeAgentRemoteConnectorState;
+  enabled: boolean;
+  configured: boolean;
+  configPath: string;
+  relayUrl?: string;
+  pid?: number;
+  startedAt?: string;
+  lastExitAt?: string;
+  lastExitCode?: number | null;
+  lastExitSignal?: string | null;
+  restartCount: number;
+  nextRestartAt?: string;
+  error?: string;
+}
+
+export interface CodeAgentRemoteConnectorControlResult {
+  ok: boolean;
+  status: CodeAgentRemoteConnectorStatus;
   error?: string;
 }
 

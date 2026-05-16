@@ -7,6 +7,36 @@ import {
 } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { DispatchShell } from "@agent-native/dispatch/components";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/dispatch/components/ui/alert-dialog";
+import { Badge } from "@agent-native/dispatch/components/ui/badge";
+import { Button } from "@agent-native/dispatch/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@agent-native/dispatch/components/ui/dialog";
+import { Input } from "@agent-native/dispatch/components/ui/input";
+import { Label } from "@agent-native/dispatch/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/dispatch/components/ui/select";
+import { Switch } from "@agent-native/dispatch/components/ui/switch";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   IconAlertTriangle,
@@ -29,7 +59,6 @@ import {
   IconTrash,
   IconUsersGroup,
   IconWorld,
-  IconX,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -245,21 +274,6 @@ const PROVIDER_ICONS: Record<string, IconComponent> = {
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
-}
-
-function buttonClass(
-  variant: "primary" | "secondary" | "ghost" | "danger" = "secondary",
-) {
-  return cx(
-    "inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
-    variant === "primary" &&
-      "bg-primary text-primary-foreground hover:bg-primary/90",
-    variant === "secondary" &&
-      "border border-border bg-background hover:bg-accent hover:text-accent-foreground",
-    variant === "ghost" && "hover:bg-accent hover:text-accent-foreground",
-    variant === "danger" &&
-      "border border-red-500/20 bg-red-500/10 text-red-700 hover:bg-red-500/15 dark:text-red-400",
-  );
 }
 
 function iconForProvider(providerId: string): IconComponent {
@@ -533,14 +547,10 @@ function ProviderCard({
                   provider.credentialKeys.length === 1 ? "" : "s"
                 }`}
         </span>
-        <button
-          type="button"
-          className={buttonClass("secondary")}
-          onClick={onCreate}
-        >
+        <Button type="button" variant="outline" size="sm" onClick={onCreate}>
           <IconPlus size={14} />
           Connect
-        </button>
+        </Button>
       </div>
     </article>
   );
@@ -603,22 +613,19 @@ function ConnectionRow({
               </div>
             </div>
             <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                className={buttonClass("ghost")}
-                onClick={onEdit}
-              >
+              <Button type="button" variant="ghost" size="sm" onClick={onEdit}>
                 <IconEdit size={14} />
                 Edit
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className={buttonClass("danger")}
+                variant="destructive"
+                size="sm"
                 onClick={onDelete}
               >
                 <IconTrash size={14} />
                 Delete
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -685,22 +692,22 @@ function ConnectionRow({
               const AppIcon = app.icon;
               const granted = appIsGranted(connection, app.id, grants);
               return (
-                <button
+                <Button
                   key={app.id}
                   type="button"
                   aria-pressed={granted}
                   disabled={grantPending}
                   onClick={() => onToggleGrant(app.id, !granted)}
+                  variant={granted ? "default" : "outline"}
+                  size="sm"
                   className={cx(
-                    "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60",
-                    granted
-                      ? "border-foreground/15 bg-foreground text-background"
-                      : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+                    "h-8 px-2.5 text-xs",
+                    !granted && "text-muted-foreground",
                   )}
                 >
                   <AppIcon size={13} />
                   {app.label}
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -763,14 +770,15 @@ function Pill({
   className?: string;
 }) {
   return (
-    <span
+    <Badge
+      variant="outline"
       className={cx(
         "inline-flex h-6 items-center gap-1 rounded-md border px-2 text-xs font-medium",
         className,
       )}
     >
       {children}
-    </span>
+    </Badge>
   );
 }
 
@@ -787,41 +795,18 @@ function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="workspace-connection-dialog-title"
-        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg border bg-card shadow-lg"
-      >
-        <div className="flex items-start justify-between gap-4 border-b p-4">
-          <div>
-            <h2
-              id="workspace-connection-dialog-title"
-              className="text-base font-semibold text-foreground"
-            >
-              {title}
-            </h2>
-            {description ? (
-              <p className="mt-1 text-sm text-muted-foreground">
-                {description}
-              </p>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            className={buttonClass("ghost")}
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <IconX size={15} />
-          </button>
-        </div>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto p-0">
+        <DialogHeader className="border-b p-4 pr-10">
+          <DialogTitle className="text-base">{title}</DialogTitle>
+          {description ? (
+            <DialogDescription>{description}</DialogDescription>
+          ) : null}
+        </DialogHeader>
         {children}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -861,52 +846,59 @@ function ConnectionForm({
       <form onSubmit={onSubmit}>
         <div className="grid gap-4 p-4">
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">Provider</span>
-              <select
+            <div className="grid gap-1.5 text-sm">
+              <Label>Provider</Label>
+              <Select
                 value={form.provider}
-                onChange={(event) => {
+                onValueChange={(value) => {
                   const nextProvider = providers.find(
-                    (item) => item.id === event.target.value,
+                    (item) => item.id === value,
                   );
                   onChange({
                     ...form,
-                    provider: event.target.value,
-                    label:
-                      form.label || nextProvider?.label || event.target.value,
+                    provider: value,
+                    label: form.label || nextProvider?.label || value,
                     credentialRefs: nextProvider
                       ? credentialRefsForProvider(nextProvider)
                       : form.credentialRefs,
                   });
                 }}
-                className="h-9 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
               >
-                {providers.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">Status</span>
-              <select
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  {providers.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5 text-sm">
+              <Label>Status</Label>
+              <Select
                 value={form.status}
-                onChange={(event) =>
+                onValueChange={(value) =>
                   onChange({
                     ...form,
-                    status: event.target.value as WorkspaceConnectionStatus,
+                    status: value as WorkspaceConnectionStatus,
                   })
                 }
-                className="h-9 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
               >
-                {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -947,22 +939,13 @@ function ConnectionForm({
                   Selected grants
                 </div>
               </div>
-              <button
-                type="button"
-                aria-pressed={form.allApps}
-                onClick={() => onChange({ ...form, allApps: !form.allApps })}
-                className={cx(
-                  "relative h-6 w-11 rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  form.allApps ? "bg-foreground" : "bg-muted",
-                )}
-              >
-                <span
-                  className={cx(
-                    "absolute top-0.5 h-5 w-5 rounded-full bg-background shadow transition",
-                    form.allApps ? "left-5" : "left-0.5",
-                  )}
-                />
-              </button>
+              <Switch
+                checked={form.allApps}
+                onCheckedChange={(checked) =>
+                  onChange({ ...form, allApps: checked })
+                }
+                aria-label="Grant this connection to all workspace apps"
+              />
             </div>
             {!form.allApps ? (
               <div className="mt-3 flex flex-wrap gap-2">
@@ -970,7 +953,7 @@ function ConnectionForm({
                   const AppIcon = app.icon;
                   const selected = form.selectedApps.includes(app.id);
                   return (
-                    <button
+                    <Button
                       key={app.id}
                       type="button"
                       aria-pressed={selected}
@@ -982,16 +965,16 @@ function ConnectionForm({
                             : [...form.selectedApps, app.id],
                         })
                       }
+                      variant={selected ? "default" : "outline"}
+                      size="sm"
                       className={cx(
-                        "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        selected
-                          ? "border-foreground/15 bg-foreground text-background"
-                          : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+                        "h-8 px-2.5 text-xs",
+                        !selected && "text-muted-foreground",
                       )}
                     >
                       <AppIcon size={13} />
                       {app.label}
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
@@ -1005,24 +988,20 @@ function ConnectionForm({
             onChange={(credentialRefs) => onChange({ ...form, credentialRefs })}
           />
         </div>
-        <div className="flex items-center justify-end gap-2 border-t p-4">
-          <button
+        <DialogFooter className="border-t p-4">
+          <Button
             type="button"
-            className={buttonClass("secondary")}
+            variant="outline"
             onClick={onClose}
             disabled={saving}
           >
             Cancel
-          </button>
-          <button
-            type="submit"
-            className={buttonClass("primary")}
-            disabled={saving || !form.label.trim()}
-          >
+          </Button>
+          <Button type="submit" disabled={saving || !form.label.trim()}>
             {saving ? <IconRefresh size={14} className="animate-spin" /> : null}
             Save connection
-          </button>
-        </div>
+          </Button>
+        </DialogFooter>
       </form>
     </Modal>
   );
@@ -1042,16 +1021,15 @@ function TextField({
   required?: boolean;
 }) {
   return (
-    <label className="grid gap-1.5 text-sm">
-      <span className="font-medium">{label}</span>
-      <input
+    <div className="grid gap-1.5 text-sm">
+      <Label>{label}</Label>
+      <Input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         required={required}
-        className="h-9 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
       />
-    </label>
+    </div>
   );
 }
 
@@ -1083,14 +1061,15 @@ function CredentialRefsEditor({
             Reference names only. Secret values remain in Vault or OAuth.
           </div>
         </div>
-        <button
+        <Button
           type="button"
-          className={buttonClass("secondary")}
+          variant="outline"
+          size="sm"
           onClick={() => onChange(appendCredentialRef(refs, provider))}
         >
           <IconPlus size={14} />
           Add ref
-        </button>
+        </Button>
       </div>
 
       <div className="mt-3 grid gap-2">
@@ -1101,16 +1080,16 @@ function CredentialRefsEditor({
               key={`${index}:${ref.provider ?? provider?.id ?? "provider"}`}
               className="grid gap-2 rounded-md border px-3 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto]"
             >
-              <label className="grid min-w-0 gap-1.5 text-sm">
-                <span className="flex items-center gap-1.5 font-medium">
+              <div className="grid min-w-0 gap-1.5 text-sm">
+                <Label className="flex items-center gap-1.5">
                   Ref name
                   {credential?.required ? (
                     <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
                       Required
                     </Pill>
                   ) : null}
-                </span>
-                <input
+                </Label>
+                <Input
                   value={ref.key}
                   onChange={(event) =>
                     onChange(
@@ -1127,44 +1106,49 @@ function CredentialRefsEditor({
                     provider?.credentialKeys[index]?.key ?? "VAULT_KEY_NAME"
                   }
                   spellCheck={false}
-                  className="h-9 rounded-md border bg-card px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
+                  className="font-mono"
                 />
                 {credential?.description ? (
                   <span className="text-xs leading-5 text-muted-foreground">
                     {credential.description}
                   </span>
                 ) : null}
-              </label>
-              <label className="grid gap-1.5 text-sm">
-                <span className="font-medium">Scope</span>
-                <select
+              </div>
+              <div className="grid gap-1.5 text-sm">
+                <Label>Scope</Label>
+                <Select
                   value={ref.scope ?? "org"}
-                  onChange={(event) =>
+                  onValueChange={(value) =>
                     onChange(
                       upsertCredentialRefAt(rows, index, {
-                        scope: event.target
-                          .value as WorkspaceConnectionCredentialRef["scope"],
+                        scope:
+                          value as WorkspaceConnectionCredentialRef["scope"],
                       }),
                     )
                   }
-                  className="h-9 rounded-md border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
                 >
-                  <option value="org">Org</option>
-                  <option value="workspace">Workspace</option>
-                  <option value="user">User</option>
-                </select>
-              </label>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="org">Org</SelectItem>
+                    <SelectItem value="workspace">Workspace</SelectItem>
+                    <SelectItem value="user">User</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex items-end">
-                <button
+                <Button
                   type="button"
-                  className={buttonClass("ghost")}
+                  variant="ghost"
+                  size="icon"
                   onClick={() =>
                     onChange(rows.filter((_, itemIndex) => itemIndex !== index))
                   }
                   aria-label={`Remove ${ref.key || "credential ref"}`}
                 >
                   <IconTrash size={14} />
-                </button>
+                </Button>
               </div>
             </div>
           );
@@ -1193,37 +1177,37 @@ function DeleteConfirm({
   onConfirm: () => void;
 }) {
   return (
-    <Modal
+    <AlertDialog
       open={!!connection}
-      onClose={onClose}
-      title="Delete connection"
-      description={connection?.label}
+      onOpenChange={(open) => !open && onClose()}
     >
-      <div className="p-4">
-        <div className="rounded-md border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400">
-          This removes the shared connection and its app grants.
-        </div>
-      </div>
-      <div className="flex items-center justify-end gap-2 border-t p-4">
-        <button
-          type="button"
-          className={buttonClass("secondary")}
-          onClick={onClose}
-          disabled={deleting}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          className={buttonClass("danger")}
-          onClick={onConfirm}
-          disabled={deleting}
-        >
-          {deleting ? <IconRefresh size={14} className="animate-spin" /> : null}
-          Delete
-        </button>
-      </div>
-    </Modal>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete connection</AlertDialogTitle>
+          <AlertDialogDescription>
+            {connection?.label
+              ? `This removes ${connection.label} and its app grants.`
+              : "This removes the shared connection and its app grants."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={deleting}
+            onClick={(event) => {
+              event.preventDefault();
+              onConfirm();
+            }}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {deleting ? (
+              <IconRefresh size={14} className="animate-spin" />
+            ) : null}
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -1234,22 +1218,20 @@ export default function WorkspaceIntegrationsRoute() {
     null,
   );
 
-  const connectionsQuery = useActionQuery<WorkspaceConnectionsResponse>(
+  const connectionsQuery = useActionQuery(
     "list-workspace-connections",
     CONNECTION_QUERY_PARAMS,
   );
-  const appsQuery = useActionQuery<WorkspaceAppSummary[]>(
-    "list-workspace-apps",
-    {
-      includeAgentCards: false,
-      audience: "all",
-    },
-  );
+  const appsQuery = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+    audience: "all",
+  });
 
-  const data = connectionsQuery.data ?? EMPTY_RESPONSE;
+  const data = (connectionsQuery.data ??
+    EMPTY_RESPONSE) as WorkspaceConnectionsResponse;
   const providers = data.providers;
   const connections = data.connections;
-  const apps = appsQuery.data ?? [];
+  const apps = (appsQuery.data ?? []) as WorkspaceAppSummary[];
   const providersById = useMemo(
     () => new Map(providers.map((provider) => [provider.id, provider])),
     [providers],

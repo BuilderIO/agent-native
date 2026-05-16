@@ -22,6 +22,8 @@ export interface NavigationState {
   limit?: number;
   priority?: string;
   sourceId?: string;
+  knowledgeId?: string;
+  proposalId?: string;
   selectedKnowledgeId?: string;
   reviewItemId?: string;
   settingsSection?: string;
@@ -103,11 +105,14 @@ export function useNavigationState() {
     if (navCommand.limit) params.set("limit", String(navCommand.limit));
     if (navCommand.priority) params.set("priority", navCommand.priority);
     if (navCommand.sourceId) params.set("sourceId", navCommand.sourceId);
-    if (navCommand.selectedKnowledgeId) {
-      params.set("knowledgeId", navCommand.selectedKnowledgeId);
+    const knowledgeId =
+      navCommand.knowledgeId ?? navCommand.selectedKnowledgeId;
+    if (knowledgeId) {
+      params.set("knowledgeId", knowledgeId);
     }
-    if (navCommand.reviewItemId) {
-      params.set("reviewItemId", navCommand.reviewItemId);
+    const proposalId = navCommand.proposalId ?? navCommand.reviewItemId;
+    if (proposalId) {
+      params.set("reviewItemId", proposalId);
     }
     if (navCommand.settingsSection) {
       params.set("section", navCommand.settingsSection);

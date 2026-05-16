@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { useSearchParams } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   type Icon,
   IconChartBar,
   IconCheck,
+  IconBook,
   IconExternalLink,
   IconFileText,
   IconGitMerge,
@@ -15,6 +16,10 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { type ReviewItem, type ReviewQueueResponse } from "@/lib/brain";
+import {
+  type CanonicalPreviewData,
+  CanonicalPreviewSheet,
+} from "@/components/brain/CanonicalPreviewSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +41,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   EmptyActionState,
@@ -77,8 +83,18 @@ interface ProposalInsight {
 export default function ReviewRoute() {
   const [params, setParams] = useSearchParams();
   const status = proposalStatus(params.get("status"));
+  const selectedProposalId = params.get("reviewItemId");
   const [drafts, setDrafts] = useState<Record<string, ProposalDraft>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [canonicalChoices, setCanonicalChoices] = useState<
+    Record<string, boolean>
+  >({});
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [canonicalPreview, setCanonicalPreview] =
+    useState<CanonicalPreviewData | null>(null);
+  const [previewProposal, setPreviewProposal] = useState<ReviewItem | null>(
+    null,
+  );
 
   const reviewQuery = useActionQuery<ReviewQueueResponse>(
     "list-proposals" as any,
@@ -95,8 +111,23 @@ export default function ReviewRoute() {
   >("update-proposal" as any);
   const approveProposal = useActionMutation<
     unknown,
-    { proposalId: string; reviewerNotes?: string }
+    {
+      proposalId: string;
+      reviewerNotes?: string;
+      publishCanonical?: boolean;
+    }
   >("approve-proposal" as any);
+  const previewCanonical = useActionMutation<
+    { preview: CanonicalPreviewData },
+    {
+      proposalId: string;
+      operation: "publish";
+      draft?: {
+        title?: string;
+        body?: string;
+      };
+    }
+  >("preview-canonical-resource" as any);
   const rejectProposal = useActionMutation<
     unknown,
     { proposalId: string; reviewerNotes?: string }
@@ -107,9 +138,13 @@ export default function ReviewRoute() {
   const pendingMutation =
     updateProposal.isPending ||
     approveProposal.isPending ||
+    previewCanonical.isPending ||
     rejectProposal.isPending;
   const actionError =
-    updateProposal.error ?? approveProposal.error ?? rejectProposal.error;
+    updateProposal.error ??
+    approveProposal.error ??
+    previewCanonical.error ??
+    rejectProposal.error;
 
   const summary = useMemo(() => {
     const label =
@@ -175,12 +210,42 @@ export default function ReviewRoute() {
     });
   }
 
-  async function approve(proposal: ReviewItem) {
+  async function approve(
+    proposal: ReviewItem,
+    options: { confirmedCanonical?: boolean } = {},
+  ) {
+    if (canonicalChoice(proposal) && !options.confirmedCanonical) {
+      await openCanonicalPreview(proposal);
+      return;
+    }
     await saveDraft(proposal);
     await approveProposal.mutateAsync({
       proposalId: proposal.id,
       reviewerNotes: cleanNote(notes[proposal.id]),
+      publishCanonical: canonicalChoice(proposal),
     });
+  }
+
+  async function openCanonicalPreview(proposal: ReviewItem) {
+    const result = await previewCanonical.mutateAsync({
+      proposalId: proposal.id,
+      operation: "publish",
+      draft: {
+        title: draftValue(proposal, "title"),
+        body: draftValue(proposal, "body"),
+      },
+    });
+    setCanonicalPreview(result.preview);
+    setPreviewProposal(proposal);
+    setPreviewOpen(true);
+  }
+
+  async function approvePreviewedProposal() {
+    if (!previewProposal) return;
+    await approve(previewProposal, { confirmedCanonical: true });
+    setPreviewOpen(false);
+    setCanonicalPreview(null);
+    setPreviewProposal(null);
   }
 
   async function reject(proposal: ReviewItem) {
@@ -188,6 +253,40 @@ export default function ReviewRoute() {
       proposalId: proposal.id,
       reviewerNotes: cleanNote(notes[proposal.id]),
     });
+  }
+
+  function canonicalChoice(proposal: ReviewItem) {
+    return (
+      canonicalChoices[proposal.id] ??
+      readBoolean(proposal.payload?.publishCanonical)
+    );
+  }
+
+  function setCanonicalChoice(proposalId: string, publishCanonical: boolean) {
+    setCanonicalChoices((current) => ({
+      ...current,
+      [proposalId]: publishCanonical,
+    }));
+  }
+
+  function handleProposalShortcut(
+    event: KeyboardEvent<HTMLElement>,
+    proposal: ReviewItem,
+  ) {
+    if (pendingMutation || proposal.status !== "pending") return;
+    if (isEditableTarget(event.target)) return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key === "a") {
+      event.preventDefault();
+      void approve(proposal);
+    } else if (key === "r") {
+      event.preventDefault();
+      void reject(proposal);
+    } else if (key === "s" && hasDraftChanges(proposal)) {
+      event.preventDefault();
+      void saveDraft(proposal);
+    }
   }
 
   return (
@@ -226,8 +325,23 @@ export default function ReviewRoute() {
               const canReview = proposal.status === "pending";
               const insight = buildProposalInsight(proposal);
               const hasChanges = hasDraftChanges(proposal);
+              const publishCanonical = canonicalChoice(proposal);
+              const selected = selectedProposalId === proposal.id;
               return (
-                <Card key={proposal.id} className="shadow-none">
+                <Card
+                  key={proposal.id}
+                  tabIndex={canReview ? 0 : undefined}
+                  onKeyDown={(event) => handleProposalShortcut(event, proposal)}
+                  className={cn(
+                    "shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                    selected && "ring-2 ring-ring",
+                  )}
+                  aria-label={
+                    canReview
+                      ? `${proposal.title}. Press A to approve, R to reject, or S to save wording changes.`
+                      : proposal.title
+                  }
+                >
                   <CardHeader className="pb-3">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
@@ -244,6 +358,12 @@ export default function ReviewRoute() {
                           <ConfidenceBadge confidence={insight.confidence} />
                           {hasChanges ? (
                             <Badge variant="outline">Unsaved edits</Badge>
+                          ) : null}
+                          {publishCanonical ? (
+                            <Badge variant="outline" className="gap-1.5">
+                              <IconBook className="size-3" />
+                              Company context
+                            </Badge>
                           ) : null}
                         </div>
                         <p className="mt-1 text-sm text-muted-foreground">
@@ -339,6 +459,50 @@ export default function ReviewRoute() {
                             detail={privacyDetail(insight.privacyFlags)}
                           />
                         </div>
+                        {canReview ? (
+                          <div className="rounded-md border border-border bg-background p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <Label
+                                  htmlFor={`canonical-${proposal.id}`}
+                                  className="flex items-center gap-2 text-sm font-medium"
+                                >
+                                  <IconBook className="size-4 text-muted-foreground" />
+                                  Publish as company context
+                                </Label>
+                                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                  Mirrors the approved memory into
+                                  context/company-brain for ambient Dispatch and
+                                  cross-app agent context.
+                                </p>
+                              </div>
+                              <Switch
+                                id={`canonical-${proposal.id}`}
+                                checked={publishCanonical}
+                                disabled={pendingMutation}
+                                onCheckedChange={(checked) =>
+                                  setCanonicalChoice(proposal.id, checked)
+                                }
+                              />
+                            </div>
+                            {publishCanonical ? (
+                              <div className="mt-3">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={pendingMutation}
+                                  onClick={() =>
+                                    void openCanonicalPreview(proposal)
+                                  }
+                                >
+                                  <IconFileText className="size-4" />
+                                  Preview Markdown
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <Separator />
                         <EvidencePreview
                           evidence={evidence}
@@ -383,7 +547,7 @@ export default function ReviewRoute() {
                           {canReview
                             ? hasChanges
                               ? "Approval saves wording edits first; rejection records only the notes."
-                              : "Approval applies the proposal; rejection keeps it out of company memory."
+                              : "A approves, R rejects, and S saves wording when this card is focused."
                             : reviewedSummary(proposal)}
                         </p>
                       </div>
@@ -443,6 +607,16 @@ export default function ReviewRoute() {
           />
         ) : null}
       </div>
+      <CanonicalPreviewSheet
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        preview={canonicalPreview}
+        loading={previewCanonical.isPending || approveProposal.isPending}
+        error={previewCanonical.error?.message ?? null}
+        primaryLabel="Approve and publish"
+        primaryDisabled={!previewProposal || pendingMutation}
+        onPrimaryAction={() => void approvePreviewedProposal()}
+      />
     </div>
   );
 }
@@ -455,6 +629,24 @@ function proposalStatus(value: string | null): ProposalStatus {
 function cleanNote(value: string | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  if (tag === "button" || tag === "a") return true;
+  return (
+    tag === "input" ||
+    tag === "textarea" ||
+    tag === "select" ||
+    target.isContentEditable ||
+    target.getAttribute("role") === "textbox" ||
+    Boolean(
+      target.closest(
+        "button,a,[role='button'],[role='switch'],[role='menuitem']",
+      ),
+    )
+  );
 }
 
 function firstSourceUrl(proposal: ReviewItem) {

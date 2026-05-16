@@ -100,6 +100,34 @@ const BUILT_IN_COMMANDS: SlashCommand[] = [
   { name: "help", description: "Show available commands", icon: "help" },
 ];
 
+function normalizeSlashCommandName(name: string): string {
+  return name.replace(/^\/+/, "").trim().toLowerCase();
+}
+
+function mergeSlashCommands(commands: SlashCommand[]): SlashCommand[] {
+  const seen = new Set<string>();
+  const merged: SlashCommand[] = [];
+  for (const command of commands) {
+    const name = normalizeSlashCommandName(command.name);
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    merged.push({ ...command, name });
+  }
+  return merged;
+}
+
+function mergeSlashSkills(skills: SkillResult[]): SkillResult[] {
+  const seen = new Set<string>();
+  const merged: SkillResult[] = [];
+  for (const skill of skills) {
+    const key = `${skill.source ?? ""}:${skill.path ?? ""}:${skill.name}`;
+    if (!skill.name || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(skill);
+  }
+  return merged;
+}
+
 const COMPOSER_MODE_CONFIGS: Record<
   ComposerMode,
   {
@@ -246,6 +274,14 @@ interface TiptapComposerProps {
   attachButton?: React.ReactNode;
   /** Custom host-owned control rendered next to the attachment affordance. */
   modeControl?: React.ReactNode;
+  /** Additional slash commands surfaced in the shared / menu. */
+  slashCommands?: SlashCommand[];
+  /** Additional slash skills surfaced in the shared / menu. */
+  slashSkills?: SkillResult[];
+  /** Include built-in sidebar slash commands like /clear and /help. Default true. */
+  includeDefaultSlashCommands?: boolean;
+  /** Include app-discovered skills from the default agent endpoint. Default true. */
+  includeDefaultSlashSkills?: boolean;
   /** Called when a slash command (e.g. /clear, /help) is executed */
   onSlashCommand?: (command: string) => void;
   /** Current execution mode (build/plan) */
@@ -770,6 +806,10 @@ export function TiptapComposer({
   extraActionButton,
   attachButton,
   modeControl,
+  slashCommands = [],
+  slashSkills = [],
+  includeDefaultSlashCommands = true,
+  includeDefaultSlashSkills = true,
   onSlashCommand,
   execMode,
   onExecModeChange,
@@ -820,29 +860,47 @@ export function TiptapComposer({
     skills,
     hint,
     isLoading: skillsLoading,
-  } = useSkills(popover?.type === "/");
+  } = useSkills(includeDefaultSlashSkills && popover?.type === "/");
+
+  const allSlashCommands = useMemo(
+    () =>
+      mergeSlashCommands([
+        ...(includeDefaultSlashCommands ? BUILT_IN_COMMANDS : []),
+        ...slashCommands,
+      ]),
+    [includeDefaultSlashCommands, slashCommands],
+  );
+
+  const allSlashSkills = useMemo(
+    () =>
+      mergeSlashSkills([
+        ...(includeDefaultSlashSkills ? skills : []),
+        ...slashSkills,
+      ]),
+    [includeDefaultSlashSkills, skills, slashSkills],
+  );
 
   const filteredCommands = useMemo(() => {
-    if (!popover || popover.type !== "/") return BUILT_IN_COMMANDS;
+    if (!popover || popover.type !== "/") return allSlashCommands;
     const q = popover.query.toLowerCase();
-    if (!q) return BUILT_IN_COMMANDS;
-    return BUILT_IN_COMMANDS.filter(
+    if (!q) return allSlashCommands;
+    return allSlashCommands.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.description.toLowerCase().includes(q),
     );
-  }, [popover]);
+  }, [allSlashCommands, popover]);
 
   const filteredSkills = useMemo(() => {
-    if (!popover || popover.type !== "/") return skills;
+    if (!popover || popover.type !== "/") return allSlashSkills;
     const q = popover.query.toLowerCase();
-    if (!q) return skills;
-    return skills.filter(
+    if (!q) return allSlashSkills;
+    return allSlashSkills.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.description?.toLowerCase().includes(q),
     );
-  }, [skills, popover]);
+  }, [allSlashSkills, popover]);
 
   // Keep refs in sync with state
   const mentionItemsRef = useRef(mentionItems);
@@ -1387,8 +1445,8 @@ export function TiptapComposer({
     // Intercept slash commands typed directly (e.g. "/clear" + Enter)
     const trimmed = text.trim();
     if (trimmed.startsWith("/") && references.length === 0) {
-      const cmdName = trimmed.slice(1).toLowerCase();
-      const matched = BUILT_IN_COMMANDS.find((c) => c.name === cmdName);
+      const cmdName = normalizeSlashCommandName(trimmed);
+      const matched = allSlashCommands.find((c) => c.name === cmdName);
       if (matched) {
         ed.commands.clearContent();
         try {
@@ -1483,6 +1541,7 @@ export function TiptapComposer({
     onSubmit,
     syncComposerState,
     voice,
+    allSlashCommands,
   ]);
 
   // Helper functions that operate on the editor view directly

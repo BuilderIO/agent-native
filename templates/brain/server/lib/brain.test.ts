@@ -375,6 +375,10 @@ vi.mock("@agent-native/core/settings", () => ({
 
 vi.mock("@agent-native/core/resources/store", () => ({
   SHARED_OWNER: "shared",
+  resourceDeleteByPath: vi.fn(async (owner: string, path: string) => {
+    mocks.resourceWrites.push({ owner, path, deleted: true });
+    return true;
+  }),
   resourcePut: vi.fn(
     async (
       owner: string,
@@ -405,6 +409,11 @@ vi.mock("@agent-native/core/sharing", () => ({
       if (!resource) throw new Error(`No access to brain knowledge ${id}`);
       return { resource, role: "owner" };
     }
+    if (type === "brain-proposal") {
+      const resource = mocks.rows.proposals.find((row) => row.id === id);
+      if (!resource) throw new Error(`No access to brain proposal ${id}`);
+      return { resource, role: "owner" };
+    }
     throw new Error(`Unexpected access type ${type}`);
   }),
   registerShareableResource: vi.fn(),
@@ -427,7 +436,9 @@ import {
   applyRedactions,
   buildBrainAgentGuidance,
   createCapture,
+  previewKnowledgeCanonicalResource,
   serializeSource,
+  setKnowledgeCanonicalResource,
   sha256Hex,
   validateEvidence,
   writeKnowledgeRecord,
@@ -867,6 +878,184 @@ describe("Brain memory quality gates", () => {
       confidence: 95,
     });
     expect(result.knowledge.publishedAt).toEqual(expect.any(String));
+  });
+
+  it("publishes and unpublishes approved knowledge as canonical workspace context", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+    });
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      summary: "Beta ships May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 95,
+      publishTier: "company",
+      proposalMode: "never",
+    });
+    expect(result.mode).toBe("knowledge");
+
+    const published = await setKnowledgeCanonicalResource(
+      result.knowledge.id,
+      true,
+    );
+    expect(published.publishedResourcePath).toMatch(
+      /^context\/company-brain\/beta-date-/,
+    );
+    expect(mocks.resourceWrites[mocks.resourceWrites.length - 1]).toMatchObject(
+      {
+        owner: "shared",
+        contentType: "text/markdown",
+      },
+    );
+
+    const unpublished = await setKnowledgeCanonicalResource(
+      result.knowledge.id,
+      false,
+    );
+    expect(unpublished.publishedResourcePath).toBeNull();
+    expect(mocks.resourceWrites[mocks.resourceWrites.length - 1]).toMatchObject(
+      {
+        owner: "shared",
+        path: published.publishedResourcePath,
+        deleted: true,
+      },
+    );
+  });
+
+  it("previews the same canonical Markdown that publishing writes", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+      metadataJson: JSON.stringify({
+        sourceUrl: "https://example.test/source/beta",
+      }),
+    });
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      summary: "Beta ships May 20.",
+      topic: "Launch",
+      tags: ["beta", "release"],
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 95,
+      publishTier: "company",
+      proposalMode: "never",
+    });
+    expect(result.mode).toBe("knowledge");
+
+    const preview = await previewKnowledgeCanonicalResource({
+      knowledgeId: result.knowledge.id,
+    });
+    expect(preview).toMatchObject({
+      source: "knowledge",
+      pathExact: true,
+      contentType: "text/markdown",
+      canPublish: true,
+    });
+    expect(preview.path).toMatch(/^context\/company-brain\/beta-date-/);
+    expect(preview.markdown).toContain("# Beta date");
+    expect(preview.markdown).toContain("Topic: Launch");
+    expect(preview.markdown).toContain("Tags: beta, release");
+    expect(preview.markdown).toContain(
+      '1. Planning note (https://example.test/source/beta): "Decision: ship the beta on May 20."',
+    );
+
+    await setKnowledgeCanonicalResource(result.knowledge.id, true);
+    expect(mocks.resourceWrites[mocks.resourceWrites.length - 1]).toMatchObject(
+      {
+        path: preview.path,
+        content: preview.markdown,
+      },
+    );
+  });
+
+  it("previews proposal draft Markdown before approval assigns a final id", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+    });
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      summary: "Beta ships May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 80,
+      publishTier: "company",
+      proposalMode: "auto",
+      publishCanonical: true,
+    });
+    expect(result.mode).toBe("proposal");
+
+    const preview = await previewKnowledgeCanonicalResource({
+      proposalId: result.proposal.id,
+      draft: {
+        title: "Beta launch date",
+        body: "The reviewer wording says beta launches on May 20.",
+      },
+    });
+
+    expect(preview).toMatchObject({
+      source: "proposal",
+      proposalId: result.proposal.id,
+      knowledgeId: null,
+      path: "context/company-brain/beta-launch-date-<new-id>.md",
+      pathExact: false,
+      canPublish: true,
+    });
+    expect(preview.markdown).toContain("# Beta launch date");
+    expect(preview.markdown).toContain(
+      "The reviewer wording says beta launches on May 20.",
+    );
+    expect(preview.warnings).toContain(
+      "Approval will assign the final knowledge id, so the Markdown is exact but the path suffix is shown as <new-id>.",
+    );
+  });
+
+  it("rejects canonical publishing for non-published knowledge", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+    });
+
+    const result = await writeKnowledgeRecord({
+      title: "Private beta date",
+      body: "The team decided to ship the beta on May 20.",
+      summary: "Beta ships May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 95,
+      publishTier: "private",
+      proposalMode: "never",
+    });
+    expect(result.mode).toBe("knowledge");
+
+    await expect(
+      setKnowledgeCanonicalResource(result.knowledge.id, true),
+    ).rejects.toThrow(/Only published Brain knowledge/);
   });
 
   it("keeps auto-redacted knowledge out of the published state even with high confidence", async () => {

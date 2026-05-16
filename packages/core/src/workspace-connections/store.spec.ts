@@ -500,6 +500,65 @@ describe("workspace connection store", () => {
     ]);
   });
 
+  it("builds a reusable provider catalog for one app", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const {
+      listWorkspaceConnectionProviderCatalogForApp,
+      upsertWorkspaceConnection,
+      upsertWorkspaceConnectionGrant,
+    } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-slack",
+          provider: "slack",
+          label: "Team Slack",
+          allowedApps: ["dispatch"],
+          credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+        });
+        await upsertWorkspaceConnectionGrant({
+          connectionId: "conn-slack",
+          appId: "brain",
+        });
+      },
+    );
+
+    const catalog = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        listWorkspaceConnectionProviderCatalogForApp({
+          appId: "brain",
+          templateUse: "brain",
+          provider: "slack",
+        }),
+    );
+
+    expect(catalog).toMatchObject({
+      appId: "brain",
+      counts: {
+        providers: 1,
+        connections: 1,
+        grants: 1,
+        readyProviders: 1,
+      },
+    });
+    expect(catalog.providers[0]).toMatchObject({
+      id: "slack",
+      workspaceConnection: {
+        grantState: "connected",
+        grantedConnectionCount: 1,
+      },
+      readiness: {
+        status: "ready",
+        missingRequiredCredentialKeys: [],
+      },
+    });
+    expect(JSON.stringify(catalog)).not.toContain("xox");
+  });
+
   it("revokes workspace connection grants without changing legacy allowed apps", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

@@ -1419,7 +1419,7 @@ function createBuilderBrowserTool(deps: {
           command: "npx",
           args: [
             "-y",
-            "chrome-devtools-mcp@latest",
+            "chrome-devtools-mcp@0.26.0",
             "--wsEndpoint",
             wsUrl,
             "--categoryEmulation=false",

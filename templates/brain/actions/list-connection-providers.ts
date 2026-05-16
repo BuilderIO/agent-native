@@ -1,12 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { listWorkspaceConnectionProvidersForTemplate } from "@agent-native/core/connections";
 import { getCredentialContext } from "@agent-native/core/server";
 import {
-  listWorkspaceConnectionGrants,
-  listWorkspaceConnections,
-  summarizeWorkspaceConnectionProviderForApp,
-  type SerializedWorkspaceConnectionGrant,
-  type SerializedWorkspaceConnection,
+  listWorkspaceConnectionProviderCatalogForApp,
+  type WorkspaceConnectionProviderCatalogForApp,
+  type WorkspaceConnectionProviderCatalogForAppItem,
   type WorkspaceConnectionProviderAppSummary,
 } from "@agent-native/core/workspace-connections";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -29,9 +26,7 @@ const SUPPORTED_SOURCE_PROVIDERS = new Set([
 ]);
 
 async function credentialHealthForProvider(
-  provider: ReturnType<
-    typeof listWorkspaceConnectionProvidersForTemplate
-  >[number],
+  provider: WorkspaceConnectionProviderCatalogForAppItem,
 ): Promise<{
   status: "available" | "missing" | "not_required" | "unavailable";
   available: boolean;
@@ -152,20 +147,22 @@ function providerHealthForProvider({
 }
 
 async function listWorkspaceConnectionsForCatalog(): Promise<{
-  connections: SerializedWorkspaceConnection[];
-  grants: SerializedWorkspaceConnectionGrant[];
+  catalog: WorkspaceConnectionProviderCatalogForApp | null;
   error: string | null;
 }> {
   try {
     return {
-      connections: await listWorkspaceConnections({ includeDisabled: true }),
-      grants: await listWorkspaceConnectionGrants({ appId: APP_ID }),
+      catalog: await listWorkspaceConnectionProviderCatalogForApp({
+        appId: APP_ID,
+        templateUse: "brain",
+        includeDisabled: true,
+        includeConnections: "all",
+      }),
       error: null,
     };
   } catch (err) {
     return {
-      connections: [],
-      grants: [],
+      catalog: null,
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -196,45 +193,36 @@ export default defineAction({
     }
 
     const providers = await Promise.all(
-      listWorkspaceConnectionProvidersForTemplate("brain").map(
-        async (provider) => {
-          const configuredSourceCount = sourceCounts.get(provider.id) ?? 0;
-          const sourceProviderSupported = SUPPORTED_SOURCE_PROVIDERS.has(
-            provider.id,
-          );
-          const workspaceConnection =
-            summarizeWorkspaceConnectionProviderForApp({
-              providerId: provider.id,
-              appId: APP_ID,
-              connections: workspace.connections,
-              grants: workspace.grants,
-              includeConnections: "all",
-            });
-          const credentialHealth = await credentialHealthForProvider(provider);
-          return {
-            id: provider.id,
-            label: provider.label,
-            description: provider.description,
-            capabilities: [...provider.capabilities],
-            credentialKeys: provider.credentialKeys.map((credential) => ({
-              key: credential.key,
-              label: credential.label,
-              description: credential.description,
-              required: credential.required ?? false,
-            })),
-            configuredSourceCount,
-            hasConfiguredSources: configuredSourceCount > 0,
-            sourceProviderSupported,
+      (workspace.catalog?.providers ?? []).map(async (provider) => {
+        const configuredSourceCount = sourceCounts.get(provider.id) ?? 0;
+        const sourceProviderSupported = SUPPORTED_SOURCE_PROVIDERS.has(
+          provider.id,
+        );
+        const workspaceConnection = provider.workspaceConnection;
+        const credentialHealth = await credentialHealthForProvider(provider);
+        return {
+          id: provider.id,
+          label: provider.label,
+          description: provider.description,
+          capabilities: [...provider.capabilities],
+          credentialKeys: provider.credentialKeys.map((credential) => ({
+            key: credential.key,
+            label: credential.label,
+            description: credential.description,
+            required: credential.required ?? false,
+          })),
+          configuredSourceCount,
+          hasConfiguredSources: configuredSourceCount > 0,
+          sourceProviderSupported,
+          credentialHealth,
+          providerHealth: providerHealthForProvider({
             credentialHealth,
-            providerHealth: providerHealthForProvider({
-              credentialHealth,
-              sourceProviderSupported,
-              workspace: workspaceConnection,
-            }),
-            workspaceConnection,
-          };
-        },
-      ),
+            sourceProviderSupported,
+            workspace: workspaceConnection,
+          }),
+          workspaceConnection,
+        };
+      }),
     );
 
     return {

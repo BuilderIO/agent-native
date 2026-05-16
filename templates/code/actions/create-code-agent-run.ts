@@ -24,12 +24,14 @@ export default defineAction({
     engine: z.string().optional(),
     model: z.string().optional(),
     effort: z.string().optional(),
+    cwd: z.string().optional(),
   }),
   run: async (args) => {
     const permissionMode =
       normalizeCodeAgentPermissionMode(args.permissionMode) ?? "full-auto";
     const prompt = args.prompt.trim();
     const goalId = args.goalId || "task";
+    const cwd = args.cwd || process.cwd();
     const effort =
       args.effort === "auto"
         ? undefined
@@ -50,6 +52,7 @@ export default defineAction({
       },
       details: [
         { label: "Prompt", value: truncateForDisplay(prompt, 160) },
+        { label: "Folder", value: cwd },
         { label: "Agent", value: "Running locally" },
         {
           label: "Mode",
@@ -64,7 +67,7 @@ export default defineAction({
             ]
           : []),
       ],
-      cwd: process.cwd(),
+      cwd,
       metadata: {
         prompt,
         source: "code-template",
@@ -72,6 +75,7 @@ export default defineAction({
         engine: args.engine,
         model: args.model,
         effort: args.effort,
+        cwd,
       },
     });
     const event = appendCodeAgentTranscriptEvent({

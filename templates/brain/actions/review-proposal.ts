@@ -8,9 +8,11 @@ import {
   nowIso,
   parseJson,
   serializeProposal,
+  stableJson,
   writeKnowledgeRecord,
 } from "../server/lib/brain.js";
 import type { WriteKnowledgeInput } from "../server/lib/brain.js";
+import { booleanishSchema } from "./_schemas.js";
 
 export default defineAction({
   description:
@@ -19,8 +21,13 @@ export default defineAction({
     id: z.string().min(1),
     decision: z.enum(["approve", "reject", "needs_changes"]),
     reviewerNotes: z.string().optional(),
+    publishCanonical: booleanishSchema
+      .optional()
+      .describe(
+        "When approving, override whether the resulting knowledge is mirrored into context/company-brain workspace resources.",
+      ),
   }),
-  run: async ({ id, decision, reviewerNotes }) => {
+  run: async ({ id, decision, reviewerNotes, publishCanonical }) => {
     const access = await assertAccess("brain-proposal", id, "editor");
     const proposal = access.resource;
     if (proposal.status !== "pending") {
@@ -31,6 +38,7 @@ export default defineAction({
     const reviewedBy = getRequestUserEmail() ?? null;
     const reviewedAt = nowIso();
     const nextStatus = decision === "approve" ? "approved" : "rejected";
+    let payloadJson = proposal.payloadJson;
 
     if (decision === "approve") {
       const payload = parseJson<WriteKnowledgeInput>(proposal.payloadJson, {
@@ -39,10 +47,15 @@ export default defineAction({
         evidence: [],
         proposalMode: "never",
       });
-      result = await writeKnowledgeRecord(
-        { ...payload, proposalMode: "never" },
-        { bypassProposal: true },
-      );
+      const nextPayload: WriteKnowledgeInput = {
+        ...payload,
+        publishCanonical: publishCanonical ?? payload.publishCanonical,
+        proposalMode: "never",
+      };
+      result = await writeKnowledgeRecord(nextPayload, {
+        bypassProposal: true,
+      });
+      payloadJson = stableJson(nextPayload);
     }
 
     await getDb()
@@ -52,6 +65,7 @@ export default defineAction({
         reviewerNotes:
           reviewerNotes ??
           (decision === "needs_changes" ? "Needs changes" : null),
+        payloadJson,
         reviewedBy,
         reviewedAt,
         updatedAt: reviewedAt,

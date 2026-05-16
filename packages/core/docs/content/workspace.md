@@ -295,6 +295,10 @@ Dispatch can remain the control plane for sharing credentials and policy. The
 initial API lives in `@agent-native/core/workspace-connections` and is scoped by
 the active request user/org.
 
+See [Workspace Connections](/docs/workspace-connections) for the reusable
+connector pattern, app grant/readiness APIs, and concrete Slack, HubSpot, and
+GitHub examples.
+
 ## Skills {#skills}
 
 Skills are Markdown resource files that give the agent deep domain knowledge for specific tasks. They live under the `skills/` path prefix in resources, preferably as `skills/<name>/SKILL.md` (e.g. `skills/data-analysis/SKILL.md`, `skills/code-review/SKILL.md`). Flat `skills/<name>.md` files still work for compatibility.

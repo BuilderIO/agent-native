@@ -12,6 +12,12 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import {
+  listWorkspaceConnectionProviders,
+  type WorkspaceConnectionCapability,
+  type WorkspaceConnectionProvider,
+  type WorkspaceConnectionTemplateUse,
+} from "../connections/catalog.js";
 
 export type WorkspaceConnectionStatus =
   | "connected"
@@ -222,6 +228,33 @@ export interface SummarizeWorkspaceConnectionProviderReadinessOptions {
   grants?: SerializedWorkspaceConnectionGrant[];
   appId?: string;
   includeConnections?: "all" | "granted";
+}
+
+export interface ListWorkspaceConnectionProviderCatalogForAppOptions {
+  appId: string;
+  provider?: string;
+  capability?: WorkspaceConnectionCapability;
+  templateUse?: WorkspaceConnectionTemplateUse;
+  includeDisabled?: boolean;
+  includeConnections?: "all" | "granted";
+}
+
+export interface WorkspaceConnectionProviderCatalogForAppItem extends WorkspaceConnectionProvider {
+  workspaceConnection: WorkspaceConnectionProviderAppSummary;
+  readiness: WorkspaceConnectionProviderReadiness;
+}
+
+export interface WorkspaceConnectionProviderCatalogForApp {
+  appId: string;
+  providers: WorkspaceConnectionProviderCatalogForAppItem[];
+  connections: SerializedWorkspaceConnection[];
+  grants: SerializedWorkspaceConnectionGrant[];
+  counts: {
+    providers: number;
+    connections: number;
+    grants: number;
+    readyProviders: number;
+  };
 }
 
 let _initPromise: Promise<void> | undefined;
@@ -1036,6 +1069,61 @@ export function summarizeWorkspaceConnectionProviderReadiness({
           includeConnections,
         })
       : null,
+  };
+}
+
+export async function listWorkspaceConnectionProviderCatalogForApp({
+  appId,
+  provider,
+  capability,
+  templateUse,
+  includeDisabled = true,
+  includeConnections = "all",
+}: ListWorkspaceConnectionProviderCatalogForAppOptions): Promise<WorkspaceConnectionProviderCatalogForApp> {
+  const [connections, grants] = await Promise.all([
+    listWorkspaceConnections({ provider, includeDisabled }),
+    listWorkspaceConnectionGrants({ provider, appId }),
+  ]);
+  const providers = listWorkspaceConnectionProviders({
+    capability,
+    templateUse,
+  })
+    .filter((item) => !provider || item.id === provider)
+    .map((item) => {
+      const workspaceConnection = summarizeWorkspaceConnectionProviderForApp({
+        providerId: item.id,
+        appId,
+        connections,
+        grants,
+        includeConnections,
+      });
+      const readiness = summarizeWorkspaceConnectionProviderReadiness({
+        provider: item,
+        connections,
+        grants,
+        appId,
+        includeConnections,
+      });
+      return {
+        ...item,
+        workspaceConnection,
+        readiness,
+      };
+    });
+
+  return {
+    appId,
+    providers,
+    connections,
+    grants,
+    counts: {
+      providers: providers.length,
+      connections: connections.length,
+      grants: grants.length,
+      readyProviders: providers.filter(
+        (item) => item.readiness.status === "ready",
+      ).length,
+    },
   };
 }
 

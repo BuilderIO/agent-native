@@ -73,6 +73,29 @@ export interface CodeAgentCodePackResult {
   error?: string;
 }
 
+export interface CodeAgentProjectFolder {
+  id: string;
+  path: string;
+  name: string;
+  updatedAt?: string;
+}
+
+export interface CodeAgentProjectListResult {
+  status: "ok" | "unavailable";
+  projects: CodeAgentProjectFolder[];
+  selectedPath?: string;
+  defaultPath?: string;
+  error?: string;
+}
+
+export interface CodeAgentProjectSelectResult {
+  ok: boolean;
+  project?: CodeAgentProjectFolder;
+  projects: CodeAgentProjectFolder[];
+  selectedPath?: string;
+  error?: string;
+}
+
 export type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -213,6 +236,7 @@ export interface CodeAgentUpdateRunRequest {
   engine?: string;
   model?: string;
   effort?: CodeAgentReasoningEffort;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CodeAgentUpdateRunResult {

@@ -74,6 +74,7 @@ Import the shared store from `@agent-native/core/workspace-connections`:
 
 ```ts
 import {
+  listWorkspaceConnectionProviderCatalogForApp,
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
   summarizeWorkspaceConnectionProviderForApp,
@@ -112,6 +113,11 @@ const readiness = summarizeWorkspaceConnectionProviderReadiness({
   connections,
   grants,
 });
+
+const brainCatalog = await listWorkspaceConnectionProviderCatalogForApp({
+  appId: "brain",
+  templateUse: "brain",
+});
 ```
 
 The `credentialRefs` array points at vault keys; it is not credential storage.
@@ -143,6 +149,13 @@ used by Brain, Analytics, and Dispatch: `grantState`, `grantAvailability`,
 safe credential ref names, per-app connection rows, counts for granted/active
 connections, and readiness fields such as `readyConnectionCount` and
 `missingRequiredCredentialKeys`.
+
+For new app setup screens, prefer
+`listWorkspaceConnectionProviderCatalogForApp()` as the higher-level boundary.
+It combines the provider catalog, scoped connections, explicit grants,
+per-app access summaries, and provider readiness into one safe shape. Apps can
+add their own source counts, local health checks, and connector-specific
+fields on top without duplicating grant logic.
 
 ## How This Complements The Vault
 
@@ -202,22 +215,249 @@ Granola, and similar providers once, then choose which apps may use that
 connection without duplicating secrets or scattering account setup across every
 template.
 
-### Dispatch to Brain Slack happy path
+## Build A Reusable Connector Once
 
-For Slack, Dispatch can represent the shared account with:
+When a new provider should work across multiple templates, split the work into
+three layers:
 
-- `provider: "slack"`
-- safe account metadata such as `accountId`, `accountLabel`, scopes, channel
-  hints, or team URLs in `config`
-- credential refs such as `{ key: "SLACK_BOT_TOKEN", scope: "org" }`
-- either `allowedApps: []` for all apps or an explicit
-  `workspace_connection_grants` row for `appId: "brain"`
+1. **Provider metadata:** add or reuse a provider in
+   `@agent-native/core/connections`. This is the stable id, display label,
+   capability list, recommended template uses, and credential key names.
+2. **Workspace connection:** Dispatch or another workspace setup surface stores
+   the connected account's safe metadata, status, scopes, `credentialRefs`, and
+   app grants through `@agent-native/core/workspace-connections`.
+3. **App-local source:** Brain, Analytics, Mail, or another app stores only the
+   app-specific choices it owns, such as Slack channels, GitHub repositories,
+   HubSpot object filters, sync cursors, or polling cadence.
 
-Brain then reads the same grant metadata through `list-connection-providers`
-and resolves the token from the vault at execution time. The Brain source
-resolver checks granted workspace connection refs before Brain-local credentials
-or registered vault secrets, and it intentionally does not fall back to raw
-deployment env vars like `process.env.SLACK_BOT_TOKEN`.
+Do not duplicate OAuth/token storage in each app. The connection record should
+say "this is Acme Slack and its token lives at `SLACK_BOT_TOKEN`"; the app-local
+source should say "Brain may ingest `#product` and `#dev-fusion` from that
+Slack connection."
+
+### Dispatch control-plane setup
+
+Dispatch exposes the current control-plane actions. They write the same shared
+store functions an app could call directly from server code:
+
+```ts
+// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
+await upsertWorkspaceConnection({
+  id: "team-slack",
+  provider: "slack",
+  label: "Acme Slack",
+  accountId: "T012345",
+  accountLabel: "acme",
+  status: "connected",
+  scopes: ["channels:history", "groups:history"],
+  config: {
+    teamDomain: "acme",
+    preferredChannels: ["product", "dev-fusion"],
+  },
+  credentialRefs: [
+    {
+      key: "SLACK_BOT_TOKEN",
+      scope: "org",
+      provider: "slack",
+      label: "Slack bot token",
+    },
+  ],
+});
+```
+
+Then grant the apps that should reuse the provider:
+
+```ts
+await upsertWorkspaceConnectionGrant({
+  connectionId: "team-slack",
+  appId: "brain",
+});
+
+await upsertWorkspaceConnectionGrant({
+  connectionId: "team-slack",
+  appId: "analytics",
+});
+```
+
+Use `allowedApps: []` only when a connection should be available to every app in
+the same workspace scope. Prefer explicit grant rows for production setup,
+because they make revocation, audit, and per-app readiness easier to explain.
+
+### App consumption boundary
+
+App setup screens and agents should use the high-level catalog helper whenever
+they need provider readiness:
+
+```ts
+import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
+
+const catalog = await listWorkspaceConnectionProviderCatalogForApp({
+  appId: "brain",
+  templateUse: "brain",
+  provider: "slack",
+  includeConnections: "all",
+});
+
+const slack = catalog.providers[0];
+if (slack.workspaceConnection.grantState === "needs_grant") {
+  // Show "Grant Brain access" instead of asking for a second Slack token.
+}
+if (slack.readiness.status === "needs_credentials") {
+  // Show the missing credential ref names, never a secret value.
+}
+```
+
+App execution code can then resolve credential values from granted
+`credentialRefs` through the vault in the active request scope. Brain's
+`source-credentials.ts` is the current reference implementation: it lists
+workspace connections for the provider, checks `getWorkspaceConnectionAppAccess`
+for `appId: "brain"`, merges connection-level and grant-level credential refs,
+and reads the first matching scoped vault secret. Other apps should follow that
+shape instead of reaching for `process.env`.
+
+## Concrete Provider Examples
+
+### Slack: Brain, Analytics, Dispatch
+
+Use one Slack workspace connection for channel history and messaging-related
+workflows:
+
+```ts
+await upsertWorkspaceConnection({
+  id: "acme-slack",
+  provider: "slack",
+  label: "Acme Slack",
+  accountId: "T012345",
+  accountLabel: "Acme",
+  status: "connected",
+  scopes: ["channels:history", "groups:history", "chat:write"],
+  config: {
+    teamDomain: "acme",
+    channelHints: ["product", "dev-fusion", "customer-success"],
+  },
+  credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+});
+
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-slack",
+  appId: "brain",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-slack",
+  appId: "analytics",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-slack",
+  appId: "dispatch",
+});
+```
+
+- **Brain** stores allow-listed channels, exclusion rules, cursors, and source
+  status in `brain_sources`; it resolves `SLACK_BOT_TOKEN` from the granted
+  workspace connection before Brain-local credentials.
+- **Analytics** should check `data-source-status` for the Slack provider and
+  use shared readiness before requesting a Slack credential for channel or
+  funnel analysis.
+- **Dispatch** owns the setup/grant UX and can use the same connection for
+  Slack-triggered routing, notifications, and agent entrypoints.
+
+### HubSpot: Analytics, Brain, Mail
+
+Use one HubSpot private app token for CRM records that multiple apps can
+interpret differently:
+
+```ts
+await upsertWorkspaceConnection({
+  id: "acme-hubspot",
+  provider: "hubspot",
+  label: "Acme HubSpot",
+  accountLabel: "Acme CRM",
+  status: "connected",
+  scopes: ["crm.objects.contacts.read", "crm.objects.companies.read"],
+  config: {
+    portalId: "1234567",
+    objectHints: ["companies", "contacts", "deals"],
+  },
+  credentialRefs: [{ key: "HUBSPOT_PRIVATE_APP_TOKEN", scope: "org" }],
+});
+
+for (const appId of ["analytics", "brain", "mail"]) {
+  await upsertWorkspaceConnectionGrant({
+    connectionId: "acme-hubspot",
+    appId,
+  });
+}
+```
+
+- **Analytics** is the first consumer for CRM metrics, lifecycle dashboards, and
+  customer segmentation. Its readiness action should show a HubSpot workspace
+  connection before asking for duplicate CRM secrets.
+- **Brain** can ingest selected customer-facing context, policies, and product
+  rationale derived from CRM workflows while keeping Brain-specific allow-lists
+  and proposal gates in Brain SQL.
+- **Mail** should use the same workspace connection pattern when adding CRM
+  enrichment to mailbox workflows. The provider catalog already recommends
+  `hubspot` for `mail`; a Mail readiness action should call
+  `listWorkspaceConnectionProviderCatalogForApp({ appId: "mail" })` before
+  prompting for a HubSpot token.
+
+### GitHub: Brain, Analytics, Dispatch
+
+Use one GitHub connection for repositories, issues, pull requests, and code
+context:
+
+```ts
+await upsertWorkspaceConnection({
+  id: "acme-github",
+  provider: "github",
+  label: "Acme GitHub",
+  accountLabel: "acme",
+  status: "connected",
+  scopes: ["contents:read", "issues:read", "pull_requests:read"],
+  config: {
+    owner: "acme",
+    repositoryHints: ["agent-native", "website"],
+  },
+  credentialRefs: [{ key: "GITHUB_TOKEN", scope: "org" }],
+});
+
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-github",
+  appId: "brain",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-github",
+  appId: "analytics",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-github",
+  appId: "dispatch",
+});
+```
+
+- **Brain** can turn issues, pull requests, and design discussions into cited
+  product memory, with app-local repo allow-lists and distillation rules.
+- **Analytics** can use the same granted token for engineering throughput,
+  release, and operational dashboards.
+- **Dispatch** can route GitHub-related questions to the right app or connected
+  agent without owning repository-specific ingestion state.
+
+## Consumer Guide By Surface
+
+| Surface       | What it should read                                     | What it should store locally                                      |
+| ------------- | ------------------------------------------------------- | ----------------------------------------------------------------- |
+| **Dispatch**  | Full provider catalog, connections, grants, app targets | Workspace setup policy, grant choices, safe account metadata      |
+| **Brain**     | Catalog helper with `{ appId: "brain" }`                | Sources, allow-lists, cursors, extraction rules, proposals        |
+| **Analytics** | `data-source-status` plus workspace provider summaries  | Metric definitions, datasets, sync windows, dashboard choices     |
+| **Mail**      | A Mail readiness action using the same catalog helper   | Mailboxes, labels, reply rules, CRM enrichment preferences        |
+| **Agents**    | App readiness actions before asking for secrets         | No secret values; only cite provider ids, grant state, next steps |
+
+Agents should follow a simple rule: if a user asks to connect Slack, GitHub,
+HubSpot, Gmail, Google Drive, Granola, or another shared provider, inspect the
+workspace connection catalog first. If the provider is `connected`, use it. If
+it is `needs_grant`, ask for or perform the app grant. If it is
+`needs_credentials`, ask for the missing vault key. Only ask for a new raw key
+when no reusable connection exists.
 
 ## App Readiness Pattern
 

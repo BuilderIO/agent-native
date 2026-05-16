@@ -4,6 +4,16 @@ import path from "node:path";
 import { once } from "node:events";
 
 import {
+  createToolSearchEntry,
+  TOOL_SEARCH_ACTION_NAME,
+} from "../agent/tool-search.js";
+import {
+  buildMergedConfig,
+  McpClientManager,
+  mcpToolsToActionEntries,
+} from "../mcp-client/index.js";
+import { runWithRequestContext } from "../server/request-context.js";
+import {
   actionsToEngineTools,
   runAgentLoop,
   type ActionEntry,
@@ -160,6 +170,11 @@ export async function executeCodeAgentRun(
   const cwd = existing.cwd || process.cwd();
   const permissionMode = existing.permissionMode ?? "full-auto";
   const actions = createLocalCodeAgentActions(cwd, permissionMode, existing.id);
+  const mcpManager = await startCodeAgentMcpManager(existing.id);
+  if (mcpManager) {
+    Object.assign(actions, mcpToolsToActionEntries(mcpManager));
+  }
+  actions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => actions);
   const tools = actionsToEngineTools(actions);
   const messages = buildCodeAgentMessages(existing, prompt);
   const controller = new AbortController();
@@ -219,18 +234,20 @@ export async function executeCodeAgentRun(
   };
 
   try {
-    await runAgentLoop({
-      engine,
-      model,
-      systemPrompt: codeAgentSystemPrompt(cwd, permissionMode),
-      tools,
-      actions,
-      messages,
-      send,
-      signal: controller.signal,
-      maxIterations: 12,
-      reasoningEffort,
-    });
+    await runWithOptionalCodeAgentRequestContext(existing, () =>
+      runAgentLoop({
+        engine,
+        model,
+        systemPrompt: codeAgentSystemPrompt(cwd, permissionMode),
+        tools,
+        actions,
+        messages,
+        send,
+        signal: controller.signal,
+        maxIterations: 12,
+        reasoningEffort,
+      }),
+    );
     if (assistantText.trim()) {
       options.stdout?.write("\n");
       appendCodeAgentTranscriptEvent({
@@ -352,6 +369,7 @@ export async function executeCodeAgentRun(
     });
   } finally {
     options.signal?.removeEventListener("abort", abortFromParent);
+    await mcpManager?.stop().catch(() => undefined);
     void running;
   }
 }
@@ -475,6 +493,62 @@ function metadataString(
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+async function startCodeAgentMcpManager(
+  runId: string,
+): Promise<McpClientManager | null> {
+  const config = await buildMergedConfig().catch((err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    appendCodeAgentTranscriptEvent({
+      runId,
+      kind: "status",
+      message: `MCP tools unavailable: ${message}`,
+      metadata: { type: "mcp-config-error" },
+    });
+    return null;
+  });
+  if (!config || Object.keys(config.servers ?? {}).length === 0) return null;
+
+  const manager = new McpClientManager(config);
+  await manager.start().catch((err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    appendCodeAgentTranscriptEvent({
+      runId,
+      kind: "status",
+      message: `MCP tools failed to start: ${message}`,
+      metadata: { type: "mcp-start-error" },
+    });
+  });
+  const status = manager.getStatus();
+  if (status.totalTools === 0) {
+    await manager.stop().catch(() => undefined);
+    return null;
+  }
+  appendCodeAgentTranscriptEvent({
+    runId,
+    kind: "status",
+    message: `Connected ${status.totalTools} MCP tool${status.totalTools === 1 ? "" : "s"} for this run.`,
+    metadata: {
+      type: "mcp-tools-connected",
+      servers: status.connectedServers,
+      toolCount: status.totalTools,
+    },
+  });
+  return manager;
+}
+
+function runWithOptionalCodeAgentRequestContext<T>(
+  run: CodeAgentRunRecord,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  const userEmail =
+    metadataString(run, "ownerEmail") ??
+    metadataString(run, "userEmail") ??
+    process.env.AGENT_USER_EMAIL;
+  const orgId = metadataString(run, "orgId") ?? process.env.AGENT_ORG_ID;
+  if (!userEmail && !orgId) return fn();
+  return runWithRequestContext({ userEmail, orgId }, fn);
+}
+
 function metadataReasoningEffort(
   run: CodeAgentRunRecord,
 ): ReasoningEffort | undefined {
@@ -582,6 +656,9 @@ Work like a careful senior engineer:
 - Do not create, switch, delete, reset, rebase, or stash git branches.
 - Do not run destructive git commands.
 - Use apply_patch or write_file for edits, then run focused verification.
+- Use tool-search when you need a capability that may come from MCP, including browser automation or computer control.
+- Prefer Playwright MCP for deterministic browser testing; prefer Chrome DevTools MCP when the user needs their live logged-in Chrome session.
+- Only use computer-control MCP tools when they are explicitly available and the user request warrants controlling the local computer.
 - Keep the final answer concise and include files changed plus tests run.
 - Respect any AGENTS.md instructions in the repository.`;
 }

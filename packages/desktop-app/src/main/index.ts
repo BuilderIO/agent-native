@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   ipcMain,
   Menu,
   session,
@@ -10,7 +11,7 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "fs";
 import os from "os";
@@ -24,6 +25,9 @@ import {
   type CodeAgentCreateRunResult,
   type CodeAgentFollowUpResult,
   type CodeAgentHostMetadata,
+  type CodeAgentProjectFolder,
+  type CodeAgentProjectListResult,
+  type CodeAgentProjectSelectResult,
   type CodeAgentUpdateRunResult,
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
@@ -39,6 +43,8 @@ import {
   type CodeAgentTranscriptResult,
   type CodeAgentTerminalRequest,
   type CodeAgentTerminalResult,
+  type CodeAgentRemoteConnectorControlResult,
+  type CodeAgentRemoteConnectorStatus,
   type DesktopOpenRequest,
   type InterAppMessage,
   type UpdateStatus,
@@ -805,6 +811,249 @@ function codeAgentRunsDir(): string {
 
 function codeAgentEventsDir(): string {
   return path.join(codeAgentStoreRoot(), "transcripts");
+}
+
+function codeAgentProjectsFile(): string {
+  return path.join(codeAgentStoreRoot(), "projects.json");
+}
+
+const REMOTE_DEVICE_PATH_ENV = "AGENT_NATIVE_REMOTE_DEVICE_PATH";
+const REMOTE_CONNECTOR_INITIAL_BACKOFF_MS = 2_000;
+const REMOTE_CONNECTOR_MAX_BACKOFF_MS = 60_000;
+
+let remoteConnectorEnabled = true;
+let remoteConnectorProcess: ChildProcess | null = null;
+let remoteConnectorRestartTimer: NodeJS.Timeout | null = null;
+let remoteConnectorRestartCount = 0;
+let remoteConnectorStartedAt: string | undefined;
+let remoteConnectorLastExitAt: string | undefined;
+let remoteConnectorLastExitCode: number | null | undefined;
+let remoteConnectorLastExitSignal: string | null | undefined;
+let remoteConnectorNextRestartAt: string | undefined;
+let remoteConnectorError: string | undefined;
+let appIsQuitting = false;
+
+function remoteDeviceConfigPath(): string {
+  return path.resolve(
+    process.env[REMOTE_DEVICE_PATH_ENV] ??
+      path.join(getHomeDirectory(), ".agent-native", "remote-device.json"),
+  );
+}
+
+function readRemoteDeviceConfig(): {
+  token: string;
+  relayUrl?: string;
+  deviceId?: string;
+} | null {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(remoteDeviceConfigPath(), "utf-8"),
+    ) as unknown;
+    if (!isObject(raw)) return null;
+    const token = firstStringValue(
+      raw.token,
+      raw.deviceToken,
+      raw.relayToken,
+      raw.accessToken,
+      raw.bearerToken,
+    );
+    if (!token) return null;
+    return {
+      token,
+      relayUrl: firstStringValue(raw.relayUrl, raw.url, raw.baseUrl),
+      deviceId: firstStringValue(raw.deviceId, raw.id),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeRemoteRelayUrl(
+  value: string | undefined,
+): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return undefined;
+    }
+    return `${url.origin}${url.pathname.replace(/\/+$/, "") || "/"}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function getRemoteConnectorStatus(): CodeAgentRemoteConnectorStatus {
+  const config = readRemoteDeviceConfig();
+  const relayUrl = normalizeRemoteRelayUrl(config?.relayUrl);
+  const configured = Boolean(config?.token && relayUrl);
+  let state: CodeAgentRemoteConnectorStatus["state"] = "stopped";
+  if (!remoteConnectorEnabled) state = "disabled";
+  else if (!configured) state = "unconfigured";
+  else if (remoteConnectorProcess?.pid) state = "running";
+  else if (remoteConnectorNextRestartAt) state = "starting";
+  else if (remoteConnectorError) state = "error";
+  return {
+    state,
+    enabled: remoteConnectorEnabled,
+    configured,
+    configPath: remoteDeviceConfigPath(),
+    relayUrl,
+    pid: remoteConnectorProcess?.pid,
+    startedAt: remoteConnectorStartedAt,
+    lastExitAt: remoteConnectorLastExitAt,
+    lastExitCode: remoteConnectorLastExitCode,
+    lastExitSignal: remoteConnectorLastExitSignal,
+    restartCount: remoteConnectorRestartCount,
+    nextRestartAt: remoteConnectorNextRestartAt,
+    error: remoteConnectorError,
+  };
+}
+
+function resolveRemoteConnectorCliInvocation(): {
+  command: string;
+  args: string[];
+  cwd: string;
+} {
+  const localCoreCli = path.resolve(
+    __dirname,
+    "../../../core/dist/cli/index.js",
+  );
+  if (fs.existsSync(localCoreCli)) {
+    return {
+      command: process.execPath,
+      args: [localCoreCli],
+      cwd: path.dirname(localCoreCli),
+    };
+  }
+  const repoCoreCli = path.resolve("packages/core/dist/cli/index.js");
+  if (fs.existsSync(repoCoreCli)) {
+    return {
+      command: process.execPath,
+      args: [repoCoreCli],
+      cwd: process.cwd(),
+    };
+  }
+  return {
+    command: "pnpm",
+    args: [
+      "--filter",
+      "@agent-native/core",
+      "exec",
+      "node",
+      "dist/cli/index.js",
+    ],
+    cwd: process.cwd(),
+  };
+}
+
+function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
+  if (!remoteConnectorEnabled || appIsQuitting)
+    return getRemoteConnectorStatus();
+  if (remoteConnectorProcess && !remoteConnectorProcess.killed) {
+    return getRemoteConnectorStatus();
+  }
+  const config = readRemoteDeviceConfig();
+  const relayUrl = normalizeRemoteRelayUrl(config?.relayUrl);
+  if (!config || !relayUrl) {
+    remoteConnectorError = config
+      ? "Remote device config is missing relayUrl."
+      : undefined;
+    return getRemoteConnectorStatus();
+  }
+  if (remoteConnectorRestartTimer) {
+    clearTimeout(remoteConnectorRestartTimer);
+    remoteConnectorRestartTimer = null;
+  }
+  remoteConnectorNextRestartAt = undefined;
+  remoteConnectorError = undefined;
+
+  const invocation = resolveRemoteConnectorCliInvocation();
+  const args = [...invocation.args, "code", "serve", "--relay-url", relayUrl];
+  try {
+    const child = spawn(invocation.command, args, {
+      cwd: invocation.cwd,
+      detached: false,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+      },
+    });
+    remoteConnectorProcess = child;
+    remoteConnectorStartedAt = new Date().toISOString();
+    child.stdout?.on("data", (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) console.log(`[remote-code-agent] ${text}`);
+    });
+    child.stderr?.on("data", (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) console.error(`[remote-code-agent] ${text}`);
+    });
+    child.on("exit", (code, signal) => {
+      if (remoteConnectorProcess === child) remoteConnectorProcess = null;
+      remoteConnectorLastExitAt = new Date().toISOString();
+      remoteConnectorLastExitCode = code;
+      remoteConnectorLastExitSignal = signal;
+      if (!appIsQuitting && remoteConnectorEnabled) {
+        scheduleRemoteConnectorRestart();
+      }
+    });
+    child.on("error", (err) => {
+      remoteConnectorError = err instanceof Error ? err.message : String(err);
+      if (remoteConnectorProcess === child) remoteConnectorProcess = null;
+      if (!appIsQuitting && remoteConnectorEnabled) {
+        scheduleRemoteConnectorRestart();
+      }
+    });
+  } catch (err) {
+    remoteConnectorError = err instanceof Error ? err.message : String(err);
+    scheduleRemoteConnectorRestart();
+  }
+  return getRemoteConnectorStatus();
+}
+
+function scheduleRemoteConnectorRestart(): void {
+  if (remoteConnectorRestartTimer || !remoteConnectorEnabled || appIsQuitting) {
+    return;
+  }
+  const delay = Math.min(
+    REMOTE_CONNECTOR_INITIAL_BACKOFF_MS *
+      Math.max(1, 2 ** remoteConnectorRestartCount),
+    REMOTE_CONNECTOR_MAX_BACKOFF_MS,
+  );
+  remoteConnectorRestartCount += 1;
+  remoteConnectorNextRestartAt = new Date(Date.now() + delay).toISOString();
+  remoteConnectorRestartTimer = setTimeout(() => {
+    remoteConnectorRestartTimer = null;
+    remoteConnectorNextRestartAt = undefined;
+    startRemoteCodeAgentConnector();
+  }, delay);
+}
+
+function setRemoteConnectorEnabled(
+  enabled: boolean,
+): CodeAgentRemoteConnectorControlResult {
+  remoteConnectorEnabled = enabled;
+  if (!enabled) {
+    if (remoteConnectorRestartTimer) {
+      clearTimeout(remoteConnectorRestartTimer);
+      remoteConnectorRestartTimer = null;
+    }
+    remoteConnectorNextRestartAt = undefined;
+    remoteConnectorRestartCount = 0;
+    if (remoteConnectorProcess?.pid) {
+      try {
+        remoteConnectorProcess.kill("SIGTERM");
+      } catch (err) {
+        remoteConnectorError = err instanceof Error ? err.message : String(err);
+      }
+    }
+    remoteConnectorProcess = null;
+    return { ok: true, status: getRemoteConnectorStatus() };
+  }
+  remoteConnectorRestartCount = 0;
+  return { ok: true, status: startRemoteCodeAgentConnector() };
 }
 
 function timestampSlug(value: string): string {
@@ -2312,6 +2561,137 @@ function resolveCodeAgentsTerminalCwd(
   return getHomeDirectory();
 }
 
+function projectFolderId(folderPath: string): string {
+  return Buffer.from(folderPath).toString("base64url").slice(0, 48);
+}
+
+function projectFolderName(folderPath: string): string {
+  const base = path.basename(folderPath);
+  return base || folderPath;
+}
+
+function normalizeProjectFolder(folderPath: string): CodeAgentProjectFolder {
+  return {
+    id: projectFolderId(folderPath),
+    path: folderPath,
+    name: projectFolderName(folderPath),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function readCodeAgentProjectsState(): {
+  selectedPath?: string;
+  projects: CodeAgentProjectFolder[];
+} {
+  const filePath = codeAgentProjectsFile();
+  const raw = fs.existsSync(filePath) ? readJsonObjectFile(filePath) : null;
+  const rawProjects = Array.isArray(raw?.projects)
+    ? (raw.projects as unknown[])
+    : [];
+  const projects = rawProjects
+    .map((item): CodeAgentProjectFolder | null => {
+      if (!isObject(item) || typeof item.path !== "string") return null;
+      const dir = resolveUsableDirectory(item.path);
+      if (!dir) return null;
+      const project: CodeAgentProjectFolder = {
+        id: typeof item.id === "string" ? item.id : projectFolderId(dir),
+        path: dir,
+        name:
+          typeof item.name === "string" && item.name.trim()
+            ? item.name
+            : projectFolderName(dir),
+      };
+      if (typeof item.updatedAt === "string")
+        project.updatedAt = item.updatedAt;
+      return project;
+    })
+    .filter((item): item is CodeAgentProjectFolder => Boolean(item));
+  const selectedPath =
+    typeof raw?.selectedPath === "string"
+      ? (resolveUsableDirectory(raw.selectedPath) ?? undefined)
+      : undefined;
+  return { selectedPath, projects };
+}
+
+function writeCodeAgentProjectsState(state: {
+  selectedPath?: string;
+  projects: CodeAgentProjectFolder[];
+}) {
+  const filePath = codeAgentProjectsFile();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+function upsertCodeAgentProject(
+  folderPath: string,
+): CodeAgentProjectSelectResult {
+  const dir = resolveUsableDirectory(folderPath);
+  if (!dir) {
+    const state = readCodeAgentProjectsState();
+    return {
+      ok: false,
+      projects: state.projects,
+      selectedPath: state.selectedPath,
+      error: "Choose an existing folder.",
+    };
+  }
+
+  const state = readCodeAgentProjectsState();
+  const project = normalizeProjectFolder(dir);
+  const projects = [
+    project,
+    ...state.projects.filter((item) => item.path !== dir),
+  ].slice(0, 20);
+  writeCodeAgentProjectsState({ selectedPath: dir, projects });
+  return {
+    ok: true,
+    project,
+    projects,
+    selectedPath: dir,
+  };
+}
+
+function listCodeAgentProjects(): CodeAgentProjectListResult {
+  try {
+    const defaultPath = resolveCodeAgentsTerminalCwd({});
+    const state = readCodeAgentProjectsState();
+    const defaultProject = normalizeProjectFolder(defaultPath);
+    const projects = [
+      defaultProject,
+      ...state.projects.filter((item) => item.path !== defaultPath),
+    ];
+    return {
+      status: "ok",
+      projects,
+      selectedPath: state.selectedPath ?? defaultPath,
+      defaultPath,
+    };
+  } catch (err) {
+    return {
+      status: "unavailable",
+      projects: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function chooseCodeAgentProject(): Promise<CodeAgentProjectSelectResult> {
+  const result = await dialog.showOpenDialog({
+    title: "Choose Agent-Native Code project folder",
+    properties: ["openDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    const state = readCodeAgentProjectsState();
+    return {
+      ok: false,
+      projects: state.projects,
+      selectedPath: state.selectedPath,
+      error: "No folder selected.",
+    };
+  }
+  return upsertCodeAgentProject(result.filePaths[0]);
+}
+
 function quoteWindowsCmdPath(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
@@ -2378,9 +2758,9 @@ const RESERVED_CODE_AGENT_COMMANDS = new Set([
   "ui",
 ]);
 
-function listCodeAgentProjectPacks(): CodeAgentCodePackResult {
+function listCodeAgentProjectPacks(input?: unknown): CodeAgentCodePackResult {
   try {
-    const root = resolveCodeAgentsTerminalCwd({});
+    const root = resolveCodeAgentsTerminalCwd(input);
     const commandsRoot = path.join(root, ".agents", "commands");
     const skillsRoot = path.join(root, ".agents", "skills");
     const commands = fs.existsSync(commandsRoot)
@@ -2948,7 +3328,36 @@ ipcMain.handle(
 
 ipcMain.handle(
   IPC.CODE_AGENTS_LIST_CODE_PACKS,
-  (): CodeAgentCodePackResult => listCodeAgentProjectPacks(),
+  (_event: IpcMainInvokeEvent, input?: unknown): CodeAgentCodePackResult =>
+    listCodeAgentProjectPacks(input),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_LIST_PROJECTS,
+  (): CodeAgentProjectListResult => listCodeAgentProjects(),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_SELECT_PROJECT,
+  (
+    _event: IpcMainInvokeEvent,
+    folderPath: unknown,
+  ): CodeAgentProjectSelectResult => {
+    if (typeof folderPath === "string")
+      return upsertCodeAgentProject(folderPath);
+    const state = readCodeAgentProjectsState();
+    return {
+      ok: false,
+      projects: state.projects,
+      selectedPath: state.selectedPath,
+      error: "Missing project folder.",
+    };
+  },
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_CHOOSE_PROJECT,
+  (): Promise<CodeAgentProjectSelectResult> => chooseCodeAgentProject(),
 );
 
 ipcMain.handle(
@@ -2966,6 +3375,20 @@ ipcMain.handle(
   (_event: IpcMainInvokeEvent, request?: unknown): CodeAgentTerminalResult => {
     return openTerminalForCodeAgents(request);
   },
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS,
+  (): CodeAgentRemoteConnectorStatus => getRemoteConnectorStatus(),
+);
+
+ipcMain.handle(
+  IPC.CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED,
+  (
+    _event: IpcMainInvokeEvent,
+    enabled: unknown,
+  ): CodeAgentRemoteConnectorControlResult =>
+    setRemoteConnectorEnabled(Boolean(enabled)),
 );
 
 // ---------- Native context menus ----------
@@ -3917,6 +4340,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 
   const win = createWindow();
+  startRemoteCodeAgentConnector();
 
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
@@ -4004,4 +4428,14 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  appIsQuitting = true;
+  if (remoteConnectorRestartTimer) {
+    clearTimeout(remoteConnectorRestartTimer);
+    remoteConnectorRestartTimer = null;
+  }
+  remoteConnectorProcess?.kill("SIGTERM");
+  remoteConnectorProcess = null;
 });

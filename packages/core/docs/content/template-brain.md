@@ -45,7 +45,8 @@ and an expertise graph as a future platform layer.
 - **Distilled knowledge.** Write atomic entries with kind, topic, entities, confidence, exact evidence quotes, and supersede links.
 - **Review queue.** Proposed company memories have a first-class Review route
   where reviewers edit wording, inspect evidence/source links, approve, or
-  reject.
+  reject. Reviewers can also choose whether an approved proposal becomes
+  canonical company context immediately.
 - **Review gating.** High-confidence non-sensitive entries can publish immediately; company-tier or sensitive entries can queue as proposals for approval.
 - **Cited retrieval.** V1 exposes `search-knowledge` and `get-knowledge` for
   distilled company memory. The V1.5 expansion adds a Search route and
@@ -55,7 +56,12 @@ and an expertise graph as a future platform layer.
 - **Shared integrations.** The Sources page shows Brain source records beside
   reusable workspace connection grants and provider readiness, so Brain can use
   Dispatch/workspace-managed credentials when a grant exists.
-- **Ambient context.** Canonical approved entries can mirror into workspace resources under `context/company-brain/...` for cross-app context.
+- **Ambient context.** Canonical approved entries can mirror into workspace
+  resources under `context/company-brain/...` for cross-app context. The Review
+  route exposes this as a per-proposal switch; the Knowledge route can publish
+  or unpublish approved memories later with `set-knowledge-canonical`. Both
+  flows preview the exact Markdown through `preview-canonical-resource` before
+  the resource is written or removed.
 
 Brain intentionally uses SQL text search and agentic query expansion for v1.
 There is no vector database requirement, so the template stays portable across
@@ -172,6 +178,11 @@ For Slack, grant the bot the smallest scopes needed for the source:
 Private channels require inviting the bot to the channel. Public channels may
 also require joining or inviting the bot depending on the Slack app posture.
 
+For local CLI/action-runner QA, put `SLACK_BOT_TOKEN` in a workspace connection,
+registered vault secret, or Brain-local app credential before running source
+actions. Brain source connectors intentionally do not read process environment
+variables directly, so `.env.local` alone is not a credential source.
+
 Use `run-slack-pilot` for a safer first-pass rollout report. The default action
 validates the Slack credential and allow-listed channels, reports guardrails,
 privacy exclusions, current knowledge/proposal counts, and next steps, and does
@@ -223,6 +234,15 @@ Recommended production rollout:
    `ask-brain` returns cited Slack permalinks.
 7. Expand with bounded manual `sync-source` runs before enabling background
    polling.
+
+When approving a proposal, keep the company-context switch off unless the
+memory should be ambient context for Dispatch and other apps. Turn it on for
+canonical decisions, policies, product facts, or durable process notes that are
+safe to place under `context/company-brain/...`; Brain shows the exact Markdown
+preview before approval publishes it. Use the Knowledge route or
+`set-knowledge-canonical --published=false` to remove a mirrored resource after
+previewing what will be removed, without deleting the underlying Brain
+knowledge.
 
 Distillation has two worker paths. When a Brain tab is open, the app shell
 claims queued items with `claim-distillation` and delegates them to the app

@@ -8,6 +8,8 @@ import {
   type CodeAgentFollowUpRequest,
   type CodeAgentFollowUpResult,
   type CodeAgentHostMetadata,
+  type CodeAgentProjectListResult,
+  type CodeAgentProjectSelectResult,
   type CodeAgentRetryRunRequest,
   type CodeAgentRetryRunResult,
   type CodeAgentRerunRequest,
@@ -22,6 +24,8 @@ import {
   type CodeAgentTranscriptResult,
   type CodeAgentTerminalRequest,
   type CodeAgentTerminalResult,
+  type CodeAgentRemoteConnectorControlResult,
+  type CodeAgentRemoteConnectorStatus,
   type DesktopOpenRequest,
   type InterAppMessage,
   type UpdateStatus,
@@ -162,8 +166,14 @@ const electronAPI = {
       }),
     getHostMetadata: (): Promise<CodeAgentHostMetadata> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_GET_HOST_METADATA),
-    listCodePacks: (): Promise<CodeAgentCodePackResult> =>
-      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_CODE_PACKS),
+    listCodePacks: (cwd?: string): Promise<CodeAgentCodePackResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_CODE_PACKS, { cwd }),
+    listProjects: (): Promise<CodeAgentProjectListResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_PROJECTS),
+    selectProject: (cwd: string): Promise<CodeAgentProjectSelectResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_SELECT_PROJECT, cwd),
+    chooseProject: (): Promise<CodeAgentProjectSelectResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_CHOOSE_PROJECT),
     listMigrationRuns: (): Promise<
       CodeAgentRunListResult<CodeAgentMigrationRun>
     > => ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MIGRATION_RUNS),
@@ -171,6 +181,12 @@ const electronAPI = {
       request?: CodeAgentTerminalRequest,
     ): Promise<CodeAgentTerminalResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_TERMINAL, request),
+    getRemoteConnectorStatus: (): Promise<CodeAgentRemoteConnectorStatus> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS),
+    setRemoteConnectorEnabled: (
+      enabled: boolean,
+    ): Promise<CodeAgentRemoteConnectorControlResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED, enabled),
     onOpenRequest: (
       cb: (request: DesktopOpenRequest) => void,
     ): (() => void) => {

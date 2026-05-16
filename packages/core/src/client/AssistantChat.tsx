@@ -17,7 +17,6 @@ import {
   useComposerRuntime,
   useMessageRuntime,
   ThreadPrimitive,
-  ComposerPrimitive,
   MessagePrimitive,
 } from "@assistant-ui/react";
 import type {
@@ -75,6 +74,7 @@ import {
   TiptapComposer,
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
+import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
 import type { Reference } from "./composer/types.js";
 import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
 import { PastedTextChip } from "./composer/PastedTextChip.js";
@@ -4800,9 +4800,8 @@ const AssistantChatInner = forwardRef<
             )}
             <SelectionAttachedPill />
             {/* Input area */}
-            <div
+            <AgentComposerFrame
               className={cn(
-                "agent-composer-area shrink-0 px-3 py-2",
                 missingApiKey && "cursor-pointer",
                 isComposerDisabled && "opacity-70",
               )}
@@ -4812,106 +4811,102 @@ const AssistantChatInner = forwardRef<
                   : undefined
               }
             >
-              <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
-                <ComposerAttachmentPreviewStrip />
-                <TiptapComposer
-                  focusRef={tiptapRef}
-                  disabled={isComposerDisabled}
-                  placeholder={
-                    missingApiKey
-                      ? "Connect an AI engine above to start chatting…"
-                      : composerDisabled
-                        ? (composerDisabledPlaceholder ??
-                          "Open Desktop to use this chat.")
-                        : isRunning
-                          ? queuedMessages.length > 0
-                            ? `${queuedMessages.length} queued — type another...`
-                            : "Queue a message..."
-                          : undefined
-                  }
-                  onSubmit={
-                    isRunning
-                      ? (text, references, attachments) =>
-                          void addToQueue(
-                            text,
-                            undefined,
-                            references.length > 0 ? references : undefined,
-                            attachments,
-                          )
-                      : undefined
-                  }
-                  onSlashCommand={onSlashCommand}
-                  execMode={execMode}
-                  onExecModeChange={onExecModeChange}
-                  planModeDisabled={planModeDisabled}
-                  planModeDisabledReason={planModeDisabledReason}
-                  selectedModel={selectedModel ?? defaultModel}
-                  selectedEffort={selectedEffort}
-                  availableModels={availableModels}
-                  onModelChange={onModelChange}
-                  onEffortChange={onEffortChange}
-                  draftScope={threadId || tabId}
-                  interceptBuildRequestsForBuilder
-                  extraActionButton={
-                    showRunningInUI ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              // Nuclear stop: flip forceStopped so isRunning is false
-                              // immediately. This unblocks submission even if the
-                              // runtime or reconnect state is stuck.
-                              setForceStopped(true);
-                              const activeRun = getActiveRun();
-                              const runIdToAbort =
-                                reconnectRunIdRef.current ?? activeRun?.runId;
-                              userStoppedRunRef.current = {
-                                at: Date.now(),
-                                ...(runIdToAbort
-                                  ? { runId: runIdToAbort }
-                                  : {}),
-                              };
-                              setRunErrorInfo(null);
-                              setDismissedRunErrorKey(null);
-                              if (runIdToAbort) {
-                                fetch(
-                                  `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
-                                  { method: "POST" },
-                                ).catch(() => {});
-                              }
+              <ComposerAttachmentPreviewStrip />
+              <TiptapComposer
+                focusRef={tiptapRef}
+                disabled={isComposerDisabled}
+                placeholder={
+                  missingApiKey
+                    ? "Connect an AI engine above to start chatting…"
+                    : composerDisabled
+                      ? (composerDisabledPlaceholder ??
+                        "Open Desktop to use this chat.")
+                      : isRunning
+                        ? queuedMessages.length > 0
+                          ? `${queuedMessages.length} queued — type another...`
+                          : "Queue a message..."
+                        : undefined
+                }
+                onSubmit={
+                  isRunning
+                    ? (text, references, attachments) =>
+                        void addToQueue(
+                          text,
+                          undefined,
+                          references.length > 0 ? references : undefined,
+                          attachments,
+                        )
+                    : undefined
+                }
+                onSlashCommand={onSlashCommand}
+                execMode={execMode}
+                onExecModeChange={onExecModeChange}
+                planModeDisabled={planModeDisabled}
+                planModeDisabledReason={planModeDisabledReason}
+                selectedModel={selectedModel ?? defaultModel}
+                selectedEffort={selectedEffort}
+                availableModels={availableModels}
+                onModelChange={onModelChange}
+                onEffortChange={onEffortChange}
+                draftScope={threadId || tabId}
+                interceptBuildRequestsForBuilder
+                extraActionButton={
+                  showRunningInUI ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Nuclear stop: flip forceStopped so isRunning is false
+                            // immediately. This unblocks submission even if the
+                            // runtime or reconnect state is stuck.
+                            setForceStopped(true);
+                            const activeRun = getActiveRun();
+                            const runIdToAbort =
+                              reconnectRunIdRef.current ?? activeRun?.runId;
+                            userStoppedRunRef.current = {
+                              at: Date.now(),
+                              ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+                            };
+                            setRunErrorInfo(null);
+                            setDismissedRunErrorKey(null);
+                            if (runIdToAbort) {
+                              fetch(
+                                `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
+                                { method: "POST" },
+                              ).catch(() => {});
+                            }
 
-                              if (isReconnecting) {
-                                reconnectAbortRef.current?.abort();
-                                reconnectAbortRef.current = null;
-                                reconnectRunIdRef.current = null;
-                                setIsReconnecting(false);
-                                setReconnectFrozen(reconnectContent.length > 0);
-                              }
+                            if (isReconnecting) {
+                              reconnectAbortRef.current?.abort();
+                              reconnectAbortRef.current = null;
+                              reconnectRunIdRef.current = null;
+                              setIsReconnecting(false);
+                              setReconnectFrozen(reconnectContent.length > 0);
+                            }
 
-                              threadRuntime.cancelRun();
+                            threadRuntime.cancelRun();
 
-                              window.dispatchEvent(
-                                new CustomEvent("agentNative.chatRunning", {
-                                  detail: {
-                                    isRunning: false,
-                                    tabId: tabId || threadId,
-                                  },
-                                }),
-                              );
-                            }}
-                            className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
-                          >
-                            <IconPlayerStop className="h-3.5 w-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>Stop generating</TooltipContent>
-                      </Tooltip>
-                    ) : undefined
-                  }
-                />
-              </ComposerPrimitive.Root>
-            </div>
+                            window.dispatchEvent(
+                              new CustomEvent("agentNative.chatRunning", {
+                                detail: {
+                                  isRunning: false,
+                                  tabId: tabId || threadId,
+                                },
+                              }),
+                            );
+                          }}
+                          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                        >
+                          <IconPlayerStop className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Stop generating</TooltipContent>
+                    </Tooltip>
+                  ) : undefined
+                }
+              />
+            </AgentComposerFrame>
           </div>
         </ChatRunningContext.Provider>
       </MessageActionsContext.Provider>

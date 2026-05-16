@@ -3,8 +3,13 @@ import {
   IconAlertCircle,
   IconClock,
   IconCode,
+  IconDots,
   IconExternalLink,
+  IconFolder,
+  IconFolderPlus,
   IconListCheck,
+  IconPinned,
+  IconPinnedOff,
   IconPlus,
   IconPlayerPlay,
   IconRefresh,
@@ -14,6 +19,7 @@ import {
 import {
   PromptComposer,
   type PromptComposerFile,
+  type SlashCommand,
   type TiptapComposerHandle,
 } from "@agent-native/core/client";
 import { toast } from "sonner";
@@ -30,6 +36,12 @@ import {
   type CodeAgentPermissionMode,
 } from "./code-agents.js";
 import type { AppConfig } from "@agent-native/shared-app-config";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu.js";
 import {
   Select,
   SelectContent,
@@ -53,6 +65,9 @@ import type {
   CodeAgentModelOption,
   CodeAgentModelSelection,
   CodeAgentPromptAttachment,
+  CodeAgentProjectFolder,
+  CodeAgentProjectListResult,
+  CodeAgentProjectSelectResult,
   CodeAgentReasoningEffort,
   CodeAgentRerunRequest,
   CodeAgentRerunResult,
@@ -75,7 +90,10 @@ import type {
 export interface CodeAgentsHost {
   listRuns(goalId?: string): Promise<CodeAgentRunListResult>;
   listModels?(): Promise<CodeAgentModelListResult>;
-  listCodePacks?(): Promise<CodeAgentCodePackResult>;
+  listCodePacks?(cwd?: string): Promise<CodeAgentCodePackResult>;
+  listProjects?(): Promise<CodeAgentProjectListResult>;
+  selectProject?(cwd: string): Promise<CodeAgentProjectSelectResult>;
+  chooseProject?(): Promise<CodeAgentProjectSelectResult>;
   createRun(
     request: CodeAgentCreateRunRequest,
   ): Promise<CodeAgentCreateRunResult>;
@@ -191,6 +209,7 @@ const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
 ];
 
 const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
+const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
 
 export default function CodeAgentsApp({
   apps,
@@ -242,6 +261,9 @@ export default function CodeAgentsApp({
   const [modelOptions, setModelOptions] = useState<CodeAgentModelOption[]>(
     DEFAULT_CODE_AGENT_MODEL_OPTIONS,
   );
+  const [projects, setProjects] = useState<CodeAgentProjectFolder[]>([]);
+  const [selectedProjectPath, setSelectedProjectPath] = useState<string>("");
+  const [loadingProjects, setLoadingProjects] = useState(false);
   const [codePack, setCodePack] = useState<CodeAgentCodePack | null>(null);
   const [modelSelection, setModelSelection] = useState<CodeAgentModelSelection>(
     () => readStoredModelSelection(),
@@ -308,6 +330,39 @@ export default function CodeAgentsApp({
     [host, selectedGoal.id, selectedRunId],
   );
 
+  const loadProjects = useCallback(async () => {
+    setLoadingProjects(true);
+    try {
+      const result = await host.listProjects?.();
+      if (!result || result.status !== "ok") {
+        const fallbackRoot = codePack?.root;
+        setProjects(
+          fallbackRoot
+            ? [
+                {
+                  id: fallbackRoot,
+                  name: baseNameForPath(fallbackRoot),
+                  path: fallbackRoot,
+                },
+              ]
+            : [],
+        );
+        if (fallbackRoot) {
+          setSelectedProjectPath((current) => current || fallbackRoot);
+        }
+        return;
+      }
+      setProjects(result.projects);
+      setSelectedProjectPath(
+        (current) => current || result.selectedPath || result.defaultPath || "",
+      );
+    } catch {
+      setProjects([]);
+    } finally {
+      setLoadingProjects(false);
+    }
+  }, [codePack?.root, host]);
+
   useEffect(() => {
     if (refreshKey <= 0) return;
     void loadRuns(true);
@@ -328,6 +383,10 @@ export default function CodeAgentsApp({
   const selectedRunStoredPermissionMode = selectedRun
     ? getRunPermissionMode(selectedRun)
     : DEFAULT_CODE_AGENT_PERMISSION_MODE;
+  const slashCommands = useMemo(
+    () => buildCodeAgentSlashCommands(codePack),
+    [codePack],
+  );
 
   useEffect(() => {
     setSelectedPermissionMode(selectedRunStoredPermissionMode);
@@ -353,12 +412,19 @@ export default function CodeAgentsApp({
   }, [host, modelSelection.model]);
 
   useEffect(() => {
+    void loadProjects();
+  }, [loadProjects]);
+
+  useEffect(() => {
     let cancelled = false;
     void host
-      .listCodePacks?.()
+      .listCodePacks?.(selectedProjectPath || undefined)
       .then((result) => {
         if (cancelled || result.status !== "ok") return;
         setCodePack(result.pack ?? null);
+        if (!selectedProjectPath && result.pack?.root) {
+          setSelectedProjectPath(result.pack.root);
+        }
       })
       .catch(() => {
         if (!cancelled) setCodePack(null);
@@ -366,7 +432,7 @@ export default function CodeAgentsApp({
     return () => {
       cancelled = true;
     };
-  }, [host]);
+  }, [host, selectedProjectPath]);
 
   useEffect(() => {
     writeStoredModelSelection(selectedModelSelection);
@@ -391,10 +457,83 @@ export default function CodeAgentsApp({
     return () => window.clearInterval(interval);
   }, [loadTranscript, selectedRunId, selectedRunIsActive]);
 
+  async function selectProjectFolder(pathValue: string) {
+    if (!pathValue) return;
+    setSelectedProjectPath(pathValue);
+    try {
+      const result = await host.selectProject?.(pathValue);
+      if (result?.ok) {
+        setProjects(result.projects);
+        setSelectedProjectPath(result.selectedPath ?? pathValue);
+      }
+    } catch {
+      // Local selection still works; host persistence is best-effort.
+    }
+  }
+
+  async function chooseProjectFolder() {
+    if (!host.chooseProject) {
+      toast("Folder picker is not available here", {
+        description:
+          "Open Agent-Native Desktop to choose folders from the native picker.",
+        duration: 3200,
+      });
+      return;
+    }
+    try {
+      const result = await host.chooseProject();
+      if (!result.ok || !result.selectedPath) {
+        if (result.error && result.error !== "No folder selected.") {
+          toast("Could not choose folder", {
+            description: result.error,
+            duration: 3200,
+          });
+        }
+        return;
+      }
+      setProjects(result.projects);
+      setSelectedProjectPath(result.selectedPath);
+    } catch (err) {
+      toast("Could not choose folder", {
+        description: err instanceof Error ? err.message : String(err),
+        duration: 3200,
+      });
+    }
+  }
+
+  function handleSlashCommand(commandName: string) {
+    const normalized = commandName.replace(/^\/+/, "").toLowerCase();
+    const matchingGoal = CODE_AGENT_GOALS.find(
+      (goal) => goal.slashCommand?.replace(/^\/+/, "") === normalized,
+    );
+    if (matchingGoal) {
+      setSelectedGoalId(matchingGoal.id);
+      setSelectedRunId(null);
+      setWorkbenchOpen(false);
+      seedNewPrompt(
+        matchingGoal.id === "task" ? "" : `${matchingGoal.slashCommand} `,
+      );
+      return;
+    }
+    const matchingSkill = codePack?.skills.find(
+      (skill) => skill.name.toLowerCase() === normalized,
+    );
+    setSelectedGoalId("task");
+    setSelectedRunId(null);
+    setWorkbenchOpen(false);
+    seedNewPrompt(
+      matchingSkill
+        ? `Use the ${matchingSkill.name} skill to `
+        : `/${normalized} `,
+    );
+  }
+
   async function openTerminal() {
     const terminalRequest = selectedRun
       ? getRunTerminalRequest(selectedRun)
-      : undefined;
+      : selectedProjectPath
+        ? { cwd: selectedProjectPath }
+        : undefined;
     let result: CodeAgentTerminalResult | undefined;
     try {
       result = await host.openTerminal?.(terminalRequest);
@@ -525,7 +664,13 @@ export default function CodeAgentsApp({
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
   ) {
-    const prompt = normalizePromptForSelectedGoal(selectedGoal, preparedPrompt);
+    const typedGoal =
+      CODE_AGENT_GOALS.find(
+        (goal) =>
+          goal.id !== "task" &&
+          preparedPrompt.trim().startsWith(goal.slashCommand),
+      ) ?? selectedGoal;
+    const prompt = normalizePromptForSelectedGoal(typedGoal, preparedPrompt);
     if (!prompt) {
       toast("Enter a coding task first", { duration: 1800 });
       return;
@@ -533,8 +678,9 @@ export default function CodeAgentsApp({
     setCreatingRun(true);
     try {
       const result = await host.createRun({
-        goalId: selectedGoal.id,
+        goalId: typedGoal.id,
         prompt,
+        cwd: selectedProjectPath || undefined,
         permissionMode: newRunPermissionMode,
         engine: selectedModelSelection.engine,
         model: selectedModelSelection.model,
@@ -552,10 +698,20 @@ export default function CodeAgentsApp({
       setNewPromptSeed((seed) => seed + 1);
       setRuns((current) => [result.run!, ...current]);
       setSelectedRunId(result.run.id);
+      if (typedGoal.id !== selectedGoal.id) {
+        setSelectedGoalId(typedGoal.id);
+      }
       setWorkbenchOpen(false);
       if (result.event) setTranscriptEvents([result.event]);
       toast(result.message, { duration: 2200 });
-      await loadRuns(true);
+      if (typedGoal.id === selectedGoal.id) {
+        await loadRuns(true);
+      } else {
+        const refreshed = await host.listRuns(typedGoal.id);
+        setStatus(refreshed.status);
+        setError(refreshed.error ?? null);
+        setRuns(refreshed.runs);
+      }
       await loadTranscript(result.run.id, true);
     } catch (err) {
       toast("Could not start the session", {
@@ -701,6 +857,53 @@ export default function CodeAgentsApp({
     }
   }
 
+  async function toggleRunPinned(run: CodeAgentRun) {
+    const pinned = isRunPinned(run);
+    const nextPinnedAt = pinned ? null : new Date().toISOString();
+    const optimisticRun = withRunPinnedAt(run, nextPinnedAt);
+    setRuns((current) =>
+      current.map((item) => (item.id === run.id ? optimisticRun : item)),
+    );
+
+    try {
+      const result = await host.updateRun({
+        goalId: selectedGoal.id,
+        runId: run.id,
+        metadata: {
+          [CODE_AGENT_PINNED_AT_METADATA_KEY]: nextPinnedAt,
+        },
+      });
+      if (!result.ok) {
+        setRuns((current) =>
+          current.map((item) => (item.id === run.id ? run : item)),
+        );
+        toast(result.message, {
+          description: result.error,
+          duration: 3200,
+        });
+        return;
+      }
+      if (result.run) {
+        setRuns((current) =>
+          current.map((item) =>
+            item.id === result.run!.id ? result.run! : item,
+          ),
+        );
+      }
+      toast(pinned ? "Session unpinned" : "Session pinned", {
+        duration: 1600,
+      });
+    } catch (err) {
+      setRuns((current) =>
+        current.map((item) => (item.id === run.id ? run : item)),
+      );
+      toast(pinned ? "Could not unpin session" : "Could not pin session", {
+        description: err instanceof Error ? err.message : String(err),
+        duration: 3200,
+      });
+    }
+  }
+
   return (
     <section className="code-agents-surface" aria-label="Agent-Native Code">
       <aside
@@ -736,6 +939,14 @@ export default function CodeAgentsApp({
           New session
         </button>
 
+        <ProjectFolderPicker
+          projects={projects}
+          selectedPath={selectedProjectPath}
+          loading={loadingProjects}
+          onSelect={selectProjectFolder}
+          onChoose={chooseProjectFolder}
+        />
+
         <div className="code-agents-goal-list" aria-label="Code commands">
           <p className="code-agents-rail-label">Commands</p>
           {CODE_AGENT_GOALS.map((goal) => (
@@ -757,22 +968,6 @@ export default function CodeAgentsApp({
           ))}
         </div>
 
-        <ProjectPacksSection
-          pack={codePack}
-          onRunCommand={(commandName) => {
-            setSelectedGoalId("task");
-            setSelectedRunId(null);
-            setWorkbenchOpen(false);
-            seedNewPrompt(`/${commandName} `);
-          }}
-          onUseSkill={(skillName) => {
-            setSelectedGoalId("task");
-            setSelectedRunId(null);
-            setWorkbenchOpen(false);
-            seedNewPrompt(`Use the ${skillName} skill to `);
-          }}
-        />
-
         <div className="code-agents-run-list">
           <p className="code-agents-rail-label">Sessions</p>
           {loading ? (
@@ -791,6 +986,7 @@ export default function CodeAgentsApp({
                 setSelectedRunId(run.id);
                 setWorkbenchOpen(true);
               }}
+              onTogglePin={toggleRunPinned}
             />
           )}
         </div>
@@ -904,9 +1100,11 @@ export default function CodeAgentsApp({
                   permissionMode={newRunPermissionMode}
                   modelSelection={selectedModelSelection}
                   modelOptions={modelOptions}
+                  slashCommands={slashCommands}
                   onPromptChange={setNewPrompt}
                   onPermissionModeChange={setNewRunPermissionMode}
                   onModelSelectionChange={setModelSelection}
+                  onSlashCommand={handleSlashCommand}
                   onSubmit={createRunFromPrompt}
                 />
                 <div className="code-agents-suggestions">
@@ -956,46 +1154,75 @@ function isMigrationRun(run: CodeAgentRun): run is CodeAgentMigrationRun {
   );
 }
 
-function ProjectPacksSection({
-  pack,
-  onRunCommand,
-  onUseSkill,
+function ProjectFolderPicker({
+  projects,
+  selectedPath,
+  loading,
+  onSelect,
+  onChoose,
 }: {
-  pack: CodeAgentCodePack | null;
-  onRunCommand: (commandName: string) => void;
-  onUseSkill: (skillName: string) => void;
+  projects: CodeAgentProjectFolder[];
+  selectedPath: string;
+  loading: boolean;
+  onSelect: (path: string) => void;
+  onChoose: () => void;
 }) {
-  const commands = pack?.commands.filter((command) => !command.reserved) ?? [];
-  const skills = pack?.skills ?? [];
-  if (commands.length === 0 && skills.length === 0) return null;
+  const active = projects.find((project) => project.path === selectedPath);
 
   return (
-    <div className="code-agents-pack-list" aria-label="Project code packs">
-      <p className="code-agents-rail-label">Project</p>
-      {commands.slice(0, 5).map((command) => (
-        <button
-          key={`command-${command.name}`}
-          type="button"
-          className="code-agents-pack-row"
-          onClick={() => onRunCommand(command.name)}
-          title={command.description ?? `Run /${command.name}`}
+    <div className="code-agents-project-picker">
+      <p className="code-agents-rail-label">Folder</p>
+      <div className="code-agents-project-picker__row">
+        <Select
+          value={selectedPath || undefined}
+          onValueChange={(value) => {
+            if (value === "__choose__") {
+              onChoose();
+              return;
+            }
+            onSelect(value);
+          }}
         >
-          <span>/{command.name}</span>
-          <em>{command.description ?? "Project command"}</em>
-        </button>
-      ))}
-      {skills.slice(0, 4).map((skill) => (
+          <SelectTrigger
+            className="code-agents-project-select"
+            aria-label="Select coding folder"
+          >
+            <SelectValue
+              placeholder={loading ? "Loading folders..." : "Choose folder"}
+            />
+          </SelectTrigger>
+          <SelectContent className="code-agents-select-content">
+            <SelectGroup>
+              {projects.map((project) => (
+                <SelectItem key={project.path} value={project.path}>
+                  <span className="code-agents-project-select__item">
+                    <IconFolder size={14} strokeWidth={1.8} />
+                    <span>{project.name}</span>
+                  </span>
+                </SelectItem>
+              ))}
+              <SelectItem value="__choose__">
+                <span className="code-agents-project-select__item">
+                  <IconFolderPlus size={14} strokeWidth={1.8} />
+                  <span>Add folder...</span>
+                </span>
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <button
-          key={`skill-${skill.name}`}
           type="button"
-          className="code-agents-pack-row"
-          onClick={() => onUseSkill(skill.name)}
-          title={skill.description ?? skill.relativePath}
+          className="code-agents-icon-button"
+          onClick={onChoose}
+          title="Add folder"
+          aria-label="Add folder"
         >
-          <span>{skill.name}</span>
-          <em>{skill.description ?? "Skill instructions"}</em>
+          <IconFolderPlus size={15} strokeWidth={1.8} />
         </button>
-      ))}
+      </div>
+      <p className="code-agents-project-path" title={active?.path}>
+        {active?.path ?? "Runs use the selected folder as cwd."}
+      </p>
     </div>
   );
 }
@@ -1008,9 +1235,11 @@ function NewSessionComposer({
   permissionMode,
   modelSelection,
   modelOptions,
+  slashCommands,
   onPromptChange,
   onPermissionModeChange,
   onModelSelectionChange,
+  onSlashCommand,
   onSubmit,
 }: {
   prompt: string;
@@ -1020,9 +1249,11 @@ function NewSessionComposer({
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
+  slashCommands: SlashCommand[];
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
+  onSlashCommand: (command: string) => void;
   onSubmit: (
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
@@ -1037,11 +1268,13 @@ function NewSessionComposer({
       permissionMode={permissionMode}
       modelSelection={modelSelection}
       modelOptions={modelOptions}
+      slashCommands={slashCommands}
       placeholder="Describe a task or ask a question"
       variant="hero"
       onPromptChange={onPromptChange}
       onPermissionModeChange={onPermissionModeChange}
       onModelSelectionChange={onModelSelectionChange}
+      onSlashCommand={onSlashCommand}
       onSubmit={onSubmit}
     />
   );
@@ -1057,12 +1290,14 @@ function CodeAgentComposer({
   showFollowUpMode = false,
   modelSelection,
   modelOptions,
+  slashCommands = [],
   placeholder,
   variant = "compact",
   onPromptChange,
   onPermissionModeChange,
   onFollowUpModeChange,
   onModelSelectionChange,
+  onSlashCommand,
   onSubmit,
 }: {
   prompt: string;
@@ -1074,12 +1309,14 @@ function CodeAgentComposer({
   showFollowUpMode?: boolean;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
+  slashCommands?: SlashCommand[];
   placeholder: string;
   variant?: "hero" | "compact";
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onFollowUpModeChange?: (value: CodeAgentFollowUpMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
+  onSlashCommand?: (command: string) => void;
   onSubmit: (
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
@@ -1146,7 +1383,7 @@ function CodeAgentComposer({
 
   return (
     <PromptComposer
-      className={`code-agents-new-session code-agents-standard-composer code-agents-composer-shell code-agents-composer-shell--${variant}`}
+      className={`code-agents-standard-composer code-agents-composer-shell code-agents-composer-shell--${variant}`}
       composerRef={inputRef}
       disabled={submitting}
       placeholder={placeholder}
@@ -1165,6 +1402,8 @@ function CodeAgentComposer({
       onModelChange={handleModelChange}
       onEffortChange={handleEffortChange}
       onTextChange={onPromptChange}
+      slashCommands={slashCommands}
+      onSlashCommand={onSlashCommand}
       onSubmit={async (text, files) => {
         const attachments = await readPromptFiles(files);
         onSubmit(text, attachments, followUpMode);
@@ -1207,6 +1446,41 @@ function modelOptionsToComposerGroups(models: CodeAgentModelOption[]): Array<{
   }
 
   return [...groups.values()];
+}
+
+function buildCodeAgentSlashCommands(
+  pack: CodeAgentCodePack | null,
+): SlashCommand[] {
+  const commands: SlashCommand[] = [
+    ...CODE_AGENT_GOALS.filter(
+      (goal) => goal.id !== "task" && goal.slashCommand,
+    ).map((goal) => ({
+      name: goal.slashCommand.replace(/^\/+/, ""),
+      description: goal.description,
+      icon: "terminal",
+    })),
+  ];
+  for (const command of pack?.commands ?? []) {
+    if (command.reserved) continue;
+    commands.push({
+      name: command.name,
+      description: command.description ?? "Project command",
+      icon: "terminal",
+    });
+  }
+  for (const skill of pack?.skills ?? []) {
+    commands.push({
+      name: skill.name,
+      description: skill.description ?? "Project skill",
+      icon: "skill",
+    });
+  }
+  return commands;
+}
+
+function baseNameForPath(value: string): string {
+  const parts = value.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? value;
 }
 
 function normalizeModelSelection(
@@ -1448,11 +1722,13 @@ function GroupedRunList({
   selectedRunId,
   onSelect,
   onOpen,
+  onTogglePin,
 }: {
   runs: CodeAgentRun[];
   selectedRunId: string | null;
   onSelect: (run: CodeAgentRun) => void;
   onOpen: (run: CodeAgentRun) => void;
+  onTogglePin: (run: CodeAgentRun) => void;
 }) {
   const groups = groupRunsForRail(runs);
   return (
@@ -1467,6 +1743,7 @@ function GroupedRunList({
               selected={run.id === selectedRunId}
               onSelect={() => onSelect(run)}
               onOpen={() => onOpen(run)}
+              onTogglePin={() => onTogglePin(run)}
             />
           ))}
         </div>
@@ -1479,10 +1756,17 @@ function groupRunsForRail(runs: CodeAgentRun[]): Array<{
   label: string;
   runs: CodeAgentRun[];
 }> {
-  const needsInput = runs.filter(runNeedsInput);
-  const running = runs.filter((run) => !runNeedsInput(run) && isRunActive(run));
-  const recent = runs.filter((run) => !runNeedsInput(run) && !isRunActive(run));
+  const pinned = sortPinnedRuns(runs.filter(isRunPinned));
+  const unpinned = runs.filter((run) => !isRunPinned(run));
+  const needsInput = unpinned.filter(runNeedsInput);
+  const running = unpinned.filter(
+    (run) => !runNeedsInput(run) && isRunActive(run),
+  );
+  const recent = unpinned.filter(
+    (run) => !runNeedsInput(run) && !isRunActive(run),
+  );
   return [
+    { label: "Pinned", runs: pinned },
     { label: "Needs input", runs: needsInput },
     { label: "Running", runs: running },
     { label: "Recent", runs: recent },
@@ -1503,33 +1787,70 @@ function RunRailItem({
   selected,
   onSelect,
   onOpen,
+  onTogglePin,
 }: {
   run: CodeAgentRun;
   selected: boolean;
   onSelect: () => void;
   onOpen: () => void;
+  onTogglePin: () => void;
 }) {
   const progress = getRunProgressPercent(run);
   const progressLabel = getRunProgressLabel(run);
+  const pinned = isRunPinned(run);
   return (
-    <button
-      type="button"
-      className={`code-agents-run${selected ? " code-agents-run--active" : ""}`}
-      onClick={onSelect}
-      onDoubleClick={onOpen}
-      title={getRunTitle(run) ?? undefined}
+    <div
+      className={`code-agents-run-row${
+        selected ? " code-agents-run-row--active" : ""
+      }${pinned ? " code-agents-run-row--pinned" : ""}`}
     >
-      <div className="code-agents-run__topline">
-        <span className="code-agents-run__name">{getRunTitle(run)}</span>
-        <PhasePill run={run} />
-      </div>
-      <p className="code-agents-run__path">{getRunSubtitle(run)}</p>
-      <div className="code-agents-run__meta">
-        <span>{progressLabel}</span>
-        <span>{progress}%</span>
-        <span>{formatRelativeTime(run.updatedAt)}</span>
-      </div>
-    </button>
+      <button
+        type="button"
+        className="code-agents-run"
+        onClick={onSelect}
+        onDoubleClick={onOpen}
+        title={getRunTitle(run) ?? undefined}
+      >
+        <div className="code-agents-run__topline">
+          <span className="code-agents-run__name">{getRunTitle(run)}</span>
+          <PhasePill run={run} />
+        </div>
+        <p className="code-agents-run__path">{getRunSubtitle(run)}</p>
+        <div className="code-agents-run__meta">
+          <span>{progressLabel}</span>
+          <span>{progress}%</span>
+          <span>{formatRelativeTime(run.updatedAt)}</span>
+        </div>
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={`code-agents-run-menu${
+              pinned ? " code-agents-run-menu--pinned" : ""
+            }`}
+            aria-label={pinned ? "Unpin session" : "Pin session"}
+            title={pinned ? "Unpin session" : "Pin session"}
+          >
+            {pinned ? (
+              <IconPinned size={13} strokeWidth={1.8} />
+            ) : (
+              <IconDots size={14} strokeWidth={1.8} />
+            )}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" side="right" sideOffset={8}>
+          <DropdownMenuItem onSelect={onTogglePin}>
+            {pinned ? (
+              <IconPinnedOff size={14} strokeWidth={1.8} />
+            ) : (
+              <IconPinned size={14} strokeWidth={1.8} />
+            )}
+            <span>{pinned ? "Unpin from top" : "Pin to top"}</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
@@ -2080,6 +2401,36 @@ function getRunTitle(run: CodeAgentRun | null): string | null {
   if (!run) return null;
   if (isMigrationRun(run)) return run.name;
   return run.title || run.id;
+}
+
+function getRunPinnedAt(run: CodeAgentRun): string | null {
+  const value = run.metadata?.[CODE_AGENT_PINNED_AT_METADATA_KEY];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isRunPinned(run: CodeAgentRun): boolean {
+  return Boolean(getRunPinnedAt(run));
+}
+
+function withRunPinnedAt(
+  run: CodeAgentRun,
+  pinnedAt: string | null,
+): CodeAgentRun {
+  return {
+    ...run,
+    metadata: {
+      ...(run.metadata ?? {}),
+      [CODE_AGENT_PINNED_AT_METADATA_KEY]: pinnedAt,
+    },
+  };
+}
+
+function sortPinnedRuns(runs: CodeAgentRun[]): CodeAgentRun[] {
+  return [...runs].sort((a, b) => {
+    const aPinnedAt = getRunPinnedAt(a) ?? a.updatedAt;
+    const bPinnedAt = getRunPinnedAt(b) ?? b.updatedAt;
+    return bPinnedAt.localeCompare(aPinnedAt);
+  });
 }
 
 function getRunSubtitle(run: CodeAgentRun): string {

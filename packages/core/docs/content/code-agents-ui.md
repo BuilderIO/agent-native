@@ -117,12 +117,12 @@ Browser hosts should return a graceful `openTerminal` error instead of trying to
 
 ## Shared Composer
 
-Agent-Native Code uses the same `PromptComposer` / `TiptapComposer` stack as
-the framework agent sidebar. Do not fork a separate textarea, upload picker,
-voice button, model picker, or Enter-to-submit implementation for Code-like
-surfaces. If a host needs one extra control, pass it through the shared
-composer extension points so the sidebar, Code UI, and Brain chat keep the same
-interaction model.
+Agent-Native Code uses the same `AgentComposerFrame` + `PromptComposer` /
+`TiptapComposer` stack as the framework agent sidebar. Do not fork a separate
+textarea, shell, upload picker, voice button, model picker, or Enter-to-submit
+implementation for Code-like surfaces. If a host needs one extra control, pass
+it through the shared composer extension points so the sidebar, Code UI, and
+Brain chat keep the same interaction model and visual field.
 
 Brain's Ask route uses `AgentChatSurface`, which is already backed by the
 standard sidebar composer. Code uses `PromptComposer` directly because the host

@@ -25,7 +25,7 @@ Set `AGENT_NATIVE_CODE_AGENTS_HOME` to isolate a custom store while developing t
 | `create-code-agent-run`       | Create a run and start local execution                        |
 | `read-code-agent-transcript`  | Read transcript events for a run                              |
 | `append-code-agent-follow-up` | Append a follow-up and resume execution                       |
-| `update-code-agent-run`       | Update run mode metadata                                      |
+| `update-code-agent-run`       | Update run mode and metadata, including sidebar pin state     |
 | `control-code-agent-run`      | Resume, refresh, or mark a run stopped                        |
 | `view-screen`                 | Return current screen state                                   |
 | `navigate`                    | Navigate the UI                                               |
@@ -65,14 +65,16 @@ interface CodeAgentsHost {
 
 Customize the app by editing the host adapter in `app/routes/_index.tsx` or replacing the action implementations. Keep UI and action parity: anything visible in the UI should remain callable as an action.
 
+Sidebar pinning is stored on each run's metadata as `pinnedAt` (ISO timestamp, or `null` to unpin). Use `update-code-agent-run` with `{ runId, metadata: { pinnedAt } }` when the agent needs to pin or unpin a session.
+
 Project commands and skills shown in the rail should be clickable insertion shortcuts. Commands insert `/<command>`, while skills insert a prompt that tells the agent to use that skill.
 
 Use the shared framework composer for all prompt entry. The Code UI should
-reuse `PromptComposer` / `TiptapComposer` from `@agent-native/core/client` so it
-inherits the same upload, voice, model/effort, slash/reference, and
-Enter-to-submit behavior as the agent sidebar and Brain chat. Add small
-host-specific controls through composer slots instead of introducing a second
-textarea implementation.
+reuse `AgentComposerFrame`, `PromptComposer`, and `TiptapComposer` from
+`@agent-native/core/client` so it inherits the same field shell, upload, voice,
+model/effort, slash/reference, and Enter-to-submit behavior as the agent
+sidebar and Brain chat. Add small host-specific controls through composer slots
+instead of introducing a second textarea or visual shell implementation.
 
 ## Limits
 

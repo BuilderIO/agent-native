@@ -44,7 +44,7 @@ export default function CodeAgentsHub({
         }
         return api.createRun(request);
       },
-      async listCodePacks() {
+      async listCodePacks(cwd?: string) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.listCodePacks) {
           return {
@@ -52,7 +52,40 @@ export default function CodeAgentsHub({
             error: "Desktop bridge is not available.",
           };
         }
-        return api.listCodePacks();
+        return api.listCodePacks(cwd);
+      },
+      async listProjects() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listProjects) {
+          return {
+            status: "unavailable",
+            projects: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.listProjects();
+      },
+      async selectProject(cwd) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.selectProject) {
+          return {
+            ok: false,
+            projects: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.selectProject(cwd);
+      },
+      async chooseProject() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.chooseProject) {
+          return {
+            ok: false,
+            projects: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.chooseProject();
       },
       async readTranscript(request) {
         const api = window.electronAPI?.codeAgents;

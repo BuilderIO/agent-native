@@ -58,6 +58,17 @@ export interface KnowledgeRow {
   status: KnowledgeStatus | "published" | "redacted" | "archived";
   confidence?: number;
   citations?: number;
+  evidence?: Array<{
+    captureId?: string | null;
+    captureTitle?: string | null;
+    quote?: string | null;
+    note?: string | null;
+    sourceUrl?: string | null;
+    url?: string | null;
+    timestampMs?: number | null;
+  }>;
+  publishedResourcePath?: string | null;
+  publishTier?: "private" | "team" | "company" | string;
   updatedAt?: string | null;
   owner?: string | null;
 }
