@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type Ref,
   type ReactNode,
 } from "react";
@@ -72,6 +73,9 @@ export interface PromptComposerProps {
   disabled?: boolean;
   autoFocus?: boolean;
   className?: string;
+  style?: CSSProperties;
+  rootClassName?: string;
+  rootStyle?: CSSProperties;
   /** Forwarded to TiptapComposer for draft persistence. */
   draftScope?: string;
   /** Keep the submitted prompt in the editor. Default: false. */
@@ -430,6 +434,9 @@ function PromptComposerInner({
   disabled,
   autoFocus,
   className,
+  style,
+  rootClassName,
+  rootStyle,
   draftScope,
   preserveDraftOnSubmit = false,
   showModelSelector = true,

@@ -7,6 +7,8 @@ export interface AgentComposerFrameProps {
   children: React.ReactNode;
   className?: string;
   rootClassName?: string;
+  style?: React.CSSProperties;
+  rootStyle?: React.CSSProperties;
   layoutVariant?: AgentComposerLayoutVariant;
   onClick?: React.MouseEventHandler<HTMLDivElement>;
 }
@@ -21,6 +23,8 @@ export function AgentComposerFrame({
   children,
   className,
   rootClassName,
+  style,
+  rootStyle,
   layoutVariant = "default",
   onClick,
 }: AgentComposerFrameProps) {
@@ -33,6 +37,7 @@ export function AgentComposerFrame({
         layoutVariant !== "default" && `agent-composer-area--${layoutVariant}`,
         className,
       )}
+      style={style}
       onClick={onClick}
     >
       <ComposerPrimitive.Root
@@ -44,6 +49,7 @@ export function AgentComposerFrame({
             `agent-composer-root--${layoutVariant}`,
           rootClassName,
         )}
+        style={rootStyle}
       >
         {children}
       </ComposerPrimitive.Root>

@@ -1121,7 +1121,7 @@ body {
   flex: 0 0 auto;
 }
 
-.settings-builder-connect-button svg:first-child {
+.settings-builder-connect-spinner {
   animation: spin 0.8s linear infinite;
 }
 

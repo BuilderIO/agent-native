@@ -245,9 +245,7 @@ export async function clearRemoteSessionToken(): Promise<void> {
   await AsyncStorage.removeItem(SESSION_TOKEN_KEY);
 }
 
-export function isRemoteAuthError(
-  result: RemoteApiResult<unknown>,
-): boolean {
+export function isRemoteAuthError(result: RemoteApiResult<unknown>): boolean {
   return result.status === 401;
 }
 
@@ -288,8 +286,8 @@ async function remoteFetch<T>(
               ? "Remote sessions are not available on this relay yet."
               : messageFromPayload(
                   payload,
-                `Request failed (${response.status}).`,
-              ),
+                  `Request failed (${response.status}).`,
+                ),
       };
     }
     return { ok: true, status: response.status, data: payload as T };

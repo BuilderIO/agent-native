@@ -111,6 +111,17 @@ function providerStatusCopy(provider: CodeAgentProviderStatus | undefined): {
   };
 }
 
+function builderConnectErrorMessage(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (
+    message.includes("No handler registered") ||
+    message.includes("code-agents:provider-builder:connect")
+  ) {
+    return "Restart Agent Native Desktop to finish enabling Builder connect.";
+  }
+  return message;
+}
+
 interface CodeProviderSettingsProps {
   settings: CodeAgentProviderSettings;
   onSettingsChanged: (settings: CodeAgentProviderSettings) => void;
@@ -170,16 +181,21 @@ export function CodeProviderSettings({
 
   const handleConnectBuilder = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
-    if (!api?.connectBuilderProvider) return;
-    setBuilderConnecting(true);
     setProviderMessage(null);
+    if (!api?.connectBuilderProvider) {
+      setProviderMessage(
+        "Restart Agent Native Desktop to finish enabling Builder connect.",
+      );
+      return;
+    }
+    setBuilderConnecting(true);
     try {
       const result = await api.connectBuilderProvider();
       onSettingsChanged(result.settings);
       setProviderMessage(result.error ?? result.message);
       onProvidersChanged?.();
     } catch (err) {
-      setProviderMessage(err instanceof Error ? err.message : String(err));
+      setProviderMessage(builderConnectErrorMessage(err));
     } finally {
       setBuilderConnecting(false);
     }
@@ -288,7 +304,10 @@ export function CodeProviderSettings({
           >
             {builderConnecting ? (
               <>
-                <IconLoader2 size={13} />
+                <IconLoader2
+                  size={13}
+                  className="settings-builder-connect-spinner"
+                />
                 Waiting...
               </>
             ) : (

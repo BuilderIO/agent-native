@@ -240,36 +240,50 @@ async function controlLocalCodeBackgroundAgentRun(
         error: approved ? undefined : `Run not found: ${run.id}`,
       };
     }
-    case "resume": {
-      const resumed = await executeExistingCodeAgentRun(run.id, {
-        stdout: input.stdout,
-      });
-      return {
-        ok: Boolean(resumed),
-        runId: run.id,
-        run: resumed
-          ? toBackgroundAgentRun(resumed)
-          : currentBackgroundRun(run.id),
-        message: resumed ? "Agent-Native Code run resumed." : undefined,
-        error: resumed ? undefined : `Run not found: ${run.id}`,
-      };
-    }
+    case "resume":
     case "retry": {
-      const retried = await executeExistingCodeAgentRun(run.id, {
+      // A control action must return immediately — awaiting
+      // executeExistingCodeAgentRun() runs the entire code session
+      // (potentially minutes), which times out the HTTP/IPC caller.
+      // Kick the run off in the background; progress is surfaced via the
+      // transcript/poll, exactly like the initial run start.
+      void executeExistingCodeAgentRun(run.id, {
         stdout: input.stdout,
+      }).catch((err) => {
+        appendCodeAgentTranscriptEvent({
+          runId: run.id,
+          kind: "status",
+          message: `Background ${input.command} failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+          metadata: {
+            source: "background-agent-controller",
+            command: input.command,
+            failed: true,
+          },
+        });
       });
       return {
-        ok: Boolean(retried),
+        ok: true,
         runId: run.id,
-        run: retried
-          ? toBackgroundAgentRun(retried)
-          : currentBackgroundRun(run.id),
-        message: retried ? "Agent-Native Code run retried." : undefined,
-        error: retried ? undefined : `Run not found: ${run.id}`,
+        run: currentBackgroundRun(run.id),
+        message:
+          input.command === "resume"
+            ? "Agent-Native Code run resuming in the background."
+            : "Agent-Native Code run retrying in the background.",
       };
     }
     case "stop":
       return stopLocalCodeBackgroundAgentRun(run.id);
+    default: {
+      const exhaustive: never = input.command;
+      return {
+        ok: false,
+        runId: run.id,
+        run: currentBackgroundRun(run.id),
+        error: `Unsupported control command: ${String(exhaustive)}`,
+      };
+    }
   }
 }
 

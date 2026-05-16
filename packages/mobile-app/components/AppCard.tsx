@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import type { AppConfig } from "@agent-native/shared-app-config";
 
 const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
@@ -9,7 +9,6 @@ const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   BarChart2: "bar-chart-2",
   GalleryHorizontal: "layout",
   Video: "video",
-  Brain: "database",
   Image: "image",
   Globe: "globe",
   Code: "code",
@@ -20,6 +19,22 @@ const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
 
 function getFeatherIcon(iconName: string): keyof typeof Feather.glyphMap {
   return ICON_MAP[iconName] ?? "box";
+}
+
+function AppIcon({
+  iconName,
+  size,
+  color,
+}: {
+  iconName: string;
+  size: number;
+  color: string;
+}) {
+  if (iconName === "Brain") {
+    return <MaterialCommunityIcons name="brain" size={size} color={color} />;
+  }
+
+  return <Feather name={getFeatherIcon(iconName)} size={size} color={color} />;
 }
 
 interface AppCardProps {
@@ -37,7 +52,7 @@ export default function AppCard({ app, onPress, onLongPress }: AppCardProps) {
       activeOpacity={0.7}
     >
       <View style={styles.iconContainer}>
-        <Feather name={getFeatherIcon(app.icon)} size={28} color="#ffffff" />
+        <AppIcon iconName={app.icon} size={28} color="#ffffff" />
       </View>
       <Text style={styles.name} numberOfLines={1}>
         {app.name}

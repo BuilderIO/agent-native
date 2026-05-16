@@ -14,7 +14,7 @@ export default defineAction({
   schema: z.object({
     goalId: z.string().optional(),
     runId: z.string().min(1),
-    command: z.enum(["resume", "status", "stop"]),
+    command: z.enum(["approve", "resume", "status", "stop"]),
     permissionMode: z.string().optional(),
   }),
   run: async (args) => {
@@ -39,18 +39,26 @@ export default defineAction({
       });
     }
 
-    if (args.command === "stop" || args.command === "resume") {
+    if (
+      args.command === "stop" ||
+      args.command === "resume" ||
+      args.command === "approve"
+    ) {
       const result = await localCodeBackgroundAgentController.control({
         runId: args.runId,
         command: args.command,
       });
+      const defaultMessage =
+        args.command === "resume"
+          ? "Session resumed"
+          : args.command === "approve"
+            ? "Approval executed"
+            : "Run stopped";
       return {
         ok: result.ok,
         command: args.command,
         action: "refresh" as const,
-        message:
-          result.message ??
-          (args.command === "resume" ? "Session resumed" : "Run stopped"),
+        message: result.message ?? defaultMessage,
         error: result.error,
         run: result.run ? backgroundRunToUiRun(result.run) : undefined,
       };

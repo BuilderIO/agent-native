@@ -4450,7 +4450,17 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
           );
         }
       });
-      authWindow.loadURL(authUrl);
+      authWindow.show();
+      authWindow.focus();
+      authWindow.moveTop();
+      authWindow.loadURL(authUrl).catch((err) => {
+        finish({
+          ok: false,
+          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          message: "Could not open Builder.io connect.",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
       timeout = setTimeout(() => {
         finish({
           ok: false,

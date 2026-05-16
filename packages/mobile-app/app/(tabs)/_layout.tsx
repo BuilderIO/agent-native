@@ -9,7 +9,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { Tabs, useRouter } from "expo-router";
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import type { AppConfig } from "@agent-native/shared-app-config";
 import { useApps } from "../../lib/use-apps";
 
@@ -20,7 +20,6 @@ const APP_ID_TO_TAB: Record<string, string> = {
   content: "content",
   slides: "slides",
   clips: "clips",
-  brain: "brain",
   analytics: "analytics",
   forms: "forms",
   design: "design",
@@ -35,7 +34,6 @@ const APP_ICON: Record<string, keyof typeof Feather.glyphMap> = {
   content: "file-text",
   slides: "airplay",
   clips: "cast",
-  brain: "database",
   analytics: "bar-chart-2",
   dispatch: "message-circle",
   forms: "clipboard",
@@ -44,6 +42,24 @@ const APP_ICON: Record<string, keyof typeof Feather.glyphMap> = {
 };
 
 const MAX_VISIBLE_APPS = 4;
+
+function AppIcon({
+  appId,
+  size,
+  color,
+}: {
+  appId: string;
+  size: number;
+  color: string;
+}) {
+  if (appId === "brain") {
+    return <MaterialCommunityIcons name="brain" size={size} color={color} />;
+  }
+
+  return (
+    <Feather name={APP_ICON[appId] ?? "globe"} size={size} color={color} />
+  );
+}
 
 export default function TabLayout() {
   const { enabledApps } = useApps();
@@ -177,18 +193,6 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="brain"
-          options={{
-            title: "Brain",
-            headerShown: false,
-            href: hrefFor("brain"),
-            tabBarItemStyle: itemStyleFor("brain"),
-            tabBarIcon: ({ color, size }) => (
-              <Feather name="database" size={size} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
           name="index"
           options={{
             title: "Mail",
@@ -314,7 +318,6 @@ export default function TabLayout() {
                 </Text>
               ) : (
                 overflowApps.map((app) => {
-                  const iconName = APP_ICON[app.id] ?? "globe";
                   return (
                     <TouchableOpacity
                       key={app.id}
@@ -322,7 +325,7 @@ export default function TabLayout() {
                       onPress={() => openOverflowApp(app)}
                     >
                       <View style={styles.iconWrap}>
-                        <Feather name={iconName} size={18} color="#ffffff" />
+                        <AppIcon appId={app.id} size={18} color="#ffffff" />
                       </View>
                       <Text style={styles.rowText}>{app.name}</Text>
                       <Feather name="chevron-right" size={18} color="#555555" />
