@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.1
+
+### Patch Changes
+
+- dbf8db4: Make the Dispatch source health column migration idempotent on temp workspace boot.
+
 ## 0.8.0
 
 ### Minor Changes
