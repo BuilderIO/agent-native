@@ -66,9 +66,10 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
     (text: string) => {
       setState("processing");
       try {
-        // Open the agent sidebar now that the voice message is captured
+        // Open the agent sidebar now that the voice message is captured.
+        // Always open a fresh chat tab so each voice command gets its own thread.
         window.dispatchEvent(new Event("agent-panel:open"));
-        sendToAgent({ message: text, submit: true });
+        sendToAgent({ message: text, submit: true, newTab: true });
         // Timeout fallback: if sidebar is closed or event never fires,
         // don't leave the mic stuck in processing forever
         setTimeout(() => {
