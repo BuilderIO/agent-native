@@ -49,7 +49,7 @@ is still written for old clients and batch provider preferences:
 | `mac-native`      | Native macOS/Tauri speech path; web clients normalize to browser-native where needed | No                           |
 | `google-realtime` | Dedicated WebSocket → Google Speech-to-Text gRPC `StreamingRecognize` path | `GOOGLE_APPLICATION_CREDENTIALS` |
 | `batch`           | Upload audio after stop through the existing batch route       | Builder/Gemini/Groq/OpenAI depending on fallback |
-| `auto` provider   | Existing batch fallback chain                                  | Any configured batch provider |
+| `auto` provider   | Browser SpeechRecognition when supported; server batch fallback chain otherwise | No key needed in browsers that support SpeechRecognition |
 | `builder-gemini`  | Builder Gemini Flash-Lite batch/cleanup preference             | Builder.io account connected |
 | `gemini`          | Direct Google Gemini BYOK batch/cleanup preference             | `GEMINI_API_KEY`             |
 | `groq`            | Groq Whisper batch preference                                  | `GROQ_API_KEY`               |
@@ -58,7 +58,12 @@ is still written for old clients and batch provider preferences:
 
 Default behavior:
 
-- The shared web settings/composer default to Batch / `auto`.
+- The shared web settings/composer default to Batch / `auto`. In `auto` mode,
+  `useVoiceDictation` uses `startBrowser()` (Web Speech API, no key required,
+  incremental streaming) when the browser supports `SpeechRecognition`. It only
+  falls back to the MediaRecorder → server upload path when `SpeechRecognition`
+  is not available (e.g. Firefox). This means dictation works out of the box in
+  Chrome, Edge, and Safari without any API key configuration.
 - Dedicated macOS Tauri-native surfaces may save `mac-native`, but do not
   assume the shared React settings default to it.
 - Old stored `builder` values are treated as `builder-gemini`.
