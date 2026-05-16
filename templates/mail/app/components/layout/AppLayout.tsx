@@ -69,11 +69,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  mailLabelsInclude,
-  mailLabelsIncludeAny,
-  normalizeMailLabel,
-} from "@shared/gmail-labels";
+import { normalizeMailLabel } from "@shared/gmail-labels";
+import { qualifiesForInboxTab, pinnedTriageLabels } from "@/lib/inbox-tabs";
 
 const BARE_ROUTES = new Set(["/email"]);
 
@@ -336,13 +333,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       }
     }
     const threadRows = [...threadState.values()];
-    const hasPinnedFilters = pinnedLabels.some(
-      (id) => !collapsibleViews.some((v) => v.id === id),
-    );
-    const inboxRows = threadRows.filter(
-      ({ latest }) =>
-        !hasPinnedFilters ||
-        !mailLabelsIncludeAny(latest.labelIds, pinnedLabels),
+    const triageLabels = pinnedTriageLabels(pinnedLabels);
+    // "Other" = the inbox remainder. Shared with the rendered list
+    // (InboxPage) via qualifiesForInboxTab so a tab's badge can never
+    // disagree with the emails it actually shows.
+    const inboxRows = threadRows.filter(({ latest }) =>
+      qualifiesForInboxTab(latest.labelIds, null, triageLabels),
     );
     total["__inboxTotal"] = threadRows.length;
     unread["__inboxTotal"] = threadRows.filter(
@@ -350,23 +346,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     ).length;
     total["inbox"] = inboxRows.length;
     unread["inbox"] = inboxRows.filter(({ hasUnread }) => hasUnread).length;
-    // Count threads per pinned label: latest message must have that label
-    // For "important", exclude threads that belong to any other pinned tab
+    // Count threads per pinned label using the exact same membership rule as
+    // the rendered list: latest message has the label; "important" is
+    // exclusive of any other pinned tab.
     for (let i = 0; i < pinnedLabels.length; i++) {
       const full = pinnedLabels[i];
-      const hasLabel = (e: (typeof filtered)[0]) =>
-        mailLabelsInclude(e.labelIds, full);
-      let rows: typeof threadRows;
-      if (full === "important") {
-        const otherPinnedLabels = pinnedLabels.filter((_, j) => j !== i);
-        rows = threadRows.filter(
-          ({ latest }) =>
-            hasLabel(latest) &&
-            !mailLabelsIncludeAny(latest.labelIds, otherPinnedLabels),
-        );
-      } else {
-        rows = threadRows.filter(({ latest }) => hasLabel(latest));
-      }
+      const rows = threadRows.filter(({ latest }) =>
+        qualifiesForInboxTab(latest.labelIds, full, triageLabels),
+      );
       total[full] = rows.length;
       unread[full] = rows.filter(({ hasUnread }) => hasUnread).length;
       // Also index by the canonical label.id (which uses spaces, not

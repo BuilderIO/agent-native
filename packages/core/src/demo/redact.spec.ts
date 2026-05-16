@@ -90,15 +90,38 @@ describe("full names", () => {
     expect(typeof out).toBe("string");
   });
 
-  it("replaces a single-token value under a name key", () => {
-    const out = redactDemoData(
-      { from: "Cher", name: "Madonna", note: "Madonna" },
+  it("does not mangle label/tab names under a name key", () => {
+    const labels = redactDemoData(
+      [
+        { name: "Important", count: 4200 },
+        { name: "Automated notifications" },
+        { name: "Note to Self" },
+        { name: "Other" },
+        { name: "Olivia Parker" }, // a real person name still gets faked
+      ],
       { salt: "s" },
-    ) as { from: string; name: string; note: string };
-    expect(out.from).not.toBe("Cher");
-    expect(out.from).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
-    expect(out.name).not.toBe("Madonna");
-    // Lone word in a non-name field stays (single capitalized prose word).
+    ) as Array<{ name: string; count?: number }>;
+    expect(labels[0].name).toBe("Important");
+    expect(labels[0].count).not.toBe(4200); // numbers still redacted
+    expect(labels[1].name).toBe("Automated notifications");
+    expect(labels[2].name).toBe("Note to Self");
+    expect(labels[3].name).toBe("Other");
+    expect(labels[4].name).not.toBe("Olivia Parker");
+    expect(labels[4].name).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
+  });
+
+  it("leaves single-token name-key values alone; still fakes 2+ word names", () => {
+    const out = redactDemoData(
+      { from: "Cher", name: "Madonna", full: "Jane Cooper", note: "Madonna" },
+      { salt: "s" },
+    ) as { from: string; name: string; full: string; note: string };
+    // Single first name under a name key — user explicitly OK keeping these.
+    expect(out.from).toBe("Cher");
+    expect(out.name).toBe("Madonna");
+    // A genuine 2-word name under a name key is still faked.
+    expect(out.full).not.toBe("Jane Cooper");
+    expect(out.full).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
+    // Single capitalized word in a non-name field stays.
     expect(out.note).toBe("Madonna");
   });
 });
