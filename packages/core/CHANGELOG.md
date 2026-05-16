@@ -1,5 +1,22 @@
 # @agent-native/core
 
+## 0.16.3
+
+### Patch Changes
+
+- dbf8db4: Tag Builder connect URLs with Agent Native signup source and flow attribution.
+- dbf8db4: Expose Agent Teams background runs through agent-chat Code hub-compatible run APIs.
+- dbf8db4: Deliver queued Agent Teams messages to running sub-agents at safe continuation points.
+- dbf8db4: Allow templates to answer inbound A2A messages through a deterministic fallback before loading an agent engine.
+- dbf8db4: Add regression coverage for public A2A skills built from static action registries.
+- dbf8db4: Expose local Agent-Native Code sessions through a shared background-agent run adapter.
+- dbf8db4: Improve the Agent-Native Code shell intro and status context.
+- dbf8db4: Polish the shared composer model menu and Code agent credential handling.
+- dbf8db4: Add a reusable provider reader metadata registry for workspace connections.
+- dbf8db4: Add a minimal provider reader runtime contract for granted workspace connections.
+- dbf8db4: Track last-used audit metadata for reusable workspace connections and grants.
+- dbf8db4: Add reusable runtime credential resolution for granted workspace connections.
+
 ## 0.16.2
 
 ### Patch Changes
