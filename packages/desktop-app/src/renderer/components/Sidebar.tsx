@@ -24,6 +24,11 @@ import {
 import type { AppDefinition } from "@shared/app-registry";
 import { UpdateIndicator } from "./UpdateIndicator.js";
 
+const agentNativeIconUrl = new URL(
+  "../assets/agent-native-icon-dark.svg",
+  import.meta.url,
+).href;
+
 // Map icon name strings (from shared-app-config) to Tabler components
 const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   Mail: IconMail,
@@ -51,6 +56,8 @@ interface SidebarProps {
   activeAppId: string;
   onTabChange: (appId: string) => void;
   onAddAppClick?: () => void;
+  isCodeAgentsActive?: boolean;
+  onCodeAgentsClick?: () => void;
   onSettingsClick?: () => void;
 }
 
@@ -59,6 +66,8 @@ export default function Sidebar({
   activeAppId,
   onTabChange,
   onAddAppClick,
+  isCodeAgentsActive = false,
+  onCodeAgentsClick,
   onSettingsClick,
 }: SidebarProps) {
   const pinnedBottomOrder = ["dispatch"];
@@ -108,6 +117,26 @@ export default function Sidebar({
       {/* Footer: update indicator (when relevant) + settings */}
       <div className="sidebar-footer">
         <UpdateIndicator />
+        {onCodeAgentsClick && (
+          <button
+            className={`sidebar-item${isCodeAgentsActive ? " sidebar-item--active" : ""}`}
+            tabIndex={-1}
+            onClick={onCodeAgentsClick}
+            title="Agent-Native Code"
+            aria-label="Agent-Native Code"
+            aria-current={isCodeAgentsActive ? "page" : undefined}
+          >
+            <span className="icon-wrapper">
+              <img
+                src={agentNativeIconUrl}
+                alt=""
+                aria-hidden="true"
+                className="sidebar-agent-native-icon"
+              />
+            </span>
+            <span className="item-label">Code</span>
+          </button>
+        )}
         {onSettingsClick && (
           <button
             className="sidebar-item"

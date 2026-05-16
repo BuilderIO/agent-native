@@ -204,6 +204,7 @@ async function createWorkspaceInteractive(
         workspaceRoot: targetDir,
         workspaceCoreName,
         coreDependencyVersion: getCoreDependencyVersion(),
+        dispatchDependencyVersion: getDispatchDependencyVersion(),
       });
       fixPackageJsonName(appDir, t);
       rewriteNetlifyToml(appDir, t, "workspace");
@@ -479,6 +480,7 @@ async function scaffoldOneAppIntoWorkspace(
       workspaceRoot: workspace.workspaceRoot,
       workspaceCoreName: workspace.workspaceCoreName,
       coreDependencyVersion: getCoreDependencyVersion(),
+      dispatchDependencyVersion: getDispatchDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName, templateName);
     rewriteNetlifyToml(appDir, appName, "workspace");
@@ -1000,6 +1002,7 @@ export {
   renameGitignore as _renameGitignore,
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
+  getDispatchDependencyVersion as _getDispatchDependencyVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
@@ -1183,6 +1186,15 @@ function getCoreDependencyVersion(): string {
   // published. The dist-tag resolves to the newest released core today and to
   // this package version once the release goes live. Local file deps are
   // intentionally opt-in so scaffolded repos remain portable by default.
+  return "latest";
+}
+
+function getDispatchDependencyVersion(): string {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
+    const localDispatch = findLocalPackage("dispatch");
+    if (localDispatch) return pathToFileURL(localDispatch).href;
+  }
+
   return "latest";
 }
 

@@ -18,6 +18,12 @@ This keeps the main thread focused, lets sub-agents run in parallel, and gives y
 
 Sub-agent state is persisted in the `application_state` SQL table (under `agent-task:<taskId>`), so tasks survive serverless cold starts and work across multiple processes.
 
+Agent Teams runs on the same core `run-manager` harness as hosted agent chat:
+events are streamed and persisted, aborts propagate through SQL, heartbeats mark
+active work, and stale runs can be reaped consistently. New background-agent UIs
+should reuse `run-manager` or `spawnTask()` instead of introducing a separate
+runner with its own lifecycle rules.
+
 ## When to spawn a sub-agent {#when-to-spawn}
 
 Spawn when the task:

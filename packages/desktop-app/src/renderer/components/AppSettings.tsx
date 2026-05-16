@@ -11,13 +11,8 @@ import {
   IconWorld,
   IconTerminal2,
 } from "@tabler/icons-react";
-import type { AppConfig, TemplateMeta } from "@shared/app-registry";
-import {
-  generateAppId,
-  visibleTemplates,
-  DEFAULT_APPS,
-  templateToAppConfig,
-} from "@shared/app-registry";
+import type { AppConfig } from "@shared/app-registry";
+import { generateAppId } from "@shared/app-registry";
 
 interface FrameSettings {
   enabled: boolean;
@@ -32,6 +27,8 @@ interface AppSettingsProps {
   onAddAppClick?: () => void;
 }
 
+type RemoteStatusTone = "ok" | "pending" | "offline" | "error";
+
 function inferPortFromUrl(url: string): number {
   try {
     const parsed = new URL(url);
@@ -44,6 +41,87 @@ function inferPortFromUrl(url: string): number {
   return 0;
 }
 
+function appUrlForRemotePairing(app: AppConfig): string {
+  if ((app.mode ?? "prod") === "dev") {
+    return app.devUrl || (app.devPort ? `http://localhost:${app.devPort}` : "");
+  }
+  return app.url || app.devUrl || "";
+}
+
+function defaultRemoteRelayUrl(apps: AppConfig[]): string {
+  const app =
+    apps.find((item) => item.id === "dispatch" && Boolean(item.url)) ??
+    apps.find((item) => Boolean(item.url)) ??
+    apps.find((item) => Boolean(item.devUrl || item.devPort)) ??
+    apps[0];
+  return app ? appUrlForRemotePairing(app) : "";
+}
+
+function hostForDisplay(url: string | undefined): string {
+  if (!url) return "";
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+function remoteStatusCopy(status: CodeAgentRemoteConnectorStatus | null): {
+  label: string;
+  description: string;
+  tone: RemoteStatusTone;
+} {
+  if (!status) {
+    return {
+      label: "Checking",
+      description: "Reading remote-control status.",
+      tone: "pending",
+    };
+  }
+  if (!status.configured) {
+    return {
+      label: "Offline",
+      description: "Pair this computer with an Agent-Native app.",
+      tone: "offline",
+    };
+  }
+  if (!status.enabled) {
+    return {
+      label: "Off",
+      description: "Remote requests are paused on this computer.",
+      tone: "offline",
+    };
+  }
+  if (status.state === "error") {
+    return {
+      label: "Error",
+      description: status.error ?? "Remote control needs attention.",
+      tone: "error",
+    };
+  }
+  if (status.state === "running") {
+    return {
+      label: "Polling",
+      description: `Connected to ${hostForDisplay(status.relayUrl)}.`,
+      tone: "ok",
+    };
+  }
+  if (status.state === "starting") {
+    return {
+      label: "Connecting",
+      description: status.nextRestartAt
+        ? "Waiting to retry the remote connector."
+        : "Starting remote control.",
+      tone: "pending",
+    };
+  }
+  return {
+    label: "Offline",
+    description: "Remote control is not currently polling.",
+    tone: "offline",
+  };
+}
+
 export default function AppSettings({
   apps,
   onClose,
@@ -51,11 +129,16 @@ export default function AppSettings({
   onAddAppClick,
 }: AppSettingsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
     null,
   );
+  const [remoteStatus, setRemoteStatus] =
+    useState<CodeAgentRemoteConnectorStatus | null>(null);
+  const [remotePairUrl, setRemotePairUrl] = useState("");
+  const [remotePairing, setRemotePairing] = useState(false);
+  const [showRemotePairing, setShowRemotePairing] = useState(false);
+  const [remoteMessage, setRemoteMessage] = useState<string | null>(null);
 
   // Load frame settings
   useEffect(() => {
@@ -63,6 +146,28 @@ export default function AppSettings({
       window.electronAPI.frame.load().then(setFrameSettings);
     }
   }, []);
+
+  const refreshRemoteStatus = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.getRemoteConnectorStatus) return;
+    try {
+      const status = await api.getRemoteConnectorStatus();
+      setRemoteStatus(status);
+      setRemoteMessage(null);
+      setRemotePairUrl(
+        (current) => current || status.relayUrl || defaultRemoteRelayUrl(apps),
+      );
+      if (!status.configured) setShowRemotePairing(true);
+    } catch (err) {
+      setRemoteMessage(err instanceof Error ? err.message : String(err));
+    }
+  }, [apps]);
+
+  useEffect(() => {
+    void refreshRemoteStatus();
+    const timer = window.setInterval(() => void refreshRemoteStatus(), 5000);
+    return () => window.clearInterval(timer);
+  }, [refreshRemoteStatus]);
 
   const handleFrameToggle = useCallback(async (enabled: boolean) => {
     if (window.electronAPI?.frame) {
@@ -77,6 +182,34 @@ export default function AppSettings({
       setFrameSettings(updated);
     }
   }, []);
+
+  const handleRemoteToggle = useCallback(async (enabled: boolean) => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.setRemoteConnectorEnabled) return;
+    const result = await api.setRemoteConnectorEnabled(enabled);
+    setRemoteStatus(result.status);
+    setRemoteMessage(result.error ?? null);
+  }, []);
+
+  const handleRemotePair = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.pairRemoteConnector || !remotePairUrl.trim()) return;
+    setRemotePairing(true);
+    setRemoteMessage(null);
+    try {
+      const result = await api.pairRemoteConnector({
+        relayUrl: remotePairUrl.trim(),
+        label: "Agent Native Desktop",
+      });
+      setRemoteStatus(result.status);
+      setRemoteMessage(result.error ?? result.message ?? null);
+      if (result.ok) setShowRemotePairing(false);
+    } catch (err) {
+      setRemoteMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRemotePairing(false);
+    }
+  }, [remotePairUrl]);
 
   const handleToggle = useCallback(
     async (id: string, enabled: boolean) => {
@@ -162,6 +295,7 @@ export default function AppSettings({
   );
 
   const editingApp = editingId ? apps.find((a) => a.id === editingId) : null;
+  const remoteCopy = remoteStatusCopy(remoteStatus);
 
   return (
     <div className="settings-overlay" onClick={onClose}>
@@ -204,6 +338,85 @@ export default function AppSettings({
             </div>
           )}
 
+          <div
+            className={`settings-remote-card settings-remote-card--${remoteCopy.tone}`}
+          >
+            <div className="settings-remote-row">
+              <div className="settings-remote-title">
+                <span
+                  className={`settings-remote-dot settings-remote-dot--${remoteCopy.tone}`}
+                />
+                <div>
+                  <span className="settings-mode-card-title">
+                    Remote Control
+                  </span>
+                  <span className="settings-mode-card-status">
+                    {remoteCopy.label} · {remoteCopy.description}
+                  </span>
+                </div>
+              </div>
+              <label
+                className="settings-toggle"
+                title={
+                  remoteStatus?.enabled
+                    ? "Turn remote control off"
+                    : "Turn remote control on"
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(remoteStatus?.enabled)}
+                  onChange={(e) => handleRemoteToggle(e.target.checked)}
+                />
+                <span className="settings-toggle-track" />
+              </label>
+            </div>
+
+            {remoteStatus?.relayUrl && (
+              <div className="settings-remote-meta">
+                <span>{hostForDisplay(remoteStatus.relayUrl)}</span>
+                {remoteStatus.pid && <span>PID {remoteStatus.pid}</span>}
+                {remoteStatus.restartCount > 0 && (
+                  <span>{remoteStatus.restartCount} retries</span>
+                )}
+              </div>
+            )}
+
+            {remoteMessage && (
+              <div className="settings-remote-message">{remoteMessage}</div>
+            )}
+
+            <button
+              type="button"
+              className="settings-remote-link"
+              onClick={() => setShowRemotePairing((value) => !value)}
+            >
+              {showRemotePairing ? "Hide pairing" : "Pair or repair"}
+            </button>
+
+            {showRemotePairing && (
+              <div className="settings-remote-pairing">
+                <input
+                  type="url"
+                  value={remotePairUrl}
+                  onChange={(e) => setRemotePairUrl(e.target.value)}
+                  placeholder="https://dispatch.agent-native.com"
+                />
+                <button
+                  type="button"
+                  className="settings-btn settings-btn--primary"
+                  onClick={handleRemotePair}
+                  disabled={remotePairing || !remotePairUrl.trim()}
+                >
+                  {remotePairing ? "Pairing..." : "Pair This Mac"}
+                </button>
+                <span className="settings-field-hint">
+                  Use an app you are signed into inside Desktop.
+                </span>
+              </div>
+            )}
+          </div>
+
           {/* Disclosure */}
           <button
             type="button"
@@ -220,47 +433,6 @@ export default function AppSettings({
 
           {showAdvanced && (
             <>
-              {/* Local Dev Frame */}
-              {frameSettings && (
-                <div className="settings-section">
-                  <h3>Code Editing Frame</h3>
-                  <div className="settings-app-row">
-                    <div className="settings-app-info">
-                      <span className="settings-app-name">
-                        Code editing frame
-                      </span>
-                      <span className="settings-app-url">
-                        Chat + CLI sidebar for code editing
-                      </span>
-                    </div>
-                    <div className="settings-app-actions">
-                      <div className="settings-mode-toggle">
-                        <button
-                          className={`settings-mode-btn${frameSettings.mode === "prod" ? " settings-mode-btn--active" : ""}`}
-                          onClick={() => handleFrameModeToggle("prod")}
-                        >
-                          Prod
-                        </button>
-                        <button
-                          className={`settings-mode-btn${frameSettings.mode === "dev" ? " settings-mode-btn--active" : ""}`}
-                          onClick={() => handleFrameModeToggle("dev")}
-                        >
-                          Dev
-                        </button>
-                      </div>
-                      <label className="settings-toggle">
-                        <input
-                          type="checkbox"
-                          checked={frameSettings.enabled}
-                          onChange={(e) => handleFrameToggle(e.target.checked)}
-                        />
-                        <span className="settings-toggle-track" />
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* App list */}
               <div className="settings-section">
                 <h3>Installed Apps</h3>
@@ -318,6 +490,42 @@ export default function AppSettings({
                     </div>
                   </div>
                 ))}
+                {frameSettings && (
+                  <div className="settings-app-row">
+                    <div className="settings-app-info">
+                      <span className="settings-app-name">
+                        Code editing frame
+                      </span>
+                      <span className="settings-app-url">
+                        Chat + CLI sidebar for code editing
+                      </span>
+                    </div>
+                    <div className="settings-app-actions">
+                      <div className="settings-mode-toggle">
+                        <button
+                          className={`settings-mode-btn${frameSettings.mode === "prod" ? " settings-mode-btn--active" : ""}`}
+                          onClick={() => handleFrameModeToggle("prod")}
+                        >
+                          Prod
+                        </button>
+                        <button
+                          className={`settings-mode-btn${frameSettings.mode === "dev" ? " settings-mode-btn--active" : ""}`}
+                          onClick={() => handleFrameModeToggle("dev")}
+                        >
+                          Dev
+                        </button>
+                      </div>
+                      <label className="settings-toggle">
+                        <input
+                          type="checkbox"
+                          checked={frameSettings.enabled}
+                          onChange={(e) => handleFrameToggle(e.target.checked)}
+                        />
+                        <span className="settings-toggle-track" />
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Add / Reset */}
@@ -329,12 +537,6 @@ export default function AppSettings({
                   <IconPlus size={15} /> Add App
                 </button>
                 <button
-                  className="settings-btn"
-                  onClick={() => setShowTemplatePicker(true)}
-                >
-                  <IconPlus size={15} /> Add First-Party App
-                </button>
-                <button
                   className="settings-btn settings-btn--danger"
                   onClick={handleReset}
                 >
@@ -344,28 +546,6 @@ export default function AppSettings({
             </>
           )}
         </div>
-
-        {/* Template picker */}
-        {showTemplatePicker && (
-          <TemplatePicker
-            installedIds={new Set(apps.map((a) => a.id))}
-            onPick={async (template) => {
-              const preset = DEFAULT_APPS.find((a) => a.id === template.name);
-              const next: AppConfig = preset
-                ? { ...preset, enabled: true }
-                : templateToAppConfig(template, {
-                    isBuiltIn: false,
-                    enabled: true,
-                  });
-              if (window.electronAPI?.appConfig) {
-                const updated = await window.electronAPI.appConfig.add(next);
-                onAppsChanged(updated);
-              }
-              setShowTemplatePicker(false);
-            }}
-            onCancel={() => setShowTemplatePicker(false)}
-          />
-        )}
 
         {/* Inline edit form */}
         {editingApp && (
@@ -649,79 +829,6 @@ function AppEditForm({
           </button>
         </div>
       </form>
-    </div>
-  );
-}
-
-// ─── Template picker ─────────────────────────────────────────────
-
-function TemplatePicker({
-  installedIds,
-  onPick,
-  onCancel,
-}: {
-  installedIds: Set<string>;
-  onPick: (template: TemplateMeta) => void;
-  onCancel: () => void;
-}) {
-  const available = visibleTemplates().filter((t) => !installedIds.has(t.name));
-
-  return (
-    <div className="settings-form-overlay" onClick={onCancel}>
-      <div
-        className="settings-form"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 520 }}
-      >
-        <h3>Add First-Party App</h3>
-        {available.length === 0 ? (
-          <p style={{ color: "var(--muted, #6b7280)" }}>
-            Every first-party template is already installed. Use "Add App" for
-            external apps.
-          </p>
-        ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr",
-              gap: 6,
-              maxHeight: 420,
-              overflowY: "auto",
-            }}
-          >
-            {available.map((t) => (
-              <button
-                key={t.name}
-                type="button"
-                className="settings-app-row"
-                style={{
-                  cursor: "pointer",
-                  border: "1px solid rgba(0,0,0,0.08)",
-                  borderRadius: 8,
-                  padding: 10,
-                  background: "transparent",
-                  textAlign: "left",
-                }}
-                onClick={() => onPick(t)}
-              >
-                <div className="settings-app-info">
-                  <span className="settings-app-name">{t.label}</span>
-                  <span className="settings-app-url">{t.hint}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="settings-form-actions">
-          <button
-            type="button"
-            className="settings-btn settings-btn--ghost"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

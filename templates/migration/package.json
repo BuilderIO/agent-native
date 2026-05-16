@@ -1,6 +1,6 @@
 {
   "name": "migration",
-  "displayName": "Agent-Native Migration Workbench",
+  "displayName": "Migration Goal Surface",
   "private": true,
   "type": "module",
   "scripts": {

@@ -10,6 +10,8 @@ export const migrationRuns = table("migration_runs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   sourceRoot: text("source_root").notNull(),
+  inputKind: text("input_kind").notNull().default("path"),
+  inputDescription: text("input_description").notNull().default(""),
   outputRoot: text("output_root").notNull(),
   target: text("target").notNull().default("agent-native"),
   phase: text("phase").notNull().default("discover"),

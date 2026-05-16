@@ -86,6 +86,14 @@ export default runMigrations(
 )`,
       },
     },
+    {
+      version: 6,
+      sql: `ALTER TABLE migration_runs ADD COLUMN input_kind TEXT NOT NULL DEFAULT 'path'`,
+    },
+    {
+      version: 7,
+      sql: `ALTER TABLE migration_runs ADD COLUMN input_description TEXT NOT NULL DEFAULT ''`,
+    },
   ],
   { table: "migration_migrations" },
 );

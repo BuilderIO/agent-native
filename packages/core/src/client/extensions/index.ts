@@ -14,6 +14,33 @@ export {
   type EmbeddedExtensionProps,
 } from "./EmbeddedExtension.js";
 export { ExtensionSlot, type ExtensionSlotProps } from "./ExtensionSlot.js";
+export {
+  AgentNativeExtensionFrame,
+  AgentNativeExtensionSlot,
+  type AgentNativeExtensionFrameProps,
+  type AgentNativeExtensionPermissionList,
+  type AgentNativeExtensionSlotProps,
+  type AgentNativeExtensionStorageScopeList,
+} from "./AgentNativeExtensionFrame.js";
+export {
+  AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
+  buildAgentNativeExtensionHtml,
+  createHttpAgentNativeExtensionStorage,
+  createLocalStorageAgentNativeExtensionStorage,
+  getAgentNativeExtensionManifest,
+  isAgentNativeExtensionAllowedInSlot,
+  normalizeAgentNativeExtensionSandbox,
+  type AgentNativeExtensionDefinition,
+  type AgentNativeExtensionManifest,
+  type AgentNativeExtensionMessageType,
+  type AgentNativeExtensionStorage,
+  type AgentNativeExtensionStorageContext,
+  type AgentNativeExtensionStorageOptions,
+  type AgentNativeExtensionStorageRow,
+  type AgentNativeExtensionStorageScope,
+  type BuildAgentNativeExtensionHtmlOptions,
+  type CreateHttpAgentNativeExtensionStorageOptions,
+} from "./portable-extension.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Legacy aliases — these names predate the Tools → Extensions rename. Keep

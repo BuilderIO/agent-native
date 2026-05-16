@@ -79,7 +79,7 @@ function DbSyncSetup() {
   useNavigationState();
   useDbSync({
     queryClient: qc,
-    queryKeys: ["files", "data"],
+    queryKeys: ["files", "data", "action"],
     ignoreSource: TAB_ID,
   });
   return null;

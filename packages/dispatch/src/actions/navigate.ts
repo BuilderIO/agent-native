@@ -5,6 +5,7 @@
  *
  * Usage:
  *   pnpm action navigate --view=overview
+ *   pnpm action navigate --view=dreams
  *   pnpm action navigate --view=<custom-dispatch-extension-id>
  *   pnpm action navigate --path=/some/route
  *
@@ -25,7 +26,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Named dispatch view to navigate to. Built-in views include overview, apps, metrics, new-app, vault, integrations, messaging, workspace, agents, destinations, identities, approvals, audit, thread-debug, and team. Generated Dispatch extension tabs can also use their nav item id.",
+        "Named dispatch view to navigate to. Built-in views include overview, apps, metrics, new-app, vault, integrations, messaging, workspace, agents, destinations, identities, approvals, audit, thread-debug, dreams, and team. Generated Dispatch extension tabs can also use their nav item id.",
       ),
     path: z.string().optional().describe("URL path to navigate to"),
   }),

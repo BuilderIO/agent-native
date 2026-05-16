@@ -89,6 +89,7 @@ assertSameMembers(
     .map((template) => template.name),
   [
     "analytics",
+    "brain",
     "calendar",
     "clips",
     "content",
@@ -132,6 +133,11 @@ assert.match(
   appWebview,
   /appConfig\.devUrl\?\.trim\(\)/,
   "desktop dev-mode URL resolution must honor custom devUrl values",
+);
+assert.match(
+  appWebview,
+  /getTemplateGatewayAppUrl\(appConfig\.id\)/,
+  "desktop lazy Electron mode must route template dev URLs through the gateway",
 );
 assert.match(
   appWebview,
@@ -221,6 +227,50 @@ assert.doesNotMatch(
   devElectronDryRun,
   /Starting:/,
   "dev-electron dry-run must not start apps or Electron",
+);
+
+const devLazyHelp = execFileSync("node", ["scripts/dev-lazy.ts", "--help"], {
+  cwd: repoRoot,
+  encoding: "utf8",
+});
+assert.match(
+  devLazyHelp,
+  /--electron/,
+  "dev-lazy help must document Electron lazy mode",
+);
+
+const devElectronLazyDryRun = execFileSync(
+  "node",
+  ["scripts/dev-lazy.ts", "--electron", "--apps=mail,forms", "--dry-run"],
+  {
+    cwd: repoRoot,
+    encoding: "utf8",
+  },
+);
+assert.match(
+  devElectronLazyDryRun,
+  /Mode: lazy/,
+  "dev-electron lazy dry-run must stay lazy by default",
+);
+assert.match(
+  devElectronLazyDryRun,
+  /mail: \/mail -> 127\.0\.0\.1:8085/,
+  "dev-electron lazy dry-run must expose the requested mail app through the gateway",
+);
+assert.match(
+  devElectronLazyDryRun,
+  /forms: \/forms -> 127\.0\.0\.1:8084/,
+  "dev-electron lazy dry-run must expose the requested forms app through the gateway",
+);
+assert.match(
+  devElectronLazyDryRun,
+  /frame: http:\/\/localhost:3334/,
+  "dev-electron lazy dry-run must start the frame",
+);
+assert.match(
+  devElectronLazyDryRun,
+  /electron: @agent-native\/desktop-app dev/,
+  "dev-electron lazy dry-run must start Electron",
 );
 
 console.log("qa-frame-desktop-smoke: clean");

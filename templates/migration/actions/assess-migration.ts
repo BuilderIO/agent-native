@@ -2,9 +2,9 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { discoverMigration, nextjsSourceAdapter } from "@agent-native/migrate";
+import { discoverMigration } from "@agent-native/migrate";
 import { getDb, schema } from "../server/db/index.js";
-import { getRunRow, rowToRun } from "./_utils.js";
+import { assessmentSourceMetadata, getRunRow, rowToRun } from "./_utils.js";
 
 export default defineAction({
   description:
@@ -16,13 +16,7 @@ export default defineAction({
     await assertAccess("migration-run", id, "editor");
     const row = await getRunRow(id);
     const run = rowToRun(row);
-    const detected = await nextjsSourceAdapter.detect(run.sourceRoot);
-    if (!detected) {
-      throw new Error(
-        `Source path ${run.sourceRoot} does not look like a Next.js app.`,
-      );
-    }
-    const result = await discoverMigration(run, nextjsSourceAdapter);
+    const result = await discoverMigration(run);
     const db = getDb();
     await db
       .update(schema.migrationRuns)
@@ -33,9 +27,16 @@ export default defineAction({
         updatedAt: result.run.updatedAt,
       })
       .where(eq(schema.migrationRuns.id, id));
+    const assessmentSource = assessmentSourceMetadata(result.ir);
     return {
       run: result.run,
       assessmentPath: result.assessmentPath,
+      assessmentSource,
+      source: assessmentSource?.source ?? result.ir.site.framework,
+      needsAgentIntrospection:
+        assessmentSource?.needsAgentIntrospection ?? false,
+      inputKind: result.run.inputKind,
+      inputDescription: result.run.inputDescription,
       routeCount: result.ir.site.routes.length,
       apiEndpointCount: result.ir.behavior.apiEndpoints.length,
     };

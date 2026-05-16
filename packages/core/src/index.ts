@@ -29,6 +29,11 @@ export {
   defaultAgentChatPlugin,
   type AgentChatPluginOptions,
 } from "./server/agent-chat-plugin.js";
+export {
+  createAgentNativeEmbeddedPlugin,
+  mountAgentNativeEmbedded,
+  type AgentNativeEmbeddedPluginOptions,
+} from "./server/embedded.js";
 
 // Server
 export {
@@ -50,14 +55,18 @@ export {
   useDevMode,
   useSendToAgentChat,
   CodeRequiredDialog,
+  useAgentNativeEmbeddedBrowserSession,
   useDbSync,
   useFileWatcher,
   cn,
   ApiKeySettings,
   useSession,
+  AgentNativeEmbedded,
   useProductionAgent,
   ProductionAgentPanel,
   type AgentChatMessage,
+  type AgentNativeEmbeddedProps,
+  type UseAgentNativeEmbeddedBrowserSessionOptions,
   type CodeRequiredDialogProps,
   type ProductionAgentMessage,
   type UseProductionAgentResult,
@@ -128,6 +137,69 @@ export {
   type DailyBucket,
   type UsageRecentEntry,
 } from "./usage/store.js";
+
+// Workspace-scoped third-party connection metadata
+export {
+  deleteWorkspaceConnection,
+  getWorkspaceConnectionAppAccess,
+  getWorkspaceConnection,
+  getWorkspaceConnectionGrant,
+  listWorkspaceConnectionProviderCatalogForApp,
+  listWorkspaceConnectionGrants,
+  listWorkspaceConnections,
+  revokeWorkspaceConnectionGrant,
+  serializeWorkspaceConnectionGrant,
+  serializeWorkspaceConnection,
+  summarizeWorkspaceConnectionProviderForApp,
+  summarizeWorkspaceConnectionProviderReadiness,
+  upsertWorkspaceConnectionGrant,
+  upsertWorkspaceConnection,
+  type ListWorkspaceConnectionProviderCatalogForAppOptions,
+  type ListWorkspaceConnectionGrantsOptions,
+  type ListWorkspaceConnectionsOptions,
+  type SerializedWorkspaceConnectionGrant,
+  type SerializedWorkspaceConnection,
+  type SummarizeWorkspaceConnectionProviderForAppOptions,
+  type SummarizeWorkspaceConnectionProviderReadinessOptions,
+  type UpsertWorkspaceConnectionGrantInput,
+  type UpsertWorkspaceConnectionInput,
+  type WorkspaceConnectionAppAccess,
+  type WorkspaceConnectionAppAccessMode,
+  type WorkspaceConnection,
+  type WorkspaceConnectionCredentialRef,
+  type WorkspaceConnectionExplicitGrantSummary,
+  type WorkspaceConnectionForAppSummary,
+  type WorkspaceConnectionGrant,
+  type WorkspaceConnectionGrantAvailability,
+  type WorkspaceConnectionGrantState,
+  type WorkspaceConnectionProviderAppSummary,
+  type WorkspaceConnectionProviderLike,
+  type WorkspaceConnectionProviderCatalogForApp,
+  type WorkspaceConnectionProviderCatalogForAppItem,
+  type WorkspaceConnectionProviderReadiness,
+  type WorkspaceConnectionProviderReadinessStatus,
+  type WorkspaceConnectionPublicCredentialRef,
+  type WorkspaceConnectionStatus,
+  workspaceConnectionIsAvailableToApp,
+} from "./workspace-connections/index.js";
+
+// Reusable workspace connection provider catalog
+export {
+  WORKSPACE_CONNECTION_PROVIDERS,
+  defineWorkspaceConnectionProvider,
+  getWorkspaceConnectionProvider,
+  isWorkspaceConnectionProviderId,
+  listWorkspaceConnectionProviders,
+  listWorkspaceConnectionProvidersForCapability,
+  listWorkspaceConnectionProvidersForTemplate,
+  workspaceConnectionProviderSupports,
+  type ListWorkspaceConnectionProvidersOptions,
+  type WorkspaceConnectionCapability,
+  type WorkspaceConnectionCredentialKey,
+  type WorkspaceConnectionProvider,
+  type WorkspaceConnectionProviderId,
+  type WorkspaceConnectionTemplateUse,
+} from "./connections/index.js";
 
 // Scripts
 export {

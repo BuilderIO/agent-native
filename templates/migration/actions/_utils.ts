@@ -40,6 +40,8 @@ export function rowToRun(
   return {
     id: row.id,
     sourceRoot: row.sourceRoot,
+    inputKind: row.inputKind,
+    inputDescription: row.inputDescription,
     outputRoot: row.outputRoot,
     target: row.target,
     phase: row.phase as MigrationRun["phase"],
@@ -48,6 +50,36 @@ export function rowToRun(
     updatedAt: row.updatedAt,
     artifactDir: row.artifactDir,
     ir: row.irJson ? (JSON.parse(row.irJson) as ProjectIR) : undefined,
+  };
+}
+
+export interface AssessmentSourceMetadata {
+  source: string;
+  sourceLabel: string;
+  needsAgentIntrospection: boolean;
+  inputKind?: string;
+  inputDescription?: string;
+}
+
+export function assessmentSourceMetadata(
+  ir: ProjectIR | null | undefined,
+): AssessmentSourceMetadata | null {
+  if (!ir) return null;
+  const metadata = ir.site.metadata ?? {};
+  const source =
+    stringMetadata(metadata.source) ??
+    (ir.site.framework === "unknown" ? "unknown" : ir.site.framework);
+  const needsAgentIntrospection =
+    metadata.needsAgentIntrospection === true ||
+    source === "agent-introspection";
+  return {
+    source,
+    sourceLabel: needsAgentIntrospection
+      ? "Agent introspection skeleton"
+      : sourceLabel(source),
+    needsAgentIntrospection,
+    inputKind: stringMetadata(metadata.inputKind),
+    inputDescription: stringMetadata(metadata.inputDescription),
   };
 }
 
@@ -118,4 +150,14 @@ export async function replaceVerifierResults(
 
 export async function ensureSeedDirectory() {
   await fs.mkdir(path.resolve(process.cwd(), "data"), { recursive: true });
+}
+
+function stringMetadata(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function sourceLabel(source: string) {
+  if (source === "nextjs") return "Next.js";
+  if (source === "unknown") return "Unknown source";
+  return source;
 }

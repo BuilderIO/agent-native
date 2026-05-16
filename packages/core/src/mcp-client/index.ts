@@ -36,7 +36,30 @@ export {
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
 
-export { mountMcpServersRoutes, buildMergedConfig } from "./routes.js";
+export {
+  BUILTIN_MCP_CAPABILITIES,
+  getBuiltinMcpCapability,
+  isBuiltinMcpCapabilityAvailable,
+  normalizeBuiltinMcpCapabilityIds,
+  toBuiltinMcpServerConfig,
+  type BuiltinMcpCapability,
+  type BuiltinMcpCapabilityId,
+} from "./builtin-capabilities.js";
+
+export {
+  builtinMcpCapabilitiesSettingsKey,
+  listEnabledBuiltinMcpCapabilities,
+  setEnabledBuiltinMcpCapabilities,
+  setBuiltinMcpCapabilityEnabled,
+  type StoredBuiltinMcpCapabilities,
+} from "./builtin-store.js";
+
+export {
+  mountMcpServersRoutes,
+  buildMergedConfig,
+  builtinMergedConfigKey,
+  type ClientBuiltinCapability,
+} from "./routes.js";
 
 export {
   mountMcpHubRoutes,

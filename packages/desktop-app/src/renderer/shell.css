@@ -234,6 +234,15 @@ body {
   color: var(--tab-active-text);
 }
 
+.tabbar--shell {
+  overflow: hidden;
+}
+
+.tab--locked {
+  cursor: default;
+  -webkit-app-region: drag;
+}
+
 /* ─── Sidebar ────────────────────────────────────────────────── */
 .sidebar {
   width: var(--sidebar-width);
@@ -334,6 +343,21 @@ body {
   color: var(--icon-active);
 }
 
+.sidebar-agent-native-icon {
+  width: 21px;
+  height: auto;
+  display: block;
+  opacity: 0.55;
+  transition:
+    opacity var(--ease),
+    filter var(--ease);
+}
+
+.sidebar-item:hover .sidebar-agent-native-icon,
+.sidebar-item.sidebar-item--active .sidebar-agent-native-icon {
+  opacity: 1;
+}
+
 .sidebar-item--add {
   margin-top: 4px;
 }
@@ -360,6 +384,13 @@ body {
   color: var(--label-inactive);
   line-height: 1;
   transition: color var(--ease);
+}
+
+.item-label--two-line {
+  max-width: 46px;
+  line-height: 1.05;
+  text-align: center;
+  white-space: normal;
 }
 
 .sidebar-item:hover .item-label {
@@ -420,6 +451,15 @@ body {
   min-width: 0;
 }
 
+.code-agents-shell-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  min-width: 0;
+  min-height: 0;
+  background: var(--shell-bg);
+}
+
 /* ─── Webview slot ───────────────────────────────────────────── */
 /* Each slot is absolutely positioned so tabs stack on top of each
    other. Electron <webview> is a native guest surface on macOS, and
@@ -442,6 +482,13 @@ body {
 }
 
 .webview-slot--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-200vw, 0, 0);
+}
+
+.content-area--code-agents .webview-slot {
+  z-index: 0;
   opacity: 0;
   pointer-events: none;
   transform: translate3d(-200vw, 0, 0);
@@ -947,6 +994,140 @@ body {
 .settings-mode-card-status {
   font-size: 11px;
   color: #777;
+}
+
+.settings-remote-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-remote-row,
+.settings-remote-title,
+.settings-remote-meta {
+  display: flex;
+  align-items: center;
+}
+
+.settings-remote-row {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-remote-title {
+  min-width: 0;
+  gap: 9px;
+}
+
+.settings-remote-title > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-remote-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #555;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.035);
+}
+
+.settings-remote-dot--ok {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.settings-remote-dot--pending {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+
+.settings-remote-dot--offline {
+  background: #6b7280;
+}
+
+.settings-remote-dot--error {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+.settings-remote-meta {
+  flex-wrap: wrap;
+  gap: 6px;
+  color: #5f5f5f;
+  font-size: 10.5px;
+}
+
+.settings-remote-meta span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-remote-message {
+  color: #a3a3a3;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-remote-card--error .settings-remote-message {
+  color: #fca5a5;
+}
+
+.settings-remote-link {
+  justify-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #7f7f7f;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.settings-remote-link:hover {
+  color: #d4d4d4;
+}
+
+.settings-remote-pairing {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-remote-pairing input[type="url"] {
+  min-width: 0;
+  height: 34px;
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  padding: 0 10px;
+  color: #fff;
+  font-size: 12px;
+  outline: none;
+}
+
+.settings-remote-pairing input[type="url"]:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.settings-remote-pairing .settings-btn {
+  width: auto;
+  height: 34px;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+.settings-remote-pairing .settings-field-hint {
+  grid-column: 1 / -1;
 }
 
 /* Disclosure button */

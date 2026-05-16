@@ -51,6 +51,7 @@ import { transcribeWithBuilder } from "@agent-native/core/transcription/builder"
 import regenerateTitle, {
   queueTitleRegenerationRequest,
 } from "./regenerate-title.js";
+import exportToBrain from "./export-to-brain.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
@@ -84,6 +85,15 @@ const GROQ_MODEL = "whisper-large-v3-turbo";
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
+
+function queueBrainExport(recordingId: string): void {
+  void exportToBrain.run({ recordingId }).catch((err) => {
+    console.warn(
+      `[clips] Brain export skipped for ${recordingId}:`,
+      (err as Error)?.message ?? String(err),
+    );
+  });
+}
 
 function verboseTranscriptErrors(): boolean {
   const debug = process.env.CLIPS_TRANSCRIPTION_DEBUG ?? "";
@@ -385,6 +395,7 @@ async function completeReadyTranscript({
   // (`transcript-cleanup-${recordingId}`) before its next 2s tick lands —
   // otherwise the "Cleaning up…" badge can lag for one full poll interval.
   await writeAppState("refresh-signal", { ts: Date.now() });
+  queueBrainExport(recordingId);
 
   return {
     recordingId,
@@ -689,6 +700,7 @@ export default defineAction({
           now,
         });
         await writeAppState("refresh-signal", { ts: Date.now() });
+        queueBrainExport(args.recordingId);
 
         // Re-read title fresh — `rec.title` was fetched before the 30+ s
         // transcription and may be stale if the user renamed during that window.
@@ -961,6 +973,7 @@ export default defineAction({
       });
 
       await writeAppState("refresh-signal", { ts: Date.now() });
+      queueBrainExport(args.recordingId);
 
       // Auto-title. The clip was just born with the default title and we now
       // have a transcript to reason over — queue a delegation for the agent

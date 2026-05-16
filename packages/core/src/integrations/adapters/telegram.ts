@@ -159,6 +159,7 @@ export function telegramAdapter(): PlatformAdapter {
           chatId: chat.id,
           chatType: chat.type,
           messageId: message.message_id,
+          rawText: text,
           fromId: from?.id,
           fromUsername: from?.username,
         },

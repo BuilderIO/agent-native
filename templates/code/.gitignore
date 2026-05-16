@@ -1,0 +1,11 @@
+node_modules
+build
+dist
+.output
+.netlify
+.env
+.env.local
+data/*.db
+data/*.db-*
+
+.generated/

@@ -4,7 +4,7 @@
  * Read a resource and output its content to stdout.
  *
  * Usage:
- *   pnpm action resource-read --path <path> [--scope personal|shared]
+ *   pnpm action resource-read --path <path> [--scope personal|shared|workspace]
  */
 
 import { parseArgs, fail } from "../utils.js";
@@ -12,6 +12,7 @@ import {
   resourceGetByPath,
   ensurePersonalDefaults,
   SHARED_OWNER,
+  WORKSPACE_OWNER,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 
@@ -25,7 +26,8 @@ export default async function resourceReadScript(
 
 Options:
   --path <path>            Resource path (required)
-  --scope personal|shared  Scope to read from (default: personal, falls back to shared)
+  --scope personal|shared|workspace
+                           Scope to read from (default: personal, falls back to shared then workspace)
   --help                   Show this help message`);
     return;
   }
@@ -44,8 +46,20 @@ Options:
   }
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
-  if (scope !== "shared") {
+  if (scope !== "shared" && scope !== "workspace") {
     await ensurePersonalDefaults(owner);
+  }
+
+  if (scope === "workspace") {
+    const resource = await resourceGetByPath(WORKSPACE_OWNER, resourcePath);
+    if (!resource) {
+      console.log(
+        `Resource not found: ${resourcePath} (scope: workspace). Workspace resources are managed from Dispatch.`,
+      );
+      return;
+    }
+    process.stdout.write(resource.content);
+    return;
   }
 
   if (scope === "shared") {
@@ -60,7 +74,7 @@ Options:
     return;
   }
 
-  // Default: try personal first, fall back to shared
+  // Default: try personal first, then app/organization shared, then workspace.
   const personal = await resourceGetByPath(owner, resourcePath);
   if (personal) {
     process.stdout.write(personal.content);
@@ -78,6 +92,12 @@ Options:
   const shared = await resourceGetByPath(SHARED_OWNER, resourcePath);
   if (shared) {
     process.stdout.write(shared.content);
+    return;
+  }
+
+  const workspace = await resourceGetByPath(WORKSPACE_OWNER, resourcePath);
+  if (workspace) {
+    process.stdout.write(workspace.content);
     return;
   }
 

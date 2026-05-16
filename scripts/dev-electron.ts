@@ -98,6 +98,38 @@ function tryKillPort(port: number) {
   }
 }
 
+function ensureElectronBinary() {
+  try {
+    execSync(
+      `pnpm --filter @agent-native/desktop-app exec node -e "require('electron')"`,
+      { stdio: "ignore" },
+    );
+    return;
+  } catch {
+    console.log(
+      `\x1b[36m[dev-electron]\x1b[0m Electron binary is missing; rebuilding the desktop dependency...`,
+    );
+  }
+
+  try {
+    execSync(`pnpm --filter @agent-native/desktop-app rebuild electron`, {
+      stdio: "inherit",
+    });
+    execSync(
+      `pnpm --filter @agent-native/desktop-app exec node -e "require('electron')"`,
+      { stdio: "ignore" },
+    );
+  } catch (err) {
+    console.error(
+      `\x1b[31m[dev-electron]\x1b[0m Electron is installed but its binary could not be prepared.`,
+    );
+    console.error(
+      `Run this once and retry:\n  pnpm --filter @agent-native/desktop-app rebuild electron`,
+    );
+    throw err;
+  }
+}
+
 // ── Build concurrently command list ───────────────────────────
 const names: string[] = [];
 const commands: string[] = [];
@@ -150,6 +182,7 @@ if (dryRun) {
   process.exit(0);
 }
 
+ensureElectronBinary();
 portsToUse.forEach(tryKillPort);
 
 console.log(`\x1b[36m[dev-electron]\x1b[0m Starting: ${names.join(", ")}`);

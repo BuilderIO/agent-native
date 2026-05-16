@@ -180,6 +180,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.toolCallable === "boolean") {
     out.toolCallable = entry.toolCallable;
   }
+  if (
+    entry.publicAgent &&
+    typeof entry.publicAgent === "object" &&
+    !Array.isArray(entry.publicAgent)
+  ) {
+    out.publicAgent = entry.publicAgent;
+  }
   return out;
 }
 

@@ -117,6 +117,7 @@ function DbSyncSetup() {
       "list-workspace-resource-grants",
       "list-workspace-apps",
       "list-integrations-catalog",
+      "list-workspace-connections",
       ...(dispatchExtensions.queryKeys ?? []),
     ],
     ignoreSource: TAB_ID,

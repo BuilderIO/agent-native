@@ -17,8 +17,8 @@
  *   // In a popover
  *   <Popover><AgentPanel suggestions={[...]} /></Popover>
  *
- *   // Full page
- *   <AgentPanel className="h-screen" />
+ *   // Full page chat surface
+ *   <AgentChatSurface mode="page" className="h-screen" />
  */
 
 import React, {
@@ -470,6 +470,7 @@ function AgentPanelInner({
   className,
   apiUrl,
   emptyStateText,
+  emptyStateAddon,
   suggestions,
   showHeader = true,
   onCollapse,
@@ -1341,6 +1342,7 @@ function AgentPanelInner({
             renderOverlay={undefined}
             contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}
+            emptyStateAddon={emptyStateAddon}
             suggestions={suggestions}
             onSwitchToCli={() => switchMode("cli")}
             execMode={execMode}
@@ -1900,6 +1902,46 @@ export function AgentPanel(props: AgentPanelProps) {
         <AgentPanelInner key={resetKey} {...props} />
       </AgentPanelErrorBoundary>
     </TooltipProvider>
+  );
+}
+
+export type AgentChatSurfaceMode = "panel" | "page";
+
+export interface AgentChatSurfaceProps extends AgentPanelProps {
+  /**
+   * Layout treatment for the reusable chat surface. Use "page" when rendering
+   * chat as the primary route content instead of inside the sidebar shell.
+   * Default: "panel".
+   */
+  mode?: AgentChatSurfaceMode;
+}
+
+/**
+ * Reusable chat surface backed by AgentPanel internals.
+ *
+ * This gives page-level routes the same tabbed conversations, composer,
+ * model controls, scoped chat behavior, and recovery boundary used by the
+ * sidebar without introducing a second chat implementation.
+ */
+export function AgentChatSurface({
+  mode = "panel",
+  className,
+  defaultMode = "chat",
+  isFullscreen,
+  ...props
+}: AgentChatSurfaceProps) {
+  const pageMode = mode === "page";
+
+  return (
+    <AgentPanel
+      {...props}
+      defaultMode={defaultMode}
+      isFullscreen={isFullscreen ?? pageMode}
+      className={cn(
+        pageMode && "h-full min-h-0 w-full overflow-hidden bg-background",
+        className,
+      )}
+    />
   );
 }
 

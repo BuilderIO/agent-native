@@ -25,6 +25,7 @@
     "expo-constants": "^55.0.15",
     "expo-dev-client": "~55.0.28",
     "expo-linking": "^55.0.14",
+    "expo-notifications": "^55.0.23",
     "expo-router": "^55.0.13",
     "expo-status-bar": "^55.0.5",
     "expo-web-browser": "~55.0.14",

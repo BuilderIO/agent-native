@@ -580,6 +580,13 @@ switch (command) {
     break;
   }
 
+  case "code": {
+    import("./code.js")
+      .then((m) => m.runCode(args))
+      .catch(handleScaffoldImportError);
+    break;
+  }
+
   case "create-workspace": {
     // Deprecated alias for `create` (since workspace is now the default).
     const parsed = parseScaffoldArgs(args);
@@ -642,12 +649,19 @@ switch (command) {
     break;
   }
 
+  case undefined:
+    import("./code.js")
+      .then((m) => m.runCode([]))
+      .catch(handleScaffoldImportError);
+    break;
+
   case "--help":
   case "-h":
-  case undefined:
     console.log(`agent-native v${_version}
 
 Usage:
+  agent-native                  Launch Agent-Native Code workspace
+  agent-native "fix tests"      Start an Agent-Native Code coding session
   agent-native dev              Start development server
                                 (or the workspace gateway at a workspace root)
   agent-native build            Build for production (client + server)
@@ -658,6 +672,11 @@ Usage:
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
                                 for a single-app scaffold.
+  agent-native code             Launch Agent-Native Code workspace. Type a task or
+                                use goals like /migrate and /audit.
+  agent-native code serve       Run the Agent-Native Code remote connector.
+  agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
+                                --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
@@ -674,6 +693,8 @@ Options:
                                 (mail,calendar,analytics,...) — or
                                 github:user/repo for community templates
   --standalone                  Scaffold a single standalone app (no workspace)
+  --emit [dir]                  With migrate, emit an own-agent dossier
+  --describe <text>             With migrate, describe URL/prose-only sources
   --preset <name>               Workspace deploy preset:
                                 cloudflare_pages (default), netlify, or vercel
   --build-only                  Build workspace deploy artifacts without publishing
@@ -685,6 +706,12 @@ Bugs:      ${BUGS_URL}`);
     break;
 
   default:
+    if (command && !command.startsWith("-")) {
+      import("./code.js")
+        .then((m) => m.runCode([command, ...args]))
+        .catch(handleScaffoldImportError);
+      break;
+    }
     console.error(`Unknown command: ${command}`);
     console.error('Run "agent-native --help" for usage.');
     console.error(`Bugs: ${BUGS_URL}`);

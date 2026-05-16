@@ -12,7 +12,7 @@ import { getRunRow, loadTasks, rowToRun } from "./_utils.js";
 
 export default defineAction({
   description:
-    "Run a Migration Workbench task. V1 scaffolds the approved agent-native output and marks the selected task as passed.",
+    "Run a Migration Workbench task. V1 scaffolds the approved agent-native output and marks the selected task as covered by scaffold output.",
   schema: z.object({
     id: z.string().describe("Migration run ID"),
     taskId: z
@@ -45,13 +45,20 @@ export default defineAction({
     await db
       .update(schema.migrationTasks)
       .set({
-        status: result.ok ? "passed" : "failed",
+        status: result.ok ? "covered" : "failed",
         updatedAt: new Date().toISOString(),
       })
       .where(eq(schema.migrationTasks.id, selected.id));
+    const remainingTasks = await loadTasks(id);
+    const hasPendingTasks = remainingTasks.some(
+      (task) => task.status === "pending" || task.status === "running",
+    );
     await db
       .update(schema.migrationRuns)
-      .set({ phase: "verify", updatedAt: new Date().toISOString() })
+      .set({
+        phase: hasPendingTasks ? "sweep" : "verify",
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(schema.migrationRuns.id, id));
     return { task: selected, result };
   },

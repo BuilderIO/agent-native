@@ -24,6 +24,13 @@ coding agents can discover the same workspace-wide guidance from the root.
   manage the file.
 - Durable instructions, skills, jobs, memories, custom agents, and files the
   user explicitly asked to save belong in normal workspace visibility.
+- Runtime-editable global resources are managed from Dispatch Resources. Use
+  `AGENTS.md` or `instructions/<slug>.md` for always-on guardrails,
+  `skills/<slug>/SKILL.md` for workspace skills, `context/<slug>.md` for
+  personas/positioning/messaging/company facts/brand guidelines, and
+  `agents/<slug>.md` for custom agent profiles.
+- Set Dispatch resources to All apps when every workspace app should inherit
+  them. Use selected-app grants only for resources that should not be global.
 
 ## Workspace Scope
 

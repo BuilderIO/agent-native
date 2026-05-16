@@ -20,9 +20,13 @@ export function useNavigationState() {
 
   // Sync current route to application state
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const runId = params.get("run") ?? undefined;
+    const path = `${location.pathname}${location.search}`;
     const state: NavigationState = {
       view: "workbench",
-      path: appPath(location.pathname),
+      path: appPath(path),
+      runId,
     };
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -31,7 +35,7 @@ export function useNavigationState() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
@@ -62,7 +66,9 @@ export function useNavigationState() {
     const cmd = navCommand as NavigationState;
 
     // Navigate to a specific path or resolve view name to path
-    const path = routerPath(cmd.path || "/");
+    const path = routerPath(
+      cmd.path || (cmd.runId ? `/?run=${encodeURIComponent(cmd.runId)}` : "/"),
+    );
     navigate(path);
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);

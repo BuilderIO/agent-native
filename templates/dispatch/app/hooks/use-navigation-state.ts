@@ -14,6 +14,9 @@ import type {
 export interface NavigationState {
   view: string;
   path?: string;
+  dreamId?: string;
+  sourceId?: string;
+  query?: string;
 }
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
@@ -24,10 +27,19 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
   // Sync current route to application state
   useEffect(() => {
     const localPathname = routerPath(location.pathname);
+    const params = new URLSearchParams(location.search);
     const state: NavigationState = {
       view: resolveView(localPathname, extensions),
       path: appPath(localPathname),
     };
+    if (state.view === "dreams") {
+      const dreamId = params.get("dreamId");
+      const sourceId = params.get("sourceId");
+      const query = params.get("query");
+      if (dreamId) state.dreamId = dreamId;
+      if (sourceId) state.sourceId = sourceId;
+      if (query) state.query = query;
+    }
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
@@ -35,7 +47,7 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [extensions, location.pathname]);
+  }, [extensions, location.pathname, location.search]);
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
@@ -63,10 +75,13 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
     }).catch(() => {});
     const cmd = navCommand as NavigationState;
 
-    const path = routerPath(
-      cmd.path || resolvePath(cmd.view, extensions) || "/overview",
-    );
-    navigate(path);
+    const resolvedPath =
+      cmd.path || resolvePath(cmd.view, extensions) || "/overview";
+    const path =
+      cmd.view === "dreams" && cmd.dreamId && !resolvedPath.includes("?")
+        ? `${resolvedPath}?dreamId=${encodeURIComponent(cmd.dreamId)}`
+        : resolvedPath;
+    navigate(routerPath(path));
     qc.setQueryData(["navigate-command"], null);
   }, [extensions, navCommand, navigate, qc]);
 }
@@ -136,6 +151,7 @@ function resolveView(
   if (pathname.startsWith("/identities")) return "identities";
   if (pathname.startsWith("/approvals")) return "approvals";
   if (pathname.startsWith("/audit")) return "audit";
+  if (pathname.startsWith("/dreams")) return "dreams";
   if (pathname.startsWith("/thread-debug")) return "thread-debug";
   if (pathname.startsWith("/team")) return "team";
   return "overview";
@@ -177,6 +193,8 @@ function resolvePath(
       return "/approvals";
     case "audit":
       return "/audit";
+    case "dreams":
+      return "/dreams";
     case "thread-debug":
     case "threads":
       return "/thread-debug";

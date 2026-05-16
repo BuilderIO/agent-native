@@ -81,6 +81,8 @@ export interface WebhookHandlerOptions {
     | AgentEngine
     | string
     | { name: string; config: Record<string, unknown> };
+  /** App/template id used for org-scoped per-app model defaults. */
+  appId?: string;
   /** Thread owner for personal/shared resource loading */
   ownerEmail: string;
   /**
@@ -552,9 +554,12 @@ async function processIncomingMessage(
               engineOption,
               apiKey: effectiveApiKey,
               model,
+              appId: options.appId,
             });
             const resolvedModel =
-              (await getStoredModelForEngine(engine)) ??
+              (await getStoredModelForEngine(engine, {
+                appId: options.appId,
+              })) ??
               model ??
               engine.defaultModel;
 

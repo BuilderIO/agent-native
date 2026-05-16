@@ -63,7 +63,10 @@ export function AddMealDialog({
   const isEditing = !!editingMeal;
 
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema) as any,
+    // zod resolves at multiple minor versions across the workspace; cast the
+    // schema so @hookform/resolvers v5's zod-v4 overload doesn't reject a
+    // v4.3-internal schema under CI's frozen lockfile. Runtime is unaffected.
+    resolver: zodResolver(formSchema as any) as any,
     defaultValues: {
       name: editingMeal?.name || "",
       calories: editingMeal?.calories.toString() || "",

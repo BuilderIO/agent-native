@@ -423,7 +423,7 @@ async function notifyApprovers(requestId: string, summary: string) {
   }).catch(() => {});
 }
 
-async function createApprovalRequest(input: {
+export async function createApprovalRequest(input: {
   changeType: string;
   targetType: string;
   targetId?: string | null;
@@ -562,6 +562,42 @@ async function applyApprovedRequest(request: DispatchApprovalRequest) {
     return applyApprovalPolicy(
       payload,
       request.reviewedBy || currentOwnerEmail(),
+    );
+  }
+  if (request.changeType === "dream-proposal.apply") {
+    const { applyApprovedDreamProposal } = await import("./dreams-store.js");
+    return applyApprovedDreamProposal(
+      payload.proposalId,
+      request.reviewedBy || currentOwnerEmail(),
+      requestCtx,
+    );
+  }
+  if (request.changeType === "workspace-resource.create") {
+    const { applyWorkspaceResourceCreate } =
+      await import("./workspace-resources-store.js");
+    return applyWorkspaceResourceCreate(
+      payload.input,
+      request.reviewedBy || currentOwnerEmail(),
+      requestCtx,
+    );
+  }
+  if (request.changeType === "workspace-resource.update") {
+    const { applyWorkspaceResourceUpdate } =
+      await import("./workspace-resources-store.js");
+    return applyWorkspaceResourceUpdate(
+      payload.id,
+      payload.input,
+      request.reviewedBy || currentOwnerEmail(),
+      requestCtx,
+    );
+  }
+  if (request.changeType === "workspace-resource.delete") {
+    const { applyWorkspaceResourceDelete } =
+      await import("./workspace-resources-store.js");
+    return applyWorkspaceResourceDelete(
+      payload.id,
+      request.reviewedBy || currentOwnerEmail(),
+      requestCtx,
     );
   }
   throw new Error(`Unsupported approval request type: ${request.changeType}`);

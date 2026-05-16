@@ -39,6 +39,8 @@ export interface ResourceEditorProps {
   onSaveStatusChange?: (status: "idle" | "saving" | "saved") => void;
   /** When true, the editor's internal toolbar row is hidden */
   hideToolbar?: boolean;
+  /** When true, content can be viewed and selected but not modified */
+  readOnly?: boolean;
 }
 
 const CONTROL_STYLE = { fontSize: 12, lineHeight: 1 } as const;
@@ -74,14 +76,17 @@ function FrontmatterBar({
   resourcePath,
   frontmatter,
   onChange,
+  readOnly,
 }: {
   resourcePath: string;
   frontmatter: ParsedFrontmatter;
   onChange: (updated: ParsedFrontmatter) => void;
+  readOnly?: boolean;
 }) {
   const getField = (key: string) => getFrontmatterValue(frontmatter, key) ?? "";
 
   const updateField = (key: string, value: string) => {
+    if (readOnly) return;
     const exists = frontmatter.fields.some((f) => f.key === key);
     const newFields = exists
       ? frontmatter.fields.map((f) => (f.key === key ? { ...f, value } : f))
@@ -119,6 +124,7 @@ function FrontmatterBar({
         <input
           value={name}
           onChange={(e) => updateField("name", e.target.value)}
+          readOnly={readOnly}
           placeholder={isCustomAgent ? "Agent name" : "Skill name"}
           style={{
             ...FM_INPUT_STYLE,
@@ -155,6 +161,7 @@ function FrontmatterBar({
             <input
               type="checkbox"
               checked={isUserInvocable}
+              disabled={readOnly}
               onChange={(e) =>
                 updateField(
                   "user-invocable",
@@ -169,6 +176,7 @@ function FrontmatterBar({
         {isCustomAgent ? (
           <select
             value={model}
+            disabled={readOnly}
             onChange={(e) => updateField("model", e.target.value)}
             style={{
               borderRadius: 4,
@@ -187,6 +195,7 @@ function FrontmatterBar({
       </div>
       <input
         value={description}
+        readOnly={readOnly}
         onChange={(e) => updateField("description", e.target.value)}
         placeholder={
           isCustomAgent
@@ -220,6 +229,7 @@ function FrontmatterBar({
           </label>
           <select
             value={tools}
+            disabled={readOnly}
             onChange={(e) => updateField("tools", e.target.value)}
             style={{
               borderRadius: 4,
@@ -749,10 +759,12 @@ function SyntaxHighlightEditor({
   value,
   onChange,
   language: _language,
+  readOnly,
 }: {
   value: string;
   onChange: (v: string) => void;
   language: "json";
+  readOnly?: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
@@ -805,8 +817,11 @@ function SyntaxHighlightEditor({
         <textarea
           ref={textareaRef}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            if (!readOnly) onChange(e.target.value);
+          }}
           onScroll={syncScroll}
+          readOnly={readOnly}
           spellCheck={false}
           style={{
             ...sharedStyle,
@@ -832,10 +847,12 @@ function VisualMarkdownEditor({
   content,
   onChange,
   resourcePath,
+  readOnly,
 }: {
   content: string;
   onChange: (md: string) => void;
   resourcePath: string;
+  readOnly?: boolean;
 }) {
   const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
@@ -878,12 +895,14 @@ function VisualMarkdownEditor({
       }),
     ],
     content: parsed?.body ?? content,
+    editable: !readOnly,
     editorProps: {
       attributes: {
         class: "re-prose",
       },
     },
     onUpdate: ({ editor }) => {
+      if (readOnly) return;
       if (isSettingContent.current) return;
       try {
         const md = (editor.storage as any).markdown.getMarkdown();
@@ -896,6 +915,11 @@ function VisualMarkdownEditor({
       }
     },
   });
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    editor.setEditable(!readOnly);
+  }, [editor, readOnly]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -931,13 +955,19 @@ function VisualMarkdownEditor({
     <div
       className="re-editor-wrapper re-editor-clickable"
       onClick={handleWrapperClick}
-      style={{ position: "relative", minHeight: "100%", cursor: "text" }}
+      style={{
+        position: "relative",
+        minHeight: "100%",
+        cursor: readOnly ? "default" : "text",
+      }}
     >
       {parsed && (
         <FrontmatterBar
           resourcePath={resourcePath}
           frontmatter={parsed}
+          readOnly={readOnly}
           onChange={(updated) => {
+            if (readOnly) return;
             frontmatterRef.current = updated;
             // Get current body and combine with updated frontmatter
             try {
@@ -949,8 +979,8 @@ function VisualMarkdownEditor({
           }}
         />
       )}
-      <InlineBubbleToolbar editor={editor} />
-      <SlashMenu editor={editor} />
+      {!readOnly && <InlineBubbleToolbar editor={editor} />}
+      {!readOnly && <SlashMenu editor={editor} />}
       <EditorContent editor={editor} />
     </div>
   );
@@ -1010,9 +1040,11 @@ function serializeRemoteAgent(value: RemoteAgentFormValue): string {
 function RemoteAgentFormEditor({
   resource,
   onChange,
+  readOnly,
 }: {
   resource: Resource;
   onChange: (content: string) => void;
+  readOnly?: boolean;
 }) {
   const [value, setValue] = useState<RemoteAgentFormValue>(() =>
     parseRemoteAgentContent(resource.content, resource.path),
@@ -1027,6 +1059,7 @@ function RemoteAgentFormEditor({
   }, [resource.id, resource.content, resource.path]);
 
   const update = (patch: Partial<RemoteAgentFormValue>) => {
+    if (readOnly) return;
     const next = { ...value, ...patch };
     setValue(next);
     onChange(serializeRemoteAgent(next));
@@ -1048,6 +1081,7 @@ function RemoteAgentFormEditor({
           <input
             className={inputClass}
             value={value.name}
+            readOnly={readOnly}
             onChange={(e) => update({ name: e.target.value })}
             placeholder="Analytics"
           />
@@ -1057,6 +1091,7 @@ function RemoteAgentFormEditor({
           <input
             className={inputClass}
             value={value.url}
+            readOnly={readOnly}
             onChange={(e) => update({ url: e.target.value })}
             placeholder="https://analytics.example.com"
           />
@@ -1071,6 +1106,7 @@ function RemoteAgentFormEditor({
             className={cn(inputClass, "resize-y")}
             rows={3}
             value={value.description}
+            readOnly={readOnly}
             onChange={(e) => update({ description: e.target.value })}
             placeholder="What this agent is good at — helps the main agent decide when to delegate."
           />
@@ -1081,12 +1117,14 @@ function RemoteAgentFormEditor({
             <input
               type="color"
               value={value.color}
+              disabled={readOnly}
               onChange={(e) => update({ color: e.target.value })}
               className="h-8 w-10 cursor-pointer rounded border border-border bg-transparent"
             />
             <input
               className={cn(inputClass, "flex-1")}
               value={value.color}
+              readOnly={readOnly}
               onChange={(e) => update({ color: e.target.value })}
               placeholder="#6B7280"
             />
@@ -1104,6 +1142,7 @@ export function ResourceEditor({
   onViewChange,
   onSaveStatusChange,
   hideToolbar,
+  readOnly,
 }: ResourceEditorProps) {
   const [content, setContent] = useState(resource.content);
   const [internalView, setInternalView] = useState<"visual" | "code">(
@@ -1128,6 +1167,7 @@ export function ResourceEditor({
 
   const handleChange = useCallback(
     (newContent: string) => {
+      if (readOnly) return;
       setContent(newContent);
       setSaveStatus("idle");
       onSaveStatusChange?.("idle");
@@ -1142,7 +1182,7 @@ export function ResourceEditor({
         }, 300);
       }, 1000);
     },
-    [onSave, onSaveStatusChange],
+    [onSave, onSaveStatusChange, readOnly],
   );
 
   const switchView = useCallback(
@@ -1170,7 +1210,11 @@ export function ResourceEditor({
   if (isRemoteAgent) {
     return (
       <div className="flex h-full flex-col">
-        <RemoteAgentFormEditor resource={resource} onChange={handleChange} />
+        <RemoteAgentFormEditor
+          resource={resource}
+          onChange={handleChange}
+          readOnly={readOnly}
+        />
       </div>
     );
   }
@@ -1241,12 +1285,14 @@ export function ResourceEditor({
               content={content}
               onChange={handleChange}
               resourcePath={resource.path}
+              readOnly={readOnly}
             />
           </div>
         ) : (
           <textarea
             value={content}
             onChange={(e) => handleChange(e.target.value)}
+            readOnly={readOnly}
             className="flex-1 min-h-0 resize-none bg-transparent p-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50"
             style={{
               fontFamily:
@@ -1271,11 +1317,13 @@ export function ResourceEditor({
           value={content}
           onChange={handleChange}
           language="json"
+          readOnly={readOnly}
         />
       ) : (
         <textarea
           value={content}
           onChange={(e) => handleChange(e.target.value)}
+          readOnly={readOnly}
           className="flex-1 min-h-0 resize-none bg-transparent p-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50"
           style={{
             fontFamily:

@@ -19,6 +19,15 @@ Autonomous QA testing that spins up template apps, tests them with Playwright in
 /qa --focus "test form submission and compose"  # prioritize specific flows
 ```
 
+## Browser MCP Readiness
+
+QA can use the framework's built-in browser MCP capabilities instead of a hand-written `mcp.config.json`. The built-ins are off by default and are toggled through `/_agent-native/mcp/builtin`.
+
+- Prefer `browser-playwright` for automated QA sweeps: it runs `npx -y @playwright/mcp@0.0.75`.
+- Use `browser-chrome-devtools` only when the test specifically needs to attach to a live Chrome session. It runs `npx -y chrome-devtools-mcp@0.26.0 --autoConnect --no-usage-statistics` and requires Chrome 144+ with remote debugging enabled. Do not assume it signs into the user's Chrome profile.
+- Browser built-ins are exclusive per scope: enabling Chrome disables Playwright and enabling Playwright disables Chrome.
+- `computer-use` runs `npx -y computer-use-mcp@1.8.0` and is macOS-only.
+
 **Args:**
 
 - `--apps` — comma-separated app names (default: `mail,calendar,content,forms`)

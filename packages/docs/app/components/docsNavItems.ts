@@ -57,6 +57,10 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "MCP Clients", to: "/docs/mcp-clients" as const },
       { label: "MCP Protocol", to: "/docs/mcp-protocol" as const },
       { label: "Notifications", to: "/docs/notifications" as const },
+      {
+        label: "Workspace Connections",
+        to: "/docs/workspace-connections" as const,
+      },
       { label: "Onboarding & API Keys", to: "/docs/onboarding" as const },
     ],
   },
@@ -76,6 +80,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Analytics", to: "/templates/analytics" as const },
       { label: "Mail", to: "/templates/mail" as const },
       { label: "Clips", to: "/templates/clips" as const },
+      { label: "Brain", to: "/templates/brain" as const },
       { label: "Design", to: "/templates/design" as const },
       { label: "Dispatch", to: "/templates/dispatch" as const },
       { label: "Forms", to: "/templates/forms" as const },
@@ -105,10 +110,12 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Creating Templates", to: "/docs/creating-templates" as const },
       { label: "Frames", to: "/docs/frames" as const },
+      { label: "Embedding SDK", to: "/docs/embedding-sdk" as const },
       {
         label: "Migration Workbench",
         to: "/docs/migration-workbench" as const,
       },
+      { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },
       { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
     ],
   },

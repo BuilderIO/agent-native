@@ -49,7 +49,7 @@ export function createSlotsHandler() {
 
     const orgCtx = await getOrgContext(event).catch(() => null);
     const userEmail = session.email;
-    const orgId = orgCtx?.orgId ?? undefined;
+    const orgId = orgCtx?.orgId ?? session.orgId ?? undefined;
 
     return runWithRequestContext({ userEmail, orgId }, () =>
       dispatch(event, method, parts),

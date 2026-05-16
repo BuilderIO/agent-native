@@ -7,9 +7,47 @@ description: "Connect your agent-native app to local MCP servers (claude-in-chro
 
 Agent-native apps can also act as MCP **clients** — connecting to locally installed MCP servers and exposing their tools to the agent chat. This is the symmetric counterpart to the [MCP Protocol](./mcp-protocol.md) (which makes your app an MCP server).
 
-With one config file, every agent-native app in your workspace gains access to tools provided by MCP servers on your machine: `claude-in-chrome` for browser automation, `@modelcontextprotocol/server-filesystem` for reading files, `@modelcontextprotocol/server-playwright` for browser testing, and anything else that speaks MCP.
+With one config file, every agent-native app in your workspace gains access to tools provided by MCP servers on your machine: `claude-in-chrome` for browser automation, `@modelcontextprotocol/server-filesystem` for reading files, `@playwright/mcp` for browser testing, and anything else that speaks MCP.
 
 You can also [connect remote (HTTP) MCP servers at runtime](#remote-via-ui) — individual users or whole organizations — without editing a config file.
+
+## Built-in browser and computer-use capabilities {#built-in-capabilities}
+
+Agent-native includes built-in toggles for common local MCP servers. They are off by default and can be enabled per user or per organization:
+
+| Capability         | Server id         | Command                                                                 |
+| ------------------ | ----------------- | ----------------------------------------------------------------------- |
+| Chrome DevTools    | `chrome-devtools` | `npx -y chrome-devtools-mcp@0.26.0 --autoConnect --no-usage-statistics` |
+| Playwright Browser | `playwright`      | `npx -y @playwright/mcp@0.0.75`                                         |
+| Computer Use       | `computer-use`    | `npx -y computer-use-mcp@1.8.0`                                         |
+
+Only one browser capability can be enabled in a scope at a time. Enabling Chrome DevTools disables Playwright for that same user or org, and enabling Playwright disables Chrome DevTools.
+
+Computer Use is macOS-only. On other platforms it is listed as unavailable and is skipped even if an old setting row contains it.
+
+Chrome DevTools uses `--autoConnect` by default. That attaches to an eligible running Chrome instance; it does not create an isolated browser profile or sign into the user's regular profile for you. It requires Chrome 144+ with remote debugging enabled. A manual `browser-url` configuration can be added later when a deployment needs a specific debugging endpoint.
+
+Built-ins are persisted in the framework's `settings` table under `u:<email>:mcp-builtin-capabilities` for personal toggles and `o:<orgId>:mcp-builtin-capabilities` for team toggles. When enabled, they merge into the runtime MCP manager with the same scoped visibility format as remote servers, for example `mcp__user_<emailhash>_playwright__*` or `mcp__org_<orgId>_chrome-devtools__*`.
+
+### User-facing setup notes
+
+Use concise, explicit setup copy for the sensitive built-ins:
+
+- **Chrome DevTools** attaches to a running Chrome debugging target. Tell users
+  it is intended for browser testing and logged-in verification, and that it
+  may require enabling Chrome remote debugging before tools appear.
+- **Playwright** launches an isolated browser. Recommend it for deterministic
+  QA when the user's live Chrome profile is not required.
+- **Computer Use** can operate local apps. Keep it off by default, explain the
+  macOS Screen Recording and Accessibility prompts, and ask before taking
+  sensitive actions such as purchases, financial changes, or account changes.
+
+### Built-in endpoints
+
+| Method | Route                        | Purpose                                                                    |
+| ------ | ---------------------------- | -------------------------------------------------------------------------- |
+| GET    | `/_agent-native/mcp/builtin` | List built-in capabilities, enabled scopes, merged ids, and live status.   |
+| POST   | `/_agent-native/mcp/builtin` | Update a scope. Body: `{ scope, enabledIds }` or `{ scope, id, enabled }`. |
 
 ## Adding a local MCP server {#adding-a-server}
 
@@ -26,7 +64,7 @@ Create `mcp.config.json` at your workspace root (or at an individual app root �
     },
     "playwright": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-playwright"],
+      "args": ["-y", "@playwright/mcp@0.0.75"],
     },
     "filesystem": {
       "command": "npx",
@@ -64,7 +102,7 @@ MCP configuration is resolved in this order, first match wins:
 For production deploys set the full config shape (or the inner server map) as an environment variable:
 
 ```bash
-MCP_SERVERS='{"servers":{"playwright":{"command":"npx","args":["-y","@modelcontextprotocol/server-playwright"]}}}'
+MCP_SERVERS='{"servers":{"playwright":{"command":"npx","args":["-y","@playwright/mcp@0.0.75"]}}}'
 ```
 
 MCP tools only activate in Node runtimes — Cloudflare Workers and other edge targets silently skip MCP and continue with the rest of the app working normally.

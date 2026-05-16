@@ -5,15 +5,22 @@ const mockResourcePut = vi.fn();
 const mockResourceDeleteByPath = vi.fn();
 const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
+const mockResourceEffectiveContext = vi.fn();
+const mockEnsurePersonalDefaults = vi.fn();
 
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
+  WORKSPACE_OWNER: "__workspace__",
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
   resourceDeleteByPath: (...args: any[]) => mockResourceDeleteByPath(...args),
   resourceList: (...args: any[]) => mockResourceList(...args),
   resourceListAccessible: (...args: any[]) =>
     mockResourceListAccessible(...args),
+  resourceEffectiveContext: (...args: any[]) =>
+    mockResourceEffectiveContext(...args),
+  ensurePersonalDefaults: (...args: any[]) =>
+    mockEnsurePersonalDefaults(...args),
 }));
 
 import {
@@ -22,6 +29,7 @@ import {
   deleteResource,
   listResources,
   listAllResources,
+  getEffectiveResourceContext,
 } from "./script-helpers.js";
 
 describe("resources script-helpers", () => {
@@ -30,6 +38,7 @@ describe("resources script-helpers", () => {
   beforeEach(() => {
     originalEnv = { ...process.env };
     vi.clearAllMocks();
+    mockEnsurePersonalDefaults.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -65,6 +74,17 @@ describe("resources script-helpers", () => {
       expect(mockResourceGetByPath).toHaveBeenCalledWith(
         "__shared__",
         "file.md",
+      );
+    });
+
+    it("uses __workspace__ owner when scope is workspace", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockResourceGetByPath.mockResolvedValue(null);
+
+      await readResource("context/brand.md", { scope: "workspace" });
+      expect(mockResourceGetByPath).toHaveBeenCalledWith(
+        "__workspace__",
+        "context/brand.md",
       );
     });
   });
@@ -213,6 +233,14 @@ describe("resources script-helpers", () => {
       expect(mockResourceList).toHaveBeenCalledWith("__shared__", undefined);
     });
 
+    it("lists workspace resources when scope is workspace", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockResourceList.mockResolvedValue([]);
+
+      await listResources(undefined, { scope: "workspace" });
+      expect(mockResourceList).toHaveBeenCalledWith("__workspace__", undefined);
+    });
+
     it("can include agent scratch resources", async () => {
       process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourceList.mockResolvedValue([]);
@@ -227,11 +255,12 @@ describe("resources script-helpers", () => {
   });
 
   describe("listAllResources", () => {
-    it("lists both personal and shared resources", async () => {
+    it("lists all inherited and accessible resources", async () => {
       process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourceListAccessible.mockResolvedValue([
         { path: "mine.md", owner: "alice@test.com" },
         { path: "shared.md", owner: "__shared__" },
+        { path: "context/brand.md", owner: "__workspace__" },
       ]);
 
       const result = await listAllResources();
@@ -239,7 +268,7 @@ describe("resources script-helpers", () => {
         "alice@test.com",
         undefined,
       );
-      expect(result).toHaveLength(2);
+      expect(result).toHaveLength(3);
     });
 
     it("filters by prefix", async () => {
@@ -272,6 +301,29 @@ describe("resources script-helpers", () => {
         "Resource access requires an authenticated request context or AGENT_USER_EMAIL env var",
       );
       expect(mockResourceListAccessible).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getEffectiveResourceContext", () => {
+    it("returns the workspace to personal inheritance stack for the current user", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const context = {
+        path: "instructions/guardrails.md",
+        effectiveScope: "shared",
+        layers: [],
+      };
+      mockResourceEffectiveContext.mockResolvedValue(context);
+
+      const result = await getEffectiveResourceContext(
+        "instructions/guardrails.md",
+      );
+
+      expect(mockEnsurePersonalDefaults).toHaveBeenCalledWith("alice@test.com");
+      expect(mockResourceEffectiveContext).toHaveBeenCalledWith(
+        "alice@test.com",
+        "instructions/guardrails.md",
+      );
+      expect(result).toBe(context);
     });
   });
 });

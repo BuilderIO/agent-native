@@ -4,7 +4,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
-    "Navigate the Migration Workbench UI to a run, artifact, or path.",
+    "Navigate the Migration Workbench UI to a run, goal state, artifact, or path.",
   schema: z.object({
     view: z.string().optional().describe("View name to navigate to"),
     runId: z.string().optional().describe("Migration run ID to open"),

@@ -17,14 +17,23 @@
     "access": "public",
     "provenance": true
   },
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./source-nextjs": "./dist/source-nextjs.js",
-    "./target-agent-native": "./dist/target-agent-native.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./source-nextjs": {
+      "types": "./dist/source-nextjs.d.ts",
+      "default": "./dist/source-nextjs.js"
+    },
+    "./target-agent-native": {
+      "types": "./dist/target-agent-native.d.ts",
+      "default": "./dist/target-agent-native.js"
+    }
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
   "scripts": {
     "build": "tsc",

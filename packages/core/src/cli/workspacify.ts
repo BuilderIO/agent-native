@@ -38,11 +38,14 @@ export interface WorkspacifyOptions {
   workspaceCoreName: string;
   /** Version range to use for the published @agent-native/core package */
   coreDependencyVersion?: string;
+  /** Version range to use for the package-backed Dispatch app */
+  dispatchDependencyVersion?: string;
 }
 
 export function workspacifyApp(opts: WorkspacifyOptions): void {
   const { appDir, workspaceCoreName } = opts;
   const coreDependencyVersion = opts.coreDependencyVersion ?? "latest";
+  const dispatchDependencyVersion = opts.dispatchDependencyVersion ?? "latest";
 
   // 1) Rewrite package.json to add the workspace core dep and resolve
   //    @agent-native/core / @agent-native/dispatch workspace:* refs to
@@ -66,7 +69,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
               deps[key] = coreDependencyVersion;
             }
             if (key === "@agent-native/dispatch") {
-              deps[key] = "latest";
+              deps[key] = dispatchDependencyVersion;
             }
           }
         }

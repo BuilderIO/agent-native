@@ -12,6 +12,7 @@ import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconArrowUpRight,
   IconApps,
+  IconBrain,
   IconChartBar,
   IconBrandTelegram,
   IconKey,
@@ -149,6 +150,13 @@ const OPERATIONS_NAV_ITEMS = [
     to: "/audit",
     label: "Audit",
     icon: IconHistory,
+    section: "operations",
+  },
+  {
+    id: "dreams",
+    to: "/dreams",
+    label: "Dreams",
+    icon: IconBrain,
     section: "operations",
   },
   {

@@ -38,16 +38,33 @@ export default defineAction({
       ...targetResults,
       ...report.verifierResults,
     ]);
+    const hasOpenTasks = tasks.some(
+      (task) => task.status === "pending" || task.status === "running",
+    );
+    const hasManualOrFailedTasks = tasks.some(
+      (task) => task.status === "manual" || task.status === "failed",
+    );
+    const nextPhase =
+      report.ok && !hasOpenTasks && !hasManualOrFailedTasks
+        ? "complete"
+        : hasOpenTasks
+          ? "sweep"
+          : "verify";
     const now = new Date().toISOString();
     const db = getDb();
     await db
       .update(schema.migrationRuns)
       .set({
-        phase: report.ok ? "complete" : "verify",
+        phase: nextPhase,
         reportPath: context.artifacts.reportPath,
         updatedAt: now,
       })
       .where(eq(schema.migrationRuns.id, id));
-    return { report, targetResults };
+    return {
+      report,
+      targetResults,
+      completed: nextPhase === "complete",
+      blockedByTasks: hasOpenTasks || hasManualOrFailedTasks,
+    };
   },
 });

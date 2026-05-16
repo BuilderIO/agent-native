@@ -219,7 +219,7 @@ export const MentionPopover = forwardRef<
   // Reset selection when items change
   useEffect(() => {
     setSelectedIndex(0);
-  }, [mentionItems, skills, query]);
+  }, [commands, mentionItems, skills, query]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -258,6 +258,7 @@ export const MentionPopover = forwardRef<
       {/* Backdrop to capture outside clicks */}
       <div className="fixed inset-0 z-[9998]" onClick={onClose} />
       <div
+        data-agent-native-composer-popover="true"
         className="fixed z-[9999] w-[320px] overflow-y-auto rounded-lg border border-border bg-popover shadow-lg"
         style={{
           bottom: `calc(100vh - ${position.top}px + 4px)`,

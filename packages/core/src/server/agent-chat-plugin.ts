@@ -28,7 +28,18 @@ import {
   resolveEngine,
   createAnthropicEngine,
   getStoredModelForEngine,
+  getAgentEngineEntry,
+  isStoredEngineUsableForRequest,
+  listAgentEngines,
+  registerBuiltinEngines,
 } from "../agent/engine/index.js";
+import {
+  canUpdateAgentAppModelDefaultSettings,
+  normalizeAgentAppModelDefaultAppId,
+  readAgentAppModelDefaultSettings,
+  resetAgentAppModelDefaultSettings,
+  writeAgentAppModelDefaultSettings,
+} from "../agent/app-model-defaults.js";
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import type {
   AgentChatAttachment,
@@ -49,8 +60,10 @@ import {
   mountMcpServersRoutes,
   mountMcpHubRoutes,
   buildMergedConfig,
+  setBuiltinMcpCapabilityEnabled,
   getHubStatus,
   isHubServeEnabled,
+  type BuiltinMcpCapabilityId,
 } from "../mcp-client/index.js";
 import { discoverAgents } from "./agent-discovery.js";
 import { loadSchemaPromptBlock } from "./schema-prompt.js";
@@ -70,6 +83,7 @@ import {
   getMethod,
   getQuery,
   getHeader,
+  type H3Event,
 } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
 import { getSession } from "./auth.js";
@@ -95,6 +109,7 @@ import {
   resourceGetByPath,
   ensurePersonalDefaults,
   SHARED_OWNER,
+  WORKSPACE_OWNER,
 } from "../resources/store.js";
 import {
   getFrontmatterValue,
@@ -128,6 +143,240 @@ async function lazyFs(): Promise<typeof import("fs")> {
     _fs = await import("node:fs");
   }
   return _fs;
+}
+
+const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
+const SHARED_RESOURCE_INDEX_LIMIT = 40;
+
+function normalizeResourcePathForPrompt(path: string): string {
+  return path.replace(/^\/+/, "").trim();
+}
+
+function escapeXmlAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function truncatePromptResourceContent(
+  content: string,
+  path: string,
+  maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
+): string {
+  const trimmed = content.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  const omitted = trimmed.length - maxChars;
+  return `${trimmed.slice(0, maxChars)}\n\n[Resource ${path} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted. Use resource-read --path "${path}" with the resource's scope for the full content.]`;
+}
+
+function promptResourceBlock(input: {
+  name: string;
+  scope: string;
+  content: string;
+  path?: string;
+  maxChars?: number;
+}): string | null {
+  const normalizedPath = input.path
+    ? normalizeResourcePathForPrompt(input.path)
+    : undefined;
+  const content = truncatePromptResourceContent(
+    input.content,
+    normalizedPath ?? input.name,
+    input.maxChars,
+  );
+  if (!content) return null;
+  const pathAttr = normalizedPath
+    ? ` path="${escapeXmlAttribute(normalizedPath)}"`
+    : "";
+  return `<resource name="${escapeXmlAttribute(input.name)}" scope="${escapeXmlAttribute(input.scope)}"${pathAttr}>\n${content}\n</resource>`;
+}
+
+function isAutoLoadedInstructionPath(path: string): boolean {
+  const normalized = normalizeResourcePathForPrompt(path);
+  return normalized.startsWith("instructions/") && normalized.endsWith(".md");
+}
+
+function isSpecialPromptResourcePath(path: string): boolean {
+  const normalized = normalizeResourcePathForPrompt(path);
+  return (
+    normalized === "AGENTS.md" ||
+    normalized === "LEARNINGS.md" ||
+    normalized.startsWith("instructions/") ||
+    normalized.startsWith("skills/") ||
+    normalized.startsWith("agents/") ||
+    normalized.startsWith("remote-agents/") ||
+    normalized.startsWith("jobs/") ||
+    normalized.startsWith("memory/")
+  );
+}
+
+function isTextLikeResource(mimeType: string): boolean {
+  return (
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType === "application/yaml" ||
+    mimeType === "application/x-yaml"
+  );
+}
+
+function getResourceSummaryFromContent(content: string): string | null {
+  const frontmatter = parseFrontmatter(content);
+  const title =
+    getFrontmatterValue(frontmatter, "title") ||
+    getFrontmatterValue(frontmatter, "name");
+  const description = getFrontmatterValue(frontmatter, "description");
+  if (title && description) return `${title}: ${description}`;
+  if (title) return title;
+  if (description) return description;
+
+  const heading = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^#{1,3}\s+\S/.test(line));
+  if (heading) return heading.replace(/^#{1,3}\s+/, "").trim();
+  return null;
+}
+
+function resourceScopeForOwner(owner: string, currentOwner?: string): string {
+  if (owner === WORKSPACE_OWNER) return "workspace";
+  if (owner === SHARED_OWNER) return "shared";
+  if (currentOwner && owner === currentOwner) return "personal";
+  return "resource";
+}
+
+async function loadAgentsResourceForPrompt(
+  owner: string,
+  scope: string,
+): Promise<string | null> {
+  try {
+    const agents = await resourceGetByPath(owner, "AGENTS.md");
+    if (!agents?.content?.trim()) return null;
+    return promptResourceBlock({
+      name: "AGENTS.md",
+      scope,
+      path: "AGENTS.md",
+      content: agents.content,
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function loadInstructionResourcesForPrompt(
+  owner: string,
+  scope: string,
+): Promise<string[]> {
+  try {
+    const resources = await resourceList(owner, "instructions/");
+    const blocks: string[] = [];
+    const sorted = resources
+      .filter((resource) => isAutoLoadedInstructionPath(resource.path))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    for (const resource of sorted) {
+      const full = await resourceGet(resource.id).catch(() => null);
+      if (!full?.content?.trim()) continue;
+      const block = promptResourceBlock({
+        name: resource.path,
+        scope,
+        path: resource.path,
+        content: full.content,
+      });
+      if (block) blocks.push(block);
+    }
+    return blocks;
+  } catch {
+    return [];
+  }
+}
+
+async function loadResourceSkillsPromptBlock(
+  owner: string,
+): Promise<string | null> {
+  try {
+    const resources =
+      owner === SHARED_OWNER
+        ? [
+            ...(await resourceList(SHARED_OWNER, "skills/")),
+            ...(await resourceList(WORKSPACE_OWNER, "skills/")),
+          ]
+        : await resourceListAccessible(owner, "skills/");
+    const sorted = resources.sort((a, b) => {
+      const ownerOrder =
+        (a.owner === owner
+          ? 0
+          : a.owner === SHARED_OWNER
+            ? 1
+            : a.owner === WORKSPACE_OWNER
+              ? 2
+              : 3) -
+        (b.owner === owner
+          ? 0
+          : b.owner === SHARED_OWNER
+            ? 1
+            : b.owner === WORKSPACE_OWNER
+              ? 2
+              : 3);
+      if (ownerOrder !== 0) return ownerOrder;
+      return a.path.localeCompare(b.path);
+    });
+    const seen = new Set<string>();
+    const lines: string[] = [];
+    for (const resource of sorted) {
+      const full = await resourceGet(resource.id).catch(() => null);
+      if (!full?.content) continue;
+      const meta = parseSkillFrontmatter(full.content);
+      if (meta.userInvocable === false) continue;
+      const name = meta.name || getSkillNameFromPath(resource.path);
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      const scope = resourceScopeForOwner(resource.owner, owner);
+      const description = meta.description || "(no description)";
+      lines.push(
+        `- \`${name}\` at resource \`${resource.path}\` (${scope}) - ${description}. Read it with \`resource-read --path "${resource.path}" --scope ${scope}\` before starting a task it applies to.`,
+      );
+    }
+    if (lines.length === 0) return null;
+    return `<resource-skills>\nThe following SQL-backed workspace skills are available in addition to codebase skills. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
+  } catch {
+    return null;
+  }
+}
+
+async function loadResourceIndexForPrompt(
+  owner: string,
+  scope: "workspace" | "shared",
+): Promise<string | null> {
+  try {
+    const resources = (await resourceList(owner))
+      .filter(
+        (resource) =>
+          !isSpecialPromptResourcePath(resource.path) &&
+          isTextLikeResource(resource.mimeType),
+      )
+      .sort((a, b) => a.path.localeCompare(b.path));
+    if (resources.length === 0) return null;
+
+    const listed = resources.slice(0, SHARED_RESOURCE_INDEX_LIMIT);
+    const lines: string[] = [];
+    for (const resource of listed) {
+      const full = await resourceGet(resource.id).catch(() => null);
+      const summary = full?.content
+        ? getResourceSummaryFromContent(full.content)
+        : null;
+      lines.push(`- \`${resource.path}\`${summary ? ` - ${summary}` : ""}`);
+    }
+    if (resources.length > listed.length) {
+      lines.push(
+        `- ...${resources.length - listed.length} more ${scope} resources. Use \`resource-list --scope ${scope}\` to inspect them.`,
+      );
+    }
+
+    const label =
+      scope === "workspace"
+        ? "Workspace reference resources are inherited by every app and are available for company, brand, positioning, persona, product, or domain context."
+        : "Shared app/organization reference resources are available for app-specific or team context.";
+    return `<workspace-resources scope="${scope}">\n${label} Use \`resource-read --path <path> --scope ${scope}\` when a task may depend on them; do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -164,6 +413,22 @@ function filterReadOnlyActions(
 ): Record<string, ActionEntry> {
   return Object.fromEntries(
     Object.entries(actions).filter(([, entry]) => entry.readOnly === true),
+  );
+}
+
+function filterPublicAgentActions(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(actions).filter(([, entry]) => {
+      const config = entry.publicAgent;
+      return (
+        config?.expose === true &&
+        config.readOnly === true &&
+        config.requiresAuth !== true &&
+        config.isConsequential !== true
+      );
+    }),
   );
 }
 
@@ -649,15 +914,17 @@ async function createResourceScriptEntries(): Promise<
   Record<string, ActionEntry>
 > {
   try {
-    const [list, read, write, del, saveMem, delMem, store] = await Promise.all([
-      import("../scripts/resources/list.js"),
-      import("../scripts/resources/read.js"),
-      import("../scripts/resources/write.js"),
-      import("../scripts/resources/delete.js"),
-      import("../scripts/resources/save-memory.js"),
-      import("../scripts/resources/delete-memory.js"),
-      import("../resources/store.js"),
-    ]);
+    const [list, read, effective, write, del, saveMem, delMem, store] =
+      await Promise.all([
+        import("../scripts/resources/list.js"),
+        import("../scripts/resources/read.js"),
+        import("../scripts/resources/effective.js"),
+        import("../scripts/resources/write.js"),
+        import("../scripts/resources/delete.js"),
+        import("../scripts/resources/save-memory.js"),
+        import("../scripts/resources/delete-memory.js"),
+        import("../resources/store.js"),
+      ]);
 
     // Wrap each CLI runner so it captures stdout and converts args properly
     const listEntry = wrapCliScript(
@@ -683,6 +950,14 @@ async function createResourceScriptEntries(): Promise<
       },
       write.default,
     );
+    const effectiveEntry = wrapCliScript(
+      {
+        description: "",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      effective.default,
+      { readOnly: true },
+    );
     const deleteEntry = wrapCliScript(
       {
         description: "",
@@ -695,14 +970,21 @@ async function createResourceScriptEntries(): Promise<
       resources: {
         tool: {
           description:
-            'Manage workspace resources. Actions: "list" (browse visible files), "read" (get contents), "write" (create/update), "promote" (make agent scratch visible), "delete" (remove). Agent scratch writes are hidden from the Workspace view by default; use visibility="workspace" only for files the user explicitly wants to keep/manage.',
+            'Manage workspace resources. Actions: "list" (browse visible files), "read" (get contents), "effective" (show workspace -> organization/app -> personal inheritance for a path), "write" (create/update personal or shared), "promote" (make agent scratch visible), "delete" (remove personal or shared). Agent scratch writes are hidden from the Workspace view by default; use visibility="workspace" only for files the user explicitly wants to keep/manage.',
           parameters: {
             type: "object",
             properties: {
               action: {
                 type: "string",
                 description: "The operation to perform",
-                enum: ["list", "read", "write", "promote", "delete"],
+                enum: [
+                  "list",
+                  "read",
+                  "effective",
+                  "write",
+                  "promote",
+                  "delete",
+                ],
               },
               path: {
                 type: "string",
@@ -716,8 +998,8 @@ async function createResourceScriptEntries(): Promise<
               scope: {
                 type: "string",
                 description:
-                  "personal, shared, or all (default varies by action)",
-                enum: ["personal", "shared", "all"],
+                  "personal, shared, workspace, or all (default varies by action). Workspace is read-only and inherited from Dispatch.",
+                enum: ["personal", "shared", "workspace", "all"],
               },
               prefix: {
                 type: "string",
@@ -756,6 +1038,10 @@ async function createResourceScriptEntries(): Promise<
             if (!rest.path) return "Error: path is required for read";
             return readEntry.run(rest);
           }
+          if (a === "effective") {
+            if (!rest.path) return "Error: path is required for effective";
+            return effectiveEntry.run(rest);
+          }
           if (a === "write") {
             if (
               !rest.path ||
@@ -776,6 +1062,9 @@ async function createResourceScriptEntries(): Promise<
           if (a === "promote") {
             if (!rest.path) return "Error: path is required for promote";
             const scope = rest.scope ?? "personal";
+            if (scope === "workspace" || scope === "all") {
+              return "Error: promote supports personal or shared scope only";
+            }
             const owner =
               scope === "shared"
                 ? store.SHARED_OWNER
@@ -977,14 +1266,24 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
  * Creates the consolidated manage-agent-engine tool (list / set / test).
  * Let the agent inspect and configure the active LLM engine.
  */
-async function createAgentEngineScriptEntries(): Promise<
-  Record<string, ActionEntry>
-> {
+async function createAgentEngineScriptEntries(
+  appId?: string,
+): Promise<Record<string, ActionEntry>> {
   try {
     const mod = await import("../scripts/agent-engines/manage-agent-engine.js");
 
     return {
-      "manage-agent-engine": { tool: mod.tool, run: mod.run },
+      "manage-agent-engine": {
+        tool: mod.tool,
+        run: (args) =>
+          mod.run({
+            ...args,
+            appId:
+              typeof args.appId === "string" && args.appId.trim()
+                ? args.appId
+                : (appId ?? ""),
+          }),
+      },
     };
   } catch {
     return {};
@@ -1033,6 +1332,31 @@ function createBuilderBrowserTool(deps: {
   getOrigin: () => string;
   getOwner?: () => string | null | undefined;
 }): Record<string, ActionEntry> {
+  const setBuiltinForCurrentUser = async (
+    id: BuiltinMcpCapabilityId,
+    enabled: boolean,
+  ) => {
+    const email = getRequestUserEmail();
+    if (!email) {
+      return {
+        ok: false,
+        error: "not-signed-in",
+        message: "You must be signed in to change built-in MCP tools.",
+      };
+    }
+    const enabledIds = await setBuiltinMcpCapabilityEnabled(
+      "user",
+      email,
+      id,
+      enabled,
+    );
+    const manager = getGlobalMcpManager();
+    if (manager) {
+      await manager.reconfigure(await buildMergedConfig());
+    }
+    return { ok: true, enabledIds: enabledIds ?? [] };
+  };
+
   return {
     "connect-builder": {
       tool: {
@@ -1069,6 +1393,109 @@ function createBuilderBrowserTool(deps: {
           connectUrl: getBuilderBrowserConnectUrl(origin),
           orgName: creds.orgName || null,
           prompt,
+        });
+      },
+    },
+    "set-browser-control": {
+      tool: {
+        description:
+          "Enable or disable built-in browser-control MCP tools for the current user. Call this when the user asks to test, screenshot, inspect, or interact with a web page and browser tools are not available; confirm once before enabling. Prefer the chrome-devtools backend for live logged-in Chrome, and use playwright when an isolated browser is better.",
+        parameters: {
+          type: "object",
+          properties: {
+            enabled: {
+              type: "boolean",
+              description: "Whether browser-control tools should be enabled.",
+            },
+            backend: {
+              type: "string",
+              enum: ["chrome-devtools", "playwright"],
+              description:
+                "Browser backend to enable. Defaults to chrome-devtools.",
+            },
+          },
+          required: ["enabled"],
+        },
+      },
+      run: async (args) => {
+        const parsed =
+          args && typeof args === "object"
+            ? (args as Record<string, unknown>)
+            : {};
+        const enabled = parsed.enabled !== false;
+        const requestedBackend =
+          typeof parsed.backend === "string" ? parsed.backend : undefined;
+        const backend =
+          requestedBackend === "playwright" ? "playwright" : "chrome-devtools";
+        const targetId: BuiltinMcpCapabilityId =
+          backend === "playwright"
+            ? "browser-playwright"
+            : "browser-chrome-devtools";
+
+        if (!enabled) {
+          const chrome = await setBuiltinForCurrentUser(
+            "browser-chrome-devtools",
+            false,
+          );
+          if (!chrome.ok) return JSON.stringify(chrome);
+          const playwright = await setBuiltinForCurrentUser(
+            "browser-playwright",
+            false,
+          );
+          return JSON.stringify({
+            ...playwright,
+            enabled: false,
+            message: "Browser-control MCP tools are disabled.",
+          });
+        }
+
+        const result = await setBuiltinForCurrentUser(targetId, true);
+        return JSON.stringify({
+          ...result,
+          enabled: true,
+          backend,
+          message:
+            backend === "chrome-devtools"
+              ? "Chrome DevTools MCP is enabled. Browser tools will be available on the next action when Chrome remote debugging is available."
+              : "Playwright MCP is enabled. Browser tools will be available on the next action in an isolated Playwright browser.",
+        });
+      },
+    },
+    "set-computer-use": {
+      tool: {
+        description:
+          "Enable or disable built-in Computer Use MCP tools for the current user. Call only after the user explicitly asks to let the agent control local desktop apps. macOS may require Screen Recording and Accessibility permissions.",
+        parameters: {
+          type: "object",
+          properties: {
+            enabled: {
+              type: "boolean",
+              description: "Whether Computer Use tools should be enabled.",
+            },
+          },
+          required: ["enabled"],
+        },
+      },
+      run: async (args) => {
+        const parsed =
+          args && typeof args === "object"
+            ? (args as Record<string, unknown>)
+            : {};
+        const enabled = parsed.enabled !== false;
+        if (enabled && process.platform !== "darwin") {
+          return JSON.stringify({
+            ok: false,
+            error: "unsupported-platform",
+            message: "Computer Use is currently available only on macOS.",
+          });
+        }
+        const result = await setBuiltinForCurrentUser("computer-use", enabled);
+        return JSON.stringify({
+          ...result,
+          enabled,
+          message: enabled
+            ? "Computer Use MCP is enabled. If macOS prompts, grant Screen Recording and Accessibility permission in System Settings > Privacy & Security."
+            : "Computer Use MCP is disabled.",
         });
       },
     },
@@ -1138,7 +1565,7 @@ function createBuilderBrowserTool(deps: {
           command: "npx",
           args: [
             "-y",
-            "chrome-devtools-mcp@latest",
+            "chrome-devtools-mcp@0.26.0",
             "--wsEndpoint",
             wsUrl,
             "--categoryEmulation=false",
@@ -1571,7 +1998,8 @@ const FRAMEWORK_CORE_COMPACT = `
 
 ### Resources
 
-Use resource-list, resource-read, resource-write, resource-delete for persistent notes and context files.
+Use resource-list, resource-read, resource-effective, resource-write, resource-delete for persistent notes and context files.
+Resources have three levels: workspace defaults inherited from Dispatch, shared organization/app overrides, and personal overrides. Use resource-effective before editing when you need to explain or inspect which level is active for a path.
 Workspace resources are user-facing by default. If you need temporary working files, write them as agent scratch (\`visibility: "agent_scratch"\`); scratch is hidden from the Workspace view by default and expires. Use \`visibility: "workspace"\` only when the user explicitly asked to save/manage that file, or for durable AGENTS.md, LEARNINGS.md, memory, skills, jobs, or custom agents.
 
 ### Navigation Rule
@@ -1584,7 +2012,7 @@ On the user's first interaction, check \`readAppState("personalization")\`. If i
 
 ### Extended Capabilities
 
-You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, and browser automation (\`activate-browser\` to provision a real Chrome). Call \`get-framework-context\` to read detailed instructions for any of these when needed.
+You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, live embedded browser sessions (\`list-browser-sessions\`, \`view-browser-session\`, \`run-browser-session-action\`, \`send-browser-session-command\`), and browser automation (\`set-browser-control\` for built-in Chrome DevTools/Playwright MCP, \`activate-browser\` for Builder-provisioned Chrome). Call \`get-framework-context\` to read detailed instructions for any of these when needed.
 
 For brand-consistent raster image generation, use the first-party Images agent via \`call-agent\` with agent "images" when another app needs generated heroes, diagrams, product shots, thumbnails, or design imagery. If this app has a native image-generation action, prefer that action because it may attach the image to the local document/deck/design.
 `;
@@ -1680,7 +2108,7 @@ You can activate a real Chrome browser via Builder.io for tasks that need full p
 - Reading content from pages that require JavaScript execution
 
 **How to use:**
-1. Call \`activate-browser\` — this provisions a Chrome instance and registers chrome-devtools MCP tools
+1. Call \`set-browser-control\` with \`{"enabled":true,"backend":"chrome-devtools"}\` after confirming once with the user. Use \`activate-browser\` only when you specifically need Builder-provisioned Chrome.
 2. On your next action, use \`mcp__chrome-devtools__navigate_page\`, \`mcp__chrome-devtools__evaluate_script\`, \`mcp__chrome-devtools__take_screenshot\`, etc.
 3. If Builder is not connected, call \`connect-builder\` first
 
@@ -1774,8 +2202,8 @@ const FRAMEWORK_CORE = `
 ### Resources
 
 You have access to a Resources system for persistent notes and context files.
-Use resource-list, resource-read, resource-write, resource-delete to manage resources.
-Resources can be personal (per-user) or shared (team-wide). By default, resources are personal.
+Use resource-list, resource-read, resource-effective, resource-write, resource-delete to manage resources.
+Resources can be workspace defaults inherited from Dispatch, shared organization/app overrides, or personal overrides. By default, resources are personal. Workspace-scope resources are read-only from app agents; create shared or personal resources to override or narrow them.
 
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
 
@@ -1878,7 +2306,7 @@ When the user asks to connect Builder.io, needs Builder for LLM access / browser
 
 ### Browser Automation
 
-Call \`activate-browser\` to provision a real Chrome browser. After activation, chrome-devtools MCP tools become available for navigating pages, reading rendered DOM, taking screenshots, and evaluating JavaScript. If Builder is not connected, call \`connect-builder\` first. Use browser automation proactively when tasks benefit from full page rendering (design system extraction from URLs, visual verification, SPA content reading).
+Call \`set-browser-control\` to enable built-in browser MCP tools. Prefer \`backend:"chrome-devtools"\` for the user's live logged-in Chrome; use \`backend:"playwright"\` for isolated browser testing. After activation, MCP browser tools become available for navigating pages, reading rendered DOM, taking screenshots, and evaluating JavaScript on the next action. Use \`activate-browser\` only for Builder-provisioned browser sessions.
 
 ### call-agent — External Apps Only
 
@@ -2087,24 +2515,29 @@ ${FRAMEWORK_CORE_COMPACT}`;
 const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
 
 /**
- * Pre-load the agent's context: AGENTS.md (template instructions), the skills
- * index, shared LEARNINGS.md (team notes), and memory/MEMORY.md (personal
- * structured memory index). These all get appended to the system prompt so
- * the agent has everything it needs from the first turn.
+ * Pre-load the agent's context: AGENTS.md (workspace/template/runtime
+ * instructions), the skills index, shared LEARNINGS.md (team notes), a shared
+ * resource index, and memory/MEMORY.md (personal structured memory index).
+ * These all get appended to the system prompt so the agent has everything it
+ * needs from the first turn.
  *
- * Four sources are layered:
+ * Six sources are layered:
  *
  *   1. `<workspace>` — AGENTS.md from the enterprise workspace core.
  *   2. `<template>` — AGENTS.md + skills index from the Vite plugin bundle.
- *   3. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
- *   4. `<personal>` — memory/MEMORY.md from the SQL personal scope. The
+ *   3. `<workspace>` — SQL workspace AGENTS.md and instructions/*.md.
+ *      Runtime global defaults managed from Dispatch and inherited by apps.
+ *   4. `<shared>` — SQL shared AGENTS.md and instructions/*.md. App/team/org
+ *      guidance that can override or narrow workspace defaults.
+ *   5. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
+ *   6. `<personal>` — memory/MEMORY.md from the SQL personal scope. The
  *      current user's structured memory index.
  *
  * Each source is read independently — no copying between them. Editing
  * AGENTS.md and restarting the server is all it takes; Vite HMR invalidates
  * the bundle in dev so changes land instantly.
  */
-async function loadResourcesForPrompt(
+export async function loadResourcesForPrompt(
   owner: string,
   compact = false,
   selfAppId?: string,
@@ -2148,6 +2581,50 @@ async function loadResourcesForPrompt(
     }
   } catch {}
 
+  // 3. Runtime workspace resources from SQL. These are global defaults
+  // inherited by every app in the workspace, not copied into app scopes.
+  const workspaceAgents = await loadAgentsResourceForPrompt(
+    WORKSPACE_OWNER,
+    "workspace",
+  );
+  if (workspaceAgents) sections.push(workspaceAgents);
+  sections.push(
+    ...(await loadInstructionResourcesForPrompt(
+      WORKSPACE_OWNER,
+      "workspace-instruction",
+    )),
+  );
+
+  // 4. Runtime shared/app/org resources from SQL. These come after workspace
+  // defaults so app/team-specific guidance can override or narrow them.
+  const sharedAgents = await loadAgentsResourceForPrompt(
+    SHARED_OWNER,
+    "shared",
+  );
+  if (sharedAgents) sections.push(sharedAgents);
+  sections.push(
+    ...(await loadInstructionResourcesForPrompt(
+      SHARED_OWNER,
+      "shared-instruction",
+    )),
+  );
+
+  // 5. Personal SQL resources. These come last in the instruction stack so a
+  // user can narrow or override organization/app and workspace defaults.
+  if (owner !== SHARED_OWNER && owner !== WORKSPACE_OWNER) {
+    const personalAgents = await loadAgentsResourceForPrompt(owner, "personal");
+    if (personalAgents) sections.push(personalAgents);
+    sections.push(
+      ...(await loadInstructionResourcesForPrompt(
+        owner,
+        "personal-instruction",
+      )),
+    );
+  }
+
+  const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner);
+  if (resourceSkillsBlock) sections.push(resourceSkillsBlock);
+
   if (compact) {
     // In compact mode, skip learnings and memory in the prompt.
     // The agent can access them via resource-read when needed.
@@ -2179,6 +2656,18 @@ async function loadResourcesForPrompt(
       } catch {}
     }
   }
+
+  const workspaceResourceIndex = await loadResourceIndexForPrompt(
+    WORKSPACE_OWNER,
+    "workspace",
+  );
+  if (workspaceResourceIndex) sections.push(workspaceResourceIndex);
+
+  const sharedResourceIndex = await loadResourceIndexForPrompt(
+    SHARED_OWNER,
+    "shared",
+  );
+  if (sharedResourceIndex) sections.push(sharedResourceIndex);
 
   try {
     const agents = (await discoverAgents(selfAppId)).slice(0, 30);
@@ -2582,7 +3071,9 @@ export function createAgentChatPlugin(
       const leanPrompt = options?.leanPrompt === true;
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
       const urlTools = createUrlTools();
-      const engineScripts = await createAgentEngineScriptEntries();
+      const engineScripts = await createAgentEngineScriptEntries(
+        options?.appId,
+      );
       const loopSettingsScripts = await createAgentLoopSettingsScriptEntries();
       const chatScripts = {
         ...(await createChatScriptEntries()),
@@ -2829,6 +3320,14 @@ export function createAgentChatPlugin(
           await import("../extensions/actions.js");
         toolActions = createExtensionActionEntries();
       } catch {}
+      let browserSessionTools: Record<string, ActionEntry> = {};
+      try {
+        const { createBrowserSessionActionEntries } =
+          await import("../browser-sessions/actions.js");
+        browserSessionTools = createBrowserSessionActionEntries({
+          getOwnerEmail: () => requireCurrentRunOwner("use browser sessions"),
+        });
+      } catch {}
 
       const resolveExtraContext = async (
         event: any,
@@ -2855,6 +3354,7 @@ export function createAgentChatPlugin(
       const allScripts = attachToolSearch(
         canToggle
           ? {
+              ...filterPublicAgentActions(templateScripts),
               ...resourceScripts,
               ...docsScripts,
               ...(lazyContext ? frameworkContextTool : {}),
@@ -2866,6 +3366,7 @@ export function createAgentChatPlugin(
               ...progressTools,
               ...fetchTool,
               ...toolActions,
+              ...browserSessionTools,
               ...browserTools,
               ...devScriptsForA2A,
             }
@@ -2885,6 +3386,7 @@ export function createAgentChatPlugin(
               ...progressTools,
               ...fetchTool,
               ...toolActions,
+              ...browserSessionTools,
               ...browserTools,
               ...devScriptsForA2A,
             },
@@ -3036,6 +3538,7 @@ export function createAgentChatPlugin(
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
             apiKey: options?.apiKey,
+            appId: options?.appId,
           });
 
           // Use the same handler (dev or prod) that the interactive chat uses
@@ -3061,7 +3564,9 @@ export function createAgentChatPlugin(
 
           const model =
             options?.model ??
-            (await getStoredModelForEngine(a2aEngine)) ??
+            (await getStoredModelForEngine(a2aEngine, {
+              appId: options?.appId,
+            })) ??
             a2aEngine.defaultModel;
 
           // Build tools — same as interactive handler but WITHOUT call-agent
@@ -3077,6 +3582,7 @@ export function createAgentChatPlugin(
                   ...urlTools,
                   ...chatScripts,
                   ...toolActions,
+                  ...browserSessionTools,
                   ...browserTools,
                   ...devScriptsForA2A,
                 }
@@ -3090,6 +3596,7 @@ export function createAgentChatPlugin(
                   ...urlTools,
                   ...chatScripts,
                   ...toolActions,
+                  ...browserSessionTools,
                   ...browserTools,
                 },
           );
@@ -3240,10 +3747,13 @@ export function createAgentChatPlugin(
           const mcpEngine = await resolveEngine({
             engineOption: options?.engine,
             apiKey: options?.apiKey,
+            appId: options?.appId,
           });
           const model =
             options?.model ??
-            (await getStoredModelForEngine(mcpEngine)) ??
+            (await getStoredModelForEngine(mcpEngine, {
+              appId: options?.appId,
+            })) ??
             mcpEngine.defaultModel;
 
           // Same actions as A2A — without call-agent to prevent loops.
@@ -3795,6 +4305,7 @@ export function createAgentChatPlugin(
         ...progressTools,
         ...fetchTool,
         ...toolActions,
+        ...browserSessionTools,
         ...browserTools,
         ...mcpActionEntries,
       });
@@ -3947,6 +4458,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
           );
         },
         model: options?.model,
+        appId: options?.appId,
         apiKey: options?.apiKey,
         runSoftTimeoutMs: options?.runSoftTimeoutMs,
         finalResponseGuard: options?.finalResponseGuard,
@@ -3990,6 +4502,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
                 );
               },
               model: options?.model,
+              appId: options?.appId,
               apiKey: options?.apiKey,
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
               finalResponseGuard: options?.finalResponseGuard,
@@ -4056,6 +4569,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
                   ...progressTools,
                   ...fetchTool,
                   ...toolActions,
+                  ...browserSessionTools,
                   ...browserTools,
                   ...mcpActionEntries,
                   ...(await createDevScriptRegistry()),
@@ -4092,6 +4606,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             );
           },
           model: options?.model,
+          appId: options?.appId,
           apiKey: options?.apiKey,
           runSoftTimeoutMs: options?.runSoftTimeoutMs,
           finalResponseGuard: options?.finalResponseGuard,
@@ -4161,6 +4676,179 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             return { devMode: currentDevMode, canToggle };
           }
           return { devMode: currentDevMode, canToggle };
+        }),
+      );
+
+      const modelDefaultsAppId =
+        normalizeAgentAppModelDefaultAppId(
+          options?.appId ??
+            process.env.AGENT_NATIVE_APP_ID ??
+            process.env.VITE_AGENT_NATIVE_TEMPLATE ??
+            "app",
+        ) ?? "app";
+
+      const resolveModelDefaultsContext = async (event: any) => {
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          return {
+            ok: false as const,
+            status: 401,
+            error: "Authentication required",
+          };
+        }
+
+        let orgCtx: {
+          orgId?: string | null;
+          orgName?: string | null;
+          role?: string | null;
+        } | null = null;
+        try {
+          const { getOrgContext } = await import("../org/context.js");
+          orgCtx = await getOrgContext(event);
+        } catch {
+          orgCtx = null;
+        }
+
+        const orgId =
+          (options?.resolveOrgId
+            ? await options.resolveOrgId(event)
+            : (orgCtx?.orgId ?? session.orgId ?? null)) ?? null;
+        const canUpdate = await canUpdateAgentAppModelDefaultSettings(
+          session.email,
+          orgId,
+        );
+
+        return {
+          ok: true as const,
+          userEmail: session.email,
+          orgId,
+          orgName: orgCtx?.orgId === orgId ? (orgCtx.orgName ?? null) : null,
+          role: orgCtx?.orgId === orgId ? (orgCtx.role ?? null) : null,
+          canUpdate,
+        };
+      };
+
+      const listModelDefaultEngineOptions = async (ctx: {
+        userEmail?: string;
+        orgId?: string | null;
+      }) => {
+        registerBuiltinEngines();
+        return runWithRequestContext(
+          {
+            userEmail: ctx.userEmail,
+            orgId: ctx.orgId ?? undefined,
+          },
+          () =>
+            Promise.all(
+              listAgentEngines().map(async (entry) => ({
+                name: entry.name,
+                label: entry.label,
+                description: entry.description,
+                defaultModel: entry.defaultModel,
+                supportedModels: entry.supportedModels,
+                requiredEnvVars: entry.requiredEnvVars,
+                configured: await isStoredEngineUsableForRequest(
+                  { engine: entry.name, model: entry.defaultModel },
+                  entry,
+                ).catch(() => false),
+              })),
+            ),
+        );
+      };
+
+      const buildModelDefaultsPayload = async (event: any, appId: string) => {
+        const ctx = await resolveModelDefaultsContext(event);
+        if (!ctx.ok) return ctx;
+        const settings = await readAgentAppModelDefaultSettings(
+          { userEmail: ctx.userEmail, orgId: ctx.orgId },
+          appId,
+        );
+        return {
+          ok: true as const,
+          ...settings,
+          canUpdate: ctx.canUpdate,
+          orgId: ctx.orgId,
+          orgName: ctx.orgName,
+          role: ctx.role,
+          engines: await listModelDefaultEngineOptions(ctx),
+        };
+      };
+
+      // GET/PUT/DELETE /_agent-native/agent-model-defaults — org-scoped
+      // per-app default engine/model used when a chat request does not carry
+      // an explicit composer model selection.
+      getH3App(nitroApp).use(
+        "/_agent-native/agent-model-defaults",
+        defineEventHandler(async (event) => {
+          const method = getMethod(event);
+          const query = getQuery(event);
+          const queryAppId =
+            typeof query.appId === "string" ? query.appId : undefined;
+          const appId =
+            normalizeAgentAppModelDefaultAppId(queryAppId) ??
+            modelDefaultsAppId;
+
+          if (method === "GET") {
+            const payload = await buildModelDefaultsPayload(event, appId);
+            if (payload.ok === false) {
+              setResponseStatus(event, payload.status);
+              return { error: payload.error };
+            }
+            return payload;
+          }
+
+          if (method !== "PUT" && method !== "DELETE") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+
+          const ctx = await resolveModelDefaultsContext(event);
+          if (ctx.ok === false) {
+            setResponseStatus(event, ctx.status);
+            return { error: ctx.error };
+          }
+          if (!ctx.canUpdate) {
+            setResponseStatus(event, 403);
+            return {
+              error: ctx.orgId
+                ? "Only organization owners and admins can change app model defaults."
+                : "You cannot change app model defaults.",
+            };
+          }
+
+          if (method === "DELETE") {
+            await resetAgentAppModelDefaultSettings(
+              { userEmail: ctx.userEmail, orgId: ctx.orgId },
+              appId,
+            );
+            return buildModelDefaultsPayload(event, appId);
+          }
+
+          const body = await readBody(event).catch(() => ({}));
+          const bodyAppId =
+            typeof body?.appId === "string" ? body.appId : undefined;
+          const targetAppId =
+            normalizeAgentAppModelDefaultAppId(bodyAppId) ?? appId;
+          const engine =
+            typeof body?.engine === "string" ? body.engine.trim() : "";
+          const model =
+            typeof body?.model === "string" ? body.model.trim() : "";
+          if (!engine || !model) {
+            setResponseStatus(event, 400);
+            return { error: "engine and model are required" };
+          }
+          const entry = getAgentEngineEntry(engine);
+          if (!entry) {
+            setResponseStatus(event, 400);
+            return { error: `Unknown engine: ${engine}` };
+          }
+
+          await writeAgentAppModelDefaultSettings(
+            { userEmail: ctx.userEmail, orgId: ctx.orgId },
+            targetAppId,
+            { engine, model, updatedBy: ctx.userEmail },
+          );
+          return buildModelDefaultsPayload(event, targetAppId);
         }),
       );
 
@@ -4280,7 +4968,10 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
 
           // Query resources
           try {
-            const resources = await resourceList(SHARED_OWNER);
+            const resources = [
+              ...(await resourceList(SHARED_OWNER)),
+              ...(await resourceList(WORKSPACE_OWNER)),
+            ];
             for (const r of resources) {
               if (!seen.has(r.path)) {
                 seen.add(r.path);
@@ -4390,11 +5081,26 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             if (skillsOwner) await ensurePersonalDefaults(skillsOwner);
             const resourceSkills = skillsOwner
               ? await resourceListAccessible(skillsOwner, "skills/")
-              : await resourceList(SHARED_OWNER, "skills/");
+              : [
+                  ...(await resourceList(SHARED_OWNER, "skills/")),
+                  ...(await resourceList(WORKSPACE_OWNER, "skills/")),
+                ];
             resourceSkills.sort((a, b) => {
               const ownerOrder =
-                (a.owner === skillsOwner ? 0 : 1) -
-                (b.owner === skillsOwner ? 0 : 1);
+                (a.owner === skillsOwner
+                  ? 0
+                  : a.owner === SHARED_OWNER
+                    ? 1
+                    : a.owner === WORKSPACE_OWNER
+                      ? 2
+                      : 3) -
+                (b.owner === skillsOwner
+                  ? 0
+                  : b.owner === SHARED_OWNER
+                    ? 1
+                    : b.owner === WORKSPACE_OWNER
+                      ? 2
+                      : 3);
               if (ownerOrder !== 0) return ownerOrder;
               const pathOrder =
                 (a.path.endsWith("/SKILL.md") ? 0 : 1) -
@@ -4550,18 +5256,24 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             sources.push(
               (async () => {
                 try {
-                  const resources = await resourceList(SHARED_OWNER);
+                  const resources = mentionsOwner
+                    ? await resourceListAccessible(mentionsOwner)
+                    : [
+                        ...(await resourceList(WORKSPACE_OWNER)),
+                        ...(await resourceList(SHARED_OWNER)),
+                      ];
                   flush(
                     resources.map((r) => {
-                      const isShared = r.owner === SHARED_OWNER;
+                      const scope = resourceScopeForOwner(
+                        r.owner,
+                        mentionsOwner,
+                      );
                       return {
                         id: `resource:${r.path}`,
                         label: r.path.split("/").pop() || r.path,
                         description: r.path,
                         icon: "file",
-                        source: isShared
-                          ? "resource:shared"
-                          : "resource:private",
+                        source: `resource:${scope}`,
                         refType: "file",
                         refPath: r.path,
                         section: "Files",
@@ -5012,25 +5724,41 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             : {}),
         };
       };
+      const parseThreadRoute = (event: H3Event) => {
+        const candidates = [event.path, event.node?.req?.url].filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0,
+        );
+        for (const candidate of candidates) {
+          const path = candidate.split("?")[0];
+          const parts = path.replace(/^\/+/, "").split("/").filter(Boolean);
+          const threadsIndex = parts.lastIndexOf("threads");
+          if (threadsIndex >= 0) {
+            const encodedId = parts[threadsIndex + 1];
+            if (!encodedId) continue;
+            return {
+              threadId: decodeURIComponent(encodedId),
+              tail: parts.slice(threadsIndex + 2),
+            };
+          }
+          if (parts.length > 0) {
+            return {
+              threadId: decodeURIComponent(parts[0]),
+              tail: parts.slice(1),
+            };
+          }
+        }
+        return { threadId: null, tail: [] as string[] };
+      };
       getH3App(nitroApp).use(
         `${routePath}/threads`,
         defineEventHandler(async (event) => {
           const owner = await getOwnerFromEvent(event);
           const method = getMethod(event);
 
-          // Determine if this is a specific-thread request.
-          // h3's use() strips the mount prefix, so event.path contains
-          // only the remainder after /threads — e.g., "/thread-abc" or "/".
-          // We also check the original URL as a fallback.
-          const remainder = (event.path || "").replace(/^\/+/, "");
-          const fromUrl = (event.node?.req?.url || "").match(
-            /\/threads\/([^/?]+)/,
-          );
-          const threadId = remainder
-            ? decodeURIComponent(remainder.split("?")[0].split("/")[0])
-            : fromUrl
-              ? decodeURIComponent(fromUrl[1])
-              : null;
+          const { threadId, tail: threadTail } = parseThreadRoute(event);
+          const isThreadSubroute = (subroute: string) =>
+            threadTail[0] === subroute;
 
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
@@ -5102,12 +5830,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             // when the user adds/removes/dequeues a queued message. Keeps
             // queued messages durable across reloads without piggybacking
             // on full-thread saves.
-            if (
-              method === "POST" &&
-              /\/threads\/[^/?]+\/queued/.test(
-                event.node?.req?.url || event.path || "",
-              )
-            ) {
+            if (method === "POST" && isThreadSubroute("queued")) {
               const thread = await getThread(threadId);
               if (!thread || thread.ownerEmail !== owner) {
                 setResponseStatus(event, 404);
@@ -5122,12 +5845,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             }
 
             // POST /threads/:id/fork — duplicate a thread with all its messages
-            if (
-              method === "POST" &&
-              /\/threads\/[^/?]+\/fork/.test(
-                event.node?.req?.url || event.path || "",
-              )
-            ) {
+            if (method === "POST" && isThreadSubroute("fork")) {
               const body = await readBody(event);
               const forked = await forkThread(threadId, owner, {
                 id: body?.id,
@@ -5340,7 +6058,8 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
-          model: resolvedModel,
+          model: options?.model,
+          appId: options?.appId,
         };
 
         // Start after a 10-second delay to let the server fully initialize
@@ -5387,7 +6106,8 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
-          model: resolvedModel,
+          model: options?.model,
+          appId: options?.appId,
         });
         if (process.env.DEBUG)
           console.log("[triggers] Trigger dispatcher initialized");

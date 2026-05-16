@@ -36,6 +36,10 @@ export interface ChatThreadSnapshot {
   messageCount: number;
 }
 
+interface ForkSnapshotWithScope extends ChatThreadSnapshot {
+  scope: ChatThreadScope | null;
+}
+
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
 
 function scopeKeySegment(scope?: ChatThreadScope | null): string {
@@ -411,6 +415,49 @@ export function useChatThreads(
       sourceSnapshot?: ChatThreadSnapshot | null,
     ): Promise<string | null> => {
       const id = crypto.randomUUID();
+      const fallbackForkFromSnapshot = async (
+        source: ForkSnapshotWithScope,
+      ): Promise<ChatThreadSummary | null> => {
+        const title = source.title ? `${source.title} (fork)` : "";
+        const createdAt = Date.now();
+        const createRes = await fetch(`${apiUrl}/threads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id,
+            title,
+            ...(source.scope ? { scope: source.scope } : {}),
+          }),
+        });
+        if (!createRes.ok) return null;
+
+        const saveRes = await fetch(
+          `${apiUrl}/threads/${encodeURIComponent(id)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              threadData: source.threadData,
+              title,
+              preview: source.preview,
+              messageCount: source.messageCount,
+              scope: source.scope,
+            }),
+          },
+        );
+        if (!saveRes.ok) return null;
+
+        return {
+          id,
+          title,
+          preview: source.preview,
+          messageCount: source.messageCount,
+          createdAt,
+          updatedAt: Date.now(),
+          scope: source.scope,
+        };
+      };
+
       try {
         const localScope =
           threadsRef.current.find((t) => t.id === sourceId)?.scope ?? null;
@@ -426,15 +473,20 @@ export function useChatThreads(
             body: JSON.stringify({ id, ...(source ? { source } : {}) }),
           },
         );
+        let thread: ChatThreadSummary | null = null;
         if (!res.ok) {
           // Surface failures so a click on the Fork button isn't a silent
           // no-op when the source thread can't be found or auth has lapsed.
           console.error(
             `[chat] fork failed for ${sourceId}: ${res.status} ${res.statusText}`,
           );
-          return null;
+          if (source && (res.status === 404 || res.status === 405)) {
+            thread = await fallbackForkFromSnapshot(source);
+          }
+          if (!thread) return null;
+        } else {
+          thread = await res.json();
         }
-        const thread = await res.json();
         setThreads((prev) => [
           {
             id: thread.id,

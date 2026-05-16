@@ -10,6 +10,7 @@ import type { StoreWriteOptions } from "../settings/store.js";
 import crypto from "crypto";
 
 export const SHARED_OWNER = "__shared__";
+export const WORKSPACE_OWNER = "__workspace__";
 
 export interface Resource {
   id: string;
@@ -58,6 +59,26 @@ export interface ResourceWriteOptions extends StoreWriteOptions {
 
 export interface ResourceListOptions {
   includeAgentScratch?: boolean;
+}
+
+export type ResourceInheritanceScope = "workspace" | "shared" | "personal";
+
+export interface EffectiveResourceLayer {
+  scope: ResourceInheritanceScope;
+  label: string;
+  owner: string;
+  resource: ResourceMeta | null;
+  exists: boolean;
+  effective: boolean;
+  overridden: boolean;
+  canWrite: boolean;
+}
+
+export interface EffectiveResourceContext {
+  path: string;
+  effectiveResource: ResourceMeta | null;
+  effectiveScope: ResourceInheritanceScope | null;
+  layers: EffectiveResourceLayer[];
 }
 
 let _initPromise: Promise<void> | undefined;
@@ -166,6 +187,10 @@ const DEFAULT_AGENTS_SHARED_MD = `# Agent Instructions
 
 This file customizes how the AI agent behaves in this app. Edit it to add your own instructions, preferences, and context.
 
+Workspace-level resources managed from Dispatch are inherited before this file.
+Use this shared app/organization file to override or narrow those defaults for
+this app or team.
+
 ## What to put here
 
 - **Preferences** — Tone, style, verbosity, response format
@@ -182,6 +207,14 @@ You can create skill files to give the agent specialized knowledge for specific 
 | *(add your skills here)* | \`skills/example/SKILL.md\` | What this skill teaches the agent |
 
 The agent will read the relevant skill file when performing that type of task.
+
+## Global instructions
+
+Put always-on guardrails in this shared \`AGENTS.md\`. For separate policy files that should also apply every turn, create shared resources under \`instructions/<name>.md\`. These are loaded automatically with this file.
+
+## Shared reference resources
+
+Put company, brand, positioning, persona, product, or messaging context in shared resources under paths like \`context/core-positioning.md\` or \`context/brand-guidelines.md\`. The agent sees an index of shared reference resources and reads the relevant files when a task may depend on them.
 
 ## Workspace files
 
@@ -531,7 +564,13 @@ const _personalSeeded = new Set<string>();
  * Called when listing resources or from the agent chat plugin.
  */
 export async function ensurePersonalDefaults(owner: string): Promise<void> {
-  if (owner === SHARED_OWNER || _personalSeeded.has(owner)) return;
+  if (
+    owner === SHARED_OWNER ||
+    owner === WORKSPACE_OWNER ||
+    _personalSeeded.has(owner)
+  ) {
+    return;
+  }
   _personalSeeded.add(owner);
   await ensureTable();
 
@@ -651,6 +690,11 @@ function rowToMeta(row: any): ResourceMeta {
     expiresAt: nullableNumber(row.expires_at),
     metadata: nullableString(row.metadata),
   };
+}
+
+function resourceToMeta(resource: Resource): ResourceMeta {
+  const { content: _content, ...meta } = resource;
+  return meta;
 }
 
 export async function resourceGet(id: string): Promise<Resource | null> {
@@ -873,8 +917,17 @@ export async function resourceListAccessible(
     const { rows } = await client.execute({
       sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}
             UNION
+            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}
+            UNION
             SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}`,
-      args: [userEmail, pathPrefix + "%", SHARED_OWNER, pathPrefix + "%"],
+      args: [
+        userEmail,
+        pathPrefix + "%",
+        SHARED_OWNER,
+        pathPrefix + "%",
+        WORKSPACE_OWNER,
+        pathPrefix + "%",
+      ],
     });
     return rows.map(rowToMeta);
   }
@@ -882,10 +935,77 @@ export async function resourceListAccessible(
   const { rows } = await client.execute({
     sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}
           UNION
+          SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}
+          UNION
           SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
-    args: [userEmail, SHARED_OWNER],
+    args: [userEmail, SHARED_OWNER, WORKSPACE_OWNER],
   });
   return rows.map(rowToMeta);
+}
+
+export async function resourceEffectiveContext(
+  userEmail: string,
+  path: string,
+): Promise<EffectiveResourceContext> {
+  await ensureTable();
+
+  const workspace = await resourceGetByPath(WORKSPACE_OWNER, path);
+  const shared = await resourceGetByPath(SHARED_OWNER, path);
+  const personal = await resourceGetByPath(userEmail, path);
+  const effective = personal ?? shared ?? workspace ?? null;
+  const effectiveScope: ResourceInheritanceScope | null = personal
+    ? "personal"
+    : shared
+      ? "shared"
+      : workspace
+        ? "workspace"
+        : null;
+
+  const layerDefs: Array<{
+    scope: ResourceInheritanceScope;
+    label: string;
+    owner: string;
+    resource: Resource | null;
+    canWrite: boolean;
+  }> = [
+    {
+      scope: "workspace",
+      label: "Workspace default",
+      owner: WORKSPACE_OWNER,
+      resource: workspace,
+      canWrite: false,
+    },
+    {
+      scope: "shared",
+      label: "Organization/app override",
+      owner: SHARED_OWNER,
+      resource: shared,
+      canWrite: true,
+    },
+    {
+      scope: "personal",
+      label: "Personal override",
+      owner: userEmail,
+      resource: personal,
+      canWrite: true,
+    },
+  ];
+
+  return {
+    path,
+    effectiveResource: effective ? resourceToMeta(effective) : null,
+    effectiveScope,
+    layers: layerDefs.map((layer) => ({
+      scope: layer.scope,
+      label: layer.label,
+      owner: layer.owner,
+      resource: layer.resource ? resourceToMeta(layer.resource) : null,
+      exists: !!layer.resource,
+      effective: !!layer.resource && layer.resource.id === effective?.id,
+      overridden: !!layer.resource && layer.resource.id !== effective?.id,
+      canWrite: layer.canWrite,
+    })),
+  };
 }
 
 /**
