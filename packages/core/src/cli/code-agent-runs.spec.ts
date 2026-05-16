@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   appendCodeAgentTranscriptEvent,
@@ -332,19 +332,30 @@ describe("local code background agent controller", () => {
       message: "retry this",
     });
 
+    // resume/retry are non-blocking control actions: they kick the run off
+    // in the background and return immediately with the current run state
+    // (a control action must not await the full session, which would time
+    // out the HTTP/IPC caller).
     await expect(
       controller.control({ runId: resumeRun.id, command: "resume" }),
     ).resolves.toMatchObject({
       ok: true,
-      run: { id: resumeRun.id, status: "completed" },
-      message: "Agent-Native Code run resumed.",
+      run: { id: resumeRun.id },
+      message: "Agent-Native Code run resuming in the background.",
     });
     await expect(
       controller.control({ runId: retryRun.id, command: "retry" }),
     ).resolves.toMatchObject({
       ok: true,
-      run: { id: retryRun.id, status: "completed" },
-      message: "Agent-Native Code run retried.",
+      run: { id: retryRun.id },
+      message: "Agent-Native Code run retrying in the background.",
+    });
+
+    // The background executions still complete (fake response) — wait for
+    // them so the run records settle before the test tears down its temp home.
+    await vi.waitFor(() => {
+      expect(getCodeAgentRunRecord(resumeRun.id)?.status).toBe("completed");
+      expect(getCodeAgentRunRecord(retryRun.id)?.status).toBe("completed");
     });
   });
 });
