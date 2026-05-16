@@ -889,6 +889,7 @@ export function useVoiceDictation(
     }
   }, [
     state,
+    speechSupported,
     mediaRecorderSupported,
     startOpenAi,
     startGoogleRealtime,
