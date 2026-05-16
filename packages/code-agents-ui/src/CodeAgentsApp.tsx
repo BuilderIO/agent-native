@@ -2748,10 +2748,6 @@ function MobileRailItem({
     >
       <IconDeviceMobile size={15} strokeWidth={1.8} />
       <span>Mobile</span>
-      <span
-        className={`code-agents-mobile-indicator code-agents-mobile-indicator--${copy.tone}`}
-        aria-hidden="true"
-      />
     </button>
   );
 }
