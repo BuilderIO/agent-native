@@ -524,6 +524,9 @@ function PromptComposerInner({
   return (
     <AgentComposerFrame
       className={cn("text-left", className)}
+      rootClassName={rootClassName}
+      style={style}
+      rootStyle={rootStyle}
       layoutVariant={layoutVariant}
     >
       <PromptAttachmentStrip />

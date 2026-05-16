@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   IconAlertCircle,
   IconClock,
@@ -196,38 +203,25 @@ const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
     label: "Default model",
     description: "Use the connected provider and saved default.",
   },
-  {
-    engine: "builder",
-    engineLabel: "Anthropic",
-    model: "claude-sonnet-4-6",
-    label: "Claude Sonnet 4.6",
-    description: "Balanced Claude default",
-  },
-  {
-    engine: "builder",
-    engineLabel: "Anthropic",
-    model: "claude-opus-4-7",
-    label: "Claude Opus 4.7",
-    description: "Deeper reasoning for larger changes",
-  },
-  {
-    engine: "ai-sdk:openai",
-    engineLabel: "OpenAI",
-    model: "gpt-5.5",
-    label: "GPT-5.5",
-    description: "OpenAI reasoning model",
-  },
-  {
-    engine: "ai-sdk:google",
-    engineLabel: "Gemini",
-    model: "gemini-3.1-pro-preview",
-    label: "Gemini 3.1 Pro",
-    description: "Gemini reasoning model",
-  },
 ];
 
 const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
 const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
+
+const codeAgentComposerAreaStyle = {
+  alignSelf: "stretch",
+  width: "100%",
+  inlineSize: "100%",
+  maxWidth: "none",
+  boxSizing: "border-box",
+} satisfies CSSProperties;
+
+const codeAgentComposerRootStyle = {
+  width: "100%",
+  inlineSize: "100%",
+  maxWidth: "none",
+  boxSizing: "border-box",
+} satisfies CSSProperties;
 
 export default function CodeAgentsApp({
   apps,
@@ -358,21 +352,7 @@ export default function CodeAgentsApp({
     try {
       const result = await host.listProjects?.();
       if (!result || result.status !== "ok") {
-        const fallbackRoot = codePack?.root;
-        setProjects(
-          fallbackRoot
-            ? [
-                {
-                  id: fallbackRoot,
-                  name: baseNameForPath(fallbackRoot),
-                  path: fallbackRoot,
-                },
-              ]
-            : [],
-        );
-        if (fallbackRoot) {
-          setSelectedProjectPath((current) => current || fallbackRoot);
-        }
+        setProjects([]);
         return;
       }
       setProjects(result.projects);
@@ -384,7 +364,7 @@ export default function CodeAgentsApp({
     } finally {
       setLoadingProjects(false);
     }
-  }, [codePack?.root, host]);
+  }, [host]);
 
   const loadRemoteConnectorStatus = useCallback(async () => {
     if (!host.getRemoteConnectorStatus) return;
@@ -452,6 +432,8 @@ export default function CodeAgentsApp({
     () => buildCodeAgentSlashCommands(codePack),
     [codePack],
   );
+  const canOpenTerminal = Boolean(host.openTerminal);
+  const canChooseProjectFolder = Boolean(host.chooseProject);
   const providerGate = useMemo(
     () => getProviderGate(hostMetadata),
     [hostMetadata],
@@ -598,6 +580,13 @@ export default function CodeAgentsApp({
   }
 
   async function openTerminal() {
+    if (!host.openTerminal) {
+      toast("Terminal is not available here", {
+        description: "Open Agent-Native Desktop to launch a native terminal.",
+        duration: 3200,
+      });
+      return;
+    }
     const terminalRequest = selectedRun
       ? getRunTerminalRequest(selectedRun)
       : selectedProjectPath
@@ -1057,11 +1046,7 @@ export default function CodeAgentsApp({
           <div className="code-agents-workbench">
             <div className="code-agents-workbench__toolbar">
               <div>
-                <p className="code-agents-kicker">
-                  {selectedGoal.surfaceKind === "app"
-                    ? "App-backed detail surface"
-                    : "Native feedback surface"}
-                </p>
+                <p className="code-agents-kicker">Session</p>
                 <h2>
                   {getRunTitle(selectedRun) ??
                     (selectedRunId
@@ -1070,14 +1055,16 @@ export default function CodeAgentsApp({
                 </h2>
               </div>
               <div className="code-agents-toolbar-actions">
-                <button
-                  type="button"
-                  className="code-agents-button"
-                  onClick={openTerminal}
-                >
-                  <IconTerminal2 size={14} strokeWidth={1.8} />
-                  Open Terminal
-                </button>
+                {canOpenTerminal && (
+                  <button
+                    type="button"
+                    className="code-agents-button"
+                    onClick={openTerminal}
+                  >
+                    <IconTerminal2 size={14} strokeWidth={1.8} />
+                    Open Terminal
+                  </button>
+                )}
                 <button
                   type="button"
                   className="code-agents-button"
@@ -1098,7 +1085,7 @@ export default function CodeAgentsApp({
               ) : (
                 <NativeGoalSurface
                   goal={selectedGoal}
-                  onOpenTerminal={openTerminal}
+                  onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
                 />
               )}
             </div>
@@ -1140,7 +1127,7 @@ export default function CodeAgentsApp({
                 onModelSelectionChange={setModelSelection}
                 onSubmitFollowUp={submitFollowUp}
                 onOpenWorkbench={() => setWorkbenchOpen(true)}
-                onOpenTerminal={openTerminal}
+                onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
                 onResume={() => controlRun("resume")}
                 onRefreshStatus={() => controlRun("status")}
                 onStop={() => controlRun("stop")}
@@ -1174,14 +1161,17 @@ export default function CodeAgentsApp({
                   onSlashCommand={handleSlashCommand}
                   onSubmit={createRunFromPrompt}
                 />
-                <ProjectFolderPicker
-                  variant="bar"
-                  projects={projects}
-                  selectedPath={selectedProjectPath}
-                  loading={loadingProjects}
-                  onSelect={selectProjectFolder}
-                  onChoose={chooseProjectFolder}
-                />
+                {(projects.length > 0 || canChooseProjectFolder) && (
+                  <ProjectFolderPicker
+                    variant="bar"
+                    projects={projects}
+                    selectedPath={selectedProjectPath}
+                    loading={loadingProjects}
+                    canChoose={canChooseProjectFolder}
+                    onSelect={selectProjectFolder}
+                    onChoose={chooseProjectFolder}
+                  />
+                )}
                 <div className="code-agents-suggestions">
                   <button
                     type="button"
@@ -1191,24 +1181,6 @@ export default function CodeAgentsApp({
                     }}
                   >
                     Review the current changes
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedGoalId("migrate");
-                      seedNewPrompt("/migrate ");
-                    }}
-                  >
-                    Migrate an existing app
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedGoalId("audit");
-                      seedNewPrompt("/audit ");
-                    }}
-                  >
-                    Audit a web app
                   </button>
                 </div>
               </div>
@@ -1234,6 +1206,7 @@ function ProjectFolderPicker({
   projects,
   selectedPath,
   loading,
+  canChoose,
   onSelect,
   onChoose,
 }: {
@@ -1241,6 +1214,7 @@ function ProjectFolderPicker({
   projects: CodeAgentProjectFolder[];
   selectedPath: string;
   loading: boolean;
+  canChoose: boolean;
   onSelect: (path: string) => void;
   onChoose: () => void;
 }) {
@@ -1254,6 +1228,7 @@ function ProjectFolderPicker({
       <div className="code-agents-project-picker__row">
         <Select
           value={selectedPath || undefined}
+          disabled={loading || projects.length === 0}
           onValueChange={(value) => {
             if (value === "__choose__") {
               onChoose();
@@ -1280,24 +1255,28 @@ function ProjectFolderPicker({
                   </span>
                 </SelectItem>
               ))}
-              <SelectItem value="__choose__">
-                <span className="code-agents-project-select__item">
-                  <IconFolderPlus size={14} strokeWidth={1.8} />
-                  <span>Add folder...</span>
-                </span>
-              </SelectItem>
+              {canChoose && (
+                <SelectItem value="__choose__">
+                  <span className="code-agents-project-select__item">
+                    <IconFolderPlus size={14} strokeWidth={1.8} />
+                    <span>Add folder...</span>
+                  </span>
+                </SelectItem>
+              )}
             </SelectGroup>
           </SelectContent>
         </Select>
-        <button
-          type="button"
-          className="code-agents-icon-button"
-          onClick={onChoose}
-          title="Add folder"
-          aria-label="Add folder"
-        >
-          <IconFolderPlus size={15} strokeWidth={1.8} />
-        </button>
+        {canChoose && (
+          <button
+            type="button"
+            className="code-agents-icon-button"
+            onClick={onChoose}
+            title="Add folder"
+            aria-label="Add folder"
+          >
+            <IconFolderPlus size={15} strokeWidth={1.8} />
+          </button>
+        )}
       </div>
       <p className="code-agents-project-path" title={active?.path}>
         {active?.path ?? "Runs use the selected folder as cwd."}
@@ -1468,6 +1447,8 @@ function CodeAgentComposer({
   return (
     <PromptComposer
       className="code-agents-standard-composer code-agents-composer-shell"
+      style={codeAgentComposerAreaStyle}
+      rootStyle={codeAgentComposerRootStyle}
       layoutVariant={variant}
       composerRef={inputRef}
       disabled={submitting || disabled}

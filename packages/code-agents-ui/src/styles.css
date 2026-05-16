@@ -475,8 +475,9 @@
 }
 
 .code-agents-standard-composer [data-agent-composer-slot="root"] {
-  width: 100%;
-  inline-size: 100%;
+  width: 100% !important;
+  inline-size: 100% !important;
+  max-width: none !important;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -528,7 +529,7 @@
   align-items: center;
   justify-content: flex-start;
   gap: 4px;
-  padding: 8px 8px 8px 0;
+  padding: 8px;
 }
 
 .code-agents-standard-composer

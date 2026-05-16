@@ -20,6 +20,7 @@ const APP_ID_TO_TAB: Record<string, string> = {
   content: "content",
   slides: "slides",
   clips: "clips",
+  brain: "brain",
   analytics: "analytics",
   forms: "forms",
   design: "design",
@@ -34,6 +35,7 @@ const APP_ICON: Record<string, keyof typeof Feather.glyphMap> = {
   content: "file-text",
   slides: "airplay",
   clips: "cast",
+  brain: "database",
   analytics: "bar-chart-2",
   dispatch: "message-circle",
   forms: "clipboard",
@@ -189,6 +191,18 @@ export default function TabLayout() {
             tabBarItemStyle: itemStyleFor("analytics"),
             tabBarIcon: ({ color, size }) => (
               <Feather name="bar-chart-2" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="brain"
+          options={{
+            title: "Brain",
+            headerShown: false,
+            href: hrefFor("brain"),
+            tabBarItemStyle: itemStyleFor("brain"),
+            tabBarIcon: ({ color, size }) => (
+              <MaterialCommunityIcons name="brain" size={size} color={color} />
             ),
           }}
         />

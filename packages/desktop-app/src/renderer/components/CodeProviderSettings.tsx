@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -7,6 +7,8 @@ import {
 } from "@tabler/icons-react";
 
 type ProviderStatusTone = "ok" | "offline";
+const PENDING_BUILDER_CONNECT_RELOAD_KEY =
+  "agent-native:pending-builder-connect-after-reload";
 
 const EMPTY_PROVIDER_DRAFTS: Record<CodeAgentProviderCredentialKey, string> = {
   ANTHROPIC_API_KEY: "",
@@ -122,6 +124,25 @@ function builderConnectErrorMessage(err: unknown): string {
   return message;
 }
 
+function markPendingBuilderConnectReload() {
+  try {
+    window.sessionStorage.setItem(PENDING_BUILDER_CONNECT_RELOAD_KEY, "1");
+  } catch {
+    // Ignore storage failures; the fallback message below still tells the user.
+  }
+}
+
+function consumePendingBuilderConnectReload(): boolean {
+  try {
+    const pending =
+      window.sessionStorage.getItem(PENDING_BUILDER_CONNECT_RELOAD_KEY) === "1";
+    window.sessionStorage.removeItem(PENDING_BUILDER_CONNECT_RELOAD_KEY);
+    return pending;
+  } catch {
+    return false;
+  }
+}
+
 interface CodeProviderSettingsProps {
   settings: CodeAgentProviderSettings;
   onSettingsChanged: (settings: CodeAgentProviderSettings) => void;
@@ -179,27 +200,41 @@ export function CodeProviderSettings({
     [],
   );
 
-  const handleConnectBuilder = useCallback(async () => {
-    const api = window.electronAPI?.codeAgents;
-    setProviderMessage(null);
-    if (!api?.connectBuilderProvider) {
-      setProviderMessage(
-        "Restart Agent Native Desktop to finish enabling Builder connect.",
-      );
-      return;
-    }
-    setBuilderConnecting(true);
-    try {
-      const result = await api.connectBuilderProvider();
-      onSettingsChanged(result.settings);
-      setProviderMessage(result.error ?? result.message);
-      onProvidersChanged?.();
-    } catch (err) {
-      setProviderMessage(builderConnectErrorMessage(err));
-    } finally {
-      setBuilderConnecting(false);
-    }
-  }, [onProvidersChanged, onSettingsChanged]);
+  const handleConnectBuilder = useCallback(
+    async (allowShellReload = true) => {
+      const api = window.electronAPI?.codeAgents;
+      setProviderMessage(null);
+      if (!api?.connectBuilderProvider) {
+        if (allowShellReload) {
+          markPendingBuilderConnectReload();
+          setProviderMessage("Refreshing Agent Native Desktop...");
+          window.setTimeout(() => window.location.reload(), 50);
+          return;
+        }
+        setProviderMessage(
+          "Restart Agent Native Desktop to finish enabling Builder connect.",
+        );
+        return;
+      }
+      setBuilderConnecting(true);
+      try {
+        const result = await api.connectBuilderProvider();
+        onSettingsChanged(result.settings);
+        setProviderMessage(result.error ?? result.message);
+        onProvidersChanged?.();
+      } catch (err) {
+        setProviderMessage(builderConnectErrorMessage(err));
+      } finally {
+        setBuilderConnecting(false);
+      }
+    },
+    [onProvidersChanged, onSettingsChanged],
+  );
+
+  useEffect(() => {
+    if (!consumePendingBuilderConnectReload()) return;
+    void handleConnectBuilder(false);
+  }, [handleConnectBuilder]);
 
   const handleSaveProvider = useCallback(
     async (providerId: CodeAgentProviderId) => {
@@ -299,7 +334,7 @@ export function CodeProviderSettings({
           <button
             type="button"
             className="settings-builder-connect-button"
-            onClick={handleConnectBuilder}
+            onClick={() => handleConnectBuilder()}
             disabled={builderConnecting}
           >
             {builderConnecting ? (
