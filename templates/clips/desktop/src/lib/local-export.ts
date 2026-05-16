@@ -117,11 +117,18 @@ function stopRecorder(target: PreparedLocalTarget): Promise<void> {
     } catch {
       // ignore
     }
-    try {
-      recorder.requestData();
-    } catch {
-      // ignore
-    }
+    // Do NOT call recorder.requestData() before stop(). stop() already
+    // synchronously flips state to "inactive" (so a queued requestData task
+    // just aborts) AND fires its own final `dataavailable` containing every
+    // sample since the last timeslice. Nudging the muxer with requestData()
+    // immediately before the encoder is torn down makes Chromium/WebKit drop
+    // the trailing sub-timeslice fragment — a consistent ~1–2s of lost frames
+    // at the end (ffprobe-confirmed: the camera's last real frame landed
+    // ~1.5s before the recording's true end while audio/screen ran full
+    // length). The start()-time ondataavailable handler chains stop()'s final
+    // blob into writeQueue, and stop(durationMs) awaits that queue, so the
+    // tail is fully flushed to disk. This was re-introduced once in a bulk
+    // sweep (dbf8db44e) — keep it removed.
     try {
       recorder.stop();
     } catch {
