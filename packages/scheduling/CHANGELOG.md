@@ -1,5 +1,11 @@
 # @agent-native/scheduling
 
+## 0.1.5
+
+### Patch Changes
+
+- 79a0eb9: Align local Drizzle peer resolution with the framework's libsql driver version.
+
 ## 0.1.4
 
 ### Patch Changes

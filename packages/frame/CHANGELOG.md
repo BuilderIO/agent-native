@@ -1,5 +1,43 @@
 # @agent-native/frame
 
+## 0.1.81
+
+### Patch Changes
+
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+- Updated dependencies [79a0eb9]
+  - @agent-native/core@0.16.0
+
 ## 0.1.80
 
 ### Patch Changes

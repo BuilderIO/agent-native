@@ -1,5 +1,21 @@
 # @agent-native/dispatch
 
+## 0.8.0
+
+### Minor Changes
+
+- 79a0eb9: Add Dispatch dreaming backend tables, actions, proposals, and safe recurring dream job setup.
+
+### Patch Changes
+
+- 79a0eb9: Expose package-provided actions through template action runners and add a full Dispatch Dreams settings editor.
+- 79a0eb9: Expose Dispatch shadcn UI primitives for workspace-owned Dispatch template routes.
+- 79a0eb9: Link the local Dispatch package during framework-development workspace creation and build Dispatch before local packing.
+- 79a0eb9: Inherit Dispatch-managed workspace instructions, skills, and reference resources at runtime; seed and restore starter company, brand, messaging, guardrail, and voice resources; show and inspect each app's effective workspace context stack; gate All-app resource edits through Dispatch approvals when enabled; preview global impact and overrides before save; and expose read-only inherited workspace resources in app panels.
+- 79a0eb9: Remove legacy workspace-resource sync actions and clarify runtime inheritance docs.
+- 79a0eb9: Align local Drizzle peer resolution with the framework's libsql driver version.
+- 79a0eb9: Route Telegram `/code` commands from Dispatch to the remote code-agent relay.
+
 ## 0.7.0
 
 ### Minor Changes
