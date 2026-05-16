@@ -15,9 +15,16 @@ on `AgentComposerFrame`, `PromptComposer`, and `TiptapComposer` from
 and `.agents/skills`, not a new in-component registry.
 
 Keep background execution shared too. Use `@agent-native/core/code-agents` for
-local Code sessions and the core `run-manager` / `agent-teams` harness for
-hosted background agents. Do not create a second background-agent runner for
+local Code sessions, its background-run adapter/foundation for cross-surface
+run lists, and the core `run-manager` / `agent-teams` harness for hosted
+background agents. Do not create a second background-agent runner for
 template-only UI changes.
+
+Treat this as the regression hook for Code, Brain, and sidebar prompt surfaces:
+prompt entry stays on `PromptComposer`, and background work stays on the shared
+adapters (`code-agents`, background-run, `run-manager`, or Agent Teams).
+Follow-ups should be durable two-way messages: steer at a safe continuation
+point when possible, otherwise queue safely.
 
 Run:
 

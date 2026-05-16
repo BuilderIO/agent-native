@@ -98,6 +98,44 @@ type CodeAgentRemoteConnectorPairResult = {
   error?: string;
 };
 
+type CodeAgentProviderId = "builder" | "anthropic" | "openai" | "google";
+
+type CodeAgentProviderCredentialKey =
+  | "ANTHROPIC_API_KEY"
+  | "OPENAI_API_KEY"
+  | "GOOGLE_GENERATIVE_AI_API_KEY"
+  | "BUILDER_PRIVATE_KEY"
+  | "BUILDER_PUBLIC_KEY";
+
+type CodeAgentProviderStatus = {
+  id: CodeAgentProviderId;
+  label: string;
+  configured: boolean;
+  configuredKeys: CodeAgentProviderCredentialKey[];
+  missingKeys: CodeAgentProviderCredentialKey[];
+  savedKeys: CodeAgentProviderCredentialKey[];
+  source?: "desktop-settings" | "environment" | "mixed";
+};
+
+type CodeAgentProviderSettings = {
+  configured: boolean;
+  configuredProviders: string[];
+  providers: CodeAgentProviderStatus[];
+  encryptionAvailable: boolean;
+  storagePath: string;
+};
+
+type CodeAgentProviderSettingsUpdate = Partial<
+  Record<CodeAgentProviderCredentialKey, string | null>
+>;
+
+type CodeAgentProviderSettingsUpdateResult = {
+  ok: boolean;
+  settings: CodeAgentProviderSettings;
+  message: string;
+  error?: string;
+};
+
 type CodeAgentPromptAttachment = {
   name: string;
   type?: string;
@@ -186,6 +224,9 @@ type CodeAgentRun = {
   goalId: string;
   title: string;
   subtitle?: string;
+  kind?: string;
+  source?: string;
+  sourceLabel?: string;
   status: CodeAgentRunStatus;
   phase?: string;
   needsApproval?: boolean;
@@ -381,6 +422,12 @@ type CodeAgentHostMetadata = {
   runsDir: string;
   transcriptsDir: string;
   codePack?: CodeAgentCodePackMetadata;
+  llmProvider?: {
+    configured: boolean;
+    label?: string;
+    configuredProviders?: string[];
+    missingEnvVars?: string[];
+  };
   capabilities: {
     fileBackedRuns: boolean;
     nativeTaskRunner: boolean;
@@ -496,6 +543,11 @@ interface ElectronAPI {
     pairRemoteConnector(
       request?: CodeAgentRemoteConnectorPairRequest,
     ): Promise<CodeAgentRemoteConnectorPairResult>;
+    getProviderSettings(): Promise<CodeAgentProviderSettings>;
+    updateProviderSettings(
+      request: CodeAgentProviderSettingsUpdate,
+    ): Promise<CodeAgentProviderSettingsUpdateResult>;
+    connectBuilderProvider(): Promise<CodeAgentProviderSettingsUpdateResult>;
     onOpenRequest(cb: (request: DesktopOpenRequest) => void): () => void;
   };
 

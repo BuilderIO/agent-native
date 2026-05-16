@@ -11,6 +11,12 @@
     "preview": {
       "distribution": "internal"
     },
+    "preview-install": {
+      "distribution": "internal",
+      "env": {
+        "AGENT_NATIVE_MOBILE_DISABLE_REMOTE_PUSH": "1"
+      }
+    },
     "production": {
       "autoIncrement": true
     }

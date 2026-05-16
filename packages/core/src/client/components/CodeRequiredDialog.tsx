@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { agentNativePath } from "../api-path.js";
 import { trackEvent } from "../analytics.js";
+import { withBuilderConnectTrackingParams } from "../settings/useBuilderStatus.js";
 
 const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
 
@@ -59,8 +60,10 @@ export function CodeRequiredDialog({
   const [submitting, setSubmitting] = useState(false);
   const [branchUrl, setBranchUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const builderHref =
-    connectUrl || agentNativePath("/_agent-native/builder/connect");
+  const builderHref = withBuilderConnectTrackingParams(
+    connectUrl || agentNativePath("/_agent-native/builder/connect"),
+    { source: "code_required_dialog", flow: "background_agent" },
+  );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -236,6 +239,7 @@ export function CodeRequiredDialog({
                   feature: "builder",
                   stage: "client",
                   source: "code_required_dialog",
+                  flow: "background_agent",
                   connect_url_kind: connectUrl ? "provided" : "default",
                 });
               }}

@@ -154,7 +154,7 @@ export const templates = [
 export type Template = (typeof templates)[number];
 
 export const featuredTemplates = templates.filter(
-  (template) => template.slug !== "video",
+  (template) => !["brain", "video"].includes(template.slug),
 );
 
 function CliPopoverContent({ template }: { template: Template }) {

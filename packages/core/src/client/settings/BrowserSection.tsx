@@ -5,13 +5,28 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
-import { useBuilderStatus } from "./useBuilderStatus.js";
+import {
+  useBuilderStatus,
+  withBuilderConnectTrackingParams,
+} from "./useBuilderStatus.js";
 import { trackEvent } from "../analytics.js";
 
 export function BrowserSection() {
   const { status: builder, loading } = useBuilderStatus();
   const connected = builder?.configured ?? false;
   const builderConnectUrl = builder?.cliAuthUrl ?? builder?.connectUrl;
+  const builderConnectHref = builderConnectUrl
+    ? withBuilderConnectTrackingParams(builderConnectUrl, {
+        source: "browser_settings",
+        flow: "browser_automation",
+      })
+    : null;
+  const builderReconnectHref = builderConnectUrl
+    ? withBuilderConnectTrackingParams(builderConnectUrl, {
+        source: "browser_settings_reconnect",
+        flow: "browser_automation",
+      })
+    : null;
 
   return (
     <SettingsSection
@@ -40,9 +55,9 @@ export function BrowserSection() {
               connect-builder
             </code>
           </p>
-          {builderConnectUrl && (
+          {builderReconnectHref && (
             <a
-              href={builderConnectUrl}
+              href={builderReconnectHref}
               target="_blank"
               rel="noreferrer"
               onClick={() => {
@@ -50,6 +65,7 @@ export function BrowserSection() {
                   feature: "builder",
                   stage: "client",
                   source: "browser_settings_reconnect",
+                  flow: "browser_automation",
                   connect_url_kind: "provided",
                 });
               }}
@@ -66,9 +82,9 @@ export function BrowserSection() {
             Connect Builder to provision browser sessions without wiring browser
             setup into every app.
           </p>
-          {builderConnectUrl && (
+          {builderConnectHref && (
             <a
-              href={builderConnectUrl}
+              href={builderConnectHref}
               target="_blank"
               rel="noreferrer"
               onClick={() => {
@@ -76,6 +92,7 @@ export function BrowserSection() {
                   feature: "builder",
                   stage: "client",
                   source: "browser_settings",
+                  flow: "browser_automation",
                   connect_url_kind: "provided",
                 });
               }}

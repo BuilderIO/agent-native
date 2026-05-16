@@ -81,6 +81,7 @@ import { useLocation, useNavigate } from "react-router";
 import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
 import { trackEvent } from "./analytics.js";
+import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
 import { getFrameOrigin, isInFrame, isTrustedFrameMessage } from "./frame.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
@@ -405,7 +406,13 @@ function CodeAccessUnavailablePanel({
 }) {
   const { connectUrl: builderConnectUrl } = useBuilderConnectUrl();
   const builderHref =
-    secondaryCtaHref ?? builderConnectUrl ?? "https://builder.io";
+    secondaryCtaHref ??
+    (builderConnectUrl
+      ? withBuilderConnectTrackingParams(builderConnectUrl, {
+          source: "code_access_unavailable_panel",
+          flow: "background_agent",
+        })
+      : "https://builder.io");
 
   return (
     <div
@@ -452,6 +459,7 @@ function CodeAccessUnavailablePanel({
               feature: "builder",
               stage: "client",
               source: "code_access_unavailable_panel",
+              flow: "background_agent",
               connect_url_kind: builderConnectUrl ? "provided" : "fallback",
             });
           }}

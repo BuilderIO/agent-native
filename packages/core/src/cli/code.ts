@@ -1,4 +1,7 @@
 import { createInterface } from "node:readline";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   CODE_AGENT_PERMISSION_MODES,
@@ -115,6 +118,7 @@ const CODE_AGENT_CONTROL_SUBCOMMANDS = new Set<CodeAgentControlSubcommand>([
   "ui",
 ] as CodeAgentControlSubcommand[]);
 const SHELL_PROMPT = "code> ";
+const DEFAULT_CODE_AGENT_PERMISSION_MODE: CodeAgentPermissionMode = "full-auto";
 
 export interface CodeShellOptions {
   input?: NodeJS.ReadableStream;
@@ -532,8 +536,13 @@ The existing shortcut still works:
 }
 
 export function codeShellIntro(): string {
-  return `Agent-Native Code
-Type a coding task to start a session, /help for commands, /goals for goals, or /exit to leave.`;
+  return [
+    `Agent-Native Code v${getCorePackageVersion()}`,
+    `cwd: ${process.cwd()}`,
+    `default: ${formatCodeAgentRunMode(DEFAULT_CODE_AGENT_PERMISSION_MODE)} (${DEFAULT_CODE_AGENT_PERMISSION_MODE})`,
+    "",
+    "Type a coding task to start a session. Use /help, /goals, or /exit.",
+  ].join("\n");
 }
 
 export function codeShellHelp(): string {
@@ -559,7 +568,11 @@ Compatibility shortcuts:
   resume --last
   status --last
   ui --last
-  stop --last`;
+  stop --last
+
+Shell context:
+  cwd: ${process.cwd()}
+  default mode: ${formatCodeAgentRunMode(DEFAULT_CODE_AGENT_PERMISSION_MODE)} (${DEFAULT_CODE_AGENT_PERMISSION_MODE})`;
 }
 
 export function codeShellFreeTextMessage(): string {
@@ -1292,6 +1305,7 @@ function renderCodeAgentRunDetail(
     run.permissionMode
       ? `  Mode:       ${formatCodeAgentRunMode(run.permissionMode)}`
       : "",
+    run.cwd ? `  Cwd:        ${run.cwd}` : "",
     `  Status:     ${run.status}${run.phase ? ` (${run.phase})` : ""}`,
     run.progress
       ? `  Progress:   ${run.progress.completed}/${run.progress.total} (${run.progress.percent}%)`
@@ -1334,6 +1348,19 @@ function writeLine(output: NodeJS.WritableStream, text = ""): void {
 
 function writePrompt(output: NodeJS.WritableStream): void {
   output.write(SHELL_PROMPT);
+}
+
+function getCorePackageVersion(): string {
+  try {
+    const cliDir = path.dirname(fileURLToPath(import.meta.url));
+    const packagePath = path.resolve(cliDir, "../../package.json");
+    const pkg = JSON.parse(fs.readFileSync(packagePath, "utf-8")) as {
+      version?: unknown;
+    };
+    return typeof pkg.version === "string" ? pkg.version : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 async function runCodeGoal(
@@ -1524,7 +1551,7 @@ async function recordCodeAgentFollowUpPrompt(
 
 function parseTaskArgs(
   forwardedArgs: string[],
-  defaultPermissionMode: CodeAgentPermissionMode = "full-auto",
+  defaultPermissionMode: CodeAgentPermissionMode = DEFAULT_CODE_AGENT_PERMISSION_MODE,
 ): ParsedTaskArgs {
   const promptArgs: string[] = [];
   let permissionMode: CodeAgentPermissionMode = defaultPermissionMode;

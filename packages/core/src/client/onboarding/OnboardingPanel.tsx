@@ -649,7 +649,7 @@ function BuilderCliAuthMethod({
     <>
       <button
         type="button"
-        onClick={start}
+        onClick={() => start()}
         disabled={connecting}
         style={{ ...buttonPrimary(primary), opacity: connecting ? 0.7 : 1 }}
       >

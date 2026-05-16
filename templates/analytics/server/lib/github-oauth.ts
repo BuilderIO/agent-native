@@ -1,5 +1,8 @@
 import type { CredentialContext } from "./credentials";
-import { resolveCredential } from "./credentials";
+import {
+  resolveLocalAnalyticsProviderCredential,
+  resolveWorkspaceConnectionProviderCredential,
+} from "./provider-credentials";
 import {
   listOAuthAccountsByOwner,
   saveOAuthTokens,
@@ -220,8 +223,22 @@ export async function getGitHubOAuthStatus(
 export async function getGitHubAccessToken(ctx: CredentialContext): Promise<{
   token?: string;
   scopes: string[];
-  source?: "oauth" | "credential";
+  source?: "workspace_connection" | "oauth" | "credential";
 }> {
+  const workspaceCredential =
+    await resolveWorkspaceConnectionProviderCredential({
+      provider: "github",
+      keys: ["GITHUB_TOKEN"],
+      ctx,
+    });
+  if (workspaceCredential) {
+    return {
+      token: workspaceCredential.value,
+      scopes: [],
+      source: "workspace_connection",
+    };
+  }
+
   if (ctx.userEmail) {
     const accounts = await listOAuthAccountsByOwner(PROVIDER, ctx.userEmail);
     const account = accounts.find(
@@ -238,6 +255,13 @@ export async function getGitHubAccessToken(ctx: CredentialContext): Promise<{
     }
   }
 
-  const token = await resolveCredential("GITHUB_TOKEN", ctx);
-  return token ? { token, scopes: [], source: "credential" } : { scopes: [] };
+  const credential = await resolveLocalAnalyticsProviderCredential({
+    provider: "github",
+    keys: ["GITHUB_TOKEN"],
+    ctx,
+    workspaceConnection: false,
+  });
+  return credential
+    ? { token: credential.value, scopes: [], source: "credential" }
+    : { scopes: [] };
 }

@@ -6,6 +6,12 @@ The template is intentionally local-first. It can start and resume local Agent-N
 
 Migration is a first-class slash-command goal on the same native run store. Do not assume a separate Migration Workbench app is available; `/migrate` sessions should behave like normal Code sessions with transcripts, follow-ups, approvals, retries, and project skills.
 
+The standard sidebar and Agent Teams use the hosted `run-manager` lifecycle.
+This template uses local long-running Code sessions, but shared dashboards and
+future surfaces should go through the `@agent-native/core/code-agents`
+background-run adapter/foundation so local Code and hosted background work keep
+converging on one lifecycle vocabulary.
+
 ## Run Store
 
 Agent-Native Code sessions live under:
@@ -83,10 +89,15 @@ from `.agents/commands/*.md` and `.agents/skills/*/SKILL.md` through
 `list-code-agent-packs`; do not hardcode a separate command registry in the UI.
 
 Background coding-agent work should reuse the shared run harness. Local Code
-sessions use `@agent-native/core/code-agents`; hosted/background app agents use
-core `run-manager` and `agent-teams` / `spawnTask()` so streaming, aborts,
-resume, heartbeats, and stuck-run cleanup stay consistent. Do not add a
+sessions use `@agent-native/core/code-agents`; cross-surface run lists use the
+background-run adapter/foundation from that package; hosted/background app
+agents use core `run-manager` and `agent-teams` / `spawnTask()` so streaming,
+aborts, resume, heartbeats, and stuck-run cleanup stay consistent. Do not add a
 template-specific background runner for a new Code layout.
+
+Follow-ups are two-way and durable. If an active runner can steer safely, record
+the message for the next safe continuation point. Otherwise persist it as a
+queued follow-up and let the run consume it after the current turn completes.
 
 ## Limits
 

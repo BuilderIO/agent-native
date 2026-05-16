@@ -355,7 +355,7 @@ export function ConnectBuilderCard({
             ) : !configured ? (
               <button
                 type="button"
-                onClick={flow.start}
+                onClick={() => flow.start()}
                 disabled={connecting}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",

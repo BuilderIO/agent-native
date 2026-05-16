@@ -6,6 +6,11 @@ import {
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
 import AppWebview from "./AppWebview.js";
 
+const agentNativeIconUrl = new URL(
+  "../assets/agent-native-icon-dark.svg",
+  import.meta.url,
+).href;
+
 interface CodeAgentsHubProps {
   apps: AppConfig[];
   openRequest?: { goalId?: string; runId?: string; nonce: number };
@@ -43,6 +48,17 @@ export default function CodeAgentsHub({
           };
         }
         return api.createRun(request);
+      },
+      async getHostMetadata() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.getHostMetadata) {
+          return {
+            status: "unavailable",
+            llmProvider: { configured: false },
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.getHostMetadata();
       },
       async listCodePacks(cwd?: string) {
         const api = window.electronAPI?.codeAgents;
@@ -200,6 +216,24 @@ export default function CodeAgentsHub({
         }
         return api.setRemoteConnectorEnabled(enabled);
       },
+      async pairRemoteConnector(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.pairRemoteConnector) {
+          return {
+            ok: false,
+            status: {
+              state: "error",
+              enabled: false,
+              configured: false,
+              configPath: "",
+              restartCount: 0,
+              error: "Desktop bridge is not available.",
+            },
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.pairRemoteConnector(request);
+      },
     }),
     [],
   );
@@ -210,15 +244,18 @@ export default function CodeAgentsHub({
       host={host}
       openRequest={openRequest}
       refreshKey={refreshKey}
+      brandIconUrl={agentNativeIconUrl}
       onOpenSettings={onOpenSettings}
       renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
-        <AppWebview
-          app={toAppDefinition(app)}
-          appConfig={app}
-          isActive
-          urlParams={urlParams}
-          refreshKey={appRefreshKey}
-        />
+        <div className="code-agents-embedded-app-surface">
+          <AppWebview
+            app={toAppDefinition(app)}
+            appConfig={app}
+            isActive
+            urlParams={urlParams}
+            refreshKey={appRefreshKey}
+          />
+        </div>
       )}
     />
   );

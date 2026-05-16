@@ -1,11 +1,11 @@
-// HubSpot CRM API helper
-// Fetches deals, pipelines/stages, and computes sales metrics
-
-import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,
   scopedCredentialCacheKey,
 } from "./credentials-context";
+import {
+  HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
+  resolveAnalyticsProviderCredential,
+} from "./provider-credentials";
 
 const API_BASE = "https://api.hubapi.com";
 
@@ -15,10 +15,18 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_CACHE = 120;
 
 async function getToken(): Promise<string> {
-  const ctx = requireRequestCredentialContext("HUBSPOT_ACCESS_TOKEN");
-  const token = await resolveCredential("HUBSPOT_ACCESS_TOKEN", ctx);
-  if (!token) throw new Error("HUBSPOT_ACCESS_TOKEN not configured");
-  return token;
+  const ctx = requireRequestCredentialContext("HUBSPOT_PRIVATE_APP_TOKEN");
+  const credential = await resolveAnalyticsProviderCredential({
+    provider: "hubspot",
+    keys: HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
+    ctx,
+  });
+  if (!credential) {
+    throw new Error(
+      "HUBSPOT_PRIVATE_APP_TOKEN or HUBSPOT_ACCESS_TOKEN not configured",
+    );
+  }
+  return credential.value;
 }
 
 async function hubspotFetch(

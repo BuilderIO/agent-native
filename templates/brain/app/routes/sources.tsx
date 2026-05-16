@@ -28,6 +28,7 @@ import {
 } from "@tabler/icons-react";
 import {
   type BrainConnectionProvider,
+  type BrainHealthResponse,
   type BrainCaptureReviewStatus,
   type BrainCaptureReviewItem,
   type EnqueueCapturesDistillationResponse,
@@ -1758,6 +1759,7 @@ function PilotReportCard({
     .filter((item) => item.status === "pending")
     .slice(0, 2);
   const health = sourceHealth(report.source);
+  const trustLane = report.pilotTrustLane;
 
   return (
     <div className="rounded-md border border-border bg-card p-3 text-sm">
@@ -1800,6 +1802,55 @@ function PilotReportCard({
         <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/25 p-2 text-xs leading-5 text-muted-foreground">
           <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>{report.latestSyncRun.error}</span>
+        </div>
+      ) : null}
+
+      {trustLane ? (
+        <div className="mt-3 rounded-md border border-border bg-muted/25 p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <IconChecks className="size-4 text-muted-foreground" />
+                <p className="text-xs font-medium">
+                  {trustLane.targetChannel} trust lane
+                </p>
+                <Badge variant="outline">{trustLane.label}</Badge>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {trustLane.summary}
+              </p>
+            </div>
+            {trustLane.nextActions[0] ? (
+              <Badge variant="secondary" className="w-fit">
+                {trustLane.nextActions[0].action}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {trustLane.checks.slice(0, 4).map((check) => (
+              <div
+                key={check.id}
+                className="rounded-md border border-border bg-card p-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="truncate text-xs font-medium">{check.label}</p>
+                  <Badge
+                    variant={check.status === "ok" ? "secondary" : "outline"}
+                  >
+                    {check.status}
+                  </Badge>
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                  {check.detail}
+                </p>
+              </div>
+            ))}
+          </div>
+          {trustLane.evalQuestions.length ? (
+            <p className="mt-2 truncate text-xs text-muted-foreground">
+              Eval: {trustLane.evalQuestions[0]}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -1895,6 +1946,68 @@ function PilotReportCard({
   );
 }
 
+function BrainHealthStrip({
+  health,
+  loading,
+}: {
+  health?: BrainHealthResponse;
+  loading: boolean;
+}) {
+  const attention =
+    (health?.sources.needsSetup ?? 0) +
+    (health?.sources.needsSync ?? 0) +
+    (health?.sources.stale ?? 0) +
+    (health?.sources.error ?? 0);
+  const lastEval = health?.retrieval.lastEval;
+  const nextStep = health?.setup.nextSteps[0];
+
+  return (
+    <section className="grid gap-3 rounded-md border border-border bg-card p-4 shadow-none lg:col-span-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <IconReportAnalytics className="size-4 text-muted-foreground" />
+            <h2 className="text-sm font-medium">Brain health</h2>
+            {loading ? (
+              <Badge variant="outline" className="gap-1.5">
+                <IconLoader2 className="size-3 animate-spin" />
+                Checking
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            {nextStep ??
+              "Sources, review queue, and retrieval checks are ready for normal use."}
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-flow-col sm:auto-cols-max">
+          <Badge variant="outline" className="justify-center gap-1.5">
+            <IconCircleCheck className="size-3" />
+            {health?.sources.healthy ?? 0}/{health?.sources.total ?? 0} healthy
+          </Badge>
+          {attention ? (
+            <Badge variant="outline" className="justify-center gap-1.5">
+              <IconAlertTriangle className="size-3" />
+              {attention} attention
+            </Badge>
+          ) : null}
+          <Badge variant="outline" className="justify-center gap-1.5">
+            <IconClock className="size-3" />
+            {health?.sources.lastSyncedAt
+              ? `Last sync ${shortDate(health.sources.lastSyncedAt)}`
+              : "No sync yet"}
+          </Badge>
+          {lastEval ? (
+            <Badge variant="outline" className="justify-center gap-1.5">
+              Eval {Math.round(lastEval.score * 100)}%
+            </Badge>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function SourcesRoute() {
   const [params, setParams] = useSearchParams();
   const type = params.get("type") ?? "all";
@@ -1927,6 +2040,10 @@ export default function SourcesRoute() {
   );
   const connectionProvidersQuery = useActionQuery<ConnectionProvidersResponse>(
     "list-connection-providers" as any,
+    {} as any,
+  );
+  const healthQuery = useActionQuery<BrainHealthResponse>(
+    "get-brain-health" as any,
     {} as any,
   );
   const updateSource = useActionMutation<
@@ -2228,6 +2345,11 @@ export default function SourcesRoute() {
       />
 
       <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-3 lg:p-7">
+        <BrainHealthStrip
+          health={healthQuery.data}
+          loading={healthQuery.isLoading}
+        />
+
         <ProviderCatalog
           providers={connectionProviders}
           loading={connectionProvidersQuery.isLoading}

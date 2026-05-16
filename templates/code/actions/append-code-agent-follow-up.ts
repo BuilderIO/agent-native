@@ -25,7 +25,7 @@ export default defineAction({
       args.effort === "auto"
         ? undefined
         : (args.effort as CodeAgentReasoningEffort | undefined);
-    const event = appendFollowUpAndRun({
+    const event = await appendFollowUpAndRun({
       runId: args.runId,
       prompt: args.prompt.trim(),
       permissionMode: permissionMode ?? undefined,

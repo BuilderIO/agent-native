@@ -1,5 +1,7 @@
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
+import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
+import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "./brain.js";
 import type { BrainEvidence } from "../../shared/types.js";
@@ -32,6 +34,51 @@ export interface UniversalSearchResult {
   score: number;
 }
 
+export type FederatedDelegationTarget = "analytics" | "mail" | "dispatch";
+
+export interface FederatedSearchCoverage {
+  mode: "brain-index-plus-delegation-hints";
+  scopeNote: string;
+  brainSourceProviders: Array<{
+    id: string;
+    label: string;
+    configuredSourceCount: number;
+    activeSourceCount: number;
+    statuses: Record<string, number>;
+  }>;
+  workspaceProviderCoverage: {
+    available: boolean;
+    error: string | null;
+    providers: Array<{
+      id: string;
+      label: string;
+      capabilities: string[];
+      readiness: string;
+      grantState: string;
+      connected: boolean;
+      activeConnectionCount: number;
+      grantedConnectionCount: number;
+    }>;
+  };
+  delegationHints: Array<{
+    target: FederatedDelegationTarget;
+    appId: string;
+    label: string;
+    reason: string;
+    matchedSignals: string[];
+  }>;
+  discoveredAgents: {
+    available: boolean;
+    error: string | null;
+    note: string;
+    agents: Array<{
+      id: string;
+      name: string;
+      description: string;
+    }>;
+  };
+}
+
 const STOPWORDS = new Set([
   "about",
   "does",
@@ -50,6 +97,104 @@ const STOPWORDS = new Set([
   "our",
   "did",
 ]);
+
+const APP_ID = "brain";
+const BRAIN_SOURCE_PROVIDERS = [
+  "manual",
+  "generic",
+  "clips",
+  "slack",
+  "granola",
+  "github",
+] as const;
+
+const SOURCE_PROVIDER_LABELS: Record<string, string> = {
+  manual: "Manual import",
+  generic: "Webhook",
+  clips: "Clips",
+  slack: "Slack",
+  granola: "Granola",
+  github: "GitHub",
+};
+
+const FEDERATED_DELEGATION_TARGETS: Array<{
+  target: FederatedDelegationTarget;
+  appId: string;
+  label: string;
+  reason: string;
+  keywords: string[];
+}> = [
+  {
+    target: "analytics",
+    appId: "analytics",
+    label: "Analytics",
+    reason:
+      "Dashboards, metrics, data sources, charts, funnels, and analysis results are owned by Analytics.",
+    keywords: [
+      "analytics",
+      "analysis",
+      "dashboard",
+      "dashboards",
+      "metric",
+      "metrics",
+      "chart",
+      "charts",
+      "funnel",
+      "cohort",
+      "conversion",
+      "revenue",
+      "kpi",
+      "report",
+    ],
+  },
+  {
+    target: "mail",
+    appId: "mail",
+    label: "Mail/Gmail",
+    reason:
+      "Mailbox, email threads, senders, recipients, and Gmail-native search are owned by the Mail app.",
+    keywords: [
+      "mail",
+      "gmail",
+      "email",
+      "emails",
+      "inbox",
+      "mailbox",
+      "thread",
+      "threads",
+      "sender",
+      "recipient",
+      "subject",
+    ],
+  },
+  {
+    target: "dispatch",
+    appId: "dispatch",
+    label: "Dispatch",
+    reason:
+      "Workspace resources, connection grants, approvals, secrets, recurring jobs, and cross-app routing are owned by Dispatch.",
+    keywords: [
+      "dispatch",
+      "workspace",
+      "resource",
+      "resources",
+      "grant",
+      "grants",
+      "connection",
+      "connections",
+      "credential",
+      "credentials",
+      "secret",
+      "secrets",
+      "approval",
+      "approvals",
+      "automation",
+      "automations",
+      "job",
+      "jobs",
+    ],
+  },
+];
 
 export function escapeLikeTerm(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
@@ -83,6 +228,33 @@ function anyColumnMatches(columns: unknown[], terms: string[]): SQL {
 
 function cleanText(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function providerLabel(providerId: string): string {
+  return SOURCE_PROVIDER_LABELS[providerId] ?? providerId;
+}
+
+function searchSignalText(args: {
+  query: string;
+  provider?: string | null;
+  status?: string | null;
+}) {
+  return [args.query, args.provider, args.status]
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
+}
+
+function matchedDelegationSignals(text: string, keywords: string[]): string[] {
+  return keywords.filter((keyword) =>
+    new RegExp(`(^|[^a-z0-9-])${escapeRegExp(keyword)}([^a-z0-9-]|$)`).test(
+      text,
+    ),
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function tokenAround(value: string, start: number, end: number): string {
@@ -479,4 +651,168 @@ export async function searchEverythingRows(args: {
         a.title.localeCompare(b.title),
     );
   return results.slice(0, limit);
+}
+
+async function readBrainSourceProviderCoverage(): Promise<
+  FederatedSearchCoverage["brainSourceProviders"]
+> {
+  const rows = await getDb()
+    .select({
+      provider: schema.brainSources.provider,
+      status: schema.brainSources.status,
+    })
+    .from(schema.brainSources)
+    .where(accessFilter(schema.brainSources, schema.brainSourceShares));
+
+  const byProvider = new Map<
+    string,
+    {
+      configuredSourceCount: number;
+      activeSourceCount: number;
+      statuses: Record<string, number>;
+    }
+  >();
+  for (const provider of BRAIN_SOURCE_PROVIDERS) {
+    byProvider.set(provider, {
+      configuredSourceCount: 0,
+      activeSourceCount: 0,
+      statuses: {},
+    });
+  }
+  for (const row of rows) {
+    const provider =
+      typeof row.provider === "string" && row.provider.trim()
+        ? row.provider
+        : "unknown";
+    const status =
+      typeof row.status === "string" && row.status.trim()
+        ? row.status
+        : "unknown";
+    const current = byProvider.get(provider) ?? {
+      configuredSourceCount: 0,
+      activeSourceCount: 0,
+      statuses: {},
+    };
+    current.configuredSourceCount += 1;
+    if (status === "active") current.activeSourceCount += 1;
+    current.statuses[status] = (current.statuses[status] ?? 0) + 1;
+    byProvider.set(provider, current);
+  }
+
+  return Array.from(byProvider.entries())
+    .map(([id, coverage]) => ({
+      id,
+      label: providerLabel(id),
+      ...coverage,
+    }))
+    .sort((a, b) => {
+      const aKnown = BRAIN_SOURCE_PROVIDERS.includes(
+        a.id as (typeof BRAIN_SOURCE_PROVIDERS)[number],
+      );
+      const bKnown = BRAIN_SOURCE_PROVIDERS.includes(
+        b.id as (typeof BRAIN_SOURCE_PROVIDERS)[number],
+      );
+      if (aKnown !== bKnown) return aKnown ? -1 : 1;
+      return a.label.localeCompare(b.label);
+    });
+}
+
+async function readWorkspaceProviderCoverage(): Promise<
+  FederatedSearchCoverage["workspaceProviderCoverage"]
+> {
+  try {
+    const catalog = await listWorkspaceConnectionProviderCatalogForApp({
+      appId: APP_ID,
+      templateUse: "brain",
+      includeDisabled: true,
+      includeConnections: "all",
+    });
+    return {
+      available: true,
+      error: null,
+      providers: catalog.providers.map((provider) => ({
+        id: provider.id,
+        label: provider.label,
+        capabilities: [...provider.capabilities],
+        readiness: provider.readiness.status,
+        grantState: provider.workspaceConnection.grantState,
+        connected: provider.workspaceConnection.hasActiveWorkspaceConnection,
+        activeConnectionCount:
+          provider.workspaceConnection.activeConnectionCount,
+        grantedConnectionCount:
+          provider.workspaceConnection.grantedConnectionCount,
+      })),
+    };
+  } catch (err) {
+    return {
+      available: false,
+      error: err instanceof Error ? err.message : String(err),
+      providers: [],
+    };
+  }
+}
+
+async function readDiscoveredAgentCoverage(): Promise<
+  FederatedSearchCoverage["discoveredAgents"]
+> {
+  try {
+    const agents = (await discoverAgents(APP_ID)).slice(0, 20);
+    return {
+      available: true,
+      error: null,
+      note: "Use call-agent from the agent loop to delegate to these apps; search-everything only reports metadata and does not call downstream agents.",
+      agents: agents.map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+      })),
+    };
+  } catch (err) {
+    return {
+      available: false,
+      error: err instanceof Error ? err.message : String(err),
+      note: "Cross-app delegation happens in the agent loop through call-agent; search-everything does not perform A2A calls.",
+      agents: [],
+    };
+  }
+}
+
+function buildDelegationHints(args: {
+  query: string;
+  provider?: string | null;
+  status?: string | null;
+}): FederatedSearchCoverage["delegationHints"] {
+  const text = searchSignalText(args);
+  return FEDERATED_DELEGATION_TARGETS.map((target) => ({
+    target: target.target,
+    appId: target.appId,
+    label: target.label,
+    reason: target.reason,
+    matchedSignals: matchedDelegationSignals(text, target.keywords),
+  }))
+    .filter((hint) => hint.matchedSignals.length > 0)
+    .sort((a, b) => b.matchedSignals.length - a.matchedSignals.length);
+}
+
+export async function buildFederatedSearchCoverage(args: {
+  query: string;
+  provider?: string | null;
+  status?: string | null;
+}): Promise<FederatedSearchCoverage> {
+  const [brainSourceProviders, workspaceProviderCoverage, discoveredAgents] =
+    await Promise.all([
+      readBrainSourceProviderCoverage(),
+      readWorkspaceProviderCoverage(),
+      readDiscoveredAgentCoverage(),
+    ]);
+
+  return {
+    mode: "brain-index-plus-delegation-hints",
+    scopeNote:
+      "Brain search results come only from Brain-indexed knowledge, raw captures, and source records the current user can access. Federated coverage is metadata for deciding where the agent should delegate next; this action does not search sibling app databases or call other agents.",
+    brainSourceProviders,
+    workspaceProviderCoverage,
+    delegationHints: buildDelegationHints(args),
+    discoveredAgents,
+  };
 }

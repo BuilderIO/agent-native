@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AgentChatSurface,
   sendToAgentChat,
@@ -7,21 +7,23 @@ import {
 } from "@agent-native/core/client";
 import {
   IconArrowRight,
+  IconAlertTriangle,
   IconBook2,
   IconBolt,
   IconChecks,
+  IconCircleCheck,
+  IconCircleDashed,
+  IconCircleDot,
+  IconClock,
   IconDatabase,
   IconLoader2,
   IconMessageCircle,
   IconPlayerPlay,
+  IconReportAnalytics,
   IconShieldCheck,
 } from "@tabler/icons-react";
 import { Link, useSearchParams } from "react-router";
-import {
-  type ReviewQueueResponse,
-  type SourcesResponse,
-  sourceHealth,
-} from "@/lib/brain";
+import { type BrainHealthResponse, type BrainHealthStep } from "@/lib/brain";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -55,13 +57,9 @@ export default function AskRoute() {
     demoStatusFromParam(searchParams.get("demoStatus")) ?? "idle",
   );
   const [demoMessage, setDemoMessage] = useState<string | null>(null);
-  const reviewQuery = useActionQuery<ReviewQueueResponse>(
-    "list-proposals" as any,
+  const healthQuery = useActionQuery<BrainHealthResponse>(
+    "get-brain-health" as any,
     {} as any,
-  );
-  const sourcesQuery = useActionQuery<SourcesResponse>(
-    "list-sources" as any,
-    { includeArchived: false } as any,
   );
   const seedDemo = useActionMutation<
     DemoSeedResponse,
@@ -72,18 +70,12 @@ export default function AskRoute() {
     { seedIfMissing: boolean; publishCanonical: boolean }
   >("run-demo-eval" as any);
 
-  const reviewItems =
-    reviewQuery.data?.items ?? reviewQuery.data?.proposals ?? [];
-  const sources = sourcesQuery.data?.sources ?? [];
+  const health = healthQuery.data;
   const firstRunReady =
-    !sourcesQuery.isLoading &&
-    !reviewQuery.isLoading &&
-    sources.length === 0 &&
-    reviewItems.length === 0;
-  const healthySources = useMemo(
-    () => sources.filter((source) => sourceHealth(source) === "healthy").length,
-    [sources],
-  );
+    !healthQuery.isLoading && Boolean(health?.setup.firstRun);
+  const sourceCount = health?.sources.total ?? 0;
+  const healthySources = health?.sources.healthy ?? 0;
+  const reviewCount = health?.proposals.pending ?? 0;
 
   const demoBusy =
     seedDemo.isPending ||
@@ -208,6 +200,8 @@ export default function AskRoute() {
           <BrainDemoPrompt
             busy={demoBusy}
             firstRunReady={firstRunReady}
+            health={health}
+            loadingHealth={healthQuery.isLoading}
             status={demoStatus}
             message={demoMessage}
             onLoadDemoAndAsk={() => void loadDemo(true)}
@@ -216,9 +210,10 @@ export default function AskRoute() {
         }
         chatNotice={
           <BrainChatNotice
-            sources={sources.length}
+            health={health}
+            sources={sourceCount}
             healthySources={healthySources}
-            reviewCount={reviewItems.length}
+            reviewCount={reviewCount}
             firstRunReady={firstRunReady}
             busy={demoBusy}
             status={demoStatus}
@@ -245,9 +240,23 @@ function demoStatusFromParam(value: string | null): DemoStatus | null {
   return null;
 }
 
+function shortDate(value?: string | null) {
+  if (!value) return "never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function BrainDemoPrompt({
   busy,
   firstRunReady,
+  health,
+  loadingHealth,
   status,
   message,
   onLoadDemoAndAsk,
@@ -255,12 +264,17 @@ function BrainDemoPrompt({
 }: {
   busy: boolean;
   firstRunReady: boolean;
+  health?: BrainHealthResponse;
+  loadingHealth: boolean;
   status: DemoStatus;
   message: string | null;
   onLoadDemoAndAsk: () => void;
   onRunEval: () => void;
 }) {
   const demoReady = status === "ready";
+  const setup = health?.setup;
+  const steps = setup?.steps ?? [];
+  const nextStep = setup?.nextSteps[0];
 
   return (
     <div className="flex w-full max-w-[420px] flex-col gap-3 rounded-lg border border-border bg-card p-4 text-left shadow-sm">
@@ -268,14 +282,35 @@ function BrainDemoPrompt({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium">
             <IconBolt className="size-4 text-primary" />
-            Product-decision demo
+            First five minutes
           </div>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             {firstRunReady
-              ? "Seed a small, cited corpus and ask the launch question in one step."
-              : "Replay the product-decision demo without changing your real source setup."}
+              ? "Load a cited demo, then connect one real source when you are ready."
+              : "Keep Brain useful by checking source coverage, review work, and retrieval confidence."}
           </p>
         </div>
+        {setup ? (
+          <Badge variant="outline" className="shrink-0">
+            {setup.completed}/{setup.total}
+          </Badge>
+        ) : null}
+      </div>
+
+      <div className="grid gap-2 rounded-md border border-border bg-muted/25 p-3">
+        {loadingHealth && !steps.length ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <IconLoader2 className="size-4 animate-spin" />
+            Checking setup
+          </div>
+        ) : steps.length ? (
+          steps.map((step) => <SetupStepRow key={step.id} step={step} />)
+        ) : (
+          <p className="text-xs leading-5 text-muted-foreground">
+            Health is unavailable right now. The demo still works without a
+            source connection.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row">
@@ -301,8 +336,16 @@ function BrainDemoPrompt({
         >
           Run eval
         </Button>
+        <Button asChild size="sm" variant="ghost" className="justify-center">
+          <Link to="/sources">Sources</Link>
+        </Button>
       </div>
       {message ? <DemoStatusText status={status} message={message} /> : null}
+      {nextStep && !message ? (
+        <p className="text-xs leading-5 text-muted-foreground">
+          Next: {nextStep}
+        </p>
+      ) : null}
 
       {demoReady ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
@@ -324,7 +367,34 @@ function BrainDemoPrompt({
   );
 }
 
+function SetupStepRow({ step }: { step: BrainHealthStep }) {
+  const Icon =
+    step.status === "done"
+      ? IconCircleCheck
+      : step.status === "next"
+        ? IconCircleDot
+        : IconCircleDashed;
+  return (
+    <div className="flex min-w-0 items-start gap-2">
+      <Icon
+        className={
+          step.status === "done"
+            ? "mt-0.5 size-4 shrink-0 text-primary"
+            : "mt-0.5 size-4 shrink-0 text-muted-foreground"
+        }
+      />
+      <div className="min-w-0">
+        <p className="truncate text-xs font-medium">{step.label}</p>
+        <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
+          {step.detail}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function BrainChatNotice({
+  health,
   sources,
   healthySources,
   reviewCount,
@@ -335,6 +405,7 @@ function BrainChatNotice({
   onLoadDemoAndAsk,
   onRunEval,
 }: {
+  health?: BrainHealthResponse;
   sources: number;
   healthySources: number;
   reviewCount: number;
@@ -345,32 +416,96 @@ function BrainChatNotice({
   onLoadDemoAndAsk: () => void;
   onRunEval: () => void;
 }) {
+  const attentionCount =
+    (health?.sources.needsSetup ?? 0) +
+    (health?.sources.needsSync ?? 0) +
+    (health?.sources.stale ?? 0) +
+    (health?.sources.error ?? 0);
+  const lastEval = health?.retrieval.lastEval;
+  const nextStep = health?.setup.nextSteps[0];
+  const queueIssues =
+    (health?.distillationQueue.failed ?? 0) +
+    (health?.distillationQueue.stale ?? 0);
+  const rawFallback =
+    (health?.captures.counts?.queued ?? 0) +
+    (health?.captures.counts?.distilling ?? 0);
+  const citationCoverage = lastEval ? Math.round(lastEval.score * 100) : null;
+
   return (
-    <div className="flex flex-col gap-2 bg-background/95 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <Badge variant="secondary" className="gap-1.5">
-          <IconMessageCircle className="size-3" />
-          Company memory chat
-        </Badge>
-        <Badge variant="outline" className="gap-1.5">
-          <IconShieldCheck className="size-3" />
-          Cited, review-gated
-        </Badge>
+    <div className="grid gap-3 border-t border-border bg-background/95 px-3 py-3 lg:grid-cols-[1fr_auto] lg:items-center">
+      <div className="min-w-0">
+        <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
+          <Badge variant="secondary" className="gap-1.5">
+            <IconMessageCircle className="size-3" />
+            Answer quality
+          </Badge>
+          <Badge variant="outline" className="gap-1.5">
+            <IconShieldCheck className="size-3" />
+            Cited, review-gated
+          </Badge>
+          {message ? (
+            <DemoStatusText status={status} message={message} inline />
+          ) : nextStep ? (
+            <span className="max-w-[520px] truncate text-xs text-muted-foreground">
+              Next: {nextStep}
+            </span>
+          ) : null}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          <TrustMetric
+            icon={IconReportAnalytics}
+            label="Citation coverage"
+            value={citationCoverage === null ? "n/a" : `${citationCoverage}%`}
+            detail={lastEval ? "latest eval" : "no eval yet"}
+            tone={
+              citationCoverage === null
+                ? "neutral"
+                : citationCoverage >= 80
+                  ? "good"
+                  : "warning"
+            }
+          />
+          <TrustMetric
+            icon={IconChecks}
+            label="Proposal backlog"
+            value={reviewCount}
+            detail="waiting review"
+            tone={reviewCount ? "warning" : "good"}
+          />
+          <TrustMetric
+            icon={IconDatabase}
+            label="Queue health"
+            value={queueIssues ? queueIssues : "clear"}
+            detail={`${health?.distillationQueue.pending ?? 0} pending`}
+            tone={queueIssues ? "danger" : "good"}
+          />
+          <TrustMetric
+            icon={IconBolt}
+            label="Raw fallback"
+            value={rawFallback ? rawFallback : "off"}
+            detail={`${health?.captures.total ?? 0} captures`}
+            tone={rawFallback ? "warning" : "good"}
+          />
+          <TrustMetric
+            icon={IconClock}
+            label="Latest eval"
+            value={lastEval ? `${lastEval.passed}/${lastEval.total}` : "none"}
+            detail={lastEval ? shortDate(lastEval.ranAt) : "not run"}
+            tone={lastEval?.ok ? "good" : lastEval ? "warning" : "neutral"}
+          />
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:justify-end">
         <Badge variant="outline" className="gap-1.5">
           <IconDatabase className="size-3" />
           {healthySources}/{sources} sources healthy
         </Badge>
-        {reviewCount > 0 ? (
+        {attentionCount > 0 ? (
           <Badge variant="outline" className="gap-1.5">
-            <IconChecks className="size-3" />
-            {reviewCount} to review
+            <IconAlertTriangle className="size-3" />
+            {attentionCount} need attention
           </Badge>
         ) : null}
-        {message ? (
-          <DemoStatusText status={status} message={message} inline />
-        ) : null}
-      </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:shrink-0 sm:justify-end">
         {firstRunReady || status !== "idle" ? (
           <Button
             variant={firstRunReady ? "default" : "outline"}
@@ -412,6 +547,46 @@ function BrainChatNotice({
           </>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function TrustMetric({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  icon: typeof IconReportAnalytics;
+  label: string;
+  value: string | number;
+  detail: string;
+  tone: "neutral" | "good" | "warning" | "danger";
+}) {
+  return (
+    <div className="min-w-0 rounded-md border border-border bg-card px-3 py-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Icon className="size-3.5 shrink-0" />
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="mt-1 flex items-end justify-between gap-2">
+        <span className="truncate text-sm font-semibold tabular-nums text-foreground">
+          {value}
+        </span>
+        <span
+          className={
+            tone === "good"
+              ? "size-2 rounded-full bg-primary"
+              : tone === "warning"
+                ? "size-2 rounded-full bg-amber-500"
+                : tone === "danger"
+                  ? "size-2 rounded-full bg-destructive"
+                  : "size-2 rounded-full bg-muted-foreground"
+          }
+        />
+      </div>
+      <p className="mt-0.5 truncate text-xs text-muted-foreground">{detail}</p>
     </div>
   );
 }

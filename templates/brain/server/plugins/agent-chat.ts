@@ -7,6 +7,7 @@ import { getOrgContext } from "@agent-native/core/org";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, like, or } from "drizzle-orm";
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { tryAnswerBrainA2AQuestion } from "../lib/a2a-fallback.js";
 
 export default createAgentChatPlugin({
   appId: "brain",
@@ -23,6 +24,7 @@ Important rules:
 - Source policy matters: strict means answer from reviewed knowledge only; balanced means raw captures are fallback context when reviewed knowledge is thin; exploratory means raw captures and sources may be surfaced as clearly labeled leads.
 - Company-tier knowledge may create a proposal instead of publishing immediately, depending on settings.
 - Slack and Granola sources are configurable v1 connectors. Generic transcript import is always available.`,
+  a2aMessageFallback: async ({ text }) => tryAnswerBrainA2AQuestion(text),
   mentionProviders: async () => {
     const { getDb, schema } = await import("../db/index.js");
     return {

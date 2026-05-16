@@ -283,17 +283,24 @@ Users can edit these memory files directly in the Workspace tab — they're regu
 
 ## Workspace Connections {#workspace-connections}
 
-Workspace Connections are the reusable integration metadata layer for apps that
-need the same third-party account. A connection records the provider, account
-label, status, scopes, allowed app slugs, and credential references in portable
-SQL. Secrets stay in the scoped credential store; connection records should only
-point at credential keys such as `SLACK_BOT_TOKEN` or `GITHUB_TOKEN`.
+Workspace Connections are the reusable integration framework primitive for apps
+that need the same third-party account. A connection records provider identity,
+account labels, status, scopes, app grants, and credential references in
+portable SQL. Secrets stay in the scoped credential store; connection records
+should only point at credential keys such as `SLACK_BOT_TOKEN` or
+`GITHUB_TOKEN`.
 
 This is the foundation for “connect once, use everywhere”: Brain can ingest
 approved repositories, Analytics can analyze the same provider later, and
 Dispatch can remain the control plane for sharing credentials and policy. The
 initial API lives in `@agent-native/core/workspace-connections` and is scoped by
 the active request user/org.
+
+The boundary is deliberate: reusable connections own provider identity and
+grants; app-local source config still belongs to the app. Brain decides which
+channels, repositories, captures, review gates, and citations are allowed.
+Analytics decides which source is authoritative for a metric and stores the
+dashboard, dictionary, and analysis context.
 
 See [Workspace Connections](/docs/workspace-connections) for the reusable
 connector pattern, app grant/readiness APIs, and concrete Slack, HubSpot, and

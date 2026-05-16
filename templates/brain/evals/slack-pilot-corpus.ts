@@ -181,6 +181,58 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
     tags: ["dev-fusion", "tanstack", "supply-chain", "pr-673"],
   },
   {
+    id: "connector-eval-gate-product-rationale",
+    title: "More Brain connectors wait on retrieval eval gates",
+    summary:
+      "The product decision is to pause new Brain connectors until retrieval evals cover core memory quality because connectors amplify weak retrieval.",
+    body: "The Brain pilot product decision is to pause additional connectors until retrieval evals cover product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. The rationale is that connectors amplify weak memory retrieval if quality is thin.",
+    quote:
+      "Pause additional connectors until retrieval evals cover product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, not-found behavior, and privacy redaction.",
+    captureTitle: "#brain-pilot connector eval gate decision",
+    sourceUrl:
+      "https://slack.example.com/archives/CBRAINPILOT/p1778881200001200",
+    tags: ["connectors", "retrieval-evals", "product-rationale"],
+  },
+  {
+    id: "import-review-policy",
+    title: "Brain imports stay review-gated before company memory",
+    summary:
+      "Raw imports can enter Brain as captures, but company-tier knowledge stays reviewed, cited, or explicitly proposed; low-confidence policy items stay in proposals.",
+    body: "Process policy for Brain imports: Slack messages, transcripts, and generic documents may enter as raw captures, but company-tier knowledge should be reviewed, cited, or explicitly proposed before it becomes durable memory. Low-confidence policy items stay in proposals instead of search-visible knowledge.",
+    quote:
+      "Raw imports may enter as captures, but company-tier knowledge should be reviewed, cited, or explicitly proposed before it becomes durable memory.",
+    captureTitle: "#brain-pilot import review policy",
+    sourceUrl:
+      "https://slack.example.com/archives/CBRAINPILOT/p1778884800001300",
+    tags: ["process", "policy", "review-queue"],
+  },
+  {
+    id: "architecture-sql-retrieval",
+    title: "Brain retrieval uses portable SQL before connector breadth",
+    summary:
+      "Brain retrieval starts with portable SQL over approved knowledge, uses raw-capture fallback only when policy allows, and does not require a vector database in V1.",
+    body: "Engineering architecture for Brain retrieval: start with portable SQL over brain_knowledge, then use raw capture fallback only when source policy allows. Citations come from evidence quotes and metadata source URLs. V1 has no vector database requirement, which keeps connector pilots deterministic and portable.",
+    quote:
+      "Start with portable SQL over brain_knowledge, then use raw capture fallback only when source policy allows; V1 has no vector database requirement.",
+    captureTitle: "#brain-pilot retrieval architecture",
+    sourceUrl:
+      "https://slack.example.com/archives/CBRAINPILOT/p1778888400001400",
+    tags: ["architecture", "retrieval", "sql"],
+  },
+  {
+    id: "superseded-decisions-narration",
+    title: "Superseded decisions need originally-then-current narration",
+    summary:
+      "Brain should explain superseded decisions as originally X, then changed to Y, and should search toward the current decision while preserving older context.",
+    body: "Superseded decision behavior: Brain should narrate changes as originally X, then changed to Y, with citations for both points when available. Search should prefer the current decision and use superseded records as context, not as the active recommendation.",
+    quote:
+      "Narrate changes as originally X, then changed to Y; search should prefer the current decision and use superseded records as context.",
+    captureTitle: "#brain-pilot superseded decision narration",
+    sourceUrl:
+      "https://slack.example.com/archives/CBRAINPILOT/p1778892000001500",
+    tags: ["supersedes", "search-quality", "narration"],
+  },
+  {
     id: "dev-fusion-broad-status-distractor",
     title: "Broad Fusion pilot status stayed informational",
     summary:
@@ -320,6 +372,61 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
     ],
     notes:
       "Covers the durable #dev-fusion memory for TanStack compromise review and follow-up hardening.",
+  },
+  {
+    id: "connector-eval-gate-product-rationale",
+    kind: "answer",
+    question: "Why are more Brain connectors waiting on retrieval evals?",
+    expectedTitle: "More Brain connectors wait on retrieval eval gates",
+    requiredTerms: [
+      "pause additional connectors",
+      "product decisions",
+      "process and policy knowledge",
+      "privacy redaction",
+      "connectors amplify weak retrieval",
+    ],
+    notes: "Covers product decision rationale before adding more connectors.",
+  },
+  {
+    id: "import-review-policy",
+    kind: "answer",
+    question: "What process policy keeps Brain imports review gated?",
+    expectedTitle: "Brain imports stay review-gated before company memory",
+    requiredTerms: [
+      "captures",
+      "company-tier knowledge",
+      "reviewed",
+      "low-confidence policy items stay in proposals",
+    ],
+    notes: "Covers process and policy knowledge retrieval.",
+  },
+  {
+    id: "architecture-sql-retrieval",
+    kind: "answer",
+    question: "How does Brain retrieval work architecturally?",
+    expectedTitle: "Brain retrieval uses portable SQL before connector breadth",
+    requiredTerms: [
+      "portable SQL",
+      "brain_knowledge",
+      "raw capture fallback",
+      "no vector database requirement",
+    ],
+    notes: "Covers engineering architecture and how-it-works retrieval.",
+  },
+  {
+    id: "superseded-decisions-narration",
+    kind: "answer",
+    question: "How should Brain narrate superseded decisions in search?",
+    expectedTitle:
+      "Superseded decisions need originally-then-current narration",
+    requiredTerms: [
+      "originally X",
+      "then changed to Y",
+      "search should prefer the current decision",
+      "superseded records as context",
+    ],
+    notes:
+      "Covers superseded decision narration and current-decision search behavior.",
   },
   {
     id: "unsupported-office-catering",

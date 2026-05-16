@@ -39,6 +39,19 @@ Use configured data sources and actions. The generic analytics template can incl
 
 When source availability is unclear for a data request, call `data-source-status` and inspect existing dashboards, data-dictionary entries, and user/org resources before choosing a source. `data-source-status` includes both existing per-template credential/env checks and granted workspace connections for `appId=analytics`; prefer a `workspaceConnections.providers[].grantState` of `connected` before asking the user for duplicate provider keys. If a workspace connection exists with `grantState: "needs_grant"`, ask for an Analytics grant rather than a new secret when that matches the user's setup intent. The workspace connection summary comes from `summarizeWorkspaceConnectionProviderForApp()` in `@agent-native/core/workspace-connections`; do not reimplement `allowedApps`/explicit grant checks in Analytics-specific code. If multiple configured sources could answer the question, ask one concise clarification. Do not call `data-source-status` just because the user is on an analytics screen; first decide whether the user actually asked for analytics data.
 
+Reusable workspace integrations are the framework-level runtime primitive for
+provider identity, account metadata, safe credential refs, and per-app grants.
+Analytics adopts those connections for provider access, but still owns
+Analytics-specific source selection, metric definitions, dashboards, analyses,
+and source-of-truth decisions. A workspace connection can prove that Analytics
+may use the HubSpot, GitHub, Slack, or other provider account; it does not pick
+the correct metric, warehouse table, live API endpoint, sync cursor, or
+dashboard model for the user. When a provider is already connected but not
+granted to Analytics, ask for the grant instead of another raw token.
+The Data Sources UI reflects this same readiness model for reusable providers
+such as Slack, HubSpot, Notion, and GitHub: ready via workspace, needs grant,
+needs credentials, or local credentials.
+
 When the user names a data source or tool, that source is authoritative for the turn. If they ask for Jira, Pylon, GitHub, HubSpot, Gong, Slack, Sentry, GA4, or another provider by name, call that provider's action first and report its real result or unavailable/error state. Do not substitute BigQuery for a named provider unless the user explicitly asks for the warehouse copy, or the named provider is unavailable and the user chooses a fallback. `data-source-status --key <provider>` accepts provider aliases such as `jira`, `pylon`, `github`, `bigquery`, `hubspot`, `gong`, and `slack`.
 
 Connected MCP/provider tools are also real source access. If `tool-search` returns a provider-specific MCP tool for a named source (for example a HubSpot search tool), use it when it is the best match and treat the returned records as evidence.

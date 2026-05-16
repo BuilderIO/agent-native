@@ -1,21 +1,35 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   IconAlertCircle,
+  IconCheck,
   IconClock,
   IconCode,
+  IconCopy,
+  IconDeviceMobile,
   IconDots,
   IconExternalLink,
   IconFolder,
   IconFolderPlus,
-  IconListCheck,
+  IconLink,
   IconPinned,
   IconPinnedOff,
   IconPlus,
   IconPlayerPlay,
+  IconQrcode,
   IconRefresh,
   IconRoute,
+  IconSearch,
+  IconSettings,
   IconTerminal2,
 } from "@tabler/icons-react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   PromptComposer,
   type PromptComposerFile,
@@ -70,6 +84,8 @@ import type {
   CodeAgentProjectSelectResult,
   CodeAgentReasoningEffort,
   CodeAgentRemoteConnectorControlResult,
+  CodeAgentRemoteConnectorPairRequest,
+  CodeAgentRemoteConnectorPairResult,
   CodeAgentRemoteConnectorStatus,
   CodeAgentRerunRequest,
   CodeAgentRerunResult,
@@ -81,7 +97,6 @@ import type {
   CodeAgentTerminalRequest,
   CodeAgentTerminalResult,
   CodeAgentTranscriptEvent,
-  CodeAgentTranscriptEventType,
   CodeAgentTranscriptRequest,
   CodeAgentTranscriptResult,
   CodeAgentUpdateRunRequest,
@@ -92,6 +107,7 @@ import type {
 export interface CodeAgentsHost {
   listRuns(goalId?: string): Promise<CodeAgentRunListResult>;
   listModels?(): Promise<CodeAgentModelListResult>;
+  getHostMetadata?(): Promise<CodeAgentHostMetadata>;
   listCodePacks?(cwd?: string): Promise<CodeAgentCodePackResult>;
   listProjects?(): Promise<CodeAgentProjectListResult>;
   selectProject?(cwd: string): Promise<CodeAgentProjectSelectResult>;
@@ -125,6 +141,9 @@ export interface CodeAgentsHost {
   setRemoteConnectorEnabled?(
     enabled: boolean,
   ): Promise<CodeAgentRemoteConnectorControlResult>;
+  pairRemoteConnector?(
+    request?: CodeAgentRemoteConnectorPairRequest,
+  ): Promise<CodeAgentRemoteConnectorPairResult>;
 }
 
 export type CodeAgentsRenderAppSurface = (input: {
@@ -139,12 +158,31 @@ export interface CodeAgentsAppProps {
   host: CodeAgentsHost;
   openRequest?: CodeAgentsOpenRequest;
   refreshKey?: number;
+  brandIconUrl?: string;
   onOpenSettings?: () => void;
   renderAppSurface?: CodeAgentsRenderAppSurface;
 }
 
 type RunListStatus = CodeAgentRunListResult["status"];
 type CodeAgentRunMode = "plan" | "auto";
+
+interface CodeAgentSearchResult {
+  run: CodeAgentRun;
+  match: string;
+  matchType: "Recent" | "Session" | "Transcript";
+  rank: number;
+}
+
+interface CodeAgentHostMetadata {
+  status: "ok" | "unavailable";
+  llmProvider?: {
+    configured: boolean;
+    label?: string;
+    configuredProviders?: string[];
+    missingEnvVars?: string[];
+  };
+  error?: string;
+}
 
 const CODE_AGENT_RUN_MODES: Array<{
   id: CodeAgentRunMode;
@@ -184,44 +222,49 @@ const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
     label: "Default model",
     description: "Use the connected provider and saved default.",
   },
-  {
-    engine: "builder",
-    engineLabel: "Builder.io",
-    model: "claude-sonnet-4-6",
-    label: "Claude Sonnet 4.6",
-    description: "Balanced default through Builder.io",
-  },
-  {
-    engine: "builder",
-    engineLabel: "Builder.io",
-    model: "claude-opus-4-7",
-    label: "Claude Opus 4.7",
-    description: "Deeper reasoning for larger changes",
-  },
-  {
-    engine: "ai-sdk:openai",
-    engineLabel: "OpenAI",
-    model: "gpt-5.5",
-    label: "GPT-5.5",
-    description: "OpenAI reasoning model",
-  },
-  {
-    engine: "ai-sdk:google",
-    engineLabel: "Gemini",
-    model: "gemini-3.1-pro-preview",
-    label: "Gemini 3.1 Pro",
-    description: "Gemini reasoning model",
-  },
 ];
 
 const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
 const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
+const DEFAULT_REMOTE_RELAY_URL = "https://dispatch.agent-native.com";
+
+function appUrlForRemotePairing(app: AppConfig): string {
+  if ((app.mode ?? "prod") === "dev") {
+    return app.devUrl || (app.devPort ? `http://localhost:${app.devPort}` : "");
+  }
+  return app.url || app.devUrl || "";
+}
+
+function defaultRemoteRelayUrl(apps: AppConfig[]): string {
+  const app =
+    apps.find((item) => item.id === "dispatch" && Boolean(item.url)) ??
+    apps.find((item) => Boolean(item.url)) ??
+    apps.find((item) => Boolean(item.devUrl || item.devPort));
+  const relayUrl = app ? appUrlForRemotePairing(app) : "";
+  return relayUrl || DEFAULT_REMOTE_RELAY_URL;
+}
+
+const codeAgentComposerAreaStyle = {
+  alignSelf: "stretch",
+  width: "100%",
+  inlineSize: "100%",
+  maxWidth: "none",
+  boxSizing: "border-box",
+} satisfies CSSProperties;
+
+const codeAgentComposerRootStyle = {
+  width: "100%",
+  inlineSize: "100%",
+  maxWidth: "none",
+  boxSizing: "border-box",
+} satisfies CSSProperties;
 
 export default function CodeAgentsApp({
   apps,
   host,
   openRequest,
   refreshKey = 0,
+  brandIconUrl,
   onOpenSettings,
   renderAppSurface,
 }: CodeAgentsAppProps) {
@@ -247,7 +290,6 @@ export default function CodeAgentsApp({
   const [status, setStatus] = useState<RunListStatus>("unavailable");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [newPrompt, setNewPrompt] = useState("");
   const [newPromptSeed, setNewPromptSeed] = useState(0);
@@ -281,11 +323,34 @@ export default function CodeAgentsApp({
   const [remoteConnectorError, setRemoteConnectorError] = useState<
     string | null
   >(null);
+  const [remoteConnectorMessage, setRemoteConnectorMessage] = useState<
+    string | null
+  >(null);
+  const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
+  const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
+  const [searchPanelOpen, setSearchPanelOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchRuns, setSearchRuns] = useState<CodeAgentRun[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchTranscriptLoading, setSearchTranscriptLoading] = useState(false);
+  const [searchTranscriptVersion, setSearchTranscriptVersion] = useState(0);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const [hostMetadata, setHostMetadata] =
+    useState<CodeAgentHostMetadata | null>(null);
   const selectedModelSelection = useMemo(
     () => normalizeModelSelection(modelSelection, modelOptions),
     [modelOptions, modelSelection],
   );
+  const remoteRelayUrl = useMemo(
+    () => remoteConnectorStatus?.relayUrl ?? defaultRemoteRelayUrl(apps),
+    [apps, remoteConnectorStatus?.relayUrl],
+  );
   const newPromptRef = useRef<TiptapComposerHandle | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchTranscriptCacheRef = useRef(
+    new Map<string, CodeAgentTranscriptEvent[]>(),
+  );
 
   const seedNewPrompt = useCallback((value: string) => {
     setNewPrompt(value);
@@ -296,8 +361,7 @@ export default function CodeAgentsApp({
   }, []);
 
   const loadRuns = useCallback(
-    async (busy = false) => {
-      if (busy) setRefreshing(true);
+    async (_busy = false) => {
       try {
         const result = await host.listRuns(selectedGoal.id);
         setStatus(result.status);
@@ -309,11 +373,42 @@ export default function CodeAgentsApp({
         setRuns([]);
       } finally {
         setLoading(false);
-        setRefreshing(false);
       }
     },
     [host, selectedGoal.id],
   );
+
+  const loadSearchRuns = useCallback(async () => {
+    setSearchLoading(true);
+    setSearchError(null);
+    searchTranscriptCacheRef.current.clear();
+    setSearchTranscriptVersion((version) => version + 1);
+    try {
+      const results = await Promise.all(
+        CODE_AGENT_GOALS.map(async (goal): Promise<CodeAgentRunListResult> => {
+          try {
+            return await host.listRuns(goal.id);
+          } catch (err) {
+            return {
+              status: "unavailable",
+              goalId: goal.id,
+              runs: [],
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        }),
+      );
+      const runsById = new Map<string, CodeAgentRun>();
+      for (const result of results) {
+        for (const run of result.runs) runsById.set(run.id, run);
+      }
+      setSearchRuns(sortRunsForRail([...runsById.values()]));
+      const firstError = results.find((result) => result.status !== "ok");
+      setSearchError(firstError?.error ?? null);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [host]);
 
   const loadTranscript = useCallback(
     async (runId: string | null = selectedRunId, busy = false) => {
@@ -346,21 +441,7 @@ export default function CodeAgentsApp({
     try {
       const result = await host.listProjects?.();
       if (!result || result.status !== "ok") {
-        const fallbackRoot = codePack?.root;
-        setProjects(
-          fallbackRoot
-            ? [
-                {
-                  id: fallbackRoot,
-                  name: baseNameForPath(fallbackRoot),
-                  path: fallbackRoot,
-                },
-              ]
-            : [],
-        );
-        if (fallbackRoot) {
-          setSelectedProjectPath((current) => current || fallbackRoot);
-        }
+        setProjects([]);
         return;
       }
       setProjects(result.projects);
@@ -372,7 +453,7 @@ export default function CodeAgentsApp({
     } finally {
       setLoadingProjects(false);
     }
-  }, [codePack?.root, host]);
+  }, [host]);
 
   const loadRemoteConnectorStatus = useCallback(async () => {
     if (!host.getRemoteConnectorStatus) return;
@@ -384,6 +465,27 @@ export default function CodeAgentsApp({
       setRemoteConnectorError(err instanceof Error ? err.message : String(err));
     }
   }, [host]);
+
+  useEffect(() => {
+    if (!host.getHostMetadata) return;
+    let cancelled = false;
+    void host
+      .getHostMetadata()
+      .then((result) => {
+        if (!cancelled) setHostMetadata(result);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setHostMetadata({
+            status: "unavailable",
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [host, refreshKey]);
 
   useEffect(() => {
     if (!host.getRemoteConnectorStatus) return;
@@ -406,6 +508,8 @@ export default function CodeAgentsApp({
     if (nextGoal) setSelectedGoalId(nextGoal.id);
     setSelectedRunId(openRequest.runId ?? null);
     setWorkbenchOpen(true);
+    setSearchPanelOpen(false);
+    setMobilePanelOpen(false);
     void loadRuns(true);
   }, [loadRuns, openRequest]);
 
@@ -419,10 +523,80 @@ export default function CodeAgentsApp({
     () => buildCodeAgentSlashCommands(codePack),
     [codePack],
   );
+  const canOpenTerminal = Boolean(host.openTerminal);
+  const canChooseProjectFolder = Boolean(host.chooseProject);
+  const providerGate = useMemo(
+    () => getProviderGate(hostMetadata),
+    [hostMetadata],
+  );
+  const normalizedSearchQuery = searchQuery.trim();
+  const searchResults = useMemo(
+    () =>
+      buildSearchRunResults(
+        searchRuns,
+        searchQuery,
+        searchTranscriptCacheRef.current,
+      ),
+    [searchRuns, searchQuery, searchTranscriptVersion],
+  );
 
   useEffect(() => {
     setSelectedPermissionMode(selectedRunStoredPermissionMode);
   }, [selectedRunId, selectedRunStoredPermissionMode]);
+
+  useEffect(() => {
+    if (!searchPanelOpen) return;
+    void loadSearchRuns();
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [loadSearchRuns, refreshKey, searchPanelOpen]);
+
+  useEffect(() => {
+    if (
+      !searchPanelOpen ||
+      normalizedSearchQuery.length < 2 ||
+      searchRuns.length === 0
+    ) {
+      setSearchTranscriptLoading(false);
+      return;
+    }
+
+    const missingRuns = searchRuns.filter(
+      (run) => !searchTranscriptCacheRef.current.has(run.id),
+    );
+    if (missingRuns.length === 0) {
+      setSearchTranscriptLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSearchTranscriptLoading(true);
+    void Promise.all(
+      missingRuns.map(async (run) => {
+        try {
+          const result = await host.readTranscript({
+            goalId: run.goalId,
+            runId: run.id,
+          });
+          if (!cancelled) {
+            searchTranscriptCacheRef.current.set(
+              run.id,
+              result.status === "ok" ? result.events : [],
+            );
+          }
+        } catch {
+          if (!cancelled) searchTranscriptCacheRef.current.set(run.id, []);
+        }
+      }),
+    ).finally(() => {
+      if (cancelled) return;
+      setSearchTranscriptLoading(false);
+      setSearchTranscriptVersion((version) => version + 1);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [host, normalizedSearchQuery, searchPanelOpen, searchRuns]);
 
   useEffect(() => {
     let cancelled = false;
@@ -542,6 +716,8 @@ export default function CodeAgentsApp({
       setSelectedGoalId(matchingGoal.id);
       setSelectedRunId(null);
       setWorkbenchOpen(false);
+      setSearchPanelOpen(false);
+      setMobilePanelOpen(false);
       seedNewPrompt(
         matchingGoal.id === "task" ? "" : `${matchingGoal.slashCommand} `,
       );
@@ -553,6 +729,8 @@ export default function CodeAgentsApp({
     setSelectedGoalId("task");
     setSelectedRunId(null);
     setWorkbenchOpen(false);
+    setSearchPanelOpen(false);
+    setMobilePanelOpen(false);
     seedNewPrompt(
       matchingSkill
         ? `Use the ${matchingSkill.name} skill to `
@@ -561,6 +739,13 @@ export default function CodeAgentsApp({
   }
 
   async function openTerminal() {
+    if (!host.openTerminal) {
+      toast("Terminal is not available here", {
+        description: "Open Agent-Native Desktop to launch a native terminal.",
+        duration: 3200,
+      });
+      return;
+    }
     const terminalRequest = selectedRun
       ? getRunTerminalRequest(selectedRun)
       : selectedProjectPath
@@ -586,11 +771,124 @@ export default function CodeAgentsApp({
     });
   }
 
-  function openSelectedGoal() {
+  function openSearchPanel() {
+    setSearchPanelOpen(true);
+    setMobilePanelOpen(false);
     setWorkbenchOpen(false);
-    window.requestAnimationFrame(() => {
-      newPromptRef.current?.focus();
-    });
+  }
+
+  function openSearchResult(run: CodeAgentRun) {
+    const goal = getCodeAgentGoal(run.goalId) ?? getDefaultCodeAgentGoal();
+    setSelectedGoalId(goal.id);
+    setRuns((current) =>
+      current.some((item) => item.id === run.id) ? current : [run, ...current],
+    );
+    setSelectedRunId(run.id);
+    setSearchPanelOpen(false);
+    setMobilePanelOpen(false);
+    setWorkbenchOpen(false);
+  }
+
+  function openMobilePanel() {
+    setSearchPanelOpen(false);
+    setMobilePanelOpen(true);
+    setWorkbenchOpen(false);
+  }
+
+  async function pairRemoteConnector(relayUrl: string) {
+    if (!host.pairRemoteConnector) {
+      toast("Mobile pairing is not available here", {
+        description: "Open Agent-Native Desktop to pair this Mac.",
+        duration: 3200,
+      });
+      return;
+    }
+    const trimmedRelayUrl = relayUrl.trim();
+    if (!trimmedRelayUrl) {
+      toast("Choose a relay first", {
+        description: "A Dispatch relay URL is needed before pairing.",
+        duration: 3200,
+      });
+      return;
+    }
+    setRemoteConnectorPairing(true);
+    setRemoteConnectorMessage(null);
+    try {
+      const result = await host.pairRemoteConnector({
+        relayUrl: trimmedRelayUrl,
+        label: "Agent Native Desktop",
+      });
+      setRemoteConnectorStatus(result.status);
+      setRemoteConnectorMessage(result.error ?? result.message ?? null);
+      toast(result.ok ? "Mobile pairing ready" : "Mobile pairing failed", {
+        description: result.error ?? result.message,
+        duration: result.ok ? 2200 : 3600,
+      });
+      if (result.ok) void loadRemoteConnectorStatus();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setRemoteConnectorMessage(message);
+      toast("Mobile pairing failed", {
+        description: message,
+        duration: 3600,
+      });
+    } finally {
+      setRemoteConnectorPairing(false);
+    }
+  }
+
+  async function setRemoteConnectorEnabled(enabled: boolean) {
+    if (!host.setRemoteConnectorEnabled) {
+      toast("Mobile pairing controls are not available here", {
+        description: "Open Agent-Native Desktop to manage mobile pairing.",
+        duration: 3200,
+      });
+      return;
+    }
+    setRemoteConnectorUpdating(true);
+    setRemoteConnectorMessage(null);
+    try {
+      const result = await host.setRemoteConnectorEnabled(enabled);
+      setRemoteConnectorStatus(result.status);
+      setRemoteConnectorMessage(result.error ?? null);
+      toast(enabled ? "Mobile pairing resumed" : "Mobile pairing paused", {
+        description: result.error,
+        duration: result.ok ? 1800 : 3600,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setRemoteConnectorMessage(message);
+      toast("Could not update mobile pairing", {
+        description: message,
+        duration: 3600,
+      });
+    } finally {
+      setRemoteConnectorUpdating(false);
+    }
+  }
+
+  async function copyMobileLink(link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast("Mobile link copied", { duration: 1600 });
+    } catch (err) {
+      toast("Could not copy mobile link", {
+        description: err instanceof Error ? err.message : String(err),
+        duration: 3200,
+      });
+    }
+  }
+
+  function openSelectedGoal() {
+    setSelectedGoalId("task");
+    setSelectedRunId(null);
+    setWorkbenchOpen(false);
+    setSearchPanelOpen(false);
+    setMobilePanelOpen(false);
+    setFollowUpPrompt("");
+    setTranscriptEvents([]);
+    setTranscriptError(null);
+    seedNewPrompt("");
   }
 
   async function controlRun(command: CodeAgentControlCommand) {
@@ -676,6 +974,8 @@ export default function CodeAgentsApp({
         setRuns((current) => [result.run!, ...current]);
         setSelectedRunId(result.run.id);
         setWorkbenchOpen(false);
+        setSearchPanelOpen(false);
+        setMobilePanelOpen(false);
         if (result.event) setTranscriptEvents([result.event]);
       }
       await loadRuns(true);
@@ -696,6 +996,13 @@ export default function CodeAgentsApp({
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
   ) {
+    if (providerGate.blocked) {
+      toast("Connect a model provider first", {
+        description: providerGate.description,
+        duration: 3600,
+      });
+      return;
+    }
     const typedGoal =
       CODE_AGENT_GOALS.find(
         (goal) =>
@@ -734,6 +1041,8 @@ export default function CodeAgentsApp({
         setSelectedGoalId(typedGoal.id);
       }
       setWorkbenchOpen(false);
+      setSearchPanelOpen(false);
+      setMobilePanelOpen(false);
       if (result.event) setTranscriptEvents([result.event]);
       toast(result.message, { duration: 2200 });
       if (typedGoal.id === selectedGoal.id) {
@@ -760,6 +1069,13 @@ export default function CodeAgentsApp({
     attachments: CodeAgentPromptAttachment[],
     deliveryMode: CodeAgentFollowUpMode = "immediate",
   ) {
+    if (providerGate.blocked && !selectedRunIsActive) {
+      toast("Connect a model provider first", {
+        description: providerGate.description,
+        duration: 3600,
+      });
+      return;
+    }
     if (!selectedRun) {
       toast("Select a session first", { duration: 1800 });
       return;
@@ -944,60 +1260,53 @@ export default function CodeAgentsApp({
       >
         <div className="code-agents-rail__header">
           <div className="code-agents-title-block">
-            <h1>Agent-Native Code</h1>
-            <p>{runs.length} sessions</p>
+            {brandIconUrl && (
+              <img
+                src={brandIconUrl}
+                alt=""
+                aria-hidden="true"
+                className="code-agents-title-icon"
+              />
+            )}
+            <h1>Code</h1>
           </div>
-          <button
-            type="button"
-            className="code-agents-icon-button"
-            onClick={() => loadRuns(true)}
-            title="Refresh sessions"
-            aria-label="Refresh sessions"
-          >
-            <IconRefresh
-              size={15}
-              strokeWidth={1.8}
-              className={refreshing ? "code-agents-spin" : undefined}
-            />
-          </button>
         </div>
 
-        {host.getRemoteConnectorStatus && (
-          <RemoteConnectorRailStatus
-            status={remoteConnectorStatus}
-            error={remoteConnectorError}
-            onOpenSettings={onOpenSettings}
-          />
-        )}
-
-        <button
-          type="button"
-          className="code-agents-new-session-link"
-          onClick={openSelectedGoal}
-        >
-          <IconPlus size={15} strokeWidth={1.8} />
-          New session
-        </button>
-
-        <div className="code-agents-goal-list" aria-label="Code commands">
-          <p className="code-agents-rail-label">Commands</p>
-          {CODE_AGENT_GOALS.map((goal) => (
-            <button
-              key={goal.id}
-              type="button"
-              className={`code-agents-goal${
-                goal.id === selectedGoal.id ? " code-agents-goal--active" : ""
-              }`}
-              onClick={() => {
-                setSelectedGoalId(goal.id);
-                setSelectedRunId(null);
-                setWorkbenchOpen(false);
-              }}
-            >
-              <strong>{goal.label}</strong>
-              <span>{goal.id === "task" ? "Prompt" : goal.slashCommand}</span>
-            </button>
-          ))}
+        <div className="code-agents-nav-list" aria-label="Code navigation">
+          <button
+            type="button"
+            className={`code-agents-nav-link${
+              !searchPanelOpen && !mobilePanelOpen && !selectedRunId
+                ? " code-agents-nav-link--active"
+                : ""
+            }`}
+            onClick={openSelectedGoal}
+            aria-pressed={
+              !searchPanelOpen && !mobilePanelOpen && !selectedRunId
+            }
+          >
+            <IconPlus size={15} strokeWidth={1.8} />
+            <span>New chat</span>
+          </button>
+          <button
+            type="button"
+            className={`code-agents-nav-link${
+              searchPanelOpen ? " code-agents-nav-link--active" : ""
+            }`}
+            onClick={openSearchPanel}
+            aria-pressed={searchPanelOpen}
+          >
+            <IconSearch size={15} strokeWidth={1.8} />
+            <span>Search</span>
+          </button>
+          {host.getRemoteConnectorStatus && (
+            <MobileRailItem
+              status={remoteConnectorStatus}
+              error={remoteConnectorError}
+              active={mobilePanelOpen}
+              onOpen={openMobilePanel}
+            />
+          )}
         </div>
 
         <div className="code-agents-run-list">
@@ -1013,10 +1322,16 @@ export default function CodeAgentsApp({
             <GroupedRunList
               runs={runs}
               selectedRunId={selectedRunId}
-              onSelect={(run) => setSelectedRunId(run.id)}
+              onSelect={(run) => {
+                setSelectedRunId(run.id);
+                setSearchPanelOpen(false);
+                setMobilePanelOpen(false);
+              }}
               onOpen={(run) => {
                 setSelectedRunId(run.id);
                 setWorkbenchOpen(true);
+                setSearchPanelOpen(false);
+                setMobilePanelOpen(false);
               }}
               onTogglePin={toggleRunPinned}
             />
@@ -1029,11 +1344,7 @@ export default function CodeAgentsApp({
           <div className="code-agents-workbench">
             <div className="code-agents-workbench__toolbar">
               <div>
-                <p className="code-agents-kicker">
-                  {selectedGoal.surfaceKind === "app"
-                    ? "App-backed detail surface"
-                    : "Native feedback surface"}
-                </p>
+                <p className="code-agents-kicker">Session</p>
                 <h2>
                   {getRunTitle(selectedRun) ??
                     (selectedRunId
@@ -1042,14 +1353,16 @@ export default function CodeAgentsApp({
                 </h2>
               </div>
               <div className="code-agents-toolbar-actions">
-                <button
-                  type="button"
-                  className="code-agents-button"
-                  onClick={openTerminal}
-                >
-                  <IconTerminal2 size={14} strokeWidth={1.8} />
-                  Open Terminal
-                </button>
+                {canOpenTerminal && (
+                  <button
+                    type="button"
+                    className="code-agents-button"
+                    onClick={openTerminal}
+                  >
+                    <IconTerminal2 size={14} strokeWidth={1.8} />
+                    Open Terminal
+                  </button>
+                )}
                 <button
                   type="button"
                   className="code-agents-button"
@@ -1070,117 +1383,139 @@ export default function CodeAgentsApp({
               ) : (
                 <NativeGoalSurface
                   goal={selectedGoal}
-                  onOpenTerminal={openTerminal}
+                  onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
                 />
               )}
             </div>
           </div>
         ) : (
           <div className="code-agents-overview">
-            {status !== "ok" && (
-              <div
-                className={`code-agents-callout code-agents-callout--${status}`}
-              >
-                <IconAlertCircle size={17} strokeWidth={1.8} />
-                <span>
-                  {status === "unauthorized"
-                    ? `Open ${selectedGoal.surfaceLabel} and sign in to see sessions.`
-                    : (error ??
-                      `${selectedGoal.surfaceLabel} is not reporting sessions yet.`)}
-                </span>
-              </div>
-            )}
-
-            {selectedRun ? (
-              <RunDetailCard
-                run={selectedRun}
-                selectedRunId={selectedRunId}
-                goal={selectedGoal}
-                transcriptEvents={transcriptEvents}
-                transcriptLoading={transcriptLoading}
-                transcriptError={transcriptError}
-                followUpPrompt={followUpPrompt}
-                followUpMode={followUpMode}
-                submittingFollowUp={submittingFollowUp}
-                permissionMode={selectedPermissionMode}
-                modelSelection={selectedModelSelection}
-                modelOptions={modelOptions}
-                updatingPermissionMode={updatingPermissionMode}
-                onFollowUpPromptChange={setFollowUpPrompt}
-                onFollowUpModeChange={setFollowUpMode}
-                onPermissionModeChange={changeSelectedPermissionMode}
-                onModelSelectionChange={setModelSelection}
-                onSubmitFollowUp={submitFollowUp}
-                onOpenWorkbench={() => setWorkbenchOpen(true)}
-                onOpenTerminal={openTerminal}
-                onResume={() => controlRun("resume")}
-                onRefreshStatus={() => controlRun("status")}
-                onStop={() => controlRun("stop")}
-                onApprove={() => controlRun("approve")}
-                onRetry={host.retryRun ? retrySelectedRun : undefined}
-                onRerun={host.rerunRun ? rerunSelectedRun : undefined}
+            {mobilePanelOpen ? (
+              <MobileConnectorPanel
+                status={remoteConnectorStatus}
+                error={remoteConnectorError}
+                message={remoteConnectorMessage}
+                relayUrl={remoteRelayUrl}
+                brandIconUrl={brandIconUrl}
+                pairing={remoteConnectorPairing}
+                updating={remoteConnectorUpdating}
+                canPair={Boolean(host.pairRemoteConnector)}
+                canToggle={Boolean(host.setRemoteConnectorEnabled)}
+                onPair={pairRemoteConnector}
+                onSetEnabled={setRemoteConnectorEnabled}
+                onRefresh={loadRemoteConnectorStatus}
+                onCopyLink={copyMobileLink}
                 onOpenSettings={onOpenSettings}
               />
+            ) : searchPanelOpen ? (
+              <SearchChatsPanel
+                query={searchQuery}
+                results={searchResults}
+                totalRuns={searchRuns.length}
+                loading={searchLoading}
+                transcriptLoading={searchTranscriptLoading}
+                error={searchError}
+                inputRef={searchInputRef}
+                onQueryChange={setSearchQuery}
+                onSelectRun={openSearchResult}
+                onRefresh={loadSearchRuns}
+              />
             ) : (
-              <div className="code-agents-start">
-                <h2>
-                  {selectedProjectPath
-                    ? `What should we build in ${baseNameForPath(selectedProjectPath)}?`
-                    : "What should we work on?"}
-                </h2>
-                <NewSessionComposer
-                  prompt={newPrompt}
-                  promptSeed={newPromptSeed}
-                  inputRef={newPromptRef}
-                  creating={creatingRun}
-                  permissionMode={newRunPermissionMode}
-                  modelSelection={selectedModelSelection}
-                  modelOptions={modelOptions}
-                  slashCommands={slashCommands}
-                  onPromptChange={setNewPrompt}
-                  onPermissionModeChange={setNewRunPermissionMode}
-                  onModelSelectionChange={setModelSelection}
-                  onSlashCommand={handleSlashCommand}
-                  onSubmit={createRunFromPrompt}
-                />
-                <ProjectFolderPicker
-                  variant="bar"
-                  projects={projects}
-                  selectedPath={selectedProjectPath}
-                  loading={loadingProjects}
-                  onSelect={selectProjectFolder}
-                  onChoose={chooseProjectFolder}
-                />
-                <div className="code-agents-suggestions">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedGoalId("task");
-                      seedNewPrompt("Review the current changes");
-                    }}
+              <>
+                {status !== "ok" && (
+                  <div
+                    className={`code-agents-callout code-agents-callout--${status}`}
                   >
-                    Review the current changes
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedGoalId("migrate");
-                      seedNewPrompt("/migrate ");
-                    }}
-                  >
-                    Migrate an existing app
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedGoalId("audit");
-                      seedNewPrompt("/audit ");
-                    }}
-                  >
-                    Audit a web app
-                  </button>
-                </div>
-              </div>
+                    <IconAlertCircle size={17} strokeWidth={1.8} />
+                    <span>
+                      {status === "unauthorized"
+                        ? `Open ${selectedGoal.surfaceLabel} and sign in to see sessions.`
+                        : (error ??
+                          `${selectedGoal.surfaceLabel} is not reporting sessions yet.`)}
+                    </span>
+                  </div>
+                )}
+
+                {selectedRun ? (
+                  <RunDetailCard
+                    run={selectedRun}
+                    selectedRunId={selectedRunId}
+                    goal={selectedGoal}
+                    transcriptEvents={transcriptEvents}
+                    transcriptLoading={transcriptLoading}
+                    transcriptError={transcriptError}
+                    followUpPrompt={followUpPrompt}
+                    followUpMode={followUpMode}
+                    submittingFollowUp={submittingFollowUp}
+                    permissionMode={selectedPermissionMode}
+                    modelSelection={selectedModelSelection}
+                    modelOptions={modelOptions}
+                    updatingPermissionMode={updatingPermissionMode}
+                    onFollowUpPromptChange={setFollowUpPrompt}
+                    onFollowUpModeChange={setFollowUpMode}
+                    onPermissionModeChange={changeSelectedPermissionMode}
+                    onModelSelectionChange={setModelSelection}
+                    onSubmitFollowUp={submitFollowUp}
+                    onOpenWorkbench={() => setWorkbenchOpen(true)}
+                    onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
+                    onResume={() => controlRun("resume")}
+                    onRefreshStatus={() => controlRun("status")}
+                    onStop={() => controlRun("stop")}
+                    onApprove={() => controlRun("approve")}
+                    onRetry={host.retryRun ? retrySelectedRun : undefined}
+                    onRerun={host.rerunRun ? rerunSelectedRun : undefined}
+                    onOpenSettings={onOpenSettings}
+                  />
+                ) : (
+                  <div className="code-agents-start">
+                    <h2>What should we build?</h2>
+                    {providerGate.blocked && (
+                      <ProviderGateNotice
+                        description={providerGate.description}
+                        onOpenSettings={onOpenSettings}
+                      />
+                    )}
+                    <NewSessionComposer
+                      prompt={newPrompt}
+                      promptSeed={newPromptSeed}
+                      inputRef={newPromptRef}
+                      creating={creatingRun}
+                      permissionMode={newRunPermissionMode}
+                      modelSelection={selectedModelSelection}
+                      modelOptions={modelOptions}
+                      slashCommands={slashCommands}
+                      disabled={providerGate.blocked}
+                      onPromptChange={setNewPrompt}
+                      onPermissionModeChange={setNewRunPermissionMode}
+                      onModelSelectionChange={setModelSelection}
+                      onSlashCommand={handleSlashCommand}
+                      onSubmit={createRunFromPrompt}
+                    />
+                    {(projects.length > 0 || canChooseProjectFolder) && (
+                      <ProjectFolderPicker
+                        variant="bar"
+                        projects={projects}
+                        selectedPath={selectedProjectPath}
+                        loading={loadingProjects}
+                        canChoose={canChooseProjectFolder}
+                        onSelect={selectProjectFolder}
+                        onChoose={chooseProjectFolder}
+                      />
+                    )}
+                    <div className="code-agents-suggestions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedGoalId("task");
+                          seedNewPrompt("Review the current changes");
+                        }}
+                      >
+                        Review the current changes
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -1203,6 +1538,7 @@ function ProjectFolderPicker({
   projects,
   selectedPath,
   loading,
+  canChoose,
   onSelect,
   onChoose,
 }: {
@@ -1210,6 +1546,7 @@ function ProjectFolderPicker({
   projects: CodeAgentProjectFolder[];
   selectedPath: string;
   loading: boolean;
+  canChoose: boolean;
   onSelect: (path: string) => void;
   onChoose: () => void;
 }) {
@@ -1223,6 +1560,7 @@ function ProjectFolderPicker({
       <div className="code-agents-project-picker__row">
         <Select
           value={selectedPath || undefined}
+          disabled={loading || projects.length === 0}
           onValueChange={(value) => {
             if (value === "__choose__") {
               onChoose();
@@ -1249,24 +1587,28 @@ function ProjectFolderPicker({
                   </span>
                 </SelectItem>
               ))}
-              <SelectItem value="__choose__">
-                <span className="code-agents-project-select__item">
-                  <IconFolderPlus size={14} strokeWidth={1.8} />
-                  <span>Add folder...</span>
-                </span>
-              </SelectItem>
+              {canChoose && (
+                <SelectItem value="__choose__">
+                  <span className="code-agents-project-select__item">
+                    <IconFolderPlus size={14} strokeWidth={1.8} />
+                    <span>Add folder...</span>
+                  </span>
+                </SelectItem>
+              )}
             </SelectGroup>
           </SelectContent>
         </Select>
-        <button
-          type="button"
-          className="code-agents-icon-button"
-          onClick={onChoose}
-          title="Add folder"
-          aria-label="Add folder"
-        >
-          <IconFolderPlus size={15} strokeWidth={1.8} />
-        </button>
+        {canChoose && (
+          <button
+            type="button"
+            className="code-agents-icon-button"
+            onClick={onChoose}
+            title="Add folder"
+            aria-label="Add folder"
+          >
+            <IconFolderPlus size={15} strokeWidth={1.8} />
+          </button>
+        )}
       </div>
       <p className="code-agents-project-path" title={active?.path}>
         {active?.path ?? "Runs use the selected folder as cwd."}
@@ -1284,6 +1626,7 @@ function NewSessionComposer({
   modelSelection,
   modelOptions,
   slashCommands,
+  disabled,
   onPromptChange,
   onPermissionModeChange,
   onModelSelectionChange,
@@ -1298,6 +1641,7 @@ function NewSessionComposer({
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   slashCommands: SlashCommand[];
+  disabled?: boolean;
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
@@ -1319,6 +1663,7 @@ function NewSessionComposer({
       slashCommands={slashCommands}
       placeholder="Describe a task or ask a question"
       variant="hero"
+      disabled={disabled}
       onPromptChange={onPromptChange}
       onPermissionModeChange={onPermissionModeChange}
       onModelSelectionChange={onModelSelectionChange}
@@ -1341,6 +1686,7 @@ function CodeAgentComposer({
   slashCommands = [],
   placeholder,
   variant = "compact",
+  disabled = false,
   onPromptChange,
   onPermissionModeChange,
   onFollowUpModeChange,
@@ -1360,6 +1706,7 @@ function CodeAgentComposer({
   slashCommands?: SlashCommand[];
   placeholder: string;
   variant?: "hero" | "compact";
+  disabled?: boolean;
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onFollowUpModeChange?: (value: CodeAgentFollowUpMode) => void;
@@ -1432,9 +1779,11 @@ function CodeAgentComposer({
   return (
     <PromptComposer
       className="code-agents-standard-composer code-agents-composer-shell"
+      style={codeAgentComposerAreaStyle}
+      rootStyle={codeAgentComposerRootStyle}
       layoutVariant={variant}
       composerRef={inputRef}
-      disabled={submitting}
+      disabled={submitting || disabled}
       placeholder={placeholder}
       draftScope={
         variant === "hero"
@@ -1482,10 +1831,11 @@ function modelOptionsToComposerGroups(models: CodeAgentModelOption[]): Array<{
   >();
 
   for (const option of models) {
-    const key = `${option.engine}:${option.engineLabel}`;
+    const label = providerLabelForModel(option);
+    const key = `${option.engine}:${label}`;
     const group = groups.get(key) ?? {
       engine: option.engine,
-      label: option.engineLabel,
+      label,
       models: [],
       configured: true,
     };
@@ -1496,6 +1846,15 @@ function modelOptionsToComposerGroups(models: CodeAgentModelOption[]): Array<{
   }
 
   return [...groups.values()];
+}
+
+function providerLabelForModel(option: CodeAgentModelOption): string {
+  const model = option.model.toLowerCase();
+  if (option.engine === "auto" || model === "auto") return option.engineLabel;
+  if (model.startsWith("claude-")) return "Anthropic";
+  if (model.startsWith("gpt-") || model.startsWith("o")) return "OpenAI";
+  if (model.startsWith("gemini-")) return "Gemini";
+  return option.engineLabel === "Builder.io" ? "Anthropic" : option.engineLabel;
 }
 
 function buildCodeAgentSlashCommands(
@@ -1528,9 +1887,72 @@ function buildCodeAgentSlashCommands(
   return commands;
 }
 
-function baseNameForPath(value: string): string {
-  const parts = value.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? value;
+function getProviderGate(metadata: CodeAgentHostMetadata | null): {
+  blocked: boolean;
+  description: string;
+} {
+  if (metadata?.llmProvider?.configured === false) {
+    return {
+      blocked: true,
+      description:
+        "Connect Builder.io to start with free credits, or add your own API key instead.",
+    };
+  }
+  return {
+    blocked: false,
+    description: "",
+  };
+}
+
+function ProviderGateNotice({
+  description,
+  onOpenSettings,
+}: {
+  description: string;
+  onOpenSettings?: () => void;
+}) {
+  return (
+    <CodeProviderNotice
+      className="code-agents-provider-gate"
+      title="Connect a provider to chat"
+      description={description}
+      actionLabel="Settings"
+      onOpenSettings={onOpenSettings}
+    />
+  );
+}
+
+function CodeProviderNotice({
+  className,
+  title,
+  description,
+  actionLabel,
+  onOpenSettings,
+}: {
+  className: string;
+  title: string;
+  description: string;
+  actionLabel: string;
+  onOpenSettings?: () => void;
+}) {
+  return (
+    <div className={className}>
+      <IconAlertCircle size={16} strokeWidth={1.8} />
+      <div>
+        <strong>{title}</strong>
+        <span>{description}</span>
+      </div>
+      {onOpenSettings && (
+        <button
+          type="button"
+          className="code-agents-button"
+          onClick={onOpenSettings}
+        >
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function normalizeModelSelection(
@@ -1710,7 +2132,7 @@ function NativeGoalSurface({
   onOpenTerminal,
 }: {
   goal: CodeAgentGoalDefinition;
-  onOpenTerminal: () => void;
+  onOpenTerminal?: () => void;
 }) {
   return (
     <div className="code-agents-native-surface">
@@ -1721,14 +2143,16 @@ function NativeGoalSurface({
         <div className="code-agents-command-line">
           {exampleCommandForGoal(goal)}
         </div>
-        <button
-          type="button"
-          className="code-agents-button code-agents-button--primary"
-          onClick={onOpenTerminal}
-        >
-          <IconTerminal2 size={14} strokeWidth={1.8} />
-          Open Terminal
-        </button>
+        {onOpenTerminal && (
+          <button
+            type="button"
+            className="code-agents-button code-agents-button--primary"
+            onClick={onOpenTerminal}
+          >
+            <IconTerminal2 size={14} strokeWidth={1.8} />
+            Open Terminal
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1780,55 +2204,342 @@ function GroupedRunList({
   onOpen: (run: CodeAgentRun) => void;
   onTogglePin: (run: CodeAgentRun) => void;
 }) {
-  const groups = groupRunsForRail(runs);
+  const sortedRuns = sortRunsForRail(runs);
   return (
-    <>
-      {groups.map((group) => (
-        <div className="code-agents-run-group" key={group.label}>
-          <p className="code-agents-run-group__label">{group.label}</p>
-          {group.runs.map((run) => (
-            <RunRailItem
-              key={run.id}
-              run={run}
-              selected={run.id === selectedRunId}
-              onSelect={() => onSelect(run)}
-              onOpen={() => onOpen(run)}
-              onTogglePin={() => onTogglePin(run)}
-            />
-          ))}
-        </div>
+    <div className="code-agents-run-group code-agents-run-group--flat">
+      {sortedRuns.map((run) => (
+        <RunRailItem
+          key={run.id}
+          run={run}
+          selected={run.id === selectedRunId}
+          onSelect={() => onSelect(run)}
+          onOpen={() => onOpen(run)}
+          onTogglePin={() => onTogglePin(run)}
+        />
       ))}
-    </>
+    </div>
   );
 }
 
-function groupRunsForRail(runs: CodeAgentRun[]): Array<{
-  label: string;
-  runs: CodeAgentRun[];
-}> {
+function sortRunsForRail(runs: CodeAgentRun[]): CodeAgentRun[] {
   const pinned = sortPinnedRuns(runs.filter(isRunPinned));
-  const unpinned = runs.filter((run) => !isRunPinned(run));
-  const needsInput = unpinned.filter(runNeedsInput);
-  const running = unpinned.filter(
-    (run) => !runNeedsInput(run) && isRunActive(run),
-  );
-  const recent = unpinned.filter(
-    (run) => !runNeedsInput(run) && !isRunActive(run),
-  );
-  return [
-    { label: "Pinned", runs: pinned },
-    { label: "Needs input", runs: needsInput },
-    { label: "Running", runs: running },
-    { label: "Recent", runs: recent },
-  ].filter((group) => group.runs.length > 0);
+  const unpinned = [...runs]
+    .filter((run) => !isRunPinned(run))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return [...pinned, ...unpinned];
 }
 
-function runNeedsInput(run: CodeAgentRun): boolean {
-  return Boolean(
-    run.needsApproval ||
-    run.status === "needs-approval" ||
-    run.phase === "approval-required" ||
-    run.phase === "missing-credentials",
+function buildSearchRunResults(
+  runs: CodeAgentRun[],
+  query: string,
+  transcriptCache: Map<string, CodeAgentTranscriptEvent[]>,
+): CodeAgentSearchResult[] {
+  const tokens = getSearchTokens(query);
+  const sortedRuns = sortRunsForRail(runs);
+  if (tokens.length === 0) {
+    return sortedRuns.map((run, index) => ({
+      run,
+      match: getRunSubtitle(run),
+      matchType: "Recent",
+      rank: index,
+    }));
+  }
+
+  return sortedRuns
+    .flatMap((run): CodeAgentSearchResult[] => {
+      const runText = getRunSearchText(run);
+      const sessionMatch = textMatchesSearch(runText, tokens);
+      const transcriptMatch = findTranscriptSearchMatch(
+        transcriptCache.get(run.id) ?? [],
+        tokens,
+      );
+
+      if (!sessionMatch && !transcriptMatch) return [];
+
+      const title = getRunTitle(run) ?? "";
+      const titleMatch = textMatchesSearch(title, tokens);
+      return [
+        {
+          run,
+          match: transcriptMatch ?? getSearchMatchSnippet(runText, tokens),
+          matchType: transcriptMatch ? "Transcript" : "Session",
+          rank: titleMatch ? 0 : sessionMatch ? 1 : 2,
+        },
+      ];
+    })
+    .sort(
+      (a, b) =>
+        a.rank - b.rank || b.run.updatedAt.localeCompare(a.run.updatedAt),
+    );
+}
+
+function getSearchTokens(query: string): string[] {
+  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+function textMatchesSearch(text: string, tokens: string[]): boolean {
+  const normalized = normalizeSearchText(text);
+  return tokens.every((token) => normalized.includes(token));
+}
+
+function getRunSearchText(run: CodeAgentRun): string {
+  const details =
+    run.details?.map((detail) => `${detail.label} ${detail.value}`).join(" ") ??
+    "";
+  const metadata = run.metadata
+    ? Object.values(run.metadata)
+        .filter(
+          (value) =>
+            typeof value === "string" ||
+            typeof value === "number" ||
+            typeof value === "boolean",
+        )
+        .join(" ")
+    : "";
+  const goalLabel = getCodeAgentGoal(run.goalId)?.label ?? run.goalId;
+  return [
+    run.id,
+    run.title,
+    run.subtitle,
+    run.source,
+    run.sourceLabel,
+    run.kind,
+    run.status,
+    run.phase,
+    goalLabel,
+    details,
+    metadata,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function findTranscriptSearchMatch(
+  events: CodeAgentTranscriptEvent[],
+  tokens: string[],
+): string | null {
+  const event = events.find((item) => textMatchesSearch(item.text, tokens));
+  return event ? getSearchMatchSnippet(event.text, tokens) : null;
+}
+
+function getSearchMatchSnippet(text: string, tokens: string[]): string {
+  const compact = text.trim().replace(/\s+/g, " ");
+  if (!compact) return "";
+  const lower = compact.toLowerCase();
+  const firstMatch = tokens
+    .map((token) => lower.indexOf(token))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)[0];
+  const anchor = firstMatch ?? 0;
+  const start = Math.max(0, anchor - 44);
+  const end = Math.min(compact.length, anchor + 136);
+  return `${start > 0 ? "..." : ""}${compact.slice(start, end)}${
+    end < compact.length ? "..." : ""
+  }`;
+}
+
+function normalizeSearchText(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ");
+}
+
+function getSearchResultMeta(run: CodeAgentRun): string {
+  return [
+    getCodeAgentGoal(run.goalId)?.label,
+    getRunSourceLabel(run),
+    getRunStatusText(run),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function transcriptEventsForChat(
+  events: CodeAgentTranscriptEvent[],
+  options: { hideCredentialMessages?: boolean } = {},
+): CodeAgentTranscriptEvent[] {
+  const compactEvents: CodeAgentTranscriptEvent[] = [];
+  const seenCredentialMessages = new Set<string>();
+
+  for (const event of events) {
+    if (isLowSignalTranscriptEvent(event)) continue;
+    if (options.hideCredentialMessages && isCredentialTranscriptEvent(event)) {
+      continue;
+    }
+
+    const normalizedText = normalizeTranscriptText(event.text);
+    if (isCredentialTranscriptEvent(event)) {
+      if (seenCredentialMessages.has(normalizedText)) continue;
+      seenCredentialMessages.add(normalizedText);
+    }
+
+    const previous = compactEvents[compactEvents.length - 1];
+    if (
+      previous &&
+      previous.type === event.type &&
+      (previous.title ?? "") === (event.title ?? "") &&
+      normalizeTranscriptText(previous.text) === normalizedText
+    ) {
+      continue;
+    }
+
+    compactEvents.push(event);
+  }
+
+  return compactEvents;
+}
+
+function isLowSignalTranscriptEvent(event: CodeAgentTranscriptEvent): boolean {
+  if (event.type !== "status") return false;
+  const text = normalizeTranscriptText(event.text);
+  return (
+    text === "Agent-Native Code run started." ||
+    text === "Agent-Native Code process exited."
+  );
+}
+
+function isCredentialTranscriptEvent(event: CodeAgentTranscriptEvent): boolean {
+  return /No LLM provider key was found|Missing credentials/i.test(event.text);
+}
+
+function normalizeTranscriptText(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function getRunStatusText(run: CodeAgentRun): string {
+  if (run.status === "completed" || run.phase === "complete") return "Done";
+  if (run.phase === "missing-credentials") return "Needs provider";
+  if (hasPendingApproval(run)) return "Approval needed";
+  if (run.status === "paused" || run.phase === "paused") return "Paused";
+  if (run.phase === "stopped") return "Stopped";
+  if (isRunActive(run)) return "Running";
+  return run.phase ?? run.status;
+}
+
+function getSessionMeta(run: CodeAgentRun, sourceLabel: string | null): string {
+  return [sourceLabel, getRunStatusText(run), formatRelativeTime(run.updatedAt)]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function getTranscriptEventAuthor(event: CodeAgentTranscriptEvent): string {
+  if (event.title && event.title !== "Status") return event.title;
+  if (event.type === "user") return "You";
+  if (event.type === "artifact") return "Artifact";
+  if (event.type === "status") return "Update";
+  return "Agent";
+}
+
+function getTranscriptEventTone(event: CodeAgentTranscriptEvent): string {
+  if (event.type === "user") return "user";
+  if (event.type === "artifact") return "artifact";
+  if (isCredentialTranscriptEvent(event)) return "warning";
+  if (event.type === "status") return "status";
+  return "agent";
+}
+
+function runControlButtons({
+  run,
+  goal,
+  onResume,
+  onRefreshStatus,
+  onStop,
+  onRetry,
+  onRerun,
+  onOpenWorkbench,
+  onOpenTerminal,
+}: {
+  run: CodeAgentRun;
+  goal: CodeAgentGoalDefinition;
+  onResume: () => void;
+  onRefreshStatus: () => void;
+  onStop: () => void;
+  onRetry?: () => void;
+  onRerun?: () => void;
+  onOpenWorkbench: () => void;
+  onOpenTerminal?: () => void;
+}): Array<{
+  key: string;
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+}> {
+  return [
+    {
+      key: "resume",
+      label: "Resume",
+      icon: <IconPlayerPlay size={14} strokeWidth={1.8} />,
+      onClick: onResume,
+    },
+    {
+      key: "status",
+      label: "Status",
+      icon: <IconRefresh size={14} strokeWidth={1.8} />,
+      onClick: onRefreshStatus,
+    },
+    ...(run.status !== "completed" && run.phase !== "complete"
+      ? [
+          {
+            key: "stop",
+            label: "Stop",
+            icon: <IconAlertCircle size={14} strokeWidth={1.8} />,
+            onClick: onStop,
+          },
+        ]
+      : []),
+    ...(onRetry
+      ? [
+          {
+            key: "retry",
+            label: "Retry",
+            icon: <IconRefresh size={14} strokeWidth={1.8} />,
+            onClick: onRetry,
+          },
+        ]
+      : []),
+    ...(onRerun
+      ? [
+          {
+            key: "rerun",
+            label: "Re-run",
+            icon: <IconRoute size={14} strokeWidth={1.8} />,
+            onClick: onRerun,
+          },
+        ]
+      : []),
+    {
+      key: "workbench",
+      label: `Open ${goal.surfaceLabel}`,
+      icon: <IconExternalLink size={14} strokeWidth={1.8} />,
+      onClick: onOpenWorkbench,
+    },
+    ...(onOpenTerminal
+      ? [
+          {
+            key: "terminal",
+            label: "Terminal",
+            icon: <IconTerminal2 size={14} strokeWidth={1.8} />,
+            onClick: onOpenTerminal,
+          },
+        ]
+      : []),
+  ];
+}
+
+function renderControlButton(button: {
+  key: string;
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      key={button.key}
+      type="button"
+      className="code-agents-button"
+      onClick={button.onClick}
+    >
+      {button.icon}
+      {button.label}
+    </button>
   );
 }
 
@@ -1845,8 +2556,6 @@ function RunRailItem({
   onOpen: () => void;
   onTogglePin: () => void;
 }) {
-  const progress = getRunProgressPercent(run);
-  const progressLabel = getRunProgressLabel(run);
   const pinned = isRunPinned(run);
   return (
     <div
@@ -1863,13 +2572,9 @@ function RunRailItem({
       >
         <div className="code-agents-run__topline">
           <span className="code-agents-run__name">{getRunTitle(run)}</span>
-          <PhasePill run={run} />
-        </div>
-        <p className="code-agents-run__path">{getRunSubtitle(run)}</p>
-        <div className="code-agents-run__meta">
-          <span>{progressLabel}</span>
-          <span>{progress}%</span>
-          <span>{formatRelativeTime(run.updatedAt)}</span>
+          <span className="code-agents-run__time">
+            {formatRelativeTime(run.updatedAt)}
+          </span>
         </div>
       </button>
       <DropdownMenu>
@@ -1904,92 +2609,198 @@ function RunRailItem({
   );
 }
 
-function RemoteConnectorRailStatus({
+function SearchChatsPanel({
+  query,
+  results,
+  totalRuns,
+  loading,
+  transcriptLoading,
+  error,
+  inputRef,
+  onQueryChange,
+  onSelectRun,
+  onRefresh,
+}: {
+  query: string;
+  results: CodeAgentSearchResult[];
+  totalRuns: number;
+  loading: boolean;
+  transcriptLoading: boolean;
+  error: string | null;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onQueryChange: (value: string) => void;
+  onSelectRun: (run: CodeAgentRun) => void;
+  onRefresh: () => void;
+}) {
+  const hasQuery = query.trim().length > 0;
+  const statusText = loading
+    ? "Loading chats..."
+    : transcriptLoading && hasQuery
+      ? "Searching transcripts..."
+      : hasQuery
+        ? `${results.length} matches`
+        : `${Math.min(results.length, totalRuns)} recent chats`;
+
+  return (
+    <div className="code-agents-search-panel">
+      <div className="code-agents-search-header">
+        <div>
+          <p className="code-agents-kicker">Search</p>
+          <h2>Search chats</h2>
+        </div>
+        <button
+          type="button"
+          className="code-agents-button"
+          onClick={onRefresh}
+          disabled={loading}
+        >
+          <IconRefresh size={14} strokeWidth={1.8} />
+          Refresh
+        </button>
+      </div>
+
+      <label className="code-agents-search-box">
+        <IconSearch size={16} strokeWidth={1.8} />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(event) => onQueryChange(event.currentTarget.value)}
+          placeholder="Search chats"
+          aria-label="Search chats"
+        />
+      </label>
+
+      <div className="code-agents-search-meta">
+        <span>{statusText}</span>
+        {totalRuns > 0 && <span>{totalRuns} total</span>}
+      </div>
+
+      {error && (
+        <div className="code-agents-transcript__error">
+          <IconAlertCircle size={15} strokeWidth={1.8} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="code-agents-search-results">
+        {loading && results.length === 0 ? (
+          <>
+            <div className="code-agents-run-skeleton" />
+            <div className="code-agents-run-skeleton" />
+            <div className="code-agents-run-skeleton" />
+          </>
+        ) : results.length === 0 ? (
+          <div className="code-agents-detail code-agents-detail--empty">
+            <IconSearch size={30} strokeWidth={1.5} />
+            <h3>{hasQuery ? "No chats found" : "No chats yet"}</h3>
+            <p>
+              {hasQuery
+                ? "Try a title, folder, command, or phrase from the conversation."
+                : "Start a chat and it will show up here."}
+            </p>
+          </div>
+        ) : (
+          results.map((result) => (
+            <button
+              key={result.run.id}
+              type="button"
+              className="code-agents-search-result"
+              onClick={() => onSelectRun(result.run)}
+            >
+              <div className="code-agents-search-result__topline">
+                <span>{getRunTitle(result.run)}</span>
+                <em>{formatRelativeTime(result.run.updatedAt)}</em>
+              </div>
+              <div className="code-agents-search-result__meta">
+                <span>{result.matchType}</span>
+                <span>{getSearchResultMeta(result.run)}</span>
+              </div>
+              <p>{result.match}</p>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MobileRailItem({
   status,
   error,
-  onOpenSettings,
+  active,
+  onOpen,
 }: {
   status: CodeAgentRemoteConnectorStatus | null;
   error: string | null;
-  onOpenSettings?: () => void;
+  active: boolean;
+  onOpen: () => void;
 }) {
-  const copy = remoteConnectorCopy(status, error);
+  const copy = mobileConnectorCopy(status, error);
   return (
     <button
       type="button"
-      className={`code-agents-remote-status code-agents-remote-status--${copy.tone}`}
-      onClick={onOpenSettings}
-      disabled={!onOpenSettings}
+      className={`code-agents-nav-link code-agents-mobile-link${
+        active ? " code-agents-nav-link--active" : ""
+      }`}
+      onClick={onOpen}
+      aria-pressed={active}
       title={copy.description}
     >
-      <span
-        className={`code-agents-remote-dot code-agents-remote-dot--${copy.tone}`}
-      />
-      <span>
-        <strong>{copy.label}</strong>
-        <em>{copy.description}</em>
-      </span>
+      <IconDeviceMobile size={15} strokeWidth={1.8} />
+      <span>Mobile</span>
     </button>
   );
 }
 
-function remoteConnectorCopy(
+function mobileConnectorCopy(
   status: CodeAgentRemoteConnectorStatus | null,
   error: string | null,
 ): {
-  label: string;
   description: string;
-  tone: "ok" | "pending" | "offline" | "error";
+  tone: "connected" | "pending" | "idle" | "attention";
 } {
   if (error) {
-    return { label: "Remote error", description: error, tone: "error" };
+    return { description: "Mobile setup needs attention", tone: "attention" };
   }
   if (!status) {
     return {
-      label: "Remote checking",
-      description: "Reading connector state",
+      description: "Checking mobile setup",
       tone: "pending",
     };
   }
   if (!status.configured) {
     return {
-      label: "Remote offline",
-      description: "Pair in settings",
-      tone: "offline",
+      description: "Set up mobile pairing",
+      tone: "idle",
     };
   }
   if (!status.enabled) {
     return {
-      label: "Remote off",
-      description: "Paused on this computer",
-      tone: "offline",
+      description: "Mobile pairing is paused",
+      tone: "idle",
     };
   }
   if (status.state === "error") {
     return {
-      label: "Remote error",
-      description: status.error ?? "Connector needs attention",
-      tone: "error",
+      description: "Mobile setup needs attention",
+      tone: "attention",
     };
   }
   if (status.state === "running") {
     return {
-      label: "Remote polling",
-      description: `Connected to ${hostForDisplay(status.relayUrl)}`,
-      tone: "ok",
+      description: `Mobile connected through ${hostForDisplay(status.relayUrl)}`,
+      tone: "connected",
     };
   }
   if (status.state === "starting") {
     return {
-      label: "Remote connecting",
-      description: "Retrying connector",
+      description: "Connecting mobile",
       tone: "pending",
     };
   }
   return {
-    label: "Remote offline",
-    description: "Connector is stopped",
-    tone: "offline",
+    description: "Set up mobile pairing",
+    tone: "idle",
   };
 }
 
@@ -2000,6 +2811,224 @@ function hostForDisplay(url: string | undefined): string {
   } catch {
     return url;
   }
+}
+
+function mobileDeepLinkForRelay(
+  relayUrl: string,
+  platform: "ios" | "android",
+): string {
+  const url = relayUrl || DEFAULT_REMOTE_RELAY_URL;
+  return `agentnative:///sessions?relayUrl=${encodeURIComponent(
+    url,
+  )}&platform=${platform}`;
+}
+
+function connectorStatusTitle(
+  status: CodeAgentRemoteConnectorStatus | null,
+  error: string | null,
+): string {
+  if (error || status?.state === "error") return "Needs attention";
+  if (!status) return "Checking connector";
+  if (!status.configured) return "Pair this Mac";
+  if (!status.enabled) return "Pairing paused";
+  if (status.state === "running") return "Connected";
+  if (status.state === "starting") return "Connecting";
+  return "Ready to pair";
+}
+
+function MobileConnectorPanel({
+  status,
+  error,
+  message,
+  relayUrl,
+  brandIconUrl,
+  pairing,
+  updating,
+  canPair,
+  canToggle,
+  onPair,
+  onSetEnabled,
+  onRefresh,
+  onCopyLink,
+  onOpenSettings,
+}: {
+  status: CodeAgentRemoteConnectorStatus | null;
+  error: string | null;
+  message: string | null;
+  relayUrl: string;
+  brandIconUrl?: string;
+  pairing: boolean;
+  updating: boolean;
+  canPair: boolean;
+  canToggle: boolean;
+  onPair: (relayUrl: string) => Promise<void>;
+  onSetEnabled: (enabled: boolean) => Promise<void>;
+  onRefresh: () => Promise<void>;
+  onCopyLink: (link: string) => Promise<void>;
+  onOpenSettings?: () => void;
+}) {
+  const [platform, setPlatform] = useState<"ios" | "android">("ios");
+  const copy = mobileConnectorCopy(status, error);
+  const mobileLink = mobileDeepLinkForRelay(relayUrl, platform);
+  const needsPairing =
+    !status?.configured || Boolean(error) || status?.state === "error";
+  const paused = Boolean(status?.configured && !status.enabled);
+  const busy = pairing || updating;
+  const primaryLabel = needsPairing
+    ? pairing
+      ? "Pairing..."
+      : "Pair this Mac"
+    : paused
+      ? updating
+        ? "Turning on..."
+        : "Resume pairing"
+      : "Copy mobile link";
+  const primaryDisabled =
+    busy || !relayUrl || (needsPairing && !canPair) || (paused && !canToggle);
+  const statusMessage = error ?? status?.error ?? message;
+  const statusTitle = connectorStatusTitle(status, error);
+
+  function handlePrimaryAction() {
+    if (needsPairing) {
+      void onPair(relayUrl);
+      return;
+    }
+    if (paused) {
+      void onSetEnabled(true);
+      return;
+    }
+    void onCopyLink(mobileLink);
+  }
+
+  return (
+    <section className="code-agents-mobile-panel" aria-label="Mobile pairing">
+      <div className="code-agents-mobile-panel__header">
+        <p className="code-agents-mobile-panel__eyebrow">
+          <IconQrcode size={15} strokeWidth={1.8} />
+          Mobile
+        </p>
+        <h2>Agent Native mobile</h2>
+        <p>
+          Scan the QR code to open Sessions on your phone, then pair this Mac to
+          start and continue local Code work from mobile.
+        </p>
+      </div>
+
+      <div className="code-agents-mobile-panel__layout">
+        <div className="code-agents-mobile-qr-card">
+          <div
+            className="code-agents-mobile-platform-tabs"
+            role="tablist"
+            aria-label="Mobile platform"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={platform === "ios"}
+              className={
+                platform === "ios"
+                  ? "code-agents-mobile-platform-tab code-agents-mobile-platform-tab--active"
+                  : "code-agents-mobile-platform-tab"
+              }
+              onClick={() => setPlatform("ios")}
+            >
+              iOS
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={platform === "android"}
+              className={
+                platform === "android"
+                  ? "code-agents-mobile-platform-tab code-agents-mobile-platform-tab--active"
+                  : "code-agents-mobile-platform-tab"
+              }
+              onClick={() => setPlatform("android")}
+            >
+              Android
+            </button>
+          </div>
+
+          <div className="code-agents-mobile-qr-shell">
+            <QRCodeSVG
+              value={mobileLink}
+              size={224}
+              level="H"
+              marginSize={3}
+              title="Open Agent Native mobile Sessions"
+              bgColor="#ffffff"
+              fgColor="#111111"
+            />
+            {brandIconUrl && (
+              <span className="code-agents-mobile-qr-badge" aria-hidden="true">
+                <img src={brandIconUrl} alt="" />
+              </span>
+            )}
+          </div>
+
+          <div className="code-agents-mobile-link-row">
+            <IconLink size={14} strokeWidth={1.8} />
+            <span>{hostForDisplay(relayUrl)}</span>
+          </div>
+        </div>
+
+        <div className="code-agents-mobile-side">
+          <div
+            className={`code-agents-mobile-status-card code-agents-mobile-status-card--${copy.tone}`}
+          >
+            <span
+              className={`code-agents-mobile-indicator code-agents-mobile-indicator--${copy.tone}`}
+              aria-hidden="true"
+            />
+            <div>
+              <strong>{statusTitle}</strong>
+              <span>{copy.description}</span>
+            </div>
+          </div>
+
+          {statusMessage && (
+            <div className="code-agents-mobile-message">{statusMessage}</div>
+          )}
+
+          <div className="code-agents-mobile-actions">
+            <button
+              type="button"
+              className="code-agents-button code-agents-button--primary"
+              disabled={primaryDisabled}
+              onClick={handlePrimaryAction}
+            >
+              {needsPairing ? (
+                <IconDeviceMobile size={14} strokeWidth={1.8} />
+              ) : paused ? (
+                <IconCheck size={14} strokeWidth={1.8} />
+              ) : (
+                <IconCopy size={14} strokeWidth={1.8} />
+              )}
+              {primaryLabel}
+            </button>
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={() => void onRefresh()}
+            >
+              <IconRefresh size={14} strokeWidth={1.8} />
+              Refresh
+            </button>
+            {onOpenSettings && (
+              <button
+                type="button"
+                className="code-agents-button"
+                onClick={onOpenSettings}
+              >
+                <IconSettings size={14} strokeWidth={1.8} />
+                Manage
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function RunDetailCard({
@@ -2054,7 +3083,7 @@ function RunDetailCard({
     followUpMode?: CodeAgentFollowUpMode,
   ) => void;
   onOpenWorkbench: () => void;
-  onOpenTerminal: () => void;
+  onOpenTerminal?: () => void;
   onResume: () => void;
   onRefreshStatus: () => void;
   onStop: () => void;
@@ -2087,40 +3116,80 @@ function RunDetailCard({
 
   const progress = getRunProgressPercent(run);
   const details = getRunDetails(run, goal);
+  const sourceLabel = getRunSourceLabel(run);
   const hasCredentialGap = hasMissingCredentialSignal(run, transcriptEvents);
-  const pendingApproval = getPendingApproval(run);
+  const pendingApproval = hasCredentialGap ? null : getPendingApproval(run);
+  const controlButtons = runControlButtons({
+    run,
+    goal,
+    onResume,
+    onRefreshStatus,
+    onStop,
+    onRetry,
+    onRerun,
+    onOpenWorkbench,
+    onOpenTerminal,
+  });
 
   return (
-    <div className="code-agents-detail">
-      <div className="code-agents-detail__header">
+    <div className="code-agents-detail code-agents-detail--chat">
+      <div className="code-agents-chat-header">
         <div>
-          <p className="code-agents-kicker">Selected session</p>
           <h3>{getRunTitle(run)}</h3>
+          <p>{getSessionMeta(run, sourceLabel)}</p>
         </div>
-        <PhasePill run={run} />
+        <details className="code-agents-session-details">
+          <summary>
+            <IconDots size={15} strokeWidth={1.8} />
+            <span>Details</span>
+          </summary>
+          <div className="code-agents-session-details__body">
+            <div className="code-agents-session-details__header">
+              <span>{getRunStatusText(run)}</span>
+            </div>
+
+            <div className="code-agents-progress">
+              <div className="code-agents-progress__label">
+                <span>{run.progress?.label ?? "Progress"}</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="code-agents-progress__track">
+                <span style={{ width: `${progress}%` }} />
+              </div>
+            </div>
+
+            <div className="code-agents-detail-grid">
+              {details.map((detail) => (
+                <Field
+                  key={detail.label}
+                  label={detail.label}
+                  value={detail.value}
+                />
+              ))}
+            </div>
+
+            <RunModeSelect
+              value={permissionMode}
+              onChange={onPermissionModeChange}
+              disabled={updatingPermissionMode}
+              title="Mode"
+            />
+
+            <div className="code-agents-detail__footer">
+              {controlButtons.map(renderControlButton)}
+            </div>
+          </div>
+        </details>
       </div>
 
       {hasCredentialGap && (
-        <div className="code-agents-credential-callout">
-          <IconAlertCircle size={16} strokeWidth={1.8} />
-          <div>
-            <strong>Credentials needed</strong>
-            <span>
-              Connect a provider in settings, or run from a terminal with
-              ANTHROPIC_API_KEY, OPENAI_API_KEY, or
-              GOOGLE_GENERATIVE_AI_API_KEY.
-            </span>
-          </div>
-          {onOpenSettings && (
-            <button
-              type="button"
-              className="code-agents-button"
-              onClick={onOpenSettings}
-            >
-              Settings
-            </button>
-          )}
-        </div>
+        <CodeProviderNotice
+          className="code-agents-credential-callout"
+          title="Provider needed"
+          description="Connect Builder.io to continue this Code session. You can add your own API key instead."
+          actionLabel="Connect Builder.io"
+          onOpenSettings={onOpenSettings}
+        />
       )}
 
       {pendingApproval && (
@@ -2142,121 +3211,24 @@ function RunDetailCard({
         </div>
       )}
 
-      <div className="code-agents-session-layout">
-        <div className="code-agents-session-main">
-          <TranscriptPanel
-            events={transcriptEvents}
-            loading={transcriptLoading}
-            error={transcriptError}
-            followUpPrompt={followUpPrompt}
-            followUpMode={followUpMode}
-            runIsActive={isRunActive(run)}
-            submitting={submittingFollowUp}
-            permissionMode={permissionMode}
-            modelSelection={modelSelection}
-            modelOptions={modelOptions}
-            onFollowUpPromptChange={onFollowUpPromptChange}
-            onFollowUpModeChange={onFollowUpModeChange}
-            onPermissionModeChange={onPermissionModeChange}
-            onModelSelectionChange={onModelSelectionChange}
-            onSubmitFollowUp={onSubmitFollowUp}
-          />
-        </div>
-
-        <aside className="code-agents-session-aside" aria-label="Session state">
-          <div className="code-agents-progress">
-            <div className="code-agents-progress__label">
-              <span>{run.progress?.label ?? "Progress"}</span>
-              <span>{progress}%</span>
-            </div>
-            <div className="code-agents-progress__track">
-              <span style={{ width: `${progress}%` }} />
-            </div>
-          </div>
-
-          <div className="code-agents-detail-grid">
-            {details.map((detail) => (
-              <Field
-                key={detail.label}
-                label={detail.label}
-                value={detail.value}
-              />
-            ))}
-          </div>
-
-          <RunModeSelect
-            value={permissionMode}
-            onChange={onPermissionModeChange}
-            disabled={updatingPermissionMode}
-            title="Mode"
-          />
-
-          <div className="code-agents-detail__footer">
-            <button
-              type="button"
-              className="code-agents-button code-agents-button--primary"
-              onClick={onResume}
-            >
-              <IconPlayerPlay size={14} strokeWidth={1.8} />
-              Resume
-            </button>
-            <button
-              type="button"
-              className="code-agents-button"
-              onClick={onRefreshStatus}
-            >
-              <IconRefresh size={14} strokeWidth={1.8} />
-              Status
-            </button>
-            {run.status !== "completed" && run.phase !== "complete" && (
-              <button
-                type="button"
-                className="code-agents-button"
-                onClick={onStop}
-              >
-                <IconAlertCircle size={14} strokeWidth={1.8} />
-                Stop
-              </button>
-            )}
-            {onRetry && (
-              <button
-                type="button"
-                className="code-agents-button"
-                onClick={onRetry}
-              >
-                <IconRefresh size={14} strokeWidth={1.8} />
-                Retry
-              </button>
-            )}
-            {onRerun && (
-              <button
-                type="button"
-                className="code-agents-button"
-                onClick={onRerun}
-              >
-                <IconRoute size={14} strokeWidth={1.8} />
-                Re-run
-              </button>
-            )}
-            <button
-              type="button"
-              className="code-agents-button"
-              onClick={onOpenWorkbench}
-            >
-              <IconExternalLink size={14} strokeWidth={1.8} />
-              Open {goal.surfaceLabel}
-            </button>
-            <button
-              type="button"
-              className="code-agents-button"
-              onClick={onOpenTerminal}
-            >
-              <IconTerminal2 size={14} strokeWidth={1.8} />
-              Terminal
-            </button>
-          </div>
-        </aside>
-      </div>
+      <TranscriptPanel
+        events={transcriptEvents}
+        loading={transcriptLoading}
+        error={transcriptError}
+        followUpPrompt={followUpPrompt}
+        followUpMode={followUpMode}
+        runIsActive={isRunActive(run)}
+        submitting={submittingFollowUp}
+        permissionMode={permissionMode}
+        modelSelection={modelSelection}
+        modelOptions={modelOptions}
+        hideCredentialMessages={hasCredentialGap}
+        onFollowUpPromptChange={onFollowUpPromptChange}
+        onFollowUpModeChange={onFollowUpModeChange}
+        onPermissionModeChange={onPermissionModeChange}
+        onModelSelectionChange={onModelSelectionChange}
+        onSubmitFollowUp={onSubmitFollowUp}
+      />
     </div>
   );
 }
@@ -2272,6 +3244,7 @@ function TranscriptPanel({
   permissionMode,
   modelSelection,
   modelOptions,
+  hideCredentialMessages = false,
   onFollowUpPromptChange,
   onFollowUpModeChange,
   onPermissionModeChange,
@@ -2288,6 +3261,7 @@ function TranscriptPanel({
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
+  hideCredentialMessages?: boolean;
   onFollowUpPromptChange: (value: string) => void;
   onFollowUpModeChange: (value: CodeAgentFollowUpMode) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
@@ -2299,32 +3273,22 @@ function TranscriptPanel({
   ) => void;
 }) {
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const visibleEvents = useMemo(
+    () =>
+      transcriptEventsForChat(events, {
+        hideCredentialMessages,
+      }),
+    [events, hideCredentialMessages],
+  );
 
   useEffect(() => {
     const timeline = timelineRef.current;
     if (!timeline) return;
     timeline.scrollTo({ top: timeline.scrollHeight, behavior: "smooth" });
-  }, [events.length]);
+  }, [visibleEvents.length]);
 
   return (
     <section className="code-agents-transcript" aria-label="Session transcript">
-      <div className="code-agents-transcript__header">
-        <div>
-          <p className="code-agents-kicker">Transcript</p>
-          <h4>Session events</h4>
-        </div>
-        {loading && (
-          <span className="code-agents-transcript__loading">
-            <IconRefresh
-              size={13}
-              strokeWidth={1.8}
-              className="code-agents-spin"
-            />
-            Loading
-          </span>
-        )}
-      </div>
-
       {error && (
         <div className="code-agents-transcript__error">
           <IconAlertCircle size={14} strokeWidth={1.8} />
@@ -2333,13 +3297,22 @@ function TranscriptPanel({
       )}
 
       <div className="code-agents-transcript__timeline" ref={timelineRef}>
-        {events.length === 0 ? (
+        {loading && visibleEvents.length === 0 ? (
+          <div className="code-agents-transcript__empty">
+            <IconRefresh
+              size={16}
+              strokeWidth={1.8}
+              className="code-agents-spin"
+            />
+            <p>Loading session...</p>
+          </div>
+        ) : visibleEvents.length === 0 ? (
           <div className="code-agents-transcript__empty">
             <IconClock size={18} strokeWidth={1.7} />
-            <p>No transcript events recorded for this session yet.</p>
+            <p>No messages yet.</p>
           </div>
         ) : (
-          events.map((event) => (
+          visibleEvents.map((event) => (
             <TranscriptEventItem key={event.id} event={event} />
           ))
         )}
@@ -2368,14 +3341,14 @@ function TranscriptEventItem({ event }: { event: CodeAgentTranscriptEvent }) {
   const toolName = getTranscriptToolName(event);
   const toolInput = getMetadataPreview(event.metadata?.input);
   const toolResult = getMetadataPreview(event.metadata?.result);
+  const tone = getTranscriptEventTone(event);
   return (
-    <article className={`code-agents-transcript-event`}>
-      <div className={`code-agents-transcript-event__icon`}>
-        <TranscriptEventIcon type={event.type} />
-      </div>
+    <article
+      className={`code-agents-transcript-event code-agents-transcript-event--${tone}`}
+    >
       <div className="code-agents-transcript-event__body">
         <div className="code-agents-transcript-event__meta">
-          <span>{event.title ?? transcriptEventLabel(event.type)}</span>
+          <span>{getTranscriptEventAuthor(event)}</span>
           <time dateTime={event.createdAt}>
             {formatRelativeTime(event.createdAt)}
           </time>
@@ -2443,42 +3416,12 @@ function getMetadataPreview(value: unknown): string | null {
   return trimmed.length > 1800 ? `${trimmed.slice(0, 1800)}\n...` : trimmed;
 }
 
-function TranscriptEventIcon({ type }: { type: CodeAgentTranscriptEventType }) {
-  if (type === "user") return <IconRoute size={14} strokeWidth={1.8} />;
-  if (type === "artifact") {
-    return <IconExternalLink size={14} strokeWidth={1.8} />;
-  }
-  if (type === "status") return <IconListCheck size={14} strokeWidth={1.8} />;
-  return <IconCode size={14} strokeWidth={1.8} />;
-}
-
-function transcriptEventLabel(type: CodeAgentTranscriptEventType): string {
-  if (type === "user") return "User prompt";
-  if (type === "artifact") return "Artifact";
-  if (type === "status") return "Status";
-  return "System";
-}
-
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="code-agents-field">
       <span>{label}</span>
       <strong title={value}>{value}</strong>
     </div>
-  );
-}
-
-function PhasePill({ run }: { run: CodeAgentRun }) {
-  const tone =
-    run.status === "completed" || run.phase === "complete"
-      ? "complete"
-      : hasPendingApproval(run)
-        ? "approval"
-        : "active";
-  return (
-    <span className={`code-agents-phase code-agents-phase--${tone}`}>
-      {run.phase ?? run.status}
-    </span>
   );
 }
 
@@ -2591,28 +3534,31 @@ function getRunDetails(
   run: CodeAgentRun,
   goal: CodeAgentGoalDefinition,
 ): CodeAgentRunDetail[] {
-  const permissionMode = getRunPermissionMode(run);
+  const sourceDetail = getRunSourceDetail(run);
   const details =
-    run.details?.filter((detail) => detail.value.length > 0) ?? [];
+    run.details?.filter(
+      (detail) => detail.value.length > 0 && !isPermissionDetail(detail.label),
+    ) ?? [];
   if (details.length > 0) {
     return [
-      ...withPermissionDetail(details, permissionMode),
+      ...(sourceDetail ? [sourceDetail] : []),
+      ...details,
       { label: "Updated", value: formatRelativeTime(run.updatedAt) },
     ];
   }
   if (isMigrationRun(run)) {
     return [
+      ...(sourceDetail ? [sourceDetail] : []),
       { label: "Source", value: run.sourceRoot },
       { label: "Output", value: run.outputRoot },
       { label: "Target", value: run.target },
-      { label: "Mode", value: formatPermissionMode(permissionMode) },
       { label: "Updated", value: formatRelativeTime(run.updatedAt) },
     ];
   }
   return [
+    ...(sourceDetail ? [sourceDetail] : []),
     { label: "Goal", value: goal.slashCommand },
     { label: "Status", value: run.status },
-    { label: "Mode", value: formatPermissionMode(permissionMode) },
     { label: "Updated", value: formatRelativeTime(run.updatedAt) },
   ];
 }
@@ -2680,6 +3626,47 @@ function getRunTerminalRequest(
     : undefined;
 }
 
+function getRunSourceDetail(run: CodeAgentRun): CodeAgentRunDetail | null {
+  const label = getRunSourceLabel(run);
+  if (!label) return null;
+  return { label: "Source", value: label };
+}
+
+function getRunSourceLabel(run: CodeAgentRun): string | null {
+  const direct = cleanRunLabel(run.sourceLabel);
+  if (direct) return direct;
+
+  const metadataLabel = cleanRunLabel(getStringMetadata(run, "sourceLabel"));
+  if (metadataLabel) return metadataLabel;
+
+  const source = cleanRunLabel(run.source ?? getStringMetadata(run, "source"));
+  if (source) return formatRunSourceLabel(source);
+
+  const kind = cleanRunLabel(run.kind ?? getStringMetadata(run, "kind"));
+  return kind ? formatRunSourceLabel(kind) : null;
+}
+
+function cleanRunLabel(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function formatRunSourceLabel(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "local" || normalized === "code") return "Local Code";
+  if (
+    normalized === "agent-team" ||
+    normalized === "agent-teams" ||
+    normalized === "teams"
+  ) {
+    return "Agent Teams";
+  }
+  return value
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 function getStringMetadata(run: CodeAgentRun, key: string): string | undefined {
   const value = run.metadata?.[key];
   return typeof value === "string" ? value : undefined;
@@ -2688,22 +3675,22 @@ function getStringMetadata(run: CodeAgentRun, key: string): string | undefined {
 function formatRelativeTime(value: string): string {
   const date = new Date(value);
   const time = date.getTime();
-  if (!Number.isFinite(time)) return "recently";
+  if (!Number.isFinite(time)) return "now";
 
-  const diffMs = time - Date.now();
-  const abs = Math.abs(diffMs);
-  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ["day", 86_400_000],
-    ["hour", 3_600_000],
-    ["minute", 60_000],
+  const abs = Math.abs(Date.now() - time);
+  if (abs < 60_000) return "now";
+
+  const units: Array<[string, number]> = [
+    ["y", 31_536_000_000],
+    ["mo", 2_592_000_000],
+    ["d", 86_400_000],
+    ["h", 3_600_000],
+    ["m", 60_000],
   ];
-  const formatter = new Intl.RelativeTimeFormat(undefined, {
-    numeric: "auto",
-  });
   for (const [unit, ms] of units) {
-    if (abs >= ms || unit === "minute") {
-      return formatter.format(Math.round(diffMs / ms), unit);
+    if (abs >= ms) {
+      return `${Math.max(1, Math.floor(abs / ms))}${unit}`;
     }
   }
-  return "recently";
+  return "now";
 }

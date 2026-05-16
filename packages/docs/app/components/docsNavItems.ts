@@ -112,7 +112,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Frames", to: "/docs/frames" as const },
       { label: "Embedding SDK", to: "/docs/embedding-sdk" as const },
       {
-        label: "Migration Workbench",
+        label: "/migrate Goal",
         to: "/docs/migration-workbench" as const,
       },
       { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },

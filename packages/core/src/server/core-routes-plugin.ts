@@ -31,9 +31,11 @@ import {
   BUILDER_OPENER_PARAM,
   BUILDER_STATE_PARAM,
   appendBuilderConnectToken,
+  builderConnectTrackingProperties,
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
+  getBuilderConnectTrackingParams,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
@@ -44,6 +46,7 @@ import {
   verifyBuilderConnectTokenAndGetOwner,
   verifyBuilderCallbackStateAndGetOwner,
   signBuilderConnectToken,
+  type BuilderConnectTrackingParams,
 } from "./builder-browser.js";
 import {
   getState,
@@ -876,6 +879,9 @@ export function createCoreRoutesPlugin(
         const connectToken = requestUrl.searchParams.get(BUILDER_CONNECT_PARAM);
         const connectTokenOwner =
           verifyBuilderConnectTokenAndGetOwner(connectToken);
+        const connectTracking = getBuilderConnectTrackingParams(
+          requestUrl.searchParams,
+        );
         // The token must both be well-formed AND minted for the current
         // session owner. Without the owner check, an attacker holding any
         // valid signed token could trick a victim into hitting this route
@@ -895,6 +901,7 @@ export function createCoreRoutesPlugin(
             "builder connect failed",
             ownerEmail,
             {
+              ...builderConnectTrackingProperties(connectTracking),
               reason: "cross_origin",
               stage: "connect",
               has_connect_token: Boolean(connectToken),
@@ -940,6 +947,7 @@ export function createCoreRoutesPlugin(
         try {
           await putSetting(`builder-pending-connect:${ownerEmail}`, {
             expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
+            tracking: connectTracking,
           });
         } catch (err) {
           await trackBuilderLifecycle(
@@ -947,6 +955,7 @@ export function createCoreRoutesPlugin(
             "builder connect failed",
             ownerEmail,
             {
+              ...builderConnectTrackingProperties(connectTracking),
               reason: "pending_storage_unavailable",
               stage: "connect",
             },
@@ -974,6 +983,7 @@ export function createCoreRoutesPlugin(
           "builder connect started",
           ownerEmail,
           {
+            ...builderConnectTrackingProperties(connectTracking),
             stage: "connect",
             connect_token_owner_matches_context:
               !connectTokenOwner || connectTokenOwner === ownerEmail,
@@ -987,7 +997,10 @@ export function createCoreRoutesPlugin(
         const cliAuthUrl = buildBuilderCliAuthUrl(
           getBuilderCliAuthCallbackOriginForEvent(event),
           signBuilderCallbackState(ownerEmail),
-          { previewOrigin: getBuilderBrowserOriginForEvent(event) },
+          {
+            previewOrigin: getBuilderBrowserOriginForEvent(event),
+            tracking: connectTracking,
+          },
         );
         setResponseStatus(event, 302);
         setResponseHeader(event, "Location", cliAuthUrl);
@@ -1139,6 +1152,9 @@ export function createCoreRoutesPlugin(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,
           getOrigin(event),
         );
+        let connectTracking = getBuilderConnectTrackingParams(
+          requestUrl.searchParams,
+        );
         // postMessage from the callback success/error pages must target the
         // original preview opener, not the callback server. On the fallback
         // path the callback is served from the env-configured gateway while
@@ -1184,7 +1200,22 @@ export function createCoreRoutesPlugin(
         try {
           const pending = (await getSetting(
             `builder-pending-connect:${ownerEmail}`,
-          )) as { expiresAt?: number } | null;
+          )) as {
+            expiresAt?: number;
+            tracking?: BuilderConnectTrackingParams;
+          } | null;
+          if (pending?.tracking) {
+            connectTracking = {
+              signupSource:
+                connectTracking.signupSource ?? pending.tracking.signupSource,
+              agentNativeFlow:
+                connectTracking.agentNativeFlow ??
+                pending.tracking.agentNativeFlow,
+              agentNativeConnectSource:
+                connectTracking.agentNativeConnectSource ??
+                pending.tracking.agentNativeConnectSource,
+            };
+          }
           if (
             pending &&
             typeof pending.expiresAt === "number" &&
@@ -1214,6 +1245,7 @@ export function createCoreRoutesPlugin(
             "builder connect failed",
             ownerEmail,
             {
+              ...builderConnectTrackingProperties(connectTracking),
               reason: "pending_consume_storage_error",
               stage: "callback",
             },
@@ -1243,6 +1275,7 @@ export function createCoreRoutesPlugin(
             "builder connect failed",
             ownerEmail,
             {
+              ...builderConnectTrackingProperties(connectTracking),
               reason: hasValidCallbackState
                 ? "callback_state_unexpectedly_rejected"
                 : "missing_pending_connect",
@@ -1280,6 +1313,7 @@ export function createCoreRoutesPlugin(
             "builder connect failed",
             ownerEmail,
             {
+              ...builderConnectTrackingProperties(connectTracking),
               reason: "missing_credentials",
               stage: "callback",
             },
@@ -1360,6 +1394,7 @@ export function createCoreRoutesPlugin(
             "builder connect failed",
             ownerEmail,
             {
+              ...builderConnectTrackingProperties(connectTracking),
               reason: "credential_write_failed",
               stage: "callback",
             },
@@ -1407,6 +1442,7 @@ export function createCoreRoutesPlugin(
           "builder connect succeeded",
           ownerEmail,
           {
+            ...builderConnectTrackingProperties(connectTracking),
             stage: "callback",
             has_preview_url: Boolean(previewUrl),
             org_kind: orgKind || undefined,

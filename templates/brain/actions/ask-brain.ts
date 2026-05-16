@@ -6,6 +6,7 @@ import {
   serializeKnowledge,
 } from "../server/lib/brain.js";
 import {
+  buildFederatedSearchCoverage,
   searchEverythingRows,
   type UniversalSearchResult,
 } from "../server/lib/search.js";
@@ -106,8 +107,13 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ question }) => {
+  run: async ({ question, filters }) => {
     const { guidance } = await readBrainAgentGuidance();
+    const federatedCoveragePromise = buildFederatedSearchCoverage({
+      query: question,
+      provider: filters?.provider,
+      status: filters?.status,
+    });
     const seen = new Set<string>();
     const rows = [];
     for (const facet of facetsFromQuestion(question)) {
@@ -149,6 +155,7 @@ export default defineAction({
     }
 
     if (!knowledge.length && !captureFallback.length) {
+      const federatedCoverage = await federatedCoveragePromise;
       return {
         answer:
           guidance.retrieval.rawCaptureFallback === "never-answer"
@@ -160,6 +167,7 @@ export default defineAction({
         results: [],
         policy: guidance.retrieval,
         responseGuidance: guidance.response,
+        federatedCoverage,
       };
     }
 
@@ -183,6 +191,7 @@ export default defineAction({
     const answerParts = [];
     const hasCitations = knowledgeCitations.length || captureCitations.length;
     if (guidance.retrieval.requireCitations && !hasCitations) {
+      const federatedCoverage = await federatedCoveragePromise;
       return {
         answer:
           "I found possible Brain context, but workspace settings require citations and these results did not include usable evidence.",
@@ -192,6 +201,7 @@ export default defineAction({
         results: captureFallback,
         policy: guidance.retrieval,
         responseGuidance: guidance.response,
+        federatedCoverage,
       };
     }
     if (knowledge.length) {
@@ -216,6 +226,7 @@ export default defineAction({
       );
     }
 
+    const federatedCoverage = await federatedCoveragePromise;
     return {
       answer: formatAnswer(answerParts.join("\n\n"), guidance),
       citations: [...knowledgeCitations, ...captureCitations],
@@ -224,6 +235,7 @@ export default defineAction({
       results: captureFallback,
       policy: guidance.retrieval,
       responseGuidance: guidance.response,
+      federatedCoverage,
     };
   },
 });

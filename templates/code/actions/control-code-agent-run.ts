@@ -1,11 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import {
   getCodeAgentRunRecord,
+  localCodeBackgroundAgentController,
   normalizeCodeAgentPermissionMode,
   updateCodeAgentRunRecord,
 } from "@agent-native/core/code-agents";
 import { z } from "zod";
-import { resumeCodeAgentInBackground, toUiRun } from "./_code-agent-ui.js";
+import { backgroundRunToUiRun } from "./_code-agent-ui.js";
 
 export default defineAction({
   description:
@@ -13,7 +14,7 @@ export default defineAction({
   schema: z.object({
     goalId: z.string().optional(),
     runId: z.string().min(1),
-    command: z.enum(["resume", "status", "stop"]),
+    command: z.enum(["approve", "resume", "status", "stop"]),
     permissionMode: z.string().optional(),
   }),
   run: async (args) => {
@@ -38,35 +39,28 @@ export default defineAction({
       });
     }
 
-    if (args.command === "stop") {
-      const run = updateCodeAgentRunRecord(args.runId, {
-        status: "paused",
-        phase: "stopped",
-        needsApproval: false,
-        progress: {
-          label: "Stopped",
-          completed: 0,
-          total: 1,
-          percent: 0,
-        },
+    if (
+      args.command === "stop" ||
+      args.command === "resume" ||
+      args.command === "approve"
+    ) {
+      const result = await localCodeBackgroundAgentController.control({
+        runId: args.runId,
+        command: args.command,
       });
+      const defaultMessage =
+        args.command === "resume"
+          ? "Session resumed"
+          : args.command === "approve"
+            ? "Approval executed"
+            : "Run stopped";
       return {
-        ok: true,
+        ok: result.ok,
         command: args.command,
         action: "refresh" as const,
-        message:
-          "Run marked stopped. If another terminal owns the process, stop it there too.",
-        run: run ? toUiRun(run) : undefined,
-      };
-    }
-
-    if (args.command === "resume") {
-      resumeCodeAgentInBackground(args.runId);
-      return {
-        ok: true,
-        command: args.command,
-        action: "refresh" as const,
-        message: "Session resumed",
+        message: result.message ?? defaultMessage,
+        error: result.error,
+        run: result.run ? backgroundRunToUiRun(result.run) : undefined,
       };
     }
 

@@ -11,6 +11,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface AppWebViewProps {
   url: string;
+  captureSessionToken?: boolean;
 }
 
 const SESSION_TOKEN_KEY = "agent-native:session-token";
@@ -19,6 +20,32 @@ const OAUTH_STATE_KEY = "agent-native:oauth-state";
 // Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
 // system browser (Safari) instead.
 const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
+const SESSION_BRIDGE_SCRIPT = `
+  (function () {
+    if (window.__agentNativeSessionBridgeRunning) return true;
+    window.__agentNativeSessionBridgeRunning = true;
+    var postToken = function () {
+      fetch('/_agent-native/auth/session', {
+        credentials: 'include',
+        headers: { Accept: 'application/json' }
+      })
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+          if (data && typeof data.token === 'string' && data.token.length > 0) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'agent-native-session',
+              token: data.token
+            }));
+          }
+        })
+        .catch(function () {});
+    };
+    postToken();
+    setTimeout(postToken, 1000);
+    return true;
+  })();
+  true;
+`;
 
 function rememberOAuthState(url: string) {
   try {
@@ -29,7 +56,10 @@ function rememberOAuthState(url: string) {
   }
 }
 
-export default function AppWebView({ url }: AppWebViewProps) {
+export default function AppWebView({
+  url,
+  captureSessionToken = false,
+}: AppWebViewProps) {
   const webviewRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
@@ -83,6 +113,19 @@ export default function AppWebView({ url }: AppWebViewProps) {
     (event: { nativeEvent: { data: string } }) => {
       try {
         const msg = JSON.parse(event.nativeEvent.data);
+        if (
+          captureSessionToken &&
+          msg.type === "agent-native-session" &&
+          typeof msg.token === "string" &&
+          msg.token.length > 0
+        ) {
+          void AsyncStorage.setItem(SESSION_TOKEN_KEY, msg.token);
+          if (msg.token !== lastTokenRef.current) {
+            lastTokenRef.current = msg.token;
+            setSessionToken(msg.token);
+          }
+          return;
+        }
         if (msg.type === "openUrl" && typeof msg.url === "string") {
           const parsed = new URL(msg.url);
           // Only open external hosts in Safari — anything else is ignored
@@ -95,8 +138,15 @@ export default function AppWebView({ url }: AppWebViewProps) {
         // Ignore malformed messages
       }
     },
-    [],
+    [captureSessionToken],
   );
+
+  const handleLoadEnd = useCallback(() => {
+    setLoading(false);
+    if (captureSessionToken) {
+      webviewRef.current?.injectJavaScript(SESSION_BRIDGE_SCRIPT);
+    }
+  }, [captureSessionToken]);
 
   // Append the session token as a query param so the server can promote it to
   // an httpOnly cookie. This bridges the Safari/WKWebView cookie jar gap.
@@ -111,9 +161,12 @@ export default function AppWebView({ url }: AppWebViewProps) {
         source={{ uri: webviewUrl }}
         style={styles.webview}
         onLoadStart={() => setLoading(true)}
-        onLoadEnd={() => setLoading(false)}
+        onLoadEnd={handleLoadEnd}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
         onMessage={handleMessage}
+        injectedJavaScript={
+          captureSessionToken ? SESSION_BRIDGE_SCRIPT : undefined
+        }
         javaScriptEnabled
         domStorageEnabled
         sharedCookiesEnabled

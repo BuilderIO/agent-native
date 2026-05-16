@@ -30,6 +30,9 @@ jobs:
           - template: analytics
             neon_project: dry-shadow-75673589
             netlify_site: ba983662-dac4-478d-a481-5079e67e4d33
+          - template: brain
+            neon_project: lingering-band-25891811
+            netlify_site: af978d13-aa58-44f3-9b5c-f12568467079
           - template: calendar
             neon_project: super-fire-75593365
             netlify_site: 954fe53b-052e-4401-aac2-2e973e498af8
@@ -99,6 +102,9 @@ jobs:
           - template: analytics
             neon_project: dry-shadow-75673589
             netlify_site: ba983662-dac4-478d-a481-5079e67e4d33
+          - template: brain
+            neon_project: lingering-band-25891811
+            netlify_site: af978d13-aa58-44f3-9b5c-f12568467079
           - template: calendar
             neon_project: super-fire-75593365
             netlify_site: 954fe53b-052e-4401-aac2-2e973e498af8

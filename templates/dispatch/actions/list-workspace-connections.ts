@@ -5,6 +5,7 @@ import {
   type WorkspaceConnectionTemplateUse,
 } from "@agent-native/core/connections";
 import {
+  getWorkspaceConnectionAppAccess,
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
   summarizeWorkspaceConnectionProviderReadiness,
@@ -25,6 +26,20 @@ const SUGGESTED_GRANT_APPS = [
   { id: "analytics", label: "Analytics" },
   { id: "mail", label: "Mail" },
 ] as const;
+
+function unique(values: string[]) {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  );
+}
+
+function optionalTimestamp(source: object, key: string) {
+  if (!Object.prototype.hasOwnProperty.call(source, key)) return undefined;
+  const value = (source as Record<string, unknown>)[key];
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
 
 export default defineAction({
   description:
@@ -89,14 +104,56 @@ export default defineAction({
     });
     const grants = [
       ...legacyGrants,
-      ...explicitGrants.map((grant) => ({
-        id: grant.id,
-        connectionId: grant.connectionId,
-        provider: grant.provider,
-        appId: grant.appId,
-        access: "explicit-grant" as const,
-      })),
+      ...explicitGrants.map((grant) => {
+        const lastUsedAt = optionalTimestamp(grant, "lastUsedAt");
+        return {
+          id: grant.id,
+          connectionId: grant.connectionId,
+          provider: grant.provider,
+          appId: grant.appId,
+          access: "explicit-grant" as const,
+          ...(lastUsedAt !== undefined ? { lastUsedAt } : {}),
+        };
+      }),
     ];
+    const grantSummaries = connections.map((connection) => {
+      const explicitGrantAppIds = unique(
+        explicitGrants
+          .filter((grant) => grant.connectionId === connection.id)
+          .map((grant) => grant.appId),
+      );
+      const selectedAppIds = unique(connection.allowedApps);
+      const allApps = selectedAppIds.length === 0;
+      const effectiveAppIds = allApps
+        ? ["*"]
+        : unique([...selectedAppIds, ...explicitGrantAppIds]);
+
+      return {
+        connectionId: connection.id,
+        provider: connection.provider,
+        accessMode: allApps
+          ? ("all-apps" as const)
+          : ("selected-apps" as const),
+        allApps,
+        selectedAppIds,
+        explicitGrantAppIds,
+        effectiveAppIds,
+        trackedApps: SUGGESTED_GRANT_APPS.map((app) => {
+          const access = getWorkspaceConnectionAppAccess(
+            connection,
+            app.id,
+            explicitGrants,
+          );
+          return {
+            appId: app.id,
+            label: app.label,
+            granted: access.available,
+            mode: access.mode,
+            grantId: access.grantId,
+          };
+        }),
+      };
+    });
 
     const providersWithReadiness = providers.map((provider) => ({
       ...provider,
@@ -113,11 +170,17 @@ export default defineAction({
       providers: providersWithReadiness,
       connections,
       grants,
+      grantSummaries,
       suggestedApps: SUGGESTED_GRANT_APPS,
       counts: {
         providers: providersWithReadiness.length,
         connections: connections.length,
         grants: grants.length,
+        allAppConnections: grantSummaries.filter((summary) => summary.allApps)
+          .length,
+        selectedAppConnections: grantSummaries.filter(
+          (summary) => !summary.allApps,
+        ).length,
         readyProviders: providersWithReadiness.filter(
           (provider) => provider.readiness.status === "ready",
         ).length,

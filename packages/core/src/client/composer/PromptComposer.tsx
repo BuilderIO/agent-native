@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type Ref,
   type ReactNode,
 } from "react";
@@ -72,6 +73,9 @@ export interface PromptComposerProps {
   disabled?: boolean;
   autoFocus?: boolean;
   className?: string;
+  style?: CSSProperties;
+  rootClassName?: string;
+  rootStyle?: CSSProperties;
   /** Forwarded to TiptapComposer for draft persistence. */
   draftScope?: string;
   /** Keep the submitted prompt in the editor. Default: false. */
@@ -430,6 +434,9 @@ function PromptComposerInner({
   disabled,
   autoFocus,
   className,
+  style,
+  rootClassName,
+  rootStyle,
   draftScope,
   preserveDraftOnSubmit = false,
   showModelSelector = true,
@@ -517,6 +524,9 @@ function PromptComposerInner({
   return (
     <AgentComposerFrame
       className={cn("text-left", className)}
+      rootClassName={rootClassName}
+      style={style}
+      rootStyle={rootStyle}
       layoutVariant={layoutVariant}
     >
       <PromptAttachmentStrip />
@@ -580,7 +590,10 @@ export function PromptComposer(props: PromptComposerProps) {
   return (
     <TooltipProvider delayDuration={200}>
       <AssistantRuntimeProvider runtime={runtime}>
-        <ThreadPrimitive.Root className="contents">
+        <ThreadPrimitive.Root
+          className="contents"
+          style={{ display: "contents" }}
+        >
           <PromptComposerInner {...props} />
         </ThreadPrimitive.Root>
       </AssistantRuntimeProvider>

@@ -123,6 +123,9 @@ export interface CodeAgentRun {
   goalId: string;
   title: string;
   subtitle?: string;
+  source?: string;
+  sourceLabel?: string;
+  kind?: string;
   status: CodeAgentRunStatus;
   phase?: string;
   needsApproval?: boolean;
@@ -285,6 +288,19 @@ export interface CodeAgentRemoteConnectorStatus {
 export interface CodeAgentRemoteConnectorControlResult {
   ok: boolean;
   status: CodeAgentRemoteConnectorStatus;
+  error?: string;
+}
+
+export interface CodeAgentRemoteConnectorPairRequest {
+  relayUrl?: string;
+  label?: string;
+}
+
+export interface CodeAgentRemoteConnectorPairResult {
+  ok: boolean;
+  status: CodeAgentRemoteConnectorStatus;
+  deviceId?: string;
+  message?: string;
   error?: string;
 }
 

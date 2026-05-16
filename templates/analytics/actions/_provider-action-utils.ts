@@ -3,6 +3,7 @@ import {
   tryRequestCredentialContext,
   type CredentialContext,
 } from "../server/lib/credentials-context";
+import { hasAnalyticsProviderCredential } from "../server/lib/provider-credentials";
 
 export interface MissingCredentialResult {
   error: "missing_api_key";
@@ -23,6 +24,21 @@ export interface CredentialCheckMissing {
 }
 
 export type CredentialCheckResult = CredentialCheckOk | CredentialCheckMissing;
+
+const WORKSPACE_PROVIDER_BY_KEY: Record<string, string> = {
+  GITHUB_TOKEN: "github",
+  HUBSPOT_ACCESS_TOKEN: "hubspot",
+  HUBSPOT_PRIVATE_APP_TOKEN: "hubspot",
+  NOTION_API_KEY: "notion",
+  SLACK_BOT_TOKEN: "slack",
+};
+
+function workspaceProviderForKeys(keys: string[]): string | null {
+  const providers = keys.map((key) => WORKSPACE_PROVIDER_BY_KEY[key]);
+  if (providers.some((provider) => !provider)) return null;
+  const unique = new Set(providers);
+  return unique.size === 1 ? providers[0]! : null;
+}
 
 export async function requireActionCredentials(
   keys: string[],
@@ -48,6 +64,16 @@ export async function requireActionCredentials(
         settingsPath,
       },
     };
+  }
+
+  const workspaceProvider = workspaceProviderForKeys(keys);
+  if (workspaceProvider) {
+    const configured = await hasAnalyticsProviderCredential({
+      provider: workspaceProvider,
+      keys,
+      ctx,
+    });
+    if (configured) return { ok: true, ctx };
   }
 
   const configured: Record<string, boolean> = {};

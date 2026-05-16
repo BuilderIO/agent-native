@@ -13,6 +13,7 @@ import {
 } from "@tabler/icons-react";
 import type { AppConfig } from "@shared/app-registry";
 import { generateAppId } from "@shared/app-registry";
+import { CodeProviderSettings } from "./CodeProviderSettings";
 
 interface FrameSettings {
   enabled: boolean;
@@ -25,6 +26,7 @@ interface AppSettingsProps {
   onClose: () => void;
   onAppsChanged: (apps: AppConfig[]) => void;
   onAddAppClick?: () => void;
+  onCodeAgentProvidersChanged?: () => void;
 }
 
 type RemoteStatusTone = "ok" | "pending" | "offline" | "error";
@@ -127,6 +129,7 @@ export default function AppSettings({
   onClose,
   onAppsChanged,
   onAddAppClick,
+  onCodeAgentProvidersChanged,
 }: AppSettingsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -139,6 +142,11 @@ export default function AppSettings({
   const [remotePairing, setRemotePairing] = useState(false);
   const [showRemotePairing, setShowRemotePairing] = useState(false);
   const [remoteMessage, setRemoteMessage] = useState<string | null>(null);
+  const [providerSettings, setProviderSettings] =
+    useState<CodeAgentProviderSettings | null>(null);
+  const [providerLoadMessage, setProviderLoadMessage] = useState<string | null>(
+    null,
+  );
 
   // Load frame settings
   useEffect(() => {
@@ -146,6 +154,22 @@ export default function AppSettings({
       window.electronAPI.frame.load().then(setFrameSettings);
     }
   }, []);
+
+  const refreshProviderSettings = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.getProviderSettings) return;
+    try {
+      const settings = await api.getProviderSettings();
+      setProviderSettings(settings);
+      setProviderLoadMessage(null);
+    } catch (err) {
+      setProviderLoadMessage(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshProviderSettings();
+  }, [refreshProviderSettings]);
 
   const refreshRemoteStatus = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
@@ -335,6 +359,19 @@ export default function AppSettings({
                   Dev
                 </button>
               </div>
+            </div>
+          )}
+
+          {providerSettings && (
+            <CodeProviderSettings
+              settings={providerSettings}
+              onSettingsChanged={setProviderSettings}
+              onProvidersChanged={onCodeAgentProvidersChanged}
+            />
+          )}
+          {!providerSettings && providerLoadMessage && (
+            <div className="settings-provider-message">
+              {providerLoadMessage}
             </div>
           )}
 

@@ -1,11 +1,14 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { readBrainAgentGuidance } from "../server/lib/brain.js";
-import { searchEverythingRows } from "../server/lib/search.js";
+import {
+  buildFederatedSearchCoverage,
+  searchEverythingRows,
+} from "../server/lib/search.js";
 
 export default defineAction({
   description:
-    "Search Brain company memory across published knowledge, accessible raw captures, and accessible source records.",
+    "Search Brain-indexed company memory and return deterministic federated coverage/delegation hints for deciding which specialist app to ask next.",
   schema: z.object({
     query: z.string().min(1),
     type: z
@@ -29,12 +32,16 @@ export default defineAction({
   },
   run: async (args) => {
     const { guidance } = await readBrainAgentGuidance();
-    const results = await searchEverythingRows(args);
+    const [results, federatedCoverage] = await Promise.all([
+      searchEverythingRows(args),
+      buildFederatedSearchCoverage(args),
+    ]);
     return {
       query: args.query,
       count: results.length,
       policy: guidance.retrieval,
       responseGuidance: guidance.response,
+      federatedCoverage,
       results,
     };
   },

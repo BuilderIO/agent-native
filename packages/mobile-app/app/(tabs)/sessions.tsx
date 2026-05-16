@@ -13,14 +13,17 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import {
   appendRemoteFollowUp,
+  clearRemoteSessionToken,
   createRemoteRun,
   decidePendingCommand,
   getPendingCommand,
   getRemoteRunDetail,
   getRemoteRelayBaseUrl,
   isRemoteRunActive,
+  isRemoteAuthError,
   listPairedHosts,
   listRemoteRuns,
   readRemoteTranscript,
@@ -38,9 +41,10 @@ import { useRemotePushRegistration } from "@/lib/use-remote-push-registration";
 
 const POLL_INTERVAL_MS = 4000;
 const GOAL_ID = "task";
-type RelayState = "checking" | "online" | "offline" | "error";
+type RelayState = "checking" | "online" | "offline" | "error" | "signed-out";
 
 export default function SessionsScreen() {
+  const router = useRouter();
   const [hosts, setHosts] = useState<RemoteHost[]>([]);
   const [runs, setRuns] = useState<RemoteRun[]>([]);
   const [events, setEvents] = useState<RemoteTranscriptEvent[]>([]);
@@ -62,6 +66,7 @@ export default function SessionsScreen() {
   const [acting, setActing] = useState<"approve" | "deny" | "stop" | null>(
     null,
   );
+  const [authRequired, setAuthRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const pushRegistration = useRemotePushRegistration();
@@ -89,6 +94,7 @@ export default function SessionsScreen() {
     const result = await listPairedHosts();
     if (result.ok) {
       const nextHosts = result.data ?? [];
+      setAuthRequired(false);
       setHosts(nextHosts);
       setSelectedHostId((current) => {
         if (current && nextHosts.some((host) => host.id === current)) {
@@ -96,6 +102,10 @@ export default function SessionsScreen() {
         }
         return nextHosts[0]?.id;
       });
+    } else if (isRemoteAuthError(result)) {
+      setAuthRequired(true);
+      setError(null);
+      setHosts([]);
     } else {
       setError(result.error ?? "Could not load paired hosts.");
     }
@@ -106,6 +116,7 @@ export default function SessionsScreen() {
     const result = await listRemoteRuns(GOAL_ID);
     if (result.ok) {
       const nextRuns = result.data ?? [];
+      setAuthRequired(false);
       setRuns(nextRuns);
       setSelectedRunId((current) => {
         if (current && nextRuns.some((run) => run.id === current))
@@ -113,6 +124,11 @@ export default function SessionsScreen() {
         return nextRuns[0]?.id ?? null;
       });
       if (nextRuns.length > 0) setError(null);
+    } else if (isRemoteAuthError(result)) {
+      setAuthRequired(true);
+      setError(null);
+      setRuns([]);
+      setSelectedRunId(null);
     } else {
       setError(result.error ?? "Could not load sessions.");
     }
@@ -125,6 +141,10 @@ export default function SessionsScreen() {
     if (result.ok) {
       setEvents(result.data ?? []);
       setError(null);
+    } else if (isRemoteAuthError(result)) {
+      setAuthRequired(true);
+      setEvents([]);
+      setError(null);
     } else if (!quiet) {
       setEvents([]);
       setError(result.error ?? "Could not load the transcript.");
@@ -135,9 +155,13 @@ export default function SessionsScreen() {
   const loadRunDetail = useCallback(async (runId: string) => {
     const result = await getRemoteRunDetail(runId);
     if (result.ok && result.data) {
+      setAuthRequired(false);
       setRuns((current) =>
         current.map((run) => (run.id === runId ? result.data! : run)),
       );
+    } else if (isRemoteAuthError(result)) {
+      setAuthRequired(true);
+      setError(null);
     }
   }, []);
 
@@ -148,7 +172,12 @@ export default function SessionsScreen() {
         loadHosts(),
         loadRuns(),
       ]);
-      if (hostsResult.ok || runsResult.ok) {
+      if (isRemoteAuthError(hostsResult) || isRemoteAuthError(runsResult)) {
+        setAuthRequired(true);
+        setRelayState("signed-out");
+        setLastSyncedAt(null);
+      } else if (hostsResult.ok || runsResult.ok) {
+        setAuthRequired(false);
         setRelayState("online");
         setLastSyncedAt(new Date().toISOString());
       } else if (hostsResult.status === 0 || runsResult.status === 0) {
@@ -160,6 +189,15 @@ export default function SessionsScreen() {
     },
     [loadHosts, loadRuns],
   );
+
+  const handleConnectPhone = useCallback(async () => {
+    await clearRemoteSessionToken();
+    setAuthRequired(false);
+    setError(null);
+    setNotice(null);
+    setRelayState("checking");
+    router.push("/dispatch" as never);
+  }, [router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -211,7 +249,13 @@ export default function SessionsScreen() {
       permissionMode: "full-auto",
     });
     if (!result.ok || !result.data?.run) {
-      setError(result.error ?? "Could not start the session.");
+      if (isRemoteAuthError(result)) {
+        setAuthRequired(true);
+        setRelayState("signed-out");
+        setError(null);
+      } else {
+        setError(result.error ?? "Could not start the session.");
+      }
       setCreating(false);
       return;
     }
@@ -268,7 +312,13 @@ export default function SessionsScreen() {
         current.filter((event) => event.id !== optimisticEvent.id),
       );
       setFollowUpPrompt(prompt);
-      setError(result.error ?? "Could not send the follow-up.");
+      if (isRemoteAuthError(result)) {
+        setAuthRequired(true);
+        setRelayState("signed-out");
+        setError(null);
+      } else {
+        setError(result.error ?? "Could not send the follow-up.");
+      }
     } else {
       setNotice(result.data?.message ?? "Follow-up queued.");
       if (result.data?.event) {
@@ -303,7 +353,13 @@ export default function SessionsScreen() {
         decision,
       });
       if (!result.ok) {
-        setError(result.error ?? `Could not ${decision} the command.`);
+        if (isRemoteAuthError(result)) {
+          setAuthRequired(true);
+          setRelayState("signed-out");
+          setError(null);
+        } else {
+          setError(result.error ?? `Could not ${decision} the command.`);
+        }
       } else {
         setNotice(result.data?.message ?? `Command ${decision}d.`);
         setRuns((current) =>
@@ -330,7 +386,13 @@ export default function SessionsScreen() {
       selectedRun.hostId ?? selectedHostId,
     );
     if (!result.ok) {
-      setError(result.error ?? "Could not stop the session.");
+      if (isRemoteAuthError(result)) {
+        setAuthRequired(true);
+        setRelayState("signed-out");
+        setError(null);
+      } else {
+        setError(result.error ?? "Could not stop the session.");
+      }
     } else {
       setNotice(result.data?.message ?? "Stop requested.");
       setRuns((current) =>
@@ -367,7 +429,13 @@ export default function SessionsScreen() {
       );
       await refresh(true);
     } else {
-      setError(result.error ?? "Could not revoke this host.");
+      if (isRemoteAuthError(result)) {
+        setAuthRequired(true);
+        setRelayState("signed-out");
+        setError(null);
+      } else {
+        setError(result.error ?? "Could not revoke this host.");
+      }
     }
     setConfirmingRevokeHostId(null);
     setRevokingHostId(null);
@@ -411,7 +479,7 @@ export default function SessionsScreen() {
             </TouchableOpacity>
           </View>
 
-          {error && (
+          {error && !authRequired && (
             <View style={styles.banner}>
               <Feather name="alert-circle" size={16} color="#FCA5A5" />
               <Text style={styles.bannerText}>{error}</Text>
@@ -424,258 +492,276 @@ export default function SessionsScreen() {
             </View>
           )}
 
-          <RelayStatusCard
-            state={relayState}
-            lastSyncedAt={lastSyncedAt}
-            hostSummary={hostSummary}
-          />
-
-          <SectionHeader title="Paired Hosts" action={selectedHost?.name} />
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.hostRail}
-          >
-            {hosts.length === 0 && !loading ? (
-              <EmptyInline
-                icon="monitor"
-                text="No paired hosts found. Pair a desktop host, then pull to refresh."
-              />
-            ) : (
-              hosts.map((host) => (
-                <HostCard
-                  key={host.id}
-                  host={host}
-                  selected={host.id === selectedHostId}
-                  onPress={() => setSelectedHostId(host.id)}
-                />
-              ))
-            )}
-          </ScrollView>
-
-          <HostControls
-            host={selectedHost}
-            confirming={confirmingRevokeHostId === selectedHost?.id}
-            revoking={revokingHostId === selectedHost?.id}
-            pushStatus={pushRegistration.status}
-            pushMessage={pushRegistration.message}
-            registeringPush={pushRegistration.registering}
-            onRevoke={() => void handleRevokeHost()}
-            onRegisterPush={() => void pushRegistration.register()}
-          />
-
-          <View style={styles.composerCard}>
-            <View style={styles.cardTitleRow}>
-              <Text style={styles.cardTitle}>New Session</Text>
-              {creating && <ActivityIndicator color="#ffffff" />}
-            </View>
-            {selectedHostOffline && (
-              <View style={styles.inlineCallout}>
-                <Feather name="wifi-off" size={15} color="#FBBF24" />
-                <Text style={styles.inlineCalloutText}>
-                  {selectedHost.name} looks offline. New work will queue until
-                  it reconnects.
-                </Text>
-              </View>
-            )}
-            <TextInput
-              style={styles.promptInput}
-              value={newPrompt}
-              onChangeText={setNewPrompt}
-              placeholder="Ask a paired host to implement, inspect, or fix something..."
-              placeholderTextColor="#666666"
-              multiline
-              textAlignVertical="top"
-            />
-            <TouchableOpacity
-              style={[
-                styles.primaryButton,
-                (!newPrompt.trim() || creating || relayState === "offline") &&
-                  styles.disabledButton,
-              ]}
-              disabled={
-                !newPrompt.trim() || creating || relayState === "offline"
-              }
-              onPress={handleCreateRun}
-            >
-              <Feather name="play" size={16} color="#111111" />
-              <Text style={styles.primaryButtonText}>
-                {relayState === "offline" ? "Relay Offline" : "Start Session"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <SectionHeader
-            title="Recent Runs"
-            action={runs.length ? `${runs.length}` : undefined}
-          />
-          {loading ? (
-            <View style={styles.loadingBlock}>
-              <ActivityIndicator color="#ffffff" />
-              <Text style={styles.mutedText}>Loading sessions...</Text>
-            </View>
-          ) : runs.length === 0 ? (
-            <EmptyBlock
-              icon="inbox"
-              title="No sessions yet"
-              text="Start a new session from this phone and the transcript will stay here."
+          {authRequired ? (
+            <ConnectPhoneCard
+              relayUrl={getRemoteRelayBaseUrl()}
+              onConnect={handleConnectPhone}
+              onRefresh={() => void refresh(false)}
             />
           ) : (
-            <View style={styles.runList}>
-              {runs.map((run) => (
-                <RunRow
-                  key={run.id}
-                  run={run}
-                  selected={run.id === selectedRunId}
-                  onPress={() => setSelectedRunId(run.id)}
+            <>
+              <RelayStatusCard
+                state={relayState}
+                lastSyncedAt={lastSyncedAt}
+                hostSummary={hostSummary}
+              />
+
+              <SectionHeader title="Paired Hosts" action={selectedHost?.name} />
+              {hosts.length === 0 && !loading ? (
+                <PairDesktopCard
+                  relayUrl={getRemoteRelayBaseUrl()}
+                  onRefresh={() => void refresh(false)}
                 />
-              ))}
-            </View>
-          )}
-
-          <SectionHeader title="Transcript" action={selectedRun?.status} />
-          {selectedRun ? (
-            <View style={styles.detailCard}>
-              <View style={styles.detailHeader}>
-                <View style={styles.detailTitleWrap}>
-                  <Text style={styles.detailTitle}>{selectedRun.title}</Text>
-                  {selectedRun.subtitle && (
-                    <Text style={styles.detailSubtitle} numberOfLines={2}>
-                      {selectedRun.subtitle}
-                    </Text>
-                  )}
-                </View>
-                <StatusPill status={selectedRun.status} />
-              </View>
-
-              {pendingCommand && (
-                <View style={styles.approvalBox}>
-                  <View style={styles.approvalTitleRow}>
-                    <Feather name="shield" size={16} color="#FBBF24" />
-                    <Text style={styles.approvalTitle}>Approval needed</Text>
-                  </View>
-                  <Text style={styles.approvalReason}>
-                    {pendingCommand.reason}
-                  </Text>
-                  {pendingCommand.command && (
-                    <Text style={styles.commandText} numberOfLines={4}>
-                      {pendingCommand.command}
-                    </Text>
-                  )}
-                  <View style={styles.approvalActions}>
-                    <TouchableOpacity
-                      style={[styles.secondaryButton, styles.denyButton]}
-                      disabled={Boolean(acting)}
-                      onPress={() =>
-                        void handleDecision("deny", pendingCommand)
-                      }
-                    >
-                      {acting === "deny" ? (
-                        <ActivityIndicator color="#FCA5A5" />
-                      ) : (
-                        <Feather name="x" size={15} color="#FCA5A5" />
-                      )}
-                      <Text style={styles.denyButtonText}>
-                        {acting === "deny" ? "Denying" : "Deny"}
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.primarySmallButton}
-                      disabled={Boolean(acting)}
-                      onPress={() =>
-                        void handleDecision("approve", pendingCommand)
-                      }
-                    >
-                      {acting === "approve" ? (
-                        <ActivityIndicator color="#111111" />
-                      ) : (
-                        <Feather name="check" size={15} color="#111111" />
-                      )}
-                      <Text style={styles.primarySmallButtonText}>
-                        {acting === "approve" ? "Approving" : "Approve"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.hostRail}
+                >
+                  {hosts.map((host) => (
+                    <HostCard
+                      key={host.id}
+                      host={host}
+                      selected={host.id === selectedHostId}
+                      onPress={() => setSelectedHostId(host.id)}
+                    />
+                  ))}
+                </ScrollView>
               )}
 
-              <View style={styles.detailActions}>
-                <TouchableOpacity
-                  style={styles.secondaryButton}
-                  onPress={() => void loadTranscript(selectedRun.id)}
-                >
-                  <Feather name="rotate-cw" size={15} color="#ffffff" />
-                  <Text style={styles.secondaryButtonText}>Refresh</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.secondaryButton}
-                  disabled={
-                    Boolean(acting) || selectedRun.status === "completed"
-                  }
-                  onPress={handleStop}
-                >
-                  {acting === "stop" ? (
-                    <ActivityIndicator color="#ffffff" />
-                  ) : (
-                    <Feather name="square" size={15} color="#ffffff" />
-                  )}
-                  <Text style={styles.secondaryButtonText}>
-                    {acting === "stop" ? "Stopping" : "Stop Run"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              <HostControls
+                host={selectedHost}
+                confirming={confirmingRevokeHostId === selectedHost?.id}
+                revoking={revokingHostId === selectedHost?.id}
+                pushStatus={pushRegistration.status}
+                pushMessage={pushRegistration.message}
+                registeringPush={pushRegistration.registering}
+                onRevoke={() => void handleRevokeHost()}
+                onRegisterPush={() => void pushRegistration.register()}
+              />
 
-              <View style={styles.timeline}>
-                {transcriptLoading ? (
-                  <View style={styles.loadingBlock}>
-                    <ActivityIndicator color="#ffffff" />
+              <View style={styles.composerCard}>
+                <View style={styles.cardTitleRow}>
+                  <Text style={styles.cardTitle}>New Session</Text>
+                  {creating && <ActivityIndicator color="#ffffff" />}
+                </View>
+                {selectedHostOffline && (
+                  <View style={styles.inlineCallout}>
+                    <Feather name="wifi-off" size={15} color="#FBBF24" />
+                    <Text style={styles.inlineCalloutText}>
+                      {selectedHost.name} looks offline. New work will queue
+                      until it reconnects.
+                    </Text>
                   </View>
-                ) : events.length === 0 ? (
-                  <EmptyInline
-                    icon="clock"
-                    text="No transcript events recorded for this session yet."
-                  />
-                ) : (
-                  events.map((event) => (
-                    <TranscriptItem key={event.id} event={event} />
-                  ))
                 )}
-              </View>
-
-              <View style={styles.followUpBox}>
                 <TextInput
-                  style={styles.followUpInput}
-                  value={followUpPrompt}
-                  onChangeText={setFollowUpPrompt}
-                  placeholder="Send a follow-up..."
+                  style={styles.promptInput}
+                  value={newPrompt}
+                  onChangeText={setNewPrompt}
+                  placeholder="Ask a paired host to implement, inspect, or fix something..."
                   placeholderTextColor="#666666"
                   multiline
                   textAlignVertical="top"
                 />
                 <TouchableOpacity
                   style={[
-                    styles.sendButton,
-                    (!followUpPrompt.trim() || sending) &&
+                    styles.primaryButton,
+                    (!newPrompt.trim() ||
+                      creating ||
+                      relayState === "offline") &&
                       styles.disabledButton,
                   ]}
-                  disabled={!followUpPrompt.trim() || sending}
-                  onPress={handleFollowUp}
-                  accessibilityLabel="Send follow-up"
+                  disabled={
+                    !newPrompt.trim() || creating || relayState === "offline"
+                  }
+                  onPress={handleCreateRun}
                 >
-                  {sending ? (
-                    <ActivityIndicator color="#111111" />
-                  ) : (
-                    <Feather name="send" size={17} color="#111111" />
-                  )}
+                  <Feather name="play" size={16} color="#111111" />
+                  <Text style={styles.primaryButtonText}>
+                    {relayState === "offline"
+                      ? "Relay Offline"
+                      : "Start Session"}
+                  </Text>
                 </TouchableOpacity>
               </View>
-            </View>
-          ) : (
-            <EmptyBlock
-              icon="terminal"
-              title="Select a session"
-              text="Choose a recent run to inspect status, approve commands, or continue the transcript."
-            />
+
+              <SectionHeader
+                title="Recent Runs"
+                action={runs.length ? `${runs.length}` : undefined}
+              />
+              {loading ? (
+                <View style={styles.loadingBlock}>
+                  <ActivityIndicator color="#ffffff" />
+                  <Text style={styles.mutedText}>Loading sessions...</Text>
+                </View>
+              ) : runs.length === 0 ? (
+                <EmptyBlock
+                  icon="inbox"
+                  title="No sessions yet"
+                  text="Start a new session from this phone and the transcript will stay here."
+                />
+              ) : (
+                <View style={styles.runList}>
+                  {runs.map((run) => (
+                    <RunRow
+                      key={run.id}
+                      run={run}
+                      selected={run.id === selectedRunId}
+                      onPress={() => setSelectedRunId(run.id)}
+                    />
+                  ))}
+                </View>
+              )}
+
+              <SectionHeader title="Transcript" action={selectedRun?.status} />
+              {selectedRun ? (
+                <View style={styles.detailCard}>
+                  <View style={styles.detailHeader}>
+                    <View style={styles.detailTitleWrap}>
+                      <Text style={styles.detailTitle}>
+                        {selectedRun.title}
+                      </Text>
+                      {selectedRun.subtitle && (
+                        <Text style={styles.detailSubtitle} numberOfLines={2}>
+                          {selectedRun.subtitle}
+                        </Text>
+                      )}
+                    </View>
+                    <StatusPill status={selectedRun.status} />
+                  </View>
+
+                  {pendingCommand && (
+                    <View style={styles.approvalBox}>
+                      <View style={styles.approvalTitleRow}>
+                        <Feather name="shield" size={16} color="#FBBF24" />
+                        <Text style={styles.approvalTitle}>
+                          Approval needed
+                        </Text>
+                      </View>
+                      <Text style={styles.approvalReason}>
+                        {pendingCommand.reason}
+                      </Text>
+                      {pendingCommand.command && (
+                        <Text style={styles.commandText} numberOfLines={4}>
+                          {pendingCommand.command}
+                        </Text>
+                      )}
+                      <View style={styles.approvalActions}>
+                        <TouchableOpacity
+                          style={[styles.secondaryButton, styles.denyButton]}
+                          disabled={Boolean(acting)}
+                          onPress={() =>
+                            void handleDecision("deny", pendingCommand)
+                          }
+                        >
+                          {acting === "deny" ? (
+                            <ActivityIndicator color="#FCA5A5" />
+                          ) : (
+                            <Feather name="x" size={15} color="#FCA5A5" />
+                          )}
+                          <Text style={styles.denyButtonText}>
+                            {acting === "deny" ? "Denying" : "Deny"}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.primarySmallButton}
+                          disabled={Boolean(acting)}
+                          onPress={() =>
+                            void handleDecision("approve", pendingCommand)
+                          }
+                        >
+                          {acting === "approve" ? (
+                            <ActivityIndicator color="#111111" />
+                          ) : (
+                            <Feather name="check" size={15} color="#111111" />
+                          )}
+                          <Text style={styles.primarySmallButtonText}>
+                            {acting === "approve" ? "Approving" : "Approve"}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={styles.detailActions}>
+                    <TouchableOpacity
+                      style={styles.secondaryButton}
+                      onPress={() => void loadTranscript(selectedRun.id)}
+                    >
+                      <Feather name="rotate-cw" size={15} color="#ffffff" />
+                      <Text style={styles.secondaryButtonText}>Refresh</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.secondaryButton}
+                      disabled={
+                        Boolean(acting) || selectedRun.status === "completed"
+                      }
+                      onPress={handleStop}
+                    >
+                      {acting === "stop" ? (
+                        <ActivityIndicator color="#ffffff" />
+                      ) : (
+                        <Feather name="square" size={15} color="#ffffff" />
+                      )}
+                      <Text style={styles.secondaryButtonText}>
+                        {acting === "stop" ? "Stopping" : "Stop Run"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.timeline}>
+                    {transcriptLoading ? (
+                      <View style={styles.loadingBlock}>
+                        <ActivityIndicator color="#ffffff" />
+                      </View>
+                    ) : events.length === 0 ? (
+                      <EmptyInline
+                        icon="clock"
+                        text="No transcript events recorded for this session yet."
+                      />
+                    ) : (
+                      events.map((event) => (
+                        <TranscriptItem key={event.id} event={event} />
+                      ))
+                    )}
+                  </View>
+
+                  <View style={styles.followUpBox}>
+                    <TextInput
+                      style={styles.followUpInput}
+                      value={followUpPrompt}
+                      onChangeText={setFollowUpPrompt}
+                      placeholder="Send a follow-up..."
+                      placeholderTextColor="#666666"
+                      multiline
+                      textAlignVertical="top"
+                    />
+                    <TouchableOpacity
+                      style={[
+                        styles.sendButton,
+                        (!followUpPrompt.trim() || sending) &&
+                          styles.disabledButton,
+                      ]}
+                      disabled={!followUpPrompt.trim() || sending}
+                      onPress={handleFollowUp}
+                      accessibilityLabel="Send follow-up"
+                    >
+                      {sending ? (
+                        <ActivityIndicator color="#111111" />
+                      ) : (
+                        <Feather name="send" size={17} color="#111111" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <EmptyBlock
+                  icon="terminal"
+                  title="Select a session"
+                  text="Choose a recent run to inspect status, approve commands, or continue the transcript."
+                />
+              )}
+            </>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -692,6 +778,93 @@ function SectionHeader({ title, action }: { title: string; action?: string }) {
   );
 }
 
+function ConnectPhoneCard({
+  relayUrl,
+  onConnect,
+  onRefresh,
+}: {
+  relayUrl: string;
+  onConnect: () => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <View style={styles.connectCard}>
+      <View style={styles.connectIcon}>
+        <Feather name="log-in" size={22} color="#111111" />
+      </View>
+      <Text style={styles.connectTitle}>Connect this phone</Text>
+      <Text style={styles.connectText}>
+        Sign in to Dispatch once, then return to Sessions. The app will use that
+        session to list paired computers and start remote code-agent runs.
+      </Text>
+      <View style={styles.relayBox}>
+        <Feather name="globe" size={14} color="#9CA3AF" />
+        <Text style={styles.relayBoxText} numberOfLines={1}>
+          {relayUrl}
+        </Text>
+      </View>
+      <TouchableOpacity style={styles.primaryButton} onPress={onConnect}>
+        <Feather name="external-link" size={16} color="#111111" />
+        <Text style={styles.primaryButtonText}>Open Dispatch sign-in</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.secondaryWideButton} onPress={onRefresh}>
+        <Feather name="refresh-cw" size={15} color="#ffffff" />
+        <Text style={styles.secondaryButtonText}>I signed in, refresh</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function PairDesktopCard({
+  relayUrl,
+  onRefresh,
+}: {
+  relayUrl: string;
+  onRefresh: () => void;
+}) {
+  return (
+    <View style={styles.pairCard}>
+      <View style={styles.pairTitleRow}>
+        <View style={styles.pairIcon}>
+          <Feather name="monitor" size={17} color="#ffffff" />
+        </View>
+        <View style={styles.pairTitleText}>
+          <Text style={styles.pairTitle}>Pair your desktop</Text>
+          <Text style={styles.pairSubtitle}>
+            Remote sessions need an awake Mac polling this relay.
+          </Text>
+        </View>
+      </View>
+      <View style={styles.stepList}>
+        <StepRow
+          index="1"
+          text="Open Agent Native Desktop and sign in to Dispatch."
+        />
+        <StepRow
+          index="2"
+          text="Go to Settings, Remote Control, then Pair or repair."
+        />
+        <StepRow index="3" text={`Pair this Mac with ${relayUrl}.`} />
+      </View>
+      <TouchableOpacity style={styles.secondaryWideButton} onPress={onRefresh}>
+        <Feather name="refresh-cw" size={15} color="#ffffff" />
+        <Text style={styles.secondaryButtonText}>Refresh paired hosts</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function StepRow({ index, text }: { index: string; text: string }) {
+  return (
+    <View style={styles.stepRow}>
+      <View style={styles.stepIndex}>
+        <Text style={styles.stepIndexText}>{index}</Text>
+      </View>
+      <Text style={styles.stepText}>{text}</Text>
+    </View>
+  );
+}
+
 function RelayPill({ state }: { state: RelayState }) {
   const color =
     state === "online"
@@ -700,12 +873,18 @@ function RelayPill({ state }: { state: RelayState }) {
         ? "#FCA5A5"
         : state === "error"
           ? "#FBBF24"
-          : "#9CA3AF";
+          : state === "signed-out"
+            ? "#93C5FD"
+            : "#9CA3AF";
   return (
     <View style={[styles.relayPill, { borderColor: color }]}>
       <View style={[styles.statusDot, { backgroundColor: color }]} />
       <Text style={[styles.relayPillText, { color }]}>
-        {state === "checking" ? "syncing" : state}
+        {state === "checking"
+          ? "syncing"
+          : state === "signed-out"
+            ? "connect"
+            : state}
       </Text>
     </View>
   );
@@ -1165,6 +1344,113 @@ const styles = StyleSheet.create({
     color: "#BBF7D0",
     fontSize: 13,
   },
+  connectCard: {
+    alignItems: "stretch",
+    padding: 18,
+    borderRadius: 14,
+    backgroundColor: "#181818",
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
+    marginTop: 10,
+  },
+  connectIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  connectTitle: {
+    color: "#ffffff",
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  connectText: {
+    color: "#A3A3A3",
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  relayBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "#101010",
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
+    marginTop: 14,
+  },
+  relayBoxText: {
+    flex: 1,
+    color: "#D4D4D4",
+    fontSize: 12,
+  },
+  pairCard: {
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "#181818",
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
+  },
+  pairTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  pairIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: "#242424",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pairTitleText: {
+    flex: 1,
+  },
+  pairTitle: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  pairSubtitle: {
+    color: "#8A8A8A",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  stepList: {
+    gap: 10,
+    marginTop: 14,
+  },
+  stepRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  stepIndex: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#2A2A2A",
+  },
+  stepIndexText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  stepText: {
+    flex: 1,
+    color: "#D4D4D4",
+    fontSize: 13,
+    lineHeight: 19,
+  },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1526,6 +1812,18 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 14,
     fontWeight: "600",
+  },
+  secondaryWideButton: {
+    marginTop: 10,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: "#242424",
+    borderWidth: 1,
+    borderColor: "#333333",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
   },
   denyButton: {
     backgroundColor: "#2A1212",

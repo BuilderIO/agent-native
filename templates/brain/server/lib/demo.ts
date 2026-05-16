@@ -13,7 +13,11 @@ import {
   writeKnowledgeRecord,
   type WriteKnowledgeInput,
 } from "./brain.js";
-import { searchEverythingRows } from "./search.js";
+import {
+  redactSensitiveText,
+  redactSensitiveValue,
+  searchEverythingRows,
+} from "./search.js";
 import type { BrainEvidence, BrainSourceProvider } from "../../shared/types.js";
 
 const DEMO_SEED_ID = "brain-product-decisions-demo-v1";
@@ -159,6 +163,54 @@ const demoCaptures: DemoCaptureSpec[] = [
       "We will package Brain around product decisions first because why/why-now questions are the strongest demo.",
   },
   {
+    key: "connector-eval-gate",
+    sourceKey: "granola-gtm",
+    externalId: `${DEMO_SEED_ID}:granola:connector-eval-gate`,
+    title: "GTM sync notes: connector sequencing",
+    kind: "note",
+    capturedAt: "2026-05-04T17:00:00.000Z",
+    metadata: {
+      demoSeedId: DEMO_SEED_ID,
+      provider: "granola",
+      sourceUrl: "https://notes.granola.example.com/d/connector-eval-gate",
+    },
+    content:
+      "Decision: pause additional Brain connectors until retrieval evals pass product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. Rationale: connectors amplify weak memory retrieval when the corpus is thin.",
+  },
+  {
+    key: "import-review-policy",
+    sourceKey: "webhook-policy",
+    externalId: `${DEMO_SEED_ID}:webhook:import-review-policy`,
+    title: "Brain import review policy",
+    kind: "document",
+    capturedAt: "2026-05-04T19:00:00.000Z",
+    metadata: {
+      demoSeedId: DEMO_SEED_ID,
+      provider: "generic",
+      sourceUrl: "https://docs.example.com/brain/import-review-policy",
+    },
+    content:
+      "Policy: raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable memory. Low-confidence policy items stay pending proposals and out of published search.",
+  },
+  {
+    key: "retrieval-architecture",
+    sourceKey: "clips-council",
+    externalId: `${DEMO_SEED_ID}:clips:retrieval-architecture`,
+    title: "Product Council recording: Brain retrieval architecture",
+    kind: "transcript",
+    capturedAt: "2026-05-04T21:00:00.000Z",
+    metadata: {
+      demoSeedId: DEMO_SEED_ID,
+      provider: "clips",
+      sourceUrl: "https://clips.example.com/share/retrieval-architecture-demo",
+    },
+    content: [
+      "Speaker 1: Architecture: Brain retrieval starts with portable SQL over brain_knowledge.",
+      "Speaker 2: Raw capture fallback only runs when source policy allows.",
+      "Speaker 3: Citations come from evidence quotes and metadata source URLs; V1 does not require a vector database.",
+    ].join("\n"),
+  },
+  {
     key: "retention-open-question",
     sourceKey: "webhook-policy",
     externalId: `${DEMO_SEED_ID}:webhook:retention-open-question`,
@@ -186,7 +238,7 @@ const demoCaptures: DemoCaptureSpec[] = [
       sourceUrl: "https://support.example.com/escalations/owner-note",
     },
     content:
-      "Do not store personal details from customer calls. The escalation owner is ava.cho@example.com until support automation ships.",
+      "Do not store personal details from customer calls. The escalation owner is ava.cho@example.com and phone +1 415 555 1212 until support automation ships.",
   },
   {
     key: "personal-aside",
@@ -249,6 +301,142 @@ const retrievalEvalCaptures: DemoCaptureSpec[] = [
     ].join("\n"),
     status: "distilled",
   },
+  {
+    key: "connector-eval-gate",
+    sourceKey: "slack-dev-fusion",
+    externalId: `${RETRIEVAL_EVAL_SEED_ID}:slack:connector-eval-gate`,
+    title: "#dev-fusion Brain connector eval gate",
+    kind: "message",
+    capturedAt: "2026-05-08T18:35:00.000Z",
+    metadata: {
+      demoSeedId: RETRIEVAL_EVAL_SEED_ID,
+      provider: "slack",
+      channelName: "dev-fusion",
+      channelId: "CDEMO_DEV_FUSION",
+      sourceUrl:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778265300000200",
+      permalink:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778265300000200",
+    },
+    content: [
+      "Slack #dev-fusion at 2026-05-08T18:35:00.000Z",
+      "Mira: Product decision: pause additional Brain connectors; connectors amplify weak retrieval.",
+      "Omar: The eval gate covers product decisions, process/policy knowledge, architecture how-it-works, privacy redaction, superseded decision narration, and honest not-found behavior.",
+    ].join("\n"),
+    status: "distilled",
+  },
+  {
+    key: "import-review-policy",
+    sourceKey: "slack-dev-fusion",
+    externalId: `${RETRIEVAL_EVAL_SEED_ID}:slack:import-review-policy`,
+    title: "#dev-fusion Brain import review policy",
+    kind: "message",
+    capturedAt: "2026-05-08T18:50:00.000Z",
+    metadata: {
+      demoSeedId: RETRIEVAL_EVAL_SEED_ID,
+      provider: "slack",
+      channelName: "dev-fusion",
+      channelId: "CDEMO_DEV_FUSION",
+      sourceUrl:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778266200000300",
+      permalink:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778266200000300",
+    },
+    content: [
+      "Slack #dev-fusion at 2026-05-08T18:50:00.000Z",
+      "Priya: Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable memory.",
+      "Sam: Low-confidence policy items stay pending proposals and out of published search until review.",
+    ].join("\n"),
+    status: "distilled",
+  },
+  {
+    key: "retrieval-architecture",
+    sourceKey: "slack-dev-fusion",
+    externalId: `${RETRIEVAL_EVAL_SEED_ID}:slack:retrieval-architecture`,
+    title: "#dev-fusion Brain retrieval architecture",
+    kind: "message",
+    capturedAt: "2026-05-08T19:05:00.000Z",
+    metadata: {
+      demoSeedId: RETRIEVAL_EVAL_SEED_ID,
+      provider: "slack",
+      channelName: "dev-fusion",
+      channelId: "CDEMO_DEV_FUSION",
+      sourceUrl:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778267100000400",
+      permalink:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778267100000400",
+    },
+    content: [
+      "Slack #dev-fusion at 2026-05-08T19:05:00.000Z",
+      "Lee: Engineering architecture: Brain retrieval starts with portable SQL over brain_knowledge.",
+      "Nora: Raw capture fallback only runs when source policy allows, and citations come from evidence quotes plus metadata source URLs.",
+      "Lee: V1 has no vector database requirement.",
+    ].join("\n"),
+    status: "distilled",
+  },
+  {
+    key: "old-connector-marketplace",
+    sourceKey: "slack-dev-fusion",
+    externalId: `${RETRIEVAL_EVAL_SEED_ID}:slack:old-connector-marketplace`,
+    title: "#dev-fusion old connector marketplace plan",
+    kind: "message",
+    capturedAt: "2026-05-07T16:00:00.000Z",
+    metadata: {
+      demoSeedId: RETRIEVAL_EVAL_SEED_ID,
+      provider: "slack",
+      channelName: "dev-fusion",
+      channelId: "CDEMO_DEV_FUSION",
+      sourceUrl:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778179200000500",
+      permalink:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778179200000500",
+    },
+    content:
+      "Slack #dev-fusion at 2026-05-07T16:00:00.000Z\nOld decision: connector marketplace first was the initial Brain expansion bet before retrieval quality gates were added.",
+    status: "distilled",
+  },
+  {
+    key: "connector-eval-replacement",
+    sourceKey: "slack-dev-fusion",
+    externalId: `${RETRIEVAL_EVAL_SEED_ID}:slack:connector-eval-replacement`,
+    title: "#dev-fusion connector rollout replacement",
+    kind: "message",
+    capturedAt: "2026-05-08T19:20:00.000Z",
+    metadata: {
+      demoSeedId: RETRIEVAL_EVAL_SEED_ID,
+      provider: "slack",
+      channelName: "dev-fusion",
+      channelId: "CDEMO_DEV_FUSION",
+      sourceUrl:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778268000000600",
+      permalink:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778268000000600",
+    },
+    content:
+      "Slack #dev-fusion at 2026-05-08T19:20:00.000Z\nCurrent decision: replace connector marketplace first with an eval-first connector gate, narrating the change as originally connector marketplace first, then changed to eval-first connector gate with both citations.",
+    status: "distilled",
+  },
+  {
+    key: "privacy-redaction-output",
+    sourceKey: "slack-dev-fusion",
+    externalId: `${RETRIEVAL_EVAL_SEED_ID}:slack:privacy-redaction-output`,
+    title: "#dev-fusion privacy redaction output",
+    kind: "message",
+    capturedAt: "2026-05-08T19:35:00.000Z",
+    metadata: {
+      demoSeedId: RETRIEVAL_EVAL_SEED_ID,
+      provider: "slack",
+      channelName: "dev-fusion",
+      channelId: "CDEMO_DEV_FUSION",
+      sourceUrl:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778268900000700",
+      permalink:
+        "https://slack.example.com/archives/CDEMO_DEV_FUSION/p1778268900000700",
+    },
+    content:
+      "Slack #dev-fusion at 2026-05-08T19:35:00.000Z\nPrivacy note: Brain retrieval may preserve durable escalation rotation context, but emails like ava.cho@example.com and phone +1 415 555 1212 must display as [redacted] before results leave Brain.",
+    status: "distilled",
+  },
 ];
 
 interface RetrievalEvalCase {
@@ -256,6 +444,7 @@ interface RetrievalEvalCase {
   kind: RetrievalEvalKind;
   label: string;
   question: string;
+  expectedTitle?: string;
   requiredTerms: TermExpectation[];
   forbiddenTerms?: string[];
   requireCitation?: boolean;
@@ -306,6 +495,88 @@ const retrievalEvalCases: RetrievalEvalCase[] = [
     requireSlackProvider: true,
   },
   {
+    id: "connector-eval-gate-rationale",
+    kind: "answer",
+    label: "Product decision rationale is retrievable",
+    question: "Why are more Brain connectors waiting on retrieval evals?",
+    expectedTitle: "Brain connector rollout waits for retrieval eval gates",
+    requiredTerms: [
+      "pause additional Brain connectors",
+      ["process/policy", "process and policy"],
+      "architecture how-it-works",
+      "privacy redaction",
+      ["connectors amplify weak retrieval", "connectors amplify"],
+    ],
+    requireCitation: true,
+    requireSlackProvider: true,
+  },
+  {
+    id: "import-review-policy",
+    kind: "answer",
+    label: "Process and policy knowledge is retrievable",
+    question: "What process policy governs Brain imports and proposals?",
+    expectedTitle: "Brain import policy keeps company memory review-gated",
+    requiredTerms: [
+      "raw imports",
+      "company-tier knowledge",
+      ["reviewed", "review"],
+      "low-confidence policy items",
+      "pending proposals",
+    ],
+    requireCitation: true,
+    requireSlackProvider: true,
+  },
+  {
+    id: "retrieval-architecture-how-it-works",
+    kind: "answer",
+    label: "Engineering architecture and how-it-works knowledge is retrievable",
+    question:
+      "What does the #dev-fusion Brain retrieval architecture say about portable SQL and raw capture fallback?",
+    expectedTitle:
+      "Brain retrieval uses SQL knowledge first with raw capture fallback",
+    requiredTerms: [
+      "portable SQL",
+      "brain_knowledge",
+      "raw capture fallback",
+      "source policy",
+      "no vector database requirement",
+    ],
+    requireCitation: true,
+    requireSlackProvider: true,
+  },
+  {
+    id: "superseded-connector-rollout-narration",
+    kind: "answer",
+    label: "Superseded decisions are narrated toward the current decision",
+    question: "What replaced the connector marketplace first plan?",
+    expectedTitle:
+      "Connector marketplace first was superseded by eval-first gating",
+    requiredTerms: [
+      "originally connector marketplace first",
+      ["then changed to eval-first connector gate", "changed to eval-first"],
+      "both citations",
+    ],
+    forbiddenTerms: ["active recommendation: connector marketplace first"],
+    requireCitation: true,
+    requireSlackProvider: true,
+  },
+  {
+    id: "privacy-redaction-output",
+    kind: "answer",
+    label: "PII is redacted from retrieval output",
+    question:
+      "What does the #dev-fusion privacy redaction output say about durable escalation rotation?",
+    expectedTitle: "#dev-fusion privacy redaction output",
+    requiredTerms: [
+      "durable escalation rotation",
+      "[redacted]",
+      "before results leave Brain",
+    ],
+    forbiddenTerms: ["ava.cho@example.com", "+1 415 555 1212"],
+    requireCitation: true,
+    requireSlackProvider: true,
+  },
+  {
     id: "unsupported-cleanup-cron",
     kind: "not-found",
     label: "Unsupported cleanup cron claims are not treated as supported",
@@ -314,6 +585,17 @@ const retrievalEvalCases: RetrievalEvalCase[] = [
     requiredTerms: [
       ["cleanup cron", "cron"],
       ["deletes stale Fusion branches", "delete stale Fusion branches"],
+    ],
+  },
+  {
+    id: "unsupported-payroll-provider",
+    kind: "not-found",
+    label: "Unrelated absent claims are not treated as supported",
+    question:
+      "Which payroll provider did Brain choose for contractor invoices?",
+    requiredTerms: [
+      ["payroll provider", "contractor invoices"],
+      ["Brain choose", "Brain chose"],
     ],
   },
 ];
@@ -417,6 +699,24 @@ function evidence(
   };
 }
 
+function serializeSeedCapture(
+  row: typeof schema.brainRawCaptures.$inferSelect,
+) {
+  const capture = serializeCapture(row);
+  return {
+    ...capture,
+    externalId: capture.externalId
+      ? redactSensitiveText(capture.externalId)
+      : capture.externalId,
+    title: redactSensitiveText(capture.title),
+    content: redactSensitiveText(capture.content),
+    metadata: redactSensitiveValue(capture.metadata),
+    importedBy: capture.importedBy
+      ? redactSensitiveText(capture.importedBy)
+      : capture.importedBy,
+  };
+}
+
 export async function seedBrainDemoData(
   options: {
     publishCanonical?: boolean;
@@ -462,9 +762,9 @@ export async function seedBrainDemoData(
   const retiredFreemium = await upsertDemoKnowledge({
     title: "Freemium signup retired for enterprise-led growth",
     kind: "decision",
-    body: "Brain should explain that the team retired the self-serve freemium path because activation stayed under 6% while support load was blocking enterprise onboarding. The new motion emphasizes sales-led pilots with named implementation owners.",
+    body: "Brain should explain that the team previously treated freemium as the default acquisition path, then retired the self-serve freemium path because activation stayed under 6% while support load was blocking enterprise onboarding. The new motion emphasizes sales-led pilots with named implementation owners.",
     summary:
-      "The self-serve freemium path was retired because low activation and support load hurt enterprise onboarding.",
+      "Freemium was previously the default acquisition path; the current decision retired self-serve freemium because low activation and support load hurt enterprise onboarding.",
     topic: "Growth",
     tags: ["freemium", "enterprise", "product-decision"],
     entities: [
@@ -528,22 +828,102 @@ export async function seedBrainDemoData(
     publishCanonical: false,
   });
 
+  const connectorEvalGate = await upsertDemoKnowledge({
+    title: "Brain connector rollout waits for retrieval eval gates",
+    kind: "decision",
+    body: "The product decision is to pause additional Brain connectors until retrieval evals pass product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. The rationale is that connectors amplify weak memory retrieval when the corpus is thin.",
+    summary:
+      "Additional Brain connectors wait for retrieval eval gates covering process and policy knowledge, architecture how-it-works, privacy redaction, and connectors amplify weak memory retrieval.",
+    topic: "Brain",
+    tags: ["connectors", "retrieval-evals", "product-rationale"],
+    entities: [
+      { type: "template", name: "Brain" },
+      { type: "quality-gate", name: "Retrieval evals" },
+    ],
+    evidence: [
+      evidence(
+        captureByKey.get("connector-eval-gate")!,
+        "Decision: pause additional Brain connectors until retrieval evals pass product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction.",
+      ),
+      evidence(
+        captureByKey.get("connector-eval-gate")!,
+        "Rationale: connectors amplify weak memory retrieval when the corpus is thin.",
+      ),
+    ],
+    confidence: 94,
+    publishCanonical: false,
+  });
+
+  const importReviewPolicy = await upsertDemoKnowledge({
+    title: "Brain import policy keeps company memory review-gated",
+    kind: "policy",
+    body: "Raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable memory. Low-confidence policy items stay pending proposals and out of published search.",
+    summary:
+      "Raw imports become captures first; company-tier knowledge stays reviewed, cited, or proposed before durable publication.",
+    topic: "Review policy",
+    tags: ["process", "policy", "review-queue"],
+    entities: [{ type: "policy", name: "Brain import review" }],
+    evidence: [
+      evidence(
+        captureByKey.get("import-review-policy")!,
+        "Policy: raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable memory.",
+      ),
+      evidence(
+        captureByKey.get("import-review-policy")!,
+        "Low-confidence policy items stay pending proposals and out of published search.",
+      ),
+    ],
+    confidence: 95,
+    publishCanonical: false,
+  });
+
+  const retrievalArchitecture = await upsertDemoKnowledge({
+    title: "Brain retrieval uses SQL knowledge first with raw capture fallback",
+    kind: "how-it-works",
+    body: "Brain retrieval starts with portable SQL over brain_knowledge, then uses raw capture fallback only when source policy allows. Citations come from evidence quotes and metadata source URLs, and V1 does not require a vector database.",
+    summary:
+      "Brain retrieval uses portable SQL over brain_knowledge first, raw capture fallback follows source policy, citations use source URLs, and V1 has no vector database requirement.",
+    topic: "Brain architecture",
+    tags: ["architecture", "retrieval", "sql"],
+    entities: [
+      { type: "system", name: "Brain retrieval" },
+      { type: "table", name: "brain_knowledge" },
+    ],
+    evidence: [
+      evidence(
+        captureByKey.get("retrieval-architecture")!,
+        "Architecture: Brain retrieval starts with portable SQL over brain_knowledge.",
+      ),
+      evidence(
+        captureByKey.get("retrieval-architecture")!,
+        "Raw capture fallback only runs when source policy allows.",
+      ),
+      evidence(
+        captureByKey.get("retrieval-architecture")!,
+        "Citations come from evidence quotes and metadata source URLs; V1 does not require a vector database.",
+      ),
+    ],
+    confidence: 95,
+    publishCanonical: false,
+  });
+
   const redacted = await upsertDemoKnowledge({
     title: "Escalation owner notes are redacted when personal data appears",
     kind: "policy",
-    body: "Brain may preserve durable escalation process context, but personal identifiers from source material are redacted before the entry is queryable.",
+    body: "Brain may preserve durable escalation process context, but email and phone-like personal identifiers from source material are redacted before the entry is queryable.",
     summary:
-      "Escalation process context can be retained with personal identifiers redacted.",
+      "Escalation process context can be retained with email and phone-like personal identifiers redacted.",
     topic: "Privacy",
     tags: ["privacy", "redaction", "support"],
     entities: [{ type: "policy", name: "Personal content exclusion" }],
     evidence: [
       evidence(
         captureByKey.get("redaction-proof")!,
-        "The escalation owner is ava.cho@example.com until support automation ships.",
+        "The escalation owner is ava.cho@example.com and phone +1 415 555 1212 until support automation ships.",
       ),
     ],
     confidence: 95,
+    redactions: ["+1 415 555 1212"],
     publishCanonical: false,
   });
 
@@ -580,12 +960,15 @@ export async function seedBrainDemoData(
     seedId: DEMO_SEED_ID,
     seededAt: nowIso(),
     sources: Array.from(sourceByKey.values()).map(serializeSource),
-    captures: Array.from(captureByKey.values()).map(serializeCapture),
+    captures: Array.from(captureByKey.values()).map(serializeSeedCapture),
     knowledge: [
       oldFreemium,
       retiredFreemium,
       decisionDigest,
       launchDemo,
+      connectorEvalGate,
+      importReviewPolicy,
+      retrievalArchitecture,
       redacted,
     ],
     proposal,
@@ -593,6 +976,8 @@ export async function seedBrainDemoData(
       "Why did we retire freemium?",
       "How does Decision Digest work and why?",
       "Why are product decisions the lead Brain demo?",
+      "Why are more Brain connectors waiting on retrieval evals?",
+      "How does Brain retrieval work architecturally?",
       "What is our transcript retention policy?",
     ],
   };
@@ -653,12 +1038,165 @@ export async function seedBrainRetrievalEvalData(
     publishCanonical: options.publishCanonical ?? false,
   });
 
+  const connectorEvalGate = await upsertDemoKnowledge({
+    title: "Brain connector rollout waits for retrieval eval gates",
+    kind: "decision",
+    body: "The product decision is to pause additional Brain connectors until retrieval evals pass product decisions, process/policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. The rationale is that connectors amplify weak retrieval when the memory corpus is thin, so quality gates come before connector breadth.",
+    summary:
+      "Pause additional Brain connectors until retrieval evals cover process/policy knowledge, architecture how-it-works, privacy redaction, and connectors amplify weak retrieval.",
+    topic: "Brain connectors",
+    tags: ["brain", "connectors", "retrieval-eval", "product-rationale"],
+    entities: [
+      { type: "template", name: "Brain" },
+      { type: "quality-gate", name: "Retrieval evals" },
+    ],
+    evidence: [
+      evidence(
+        captureByKey.get("connector-eval-gate")!,
+        "Product decision: pause additional Brain connectors; connectors amplify weak retrieval.",
+      ),
+      evidence(
+        captureByKey.get("connector-eval-gate")!,
+        "The eval gate covers product decisions, process/policy knowledge, architecture how-it-works, privacy redaction, superseded decision narration, and honest not-found behavior.",
+      ),
+    ],
+    confidence: 95,
+    publishCanonical: options.publishCanonical ?? false,
+  });
+
+  const importReviewPolicy = await upsertDemoKnowledge({
+    title: "Brain import policy keeps company memory review-gated",
+    kind: "policy",
+    body: "Raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable memory. Low-confidence policy items stay pending proposals and out of published search until review.",
+    summary:
+      "Raw imports become captures first; company-tier knowledge stays reviewed, cited, or proposed, and low-confidence policy items stay pending proposals.",
+    topic: "Brain process",
+    tags: ["process", "policy", "review-queue", "retrieval-eval"],
+    entities: [{ type: "policy", name: "Brain import review" }],
+    evidence: [
+      evidence(
+        captureByKey.get("import-review-policy")!,
+        "Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable memory.",
+      ),
+      evidence(
+        captureByKey.get("import-review-policy")!,
+        "Low-confidence policy items stay pending proposals and out of published search until review.",
+      ),
+    ],
+    confidence: 95,
+    publishCanonical: options.publishCanonical ?? false,
+  });
+
+  const retrievalArchitecture = await upsertDemoKnowledge({
+    title: "Brain retrieval uses SQL knowledge first with raw capture fallback",
+    kind: "how-it-works",
+    body: "Brain retrieval starts with portable SQL over brain_knowledge, then raw capture fallback only runs when source policy allows. Citations come from evidence quotes plus metadata source URLs. V1 has no vector database requirement.",
+    summary:
+      "Brain retrieval uses portable SQL over brain_knowledge first, raw capture fallback follows source policy, citations use source URLs, and V1 has no vector database requirement.",
+    topic: "Brain architecture",
+    tags: ["architecture", "retrieval", "sql", "retrieval-eval"],
+    entities: [
+      { type: "system", name: "Brain retrieval" },
+      { type: "table", name: "brain_knowledge" },
+    ],
+    evidence: [
+      evidence(
+        captureByKey.get("retrieval-architecture")!,
+        "Engineering architecture: Brain retrieval starts with portable SQL over brain_knowledge.",
+      ),
+      evidence(
+        captureByKey.get("retrieval-architecture")!,
+        "Raw capture fallback only runs when source policy allows, and citations come from evidence quotes plus metadata source URLs.",
+      ),
+      evidence(
+        captureByKey.get("retrieval-architecture")!,
+        "V1 has no vector database requirement.",
+      ),
+    ],
+    confidence: 95,
+    publishCanonical: options.publishCanonical ?? false,
+  });
+
+  const oldConnectorMarketplace = await upsertDemoKnowledge({
+    title: "Connector marketplace was the first Brain expansion bet",
+    kind: "decision",
+    body: "The old Brain expansion decision put connector marketplace first before retrieval quality gates were added.",
+    summary:
+      "Connector marketplace first was the original expansion plan before retrieval quality gates.",
+    topic: "Brain connectors",
+    tags: ["connectors", "superseded", "retrieval-eval"],
+    entities: [{ type: "template", name: "Brain" }],
+    evidence: [
+      evidence(
+        captureByKey.get("old-connector-marketplace")!,
+        "Old decision: connector marketplace first was the initial Brain expansion bet before retrieval quality gates were added.",
+      ),
+    ],
+    confidence: 91,
+    publishCanonical: false,
+  });
+
+  const connectorRolloutReplacement = await upsertDemoKnowledge({
+    title: "Connector marketplace first was superseded by eval-first gating",
+    kind: "decision",
+    body: "The current connector rollout should be narrated as originally connector marketplace first, then changed to eval-first connector gate with both citations. Search should treat eval-first gating as the current decision, not the old connector marketplace recommendation.",
+    summary:
+      "Originally connector marketplace first, then changed to eval-first connector gate with both citations; eval-first gating is current.",
+    topic: "Brain connectors",
+    tags: ["connectors", "supersedes", "retrieval-eval"],
+    entities: [
+      { type: "template", name: "Brain" },
+      { type: "quality-gate", name: "Eval-first connector gate" },
+    ],
+    evidence: [
+      evidence(
+        captureByKey.get("old-connector-marketplace")!,
+        "Old decision: connector marketplace first was the initial Brain expansion bet before retrieval quality gates were added.",
+      ),
+      evidence(
+        captureByKey.get("connector-eval-replacement")!,
+        "Current decision: replace connector marketplace first with an eval-first connector gate, narrating the change as originally connector marketplace first, then changed to eval-first connector gate with both citations.",
+      ),
+    ],
+    confidence: 95,
+    supersedesId: oldConnectorMarketplace.id,
+    publishCanonical: options.publishCanonical ?? false,
+  });
+
+  const privacyRedaction = await upsertDemoKnowledge({
+    title: "Brain retrieval redacts personal escalation identifiers",
+    kind: "policy",
+    body: "Brain retrieval may preserve durable escalation rotation context, but personal emails and phone numbers must display as [redacted] before results leave Brain.",
+    summary:
+      "Durable escalation rotation context can be searched, but personal emails and phone numbers are redacted before output.",
+    topic: "Privacy",
+    tags: ["privacy", "redaction", "retrieval-eval"],
+    entities: [{ type: "policy", name: "Brain retrieval redaction" }],
+    evidence: [
+      evidence(
+        captureByKey.get("privacy-redaction-output")!,
+        "Privacy note: Brain retrieval may preserve durable escalation rotation context, but emails like ava.cho@example.com and phone +1 415 555 1212 must display as [redacted] before results leave Brain.",
+      ),
+    ],
+    confidence: 95,
+    redactions: ["+1 415 555 1212"],
+    publishCanonical: false,
+  });
+
   return {
     seedId: RETRIEVAL_EVAL_SEED_ID,
     seededAt: nowIso(),
     sources: Array.from(sourceByKey.values()).map(serializeSource),
-    captures: Array.from(captureByKey.values()).map(serializeCapture),
-    knowledge: [staleFusionBranch],
+    captures: Array.from(captureByKey.values()).map(serializeSeedCapture),
+    knowledge: [
+      staleFusionBranch,
+      connectorEvalGate,
+      importReviewPolicy,
+      retrievalArchitecture,
+      oldConnectorMarketplace,
+      connectorRolloutReplacement,
+      privacyRedaction,
+    ],
     suggestedQuestions: retrievalEvalCases
       .filter((item) => item.kind === "answer")
       .map((item) => item.question),
@@ -745,6 +1283,9 @@ function findRetrievalEvalMatch(
 ) {
   return (
     results.find((result) => {
+      if (evalCase.expectedTitle && result.title !== evalCase.expectedTitle) {
+        return false;
+      }
       const text = searchResultText(result);
       return (
         evalCase.requiredTerms.every((term) =>
@@ -906,6 +1447,31 @@ export async function runBrainDemoEval(
       : "Top freemium search result had no citation URL.",
     topFreemiumSearch?.citation ?? null,
   );
+
+  const connectorSearch = await searchEverythingRows({
+    query: "Why are more Brain connectors waiting on retrieval evals?",
+    limit: 5,
+  });
+  const topConnectorSearch = connectorSearch[0] ?? null;
+  const connectorSearchText = topConnectorSearch
+    ? JSON.stringify(topConnectorSearch)
+    : "";
+  check(
+    checks,
+    "product-rationale-search",
+    "Product decision rationale for connector sequencing is retrievable",
+    topConnectorSearch?.type === "knowledge" &&
+      topConnectorSearch.title ===
+        "Brain connector rollout waits for retrieval eval gates" &&
+      connectorSearchText.includes(
+        "connectors amplify weak memory retrieval",
+      ) &&
+      !!topConnectorSearch.citation?.sourceUrl,
+    topConnectorSearch
+      ? `Top result is ${topConnectorSearch.type}:${topConnectorSearch.title}.`
+      : "Connector eval-gate rationale search returned no results.",
+    connectorSearch,
+  );
   check(
     checks,
     "supersede-chain",
@@ -918,6 +1484,28 @@ export async function runBrainDemoEval(
     oldFreemium && freemium
       ? `Archived ${oldFreemium.id} in favor of ${freemium.id}.`
       : "Missing old/new freemium knowledge pair.",
+  );
+  const freemiumNarrationText = [
+    topFreemiumSearch?.summary,
+    topFreemiumSearch?.snippet,
+  ].join("\n");
+  check(
+    checks,
+    "superseded-search-narration",
+    "Current search result narrates the superseded freemium decision",
+    topFreemiumSearch?.title ===
+      "Freemium signup retired for enterprise-led growth" &&
+      includesTerm(freemiumNarrationText, "previously the default") &&
+      includesTerm(freemiumNarrationText, "current decision retired") &&
+      !freemiumSearch.some(
+        (item) =>
+          item.type === "knowledge" &&
+          item.title === "Freemium signup was the default acquisition path",
+      ),
+    topFreemiumSearch
+      ? `Current result snippet: ${topFreemiumSearch.snippet}`
+      : "Freemium search returned no current decision result.",
+    freemiumSearch,
   );
 
   const digest = await findKnowledgeByTitle(
@@ -933,6 +1521,51 @@ export async function runBrainDemoEval(
       ? `Found Decision Digest entry with ${digestEvidence.length} citations.`
       : "Decision Digest entry was not found.",
     digest ? serializeKnowledge(digest) : null,
+  );
+
+  const importPolicy = await findKnowledgeByTitle(
+    "Brain import policy keeps company memory review-gated",
+  );
+  const importPolicyEvidence = importPolicy
+    ? knowledgeEvidence(importPolicy)
+    : [];
+  check(
+    checks,
+    "process-policy-recall",
+    "Process policy knowledge is published and cited",
+    !!importPolicy &&
+      importPolicy.status === "published" &&
+      importPolicy.kind === "policy" &&
+      importPolicyEvidence.length >= 2,
+    importPolicy
+      ? `Found import review policy with ${importPolicyEvidence.length} citation(s).`
+      : "Brain import review policy was not found.",
+    importPolicy ? serializeKnowledge(importPolicy) : null,
+  );
+
+  const architectureSearch = await searchEverythingRows({
+    query:
+      "Brain retrieval architecture portable SQL brain_knowledge raw capture fallback",
+    limit: 5,
+  });
+  const topArchitectureSearch = architectureSearch[0] ?? null;
+  const architectureSearchText = topArchitectureSearch
+    ? JSON.stringify(topArchitectureSearch)
+    : "";
+  check(
+    checks,
+    "architecture-search-quality",
+    "Engineering architecture how-it-works result is retrievable",
+    topArchitectureSearch?.type === "knowledge" &&
+      topArchitectureSearch.title ===
+        "Brain retrieval uses SQL knowledge first with raw capture fallback" &&
+      includesTerm(architectureSearchText, "portable SQL") &&
+      includesTerm(architectureSearchText, "brain_knowledge") &&
+      includesTerm(architectureSearchText, "no vector database requirement"),
+    topArchitectureSearch
+      ? `Top result is ${topArchitectureSearch.type}:${topArchitectureSearch.title}.`
+      : "Brain retrieval architecture search returned no results.",
+    architectureSearch,
   );
 
   const proposal = await findPendingProposalByTitle(
@@ -979,9 +1612,10 @@ export async function runBrainDemoEval(
     "PII is redacted before queryable storage",
     !!redacted &&
       redacted.status === "redacted" &&
-      !redactedText.includes("ava.cho@example.com"),
+      !redactedText.includes("ava.cho@example.com") &&
+      !redactedText.includes("+1 415 555 1212"),
     redacted
-      ? `Stored redacted knowledge ${redacted.id} without the source email.`
+      ? `Stored redacted knowledge ${redacted.id} without the source email or phone.`
       : "Redacted privacy entry was not found.",
   );
   const redactionSearch = await searchEverythingRows({
@@ -995,7 +1629,8 @@ export async function runBrainDemoEval(
     "search-pii-redaction",
     "Search output redacts PII from matching raw captures",
     redactionSearch.some((item) => item.type === "capture") &&
-      !redactionSearchText.includes("ava.cho@example.com"),
+      !redactionSearchText.includes("ava.cho@example.com") &&
+      !redactionSearchText.includes("+1 415 555 1212"),
     redactionSearch.length
       ? `Search returned ${redactionSearch.length} redacted capture result(s).`
       : "Search returned no capture result for the redaction fixture.",

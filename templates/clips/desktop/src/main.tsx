@@ -10,10 +10,11 @@ import { MeetingNotification } from "./overlays/meeting-notification";
 import { MeetingNub } from "./overlays/meeting-nub";
 import { FlowBar } from "./overlays/flow-bar";
 import { RecordingPill } from "./overlays/recording-pill";
+import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
 import "./styles.css";
 
 /**
- * One bundle, one HTML, nine views. We pick which component to mount based
+ * One bundle, one HTML, many views. We pick which component to mount based
  * on the URL hash so each Tauri window (spawned from Rust with
  * `index.html#<name>`) renders only what it needs.
  */
@@ -47,6 +48,10 @@ function pickRoute(route: string): React.ReactElement {
       return <FlowBar />;
     case "recording-pill":
       return <RecordingPill />;
+    case "region-guides":
+      return <RegionGuides />;
+    case "region-guides-editor":
+      return <RegionGuideEditor />;
     default:
       return <App />;
   }

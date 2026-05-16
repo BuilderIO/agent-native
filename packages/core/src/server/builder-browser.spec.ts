@@ -3,8 +3,11 @@ import type { H3Event } from "h3";
 import {
   appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
+  BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM,
+  BUILDER_AGENT_NATIVE_FLOW_PARAM,
   BUILDER_CALLBACK_PATH,
   BUILDER_CONNECT_PARAM,
+  BUILDER_SIGNUP_SOURCE_PARAM,
   BUILDER_STATE_PARAM,
   getBuilderBranchProjectId,
   getBuilderCliAuthCallbackOriginForEvent,
@@ -332,8 +335,11 @@ describe("Builder callback CSRF state", () => {
         "https://alice.agent-native.com/",
       );
       const redirectUrl = new URL(cliAuthUrl).searchParams.get("redirect_url")!;
-      expect(redirectUrl).toBe(
-        "https://alice.agent-native.com/_agent-native/builder/callback",
+      const parsedRedirect = new URL(redirectUrl);
+      expect(parsedRedirect.origin).toBe("https://alice.agent-native.com");
+      expect(parsedRedirect.pathname).toBe(BUILDER_CALLBACK_PATH);
+      expect(parsedRedirect.searchParams.get(BUILDER_SIGNUP_SOURCE_PARAM)).toBe(
+        "agent-native",
       );
     });
 
@@ -343,12 +349,41 @@ describe("Builder callback CSRF state", () => {
         "https://alice.agent-native.com/",
       );
       const parsed = new URL(cliAuthUrl);
-      expect(parsed.searchParams.get("redirect_url")).toBe(
-        "https://alice.agent-native.com/docs/_agent-native/builder/callback",
+      const redirectUrl = parsed.searchParams.get("redirect_url");
+      expect(redirectUrl).toBeTruthy();
+      const parsedRedirect = new URL(redirectUrl!);
+      expect(parsedRedirect.origin).toBe("https://alice.agent-native.com");
+      expect(parsedRedirect.pathname).toBe(
+        "/docs/_agent-native/builder/callback",
       );
       expect(parsed.searchParams.get("preview_url")).toBe(
         "https://alice.agent-native.com/docs",
       );
+    });
+
+    it("adds Agent Native signup attribution to cli-auth and callback URLs", () => {
+      const cliAuthUrl = buildBuilderCliAuthUrl(
+        "https://alice.agent-native.com",
+        signBuilderCallbackState("alice@example.com"),
+        {
+          tracking: {
+            agentNativeFlow: "background_agent",
+            agentNativeConnectSource: "connect_builder_card",
+          },
+        },
+      );
+      const parsed = new URL(cliAuthUrl);
+      const redirectUrl = new URL(parsed.searchParams.get("redirect_url")!);
+
+      for (const params of [parsed.searchParams, redirectUrl.searchParams]) {
+        expect(params.get(BUILDER_SIGNUP_SOURCE_PARAM)).toBe("agent-native");
+        expect(params.get(BUILDER_AGENT_NATIVE_FLOW_PARAM)).toBe(
+          "background_agent",
+        );
+        expect(params.get(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM)).toBe(
+          "connect_builder_card",
+        );
+      }
     });
 
     it("preserves APP_BASE_PATH in the surfaced connect URL", () => {

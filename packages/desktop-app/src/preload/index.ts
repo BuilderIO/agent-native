@@ -28,6 +28,9 @@ import {
   type CodeAgentRemoteConnectorPairRequest,
   type CodeAgentRemoteConnectorPairResult,
   type CodeAgentRemoteConnectorStatus,
+  type CodeAgentProviderSettings,
+  type CodeAgentProviderSettingsUpdate,
+  type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
   type InterAppMessage,
   type UpdateStatus,
@@ -193,6 +196,15 @@ const electronAPI = {
       request?: CodeAgentRemoteConnectorPairRequest,
     ): Promise<CodeAgentRemoteConnectorPairResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_CONNECTOR_PAIR, request),
+    getProviderSettings: (): Promise<CodeAgentProviderSettings> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PROVIDER_SETTINGS_GET),
+    updateProviderSettings: (
+      request: CodeAgentProviderSettingsUpdate,
+    ): Promise<CodeAgentProviderSettingsUpdateResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PROVIDER_SETTINGS_UPDATE, request),
+    connectBuilderProvider:
+      (): Promise<CodeAgentProviderSettingsUpdateResult> =>
+        ipcRenderer.invoke(IPC.CODE_AGENTS_PROVIDER_BUILDER_CONNECT),
     onOpenRequest: (
       cb: (request: DesktopOpenRequest) => void,
     ): (() => void) => {

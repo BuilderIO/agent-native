@@ -2,7 +2,10 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useBuilderConnectFlow } from "./useBuilderStatus.js";
+import {
+  useBuilderConnectFlow,
+  withBuilderConnectTrackingParams,
+} from "./useBuilderStatus.js";
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -21,7 +24,7 @@ function BuilderConnectProbe({ popupUrl }: { popupUrl?: string }) {
   const flow = useBuilderConnectFlow({ popupUrl });
   return (
     <div>
-      <button type="button" onClick={flow.start}>
+      <button type="button" onClick={() => flow.start()}>
         Connect
       </button>
       <output data-testid="status">
@@ -54,6 +57,13 @@ const refreshedCliAuthUrl = signedCliAuthUrl.replace(
   "_an_state%3Dsigned",
   "_an_state%3Drefreshed",
 );
+
+function expectedConnectUrl(url: string): string {
+  return withBuilderConnectTrackingParams(url, {
+    source: "builder_connect_flow",
+    flow: "connect_llm",
+  });
+}
 
 describe("useBuilderConnectFlow", () => {
   let container: HTMLDivElement;
@@ -117,7 +127,7 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe(signedCliAuthUrl);
+    expect(popup.location.href).toBe(expectedConnectUrl(signedCliAuthUrl));
     expect(container.textContent).not.toContain("Popup blocked");
   });
 
@@ -163,7 +173,7 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe(refreshedCliAuthUrl);
+    expect(popup.location.href).toBe(expectedConnectUrl(refreshedCliAuthUrl));
 
     resolveInitialFetch(jsonResponse({ configured: false }));
   });
@@ -329,7 +339,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      signedCliAuthUrl,
+      expectedConnectUrl(signedCliAuthUrl),
       "_blank",
       "noopener,noreferrer",
     );
@@ -383,7 +393,7 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe(signedConnectUrl);
+    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain(
       "Private key does not match spaceId",
