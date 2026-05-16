@@ -40,6 +40,10 @@ const SKIP_SUBSTRINGS = [
   // "/_agent-native/agent" (stream) and "/_agent-native/agent-chat"
   // (thread history) and any sub-paths.
   "/_agent-native/agent",
+  // Run-manager state read by the reconnect/recovery loop. Faking numeric
+  // run state here would make recovery think it's not progressing and
+  // exhaust its retries ("agent connection kept failing").
+  "/_agent-native/runs",
 ];
 
 let installed = false;
@@ -47,16 +51,22 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 let demoEnabled = false;
 let originalFetch: typeof fetch | null = null;
 
-// Resolves once the first demo-status check completes (success OR failure).
-// The redaction DECISION awaits this so the very first data response — which
-// may come back before the status poll — is still classified correctly and
-// never cached un-redacted. The network request itself is never delayed: the
-// data fetch and the tiny status fetch race in parallel.
+// Set once the first demo-status check completes. We DO NOT block requests on
+// it — if status isn't known yet a response is simply passed through
+// un-redacted (a brief first-paint window) rather than delaying transport.
+// Injecting latency into early GETs previously risked the agent's streaming
+// reconnect logic; transport safety wins over redacting the first paint.
 let firstStatusDone = false;
-let resolveStatusReady: () => void;
-const statusReady = new Promise<void>((r) => {
-  resolveStatusReady = r;
-});
+
+/** Reject after `ms` so a misclassified streaming body can never hang. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("redact-timeout")), ms),
+    ),
+  ]);
+}
 
 function urlOf(input: RequestInfo | URL): string {
   try {
@@ -91,10 +101,7 @@ async function refreshDemoFlag(): Promise<void> {
   } catch {
     // Status endpoint unreachable — leave the last known value.
   } finally {
-    if (!firstStatusDone) {
-      firstStatusDone = true;
-      resolveStatusReady();
-    }
+    firstStatusDone = true;
   }
 }
 
@@ -117,24 +124,36 @@ export function ensureDemoModeFetchInterceptor(): void {
     init?: RequestInit,
   ): Promise<Response> {
     const res = await base(input, init);
+
+    // Fast path: anything that isn't a demo-enabled, plain GET returns the
+    // ORIGINAL response with zero body work and zero extra awaits — when
+    // demo mode is off this wrapper is byte-for-byte native fetch, so it
+    // cannot influence agent/run/stream transport.
+    if (!demoEnabled || !firstStatusDone) return res;
+    if (methodOf(input, init) !== "GET") return res;
+    if (!res.ok) return res;
+
     try {
-      if (methodOf(input, init) !== "GET") return res;
-      if (!res.ok) return res;
-
-      // Wait for the first status check so an early response isn't
-      // misclassified (the request already happened in parallel above).
-      if (!firstStatusDone) await statusReady;
-      if (!demoEnabled) return res;
-
       const url = urlOf(input);
       if (SKIP_SUBSTRINGS.some((s) => url.includes(s))) return res;
 
+      // Only buffered, finite JSON. SSE / streaming / chunked-forever bodies
+      // never reach `redactDemoData`: streaming content-types are excluded,
+      // and the JSON read is hard-timeout-bounded so a misclassified stream
+      // degrades to "return the original response" instead of hanging the
+      // request (which is what tripped the reconnect/recovery loop).
       const contentType = res.headers.get("content-type") ?? "";
-      if (contentType.includes("text/event-stream")) return res;
       if (!contentType.includes("application/json")) return res;
+      if (
+        contentType.includes("event-stream") ||
+        contentType.includes("ndjson") ||
+        contentType.includes("stream")
+      ) {
+        return res;
+      }
       if (res.bodyUsed) return res;
 
-      const data = await res.clone().json();
+      const data = await withTimeout(res.clone().json(), 3_000);
       const redacted = redactDemoData(data);
 
       const headers = new Headers(res.headers);
@@ -148,7 +167,8 @@ export function ensureDemoModeFetchInterceptor(): void {
         headers,
       });
     } catch {
-      // Never let redaction break a request — fall back to the real response.
+      // Never let redaction break a request — fall back to the real
+      // response (its body stream is untouched; we only ever read a clone).
       return res;
     }
   };
