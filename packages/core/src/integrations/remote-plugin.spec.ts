@@ -5,11 +5,22 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 const createRemoteDeviceMock = vi.hoisted(() => vi.fn());
 const getRemoteDeviceForOwnerMock = vi.hoisted(() => vi.fn());
+const listRemoteDevicesForOwnerMock = vi.hoisted(() => vi.fn());
+const revokeRemoteDeviceForOwnerMock = vi.hoisted(() => vi.fn());
+const unregisterRemoteDeviceMock = vi.hoisted(() => vi.fn());
+const updateRemoteDeviceDetailsMock = vi.hoisted(() => vi.fn());
 const authenticateRemoteDeviceTokenMock = vi.hoisted(() => vi.fn());
 const claimNextRemoteCommandMock = vi.hoisted(() => vi.fn());
 const enqueueRemoteCommandMock = vi.hoisted(() => vi.fn());
+const listRemoteCommandsForOwnerMock = vi.hoisted(() => vi.fn());
 const updateRemoteCommandResultMock = vi.hoisted(() => vi.fn());
 const insertRemoteRunEventsMock = vi.hoisted(() => vi.fn());
+const listRemoteRunEventsMock = vi.hoisted(() => vi.fn());
+const listRemotePushRegistrationsForOwnerMock = vi.hoisted(() => vi.fn());
+const upsertRemotePushRegistrationMock = vi.hoisted(() => vi.fn());
+const unregisterRemotePushRegistrationForOwnerMock = vi.hoisted(() => vi.fn());
+const listRemotePushNotificationsForOwnerMock = vi.hoisted(() => vi.fn());
+const queueRemotePushNotificationsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -45,6 +56,10 @@ vi.mock("./remote-devices-store.js", () => ({
   authenticateRemoteDeviceToken: authenticateRemoteDeviceTokenMock,
   createRemoteDevice: createRemoteDeviceMock,
   getRemoteDeviceForOwner: getRemoteDeviceForOwnerMock,
+  listRemoteDevicesForOwner: listRemoteDevicesForOwnerMock,
+  revokeRemoteDeviceForOwner: revokeRemoteDeviceForOwnerMock,
+  unregisterRemoteDevice: unregisterRemoteDeviceMock,
+  updateRemoteDeviceDetails: updateRemoteDeviceDetailsMock,
   toPublicRemoteDevice: (device: any) => {
     const { deviceTokenHash, ...publicDevice } = device;
     return publicDevice;
@@ -65,11 +80,26 @@ vi.mock("./remote-commands-store.js", () => ({
       "stop",
       "status",
     ].includes(String(value)),
+  listRemoteCommandsForOwner: listRemoteCommandsForOwnerMock,
   updateRemoteCommandResult: updateRemoteCommandResultMock,
 }));
 
 vi.mock("./remote-run-events-store.js", () => ({
   insertRemoteRunEvents: insertRemoteRunEventsMock,
+  listRemoteRunEvents: listRemoteRunEventsMock,
+}));
+
+vi.mock("./remote-push-store.js", () => ({
+  listRemotePushNotificationsForOwner: listRemotePushNotificationsForOwnerMock,
+  listRemotePushRegistrationsForOwner: listRemotePushRegistrationsForOwnerMock,
+  queueRemotePushNotifications: queueRemotePushNotificationsMock,
+  toPublicRemotePushRegistration: (registration: any) => {
+    const { token, tokenHash, ...publicRegistration } = registration;
+    return publicRegistration;
+  },
+  unregisterRemotePushRegistrationForOwner:
+    unregisterRemotePushRegistrationForOwnerMock,
+  upsertRemotePushRegistration: upsertRemotePushRegistrationMock,
 }));
 
 function createNitroApp() {
@@ -142,9 +172,14 @@ describe("remote integration plugin routes", () => {
         ownerEmail: "alice@example.com",
         orgId: "org-1",
         label: "Studio Mac",
+        platform: null,
+        appVersion: null,
+        hostName: null,
+        metadata: null,
         deviceTokenHash: "hashed",
         lastSeenAt: 1,
         status: "active",
+        revokedAt: null,
         createdAt: 1,
         updatedAt: 1,
       },
@@ -164,6 +199,10 @@ describe("remote integration plugin routes", () => {
       ownerEmail: "alice@example.com",
       orgId: "org-1",
       label: "Studio Mac",
+      platform: undefined,
+      appVersion: undefined,
+      hostName: undefined,
+      metadata: null,
     });
     expect(result.body).toEqual({
       token: "anr_raw-token",
@@ -252,6 +291,505 @@ describe("remote integration plugin routes", () => {
       orgId: "org-1",
     });
     expect(enqueueRemoteCommandMock).not.toHaveBeenCalled();
+  });
+
+  it("lists scoped host details without exposing device token hashes", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValueOnce({ orgId: "org-1" });
+    listRemoteDevicesForOwnerMock.mockResolvedValueOnce([
+      {
+        id: "device-1",
+        ownerEmail: "alice@example.com",
+        orgId: "org-1",
+        label: "Studio Mac",
+        platform: "darwin",
+        appVersion: "1.2.3",
+        hostName: "studio",
+        metadata: { arch: "arm64" },
+        deviceTokenHash: "hashed",
+        lastSeenAt: Date.now(),
+        status: "active",
+        revokedAt: null,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ]);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/remote/hosts",
+      "GET",
+    );
+
+    expect(result.status).toBe(200);
+    expect(listRemoteDevicesForOwnerMock).toHaveBeenCalledWith({
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      limit: 50,
+    });
+    expect(result.body).toEqual({
+      hosts: [
+        expect.objectContaining({
+          id: "device-1",
+          platform: "darwin",
+          appVersion: "1.2.3",
+          hostName: "studio",
+          device: expect.not.objectContaining({ deviceTokenHash: "hashed" }),
+        }),
+      ],
+      devices: [
+        expect.objectContaining({
+          id: "device-1",
+          device: expect.not.objectContaining({ deviceTokenHash: "hashed" }),
+        }),
+      ],
+    });
+  });
+
+  it("revokes a device only through the scoped owner session", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValueOnce({ orgId: "org-1" });
+    revokeRemoteDeviceForOwnerMock.mockResolvedValueOnce({
+      id: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      label: "Studio Mac",
+      platform: null,
+      appVersion: null,
+      hostName: null,
+      metadata: null,
+      deviceTokenHash: "hashed",
+      lastSeenAt: 1,
+      status: "inactive",
+      revokedAt: 2,
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/remote/devices/device-1/revoke",
+      "POST",
+    );
+
+    expect(result.status).toBe(200);
+    expect(revokeRemoteDeviceForOwnerMock).toHaveBeenCalledWith({
+      id: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+    });
+    expect(result.body).toEqual({
+      ok: true,
+      device: expect.not.objectContaining({ deviceTokenHash: "hashed" }),
+    });
+  });
+
+  it("lets an authenticated device unregister itself", async () => {
+    authenticateRemoteDeviceTokenMock.mockResolvedValueOnce({
+      id: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: null,
+      label: "Studio Mac",
+      platform: null,
+      appVersion: null,
+      hostName: null,
+      metadata: null,
+      deviceTokenHash: "hashed",
+      lastSeenAt: 1,
+      status: "active",
+      revokedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    unregisterRemoteDeviceMock.mockResolvedValueOnce(true);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/remote/unregister",
+      "POST",
+      {},
+      { authorization: "Bearer anr_raw-token" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(unregisterRemoteDeviceMock).toHaveBeenCalledWith("device-1");
+    expect(result.body).toEqual({ ok: true, deviceId: "device-1" });
+  });
+
+  it("registers mobile push tokens without returning the raw token", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValueOnce({ orgId: "org-1" });
+    upsertRemotePushRegistrationMock.mockResolvedValueOnce({
+      id: "push-1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      provider: "apns",
+      platform: "ios",
+      clientDeviceId: "phone-1",
+      label: "Alice iPhone",
+      token: "raw-token",
+      tokenHash: "hashed-token",
+      status: "active",
+      lastSeenAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/remote/push/register",
+      "POST",
+      {
+        provider: "apns",
+        platform: "ios",
+        token: "raw-token",
+        clientDeviceId: "phone-1",
+        label: "Alice iPhone",
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(upsertRemotePushRegistrationMock).toHaveBeenCalledWith({
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      provider: "apns",
+      token: "raw-token",
+      platform: "ios",
+      clientDeviceId: "phone-1",
+      label: "Alice iPhone",
+    });
+    expect(result.body).toEqual({
+      registration: expect.not.objectContaining({
+        token: "raw-token",
+        tokenHash: "hashed-token",
+      }),
+    });
+  });
+
+  it("smokes the desktop/mobile relay route contract end to end", async () => {
+    const device = {
+      id: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      label: "Studio Mac",
+      platform: "darwin",
+      appVersion: "1.2.3",
+      hostName: "studio",
+      metadata: { arch: "arm64" },
+      deviceTokenHash: "hashed",
+      lastSeenAt: Date.now(),
+      status: "active",
+      revokedAt: null,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const command = {
+      id: "cmd-1",
+      deviceId: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      kind: "create-run",
+      params: { prompt: "Ship the relay smoke", title: "Relay smoke" },
+      status: "completed",
+      result: {
+        run: {
+          id: "run-1",
+          runId: "run-1",
+          title: "Relay smoke",
+          status: "completed",
+          updatedAt: "2026-05-16T00:00:00.000Z",
+        },
+      },
+      platform: "mobile",
+      externalThreadId: "mobile",
+      attempts: 1,
+      nextCheckAt: 1,
+      claimedAt: 1,
+      completedAt: 2,
+      errorMessage: null,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-1" });
+    createRemoteDeviceMock.mockResolvedValueOnce({
+      device,
+      token: "anr_raw-token",
+    });
+    listRemoteDevicesForOwnerMock.mockResolvedValue([device]);
+    upsertRemotePushRegistrationMock.mockResolvedValueOnce({
+      id: "push-1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      provider: "expo",
+      platform: "ios",
+      clientDeviceId: null,
+      label: "Alice iPhone",
+      token: "ExpoPushToken[test]",
+      tokenHash: "hashed-token",
+      status: "active",
+      lastSeenAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    enqueueRemoteCommandMock.mockResolvedValueOnce({
+      ...command,
+      status: "pending",
+      result: null,
+      completedAt: null,
+    });
+    authenticateRemoteDeviceTokenMock.mockResolvedValue(device);
+    claimNextRemoteCommandMock.mockResolvedValueOnce({
+      id: "cmd-1",
+      deviceId: "device-1",
+      kind: "create-run",
+      status: "claimed",
+      params: { prompt: "Ship the relay smoke" },
+    });
+    updateRemoteCommandResultMock.mockResolvedValueOnce(command);
+    queueRemotePushNotificationsMock.mockResolvedValueOnce({ queued: 1 });
+    insertRemoteRunEventsMock.mockResolvedValueOnce({ inserted: 1 });
+    listRemoteCommandsForOwnerMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([command])
+      .mockResolvedValueOnce([command]);
+    listRemoteRunEventsMock.mockResolvedValueOnce([
+      {
+        deviceId: "device-1",
+        remoteRunId: "run-1",
+        seq: 1,
+        event: { type: "status", text: "done" },
+        createdAt: 1,
+      },
+    ]);
+    revokeRemoteDeviceForOwnerMock.mockResolvedValueOnce({
+      ...device,
+      status: "inactive",
+      revokedAt: 3,
+      updatedAt: 3,
+    });
+
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    await expect(
+      dispatch(
+        nitroApp,
+        "/_agent-native/integrations/remote/register",
+        "POST",
+        {
+          label: "Studio Mac",
+          platform: "darwin",
+          appVersion: "1.2.3",
+          hostName: "studio",
+          metadata: { arch: "arm64" },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        token: "anr_raw-token",
+        device: expect.not.objectContaining({ deviceTokenHash: "hashed" }),
+      },
+    });
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/integrations/remote/hosts", "GET"),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        hosts: [
+          expect.objectContaining({
+            id: "device-1",
+            appVersion: "1.2.3",
+            hostName: "studio",
+          }),
+        ],
+      },
+    });
+
+    await expect(
+      dispatch(
+        nitroApp,
+        "/_agent-native/integrations/remote/push/register",
+        "POST",
+        {
+          provider: "expo",
+          token: "ExpoPushToken[test]",
+          platform: "ios",
+          label: "Alice iPhone",
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        registration: expect.not.objectContaining({
+          token: "ExpoPushToken[test]",
+          tokenHash: "hashed-token",
+        }),
+      },
+    });
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/integrations/remote/enqueue", "POST", {
+        operation: "code-agent.run.create",
+        payload: { prompt: "Ship the relay smoke", hostId: "device-1" },
+        source: { platform: "mobile", externalThreadId: "mobile" },
+      }),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: { commandId: "cmd-1", requestId: "cmd-1" },
+    });
+
+    await expect(
+      dispatch(
+        nitroApp,
+        "/_agent-native/integrations/remote/poll?waitMs=0",
+        "GET",
+        undefined,
+        { authorization: "Bearer anr_raw-token" },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: { command: expect.objectContaining({ id: "cmd-1" }) },
+    });
+
+    await expect(
+      dispatch(
+        nitroApp,
+        "/_agent-native/integrations/remote/result",
+        "POST",
+        {
+          commandId: "cmd-1",
+          status: "completed",
+          result: { run: { id: "run-1", status: "completed" } },
+        },
+        { authorization: "Bearer anr_raw-token" },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: { command: expect.objectContaining({ id: "cmd-1" }) },
+    });
+
+    await expect(
+      dispatch(
+        nitroApp,
+        "/_agent-native/integrations/remote/run-events",
+        "POST",
+        {
+          remoteRunId: "run-1",
+          events: [{ seq: 1, event: { type: "status", text: "done" } }],
+        },
+        { authorization: "Bearer anr_raw-token" },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: { ok: true, inserted: 1 },
+    });
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/integrations/remote/runs", "GET"),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        runs: [expect.objectContaining({ id: "run-1", hostId: "device-1" })],
+      },
+    });
+
+    await expect(
+      dispatch(
+        nitroApp,
+        "/_agent-native/integrations/remote/runs/run-1/transcript",
+        "GET",
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        run: expect.objectContaining({ id: "run-1" }),
+        events: [{ type: "status", text: "done" }],
+      },
+    });
+
+    await expect(
+      dispatch(
+        nitroApp,
+        "/_agent-native/integrations/remote/devices/device-1/revoke",
+        "POST",
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: { ok: true },
+    });
+  });
+
+  it("queues push notifications when an authenticated device completes a command", async () => {
+    authenticateRemoteDeviceTokenMock.mockResolvedValueOnce({
+      id: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      label: "Studio Mac",
+      platform: null,
+      appVersion: null,
+      hostName: null,
+      metadata: null,
+      deviceTokenHash: "hashed",
+      lastSeenAt: 1,
+      status: "active",
+      revokedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    updateRemoteCommandResultMock.mockResolvedValueOnce({
+      id: "cmd-1",
+      deviceId: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      kind: "append-followup",
+      params: {},
+      status: "completed",
+      result: { message: "done" },
+      platform: "mobile",
+      externalThreadId: "thread-1",
+      attempts: 1,
+      nextCheckAt: 1,
+      claimedAt: 1,
+      completedAt: 2,
+      errorMessage: null,
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    queueRemotePushNotificationsMock.mockResolvedValueOnce({ queued: 1 });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/remote/result",
+      "POST",
+      { commandId: "cmd-1", status: "completed", result: { message: "done" } },
+      { authorization: "Bearer anr_raw-token" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(queueRemotePushNotificationsMock).toHaveBeenCalledWith({
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      payload: expect.objectContaining({
+        title: "Remote run completed",
+        commandId: "cmd-1",
+        kind: "append-followup",
+        status: "completed",
+      }),
+    });
   });
 
   it("accepts idempotent run events from the authenticated device", async () => {

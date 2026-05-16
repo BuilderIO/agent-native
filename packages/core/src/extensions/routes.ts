@@ -73,7 +73,7 @@ export function createExtensionsHandler() {
 
     const orgCtx = await getOrgContext(event).catch(() => null);
     const userEmail = session.email;
-    const orgId = orgCtx?.orgId ?? undefined;
+    const orgId = orgCtx?.orgId ?? session.orgId ?? undefined;
 
     try {
       return await runWithRequestContext({ userEmail, orgId }, async () => {

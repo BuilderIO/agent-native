@@ -31,13 +31,13 @@ and an expertise graph as a future platform layer.
 ## What It Includes
 
 - **Full-page company chat.** The Ask route is the main product surface. It
-  shows demo/eval controls, source health, review count, and suggested
+  shows a compact demo CTA, source health, review count, and suggested
   company-memory questions. It uses `AgentChatSurface`, so the Brain composer
   stays on the same shared chat input stack as the agent sidebar and
   Agent-Native Code.
 - **Repeatable demo flow.** Load a product-decision corpus, run the demo eval,
-  and ask a cited question immediately so a new workspace can see the trust
-  loop before connecting real sources.
+  ask a cited question immediately, then continue into Review or Knowledge so a
+  new workspace can see the trust loop before connecting real sources.
 - **Approved sources.** Configure manual, generic webhook, Clips, Slack,
   Granola, and GitHub source records. Slack is channel-oriented by design; DMs
   and MPIMs are not scan targets.
@@ -110,10 +110,12 @@ pnpm dlx @agent-native/core create my-brain --template brain --standalone
 
 Then open the app, add sources, import a transcript, and ask the agent to distill cited memories from the raw capture.
 
-For a public demo, open the Ask page, choose **Load demo and ask**, then run
-**Run eval**. The seeded corpus demonstrates product-decision recall, citation
-links, supersede behavior, review gating, redaction, personal-content
-exclusion, and honest not-found behavior without connecting a real workspace.
+For a public demo, open the Ask page and choose **Start demo**. Brain seeds the
+product-decision corpus, runs the demo eval, asks the cited freemium question,
+then offers Review and Knowledge follow-ups. The seeded corpus demonstrates
+product-decision recall, citation links, supersede behavior, review gating,
+redaction, personal-content exclusion, and honest not-found behavior without
+connecting a real workspace.
 
 ## Generic Ingest
 
@@ -366,8 +368,9 @@ keeps a personal aside out of queryable knowledge.
 
 `run-demo-eval` checks the behavior that matters most for trust: recall,
 citations, supersede links, proposal gating, redaction, and personal-content
-exclusion. The Ask page includes **Load demo** and **Run eval** controls so a
-new workspace can show Brain's strongest use case immediately.
+exclusion. The Ask page includes a compact **Start demo** CTA for empty
+workspaces and reveals Review, Knowledge, and **Run eval** follow-ups once the
+demo is ready.
 
 `run-retrieval-eval` checks an offline real-channel-style retrieval set. It
 uses existing workspace Brain data when #dev-fusion stale Fusion branch answers

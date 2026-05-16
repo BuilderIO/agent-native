@@ -29,6 +29,11 @@ export {
   defaultAgentChatPlugin,
   type AgentChatPluginOptions,
 } from "./server/agent-chat-plugin.js";
+export {
+  createAgentNativeEmbeddedPlugin,
+  mountAgentNativeEmbedded,
+  type AgentNativeEmbeddedPluginOptions,
+} from "./server/embedded.js";
 
 // Server
 export {
@@ -50,14 +55,18 @@ export {
   useDevMode,
   useSendToAgentChat,
   CodeRequiredDialog,
+  useAgentNativeEmbeddedBrowserSession,
   useDbSync,
   useFileWatcher,
   cn,
   ApiKeySettings,
   useSession,
+  AgentNativeEmbedded,
   useProductionAgent,
   ProductionAgentPanel,
   type AgentChatMessage,
+  type AgentNativeEmbeddedProps,
+  type UseAgentNativeEmbeddedBrowserSessionOptions,
   type CodeRequiredDialogProps,
   type ProductionAgentMessage,
   type UseProductionAgentResult,

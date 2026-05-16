@@ -43,6 +43,7 @@ import type {
   Reference,
   SlashCommand,
   ComposerMode,
+  AgentComposerLayoutVariant,
 } from "./types.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
@@ -274,6 +275,10 @@ interface TiptapComposerProps {
   attachButton?: React.ReactNode;
   /** Custom host-owned control rendered next to the attachment affordance. */
   modeControl?: React.ReactNode;
+  /** Explicit host-owned toolbar slot rendered next to the attachment affordance. */
+  toolbarSlot?: React.ReactNode;
+  /** Shared sizing/layout variant for host surfaces. Default keeps sidebar behavior. */
+  layoutVariant?: AgentComposerLayoutVariant;
   /** Additional slash commands surfaced in the shared / menu. */
   slashCommands?: SlashCommand[];
   /** Additional slash skills surfaced in the shared / menu. */
@@ -395,6 +400,7 @@ function ModeSelector({
         <button
           type="button"
           aria-label={mode === "build" ? "Act mode" : "Plan mode"}
+          data-agent-composer-slot="mode-button"
           className="agent-composer-mode-button shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <ActiveIcon className="h-3.5 w-3.5" />
@@ -637,6 +643,7 @@ function ModelSelector({
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
+          data-agent-composer-slot="model-button"
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">{friendlyModelName(model)}</span>
@@ -806,6 +813,8 @@ export function TiptapComposer({
   extraActionButton,
   attachButton,
   modeControl,
+  toolbarSlot,
+  layoutVariant = "default",
   slashCommands = [],
   slashSkills = [],
   includeDefaultSlashCommands = true,
@@ -990,6 +999,8 @@ export function TiptapComposer({
     },
     editorProps: {
       attributes: {
+        "data-agent-composer-variant": layoutVariant,
+        "data-agent-composer-slot": "editor-input",
         class:
           "agent-composer-prosemirror flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[3.25rem] max-h-[10rem] overflow-y-auto",
       },
@@ -1771,7 +1782,11 @@ export function TiptapComposer({
         }
       `}</style>
       {composerMode && (
-        <div className="agent-composer-mode-row px-2.5 pt-2 pb-0">
+        <div
+          data-agent-composer-variant={layoutVariant}
+          data-agent-composer-slot="mode-row"
+          className="agent-composer-mode-row px-2.5 pt-2 pb-0"
+        >
           <ComposerModeChip
             mode={composerMode}
             onRemove={() => {
@@ -1783,17 +1798,25 @@ export function TiptapComposer({
         </div>
       )}
       <div
+        data-agent-composer-variant={layoutVariant}
+        data-agent-composer-slot="editor-wrap"
         className={`agent-composer-editor-wrap ${
           composerMode ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"
         }`}
       >
         <EditorContent
           editor={editor}
+          data-agent-composer-variant={layoutVariant}
+          data-agent-composer-slot="editor"
           className="agent-composer-editor aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0 px-0.5"
         />
       </div>
       {voiceEnabled && <VoiceRecordingOverlay voice={voice} />}
-      <div className="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5">
+      <div
+        data-agent-composer-variant={layoutVariant}
+        data-agent-composer-slot="toolbar"
+        className="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5"
+      >
         {attachButton ??
           (plusMenuMode === "hidden" ? null : (
             <ComposerPlusMenu
@@ -1801,7 +1824,8 @@ export function TiptapComposer({
               mode={plusMenuMode}
             />
           ))}
-        {modeControl}
+        {toolbarSlot ?? modeControl}
+        <div data-agent-composer-slot="toolbar-spacer" className="flex-1" />
         {!actionButton && (
           <>
             {selectedModel && availableModels && onModelChange && (
@@ -1823,7 +1847,6 @@ export function TiptapComposer({
             )}
           </>
         )}
-        <div className="flex-1" />
         {actionButton ?? (
           <>
             {voiceEnabled && (
@@ -1836,6 +1859,7 @@ export function TiptapComposer({
                   type="button"
                   onClick={submitComposer}
                   disabled={!canSend}
+                  data-agent-composer-slot="send-button"
                   className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <IconArrowUp className="h-3.5 w-3.5" />

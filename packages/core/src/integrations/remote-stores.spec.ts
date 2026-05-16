@@ -24,6 +24,11 @@ async function loadRunEventsStore() {
   return import("./remote-run-events-store.js");
 }
 
+async function loadPushStore() {
+  vi.resetModules();
+  return import("./remote-push-store.js");
+}
+
 function querySql(query: string | { sql: string }): string {
   return typeof query === "string" ? query : query.sql;
 }
@@ -59,11 +64,16 @@ describe("remote relay stores", () => {
                 owner_email: insertArgs[1],
                 org_id: insertArgs[2],
                 label: insertArgs[3],
-                device_token_hash: insertArgs[4],
-                last_seen_at: insertArgs[5],
-                status: insertArgs[6],
-                created_at: insertArgs[7],
-                updated_at: insertArgs[8],
+                platform: insertArgs[4],
+                app_version: insertArgs[5],
+                host_name: insertArgs[6],
+                metadata_json: insertArgs[7],
+                device_token_hash: insertArgs[8],
+                last_seen_at: insertArgs[9],
+                status: insertArgs[10],
+                revoked_at: insertArgs[11],
+                created_at: insertArgs[12],
+                updated_at: insertArgs[13],
               },
             ],
             rowsAffected: 0,
@@ -82,14 +92,22 @@ describe("remote relay stores", () => {
     expect(token).toMatch(/^anr_[a-f0-9]{64}$/);
     expect(device.deviceTokenHash).toMatch(/^[a-f0-9]{64}$/);
     expect(device.deviceTokenHash).not.toBe(token);
-    expect(insertArgs).toEqual(
-      expect.arrayContaining([
-        "alice@example.com",
-        "org-1",
-        "Studio Mac",
-        device.deviceTokenHash,
-      ]),
-    );
+    expect(insertArgs).toEqual([
+      expect.stringMatching(/^remote-device-\d+-[a-f0-9]{16}$/),
+      "alice@example.com",
+      "org-1",
+      "Studio Mac",
+      null,
+      null,
+      null,
+      null,
+      device.deviceTokenHash,
+      expect.any(Number),
+      "active",
+      null,
+      expect.any(Number),
+      expect.any(Number),
+    ]);
   });
 
   it("claims only pending commands for the polling device", async () => {
@@ -192,5 +210,198 @@ describe("remote relay stores", () => {
       "run-1",
       1,
     ]);
+  });
+
+  it("revokes remote devices with owner and org scoping", async () => {
+    const { revokeRemoteDeviceForOwner } = await loadDevicesStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        const args = queryArgs(query);
+        if (
+          sql.includes("SELECT * FROM integration_remote_devices") &&
+          sql.includes("WHERE id = ?")
+        ) {
+          return {
+            rows: [
+              {
+                id: args[0],
+                owner_email: args[1],
+                org_id: args[2],
+                label: "Studio Mac",
+                platform: "darwin",
+                app_version: "1.2.3",
+                host_name: "studio",
+                metadata_json: JSON.stringify({ arch: "arm64" }),
+                device_token_hash: "hashed",
+                last_seen_at: 1,
+                status: "inactive",
+                revoked_at: 2,
+                created_at: 1,
+                updated_at: 2,
+              },
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 1 };
+      },
+    );
+
+    const device = await revokeRemoteDeviceForOwner({
+      id: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+    });
+
+    expect(device?.status).toBe("inactive");
+    expect(device?.metadata).toEqual({ arch: "arm64" });
+    const updateCall = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("SET status = 'inactive'"),
+    );
+    expect(querySql(updateCall![0])).toContain("owner_email = ?");
+    expect(querySql(updateCall![0])).toContain(
+      "((org_id IS NULL AND ? IS NULL) OR org_id = ?)",
+    );
+    expect(queryArgs(updateCall![0]).slice(2)).toEqual([
+      "device-1",
+      "alice@example.com",
+      "org-1",
+      "org-1",
+    ]);
+  });
+
+  it("upserts push registrations while returning only public details", async () => {
+    const { upsertRemotePushRegistration, toPublicRemotePushRegistration } =
+      await loadPushStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        const args = queryArgs(query);
+        if (
+          sql.includes("SELECT * FROM integration_remote_push_registrations") &&
+          sql.includes("WHERE token_hash = ?")
+        ) {
+          if (
+            executeMock.mock.calls.some(([q]) =>
+              querySql(q).includes(
+                "INSERT INTO integration_remote_push_registrations",
+              ),
+            )
+          ) {
+            return {
+              rows: [
+                {
+                  id: "push-1",
+                  owner_email: "alice@example.com",
+                  org_id: "org-1",
+                  provider: "apns",
+                  platform: "ios",
+                  client_device_id: "phone-1",
+                  label: "Alice iPhone",
+                  token: "raw-token",
+                  token_hash: args[0],
+                  status: "active",
+                  last_seen_at: 1,
+                  created_at: 1,
+                  updated_at: 1,
+                },
+              ],
+              rowsAffected: 0,
+            };
+          }
+          return { rows: [], rowsAffected: 0 };
+        }
+        return { rows: [], rowsAffected: 1 };
+      },
+    );
+
+    const registration = await upsertRemotePushRegistration({
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      provider: "apns",
+      platform: "ios",
+      clientDeviceId: "phone-1",
+      label: "Alice iPhone",
+      token: "raw-token",
+    });
+
+    expect(registration.tokenHash).toMatch(/^[a-f0-9]{64}$/);
+    const publicRegistration = toPublicRemotePushRegistration(registration);
+    expect(publicRegistration).not.toHaveProperty("token");
+    expect(publicRegistration).not.toHaveProperty("tokenHash");
+    const insertCall = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes(
+        "INSERT INTO integration_remote_push_registrations",
+      ),
+    );
+    expect(queryArgs(insertCall![0])).toEqual(
+      expect.arrayContaining([
+        "alice@example.com",
+        "org-1",
+        "apns",
+        "ios",
+        "phone-1",
+        "Alice iPhone",
+        "raw-token",
+      ]),
+    );
+  });
+
+  it("queues push notification outbox rows for active owner registrations", async () => {
+    const { queueRemotePushNotifications } = await loadPushStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (
+          sql.includes("SELECT * FROM integration_remote_push_registrations") &&
+          sql.includes("status = 'active'")
+        ) {
+          return {
+            rows: [
+              {
+                id: "push-1",
+                owner_email: "alice@example.com",
+                org_id: "org-1",
+                provider: "apns",
+                platform: "ios",
+                client_device_id: "phone-1",
+                label: "Alice iPhone",
+                token: "raw-token",
+                token_hash: "hashed",
+                status: "active",
+                last_seen_at: 1,
+                created_at: 1,
+                updated_at: 1,
+              },
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 1 };
+      },
+    );
+
+    const result = await queueRemotePushNotifications({
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      payload: { title: "Remote run completed", commandId: "cmd-1" },
+    });
+
+    expect(result.queued).toBe(1);
+    const insertCall = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes(
+        "INSERT INTO integration_remote_push_notifications",
+      ),
+    );
+    expect(queryArgs(insertCall![0])).toEqual(
+      expect.arrayContaining([
+        "alice@example.com",
+        "org-1",
+        "push-1",
+        JSON.stringify({ title: "Remote run completed", commandId: "cmd-1" }),
+        "pending",
+      ]),
+    );
   });
 });

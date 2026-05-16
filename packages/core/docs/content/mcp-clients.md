@@ -29,6 +29,19 @@ Chrome DevTools uses `--autoConnect` by default. That attaches to an eligible ru
 
 Built-ins are persisted in the framework's `settings` table under `u:<email>:mcp-builtin-capabilities` for personal toggles and `o:<orgId>:mcp-builtin-capabilities` for team toggles. When enabled, they merge into the runtime MCP manager with the same scoped visibility format as remote servers, for example `mcp__user_<emailhash>_playwright__*` or `mcp__org_<orgId>_chrome-devtools__*`.
 
+### User-facing setup notes
+
+Use concise, explicit setup copy for the sensitive built-ins:
+
+- **Chrome DevTools** attaches to a running Chrome debugging target. Tell users
+  it is intended for browser testing and logged-in verification, and that it
+  may require enabling Chrome remote debugging before tools appear.
+- **Playwright** launches an isolated browser. Recommend it for deterministic
+  QA when the user's live Chrome profile is not required.
+- **Computer Use** can operate local apps. Keep it off by default, explain the
+  macOS Screen Recording and Accessibility prompts, and ask before taking
+  sensitive actions such as purchases, financial changes, or account changes.
+
 ### Built-in endpoints
 
 | Method | Route                        | Purpose                                                                    |

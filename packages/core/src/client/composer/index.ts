@@ -15,6 +15,7 @@ export {
 export { MentionPopover } from "./MentionPopover.js";
 export { useMentionSearch } from "./use-mention-search.js";
 export type {
+  AgentComposerLayoutVariant,
   FileResult,
   SkillResult,
   MentionItem,

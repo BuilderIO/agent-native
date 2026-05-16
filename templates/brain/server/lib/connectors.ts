@@ -2,7 +2,10 @@ import { and, desc, eq } from "drizzle-orm";
 import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../db/index.js";
-import { resolveSourceCredential } from "./source-credentials.js";
+import {
+  inspectSourceCredentialAvailability,
+  resolveSourceCredential,
+} from "./source-credentials.js";
 import {
   createCapture,
   nanoid,
@@ -593,6 +596,7 @@ async function requireConnectorCredential(
   key: string,
   label: string,
   provider: BrainSourceProvider,
+  config?: Record<string, unknown>,
 ): Promise<string> {
   const ctx = getCredentialContext();
   if (!ctx) {
@@ -600,8 +604,29 @@ async function requireConnectorCredential(
       `${label} sync requires an authenticated credential context`,
     );
   }
-  const value = await resolveSourceCredential({ provider, key, ctx });
+  const workspaceConnectionId =
+    typeof config?.workspaceConnectionId === "string"
+      ? config.workspaceConnectionId
+      : undefined;
+  const value = await resolveSourceCredential({
+    provider,
+    key,
+    ctx,
+    workspaceConnectionId,
+  });
   if (!value) {
+    if (workspaceConnectionId?.trim()) {
+      const availability = await inspectSourceCredentialAvailability({
+        provider,
+        key,
+        ctx,
+        workspaceConnectionId,
+      });
+      throw new Error(
+        availability.missingMessage ??
+          `${label} credential ${key} is not configured`,
+      );
+    }
     throw new Error(`${label} credential ${key} is not configured`);
   }
   return value;
@@ -826,12 +851,14 @@ export async function testSlackConnection(
   options: {
     channelRefs?: string[];
     resolveNames?: boolean;
+    workspaceConnectionId?: string;
   } = {},
 ) {
   const token = await requireConnectorCredential(
     "SLACK_BOT_TOKEN",
     "Slack",
     "slack",
+    { workspaceConnectionId: options.workspaceConnectionId },
   );
   const auth = await slackApi<SlackAuthTestResponse>(token, "auth.test");
   const channelRefs = Array.from(
@@ -1012,6 +1039,10 @@ export async function runSlackPilot(
     credential = await testSlackConnection({
       channelRefs: requestedRefs,
       resolveNames: options.resolveNames === true,
+      workspaceConnectionId:
+        typeof config.workspaceConnectionId === "string"
+          ? config.workspaceConnectionId
+          : undefined,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1853,6 +1884,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
       "SLACK_BOT_TOKEN",
       "Slack",
       "slack",
+      config,
     );
     if (!channelRefs.length) {
       throw new Error(
@@ -2082,6 +2114,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
       "GRANOLA_API_KEY",
       "Granola",
       "granola",
+      config,
     );
     let nextPageCursor = cursor.cursor ?? undefined;
     let maxUpdatedAt = updatedAfter;
@@ -2328,6 +2361,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
       "GITHUB_TOKEN",
       "GitHub",
       "github",
+      config,
     );
     const linkedRefs = await githubRefsFromLinkedSources(config, {
       captureLimit: linkedCaptureLimit,

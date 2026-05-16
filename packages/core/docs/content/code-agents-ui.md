@@ -128,6 +128,17 @@ Brain's Ask route uses `AgentChatSurface`, which is already backed by the
 standard sidebar composer. Code uses `PromptComposer` directly because the host
 owns run creation, transcripts, and follow-up delivery.
 
+Code-specific UI belongs around the composer, not inside a forked chatfield. The
+shared Code UI may add slots for:
+
+- Auto / Plan mode controls.
+- The selected cwd, project picker, and run metadata.
+- Host-only affordances such as opening a terminal.
+
+Everything else stays in the shared composer: attachments, references, slash and
+skill insertion, pasted-text handling, voice dictation, drafts, keyboard
+shortcuts, and submission semantics.
+
 ## Slash Commands
 
 Agent-Native Code treats migration as a capability, not a separate app category. `/migrate` can be a built-in goal, a project command, or a custom instruction pack on top of the same host contract.
@@ -148,6 +159,26 @@ Project skills live in:
 
 When the host implements `listCodePacks`, the shared UI shows project commands and skills in the rail. Command rows insert `/<command>`, and skill rows insert a focused “Use the <skill> skill…” prompt so the rail stays actionable. Built-in names such as `/migrate`, `/audit`, `/status`, and `/resume` stay reserved for the global Agent-Native Code controls.
 
+Do not create a separate slash-command registry for a new Code host. Project
+commands and skills are discovered from `.agents/commands/*.md` and
+`.agents/skills/*/SKILL.md`; the UI should render those packs and insert prompts
+through the shared composer.
+
+## Background Agent Harness
+
+Background coding-agent work should reuse the same harness as the rest of
+Agent-Native:
+
+- Use the Code run store/executor for local Code sessions.
+- Use core `run-manager` for hosted agent runs so streams, aborts, heartbeats,
+  resumability, soft timeouts, and stuck-run cleanup behave consistently.
+- Use `agent-teams` / `spawnTask()` when the UI is delegating work to a
+  background sub-agent from a normal app chat.
+
+Do not add a parallel background-agent runner just because a new surface needs a
+different layout. Build a host adapter or UI slot on top of the shared harness
+instead.
+
 ## Follow-Ups
 
 Follow-ups on active runs support two delivery modes:
@@ -156,6 +187,64 @@ Follow-ups on active runs support two delivery modes:
 - **Queue** runs after the current turn finishes.
 
 Inactive runs keep the compatible behavior: the follow-up is appended and the run resumes immediately.
+
+## Remote Dispatch
+
+Desktop can expose the local Code Agent runner to a deployed Dispatch relay so a
+phone or Telegram chat can start, monitor, and continue sessions while the
+computer is awake.
+
+The connection is outbound-only from Desktop:
+
+1. Desktop pairs with Dispatch and stores a device token locally.
+2. Desktop long-polls `/_agent-native/integrations/remote/poll`.
+3. Mobile Sessions and Telegram `/code` enqueue commands in the relay database.
+4. Desktop claims commands, drives the local run store, and posts results and
+   transcript events back to Dispatch.
+5. Mobile reads `hosts`, `runs`, and `transcript` from Dispatch; it never talks
+   directly to the desktop.
+
+The canonical remote relay endpoints are:
+
+| Method     | Route                                                    | Caller          | Purpose                                     |
+| ---------- | -------------------------------------------------------- | --------------- | ------------------------------------------- |
+| `POST`     | `/_agent-native/integrations/remote/register`            | Desktop session | Pair a desktop host and return a token once |
+| `GET`      | `/_agent-native/integrations/remote/hosts`               | Mobile/session  | List paired hosts                           |
+| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | Mobile/session  | Revoke a paired host                        |
+| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | Mobile/session  | Revoke a paired host                        |
+| `POST/GET` | `/_agent-native/integrations/remote/poll`                | Desktop token   | Claim work                                  |
+| `POST`     | `/_agent-native/integrations/remote/result`              | Desktop token   | Complete or fail work                       |
+| `POST`     | `/_agent-native/integrations/remote/run-events`          | Desktop token   | Mirror transcript events                    |
+| `GET`      | `/_agent-native/integrations/remote/runs`                | Mobile/session  | List sessions                               |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | Mobile/session  | Read session summary                        |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | Mobile/session  | Read mirrored transcript                    |
+| `POST`     | `/_agent-native/integrations/remote/push/register`       | Mobile/session  | Register Expo/mobile push token             |
+
+Telegram uses the same relay through Dispatch. Supported commands are:
+
+```text
+/code <prompt>
+/code list
+/code status <run>
+/code continue <run> <text>
+/code approve <id>
+/code deny <id>
+/code stop <run>
+```
+
+### Smoke checklist
+
+Before shipping a remote-control change, run the automated relay route smoke in
+`remote-plugin.spec.ts`, then do one real-device pass:
+
+1. Pair Desktop from Settings and confirm the host appears in mobile Sessions.
+2. Start a session from mobile and confirm Desktop claims it.
+3. Send `/code <prompt>` from Telegram and confirm it queues to the same host.
+4. Verify transcript mirroring, follow-up, approve or deny, and stop.
+5. Revoke the host from mobile and confirm new commands stay queued/offline
+   instead of being sent to the revoked device.
+6. Enable mobile push alerts and confirm command completion creates a push
+   outbox row.
 
 ## Styling
 

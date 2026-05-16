@@ -45,7 +45,10 @@ import {
   createRemoteDevice,
   getRemoteDeviceForOwner,
   listRemoteDevicesForOwner,
+  revokeRemoteDeviceForOwner,
   toPublicRemoteDevice,
+  unregisterRemoteDevice,
+  updateRemoteDeviceDetails,
 } from "./remote-devices-store.js";
 import {
   claimNextRemoteCommand,
@@ -58,8 +61,20 @@ import {
   insertRemoteRunEvents,
   listRemoteRunEvents,
 } from "./remote-run-events-store.js";
+import {
+  listRemotePushNotificationsForOwner,
+  listRemotePushRegistrationsForOwner,
+  queueRemotePushNotifications,
+  toPublicRemotePushRegistration,
+  unregisterRemotePushRegistrationForOwner,
+  upsertRemotePushRegistration,
+} from "./remote-push-store.js";
 import { startRemoteCommandsRetryJob } from "./remote-retry-job.js";
-import type { RemoteCommand, RemoteCommandKind } from "./remote-types.js";
+import type {
+  RemoteCommand,
+  RemoteCommandKind,
+  RemoteDevice,
+} from "./remote-types.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -160,13 +175,14 @@ export async function enqueueRemoteCommand(
 ): Promise<Record<string, unknown>> {
   const ownerEmail = readString(envelope.ownerEmail);
   if (!ownerEmail) throw new Error("ownerEmail is required");
-  const orgId = readString(envelope.orgId) ?? undefined;
+  const hasOrgId = Object.prototype.hasOwnProperty.call(envelope, "orgId");
+  const orgId = hasOrgId ? (readString(envelope.orgId) ?? null) : undefined;
   const command = readObject(envelope.command);
   if (!command) throw new Error("command is required");
   const commandType = readString(command.type);
   const commands = await listRemoteCommandsForOwner({
     ownerEmail,
-    ...(orgId !== undefined ? { orgId } : {}),
+    ...(hasOrgId ? { orgId } : {}),
     limit: 50,
   });
 
@@ -197,7 +213,8 @@ export async function enqueueRemoteCommand(
 
   const devices = await listRemoteDevicesForOwner({
     ownerEmail,
-    ...(orgId !== undefined ? { orgId } : {}),
+    ...(hasOrgId ? { orgId } : {}),
+    status: "active",
     limit: 10,
   });
   const requestedDeviceId =
@@ -391,14 +408,75 @@ function isRemoteDeviceOnline(device: { lastSeenAt: number | null }): boolean {
 
 async function hasOnlineRemoteDevice(
   ownerEmail: string,
-  orgId: string | undefined,
+  orgId: string | null | undefined,
 ): Promise<boolean> {
+  const hasOrgId = orgId !== undefined;
   const devices = await listRemoteDevicesForOwner({
     ownerEmail,
-    ...(orgId !== undefined ? { orgId } : {}),
+    ...(hasOrgId ? { orgId } : {}),
+    status: "active",
     limit: 10,
   });
   return devices.some(isRemoteDeviceOnline);
+}
+
+function remoteDeviceToHost(device: RemoteDevice): Record<string, unknown> {
+  const online = device.status === "active" && isRemoteDeviceOnline(device);
+  return {
+    id: device.id,
+    name: device.label,
+    label: device.label,
+    status:
+      device.status === "active" ? (online ? "online" : "offline") : "revoked",
+    lastSeenAt: device.lastSeenAt
+      ? new Date(device.lastSeenAt).toISOString()
+      : undefined,
+    platform: device.platform ?? "desktop",
+    appVersion: device.appVersion ?? undefined,
+    hostName: device.hostName ?? undefined,
+    metadata: device.metadata ?? undefined,
+    device: toPublicRemoteDevice(device),
+  };
+}
+
+function mountedPathParts(event: any, mountSuffix: string): string[] {
+  const rawPath = String(
+    event.path ?? event.url?.pathname ?? event.node?.req?.url ?? "/",
+  ).split("?")[0];
+  const normalized = rawPath.replace(/^\/+/, "");
+  const marker = mountSuffix.replace(/^\/+/, "");
+  const markerIndex = normalized.indexOf(marker);
+  const suffix =
+    markerIndex >= 0
+      ? normalized.slice(markerIndex + marker.length)
+      : normalized;
+  return suffix
+    .split("/")
+    .filter(Boolean)
+    .map((part) => decodeURIComponent(part));
+}
+
+function remoteCommandPushPayload(
+  command: RemoteCommand,
+): Record<string, unknown> {
+  const result = readObject(command.result);
+  const status = command.status;
+  const title =
+    status === "completed"
+      ? "Remote run completed"
+      : status === "failed"
+        ? "Remote run failed"
+        : "Remote run updated";
+  return {
+    title,
+    body: command.errorMessage ?? readString(result?.message),
+    commandId: command.id,
+    hostId: command.deviceId,
+    kind: command.kind,
+    status,
+    result: command.result,
+    updatedAt: command.updatedAt,
+  };
 }
 
 /**
@@ -598,7 +676,15 @@ export function createIntegrationsPlugin(
         }
         const ctx = await requireSessionContext(event);
         if (!ctx) return { error: "unauthorized" };
-        const body = (await readBody(event)) as { label?: unknown };
+        const body = (await readBody(event)) as {
+          label?: unknown;
+          platform?: unknown;
+          appVersion?: unknown;
+          version?: unknown;
+          hostName?: unknown;
+          hostname?: unknown;
+          metadata?: unknown;
+        };
         const label =
           typeof body.label === "string" && body.label.trim()
             ? body.label.trim().slice(0, 200)
@@ -607,6 +693,10 @@ export function createIntegrationsPlugin(
           ownerEmail: ctx.ownerEmail,
           orgId: ctx.orgId,
           label,
+          platform: readString(body.platform),
+          appVersion: readString(body.appVersion) ?? readString(body.version),
+          hostName: readString(body.hostName) ?? readString(body.hostname),
+          metadata: readObject(body.metadata),
         });
         return { device: toPublicRemoteDevice(device), token };
       }),
@@ -626,18 +716,217 @@ export function createIntegrationsPlugin(
           orgId: ctx.orgId,
           limit: 50,
         });
-        const hosts = devices.map((device) => ({
-          id: device.id,
-          name: device.label,
-          label: device.label,
-          status: isRemoteDeviceOnline(device) ? "online" : "offline",
-          lastSeenAt: device.lastSeenAt
-            ? new Date(device.lastSeenAt).toISOString()
-            : undefined,
-          platform: "desktop",
-          device: toPublicRemoteDevice(device),
-        }));
+        const hosts = devices.map(remoteDeviceToHost);
+        const parts = mountedPathParts(event, "remote/hosts");
+        if (parts[0]) {
+          const host = hosts.find((candidate) => candidate.id === parts[0]);
+          if (!host) {
+            setResponseStatus(event, 404);
+            return { error: "host not found" };
+          }
+          return { host, device: host.device };
+        }
         return { hosts, devices: hosts };
+      }),
+    );
+
+    h3.use(
+      `${P}/remote/devices`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "DELETE" && method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const parts = mountedPathParts(event, "remote/devices");
+
+        if (method === "GET") {
+          if (!parts[0]) {
+            const devices = await listRemoteDevicesForOwner({
+              ownerEmail: ctx.ownerEmail,
+              orgId: ctx.orgId,
+              limit: 100,
+            });
+            return {
+              devices: devices.map(toPublicRemoteDevice),
+              hosts: devices.map(remoteDeviceToHost),
+            };
+          }
+          const device = await getRemoteDeviceForOwner({
+            id: parts[0],
+            ownerEmail: ctx.ownerEmail,
+            orgId: ctx.orgId,
+          });
+          if (!device) {
+            setResponseStatus(event, 404);
+            return { error: "device not found" };
+          }
+          return {
+            device: toPublicRemoteDevice(device),
+            host: remoteDeviceToHost(device),
+          };
+        }
+
+        const id = parts[0];
+        const action = parts[1];
+        if (!id || (method === "POST" && action !== "revoke")) {
+          setResponseStatus(event, 404);
+          return { error: "not found" };
+        }
+        const device = await revokeRemoteDeviceForOwner({
+          id,
+          ownerEmail: ctx.ownerEmail,
+          orgId: ctx.orgId,
+        });
+        if (!device) {
+          setResponseStatus(event, 404);
+          return { error: "device not found" };
+        }
+        return { ok: true, device: toPublicRemoteDevice(device) };
+      }),
+    );
+
+    h3.use(
+      `${P}/remote/unregister`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST" && getMethod(event) !== "DELETE") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const device = await requireRemoteDevice(event);
+        if (!device) return { error: "unauthorized" };
+        await unregisterRemoteDevice(device.id);
+        return { ok: true, deviceId: device.id };
+      }),
+    );
+
+    h3.use(
+      `${P}/remote/heartbeat`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const device = await requireRemoteDevice(event);
+        if (!device) return { error: "unauthorized" };
+        const body = (await readBody(event)) as Record<string, unknown>;
+        const updated = await updateRemoteDeviceDetails({
+          id: device.id,
+          label: readString(body.label),
+          platform: readString(body.platform),
+          appVersion: readString(body.appVersion) ?? readString(body.version),
+          hostName: readString(body.hostName) ?? readString(body.hostname),
+          metadata: readObject(body.metadata),
+        });
+        return {
+          ok: true,
+          device: updated ? toPublicRemoteDevice(updated) : null,
+        };
+      }),
+    );
+
+    h3.use(
+      `${P}/remote/push/register`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const body = (await readBody(event)) as Record<string, unknown>;
+        const token = readString(body.token);
+        if (!token) {
+          setResponseStatus(event, 400);
+          return { error: "token required" };
+        }
+        const registration = await upsertRemotePushRegistration({
+          ownerEmail: ctx.ownerEmail,
+          orgId: ctx.orgId,
+          provider: readString(body.provider) ?? "unknown",
+          token,
+          platform: readString(body.platform),
+          clientDeviceId:
+            readString(body.clientDeviceId) ?? readString(body.deviceId),
+          label: readString(body.label),
+        });
+        return {
+          registration: toPublicRemotePushRegistration(registration),
+        };
+      }),
+    );
+
+    h3.use(
+      `${P}/remote/push/registrations`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const registrations = await listRemotePushRegistrationsForOwner({
+          ownerEmail: ctx.ownerEmail,
+          orgId: ctx.orgId,
+          includeInactive: getQuery(event).includeInactive === "true",
+          limit: 100,
+        });
+        return {
+          registrations: registrations.map(toPublicRemotePushRegistration),
+        };
+      }),
+    );
+
+    h3.use(
+      `${P}/remote/push/unregister`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "POST" && method !== "DELETE") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const body = (await readBody(event)) as Record<string, unknown>;
+        const removed = await unregisterRemotePushRegistrationForOwner({
+          ownerEmail: ctx.ownerEmail,
+          orgId: ctx.orgId,
+          id: readString(body.id) ?? readString(body.registrationId),
+          token: readString(body.token),
+        });
+        if (!removed) {
+          setResponseStatus(event, 404);
+          return { error: "registration not found" };
+        }
+        return { ok: true };
+      }),
+    );
+
+    h3.use(
+      `${P}/remote/push/notifications`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const query = getQuery(event);
+        const status =
+          query.status === "delivered" ||
+          query.status === "failed" ||
+          query.status === "pending"
+            ? query.status
+            : undefined;
+        const notifications = await listRemotePushNotificationsForOwner({
+          ownerEmail: ctx.ownerEmail,
+          orgId: ctx.orgId,
+          status,
+          limit: Number(query.limit ?? 50) || 50,
+        });
+        return { notifications };
       }),
     );
 
@@ -650,8 +939,7 @@ export function createIntegrationsPlugin(
         }
         const ctx = await requireSessionContext(event);
         if (!ctx) return { error: "unauthorized" };
-        const raw = (event.path || "/").split("?")[0].replace(/^\//, "");
-        const parts = raw.split("/").filter(Boolean);
+        const parts = mountedPathParts(event, "remote/runs");
         const commands = await listRemoteCommandsForOwner({
           ownerEmail: ctx.ownerEmail,
           orgId: ctx.orgId,
@@ -755,6 +1043,10 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 404);
           return { error: "device not found" };
         }
+        if (device.status !== "active") {
+          setResponseStatus(event, 410);
+          return { error: "device revoked" };
+        }
         const command = await enqueueRemoteCommandRow({
           deviceId: device.id,
           ownerEmail: ctx.ownerEmail,
@@ -839,6 +1131,15 @@ export function createIntegrationsPlugin(
         if (!command) {
           setResponseStatus(event, 404);
           return { error: "command not found" };
+        }
+        if (command.status === "completed" || command.status === "failed") {
+          await queueRemotePushNotifications({
+            ownerEmail: device.ownerEmail,
+            orgId: device.orgId,
+            payload: remoteCommandPushPayload(command),
+          }).catch((err) => {
+            console.error("[integrations] remote push queue failed:", err);
+          });
         }
         return { command };
       }),

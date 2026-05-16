@@ -44,6 +44,8 @@ import {
   type CodeAgentTerminalRequest,
   type CodeAgentTerminalResult,
   type CodeAgentRemoteConnectorControlResult,
+  type CodeAgentRemoteConnectorPairRequest,
+  type CodeAgentRemoteConnectorPairResult,
   type CodeAgentRemoteConnectorStatus,
   type DesktopOpenRequest,
   type InterAppMessage,
@@ -844,6 +846,7 @@ function readRemoteDeviceConfig(): {
   token: string;
   relayUrl?: string;
   deviceId?: string;
+  deviceName?: string;
 } | null {
   try {
     const raw = JSON.parse(
@@ -862,10 +865,35 @@ function readRemoteDeviceConfig(): {
       token,
       relayUrl: firstStringValue(raw.relayUrl, raw.url, raw.baseUrl),
       deviceId: firstStringValue(raw.deviceId, raw.id),
+      deviceName: firstStringValue(raw.deviceName, raw.name),
     };
   } catch {
     return null;
   }
+}
+
+function writeRemoteDeviceConfig(config: {
+  token: string;
+  relayUrl: string;
+  deviceId?: string;
+  deviceName?: string;
+}): void {
+  const configPath = remoteDeviceConfigPath();
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify(
+      {
+        token: config.token,
+        relayUrl: config.relayUrl,
+        deviceId: config.deviceId,
+        deviceName: config.deviceName,
+      },
+      null,
+      2,
+    ),
+    { encoding: "utf-8", mode: 0o600 },
+  );
 }
 
 function normalizeRemoteRelayUrl(
@@ -1035,6 +1063,11 @@ function setRemoteConnectorEnabled(
   enabled: boolean,
 ): CodeAgentRemoteConnectorControlResult {
   remoteConnectorEnabled = enabled;
+  try {
+    AppStore.saveRemoteConnectorSettings({ enabled });
+  } catch (err) {
+    remoteConnectorError = err instanceof Error ? err.message : String(err);
+  }
   if (!enabled) {
     if (remoteConnectorRestartTimer) {
       clearTimeout(remoteConnectorRestartTimer);
@@ -1054,6 +1087,171 @@ function setRemoteConnectorEnabled(
   }
   remoteConnectorRestartCount = 0;
   return { ok: true, status: startRemoteCodeAgentConnector() };
+}
+
+function parseRemoteConnectorPairRequest(
+  input: unknown,
+): CodeAgentRemoteConnectorPairRequest {
+  if (!isObject(input)) return {};
+  return {
+    relayUrl: firstStringValue(input.relayUrl, input.url),
+    label: firstStringValue(input.label, input.name),
+  };
+}
+
+function findRemoteRelaySession(relayUrl: string): Electron.Session {
+  let origin: string | null = null;
+  try {
+    origin = new URL(relayUrl).origin;
+  } catch {
+    return session.defaultSession;
+  }
+
+  try {
+    const matchingApp = loadAppsForAuthContext().find(
+      (appConfig) => getAppOrigin(appConfig) === origin,
+    );
+    if (matchingApp)
+      return session.fromPartition(`persist:app-${matchingApp.id}`);
+  } catch (err) {
+    console.warn("[remote-code-agent] failed to match relay app:", err);
+  }
+
+  const active = getActiveWebviewContents();
+  try {
+    if (active && new URL(active.getURL()).origin === origin) {
+      return active.session;
+    }
+  } catch {
+    // Fall back to the default Electron session.
+  }
+  return session.defaultSession;
+}
+
+async function cookieHeaderForRelay(
+  relaySession: Electron.Session,
+  relayUrl: string,
+): Promise<string> {
+  const origin = new URL(relayUrl).origin;
+  const cookies = await relaySession.cookies.get({ url: origin });
+  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+}
+
+async function pairRemoteCodeAgentConnector(
+  input: unknown,
+): Promise<CodeAgentRemoteConnectorPairResult> {
+  const request = parseRemoteConnectorPairRequest(input);
+  const relayUrl = normalizeRemoteRelayUrl(request.relayUrl);
+  if (!relayUrl) {
+    return {
+      ok: false,
+      status: getRemoteConnectorStatus(),
+      error: "Enter a valid Agent-Native app URL to pair remote control.",
+    };
+  }
+
+  try {
+    const relaySession = findRemoteRelaySession(relayUrl);
+    const cookieHeader = await cookieHeaderForRelay(relaySession, relayUrl);
+    if (!cookieHeader) {
+      return {
+        ok: false,
+        status: getRemoteConnectorStatus(),
+        error: "Sign in to that app in Desktop before pairing this computer.",
+      };
+    }
+
+    const response = await fetch(
+      new URL("/_agent-native/integrations/remote/register", relayUrl),
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: cookieHeader,
+        },
+        body: JSON.stringify({
+          label: request.label ?? `${os.hostname()} Desktop`,
+        }),
+      },
+    );
+    const text = await response.text();
+    const payload = text ? (JSON.parse(text) as unknown) : null;
+    if (!response.ok || !isObject(payload)) {
+      const error = isObject(payload)
+        ? firstStringValue(payload.error, payload.message)
+        : undefined;
+      return {
+        ok: false,
+        status: getRemoteConnectorStatus(),
+        error:
+          error ??
+          `Remote pairing returned ${response.status} from ${new URL(relayUrl).host}.`,
+      };
+    }
+
+    const device = isObject(payload.device) ? payload.device : {};
+    const token = firstStringValue(
+      payload.token,
+      payload.deviceToken,
+      payload.relayToken,
+      payload.accessToken,
+    );
+    if (!token) {
+      const error = firstStringValue(payload.error, payload.message);
+      return {
+        ok: false,
+        status: getRemoteConnectorStatus(),
+        error: error ?? "The app did not return a remote device token.",
+      };
+    }
+
+    const deviceId = firstStringValue(payload.deviceId, device.id);
+    const deviceName = firstStringValue(
+      payload.deviceName,
+      payload.label,
+      device.label,
+      device.name,
+    );
+    writeRemoteDeviceConfig({
+      token,
+      relayUrl,
+      deviceId,
+      deviceName,
+    });
+
+    remoteConnectorEnabled = true;
+    AppStore.saveRemoteConnectorSettings({ enabled: true });
+    remoteConnectorError = undefined;
+    remoteConnectorRestartCount = 0;
+    remoteConnectorNextRestartAt = undefined;
+    if (remoteConnectorRestartTimer) {
+      clearTimeout(remoteConnectorRestartTimer);
+      remoteConnectorRestartTimer = null;
+    }
+    if (remoteConnectorProcess?.pid) {
+      try {
+        remoteConnectorProcess.kill("SIGTERM");
+      } catch {
+        // A fresh connector start below will report any remaining failure.
+      }
+      remoteConnectorProcess = null;
+    }
+
+    return {
+      ok: true,
+      status: startRemoteCodeAgentConnector(),
+      deviceId,
+      message: "Remote control paired.",
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    remoteConnectorError = message;
+    return {
+      ok: false,
+      status: getRemoteConnectorStatus(),
+      error: message,
+    };
+  }
 }
 
 function timestampSlug(value: string): string {
@@ -3391,6 +3589,15 @@ ipcMain.handle(
     setRemoteConnectorEnabled(Boolean(enabled)),
 );
 
+ipcMain.handle(
+  IPC.CODE_AGENTS_REMOTE_CONNECTOR_PAIR,
+  (
+    _event: IpcMainInvokeEvent,
+    input: unknown,
+  ): Promise<CodeAgentRemoteConnectorPairResult> =>
+    pairRemoteCodeAgentConnector(input),
+);
+
 // ---------- Native context menus ----------
 // Electron does not provide Chromium's standard right-click menu by default,
 // so add the useful browser/editing actions for both the shell and app webviews.
@@ -4340,6 +4547,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 
   const win = createWindow();
+  remoteConnectorEnabled = AppStore.loadRemoteConnectorSettings().enabled;
   startRemoteCodeAgentConnector();
 
   // Intercept keyboard shortcuts on the shell renderer

@@ -29,7 +29,12 @@ import { IconX } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
 import { TiptapComposer, type TiptapComposerHandle } from "./TiptapComposer.js";
-import type { Reference, SkillResult, SlashCommand } from "./types.js";
+import type {
+  AgentComposerLayoutVariant,
+  Reference,
+  SkillResult,
+  SlashCommand,
+} from "./types.js";
 import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
@@ -88,6 +93,10 @@ export interface PromptComposerProps {
   initialTextKey?: string | number;
   /** Optional host-owned control rendered directly after the "+" button. */
   modeControl?: ReactNode;
+  /** Explicit host-owned toolbar slot rendered directly after the "+" button. */
+  toolbarSlot?: ReactNode;
+  /** Shared sizing/layout variant for host surfaces. Default keeps sidebar behavior. */
+  layoutVariant?: AgentComposerLayoutVariant;
   /** Additional slash commands surfaced in the shared / menu. */
   slashCommands?: SlashCommand[];
   /** Additional slash skills surfaced in the shared / menu. */
@@ -430,6 +439,8 @@ function PromptComposerInner({
   initialText,
   initialTextKey,
   modeControl,
+  toolbarSlot,
+  layoutVariant,
   slashCommands,
   slashSkills,
   includeDefaultSlashCommands,
@@ -504,7 +515,10 @@ function PromptComposerInner({
   );
 
   return (
-    <AgentComposerFrame className={cn("text-left", className)}>
+    <AgentComposerFrame
+      className={cn("text-left", className)}
+      layoutVariant={layoutVariant}
+    >
       <PromptAttachmentStrip />
       <TiptapComposer
         focusRef={handleRef}
@@ -518,6 +532,8 @@ function PromptComposerInner({
           plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
         }
         modeControl={modeControl}
+        toolbarSlot={toolbarSlot}
+        layoutVariant={layoutVariant}
         slashCommands={slashCommands}
         slashSkills={slashSkills}
         includeDefaultSlashCommands={includeDefaultSlashCommands}

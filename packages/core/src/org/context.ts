@@ -12,6 +12,12 @@ const EMPTY_CONTEXT: OrgContext = {
   role: null,
 };
 
+function normalizeOrgRole(value: unknown): OrgRole | null {
+  return value === "owner" || value === "admin" || value === "member"
+    ? value
+    : null;
+}
+
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -32,6 +38,11 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   const session = await getSession(event);
   const email = session?.email;
   if (!email) return EMPTY_CONTEXT;
+  const sessionOrgId =
+    typeof session.orgId === "string" && session.orgId.trim()
+      ? session.orgId.trim()
+      : null;
+  const sessionOrgRole = normalizeOrgRole(session.orgRole);
 
   const exec = getDbExec();
 
@@ -55,7 +66,33 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
     }));
   } catch {
     // Tables may not exist yet on first boot before migrations finish.
+    if (sessionOrgId) {
+      return {
+        email,
+        orgId: sessionOrgId,
+        orgName: null,
+        role: sessionOrgRole,
+      };
+    }
     return { email, orgId: null, orgName: null, role: null };
+  }
+
+  if (sessionOrgId) {
+    const active = memberships.find((m) => m.orgId === sessionOrgId);
+    if (active) {
+      return {
+        email,
+        orgId: active.orgId,
+        orgName: active.orgName,
+        role: active.role,
+      };
+    }
+    return {
+      email,
+      orgId: sessionOrgId,
+      orgName: null,
+      role: sessionOrgRole,
+    };
   }
 
   if (memberships.length === 0 && process.env.AUTO_CREATE_DEFAULT_ORG) {

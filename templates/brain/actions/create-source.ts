@@ -6,6 +6,7 @@ import {
   serializeSource,
   sha256Hex,
 } from "../server/lib/brain.js";
+import { assertSourceWorkspaceConnectionAvailable } from "../server/lib/source-credentials.js";
 import { jsonRecordSchema, sourceProviderSchema } from "./_schemas.js";
 
 export default defineAction({
@@ -28,6 +29,19 @@ export default defineAction({
   }),
   run: async (args) => {
     const config = { ...args.config };
+    const workspaceConnectionId =
+      typeof config.workspaceConnectionId === "string"
+        ? config.workspaceConnectionId.trim()
+        : "";
+    if (workspaceConnectionId) {
+      config.workspaceConnectionId = workspaceConnectionId;
+      await assertSourceWorkspaceConnectionAvailable({
+        provider: args.provider,
+        workspaceConnectionId,
+      });
+    } else {
+      delete config.workspaceConnectionId;
+    }
     let ingestToken: string | undefined;
     if (args.sourceKey) {
       ingestToken = args.ingestToken ?? `brain_${nanoid(32)}`;

@@ -70,6 +70,15 @@ export {
   type AgentNativeProps,
 } from "./AgentNative.js";
 export {
+  AgentNativeEmbedded,
+  useAgentNativeEmbeddedBrowserSession,
+  type AgentNativeEmbeddedBrowserSessionOptions,
+  type AgentNativeEmbeddedCommandCallback,
+  type AgentNativeEmbeddedCommandCallbackInfo,
+  type AgentNativeEmbeddedProps,
+  type UseAgentNativeEmbeddedBrowserSessionOptions,
+} from "./AgentNativeEmbedded.js";
+export {
   defineClientAction,
   type AgentNativeClientActionDefinition,
   type AgentNativeClientActionRunner,
@@ -205,6 +214,7 @@ export {
   type PromptComposerProps,
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
+  type AgentComposerLayoutVariant,
   type SlashCommand,
   type SkillResult,
 } from "./composer/index.js";

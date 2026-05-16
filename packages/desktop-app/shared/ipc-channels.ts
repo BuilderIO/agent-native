@@ -66,6 +66,7 @@ export const IPC = {
     "code-agents:remote-connector:get-status",
   CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED:
     "code-agents:remote-connector:set-enabled",
+  CODE_AGENTS_REMOTE_CONNECTOR_PAIR: "code-agents:remote-connector:pair",
 
   /** Deep links (main → renderer) */
   DEEP_LINK_OPEN: "deep-link:open",
@@ -384,6 +385,19 @@ export interface CodeAgentRemoteConnectorStatus {
 export interface CodeAgentRemoteConnectorControlResult {
   ok: boolean;
   status: CodeAgentRemoteConnectorStatus;
+  error?: string;
+}
+
+export interface CodeAgentRemoteConnectorPairRequest {
+  relayUrl?: string;
+  label?: string;
+}
+
+export interface CodeAgentRemoteConnectorPairResult {
+  ok: boolean;
+  status: CodeAgentRemoteConnectorStatus;
+  deviceId?: string;
+  message?: string;
   error?: string;
 }
 

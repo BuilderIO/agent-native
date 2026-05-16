@@ -168,6 +168,38 @@ export default function CodeAgentsHub({
         }
         return api.openTerminal(request);
       },
+      async getRemoteConnectorStatus() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.getRemoteConnectorStatus) {
+          return {
+            state: "error",
+            enabled: false,
+            configured: false,
+            configPath: "",
+            restartCount: 0,
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.getRemoteConnectorStatus();
+      },
+      async setRemoteConnectorEnabled(enabled) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.setRemoteConnectorEnabled) {
+          return {
+            ok: false,
+            status: {
+              state: "error",
+              enabled: false,
+              configured: false,
+              configPath: "",
+              restartCount: 0,
+              error: "Desktop bridge is not available.",
+            },
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.setRemoteConnectorEnabled(enabled);
+      },
     }),
     [],
   );

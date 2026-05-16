@@ -14,9 +14,115 @@ Use it when you want an assistant that can:
 - Ask the host app to navigate, refresh data, remount a view, or open a resource after durable work completes.
 - Run as an iframe/sidebar now, while leaving room for a no-iframe package or hosted template later.
 
+## Batteries-Included Embedded Mode
+
+For most SaaS hosts, use the full embedded runtime. The host mounts Agent-Native server routes into its existing app, passes its logged-in user to Agent-Native, and then renders the React sidebar/surface in the product UI. Agent-Native uses the host deployment, host session, and the configured `DATABASE_URL` to manage its own framework tables: chat threads, settings, application state, extensions, extension data, secrets, browser sessions, and action routes.
+
+On the server:
+
+```ts
+// server/plugins/agent-native.ts
+import { createAgentNativeEmbeddedPlugin } from "@agent-native/core/server";
+import { builderActions } from "../agent-native/actions";
+import { getBuilderSession } from "../auth";
+
+export default createAgentNativeEmbeddedPlugin({
+  databaseUrl: process.env.DATABASE_URL,
+  auth: async (event) => {
+    const session = await getBuilderSession(event);
+    if (!session) return null;
+    return {
+      userId: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+      orgId: session.organization.id,
+      orgRole: session.organization.role,
+    };
+  },
+  actions: builderActions,
+  agentChat: {
+    appId: "builder",
+    systemPrompt:
+      "You are Builder's embedded agent. Use Builder actions for durable work.",
+  },
+});
+```
+
+On the client:
+
+```tsx
+import {
+  AgentNativeEmbedded,
+  defineClientAction,
+} from "@agent-native/core/client";
+
+export function BuilderAppShell({ children, content, editor }) {
+  return (
+    <AgentNativeEmbedded
+      defaultOpen
+      session={{
+        id: browserTabId(),
+        label: "Builder editor",
+      }}
+      getContext={() => ({
+        route: {
+          name: "builder-editor",
+          pathname: window.location.pathname,
+          params: { contentId: content.id },
+        },
+        resource: {
+          type: "content",
+          id: content.id,
+          name: content.name,
+        },
+        user: currentUser(),
+        organization: currentOrganization(),
+      })}
+      actions={[
+        defineClientAction({
+          name: "select-element",
+          description: "Select an element in the visual editor",
+          schema: {
+            type: "object",
+            properties: { elementId: { type: "string" } },
+            required: ["elementId"],
+          },
+          run: ({ elementId }) => editor.select(elementId),
+        }),
+      ]}
+      onRefresh={() => queryClient.invalidateQueries()}
+      onNavigate={(payload) =>
+        router.navigate((payload as { path: string }).path)
+      }
+      onRemount={() => setAppKey((key) => key + 1)}
+    >
+      {children}
+    </AgentNativeEmbedded>
+  );
+}
+```
+
+This mode is the recommended default because it reuses the full framework: backend actions are mounted under `/_agent-native/actions`, the agent can call the same actions as the UI, user-created extensions are stored in SQL, `extensionData` is durable and user/org scoped, and browser-session tools let the backend agent inspect or operate the currently open tab.
+
+Host auth is server-side. Do not pass identity from the browser as the source of truth; use the host's request/session object or a short-lived server-verified token. If the host does not expose emails, return a stable `userId` and Agent-Native will use it as the owner key.
+
+### Database Isolation
+
+Embedded mode manages Agent-Native tables in SQL. For a mature SaaS product, the safest default is **same hosting and auth, dedicated Agent-Native database/schema**:
+
+```ts
+export default createAgentNativeEmbeddedPlugin({
+  databaseUrl: process.env.AGENT_NATIVE_DATABASE_URL,
+  auth: getHostSession,
+  actions: hostActions,
+});
+```
+
+Using the host product's main `DATABASE_URL` is supported, but make that an explicit choice. Agent-Native creates framework tables such as `settings`, `application_state`, `tools`, `tool_data`, browser-session tables, secrets, chat threads, and related indexes. A dedicated DB/schema avoids table-name collisions, keeps ownership of managed tables clear, and makes backup/retention policy easier to reason about. If you intentionally share the host DB, review existing table names first and treat Agent-Native tables as framework-owned.
+
 ## Host App
 
-For React apps, use `<AgentNative />`. It renders the iframe sidecar and wires page context, live client actions, and host refresh/navigation commands in one place:
+For standalone sidecar apps or cross-origin iframes, use the lower-level `<AgentNative />`. It renders the iframe sidecar and wires page context, live client actions, and host refresh/navigation commands in one place:
 
 ```tsx
 import { AgentNative, defineClientAction } from "@agent-native/core/client";
@@ -293,7 +399,7 @@ Available globals inside the iframe:
 
 By default, `extensionData` uses browser `localStorage`, which is useful for prototypes and local widgets. Production SaaS hosts should pass a backend-backed `storage` adapter so user and org scoped extension data is durable, auditable, and governed by the app's permissions. The generic HTTP adapter sends POST bodies like `{ operation, extensionId, slotId, collection, id, data, options, context }` and expects either `{ result }` or the result JSON directly.
 
-This portable SDK layer is separate from the framework's built-in SQL-backed extension store. In an Agent-Native app, use the existing `ExtensionSlot`/`EmbeddedExtension` components and the `create-extension` action. In a hosted SaaS embedding scenario, use `AgentNativeExtensionSlot` when the SaaS already owns extension definitions, approval, marketplace, storage, and billing.
+This portable SDK layer is separate from the framework's built-in SQL-backed extension store. In an Agent-Native app, use the existing `ExtensionSlot`/`EmbeddedExtension` components and the `create-extension` action. In a hosted SaaS embedding scenario, prefer `createAgentNativeEmbeddedPlugin()` plus `AgentNativeEmbedded` when you want Agent-Native to manage extension definitions, approval, storage, and agent-created extensions out of the box. Use `AgentNativeExtensionSlot` only when the SaaS already owns extension definitions, approval, marketplace, storage, and billing.
 
 Security model:
 

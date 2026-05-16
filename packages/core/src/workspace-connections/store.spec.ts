@@ -500,6 +500,233 @@ describe("workspace connection store", () => {
     ]);
   });
 
+  it("lists app-available workspace connections with access metadata", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const {
+      listWorkspaceConnectionsForApp,
+      upsertWorkspaceConnection,
+      upsertWorkspaceConnectionGrant,
+    } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-open",
+          provider: "slack",
+          label: "Open Slack",
+          config: { token: "xoxb-open-should-not-leak" },
+          credentialRefs: [
+            {
+              key: "SLACK_BOT_TOKEN",
+              scope: "org",
+              value: "xoxb-ref-should-not-leak",
+            },
+          ],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-allowed",
+          provider: "slack",
+          label: "Brain Slack",
+          allowedApps: ["brain"],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-granted",
+          provider: "slack",
+          label: "Granted Slack",
+          allowedApps: ["dispatch"],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-not-granted",
+          provider: "slack",
+          label: "Dispatch Slack",
+          allowedApps: ["dispatch"],
+        });
+        await upsertWorkspaceConnectionGrant({
+          id: "grant-brain",
+          connectionId: "conn-granted",
+          appId: "brain",
+        });
+      },
+    );
+
+    const connections = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        listWorkspaceConnectionsForApp({ appId: "brain", provider: "slack" }),
+    );
+
+    expect(connections.map((connection) => connection.id).sort()).toEqual([
+      "conn-allowed",
+      "conn-granted",
+      "conn-open",
+    ]);
+    expect(
+      connections.map((connection) => ({
+        id: connection.id,
+        appAccess: connection.appAccess,
+        explicitGrantId: connection.explicitGrant?.id ?? null,
+      })),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "conn-open",
+          appAccess: expect.objectContaining({
+            available: true,
+            mode: "all-apps",
+          }),
+          explicitGrantId: null,
+        }),
+        expect.objectContaining({
+          id: "conn-allowed",
+          appAccess: expect.objectContaining({
+            available: true,
+            mode: "allowed-app",
+          }),
+          explicitGrantId: null,
+        }),
+        expect.objectContaining({
+          id: "conn-granted",
+          appAccess: expect.objectContaining({
+            available: true,
+            mode: "explicit-grant",
+            grantId: "grant-brain",
+          }),
+          explicitGrantId: "grant-brain",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(connections)).not.toContain("xoxb-open");
+    expect(JSON.stringify(connections)).not.toContain("xoxb-ref");
+  });
+
+  it("resolves requested app workspace connections with unavailable reasons", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-open",
+          provider: "github",
+          label: "Open GitHub",
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-dispatch",
+          provider: "github",
+          label: "Dispatch GitHub",
+          allowedApps: ["dispatch"],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-disabled",
+          provider: "github",
+          label: "Disabled GitHub",
+          status: "disabled",
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-needs-reauth",
+          provider: "github",
+          label: "Expired GitHub",
+          status: "needs_reauth",
+        });
+      },
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "brain",
+          provider: "github",
+          connectionId: "conn-open",
+          requireConnected: true,
+        }),
+    );
+    expect(resolved).toMatchObject({
+      available: true,
+      connection: {
+        id: "conn-open",
+        appAccess: {
+          available: true,
+          mode: "all-apps",
+        },
+      },
+    });
+
+    const notGranted = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "brain",
+          provider: "github",
+          connectionId: "conn-dispatch",
+        }),
+    );
+    expect(notGranted).toMatchObject({
+      available: false,
+      connection: {
+        id: "conn-dispatch",
+        appAccess: {
+          available: false,
+          mode: "unavailable",
+        },
+      },
+    });
+    expect(notGranted.reason).toMatch(/grant brain access/i);
+
+    const disabled = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "brain",
+          provider: "github",
+          connectionId: "conn-disabled",
+        }),
+    );
+    expect(disabled).toMatchObject({
+      available: false,
+      connection: { id: "conn-disabled", status: "disabled" },
+    });
+    expect(disabled.reason).toMatch(/disabled/i);
+
+    const needsConnected = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "brain",
+          provider: "github",
+          connectionId: "conn-needs-reauth",
+          requireConnected: true,
+          includeDisabled: true,
+        }),
+    );
+    expect(needsConnected).toMatchObject({
+      available: false,
+      connection: { id: "conn-needs-reauth", status: "needs_reauth" },
+    });
+    expect(needsConnected.reason).toMatch(/connected workspace connection/i);
+
+    const missing = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "brain",
+          provider: "github",
+          connectionId: "conn-missing",
+        }),
+    );
+    expect(missing).toMatchObject({
+      available: false,
+      connection: null,
+      appAccess: null,
+    });
+    expect(missing.reason).toMatch(/not found/i);
+  });
+
   it("builds a reusable provider catalog for one app", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

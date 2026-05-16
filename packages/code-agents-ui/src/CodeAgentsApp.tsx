@@ -69,6 +69,8 @@ import type {
   CodeAgentProjectListResult,
   CodeAgentProjectSelectResult,
   CodeAgentReasoningEffort,
+  CodeAgentRemoteConnectorControlResult,
+  CodeAgentRemoteConnectorStatus,
   CodeAgentRerunRequest,
   CodeAgentRerunResult,
   CodeAgentRetryRunRequest,
@@ -119,6 +121,10 @@ export interface CodeAgentsHost {
   openTerminal?(
     request?: CodeAgentTerminalRequest,
   ): Promise<CodeAgentTerminalResult>;
+  getRemoteConnectorStatus?(): Promise<CodeAgentRemoteConnectorStatus>;
+  setRemoteConnectorEnabled?(
+    enabled: boolean,
+  ): Promise<CodeAgentRemoteConnectorControlResult>;
 }
 
 export type CodeAgentsRenderAppSurface = (input: {
@@ -147,12 +153,12 @@ const CODE_AGENT_RUN_MODES: Array<{
 }> = [
   {
     id: "plan",
-    label: "Plan mode",
+    label: "Plan",
     description: "Read the workspace and propose a plan before editing.",
   },
   {
     id: "auto",
-    label: "Auto mode",
+    label: "Auto",
     description:
       "Edit, run checks, and only pause for destructive file, git, or data operations.",
   },
@@ -270,6 +276,11 @@ export default function CodeAgentsApp({
   );
   const [followUpMode, setFollowUpMode] =
     useState<CodeAgentFollowUpMode>("immediate");
+  const [remoteConnectorStatus, setRemoteConnectorStatus] =
+    useState<CodeAgentRemoteConnectorStatus | null>(null);
+  const [remoteConnectorError, setRemoteConnectorError] = useState<
+    string | null
+  >(null);
   const selectedModelSelection = useMemo(
     () => normalizeModelSelection(modelSelection, modelOptions),
     [modelOptions, modelSelection],
@@ -362,6 +373,27 @@ export default function CodeAgentsApp({
       setLoadingProjects(false);
     }
   }, [codePack?.root, host]);
+
+  const loadRemoteConnectorStatus = useCallback(async () => {
+    if (!host.getRemoteConnectorStatus) return;
+    try {
+      const result = await host.getRemoteConnectorStatus();
+      setRemoteConnectorStatus(result);
+      setRemoteConnectorError(null);
+    } catch (err) {
+      setRemoteConnectorError(err instanceof Error ? err.message : String(err));
+    }
+  }, [host]);
+
+  useEffect(() => {
+    if (!host.getRemoteConnectorStatus) return;
+    void loadRemoteConnectorStatus();
+    const timer = window.setInterval(
+      () => void loadRemoteConnectorStatus(),
+      5000,
+    );
+    return () => window.clearInterval(timer);
+  }, [host.getRemoteConnectorStatus, loadRemoteConnectorStatus]);
 
   useEffect(() => {
     if (refreshKey <= 0) return;
@@ -930,6 +962,14 @@ export default function CodeAgentsApp({
           </button>
         </div>
 
+        {host.getRemoteConnectorStatus && (
+          <RemoteConnectorRailStatus
+            status={remoteConnectorStatus}
+            error={remoteConnectorError}
+            onOpenSettings={onOpenSettings}
+          />
+        )}
+
         <button
           type="button"
           className="code-agents-new-session-link"
@@ -938,14 +978,6 @@ export default function CodeAgentsApp({
           <IconPlus size={15} strokeWidth={1.8} />
           New session
         </button>
-
-        <ProjectFolderPicker
-          projects={projects}
-          selectedPath={selectedProjectPath}
-          loading={loadingProjects}
-          onSelect={selectProjectFolder}
-          onChoose={chooseProjectFolder}
-        />
 
         <div className="code-agents-goal-list" aria-label="Code commands">
           <p className="code-agents-rail-label">Commands</p>
@@ -1091,7 +1123,11 @@ export default function CodeAgentsApp({
               />
             ) : (
               <div className="code-agents-start">
-                <h2>What should we work on?</h2>
+                <h2>
+                  {selectedProjectPath
+                    ? `What should we build in ${baseNameForPath(selectedProjectPath)}?`
+                    : "What should we work on?"}
+                </h2>
                 <NewSessionComposer
                   prompt={newPrompt}
                   promptSeed={newPromptSeed}
@@ -1106,6 +1142,14 @@ export default function CodeAgentsApp({
                   onModelSelectionChange={setModelSelection}
                   onSlashCommand={handleSlashCommand}
                   onSubmit={createRunFromPrompt}
+                />
+                <ProjectFolderPicker
+                  variant="bar"
+                  projects={projects}
+                  selectedPath={selectedProjectPath}
+                  loading={loadingProjects}
+                  onSelect={selectProjectFolder}
+                  onChoose={chooseProjectFolder}
                 />
                 <div className="code-agents-suggestions">
                   <button
@@ -1155,12 +1199,14 @@ function isMigrationRun(run: CodeAgentRun): run is CodeAgentMigrationRun {
 }
 
 function ProjectFolderPicker({
+  variant = "rail",
   projects,
   selectedPath,
   loading,
   onSelect,
   onChoose,
 }: {
+  variant?: "rail" | "bar";
   projects: CodeAgentProjectFolder[];
   selectedPath: string;
   loading: boolean;
@@ -1170,7 +1216,9 @@ function ProjectFolderPicker({
   const active = projects.find((project) => project.path === selectedPath);
 
   return (
-    <div className="code-agents-project-picker">
+    <div
+      className={`code-agents-project-picker code-agents-project-picker--${variant}`}
+    >
       <p className="code-agents-rail-label">Folder</p>
       <div className="code-agents-project-picker__row">
         <Select
@@ -1383,7 +1431,8 @@ function CodeAgentComposer({
 
   return (
     <PromptComposer
-      className={`code-agents-standard-composer code-agents-composer-shell code-agents-composer-shell--${variant}`}
+      className="code-agents-standard-composer code-agents-composer-shell"
+      layoutVariant={variant}
       composerRef={inputRef}
       disabled={submitting}
       placeholder={placeholder}
@@ -1394,7 +1443,7 @@ function CodeAgentComposer({
       }
       initialText={promptSeed !== undefined ? prompt : undefined}
       initialTextKey={promptSeed}
-      modeControl={modeControl}
+      toolbarSlot={modeControl}
       availableModels={composerModelGroups}
       selectedModel={selectedModel}
       selectedEngine={selectedEngine}
@@ -1403,6 +1452,7 @@ function CodeAgentComposer({
       onEffortChange={handleEffortChange}
       onTextChange={onPromptChange}
       slashCommands={slashCommands}
+      includeDefaultSlashSkills={false}
       onSlashCommand={onSlashCommand}
       onSubmit={async (text, files) => {
         const attachments = await readPromptFiles(files);
@@ -1852,6 +1902,104 @@ function RunRailItem({
       </DropdownMenu>
     </div>
   );
+}
+
+function RemoteConnectorRailStatus({
+  status,
+  error,
+  onOpenSettings,
+}: {
+  status: CodeAgentRemoteConnectorStatus | null;
+  error: string | null;
+  onOpenSettings?: () => void;
+}) {
+  const copy = remoteConnectorCopy(status, error);
+  return (
+    <button
+      type="button"
+      className={`code-agents-remote-status code-agents-remote-status--${copy.tone}`}
+      onClick={onOpenSettings}
+      disabled={!onOpenSettings}
+      title={copy.description}
+    >
+      <span
+        className={`code-agents-remote-dot code-agents-remote-dot--${copy.tone}`}
+      />
+      <span>
+        <strong>{copy.label}</strong>
+        <em>{copy.description}</em>
+      </span>
+    </button>
+  );
+}
+
+function remoteConnectorCopy(
+  status: CodeAgentRemoteConnectorStatus | null,
+  error: string | null,
+): {
+  label: string;
+  description: string;
+  tone: "ok" | "pending" | "offline" | "error";
+} {
+  if (error) {
+    return { label: "Remote error", description: error, tone: "error" };
+  }
+  if (!status) {
+    return {
+      label: "Remote checking",
+      description: "Reading connector state",
+      tone: "pending",
+    };
+  }
+  if (!status.configured) {
+    return {
+      label: "Remote offline",
+      description: "Pair in settings",
+      tone: "offline",
+    };
+  }
+  if (!status.enabled) {
+    return {
+      label: "Remote off",
+      description: "Paused on this computer",
+      tone: "offline",
+    };
+  }
+  if (status.state === "error") {
+    return {
+      label: "Remote error",
+      description: status.error ?? "Connector needs attention",
+      tone: "error",
+    };
+  }
+  if (status.state === "running") {
+    return {
+      label: "Remote polling",
+      description: `Connected to ${hostForDisplay(status.relayUrl)}`,
+      tone: "ok",
+    };
+  }
+  if (status.state === "starting") {
+    return {
+      label: "Remote connecting",
+      description: "Retrying connector",
+      tone: "pending",
+    };
+  }
+  return {
+    label: "Remote offline",
+    description: "Connector is stopped",
+    tone: "offline",
+  };
+}
+
+function hostForDisplay(url: string | undefined): string {
+  if (!url) return "relay";
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 function RunDetailCard({

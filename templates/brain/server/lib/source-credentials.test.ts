@@ -235,4 +235,96 @@ describe("resolveSourceCredential", () => {
     );
     expect(availability).not.toHaveProperty("value");
   });
+
+  it("uses the bound workspace connection when workspaceConnectionId is present", async () => {
+    mocks.connections = [
+      {
+        id: "conn-a",
+        label: "Old Slack",
+        provider: "slack",
+        status: "connected",
+        allowedApps: [],
+        credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+      },
+      {
+        id: "conn-b",
+        label: "Product Slack",
+        provider: "slack",
+        status: "connected",
+        allowedApps: [],
+        credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+      },
+    ];
+    mocks.secrets.set("org:org-1:SLACK_BOT_TOKEN", "shared-secret");
+
+    const availability = await inspectSourceCredentialAvailability({
+      provider: "slack",
+      key: "SLACK_BOT_TOKEN",
+      workspaceConnectionId: "conn-b",
+      ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+    });
+
+    expect(availability.available).toBe(true);
+    expect(availability.provenance).toMatchObject({
+      source: "workspace_connection",
+      connectionId: "conn-b",
+      connectionLabel: "Product Slack",
+    });
+    expect(availability.checked).toEqual([
+      expect.objectContaining({
+        source: "workspace_connection",
+        status: "available",
+        connectionId: "conn-b",
+      }),
+    ]);
+  });
+
+  it("does not fall back when the bound workspace connection is not granted", async () => {
+    mocks.connections = [
+      {
+        id: "bound-calendar",
+        label: "Calendar Slack",
+        provider: "slack",
+        status: "connected",
+        allowedApps: ["calendar"],
+        credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+      },
+      {
+        id: "granted-brain",
+        label: "Brain Slack",
+        provider: "slack",
+        status: "connected",
+        allowedApps: [],
+        credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+      },
+    ];
+    mocks.secrets.set("org:org-1:SLACK_BOT_TOKEN", "workspace-token");
+    mocks.localCredential = "brain-local-token";
+
+    await expect(
+      resolveSourceCredential({
+        provider: "slack",
+        key: "SLACK_BOT_TOKEN",
+        workspaceConnectionId: "bound-calendar",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toBeUndefined();
+
+    const availability = await inspectSourceCredentialAvailability({
+      provider: "slack",
+      key: "SLACK_BOT_TOKEN",
+      workspaceConnectionId: "bound-calendar",
+      ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+    });
+
+    expect(availability.available).toBe(false);
+    expect(availability.missingMessage).toMatch(/not granted to Brain/i);
+    expect(availability.checked).toEqual([
+      expect.objectContaining({
+        source: "workspace_connection",
+        status: "not_granted",
+        connectionId: "bound-calendar",
+      }),
+    ]);
+  });
 });

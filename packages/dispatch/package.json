@@ -37,7 +37,7 @@
     "dev": "tsc --watch & tsc-alias --watch --resolve-full-paths",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run src --passWithNoTests",
-    "prepack": "cp ../../README.md ./README.md",
+    "prepack": "npm run build && cp ../../README.md ./README.md",
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {

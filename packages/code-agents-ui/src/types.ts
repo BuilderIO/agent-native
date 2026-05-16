@@ -258,6 +258,36 @@ export interface CodeAgentTerminalResult {
   error?: string;
 }
 
+export type CodeAgentRemoteConnectorState =
+  | "disabled"
+  | "unconfigured"
+  | "starting"
+  | "running"
+  | "stopped"
+  | "error";
+
+export interface CodeAgentRemoteConnectorStatus {
+  state: CodeAgentRemoteConnectorState;
+  enabled: boolean;
+  configured: boolean;
+  configPath: string;
+  relayUrl?: string;
+  pid?: number;
+  startedAt?: string;
+  lastExitAt?: string;
+  lastExitCode?: number | null;
+  lastExitSignal?: string | null;
+  restartCount: number;
+  nextRestartAt?: string;
+  error?: string;
+}
+
+export interface CodeAgentRemoteConnectorControlResult {
+  ok: boolean;
+  status: CodeAgentRemoteConnectorStatus;
+  error?: string;
+}
+
 export type CodeAgentControlCommand = "resume" | "status" | "stop" | "approve";
 
 export interface CodeAgentControlResult {

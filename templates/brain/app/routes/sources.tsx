@@ -98,6 +98,7 @@ interface SourceFormState {
   githubState: "open" | "closed" | "all";
   githubIncludeIssues: boolean;
   githubIncludePullRequests: boolean;
+  workspaceConnectionId: string;
   pollMinutes: string;
   sourceKey: string;
   autoSync: boolean;
@@ -179,6 +180,7 @@ function defaultForm(provider: Provider): SourceFormState {
     githubState: "all",
     githubIncludeIssues: true,
     githubIncludePullRequests: true,
+    workspaceConnectionId: "",
     pollMinutes: "60",
     sourceKey: provider === "generic" || provider === "clips" ? provider : "",
     autoSync:
@@ -223,6 +225,10 @@ function formFromSource(source: BrainSource): SourceFormState {
         : "all",
     githubIncludeIssues: config.includeIssues !== false,
     githubIncludePullRequests: config.includePullRequests !== false,
+    workspaceConnectionId:
+      typeof config.workspaceConnectionId === "string"
+        ? config.workspaceConnectionId
+        : "",
     pollMinutes:
       typeof config.pollMinutes === "number" ||
       typeof config.pollMinutes === "string"
@@ -275,6 +281,7 @@ function buildConfig(form: SourceFormState) {
     config.includeIssues = form.githubIncludeIssues;
     config.includePullRequests = form.githubIncludePullRequests;
   }
+  config.workspaceConnectionId = form.workspaceConnectionId.trim();
   if (form.sourceKey.trim()) config.sourceKey = form.sourceKey.trim();
   return config;
 }
@@ -543,6 +550,25 @@ function workspaceStatusClass(status: BrainWorkspaceConnectionStatus) {
     default:
       return readinessToneClass("muted");
   }
+}
+
+function supportsWorkspaceConnectionBinding(provider: Provider) {
+  return (
+    provider === "slack" || provider === "granola" || provider === "github"
+  );
+}
+
+function providerMetadataForSource(
+  providers: BrainConnectionProvider[],
+  provider: Provider,
+) {
+  return providers.find((entry) => entry.id === provider);
+}
+
+function grantedWorkspaceConnections(provider?: BrainConnectionProvider) {
+  return (provider?.workspaceConnection?.connections ?? []).filter(
+    (connection) => connection.appAccess?.available,
+  );
 }
 
 function grantStateIcon(state: BrainWorkspaceConnectionGrantState) {
@@ -1966,6 +1992,23 @@ export default function SourcesRoute() {
 
   const sources = sourcesQuery.data?.sources ?? [];
   const connectionProviders = connectionProvidersQuery.data?.providers ?? [];
+  const formProviderMetadata = providerMetadataForSource(
+    connectionProviders,
+    form.provider,
+  );
+  const formWorkspaceConnections = [
+    ...new Map(
+      [
+        ...grantedWorkspaceConnections(formProviderMetadata),
+        ...(
+          formProviderMetadata?.workspaceConnection?.connections ?? []
+        ).filter((connection) => connection.id === form.workspaceConnectionId),
+      ].map((connection) => [connection.id, connection]),
+    ).values(),
+  ];
+  const selectedWorkspaceConnection = formWorkspaceConnections.find(
+    (connection) => connection.id === form.workspaceConnectionId,
+  );
   const captures = capturesQuery.data?.captures ?? [];
   const queueableCaptures = captures.filter(captureCanQueue);
   const queueableCaptureIds = new Set(
@@ -2776,6 +2819,7 @@ export default function SourcesRoute() {
                       current.title === defaultTitle(current.provider)
                         ? defaultTitle(provider as Provider)
                         : current.title,
+                    workspaceConnectionId: "",
                   }))
                 }
               >
@@ -2791,6 +2835,49 @@ export default function SourcesRoute() {
                 </SelectContent>
               </Select>
             </div>
+
+            {supportsWorkspaceConnectionBinding(form.provider) && (
+              <div className="grid gap-2">
+                <Label htmlFor="workspace-connection">
+                  Workspace connection
+                </Label>
+                <Select
+                  value={form.workspaceConnectionId || "__automatic__"}
+                  onValueChange={(workspaceConnectionId) =>
+                    updateForm({
+                      workspaceConnectionId:
+                        workspaceConnectionId === "__automatic__"
+                          ? ""
+                          : workspaceConnectionId,
+                    })
+                  }
+                >
+                  <SelectTrigger id="workspace-connection">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__automatic__">
+                      Automatic credential selection
+                    </SelectItem>
+                    {formWorkspaceConnections.map((connection) => (
+                      <SelectItem key={connection.id} value={connection.id}>
+                        {connection.label}
+                        {connection.accountLabel
+                          ? ` - ${connection.accountLabel}`
+                          : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {selectedWorkspaceConnection
+                    ? `This source is bound to ${selectedWorkspaceConnection.label}; sync will not fall back to another shared connection.`
+                    : formWorkspaceConnections.length
+                      ? "Pick a granted connection to pin this source, or leave automatic to use the existing credential fallback."
+                      : "Grant a workspace connection to Brain in Dispatch before pinning this source."}
+                </p>
+              </div>
+            )}
 
             {form.provider === "slack" && (
               <div className="grid gap-4 rounded-md border border-border p-4">

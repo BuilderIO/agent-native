@@ -96,6 +96,17 @@ export {
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 export {
+  configureAgentNativeEmbeddedEnvironment,
+  createAgentNativeEmbeddedAuthOptions,
+  createAgentNativeEmbeddedPlugin,
+  mountAgentNativeEmbedded,
+  normalizeAgentNativeEmbeddedSession,
+  type AgentNativeEmbeddedAuthOptions,
+  type AgentNativeEmbeddedGetSession,
+  type AgentNativeEmbeddedHostSession,
+  type AgentNativeEmbeddedPluginOptions,
+} from "./embedded.js";
+export {
   createThread,
   getThread,
   listThreads,

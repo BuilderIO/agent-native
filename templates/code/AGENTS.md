@@ -76,6 +76,18 @@ model/effort, slash/reference, and Enter-to-submit behavior as the agent
 sidebar and Brain chat. Add small host-specific controls through composer slots
 instead of introducing a second textarea or visual shell implementation.
 
+The only Code-specific composer chrome should be narrow slots around the shared
+field: Auto / Plan mode, selected cwd/project metadata, and optional host
+actions such as opening a terminal. Slash commands and skill shortcuts must come
+from `.agents/commands/*.md` and `.agents/skills/*/SKILL.md` through
+`list-code-agent-packs`; do not hardcode a separate command registry in the UI.
+
+Background coding-agent work should reuse the shared run harness. Local Code
+sessions use `@agent-native/core/code-agents`; hosted/background app agents use
+core `run-manager` and `agent-teams` / `spawnTask()` so streaming, aborts,
+resume, heartbeats, and stuck-run cleanup stay consistent. Do not add a
+template-specific background runner for a new Code layout.
+
 ## Limits
 
 - Browser mode cannot open a native terminal. Use Agent-Native Desktop for that.

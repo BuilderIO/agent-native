@@ -9,6 +9,7 @@ import {
 
 const STORE_FILE = "app-config.json";
 const FRAME_STORE_FILE = "frame-config.json";
+const REMOTE_CONNECTOR_STORE_FILE = "remote-connector-config.json";
 const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
 
 /** Settings for the local dev frame */
@@ -21,10 +22,20 @@ export interface FrameSettings {
   prodUrl?: string;
 }
 
+export interface RemoteConnectorSettings {
+  enabled: boolean;
+}
+
 function defaultFrameSettings(): FrameSettings {
   return {
     enabled: true,
     mode: app.isPackaged ? "prod" : "dev",
+  };
+}
+
+function defaultRemoteConnectorSettings(): RemoteConnectorSettings {
+  return {
+    enabled: true,
   };
 }
 
@@ -84,6 +95,10 @@ function getFrameStorePath(): string {
   return path.join(app.getPath("userData"), FRAME_STORE_FILE);
 }
 
+function getRemoteConnectorStorePath(): string {
+  return path.join(app.getPath("userData"), REMOTE_CONNECTOR_STORE_FILE);
+}
+
 export function loadFrameSettings(): FrameSettings {
   try {
     const raw = fs.readFileSync(getFrameStorePath(), "utf-8");
@@ -100,6 +115,28 @@ export function saveFrameSettings(
   const updated = { ...current, ...settings };
   fs.writeFileSync(
     getFrameStorePath(),
+    JSON.stringify(updated, null, 2),
+    "utf-8",
+  );
+  return updated;
+}
+
+export function loadRemoteConnectorSettings(): RemoteConnectorSettings {
+  try {
+    const raw = fs.readFileSync(getRemoteConnectorStorePath(), "utf-8");
+    return { ...defaultRemoteConnectorSettings(), ...JSON.parse(raw) };
+  } catch {
+    return defaultRemoteConnectorSettings();
+  }
+}
+
+export function saveRemoteConnectorSettings(
+  settings: Partial<RemoteConnectorSettings>,
+): RemoteConnectorSettings {
+  const current = loadRemoteConnectorSettings();
+  const updated = { ...current, ...settings };
+  fs.writeFileSync(
+    getRemoteConnectorStorePath(),
     JSON.stringify(updated, null, 2),
     "utf-8",
   );

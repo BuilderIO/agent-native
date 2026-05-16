@@ -1,11 +1,13 @@
 import { ComposerPrimitive } from "@assistant-ui/react";
 import type React from "react";
 import { cn } from "../utils.js";
+import type { AgentComposerLayoutVariant } from "./types.js";
 
 export interface AgentComposerFrameProps {
   children: React.ReactNode;
   className?: string;
   rootClassName?: string;
+  layoutVariant?: AgentComposerLayoutVariant;
   onClick?: React.MouseEventHandler<HTMLDivElement>;
 }
 
@@ -19,16 +21,27 @@ export function AgentComposerFrame({
   children,
   className,
   rootClassName,
+  layoutVariant = "default",
   onClick,
 }: AgentComposerFrameProps) {
   return (
     <div
-      className={cn("agent-composer-area shrink-0 px-3 py-2", className)}
+      data-agent-composer-variant={layoutVariant}
+      data-agent-composer-slot="area"
+      className={cn(
+        "agent-composer-area shrink-0 px-3 py-2",
+        layoutVariant !== "default" && `agent-composer-area--${layoutVariant}`,
+        className,
+      )}
       onClick={onClick}
     >
       <ComposerPrimitive.Root
+        data-agent-composer-variant={layoutVariant}
+        data-agent-composer-slot="root"
         className={cn(
           "agent-composer-root flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring",
+          layoutVariant !== "default" &&
+            `agent-composer-root--${layoutVariant}`,
           rootClassName,
         )}
       >

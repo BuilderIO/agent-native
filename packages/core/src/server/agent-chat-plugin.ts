@@ -60,8 +60,10 @@ import {
   mountMcpServersRoutes,
   mountMcpHubRoutes,
   buildMergedConfig,
+  setBuiltinMcpCapabilityEnabled,
   getHubStatus,
   isHubServeEnabled,
+  type BuiltinMcpCapabilityId,
 } from "../mcp-client/index.js";
 import { discoverAgents } from "./agent-discovery.js";
 import { loadSchemaPromptBlock } from "./schema-prompt.js";
@@ -1314,6 +1316,31 @@ function createBuilderBrowserTool(deps: {
   getOrigin: () => string;
   getOwner?: () => string | null | undefined;
 }): Record<string, ActionEntry> {
+  const setBuiltinForCurrentUser = async (
+    id: BuiltinMcpCapabilityId,
+    enabled: boolean,
+  ) => {
+    const email = getRequestUserEmail();
+    if (!email) {
+      return {
+        ok: false,
+        error: "not-signed-in",
+        message: "You must be signed in to change built-in MCP tools.",
+      };
+    }
+    const enabledIds = await setBuiltinMcpCapabilityEnabled(
+      "user",
+      email,
+      id,
+      enabled,
+    );
+    const manager = getGlobalMcpManager();
+    if (manager) {
+      await manager.reconfigure(await buildMergedConfig());
+    }
+    return { ok: true, enabledIds: enabledIds ?? [] };
+  };
+
   return {
     "connect-builder": {
       tool: {
@@ -1350,6 +1377,109 @@ function createBuilderBrowserTool(deps: {
           connectUrl: getBuilderBrowserConnectUrl(origin),
           orgName: creds.orgName || null,
           prompt,
+        });
+      },
+    },
+    "set-browser-control": {
+      tool: {
+        description:
+          "Enable or disable built-in browser-control MCP tools for the current user. Call this when the user asks to test, screenshot, inspect, or interact with a web page and browser tools are not available; confirm once before enabling. Prefer the chrome-devtools backend for live logged-in Chrome, and use playwright when an isolated browser is better.",
+        parameters: {
+          type: "object",
+          properties: {
+            enabled: {
+              type: "boolean",
+              description: "Whether browser-control tools should be enabled.",
+            },
+            backend: {
+              type: "string",
+              enum: ["chrome-devtools", "playwright"],
+              description:
+                "Browser backend to enable. Defaults to chrome-devtools.",
+            },
+          },
+          required: ["enabled"],
+        },
+      },
+      run: async (args) => {
+        const parsed =
+          args && typeof args === "object"
+            ? (args as Record<string, unknown>)
+            : {};
+        const enabled = parsed.enabled !== false;
+        const requestedBackend =
+          typeof parsed.backend === "string" ? parsed.backend : undefined;
+        const backend =
+          requestedBackend === "playwright" ? "playwright" : "chrome-devtools";
+        const targetId: BuiltinMcpCapabilityId =
+          backend === "playwright"
+            ? "browser-playwright"
+            : "browser-chrome-devtools";
+
+        if (!enabled) {
+          const chrome = await setBuiltinForCurrentUser(
+            "browser-chrome-devtools",
+            false,
+          );
+          if (!chrome.ok) return JSON.stringify(chrome);
+          const playwright = await setBuiltinForCurrentUser(
+            "browser-playwright",
+            false,
+          );
+          return JSON.stringify({
+            ...playwright,
+            enabled: false,
+            message: "Browser-control MCP tools are disabled.",
+          });
+        }
+
+        const result = await setBuiltinForCurrentUser(targetId, true);
+        return JSON.stringify({
+          ...result,
+          enabled: true,
+          backend,
+          message:
+            backend === "chrome-devtools"
+              ? "Chrome DevTools MCP is enabled. Browser tools will be available on the next action when Chrome remote debugging is available."
+              : "Playwright MCP is enabled. Browser tools will be available on the next action in an isolated Playwright browser.",
+        });
+      },
+    },
+    "set-computer-use": {
+      tool: {
+        description:
+          "Enable or disable built-in Computer Use MCP tools for the current user. Call only after the user explicitly asks to let the agent control local desktop apps. macOS may require Screen Recording and Accessibility permissions.",
+        parameters: {
+          type: "object",
+          properties: {
+            enabled: {
+              type: "boolean",
+              description: "Whether Computer Use tools should be enabled.",
+            },
+          },
+          required: ["enabled"],
+        },
+      },
+      run: async (args) => {
+        const parsed =
+          args && typeof args === "object"
+            ? (args as Record<string, unknown>)
+            : {};
+        const enabled = parsed.enabled !== false;
+        if (enabled && process.platform !== "darwin") {
+          return JSON.stringify({
+            ok: false,
+            error: "unsupported-platform",
+            message: "Computer Use is currently available only on macOS.",
+          });
+        }
+        const result = await setBuiltinForCurrentUser("computer-use", enabled);
+        return JSON.stringify({
+          ...result,
+          enabled,
+          message: enabled
+            ? "Computer Use MCP is enabled. If macOS prompts, grant Screen Recording and Accessibility permission in System Settings > Privacy & Security."
+            : "Computer Use MCP is disabled.",
         });
       },
     },
@@ -1866,7 +1996,7 @@ On the user's first interaction, check \`readAppState("personalization")\`. If i
 
 ### Extended Capabilities
 
-You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, live embedded browser sessions (\`list-browser-sessions\`, \`view-browser-session\`, \`run-browser-session-action\`, \`send-browser-session-command\`), and browser automation (\`activate-browser\` to provision a real Chrome). Call \`get-framework-context\` to read detailed instructions for any of these when needed.
+You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, live embedded browser sessions (\`list-browser-sessions\`, \`view-browser-session\`, \`run-browser-session-action\`, \`send-browser-session-command\`), and browser automation (\`set-browser-control\` for built-in Chrome DevTools/Playwright MCP, \`activate-browser\` for Builder-provisioned Chrome). Call \`get-framework-context\` to read detailed instructions for any of these when needed.
 
 For brand-consistent raster image generation, use the first-party Images agent via \`call-agent\` with agent "images" when another app needs generated heroes, diagrams, product shots, thumbnails, or design imagery. If this app has a native image-generation action, prefer that action because it may attach the image to the local document/deck/design.
 `;
@@ -1962,7 +2092,7 @@ You can activate a real Chrome browser via Builder.io for tasks that need full p
 - Reading content from pages that require JavaScript execution
 
 **How to use:**
-1. Call \`activate-browser\` — this provisions a Chrome instance and registers chrome-devtools MCP tools
+1. Call \`set-browser-control\` with \`{"enabled":true,"backend":"chrome-devtools"}\` after confirming once with the user. Use \`activate-browser\` only when you specifically need Builder-provisioned Chrome.
 2. On your next action, use \`mcp__chrome-devtools__navigate_page\`, \`mcp__chrome-devtools__evaluate_script\`, \`mcp__chrome-devtools__take_screenshot\`, etc.
 3. If Builder is not connected, call \`connect-builder\` first
 
@@ -2160,7 +2290,7 @@ When the user asks to connect Builder.io, needs Builder for LLM access / browser
 
 ### Browser Automation
 
-Call \`activate-browser\` to provision a real Chrome browser. After activation, chrome-devtools MCP tools become available for navigating pages, reading rendered DOM, taking screenshots, and evaluating JavaScript. If Builder is not connected, call \`connect-builder\` first. Use browser automation proactively when tasks benefit from full page rendering (design system extraction from URLs, visual verification, SPA content reading).
+Call \`set-browser-control\` to enable built-in browser MCP tools. Prefer \`backend:"chrome-devtools"\` for the user's live logged-in Chrome; use \`backend:"playwright"\` for isolated browser testing. After activation, MCP browser tools become available for navigating pages, reading rendered DOM, taking screenshots, and evaluating JavaScript on the next action. Use \`activate-browser\` only for Builder-provisioned browser sessions.
 
 ### call-agent — External Apps Only
 

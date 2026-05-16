@@ -25,6 +25,8 @@ import {
   type CodeAgentTerminalRequest,
   type CodeAgentTerminalResult,
   type CodeAgentRemoteConnectorControlResult,
+  type CodeAgentRemoteConnectorPairRequest,
+  type CodeAgentRemoteConnectorPairResult,
   type CodeAgentRemoteConnectorStatus,
   type DesktopOpenRequest,
   type InterAppMessage,
@@ -187,6 +189,10 @@ const electronAPI = {
       enabled: boolean,
     ): Promise<CodeAgentRemoteConnectorControlResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED, enabled),
+    pairRemoteConnector: (
+      request?: CodeAgentRemoteConnectorPairRequest,
+    ): Promise<CodeAgentRemoteConnectorPairResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_CONNECTOR_PAIR, request),
     onOpenRequest: (
       cb: (request: DesktopOpenRequest) => void,
     ): (() => void) => {

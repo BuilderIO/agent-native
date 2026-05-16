@@ -22,9 +22,14 @@ export interface RemoteDevice {
   ownerEmail: string;
   orgId: string | null;
   label: string;
+  platform: string | null;
+  appVersion: string | null;
+  hostName: string | null;
+  metadata: Record<string, unknown> | null;
   deviceTokenHash: string;
   lastSeenAt: number | null;
   status: RemoteDeviceStatus;
+  revokedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -34,8 +39,13 @@ export interface PublicRemoteDevice {
   ownerEmail: string;
   orgId: string | null;
   label: string;
+  platform: string | null;
+  appVersion: string | null;
+  hostName: string | null;
+  metadata: Record<string, unknown> | null;
   lastSeenAt: number | null;
   status: RemoteDeviceStatus;
+  revokedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -66,4 +76,48 @@ export interface RemoteRunEvent {
   seq: number;
   event: unknown;
   createdAt: number;
+}
+
+export type RemotePushRegistrationStatus = "active" | "inactive";
+
+export interface RemotePushRegistration {
+  id: string;
+  ownerEmail: string;
+  orgId: string | null;
+  provider: string;
+  platform: string | null;
+  clientDeviceId: string | null;
+  label: string | null;
+  token: string;
+  tokenHash: string;
+  status: RemotePushRegistrationStatus;
+  lastSeenAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PublicRemotePushRegistration {
+  id: string;
+  ownerEmail: string;
+  orgId: string | null;
+  provider: string;
+  platform: string | null;
+  clientDeviceId: string | null;
+  label: string | null;
+  status: RemotePushRegistrationStatus;
+  lastSeenAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RemotePushNotification {
+  id: string;
+  ownerEmail: string;
+  orgId: string | null;
+  registrationId: string;
+  payload: unknown;
+  status: "pending" | "delivered" | "failed";
+  attempts: number;
+  createdAt: number;
+  updatedAt: number;
 }

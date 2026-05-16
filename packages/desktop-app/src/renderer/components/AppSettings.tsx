@@ -27,6 +27,8 @@ interface AppSettingsProps {
   onAddAppClick?: () => void;
 }
 
+type RemoteStatusTone = "ok" | "pending" | "offline" | "error";
+
 function inferPortFromUrl(url: string): number {
   try {
     const parsed = new URL(url);
@@ -37,6 +39,87 @@ function inferPortFromUrl(url: string): number {
     // URL input validation handles invalid values.
   }
   return 0;
+}
+
+function appUrlForRemotePairing(app: AppConfig): string {
+  if ((app.mode ?? "prod") === "dev") {
+    return app.devUrl || (app.devPort ? `http://localhost:${app.devPort}` : "");
+  }
+  return app.url || app.devUrl || "";
+}
+
+function defaultRemoteRelayUrl(apps: AppConfig[]): string {
+  const app =
+    apps.find((item) => item.id === "dispatch" && Boolean(item.url)) ??
+    apps.find((item) => Boolean(item.url)) ??
+    apps.find((item) => Boolean(item.devUrl || item.devPort)) ??
+    apps[0];
+  return app ? appUrlForRemotePairing(app) : "";
+}
+
+function hostForDisplay(url: string | undefined): string {
+  if (!url) return "";
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+function remoteStatusCopy(status: CodeAgentRemoteConnectorStatus | null): {
+  label: string;
+  description: string;
+  tone: RemoteStatusTone;
+} {
+  if (!status) {
+    return {
+      label: "Checking",
+      description: "Reading remote-control status.",
+      tone: "pending",
+    };
+  }
+  if (!status.configured) {
+    return {
+      label: "Offline",
+      description: "Pair this computer with an Agent-Native app.",
+      tone: "offline",
+    };
+  }
+  if (!status.enabled) {
+    return {
+      label: "Off",
+      description: "Remote requests are paused on this computer.",
+      tone: "offline",
+    };
+  }
+  if (status.state === "error") {
+    return {
+      label: "Error",
+      description: status.error ?? "Remote control needs attention.",
+      tone: "error",
+    };
+  }
+  if (status.state === "running") {
+    return {
+      label: "Polling",
+      description: `Connected to ${hostForDisplay(status.relayUrl)}.`,
+      tone: "ok",
+    };
+  }
+  if (status.state === "starting") {
+    return {
+      label: "Connecting",
+      description: status.nextRestartAt
+        ? "Waiting to retry the remote connector."
+        : "Starting remote control.",
+      tone: "pending",
+    };
+  }
+  return {
+    label: "Offline",
+    description: "Remote control is not currently polling.",
+    tone: "offline",
+  };
 }
 
 export default function AppSettings({
@@ -50,6 +133,12 @@ export default function AppSettings({
   const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
     null,
   );
+  const [remoteStatus, setRemoteStatus] =
+    useState<CodeAgentRemoteConnectorStatus | null>(null);
+  const [remotePairUrl, setRemotePairUrl] = useState("");
+  const [remotePairing, setRemotePairing] = useState(false);
+  const [showRemotePairing, setShowRemotePairing] = useState(false);
+  const [remoteMessage, setRemoteMessage] = useState<string | null>(null);
 
   // Load frame settings
   useEffect(() => {
@@ -57,6 +146,28 @@ export default function AppSettings({
       window.electronAPI.frame.load().then(setFrameSettings);
     }
   }, []);
+
+  const refreshRemoteStatus = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.getRemoteConnectorStatus) return;
+    try {
+      const status = await api.getRemoteConnectorStatus();
+      setRemoteStatus(status);
+      setRemoteMessage(null);
+      setRemotePairUrl(
+        (current) => current || status.relayUrl || defaultRemoteRelayUrl(apps),
+      );
+      if (!status.configured) setShowRemotePairing(true);
+    } catch (err) {
+      setRemoteMessage(err instanceof Error ? err.message : String(err));
+    }
+  }, [apps]);
+
+  useEffect(() => {
+    void refreshRemoteStatus();
+    const timer = window.setInterval(() => void refreshRemoteStatus(), 5000);
+    return () => window.clearInterval(timer);
+  }, [refreshRemoteStatus]);
 
   const handleFrameToggle = useCallback(async (enabled: boolean) => {
     if (window.electronAPI?.frame) {
@@ -71,6 +182,34 @@ export default function AppSettings({
       setFrameSettings(updated);
     }
   }, []);
+
+  const handleRemoteToggle = useCallback(async (enabled: boolean) => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.setRemoteConnectorEnabled) return;
+    const result = await api.setRemoteConnectorEnabled(enabled);
+    setRemoteStatus(result.status);
+    setRemoteMessage(result.error ?? null);
+  }, []);
+
+  const handleRemotePair = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.pairRemoteConnector || !remotePairUrl.trim()) return;
+    setRemotePairing(true);
+    setRemoteMessage(null);
+    try {
+      const result = await api.pairRemoteConnector({
+        relayUrl: remotePairUrl.trim(),
+        label: "Agent Native Desktop",
+      });
+      setRemoteStatus(result.status);
+      setRemoteMessage(result.error ?? result.message ?? null);
+      if (result.ok) setShowRemotePairing(false);
+    } catch (err) {
+      setRemoteMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRemotePairing(false);
+    }
+  }, [remotePairUrl]);
 
   const handleToggle = useCallback(
     async (id: string, enabled: boolean) => {
@@ -156,6 +295,7 @@ export default function AppSettings({
   );
 
   const editingApp = editingId ? apps.find((a) => a.id === editingId) : null;
+  const remoteCopy = remoteStatusCopy(remoteStatus);
 
   return (
     <div className="settings-overlay" onClick={onClose}>
@@ -197,6 +337,85 @@ export default function AppSettings({
               </div>
             </div>
           )}
+
+          <div
+            className={`settings-remote-card settings-remote-card--${remoteCopy.tone}`}
+          >
+            <div className="settings-remote-row">
+              <div className="settings-remote-title">
+                <span
+                  className={`settings-remote-dot settings-remote-dot--${remoteCopy.tone}`}
+                />
+                <div>
+                  <span className="settings-mode-card-title">
+                    Remote Control
+                  </span>
+                  <span className="settings-mode-card-status">
+                    {remoteCopy.label} · {remoteCopy.description}
+                  </span>
+                </div>
+              </div>
+              <label
+                className="settings-toggle"
+                title={
+                  remoteStatus?.enabled
+                    ? "Turn remote control off"
+                    : "Turn remote control on"
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(remoteStatus?.enabled)}
+                  onChange={(e) => handleRemoteToggle(e.target.checked)}
+                />
+                <span className="settings-toggle-track" />
+              </label>
+            </div>
+
+            {remoteStatus?.relayUrl && (
+              <div className="settings-remote-meta">
+                <span>{hostForDisplay(remoteStatus.relayUrl)}</span>
+                {remoteStatus.pid && <span>PID {remoteStatus.pid}</span>}
+                {remoteStatus.restartCount > 0 && (
+                  <span>{remoteStatus.restartCount} retries</span>
+                )}
+              </div>
+            )}
+
+            {remoteMessage && (
+              <div className="settings-remote-message">{remoteMessage}</div>
+            )}
+
+            <button
+              type="button"
+              className="settings-remote-link"
+              onClick={() => setShowRemotePairing((value) => !value)}
+            >
+              {showRemotePairing ? "Hide pairing" : "Pair or repair"}
+            </button>
+
+            {showRemotePairing && (
+              <div className="settings-remote-pairing">
+                <input
+                  type="url"
+                  value={remotePairUrl}
+                  onChange={(e) => setRemotePairUrl(e.target.value)}
+                  placeholder="https://dispatch.agent-native.com"
+                />
+                <button
+                  type="button"
+                  className="settings-btn settings-btn--primary"
+                  onClick={handleRemotePair}
+                  disabled={remotePairing || !remotePairUrl.trim()}
+                >
+                  {remotePairing ? "Pairing..." : "Pair This Mac"}
+                </button>
+                <span className="settings-field-hint">
+                  Use an app you are signed into inside Desktop.
+                </span>
+              </div>
+            )}
+          </div>
 
           {/* Disclosure */}
           <button

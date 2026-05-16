@@ -3,6 +3,7 @@ import {
   getWorkspaceConnectionAppAccess,
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
+  resolveWorkspaceConnectionForApp,
   type SerializedWorkspaceConnection,
   type SerializedWorkspaceConnectionGrant,
   type WorkspaceConnectionAppAccessMode,
@@ -18,6 +19,7 @@ interface ResolveSourceCredentialOptions {
   provider: BrainSourceProvider | string;
   key: string;
   ctx: CredentialContext;
+  workspaceConnectionId?: string | null;
 }
 
 type SourceCredentialSource =
@@ -201,6 +203,42 @@ function missingCredentialMessage(
   return `Configure ${key} in Brain credentials or create and grant a shared ${provider} workspace connection.`;
 }
 
+function boundConnectionMissingCredentialMessage(
+  provider: string,
+  key: string,
+  workspaceConnectionId: string,
+  checked: SourceCredentialCheck[],
+) {
+  const connectionCheck = checked.find(
+    (entry) =>
+      entry.source === "workspace_connection" &&
+      entry.connectionId === workspaceConnectionId,
+  );
+  const connectionError = checked.find(
+    (entry) =>
+      entry.source === "workspace_connection" && entry.status === "error",
+  );
+  if (connectionError) {
+    return connectionError.message;
+  }
+  if (!connectionCheck) {
+    return `The selected ${provider} workspace connection ${workspaceConnectionId} was not found. Choose a granted connection or clear the source binding.`;
+  }
+  if (connectionCheck.status === "not_granted") {
+    return `The selected ${provider} workspace connection is not granted to Brain. Grant Brain access in Dispatch or choose another connection.`;
+  }
+  if (connectionCheck.status === "unhealthy") {
+    return `The selected ${provider} workspace connection is not healthy. Reauthorize or repair it in Dispatch before syncing this source.`;
+  }
+  if (connectionCheck.status === "missing") {
+    return `The selected ${provider} workspace connection is granted to Brain, but ${key} is missing from its credential refs or vault storage.`;
+  }
+  if (connectionCheck.status === "error") {
+    return connectionCheck.message;
+  }
+  return `The selected ${provider} workspace connection cannot provide ${key}. Choose another granted connection or clear the source binding.`;
+}
+
 function availabilityFromResolution(
   resolution: SourceCredentialResolution,
 ): SourceCredentialAvailability {
@@ -212,6 +250,7 @@ async function resolveWorkspaceConnectionCredential({
   provider,
   key,
   ctx,
+  workspaceConnectionId,
   checked,
 }: ResolveSourceCredentialOptions & {
   checked: SourceCredentialCheck[];
@@ -238,7 +277,24 @@ async function resolveWorkspaceConnectionCredential({
     return null;
   }
 
-  for (const connection of connections) {
+  const providerConnections = workspaceConnectionId
+    ? connections.filter(
+        (connection) => connection.id === workspaceConnectionId,
+      )
+    : connections;
+
+  if (workspaceConnectionId && providerConnections.length === 0) {
+    checked.push({
+      source: "workspace_connection",
+      key,
+      status: "missing",
+      message: `The selected ${provider} workspace connection ${workspaceConnectionId} was not found.`,
+      connectionId: workspaceConnectionId,
+    });
+    return null;
+  }
+
+  for (const connection of providerConnections) {
     const access = getWorkspaceConnectionAppAccess(connection, APP_ID, grants);
     if (!access.available) {
       checked.push({
@@ -391,8 +447,10 @@ async function resolveSourceCredentialDetailed(
   options: ResolveSourceCredentialOptions,
 ): Promise<SourceCredentialResolution> {
   const checked: SourceCredentialCheck[] = [];
+  const workspaceConnectionId = options.workspaceConnectionId?.trim() || null;
   const workspaceCredential = await resolveWorkspaceConnectionCredential({
     ...options,
+    workspaceConnectionId,
     checked,
   });
   if (workspaceCredential) {
@@ -404,6 +462,22 @@ async function resolveSourceCredentialDetailed(
       provenance: workspaceCredential.provenance,
       checked,
       missingMessage: null,
+    };
+  }
+
+  if (workspaceConnectionId) {
+    return {
+      provider: options.provider,
+      key: options.key,
+      available: false,
+      provenance: null,
+      checked,
+      missingMessage: boundConnectionMissingCredentialMessage(
+        options.provider,
+        options.key,
+        workspaceConnectionId,
+        checked,
+      ),
     };
   }
 
@@ -480,4 +554,36 @@ export async function inspectSourceCredentialAvailability(
   return availabilityFromResolution(
     await resolveSourceCredentialDetailed(options),
   );
+}
+
+export async function assertSourceWorkspaceConnectionAvailable({
+  provider,
+  workspaceConnectionId,
+}: {
+  provider: BrainSourceProvider | string;
+  workspaceConnectionId: string;
+}) {
+  let result: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
+  try {
+    result = await resolveWorkspaceConnectionForApp({
+      appId: APP_ID,
+      provider,
+      connectionId: workspaceConnectionId,
+      requireConnected: true,
+      includeDisabled: true,
+    });
+  } catch (err) {
+    throw new Error(
+      `Workspace connections are unavailable: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  if (!result.available || !result.connection || !result.appAccess) {
+    throw new Error(result.reason);
+  }
+  return {
+    connection: result.connection,
+    access: result.appAccess,
+  };
 }

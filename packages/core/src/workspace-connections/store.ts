@@ -84,6 +84,17 @@ export interface ListWorkspaceConnectionGrantsOptions {
   provider?: string;
 }
 
+export interface ListWorkspaceConnectionsForAppOptions {
+  appId: string;
+  provider?: string;
+  includeDisabled?: boolean;
+}
+
+export interface ResolveWorkspaceConnectionForAppOptions extends ListWorkspaceConnectionsForAppOptions {
+  connectionId?: string;
+  requireConnected?: boolean;
+}
+
 export interface UpsertWorkspaceConnectionInput {
   id?: string;
   provider: string;
@@ -173,6 +184,18 @@ export interface WorkspaceConnectionForAppSummary {
   lastCheckedAt: string | null;
   lastError: string | null;
   explicitGrant: WorkspaceConnectionExplicitGrantSummary | null;
+}
+
+export interface WorkspaceConnectionForApp extends SerializedWorkspaceConnection {
+  appAccess: WorkspaceConnectionAppAccess;
+  explicitGrant: SerializedWorkspaceConnectionGrant | null;
+}
+
+export interface ResolvedWorkspaceConnectionForApp {
+  available: boolean;
+  connection: WorkspaceConnectionForApp | null;
+  appAccess: WorkspaceConnectionAppAccess | null;
+  reason: string;
 }
 
 export interface WorkspaceConnectionProviderAppSummary {
@@ -828,6 +851,26 @@ function explicitGrantForConnection(
   return grantsForConnection(connectionId, grants, appId)[0];
 }
 
+function connectionForApp(
+  connection: SerializedWorkspaceConnection,
+  appId: string,
+  grants: SerializedWorkspaceConnectionGrant[],
+): WorkspaceConnectionForApp {
+  const normalizedAppId = appId.trim();
+  const appAccess = getWorkspaceConnectionAppAccess(
+    connection,
+    normalizedAppId,
+    grants,
+  );
+  return {
+    ...connection,
+    appAccess,
+    explicitGrant:
+      explicitGrantForConnection(connection.id, grants, normalizedAppId) ??
+      null,
+  };
+}
+
 function serializeConnectionForApp(
   connection: SerializedWorkspaceConnection,
   appId: string,
@@ -1124,6 +1167,124 @@ export async function listWorkspaceConnectionProviderCatalogForApp({
         (item) => item.readiness.status === "ready",
       ).length,
     },
+  };
+}
+
+export async function listWorkspaceConnectionsForApp({
+  appId,
+  provider,
+  includeDisabled = false,
+}: ListWorkspaceConnectionsForAppOptions): Promise<
+  WorkspaceConnectionForApp[]
+> {
+  const normalizedAppId = normalizeRequiredString(
+    appId,
+    "listWorkspaceConnectionsForApp appId",
+  );
+  const [connections, grants] = await Promise.all([
+    listWorkspaceConnections({ provider, includeDisabled }),
+    listWorkspaceConnectionGrants({ provider, appId: normalizedAppId }),
+  ]);
+
+  return connections
+    .map((connection) => connectionForApp(connection, normalizedAppId, grants))
+    .filter((connection) => connection.appAccess.available);
+}
+
+export async function resolveWorkspaceConnectionForApp({
+  appId,
+  provider,
+  includeDisabled = false,
+  connectionId,
+  requireConnected = false,
+}: ResolveWorkspaceConnectionForAppOptions): Promise<ResolvedWorkspaceConnectionForApp> {
+  const normalizedAppId = normalizeRequiredString(
+    appId,
+    "resolveWorkspaceConnectionForApp appId",
+  );
+  const normalizedConnectionId = connectionId?.trim();
+  const requestedConnections = await listWorkspaceConnections({
+    provider,
+    includeDisabled: includeDisabled || Boolean(normalizedConnectionId),
+  });
+  const candidateConnections = normalizedConnectionId
+    ? requestedConnections.filter(
+        (connection) => connection.id === normalizedConnectionId,
+      )
+    : requestedConnections;
+  const grants = await listWorkspaceConnectionGrants({
+    provider,
+    appId: normalizedAppId,
+    connectionId: normalizedConnectionId,
+  });
+
+  if (normalizedConnectionId && candidateConnections.length === 0) {
+    return {
+      available: false,
+      connection: null,
+      appAccess: null,
+      reason: `Workspace connection "${normalizedConnectionId}" was not found in the current request scope.`,
+    };
+  }
+
+  for (const connection of candidateConnections) {
+    const connectionWithAccess = connectionForApp(
+      connection,
+      normalizedAppId,
+      grants,
+    );
+
+    if (!connectionWithAccess.appAccess.available) {
+      if (normalizedConnectionId) {
+        return {
+          available: false,
+          connection: connectionWithAccess,
+          appAccess: connectionWithAccess.appAccess,
+          reason: connectionWithAccess.appAccess.reason,
+        };
+      }
+      continue;
+    }
+
+    if (!includeDisabled && connection.status === "disabled") {
+      if (normalizedConnectionId) {
+        return {
+          available: false,
+          connection: connectionWithAccess,
+          appAccess: connectionWithAccess.appAccess,
+          reason: `Workspace connection "${connection.id}" is disabled.`,
+        };
+      }
+      continue;
+    }
+
+    if (requireConnected && connection.status !== "connected") {
+      if (normalizedConnectionId) {
+        return {
+          available: false,
+          connection: connectionWithAccess,
+          appAccess: connectionWithAccess.appAccess,
+          reason: `Workspace connection "${connection.id}" is ${connection.status}; a connected workspace connection is required.`,
+        };
+      }
+      continue;
+    }
+
+    return {
+      available: true,
+      connection: connectionWithAccess,
+      appAccess: connectionWithAccess.appAccess,
+      reason: connectionWithAccess.appAccess.reason,
+    };
+  }
+
+  return {
+    available: false,
+    connection: null,
+    appAccess: null,
+    reason: provider
+      ? `No available ${provider} workspace connection was found for ${normalizedAppId}.`
+      : `No available workspace connection was found for ${normalizedAppId}.`,
   };
 }
 

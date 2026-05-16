@@ -110,6 +110,15 @@ explicitly configured public or private channels. Configure `channelIds`,
 DMs and MPIMs structurally; do not broaden it to enumerate private direct
 conversations.
 
+Slack, Granola, and GitHub sources may include a non-secret
+`workspaceConnectionId` in source config. Treat that as an exact binding to a
+shared workspace connection granted to `appId=brain`: credential resolution must
+use that connection only and fail clearly if it is missing, not granted,
+unhealthy, or missing the required credential ref. Do not silently fall back to a
+different shared connection, Brain-local credential, or registered vault secret
+for a bound source. Leave `workspaceConnectionId` unset when the legacy fallback
+order is desired.
+
 Use `test-slack-connection` before production backfills. It calls Slack
 `auth.test` and optional channel metadata checks only; it never calls
 `conversations.history`.

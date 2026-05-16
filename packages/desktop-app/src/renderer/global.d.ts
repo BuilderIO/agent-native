@@ -85,6 +85,19 @@ type CodeAgentRemoteConnectorControlResult = {
   error?: string;
 };
 
+type CodeAgentRemoteConnectorPairRequest = {
+  relayUrl?: string;
+  label?: string;
+};
+
+type CodeAgentRemoteConnectorPairResult = {
+  ok: boolean;
+  status: CodeAgentRemoteConnectorStatus;
+  deviceId?: string;
+  message?: string;
+  error?: string;
+};
+
 type CodeAgentPromptAttachment = {
   name: string;
   type?: string;
@@ -480,6 +493,9 @@ interface ElectronAPI {
     setRemoteConnectorEnabled(
       enabled: boolean,
     ): Promise<CodeAgentRemoteConnectorControlResult>;
+    pairRemoteConnector(
+      request?: CodeAgentRemoteConnectorPairRequest,
+    ): Promise<CodeAgentRemoteConnectorPairResult>;
     onOpenRequest(cb: (request: DesktopOpenRequest) => void): () => void;
   };
 

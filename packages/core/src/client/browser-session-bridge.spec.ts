@@ -206,4 +206,149 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     expect(claimed).toMatchObject({ id: "req-1", name: "select-row" });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it("registers direct embedded context and actions without postMessage", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("/_agent-native/browser-sessions");
+      expect(init?.method).toBe("POST");
+      const body = JSON.parse(String(init?.body));
+      expect(body).toMatchObject({
+        sessionId: "embedded-tab",
+        session: { id: "embedded-tab", label: "Embedded app" },
+        context: {
+          route: { name: "builder-editor" },
+          resource: { type: "content", id: "content-1" },
+        },
+        actions: [
+          {
+            name: "focus-symbol",
+            source: "client",
+            availability: "browser-session",
+          },
+        ],
+      });
+      return jsonResponse({
+        ok: true,
+        session: {
+          sessionId: "embedded-tab",
+          session: body.session,
+          actions: body.actions,
+          active: true,
+        },
+      });
+    });
+
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "embedded-tab", label: "Embedded app" },
+      getContext: () => ({
+        route: { name: "builder-editor" },
+        resource: { type: "content", id: "content-1" },
+      }),
+      actions: [
+        {
+          name: "focus-symbol",
+          description: "Focus a symbol in the editor",
+          schema: { type: "object" },
+          run: () => ({ focused: true }),
+        },
+      ],
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(bridge.refreshRegistration()).resolves.toMatchObject({
+      sessionId: "embedded-tab",
+      active: true,
+    });
+  });
+
+  it("claims a server request and executes a direct embedded action", async () => {
+    const refresh = vi.fn(async () => ({ refreshed: true }));
+    const action = vi.fn(async (_args, runtime) => {
+      await runtime.refresh({ scope: "content" });
+      return {
+        resourceId: runtime.context.resource?.id,
+        sessionId: runtime.session.id,
+      };
+    });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url === "/_agent-native/browser-sessions" && method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        return jsonResponse({
+          ok: true,
+          session: {
+            sessionId: body.sessionId,
+            session: body.session,
+            active: true,
+            actions: body.actions,
+          },
+        });
+      }
+      if (
+        url === "/_agent-native/browser-sessions/embedded-tab/requests/claim" &&
+        method === "POST"
+      ) {
+        return jsonResponse({
+          ok: true,
+          request: {
+            id: "req-embedded",
+            sessionId: "embedded-tab",
+            type: "run-action",
+            name: "focus-symbol",
+            args: { symbolId: "hero" },
+            status: "claimed",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 1000,
+          },
+        });
+      }
+      if (
+        url ===
+          "/_agent-native/browser-sessions/embedded-tab/requests/req-embedded/complete" &&
+        method === "POST"
+      ) {
+        const body = JSON.parse(String(init?.body));
+        expect(body).toEqual({
+          ok: true,
+          result: { resourceId: "content-1", sessionId: "embedded-tab" },
+        });
+        return jsonResponse({ ok: true, request: { id: "req-embedded" } });
+      }
+      throw new Error(`Unexpected fetch ${method} ${url}`);
+    });
+
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "embedded-tab", label: "Embedded app" },
+      getContext: () => ({
+        resource: { type: "content", id: "content-1" },
+      }),
+      actions: [
+        {
+          name: "focus-symbol",
+          description: "Focus a symbol in the editor",
+          schema: { type: "object" },
+          run: action,
+        },
+      ],
+      commands: { refreshData: refresh },
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    const claimed = await bridge.claimOnce();
+    expect(claimed).toMatchObject({ id: "req-embedded" });
+    expect(action).toHaveBeenCalledWith(
+      { symbolId: "hero" },
+      expect.objectContaining({
+        origin: "agent-native-embedded",
+        requestId: "req-embedded",
+      }),
+    );
+    expect(refresh).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "refreshData",
+        payload: { scope: "content" },
+      }),
+      undefined,
+    );
+  });
 });

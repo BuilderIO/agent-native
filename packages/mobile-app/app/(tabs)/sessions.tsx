@@ -24,6 +24,7 @@ import {
   listPairedHosts,
   listRemoteRuns,
   readRemoteTranscript,
+  revokeRemoteHost,
   stopRemoteRun,
   type PendingCommand,
   type RemoteHost,
@@ -33,9 +34,11 @@ import {
   type RemoteTranscriptEvent,
   type RemoteTranscriptEventType,
 } from "@/lib/remote-sessions-api";
+import { useRemotePushRegistration } from "@/lib/use-remote-push-registration";
 
 const POLL_INTERVAL_MS = 4000;
 const GOAL_ID = "task";
+type RelayState = "checking" | "online" | "offline" | "error";
 
 export default function SessionsScreen() {
   const [hosts, setHosts] = useState<RemoteHost[]>([]);
@@ -50,11 +53,18 @@ export default function SessionsScreen() {
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [sending, setSending] = useState(false);
+  const [relayState, setRelayState] = useState<RelayState>("checking");
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [revokingHostId, setRevokingHostId] = useState<string | null>(null);
+  const [confirmingRevokeHostId, setConfirmingRevokeHostId] = useState<
+    string | null
+  >(null);
   const [acting, setActing] = useState<"approve" | "deny" | "stop" | null>(
     null,
   );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const pushRegistration = useRemotePushRegistration();
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? null,
@@ -65,15 +75,31 @@ export default function SessionsScreen() {
     [selectedRun],
   );
 
+  const hostSummary = useMemo(() => {
+    const online = hosts.filter((host) => host.status === "online").length;
+    const busy = hosts.filter((host) => host.status === "busy").length;
+    if (hosts.length === 0) return "No hosts paired";
+    if (online > 0 || busy > 0) {
+      return `${online + busy}/${hosts.length} available`;
+    }
+    return "All hosts offline";
+  }, [hosts]);
+
   const loadHosts = useCallback(async () => {
     const result = await listPairedHosts();
     if (result.ok) {
       const nextHosts = result.data ?? [];
       setHosts(nextHosts);
-      setSelectedHostId((current) => current ?? nextHosts[0]?.id);
+      setSelectedHostId((current) => {
+        if (current && nextHosts.some((host) => host.id === current)) {
+          return current;
+        }
+        return nextHosts[0]?.id;
+      });
     } else {
       setError(result.error ?? "Could not load paired hosts.");
     }
+    return result;
   }, []);
 
   const loadRuns = useCallback(async () => {
@@ -90,6 +116,7 @@ export default function SessionsScreen() {
     } else {
       setError(result.error ?? "Could not load sessions.");
     }
+    return result;
   }, []);
 
   const loadTranscript = useCallback(async (runId: string, quiet = false) => {
@@ -117,7 +144,18 @@ export default function SessionsScreen() {
   const refresh = useCallback(
     async (quiet = false) => {
       if (!quiet) setRefreshing(true);
-      await Promise.all([loadHosts(), loadRuns()]);
+      const [hostsResult, runsResult] = await Promise.all([
+        loadHosts(),
+        loadRuns(),
+      ]);
+      if (hostsResult.ok || runsResult.ok) {
+        setRelayState("online");
+        setLastSyncedAt(new Date().toISOString());
+      } else if (hostsResult.status === 0 || runsResult.status === 0) {
+        setRelayState("offline");
+      } else {
+        setRelayState("error");
+      }
       if (!quiet) setRefreshing(false);
     },
     [loadHosts, loadRuns],
@@ -155,6 +193,10 @@ export default function SessionsScreen() {
   }, [loadRunDetail, loadTranscript, refresh, selectedRunId]);
 
   const selectedHost = hosts.find((host) => host.id === selectedHostId);
+  const selectedHostOffline =
+    selectedHost &&
+    selectedHost.status !== "online" &&
+    selectedHost.status !== "busy";
 
   const handleCreateRun = useCallback(async () => {
     const prompt = newPrompt.trim();
@@ -203,6 +245,17 @@ export default function SessionsScreen() {
     setSending(true);
     setError(null);
     setEvents((current) => [...current, optimisticEvent]);
+    setRuns((current) =>
+      current.map((run) =>
+        run.id === selectedRun.id
+          ? {
+              ...run,
+              status: isRemoteRunActive(run) ? run.status : "queued",
+              updatedAt: optimisticEvent.createdAt,
+            }
+          : run,
+      ),
+    );
     const result = await appendRemoteFollowUp({
       runId: selectedRun.id,
       hostId: selectedRun.hostId ?? selectedHostId,
@@ -214,9 +267,17 @@ export default function SessionsScreen() {
       setEvents((current) =>
         current.filter((event) => event.id !== optimisticEvent.id),
       );
+      setFollowUpPrompt(prompt);
       setError(result.error ?? "Could not send the follow-up.");
     } else {
       setNotice(result.data?.message ?? "Follow-up queued.");
+      if (result.data?.event) {
+        setEvents((current) =>
+          current.map((event) =>
+            event.id === optimisticEvent.id ? result.data!.event! : event,
+          ),
+        );
+      }
       await loadTranscript(selectedRun.id, true);
       await refresh(true);
     }
@@ -264,7 +325,10 @@ export default function SessionsScreen() {
     if (!selectedRun || acting) return;
     setActing("stop");
     setError(null);
-    const result = await stopRemoteRun(selectedRun.id, selectedRun.hostId);
+    const result = await stopRemoteRun(
+      selectedRun.id,
+      selectedRun.hostId ?? selectedHostId,
+    );
     if (!result.ok) {
       setError(result.error ?? "Could not stop the session.");
     } else {
@@ -278,7 +342,36 @@ export default function SessionsScreen() {
       await loadTranscript(selectedRun.id, true);
     }
     setActing(null);
-  }, [acting, loadTranscript, refresh, selectedRun]);
+  }, [acting, loadTranscript, refresh, selectedHostId, selectedRun]);
+
+  const handleRevokeHost = useCallback(async () => {
+    if (!selectedHost || revokingHostId) return;
+    if (confirmingRevokeHostId !== selectedHost.id) {
+      setConfirmingRevokeHostId(selectedHost.id);
+      setNotice(`Tap Revoke ${selectedHost.name} again to forget this host.`);
+      return;
+    }
+    setRevokingHostId(selectedHost.id);
+    setError(null);
+    setNotice(null);
+    const result = await revokeRemoteHost(selectedHost.id);
+    if (result.ok) {
+      setNotice(result.data?.message ?? "Host revoked.");
+      setHosts((current) =>
+        current.filter((host) => host.id !== selectedHost.id),
+      );
+      setSelectedHostId((current) =>
+        current === selectedHost.id
+          ? hosts.find((host) => host.id !== selectedHost.id)?.id
+          : current,
+      );
+      await refresh(true);
+    } else {
+      setError(result.error ?? "Could not revoke this host.");
+    }
+    setConfirmingRevokeHostId(null);
+    setRevokingHostId(null);
+  }, [confirmingRevokeHostId, hosts, refresh, revokingHostId, selectedHost]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -308,6 +401,7 @@ export default function SessionsScreen() {
                 {getRemoteRelayBaseUrl()}
               </Text>
             </View>
+            <RelayPill state={relayState} />
             <TouchableOpacity
               style={styles.iconButton}
               onPress={() => void refresh(false)}
@@ -329,6 +423,12 @@ export default function SessionsScreen() {
               <Text style={styles.noticeText}>{notice}</Text>
             </View>
           )}
+
+          <RelayStatusCard
+            state={relayState}
+            lastSyncedAt={lastSyncedAt}
+            hostSummary={hostSummary}
+          />
 
           <SectionHeader title="Paired Hosts" action={selectedHost?.name} />
           <ScrollView
@@ -353,11 +453,31 @@ export default function SessionsScreen() {
             )}
           </ScrollView>
 
+          <HostControls
+            host={selectedHost}
+            confirming={confirmingRevokeHostId === selectedHost?.id}
+            revoking={revokingHostId === selectedHost?.id}
+            pushStatus={pushRegistration.status}
+            pushMessage={pushRegistration.message}
+            registeringPush={pushRegistration.registering}
+            onRevoke={() => void handleRevokeHost()}
+            onRegisterPush={() => void pushRegistration.register()}
+          />
+
           <View style={styles.composerCard}>
             <View style={styles.cardTitleRow}>
               <Text style={styles.cardTitle}>New Session</Text>
               {creating && <ActivityIndicator color="#ffffff" />}
             </View>
+            {selectedHostOffline && (
+              <View style={styles.inlineCallout}>
+                <Feather name="wifi-off" size={15} color="#FBBF24" />
+                <Text style={styles.inlineCalloutText}>
+                  {selectedHost.name} looks offline. New work will queue until
+                  it reconnects.
+                </Text>
+              </View>
+            )}
             <TextInput
               style={styles.promptInput}
               value={newPrompt}
@@ -370,13 +490,18 @@ export default function SessionsScreen() {
             <TouchableOpacity
               style={[
                 styles.primaryButton,
-                (!newPrompt.trim() || creating) && styles.disabledButton,
+                (!newPrompt.trim() || creating || relayState === "offline") &&
+                  styles.disabledButton,
               ]}
-              disabled={!newPrompt.trim() || creating}
+              disabled={
+                !newPrompt.trim() || creating || relayState === "offline"
+              }
               onPress={handleCreateRun}
             >
               <Feather name="play" size={16} color="#111111" />
-              <Text style={styles.primaryButtonText}>Start Session</Text>
+              <Text style={styles.primaryButtonText}>
+                {relayState === "offline" ? "Relay Offline" : "Start Session"}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -427,7 +552,7 @@ export default function SessionsScreen() {
                 <View style={styles.approvalBox}>
                   <View style={styles.approvalTitleRow}>
                     <Feather name="shield" size={16} color="#FBBF24" />
-                    <Text style={styles.approvalTitle}>Command pending</Text>
+                    <Text style={styles.approvalTitle}>Approval needed</Text>
                   </View>
                   <Text style={styles.approvalReason}>
                     {pendingCommand.reason}
@@ -445,7 +570,11 @@ export default function SessionsScreen() {
                         void handleDecision("deny", pendingCommand)
                       }
                     >
-                      <Feather name="x" size={15} color="#FCA5A5" />
+                      {acting === "deny" ? (
+                        <ActivityIndicator color="#FCA5A5" />
+                      ) : (
+                        <Feather name="x" size={15} color="#FCA5A5" />
+                      )}
                       <Text style={styles.denyButtonText}>
                         {acting === "deny" ? "Denying" : "Deny"}
                       </Text>
@@ -457,7 +586,11 @@ export default function SessionsScreen() {
                         void handleDecision("approve", pendingCommand)
                       }
                     >
-                      <Feather name="check" size={15} color="#111111" />
+                      {acting === "approve" ? (
+                        <ActivityIndicator color="#111111" />
+                      ) : (
+                        <Feather name="check" size={15} color="#111111" />
+                      )}
                       <Text style={styles.primarySmallButtonText}>
                         {acting === "approve" ? "Approving" : "Approve"}
                       </Text>
@@ -472,7 +605,7 @@ export default function SessionsScreen() {
                   onPress={() => void loadTranscript(selectedRun.id)}
                 >
                   <Feather name="rotate-cw" size={15} color="#ffffff" />
-                  <Text style={styles.secondaryButtonText}>Status</Text>
+                  <Text style={styles.secondaryButtonText}>Refresh</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.secondaryButton}
@@ -481,9 +614,13 @@ export default function SessionsScreen() {
                   }
                   onPress={handleStop}
                 >
-                  <Feather name="square" size={15} color="#ffffff" />
+                  {acting === "stop" ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Feather name="square" size={15} color="#ffffff" />
+                  )}
                   <Text style={styles.secondaryButtonText}>
-                    {acting === "stop" ? "Stopping" : "Stop"}
+                    {acting === "stop" ? "Stopping" : "Stop Run"}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -555,6 +692,156 @@ function SectionHeader({ title, action }: { title: string; action?: string }) {
   );
 }
 
+function RelayPill({ state }: { state: RelayState }) {
+  const color =
+    state === "online"
+      ? "#86EFAC"
+      : state === "offline"
+        ? "#FCA5A5"
+        : state === "error"
+          ? "#FBBF24"
+          : "#9CA3AF";
+  return (
+    <View style={[styles.relayPill, { borderColor: color }]}>
+      <View style={[styles.statusDot, { backgroundColor: color }]} />
+      <Text style={[styles.relayPillText, { color }]}>
+        {state === "checking" ? "syncing" : state}
+      </Text>
+    </View>
+  );
+}
+
+function RelayStatusCard({
+  state,
+  lastSyncedAt,
+  hostSummary,
+}: {
+  state: RelayState;
+  lastSyncedAt: string | null;
+  hostSummary: string;
+}) {
+  const offline = state === "offline";
+  return (
+    <View style={[styles.statusCard, offline && styles.statusCardOffline]}>
+      <View style={styles.statusCardIcon}>
+        <Feather
+          name={offline ? "wifi-off" : "radio"}
+          size={17}
+          color={offline ? "#FCA5A5" : "#ffffff"}
+        />
+      </View>
+      <View style={styles.statusCardText}>
+        <Text style={styles.statusCardTitle}>
+          {offline ? "Relay unreachable" : hostSummary}
+        </Text>
+        <Text style={styles.statusCardMeta} numberOfLines={2}>
+          {offline
+            ? "Pull to retry. Queued work and approvals need the relay before they can sync."
+            : lastSyncedAt
+              ? `Synced ${formatRelativeTime(lastSyncedAt)}`
+              : "Checking relay status..."}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function HostControls({
+  host,
+  confirming,
+  revoking,
+  pushStatus,
+  pushMessage,
+  registeringPush,
+  onRevoke,
+  onRegisterPush,
+}: {
+  host?: RemoteHost;
+  confirming: boolean;
+  revoking: boolean;
+  pushStatus: string;
+  pushMessage: string;
+  registeringPush: boolean;
+  onRevoke: () => void;
+  onRegisterPush: () => void;
+}) {
+  if (!host) return null;
+  const pushDone = pushStatus === "registered";
+  return (
+    <View style={styles.hostControls}>
+      <View style={styles.hostControlText}>
+        <Text style={styles.hostControlTitle}>{hostStatusLabel(host)}</Text>
+        <Text style={styles.hostControlMeta} numberOfLines={2}>
+          {host.version
+            ? `${host.platform || "Desktop"} · ${host.version}`
+            : host.platform || "Desktop host"}
+        </Text>
+      </View>
+      <View style={styles.hostControlActions}>
+        <TouchableOpacity
+          style={[
+            styles.secondaryButton,
+            styles.hostActionButton,
+            confirming && styles.dangerOutlineButton,
+          ]}
+          disabled={revoking}
+          onPress={onRevoke}
+          accessibilityLabel={`Revoke ${host.name}`}
+        >
+          {revoking ? (
+            <ActivityIndicator color="#FCA5A5" />
+          ) : (
+            <Feather
+              name="trash-2"
+              size={14}
+              color={confirming ? "#FCA5A5" : "#ffffff"}
+            />
+          )}
+          <Text
+            style={[
+              styles.secondaryButtonText,
+              confirming && styles.dangerButtonText,
+            ]}
+          >
+            {confirming ? "Revoke" : "Forget"}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.secondaryButton,
+            styles.hostActionButton,
+            pushDone && styles.successOutlineButton,
+          ]}
+          disabled={registeringPush || pushDone}
+          onPress={onRegisterPush}
+          accessibilityLabel="Enable push alerts"
+        >
+          {registeringPush ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Feather
+              name={pushDone ? "bell" : "bell-off"}
+              size={14}
+              color={pushDone ? "#86EFAC" : "#ffffff"}
+            />
+          )}
+          <Text
+            style={[
+              styles.secondaryButtonText,
+              pushDone && styles.successButtonText,
+            ]}
+          >
+            {pushDone ? "Alerts On" : "Alerts"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.pushMessage} numberOfLines={2}>
+        {pushMessage}
+      </Text>
+    </View>
+  );
+}
+
 function HostCard({
   host,
   selected,
@@ -581,7 +868,7 @@ function HostCard({
         </Text>
       </View>
       <Text style={styles.hostMeta} numberOfLines={1}>
-        {host.platform || "Desktop host"}
+        {hostStatusLabel(host)}
       </Text>
       <Text style={styles.hostTime}>{formatRelativeTime(host.lastSeenAt)}</Text>
     </TouchableOpacity>
@@ -721,6 +1008,13 @@ function hostStatusColor(status: RemoteHostStatus): string {
   return "#9CA3AF";
 }
 
+function hostStatusLabel(host: RemoteHost): string {
+  if (host.status === "online") return `${host.name} is online`;
+  if (host.status === "busy") return `${host.name} is busy`;
+  if (host.status === "offline") return `${host.name} is offline`;
+  return `${host.name} status unknown`;
+}
+
 function runStatusColor(status: RemoteRunStatus): string {
   if (status === "completed") return "#86EFAC";
   if (status === "needs-approval") return "#FBBF24";
@@ -831,6 +1125,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#33333366",
   },
+  relayPill: {
+    height: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#181818",
+  },
+  relayPillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
   banner: {
     flexDirection: "row",
     alignItems: "center",
@@ -874,6 +1183,43 @@ const styles = StyleSheet.create({
     color: "#666666",
     fontSize: 12,
   },
+  statusCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#181818",
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
+    marginTop: 4,
+  },
+  statusCardOffline: {
+    backgroundColor: "#211212",
+    borderColor: "#7F1D1D",
+  },
+  statusCardIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#242424",
+  },
+  statusCardText: {
+    flex: 1,
+  },
+  statusCardTitle: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  statusCardMeta: {
+    color: "#8A8A8A",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
   hostRail: {
     gap: 10,
     paddingRight: 16,
@@ -916,6 +1262,55 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
+  hostControls: {
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#181818",
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
+    marginTop: 10,
+  },
+  hostControlText: {
+    marginBottom: 10,
+  },
+  hostControlTitle: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  hostControlMeta: {
+    color: "#8A8A8A",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  hostControlActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  hostActionButton: {
+    height: 38,
+  },
+  pushMessage: {
+    color: "#777777",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 10,
+  },
+  dangerOutlineButton: {
+    backgroundColor: "#2A1212",
+    borderColor: "#7F1D1D",
+  },
+  dangerButtonText: {
+    color: "#FCA5A5",
+  },
+  successOutlineButton: {
+    backgroundColor: "#102015",
+    borderColor: "#14532D",
+  },
+  successButtonText: {
+    color: "#86EFAC",
+  },
   composerCard: {
     padding: 14,
     borderRadius: 12,
@@ -934,6 +1329,23 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 17,
     fontWeight: "700",
+  },
+  inlineCallout: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "#211805",
+    borderWidth: 1,
+    borderColor: "#5F420D",
+    marginBottom: 10,
+  },
+  inlineCalloutText: {
+    flex: 1,
+    color: "#F5D999",
+    fontSize: 12,
+    lineHeight: 17,
   },
   promptInput: {
     minHeight: 96,

@@ -9,6 +9,7 @@ import {
   serializeSource,
   stableJson,
 } from "../server/lib/brain.js";
+import { assertSourceWorkspaceConnectionAvailable } from "../server/lib/source-credentials.js";
 import { optionalJsonRecordSchema } from "./_schemas.js";
 
 export default defineAction({
@@ -31,6 +32,19 @@ export default defineAction({
         ...parseJson<Record<string, unknown>>(existing.configJson, {}),
         ...args.config,
       };
+      const workspaceConnectionId =
+        typeof nextConfig.workspaceConnectionId === "string"
+          ? nextConfig.workspaceConnectionId.trim()
+          : "";
+      if (workspaceConnectionId) {
+        nextConfig.workspaceConnectionId = workspaceConnectionId;
+        await assertSourceWorkspaceConnectionAvailable({
+          provider: existing.provider,
+          workspaceConnectionId,
+        });
+      } else {
+        delete nextConfig.workspaceConnectionId;
+      }
       updates.configJson = stableJson(nextConfig);
       if (typeof nextConfig.sourceKey === "string") {
         updates.sourceKey = nextConfig.sourceKey;

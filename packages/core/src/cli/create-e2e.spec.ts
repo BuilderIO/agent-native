@@ -25,6 +25,7 @@ import {
   _loadCatalog,
   _rewriteNetlifyToml,
   _getCoreDependencyVersion,
+  _getDispatchDependencyVersion,
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
   _shouldSkipScaffoldEntry,
@@ -154,6 +155,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         workspaceRoot: targetDir,
         workspaceCoreName,
         coreDependencyVersion: _getCoreDependencyVersion(),
+        dispatchDependencyVersion: _getDispatchDependencyVersion(),
       });
       _fixPackageJsonName(appDir, t);
       _renameGitignore(appDir);
@@ -232,6 +234,24 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["dispatch"]);
     const dispatchPkg = readPkg(path.join(wsDir, "apps", "dispatch"));
     expect(dispatchPkg.dependencies["@agent-native/dispatch"]).toBe("latest");
+  });
+
+  it("can opt into local dispatch linking for framework development", async () => {
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+    try {
+      const wsDir = await scaffoldWorkspace("my-ws", ["dispatch"]);
+      const dispatchPkg = readPkg(path.join(wsDir, "apps", "dispatch"));
+      expect(dispatchPkg.dependencies["@agent-native/dispatch"]).toMatch(
+        /^file:\/\//,
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
   });
 
   it("adds postinstall script for required packages", async () => {

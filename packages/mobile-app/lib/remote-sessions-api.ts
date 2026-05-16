@@ -5,6 +5,14 @@ export const SESSION_TOKEN_KEY = "agent-native:session-token";
 
 export const REMOTE_SESSIONS_ENDPOINTS = {
   hosts: "/_agent-native/integrations/remote/hosts",
+  host: (hostId: string) =>
+    `/_agent-native/integrations/remote/hosts/${encodeURIComponent(hostId)}`,
+  hostDelete: (hostId: string) =>
+    `/_agent-native/integrations/remote/devices/${encodeURIComponent(hostId)}`,
+  hostRevoke: (hostId: string) =>
+    `/_agent-native/integrations/remote/devices/${encodeURIComponent(
+      hostId,
+    )}/revoke`,
   runs: "/_agent-native/integrations/remote/runs",
   runDetail: (runId: string) =>
     `/_agent-native/integrations/remote/runs/${encodeURIComponent(runId)}`,
@@ -13,6 +21,9 @@ export const REMOTE_SESSIONS_ENDPOINTS = {
       runId,
     )}/transcript`,
   enqueue: "/_agent-native/integrations/remote/enqueue",
+  pushToken: "/_agent-native/integrations/remote/push/register",
+  legacyPushToken: "/_agent-native/integrations/remote/push-token",
+  pushTokens: "/_agent-native/integrations/remote/push/registrations",
 } as const;
 
 const dispatchApp = TEMPLATE_APPS.find((app) => app.id === "dispatch");
@@ -36,6 +47,8 @@ export interface RemoteHost {
   lastSeenAt?: string;
   platform?: string;
   version?: string;
+  capabilities?: string[];
+  supportsRevoke?: boolean;
 }
 
 export interface RemoteRun {
@@ -107,8 +120,15 @@ export interface PendingCommand {
   command?: string;
 }
 
+export interface RegisterRemotePushTokenInput {
+  token: string;
+  platform: string;
+  projectId?: string;
+  deviceName?: string;
+}
+
 type FetchOptions = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "DELETE";
   body?: Record<string, unknown>;
 };
 
@@ -123,6 +143,23 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function asDateString(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(value).toISOString();
+  }
+  return undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
 }
 
 function asRecordArray(value: unknown): Record<string, unknown>[] {
@@ -194,6 +231,10 @@ function messageFromPayload(payload: unknown, fallback: string): string {
   );
 }
 
+function isUnsupportedEndpoint(result: RemoteApiResult<unknown>): boolean {
+  return result.status === 404 || result.status === 405;
+}
+
 export function getRemoteRelayBaseUrl(): string {
   return normalizeBaseUrl(DEFAULT_REMOTE_RELAY_BASE_URL);
 }
@@ -218,6 +259,7 @@ async function remoteFetch<T>(
         Accept: "application/json",
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
+        "X-Agent-Native-Client": "mobile",
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
@@ -247,6 +289,9 @@ async function remoteFetch<T>(
 }
 
 function normalizeStatus(value: unknown): RemoteRunStatus {
+  if (value === "pending") return "queued";
+  if (value === "claimed") return "running";
+  if (value === "failed") return "errored";
   if (
     value === "queued" ||
     value === "running" ||
@@ -269,13 +314,22 @@ function normalizeHostStatus(value: unknown): RemoteHostStatus {
 
 function normalizeHost(record: Record<string, unknown>): RemoteHost {
   const id = asString(record.id) || asString(record.hostId) || "unknown-host";
+  const capabilities = asStringArray(record.capabilities);
   return {
     id,
     name: asString(record.name) || asString(record.label) || id,
     status: normalizeHostStatus(record.status),
-    lastSeenAt: asString(record.lastSeenAt) || asString(record.updatedAt),
+    lastSeenAt:
+      asDateString(record.lastSeenAt) ||
+      asDateString(record.updatedAt) ||
+      asDateString(asRecord(record.device)?.lastSeenAt),
     platform: asString(record.platform),
-    version: asString(record.version),
+    version: asString(record.version) || asString(record.appVersion),
+    capabilities,
+    supportsRevoke:
+      asBoolean(record.supportsRevoke) ??
+      asBoolean(record.canRevoke) ??
+      capabilities.includes("revoke"),
   };
 }
 
@@ -307,7 +361,7 @@ function normalizeTranscriptEvent(
   record: Record<string, unknown>,
   runId: string,
 ): RemoteTranscriptEvent {
-  const type = record.type;
+  const type = record.type ?? record.kind;
   return {
     id:
       asString(record.id) ||
@@ -339,6 +393,10 @@ async function enqueueRemoteOperation<T>(
       operation,
       type: operation,
       payload,
+      source: {
+        platform: "mobile",
+        externalThreadId: "mobile",
+      },
     },
   });
 }
@@ -354,6 +412,108 @@ export async function listPairedHosts(): Promise<
     data: pickArray(result.data, ["hosts", "pairedHosts", "items"]).map(
       normalizeHost,
     ),
+  };
+}
+
+export async function revokeRemoteHost(
+  hostId: string,
+): Promise<RemoteApiResult<{ message?: string; unsupported?: boolean }>> {
+  const deleteResult = await remoteFetch<unknown>(
+    REMOTE_SESSIONS_ENDPOINTS.hostDelete(hostId),
+    { method: "DELETE" },
+  );
+  if (deleteResult.ok) {
+    return {
+      ok: true,
+      status: deleteResult.status,
+      data: {
+        message: messageFromPayload(deleteResult.data, "Host revoked."),
+      },
+    };
+  }
+  if (!isUnsupportedEndpoint(deleteResult)) {
+    return { ...deleteResult, data: undefined };
+  }
+
+  const postResult = await remoteFetch<unknown>(
+    REMOTE_SESSIONS_ENDPOINTS.hostRevoke(hostId),
+    { method: "POST" },
+  );
+  if (postResult.ok) {
+    return {
+      ok: true,
+      status: postResult.status,
+      data: {
+        message: messageFromPayload(postResult.data, "Host revoked."),
+      },
+    };
+  }
+  if (!isUnsupportedEndpoint(postResult)) {
+    return { ...postResult, data: undefined };
+  }
+
+  return {
+    ok: false,
+    status: postResult.status || deleteResult.status,
+    data: { unsupported: true },
+    error: "This relay does not support revoking hosts from mobile yet.",
+  };
+}
+
+export async function registerRemotePushToken(
+  input: RegisterRemotePushTokenInput,
+): Promise<RemoteApiResult<{ message?: string; unsupported?: boolean }>> {
+  const body = {
+    token: input.token,
+    pushToken: input.token,
+    provider: "expo",
+    platform: input.platform,
+    projectId: input.projectId,
+    deviceName: input.deviceName,
+    label: input.deviceName,
+    source: "mobile",
+  };
+  const primary = await remoteFetch<unknown>(
+    REMOTE_SESSIONS_ENDPOINTS.pushToken,
+    {
+      method: "POST",
+      body,
+    },
+  );
+  if (primary.ok) {
+    return {
+      ok: true,
+      status: primary.status,
+      data: {
+        message: messageFromPayload(primary.data, "Push alerts enabled."),
+      },
+    };
+  }
+  if (!isUnsupportedEndpoint(primary)) return { ...primary, data: undefined };
+
+  const fallback = await remoteFetch<unknown>(
+    REMOTE_SESSIONS_ENDPOINTS.legacyPushToken,
+    {
+      method: "POST",
+      body,
+    },
+  );
+  if (fallback.ok) {
+    return {
+      ok: true,
+      status: fallback.status,
+      data: {
+        message: messageFromPayload(fallback.data, "Push alerts enabled."),
+      },
+    };
+  }
+  if (!isUnsupportedEndpoint(fallback)) return { ...fallback, data: undefined };
+
+  return {
+    ok: false,
+    status: fallback.status || primary.status,
+    data: { unsupported: true },
+    error: "This relay does not support mobile push token registration yet.",
   };
 }
 

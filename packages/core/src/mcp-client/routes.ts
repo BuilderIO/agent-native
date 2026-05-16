@@ -666,6 +666,12 @@ async function handleDelete(
 }
 
 async function handleTestUrl(event: H3Event) {
+  const { email, orgId } = await resolveContextForRequest(event);
+  if (!email && !orgId) {
+    setResponseStatus(event, 401);
+    return { error: "Authentication required" };
+  }
+
   const body = (await readBody(event).catch(() => ({}))) as {
     url?: unknown;
     headers?: unknown;

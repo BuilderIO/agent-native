@@ -352,10 +352,19 @@ credentials:
 
 Source sync resolves credentials in this order:
 
-1. Granted `workspace_connections` / `workspace_connection_grants` credential
+1. A source's configured `workspaceConnectionId`, when present.
+2. Granted `workspace_connections` / `workspace_connection_grants` credential
    refs for `appId=brain`.
-2. Brain-local SQL credentials.
-3. Registered vault secrets for the same user/org/workspace scope.
+3. Brain-local SQL credentials.
+4. Registered vault secrets for the same user/org/workspace scope.
+
+`workspaceConnectionId` is non-secret source config. Use it when a workspace has
+multiple Slack, Granola, or GitHub connections and a source must use one exact
+shared integration. Bound sources are strict: if the selected connection is
+missing, not granted to Brain, unhealthy, or missing the required vault-backed
+credential ref, sync fails with that specific message instead of silently using
+another shared connection or Brain-local credential. Leave it unset for the
+legacy automatic fallback behavior.
 
 It does not fall back to deploy-level environment variables for source
 credentials. Connection and grant refs point at vault secret names; they never
