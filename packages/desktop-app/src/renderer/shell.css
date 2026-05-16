@@ -1038,12 +1038,113 @@ body {
   gap: 2px;
 }
 
-.settings-provider-list {
-  display: grid;
+.settings-builder-connect-card,
+.settings-builder-actions,
+.settings-provider-actions,
+.settings-provider-advanced-toggle,
+.settings-provider-picker,
+.settings-provider-key-summary {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
-.settings-provider-row {
+.settings-builder-connect-card {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: linear-gradient(
+    135deg,
+    rgba(20, 184, 166, 0.1),
+    rgba(255, 255, 255, 0.025) 45%
+  );
+}
+
+.settings-builder-connect-card--ok {
+  border-color: rgba(34, 197, 94, 0.18);
+  background: rgba(34, 197, 94, 0.045);
+}
+
+.settings-builder-connect-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-builder-title {
+  color: #f5f5f5;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-builder-description {
+  color: #858585;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.settings-builder-actions {
+  flex: 0 0 auto;
+}
+
+.settings-builder-connect-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: #f4f4f5;
+  color: #09090b;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  min-height: 31px;
+  padding: 0 11px;
+  transition:
+    opacity var(--ease),
+    transform var(--ease);
+}
+
+.settings-builder-connect-button:hover {
+  opacity: 0.9;
+}
+
+.settings-builder-connect-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.settings-builder-connect-button svg {
+  flex: 0 0 auto;
+}
+
+.settings-builder-connect-button svg:first-child {
+  animation: spin 0.8s linear infinite;
+}
+
+.settings-provider-text-button,
+.settings-provider-advanced-toggle {
+  border: 0;
+  background: transparent;
+  color: #7f7f7f;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.settings-provider-text-button:hover,
+.settings-provider-advanced-toggle:hover {
+  color: #d4d4d4;
+}
+
+.settings-provider-advanced-toggle {
+  justify-self: flex-start;
+  padding: 2px 0;
+}
+
+.settings-provider-key-panel {
   display: grid;
   gap: 10px;
   padding: 10px;
@@ -1052,38 +1153,46 @@ body {
   background: rgba(255, 255, 255, 0.02);
 }
 
-.settings-provider-row--ok {
-  border-color: rgba(34, 197, 94, 0.14);
+.settings-provider-picker {
+  flex-wrap: wrap;
 }
 
-.settings-provider-summary,
-.settings-provider-actions {
-  display: flex;
+.settings-provider-pill {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-}
-
-.settings-provider-summary {
-  justify-content: space-between;
-}
-
-.settings-provider-configure {
-  border: 0;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.055);
-  color: #a3a3a3;
+  background: rgba(255, 255, 255, 0.03);
+  color: #858585;
   cursor: pointer;
   font-size: 11px;
-  font-weight: 500;
-  padding: 6px 9px;
-  transition:
-    background var(--ease),
-    color var(--ease);
+  font-weight: 550;
 }
 
-.settings-provider-configure:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+.settings-provider-pill:hover {
+  color: #d4d4d4;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.settings-provider-pill--active {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.09);
+  color: #f5f5f5;
+}
+
+.settings-provider-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+
+.settings-provider-key-summary {
+  color: #858585;
+  font-size: 11px;
 }
 
 .settings-provider-form {

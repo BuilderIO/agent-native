@@ -10,6 +10,8 @@ import {
   IconChevronDown,
   IconWorld,
   IconTerminal2,
+  IconExternalLink,
+  IconLoader2,
 } from "@tabler/icons-react";
 import type { AppConfig } from "@shared/app-registry";
 import { generateAppId } from "@shared/app-registry";
@@ -248,10 +250,12 @@ export default function AppSettings({
   const [providerSettings, setProviderSettings] =
     useState<CodeAgentProviderSettings | null>(null);
   const [providerDrafts, setProviderDrafts] = useState(EMPTY_PROVIDER_DRAFTS);
-  const [expandedProviderId, setExpandedProviderId] =
-    useState<CodeAgentProviderId | null>(null);
+  const [showProviderKeys, setShowProviderKeys] = useState(false);
+  const [selectedProviderId, setSelectedProviderId] =
+    useState<CodeAgentProviderId>("anthropic");
   const [providerSavingId, setProviderSavingId] =
     useState<CodeAgentProviderId | null>(null);
+  const [builderConnecting, setBuilderConnecting] = useState(false);
   const [providerMessage, setProviderMessage] = useState<string | null>(null);
 
   // Load frame settings
@@ -267,9 +271,6 @@ export default function AppSettings({
     try {
       const settings = await api.getProviderSettings();
       setProviderSettings(settings);
-      setExpandedProviderId((current) =>
-        current || settings.configured ? current : "builder",
-      );
     } catch (err) {
       setProviderMessage(err instanceof Error ? err.message : String(err));
     }
@@ -342,6 +343,23 @@ export default function AppSettings({
       setRemotePairing(false);
     }
   }, [remotePairUrl]);
+
+  const handleConnectBuilder = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.connectBuilderProvider) return;
+    setBuilderConnecting(true);
+    setProviderMessage(null);
+    try {
+      const result = await api.connectBuilderProvider();
+      setProviderSettings(result.settings);
+      setProviderMessage(result.error ?? result.message);
+      onCodeAgentProvidersChanged?.();
+    } catch (err) {
+      setProviderMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBuilderConnecting(false);
+    }
+  }, [onCodeAgentProvidersChanged]);
 
   const updateProviderDraft = useCallback(
     (key: CodeAgentProviderCredentialKey, value: string) => {
@@ -507,6 +525,22 @@ export default function AppSettings({
 
   const editingApp = editingId ? apps.find((a) => a.id === editingId) : null;
   const remoteCopy = remoteStatusCopy(remoteStatus);
+  const builderProvider = providerSettings?.providers.find(
+    (provider) => provider.id === "builder",
+  );
+  const builderConnected = Boolean(builderProvider?.configured);
+  const builderSavedKeys = Boolean(builderProvider?.savedKeys.length);
+  const selectedProviderDefinition =
+    CODE_AGENT_PROVIDER_FIELDSETS.find(
+      (provider) => provider.id === selectedProviderId,
+    ) ?? CODE_AGENT_PROVIDER_FIELDSETS[0];
+  const selectedProviderStatus = providerSettings?.providers.find(
+    (provider) => provider.id === selectedProviderDefinition.id,
+  );
+  const selectedProviderCopy = providerStatusCopy(selectedProviderStatus);
+  const selectedProviderHasSavedKeys = Boolean(
+    selectedProviderStatus?.savedKeys.length,
+  );
 
   return (
     <div className="settings-overlay" onClick={onClose}>
@@ -564,98 +598,157 @@ export default function AppSettings({
                 </div>
               </div>
 
-              <div className="settings-provider-list">
-                {CODE_AGENT_PROVIDER_FIELDSETS.map((definition) => {
-                  const provider = providerSettings.providers.find(
-                    (item) => item.id === definition.id,
-                  );
-                  const copy = providerStatusCopy(provider);
-                  const expanded = expandedProviderId === definition.id;
-                  const hasSavedKeys = Boolean(provider?.savedKeys.length);
-                  const isSaving = providerSavingId === definition.id;
-                  return (
-                    <div
-                      key={definition.id}
-                      className={`settings-provider-row settings-provider-row--${copy.tone}`}
+              <div
+                className={`settings-builder-connect-card${
+                  builderConnected ? " settings-builder-connect-card--ok" : ""
+                }`}
+              >
+                <div className="settings-builder-connect-copy">
+                  <span className="settings-builder-title">Builder.io</span>
+                  <span className="settings-builder-description">
+                    {builderConnected
+                      ? builderProvider?.source === "environment"
+                        ? "Connected through environment credentials."
+                        : "Connected for Code chats."
+                      : "Free credits to start, no API key needed."}
+                  </span>
+                </div>
+                <div className="settings-builder-actions">
+                  <button
+                    type="button"
+                    className="settings-builder-connect-button"
+                    onClick={handleConnectBuilder}
+                    disabled={builderConnecting}
+                  >
+                    {builderConnecting ? (
+                      <>
+                        <IconLoader2 size={13} />
+                        Waiting...
+                      </>
+                    ) : (
+                      <>
+                        {builderConnected ? "Reconnect" : "Connect"}
+                        <IconExternalLink size={13} />
+                      </>
+                    )}
+                  </button>
+                  {builderSavedKeys && (
+                    <button
+                      type="button"
+                      className="settings-provider-text-button"
+                      onClick={() => handleRemoveProvider("builder")}
+                      disabled={providerSavingId === "builder"}
                     >
-                      <div className="settings-provider-summary">
-                        <div className="settings-remote-title">
-                          <span
-                            className={`settings-remote-dot settings-remote-dot--${copy.tone}`}
-                          />
-                          <div>
-                            <span className="settings-mode-card-title">
-                              {definition.label}
-                            </span>
-                            <span className="settings-mode-card-status">
-                              {copy.label} · {copy.description}
-                            </span>
-                          </div>
-                        </div>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="settings-provider-advanced-toggle"
+                onClick={() => setShowProviderKeys((value) => !value)}
+              >
+                {showProviderKeys ? (
+                  <IconChevronDown size={14} />
+                ) : (
+                  <IconChevronRight size={14} />
+                )}
+                <span>Use an API key instead</span>
+              </button>
+
+              {showProviderKeys && (
+                <div className="settings-provider-key-panel">
+                  <div className="settings-provider-picker">
+                    {CODE_AGENT_PROVIDER_FIELDSETS.map((definition) => {
+                      const provider = providerSettings.providers.find(
+                        (item) => item.id === definition.id,
+                      );
+                      return (
+                        <button
+                          key={definition.id}
+                          type="button"
+                          className={`settings-provider-pill${
+                            selectedProviderDefinition.id === definition.id
+                              ? " settings-provider-pill--active"
+                              : ""
+                          }`}
+                          onClick={() => setSelectedProviderId(definition.id)}
+                        >
+                          {definition.label}
+                          {provider?.configured && (
+                            <span className="settings-provider-pill-dot" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="settings-provider-key-summary">
+                    <span
+                      className={`settings-remote-dot settings-remote-dot--${selectedProviderCopy.tone}`}
+                    />
+                    <span>
+                      {selectedProviderCopy.label} ·{" "}
+                      {selectedProviderCopy.description}
+                    </span>
+                  </div>
+
+                  <div className="settings-provider-form">
+                    {selectedProviderDefinition.fields.map((field) => (
+                      <label key={field.key}>
+                        {field.label}
+                        <input
+                          type="password"
+                          value={providerDrafts[field.key]}
+                          onChange={(e) =>
+                            updateProviderDraft(field.key, e.target.value)
+                          }
+                          placeholder={
+                            selectedProviderStatus?.configuredKeys.includes(
+                              field.key,
+                            )
+                              ? "Leave blank to keep existing key"
+                              : field.placeholder
+                          }
+                          autoComplete="off"
+                        />
+                      </label>
+                    ))}
+                    <div className="settings-provider-actions">
+                      <button
+                        type="button"
+                        className="settings-btn settings-btn--primary"
+                        onClick={() =>
+                          handleSaveProvider(selectedProviderDefinition.id)
+                        }
+                        disabled={
+                          providerSavingId === selectedProviderDefinition.id
+                        }
+                      >
+                        {providerSavingId === selectedProviderDefinition.id
+                          ? "Saving..."
+                          : "Save key"}
+                      </button>
+                      {selectedProviderHasSavedKeys && (
                         <button
                           type="button"
-                          className="settings-provider-configure"
+                          className="settings-btn settings-btn--ghost"
                           onClick={() =>
-                            setExpandedProviderId(
-                              expanded ? null : definition.id,
-                            )
+                            handleRemoveProvider(selectedProviderDefinition.id)
+                          }
+                          disabled={
+                            providerSavingId === selectedProviderDefinition.id
                           }
                         >
-                          {expanded ? "Done" : "Configure"}
+                          Remove saved key
                         </button>
-                      </div>
-
-                      {expanded && (
-                        <div className="settings-provider-form">
-                          {definition.fields.map((field) => (
-                            <label key={field.key}>
-                              {field.label}
-                              <input
-                                type="password"
-                                value={providerDrafts[field.key]}
-                                onChange={(e) =>
-                                  updateProviderDraft(field.key, e.target.value)
-                                }
-                                placeholder={
-                                  provider?.configuredKeys.includes(field.key)
-                                    ? "Leave blank to keep existing key"
-                                    : field.placeholder
-                                }
-                                autoComplete="off"
-                              />
-                            </label>
-                          ))}
-                          <span className="settings-field-hint">
-                            Saved locally for new Code chats.
-                          </span>
-                          <div className="settings-provider-actions">
-                            <button
-                              type="button"
-                              className="settings-btn settings-btn--primary"
-                              onClick={() => handleSaveProvider(definition.id)}
-                              disabled={isSaving}
-                            >
-                              {isSaving ? "Saving..." : "Save"}
-                            </button>
-                            {hasSavedKeys && (
-                              <button
-                                type="button"
-                                className="settings-btn settings-btn--ghost"
-                                onClick={() =>
-                                  handleRemoveProvider(definition.id)
-                                }
-                                disabled={isSaving}
-                              >
-                                Remove saved keys
-                              </button>
-                            )}
-                          </div>
-                        </div>
                       )}
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                </div>
+              )}
 
               {providerMessage && (
                 <div className="settings-provider-message">

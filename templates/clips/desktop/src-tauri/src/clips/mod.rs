@@ -499,6 +499,18 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
+        if excluded {
+            set_capture_excluded_always(&window);
+        } else {
+            set_capture_included(&window);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
     for label in [
         COUNTDOWN_LABEL,

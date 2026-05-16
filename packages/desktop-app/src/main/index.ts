@@ -4255,6 +4255,214 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
   },
 ];
 
+function getBuilderCliAuthHost(): string {
+  return process.env.BUILDER_APP_HOST || "https://builder.io";
+}
+
+function buildDesktopBuilderCliAuthUrl(callbackUrl: string): string {
+  const callback = new URL(callbackUrl);
+  const authUrl = new URL("/cli-auth", getBuilderCliAuthHost());
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("host", "agent-native-desktop");
+  authUrl.searchParams.set("client_id", "Agent Native Desktop");
+  authUrl.searchParams.set("redirect_url", callback.toString());
+  authUrl.searchParams.set("preview_url", callback.origin);
+  authUrl.searchParams.set("framework", "agent-native");
+  return authUrl.toString();
+}
+
+function desktopBuilderCallbackPage(
+  kind: "success" | "error",
+  message: string,
+) {
+  const title =
+    kind === "success" ? "Builder.io connected" : "Builder.io connect failed";
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111; color: #fff; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      main { max-width: 360px; padding: 24px; text-align: center; }
+      p { color: #aaa; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>${title}</h1>
+      <p>${message}</p>
+    </main>
+    <script>setTimeout(function(){ window.close(); }, 700);</script>
+  </body>
+</html>`;
+}
+
+function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdateResult> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let callbackServer: HttpServer | null = null;
+    let authWindow: BrowserWindow | null = null;
+    let timeout: NodeJS.Timeout | null = null;
+
+    const finish = (
+      result: CodeAgentProviderSettingsUpdateResult,
+      closeWindow = true,
+    ) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (callbackServer) {
+        callbackServer.close(() => {});
+      }
+      if (closeWindow && authWindow && !authWindow.isDestroyed()) {
+        setTimeout(() => {
+          if (authWindow && !authWindow.isDestroyed()) authWindow.close();
+        }, 800);
+      }
+      resolve(result);
+    };
+
+    callbackServer = createServer((req, res) => {
+      const address = callbackServer?.address() as AddressInfo | null;
+      const origin = address ? `http://127.0.0.1:${address.port}` : "";
+      const requestUrl = new URL(req.url ?? "/", origin);
+      if (requestUrl.pathname !== "/_agent-native/desktop-builder/callback") {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Not found");
+        return;
+      }
+
+      const privateKey = requestUrl.searchParams.get("p-key");
+      const publicKey = requestUrl.searchParams.get("api-key");
+      if (!privateKey || !publicKey) {
+        const message = "Builder did not return credentials.";
+        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(desktopBuilderCallbackPage("error", message));
+        finish({
+          ok: false,
+          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          message: "Could not connect Builder.io.",
+          error: message,
+        });
+        return;
+      }
+
+      const settings = AppStore.saveCodeAgentProviderCredentials({
+        BUILDER_PRIVATE_KEY: privateKey,
+        BUILDER_PUBLIC_KEY: publicKey,
+      });
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(
+        desktopBuilderCallbackPage(
+          "success",
+          "You can close this window and return to Agent Native Desktop.",
+        ),
+      );
+      finish({
+        ok: true,
+        settings,
+        message: "Builder.io connected for Code.",
+      });
+    });
+
+    callbackServer.once("error", (err) => {
+      finish({
+        ok: false,
+        settings: AppStore.getCodeAgentProviderSettingsStatus(),
+        message: "Could not start Builder.io connect flow.",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    callbackServer.listen(0, "127.0.0.1", () => {
+      const address = callbackServer?.address() as AddressInfo | null;
+      if (!address) {
+        finish({
+          ok: false,
+          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          message: "Could not start Builder.io connect flow.",
+          error: "No callback port was assigned.",
+        });
+        return;
+      }
+
+      const callbackUrl = `http://127.0.0.1:${address.port}/_agent-native/desktop-builder/callback`;
+      const authUrl = buildDesktopBuilderCliAuthUrl(callbackUrl);
+      authWindow = new BrowserWindow({
+        width: 520,
+        height: 720,
+        title: "Connect Builder.io",
+        backgroundColor: "#111111",
+        parent: mainWindow ?? undefined,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          session: session.defaultSession,
+        },
+      });
+
+      const builderProvider = OAUTH_PROVIDERS.find(
+        (provider) => provider.name === "builder",
+      );
+      if (builderProvider) {
+        authWindow.webContents.setWindowOpenHandler(({ url: childUrl }) => {
+          try {
+            const parsed = new URL(childUrl);
+            if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+              return { action: "deny" as const };
+            }
+            if (!isAllowedOAuthChildPopup(builderProvider, parsed)) {
+              openExternalUrl(childUrl);
+              return { action: "deny" as const };
+            }
+          } catch {
+            return { action: "deny" as const };
+          }
+          return {
+            action: "allow" as const,
+            overrideBrowserWindowOptions: {
+              width: 500,
+              height: 700,
+              backgroundColor: "#111111",
+              parent: authWindow ?? undefined,
+              modal: false,
+              webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true,
+                session: session.defaultSession,
+              },
+            },
+          };
+        });
+      }
+
+      authWindow.once("closed", () => {
+        if (!settled) {
+          finish(
+            {
+              ok: false,
+              settings: AppStore.getCodeAgentProviderSettingsStatus(),
+              message: "Builder.io connect was cancelled.",
+              error: "The Builder.io connect window was closed.",
+            },
+            false,
+          );
+        }
+      });
+      authWindow.loadURL(authUrl);
+      timeout = setTimeout(() => {
+        finish({
+          ok: false,
+          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          message: "Builder.io connect timed out.",
+          error: "No callback was received before the connect flow timed out.",
+        });
+      }, DESKTOP_BUILDER_CONNECT_TIMEOUT_MS);
+    });
+  });
+}
+
 function matchOAuthProvider(
   urlString: string,
   context?: OAuthMatchContext,

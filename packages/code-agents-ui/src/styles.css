@@ -456,13 +456,16 @@
 }
 
 .code-agents-standard-composer.agent-composer-area {
-  width: 100%;
+  width: 100% !important;
   max-width: none;
+  box-sizing: border-box;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
   color: hsl(var(--foreground));
 }
 
 .code-agents-standard-composer[data-agent-composer-variant="hero"] {
-  width: 100%;
+  width: 100% !important;
 }
 
 .code-agents-standard-composer[data-agent-composer-variant="compact"] {
@@ -470,6 +473,8 @@
 }
 
 .code-agents-standard-composer [data-agent-composer-slot="root"] {
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -573,6 +578,21 @@
   align-items: center;
   justify-content: center;
   padding: 0;
+}
+
+.code-agents-standard-composer
+  [data-agent-composer-slot="toolbar"]
+  button.hidden,
+.code-agents-standard-composer
+  [data-agent-composer-slot="toolbar"]
+  button[aria-hidden="true"][tabindex="-1"] {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
 }
 
 .code-agents-standard-composer

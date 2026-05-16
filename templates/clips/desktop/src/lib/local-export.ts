@@ -27,6 +27,7 @@ export interface LocalExportedFile {
 
 export interface LocalRecordingExportHandle {
   folderPath: string;
+  folderName: string;
   start(timesliceMs?: number): void;
   pause(): void;
   resume(): void;
@@ -75,7 +76,7 @@ function roleFileSuffix(role: LocalRecordingFileRole): string {
   }[role];
 }
 
-function recordingBasename(): string {
+export function createLocalRecordingFolderName(): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const nonce = Math.random().toString(36).slice(2, 8);
   return `clip-${timestamp}-${nonce}`;
@@ -153,26 +154,29 @@ function exportedFileForTarget(
 
 export async function prepareLocalRecordingExport(
   targets: LocalRecordingTarget[],
+  options: { folderName?: string } = {},
 ): Promise<LocalRecordingExportHandle> {
   if (targets.length === 0) {
     throw new Error("No local recording streams are available");
   }
 
-  await mkdir(LOCAL_EXPORT_FOLDER, {
+  const folderName = options.folderName ?? createLocalRecordingFolderName();
+  const relativeFolderPath = `${LOCAL_EXPORT_FOLDER}/${folderName}`;
+
+  await mkdir(relativeFolderPath, {
     baseDir: BaseDirectory.Video,
     recursive: true,
   });
 
-  const folderPath = await join(await videoDir(), LOCAL_EXPORT_FOLDER);
-  const basename = recordingBasename();
+  const folderPath = await join(await videoDir(), relativeFolderPath);
   const prepared: PreparedLocalTarget[] = [];
 
   try {
     for (const target of targets) {
       const mimeType = pickRecordingMimeType();
       const extension = extensionForMimeType(mimeType || "video/webm");
-      const fileName = `${basename}-${roleFileSuffix(target.role)}.${extension}`;
-      const relativePath = `${LOCAL_EXPORT_FOLDER}/${fileName}`;
+      const fileName = `${roleFileSuffix(target.role)}.${extension}`;
+      const relativePath = `${relativeFolderPath}/${fileName}`;
       const absolutePath = await join(folderPath, fileName);
       const file = await create(relativePath, {
         baseDir: BaseDirectory.Video,
@@ -215,6 +219,7 @@ export async function prepareLocalRecordingExport(
 
   return {
     folderPath,
+    folderName,
     start(timesliceMs = 2_000) {
       for (const target of prepared) {
         target.recorder.start(timesliceMs);

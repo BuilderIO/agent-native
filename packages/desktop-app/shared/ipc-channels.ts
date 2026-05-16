@@ -69,8 +69,7 @@ export const IPC = {
   CODE_AGENTS_REMOTE_CONNECTOR_PAIR: "code-agents:remote-connector:pair",
   CODE_AGENTS_PROVIDER_SETTINGS_GET: "code-agents:provider-settings:get",
   CODE_AGENTS_PROVIDER_SETTINGS_UPDATE: "code-agents:provider-settings:update",
-  CODE_AGENTS_PROVIDER_BUILDER_CONNECT:
-    "code-agents:provider-builder:connect",
+  CODE_AGENTS_PROVIDER_BUILDER_CONNECT: "code-agents:provider-builder:connect",
 
   /** Deep links (main → renderer) */
   DEEP_LINK_OPEN: "deep-link:open",
