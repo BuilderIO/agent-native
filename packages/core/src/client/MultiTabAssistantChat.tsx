@@ -1133,17 +1133,13 @@ export function MultiTabAssistantChat({
     const threadIds = new Set(threads.map((t) => t.id));
     const threadMap = new Map(threads.map((t) => [t.id, t]));
 
-    // Auto-close only empty tabs inactive for more than 4 hours. Non-empty
-    // conversations should survive refresh even if they are old; otherwise the
-    // chat appears to disappear even though it still exists in history.
-    const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000;
+    // Hide tabs that have had no activity for more than 12 hours. Stale tabs
+    // are removed from the sidebar on load but remain accessible via history.
+    const STALE_THRESHOLD_MS = 12 * 60 * 60 * 1000;
     const now = Date.now();
     const isStale = (id: string) => {
       const thread = threadMap.get(id);
-      return thread
-        ? thread.messageCount === 0 &&
-            now - thread.updatedAt > STALE_THRESHOLD_MS
-        : false;
+      return thread ? now - thread.updatedAt > STALE_THRESHOLD_MS : false;
     };
 
     // If the active thread is a sub-agent, switch to its parent or the most recent main thread
@@ -1159,7 +1155,7 @@ export function MultiTabAssistantChat({
     }
 
     setOpenTabIds((prev) => {
-      // Filter out tabs that no longer exist, sub-agent tabs, or stale tabs (>4h inactive)
+      // Filter out tabs that no longer exist, sub-agent tabs, or stale tabs (>12h inactive)
       const valid = prev.filter(
         (id) => threadIds.has(id) && !parentMap[id] && !isStale(id),
       );
