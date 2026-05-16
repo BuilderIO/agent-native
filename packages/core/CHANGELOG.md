@@ -1,5 +1,45 @@
 # @agent-native/core
 
+## 0.16.0
+
+### Minor Changes
+
+- 79a0eb9: Add host bridge, React iframe helpers, screen context snapshots, typed live client actions, session metadata, approval gates, and host tool adapters for embedding Agent-Native sidecars in existing SaaS apps.
+- 79a0eb9: Document the next Agent-Native Code follow-up features: session picker/run controls, permission modes, project slash commands, and migration as a Code workspace slash command instead of a template.
+- 79a0eb9: Expose local Agent-Native Code run helpers and document the reusable Code UI/template flow.
+- 79a0eb9: Add a batteries-included embedded Agent-Native runtime with host-auth server mounting, a React embedded sidebar/surface, and direct browser-session context/action registration.
+- 79a0eb9: Add a SQL-backed browser-session bridge so embedded sidecars can register live host tabs, let backend agent tools inspect page context, run client actions, and send host refresh/navigation/remount commands.
+- 79a0eb9: Add portable extension iframe and slot primitives for embedding SDK hosts, including manifest-gated permissions and storage adapters.
+
+### Patch Changes
+
+- 79a0eb9: Add org-scoped per-app default model settings for agent chat.
+- 79a0eb9: Expose server-side agent loop helpers for template background workers.
+- 79a0eb9: Register the Brain template in the public catalog and docs.
+- 79a0eb9: Add scoped built-in MCP capability toggles for browser and computer-use servers.
+- 79a0eb9: Record active Agent-Native Code follow-ups as steering or queued prompts.
+- 79a0eb9: Default Agent-Native Code sessions to auto mode and add plan/auto CLI aliases.
+- 79a0eb9: Expose package-provided actions through template action runners and add a full Dispatch Dreams settings editor.
+- 79a0eb9: Add explicit shared composer layout variants and toolbar slot hooks.
+- 79a0eb9: Expose Agent-Native Code project commands and skills as structured code-pack metadata.
+- 79a0eb9: Build the core package before packing local file dependencies so generated framework workspaces install a fresh dist snapshot.
+- 79a0eb9: Link the local Dispatch package during framework-development workspace creation and build Dispatch before local packing.
+- 79a0eb9: Inherit Dispatch-managed workspace instructions, skills, and reference resources at runtime; seed and restore starter company, brand, messaging, guardrail, and voice resources; show and inspect each app's effective workspace context stack; gate All-app resource edits through Dispatch approvals when enabled; preview global impact and overrides before save; and expose read-only inherited workspace resources in app panels.
+- 79a0eb9: Improve `/migrate` CLI handoff output with clearer Agent-Native Code resume commands and artifact guidance.
+- 79a0eb9: Add the generic Agent-Native Code `/migrate` CLI entrypoint, any-input migration seeding, and own-agent dossier emit output for code-agent handoff.
+- 79a0eb9: Export a reusable full-page agent chat surface backed by AgentPanel internals.
+- 79a0eb9: Expose safe public-agent read-only actions in the unauthenticated agent surface.
+- 79a0eb9: Expose shared workspace connection app-access semantics for reusable integrations.
+- 79a0eb9: Add SQL-backed remote integration relay device, command, run-event, management, and push-registration endpoints.
+- 79a0eb9: Remove legacy workspace-resource sync actions and clarify runtime inheritance docs.
+- 79a0eb9: Add runtime inheritance contract coverage for workspace resources.
+- 79a0eb9: Require authentication before dry-running arbitrary MCP server URLs.
+- 79a0eb9: Add shared workspace connection app-grant and provider-readiness helpers for reusable integrations.
+- 79a0eb9: Route Telegram `/code` commands from Dispatch to the remote code-agent relay.
+- 79a0eb9: Add a typed workspace connection provider catalog for reusable integration metadata.
+- 79a0eb9: Add scoped workspace connection grant storage and helpers for connect-once, grant-to-app integrations.
+- 79a0eb9: Add scoped workspace connection metadata storage for connect-once-use-everywhere foundations.
+
 ## 0.15.14
 
 ### Patch Changes
