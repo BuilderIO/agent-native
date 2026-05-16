@@ -263,6 +263,29 @@ describe("ID-safety (critical)", () => {
     expect(out.nested.label).not.toBe("Bob Jones");
   });
 
+  it("never rewrites SQL/query/code keys (chart titles still faked)", () => {
+    const dashboard = {
+      name: "Maya Davis (First-party)",
+      panels: [
+        {
+          id: "p1",
+          title: "Clicks by Henry Moore",
+          sql: "WITH t AS (SELECT user_id, name FROM events WHERE name = 'Henry Moore' LIMIT 1000) SELECT * FROM t",
+          query: "SELECT count(*) FROM signups WHERE owner = 'Jane Cooper'",
+          expression: "sum(revenue) / count(distinct Maya Davis)",
+        },
+      ],
+    };
+    const out = redactDemoData(dashboard, { salt: "s" }) as typeof dashboard;
+    // SQL/query/expression pass through byte-identical so the query runs.
+    expect(out.panels[0].sql).toBe(dashboard.panels[0].sql);
+    expect(out.panels[0].query).toBe(dashboard.panels[0].query);
+    expect(out.panels[0].expression).toBe(dashboard.panels[0].expression);
+    // But human-facing strings are still redacted.
+    expect(out.name).not.toBe(dashboard.name);
+    expect(out.panels[0].title).not.toBe("Clicks by Henry Moore");
+  });
+
   it("recurses into arrays/objects under protected keys", () => {
     const input = {
       ids: ["John Smith", "Jane Doe"],

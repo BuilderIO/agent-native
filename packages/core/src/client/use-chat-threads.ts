@@ -62,6 +62,16 @@ export function useChatThreads(
       ? `${ACTIVE_THREAD_KEY}:${storageKey}${scopePart}`
       : `${ACTIVE_THREAD_KEY}${scopePart}`;
   }, [storageKey, scope?.type, scope?.id]);
+  // Companion key recording when the saved active thread was last live in
+  // this client. A revived orphan tab (id in localStorage but not on the
+  // server and not created this session) must keep its real last-seen time
+  // so the 12h stale-tab cleanup can age it out — stamping it `Date.now()`
+  // on every mount (the old behaviour) reset the clock forever, so
+  // abandoned empty tabs never got pruned.
+  const activeThreadSeenKey = useMemo(
+    () => `${activeThreadKey}:seen`,
+    [activeThreadKey],
+  );
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
 
   // IDs we generated client-side this session — consumers use this to know
@@ -111,11 +121,13 @@ export function useChatThreads(
     try {
       if (activeThreadId) {
         localStorage.setItem(activeThreadKey, activeThreadId);
+        localStorage.setItem(activeThreadSeenKey, String(Date.now()));
       } else {
         localStorage.removeItem(activeThreadKey);
+        localStorage.removeItem(activeThreadSeenKey);
       }
     } catch {}
-  }, [activeThreadId, activeThreadKey]);
+  }, [activeThreadId, activeThreadKey, activeThreadSeenKey]);
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -185,15 +197,25 @@ export function useChatThreads(
   // `createThread`), so the client doesn't need to pre-create it. This
   // makes the threads table reflect real conversations only.
   const addOptimisticThread = useCallback(
-    (id: string, threadScope: ChatThreadScope | null) => {
-      const now = Date.now();
+    (
+      id: string,
+      threadScope: ChatThreadScope | null,
+      // When reviving a tab the user left open in a prior session, pass the
+      // persisted last-seen time so the 12h stale-tab cleanup can still age
+      // it out. Omit for genuinely new tabs (defaults to now).
+      seedAt?: number,
+    ) => {
+      const stamp =
+        typeof seedAt === "number" && Number.isFinite(seedAt)
+          ? seedAt
+          : Date.now();
       const optimistic: ChatThreadSummary = {
         id,
         title: "",
         preview: "",
         messageCount: 0,
-        createdAt: now,
-        updatedAt: now,
+        createdAt: stamp,
+        updatedAt: stamp,
         scope: threadScope,
       };
       setThreads((prev) =>
@@ -243,7 +265,18 @@ export function useChatThreads(
         // surface it as an optimistic thread so the tab bar restores it
         // verbatim instead of yanking in the most-recent old chat.
         newlyCreatedRef.current.add(savedId);
-        addOptimisticThread(savedId, scopeRef.current ?? null);
+        // Seed from the persisted last-seen time (not now) so a tab the
+        // user abandoned >12h ago is correctly recognized as stale and
+        // pruned by the downstream cleanup instead of living forever.
+        let seenAt: number | undefined;
+        try {
+          const raw = localStorage.getItem(activeThreadSeenKey);
+          const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+          if (Number.isFinite(parsed)) seenAt = parsed;
+        } catch {
+          // localStorage unavailable — fall back to now (current behaviour).
+        }
+        addOptimisticThread(savedId, scopeRef.current ?? null, seenAt);
         // activeThreadId already === savedId from the localStorage
         // initializer; nothing else to set.
       } else if (!savedId) {
