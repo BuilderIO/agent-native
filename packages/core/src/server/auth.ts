@@ -4,7 +4,6 @@ import {
   getMethod,
   getQuery,
   getRequestIP,
-  sendRedirect,
   setResponseHeader,
   setResponseStatus,
   getCookie,
@@ -2129,7 +2128,18 @@ async function mountBetterAuthRoutes(
         });
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
         if (q.redirect === "1") {
-          return sendRedirect(event, authUrl, 302);
+          // Return a native web Response — NOT h3 v2's `sendRedirect`. Under
+          // h3 `2.0.1-rc.20`, `sendRedirect = (_, loc, code) => redirect(...)`
+          // ignores the event and returns a non-standard `HTTPResponse` class
+          // instance; the framework request-handler shim doesn't unwrap it and
+          // String()-coerces it to the literal text "[object Object]" with a
+          // 200 status (no Location header), which broke the popup-based
+          // Google sign-in in production. Web `Response` is the proven idiom
+          // here — `oauthCallbackResponse`/`oauthErrorPage` use it and work.
+          return new Response(null, {
+            status: 302,
+            headers: { Location: authUrl },
+          });
         }
         return { url: authUrl };
       }),

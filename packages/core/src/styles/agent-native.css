@@ -229,3 +229,18 @@
   --primary: 215 15% 75%;
   --ring: 215 12% 60%;
 }
+
+/* Composer toolbar: keep the model name + version readable on narrow
+   chatfields. The bordered composer box is a size container; below 370px
+   wide (e.g. a narrow agent sidebar) we drop the reasoning-level suffix
+   ("· Auto") so the model name + version never truncates. The reasoning
+   level always stays reachable via the model picker popover. */
+.agent-composer-root {
+  container-type: inline-size;
+  container-name: agent-composer;
+}
+@container agent-composer (max-width: 370px) {
+  .agent-composer-model-effort {
+    display: none;
+  }
+}

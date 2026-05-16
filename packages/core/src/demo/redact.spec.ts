@@ -1,5 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { redactDemoData, redactDemoString } from "./redact.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  __resetDemoRedactCacheForTests,
+  redactDemoData,
+  redactDemoString,
+} from "./redact.js";
+
+beforeEach(() => {
+  // Caches are process-global by design; isolate tests from each other.
+  __resetDemoRedactCacheForTests();
+});
 
 const UUID = "550e8400-e29b-41d4-a716-446655440000";
 const NANOID = "V1StGXR8_Z5jdHi6B-myT";
@@ -54,17 +63,21 @@ describe("determinism", () => {
 });
 
 describe("emails", () => {
-  it("replaces emails with example.com addresses", () => {
+  it("replaces emails with realistic (non-example.com) addresses", () => {
     const out = redactDemoString("Email me at jane.doe@acme.io please");
     expect(out).not.toContain("jane.doe@acme.io");
-    expect(out).toMatch(/[a-z]+\.[a-z]+@example\.com/);
+    expect(out).not.toContain("example.com");
+    const m = out.match(/\S+@[a-z0-9.-]+\.[a-z]{2,}/i);
+    expect(m).not.toBeNull();
+    expect(m![0]).not.toContain("example.com");
   });
 
   it("keeps email consistent across occurrences", () => {
     const out = redactDemoString("a@x.com then again a@x.com", { salt: "k" });
-    const emails = out.match(/[a-z.]+@example\.com/g) ?? [];
+    const emails = out.match(/[a-z0-9._]+@[a-z0-9.-]+\.[a-z]{2,}/gi) ?? [];
     expect(emails.length).toBe(2);
     expect(emails[0]).toBe(emails[1]);
+    expect(emails[0]).not.toContain("example.com");
   });
 });
 
@@ -90,15 +103,38 @@ describe("full names", () => {
     expect(typeof out).toBe("string");
   });
 
-  it("replaces a single-token value under a name key", () => {
-    const out = redactDemoData(
-      { from: "Cher", name: "Madonna", note: "Madonna" },
+  it("does not mangle label/tab names under a name key", () => {
+    const labels = redactDemoData(
+      [
+        { name: "Important", count: 4200 },
+        { name: "Automated notifications" },
+        { name: "Note to Self" },
+        { name: "Other" },
+        { name: "Olivia Parker" }, // a real person name still gets faked
+      ],
       { salt: "s" },
-    ) as { from: string; name: string; note: string };
-    expect(out.from).not.toBe("Cher");
-    expect(out.from).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
-    expect(out.name).not.toBe("Madonna");
-    // Lone word in a non-name field stays (single capitalized prose word).
+    ) as Array<{ name: string; count?: number }>;
+    expect(labels[0].name).toBe("Important");
+    expect(labels[0].count).not.toBe(4200); // numbers still redacted
+    expect(labels[1].name).toBe("Automated notifications");
+    expect(labels[2].name).toBe("Note to Self");
+    expect(labels[3].name).toBe("Other");
+    expect(labels[4].name).not.toBe("Olivia Parker");
+    expect(labels[4].name).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
+  });
+
+  it("leaves single-token name-key values alone; still fakes 2+ word names", () => {
+    const out = redactDemoData(
+      { from: "Cher", name: "Madonna", full: "Jane Cooper", note: "Madonna" },
+      { salt: "s" },
+    ) as { from: string; name: string; full: string; note: string };
+    // Single first name under a name key — user explicitly OK keeping these.
+    expect(out.from).toBe("Cher");
+    expect(out.name).toBe("Madonna");
+    // A genuine 2-word name under a name key is still faked.
+    expect(out.full).not.toBe("Jane Cooper");
+    expect(out.full).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
+    // Single capitalized word in a non-name field stays.
     expect(out.note).toBe("Madonna");
   });
 });
@@ -227,6 +263,29 @@ describe("ID-safety (critical)", () => {
     expect(out.nested.label).not.toBe("Bob Jones");
   });
 
+  it("never rewrites SQL/query/code keys (chart titles still faked)", () => {
+    const dashboard = {
+      name: "Maya Davis (First-party)",
+      panels: [
+        {
+          id: "p1",
+          title: "Clicks by Henry Moore",
+          sql: "WITH t AS (SELECT user_id, name FROM events WHERE name = 'Henry Moore' LIMIT 1000) SELECT * FROM t",
+          query: "SELECT count(*) FROM signups WHERE owner = 'Jane Cooper'",
+          expression: "sum(revenue) / count(distinct Maya Davis)",
+        },
+      ],
+    };
+    const out = redactDemoData(dashboard, { salt: "s" }) as typeof dashboard;
+    // SQL/query/expression pass through byte-identical so the query runs.
+    expect(out.panels[0].sql).toBe(dashboard.panels[0].sql);
+    expect(out.panels[0].query).toBe(dashboard.panels[0].query);
+    expect(out.panels[0].expression).toBe(dashboard.panels[0].expression);
+    // But human-facing strings are still redacted.
+    expect(out.name).not.toBe(dashboard.name);
+    expect(out.panels[0].title).not.toBe("Clicks by Henry Moore");
+  });
+
   it("recurses into arrays/objects under protected keys", () => {
     const input = {
       ids: ["John Smith", "Jane Doe"],
@@ -249,7 +308,31 @@ describe("ID-safety (critical)", () => {
     ) as { name: string; from: string; sender: string };
     expect(out.name).toBe(NANOID);
     expect(out.from).toBe(UUID);
-    expect(out.sender).toMatch(/@example\.com$/);
+    expect(out.sender).not.toBe("jane.doe@acme.com");
+    expect(out.sender).not.toContain("example.com");
+    expect(out.sender).toMatch(/\S+@[a-z0-9.-]+\.[a-z]{2,}/i);
+  });
+
+  it("is stable across edits: produced names/emails round-trip unchanged", () => {
+    // Simulate the real scenario: data is redacted for display → the user
+    // edits the (now fake) draft → it autosaves → it's refetched and
+    // redacted again. Names/emails must NOT drift on the round-trip.
+    const real = {
+      from: "Jane Cooper",
+      to: "jane.cooper@acme.com",
+      body: "Thanks Jane Cooper — reply to jane.cooper@acme.com.",
+    };
+    const first = redactDemoData(real, { salt: "demo" }) as typeof real;
+    const second = redactDemoData(first, { salt: "demo" }) as typeof real;
+    expect(second.from).toBe(first.from);
+    expect(second.to).toBe(first.to);
+    expect(second.body).toBe(first.body);
+    // An unrelated edit around the already-fake content keeps them identical.
+    const edited = { ...first, body: `${first.body} Cheers!` };
+    const third = redactDemoData(edited, { salt: "demo" }) as typeof real;
+    expect(third.from).toBe(first.from);
+    expect(third.to).toBe(first.to);
+    expect(third.body.startsWith(first.body)).toBe(true);
   });
 });
 

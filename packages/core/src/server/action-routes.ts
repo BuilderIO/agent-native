@@ -17,8 +17,6 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "./request-context.js";
 import { recordChange } from "./poll.js";
-import { isDemoModeEnabled } from "../demo/config.js";
-import { redactDemoData, redactDemoString } from "../demo/redact.js";
 import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -227,25 +225,16 @@ export function mountActionRoutes(
                 }
               }
 
-              // Demo mode: replace real names/emails/numbers with
-              // deterministic fake data before the result leaves the server.
-              // Gated so the (expensive) structure-aware walk only runs when
-              // demo mode is actually on. Walking the parsed object — not the
-              // JSON string — is what keeps IDs/dates/URLs safe.
-              const demo = await isDemoModeEnabled();
-
               // If the action returned a string, try to parse as JSON for a clean response
               if (typeof result === "string") {
-                let parsed: any;
                 try {
-                  parsed = JSON.parse(result);
+                  return JSON.parse(result);
                 } catch {
-                  return demo ? redactDemoString(result) : result;
+                  return result;
                 }
-                return demo ? redactDemoData(parsed) : parsed;
               }
 
-              return demo ? redactDemoData(result) : result;
+              return result;
             } catch (err: any) {
               const msg = err?.message ?? String(err);
               // Return 400 for validation errors, 500 for everything else

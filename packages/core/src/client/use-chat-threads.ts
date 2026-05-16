@@ -62,6 +62,16 @@ export function useChatThreads(
       ? `${ACTIVE_THREAD_KEY}:${storageKey}${scopePart}`
       : `${ACTIVE_THREAD_KEY}${scopePart}`;
   }, [storageKey, scope?.type, scope?.id]);
+  // Companion key recording when the saved active thread was last live in
+  // this client. A revived orphan tab (id in localStorage but not on the
+  // server and not created this session) must keep its real last-seen time
+  // so the 12h stale-tab cleanup can age it out — stamping it `Date.now()`
+  // on every mount (the old behaviour) reset the clock forever, so
+  // abandoned empty tabs never got pruned.
+  const activeThreadSeenKey = useMemo(
+    () => `${activeThreadKey}:seen`,
+    [activeThreadKey],
+  );
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
 
   // IDs we generated client-side this session — consumers use this to know
@@ -111,11 +121,13 @@ export function useChatThreads(
     try {
       if (activeThreadId) {
         localStorage.setItem(activeThreadKey, activeThreadId);
+        localStorage.setItem(activeThreadSeenKey, String(Date.now()));
       } else {
         localStorage.removeItem(activeThreadKey);
+        localStorage.removeItem(activeThreadSeenKey);
       }
     } catch {}
-  }, [activeThreadId, activeThreadKey]);
+  }, [activeThreadId, activeThreadKey, activeThreadSeenKey]);
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -185,15 +197,25 @@ export function useChatThreads(
   // `createThread`), so the client doesn't need to pre-create it. This
   // makes the threads table reflect real conversations only.
   const addOptimisticThread = useCallback(
-    (id: string, threadScope: ChatThreadScope | null) => {
-      const now = Date.now();
+    (
+      id: string,
+      threadScope: ChatThreadScope | null,
+      // When reviving a tab the user left open in a prior session, pass the
+      // persisted last-seen time so the 12h stale-tab cleanup can still age
+      // it out. Omit for genuinely new tabs (defaults to now).
+      seedAt?: number,
+    ) => {
+      const stamp =
+        typeof seedAt === "number" && Number.isFinite(seedAt)
+          ? seedAt
+          : Date.now();
       const optimistic: ChatThreadSummary = {
         id,
         title: "",
         preview: "",
         messageCount: 0,
-        createdAt: now,
-        updatedAt: now,
+        createdAt: stamp,
+        updatedAt: stamp,
         scope: threadScope,
       };
       setThreads((prev) =>
@@ -211,10 +233,16 @@ export function useChatThreads(
   //   it; the server hasn't seen it yet because there's no POST anymore,
   //   the row gets written when the user sends a message.
   // - savedId is set but neither on the server nor newly created here →
-  //   it's a stale id from a previous session whose row no longer exists
-  //   (was a ghost cleaned up, or the user emptied their account, etc.).
-  //   Drop them on the most-recent real thread instead of leaving them
-  //   staring at a 404'd composer.
+  //   it's an empty tab the user left open. A never-messaged tab is never
+  //   POSTed (that was the 127-ghost-threads problem), and the only record
+  //   that it's a deliberately-open tab — newlyCreatedRef — is wiped by the
+  //   reload. So on refresh we can't tell it apart from a stale ghost.
+  //   Keep it exactly as the user left it: re-register it as an optimistic
+  //   empty tab rather than resurrecting an unrelated old conversation. The
+  //   composer is fully functional with this id (the server writes the row
+  //   on first message, same as any new tab), so there's no 404 to avoid.
+  //   This is what makes "the state you left is the state you see on
+  //   refresh" hold — stale (>12h) tabs are still cleared downstream.
   // - No savedId, no server threads → synthesize a fresh local id (no
   //   POST; server creates the row on first message).
   useEffect(() => {
@@ -226,20 +254,37 @@ export function useChatThreads(
       const loadedThreads = await fetchThreads();
       const savedId = activeThreadIdRef.current;
 
-      if (loadedThreads && loadedThreads.length > 0) {
-        if (
-          savedId &&
-          !newlyCreatedRef.current.has(savedId) &&
-          !loadedThreads.find((t) => t.id === savedId)
-        ) {
-          setActiveThreadId(loadedThreads[0].id);
-        } else if (!savedId) {
-          setActiveThreadId(loadedThreads[0].id);
+      if (
+        savedId &&
+        !newlyCreatedRef.current.has(savedId) &&
+        !(loadedThreads ?? []).some((t) => t.id === savedId)
+      ) {
+        // The tab the user left open isn't a server thread and we didn't
+        // create it this session (newlyCreatedRef was wiped by the
+        // reload). Treat it as the empty tab it is — keep its id and
+        // surface it as an optimistic thread so the tab bar restores it
+        // verbatim instead of yanking in the most-recent old chat.
+        newlyCreatedRef.current.add(savedId);
+        // Seed from the persisted last-seen time (not now) so a tab the
+        // user abandoned >12h ago is correctly recognized as stale and
+        // pruned by the downstream cleanup instead of living forever.
+        let seenAt: number | undefined;
+        try {
+          const raw = localStorage.getItem(activeThreadSeenKey);
+          const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+          if (Number.isFinite(parsed)) seenAt = parsed;
+        } catch {
+          // localStorage unavailable — fall back to now (current behaviour).
         }
+        addOptimisticThread(savedId, scopeRef.current ?? null, seenAt);
+        // activeThreadId already === savedId from the localStorage
+        // initializer; nothing else to set.
       } else if (!savedId) {
-        // Brand new user — synthesize a local id so the composer has a
-        // target. No POST: the server creates the row on first send.
-        if (typeof crypto !== "undefined" && crypto.randomUUID) {
+        if (loadedThreads && loadedThreads.length > 0) {
+          setActiveThreadId(loadedThreads[0].id);
+        } else if (typeof crypto !== "undefined" && crypto.randomUUID) {
+          // Brand new user — synthesize a local id so the composer has a
+          // target. No POST: the server creates the row on first send.
           const id = crypto.randomUUID();
           newlyCreatedRef.current.add(id);
           addOptimisticThread(id, scopeRef.current ?? null);

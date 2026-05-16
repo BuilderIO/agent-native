@@ -392,7 +392,6 @@ function ModeSelector({
   planModeDisabledReason?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const ActiveIcon = mode === "build" ? IconPencil : IconClipboardList;
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -403,7 +402,6 @@ function ModeSelector({
           data-agent-composer-slot="mode-button"
           className="agent-composer-mode-button shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
-          <ActiveIcon className="h-3.5 w-3.5" />
           {mode === "build" ? "Act" : "Plan"}
           <IconChevronDown className="h-3 w-3 opacity-60" />
         </button>
@@ -659,7 +657,7 @@ function ModelSelector({
         >
           <span className="min-w-0 truncate">{friendlyModelName(model)}</span>
           {effortOptions.length > 0 && (
-            <span className="min-w-0 truncate text-muted-foreground/70">
+            <span className="agent-composer-model-effort min-w-0 shrink truncate text-muted-foreground/70">
               · {reasoningEffortLabel(effort)}
             </span>
           )}

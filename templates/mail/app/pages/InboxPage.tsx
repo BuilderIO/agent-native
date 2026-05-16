@@ -27,6 +27,12 @@ import {
   mailLabelsInclude,
   mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
+import {
+  resolvePinnedLabels,
+  pinnedTriageLabels,
+  augmentSelfSentLabels,
+  filterInboxTabEmails,
+} from "@/lib/inbox-tabs";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 function ContactPanel({
@@ -256,15 +262,6 @@ export function InboxPage() {
     ? `?${searchParams.toString()}`
     : "";
 
-  // Always fetch from the URL view (inbox, starred, etc.)
-  // Label tabs use ?label= param and always fetch inbox
-  const searchQuery = searchParams.get("q") ?? undefined;
-  const {
-    data: rawEmails = [],
-    isLoading,
-    isError,
-    error: emailsError,
-  } = useEmails(view, searchQuery, activeLabel ?? undefined);
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
 
@@ -285,35 +282,44 @@ export function InboxPage() {
     [settings?.pinnedLabels],
   );
   const pinnedLabels = useMemo(
-    () =>
-      isGoogleConnected
-        ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
-        : userPinnedLabels,
+    () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
     [isGoogleConnected, userPinnedLabels],
   );
-  const pinnedUserLabels = useMemo(
-    () =>
-      pinnedLabels.filter(
-        (id) => !["starred", "sent", "drafts", "archive", "trash"].includes(id),
-      ),
+  const triageLabels = useMemo(
+    () => pinnedTriageLabels(pinnedLabels),
     [pinnedLabels],
   );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
 
+  // Always fetch from the URL view (inbox, starred, etc.).
+  // Top-bar triage tabs (Important / pinned labels / "Other") are slices of
+  // the single inbox query — NOT a separate Gmail `label:` search — so the
+  // tab badge count and the list it shows always agree. Non-pinned sidebar
+  // labels (and label searches) still hit the server label query.
+  const searchQuery = searchParams.get("q") ?? undefined;
+  const isPinnedTab =
+    !!activeLabel &&
+    view === "inbox" &&
+    mailLabelsInclude(triageLabels, activeLabel);
+  const clientSliceTab = isPinnedTab && !searchQuery;
+  const effectiveLabel = clientSliceTab
+    ? undefined
+    : (activeLabel ?? undefined);
+  const {
+    data: rawEmails = [],
+    isLoading,
+    isError,
+    error: emailsError,
+  } = useEmails(view, searchQuery, effectiveLabel);
+
   const emails = useMemo(() => {
-    // Augment emails with virtual labels:
-    // - Self-sent emails get "important" (or "note-to-self" if that tab is pinned)
-    let filtered = rawEmails.map((e) => {
-      if (!isGoogleConnected) return e;
-      const isSelfSent = connectedEmails.has(e.from.email.toLowerCase());
-      if (!isSelfSent) return e;
-      const virtualLabel = hasNoteToSelf ? "note-to-self" : "important";
-      if (e.labelIds.includes(virtualLabel)) return e;
-      // Add virtual label, remove "important" if routing to note-to-self
-      let labelIds = [...e.labelIds];
-      if (hasNoteToSelf) labelIds = labelIds.filter((l) => l !== "important");
-      if (!labelIds.includes(virtualLabel)) labelIds.push(virtualLabel);
-      return { ...e, labelIds };
+    // Self-sent mail → virtual "important"/"note-to-self" so it lands in the
+    // matching triage tab. Shared with the badge counts (AppLayout) so the
+    // two agree on self-sent threads.
+    let filtered = augmentSelfSentLabels(rawEmails, {
+      isGoogleConnected,
+      connectedEmails,
+      hasNoteToSelf,
     });
 
     // Filter by active accounts (empty set = all accounts, no filtering)
@@ -323,15 +329,30 @@ export function InboxPage() {
       );
     }
 
+    // Top-bar triage tab: slice the loaded inbox with the exact same
+    // membership rule the badge uses (qualifiesForInboxTab). This is what
+    // keeps the tab number equal to the emails listed under it.
+    if (clientSliceTab && activeLabel) {
+      return filterInboxTabEmails(filtered, activeLabel, pinnedLabels);
+    }
+    // "Other" tab — the inbox remainder, same partition as its badge.
+    if (
+      !searchQuery &&
+      view === "inbox" &&
+      !activeLabel &&
+      triageLabels.length > 0
+    ) {
+      return filterInboxTabEmails(filtered, null, pinnedLabels);
+    }
+
     if (activeLabel) {
-      // App triage labels are latest-message slices. User Gmail labels keep
-      // thread membership when any inbox message in the fetched thread carries
-      // the label, so replies do not disappear just because the latest row
-      // differs.
+      // Non-pinned sidebar label (or a label search): server-fetched. User
+      // Gmail labels keep thread membership when any fetched message carries
+      // the label, so replies don't disappear just because the latest row
+      // differs; inbox-scoped app labels stay a latest-message slice.
       const isInboxScopedLabel = isInboxScopedAppLabel(activeLabel);
       const hasLabel = (e: (typeof filtered)[0]) =>
         mailLabelsInclude(e.labelIds, activeLabel);
-      // Find the latest message per thread
       const latestByThread = new Map<string, (typeof filtered)[0]>();
       const labelThreadIds = new Set<string>();
       for (const e of filtered) {
@@ -342,11 +363,10 @@ export function InboxPage() {
           latestByThread.set(key, e);
         }
       }
-      // Keep threads whose latest message has the label
       // For "important", exclude threads that belong to any other pinned tab
       const otherPinnedLabels =
         activeLabel === "important"
-          ? pinnedUserLabels.filter((l) => l !== "important")
+          ? triageLabels.filter((l) => l !== "important")
           : [];
       const qualifiedThreadIds = new Set(
         [...latestByThread.entries()]
@@ -357,7 +377,6 @@ export function InboxPage() {
                 : !labelThreadIds.has(threadKey)
             )
               return false;
-            // If viewing "important", skip threads that match another pinned tab
             if (
               otherPinnedLabels.length > 0 &&
               mailLabelsIncludeAny(latest.labelIds, otherPinnedLabels)
@@ -369,20 +388,15 @@ export function InboxPage() {
       );
       return filtered.filter((e) => qualifiedThreadIds.has(e.threadId || e.id));
     }
-    if (!searchQuery && view === "inbox" && pinnedUserLabels.length > 0) {
-      // "Other" is the inbox remainder: messages that do not belong to one of
-      // the pinned triage labels.
-      return filtered.filter(
-        (e) => !mailLabelsIncludeAny(e.labelIds, pinnedUserLabels),
-      );
-    }
     return filtered;
   }, [
     rawEmails,
     view,
     searchQuery,
     activeLabel,
-    pinnedUserLabels,
+    clientSliceTab,
+    pinnedLabels,
+    triageLabels,
     activeAccounts,
     isGoogleConnected,
     connectedEmails,

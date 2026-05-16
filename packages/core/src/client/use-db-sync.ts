@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { agentNativePath } from "./api-path.js";
 import { bumpChangeVersion } from "./use-change-version.js";
+import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
 
 interface QueryClient {
   invalidateQueries(opts?: { queryKey?: string[] }): void;
@@ -154,6 +155,11 @@ export function useDbSync(
   ignoreSourceRef.current = options.ignoreSource;
 
   useEffect(() => {
+    // Universal demo-mode redaction for the UI. Idempotent + browser-only +
+    // a no-op until demo mode is on. Lives here because every template root
+    // already mounts useDbSync, so this needs zero per-template wiring.
+    ensureDemoModeFetchInterceptor();
+
     let versionRef = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let stopped = false;

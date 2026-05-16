@@ -376,6 +376,15 @@ function getCoreSourceAliases(
       "adapters/cli/index.ts",
     ),
     "@agent-native/core/usage": path.join(coreSrc, "usage/store.ts"),
+    // Shared stylesheet — alias to src so CSS edits (composer/theme rules)
+    // take effect live in dev instead of silently loading the stale built
+    // copy at dist/styles/. From src/styles/ the `@source "../client/**"`
+    // directive resolves to the real .tsx source, which is what dev should
+    // scan for Tailwind classes anyway.
+    "@agent-native/core/styles/agent-native.css": path.join(
+      coreSrc,
+      "styles/agent-native.css",
+    ),
   };
 
   // Escape special regex chars in the key and anchor with $

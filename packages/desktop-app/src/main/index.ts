@@ -78,6 +78,28 @@ import {
 } from "@shared/code-agents";
 import * as AppStore from "./app-store";
 
+// ---------- stdout/stderr pipe resilience ----------
+// The main process logs spawned dev-server / code-agent child output via
+// console.log/console.error from `child.stdout.on("data", …)` handlers. When
+// a child server dies or restarts (frequent during local dev / HMR), the
+// stdout pipe's read end closes and the very next console write throws
+// `write EPIPE`. With no `error` listener on the std streams Node turns that
+// into an uncaught exception, which Electron surfaces as a fatal main-process
+// crash dialog. Swallow EPIPE / destroyed-stream errors on the std streams
+// (and, as a narrow safety net, the same code on uncaughtException) so a
+// closed log pipe can never take the app down. Any other error is left to
+// crash exactly as before.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (err: NodeJS.ErrnoException) => {
+    if (err?.code === "EPIPE" || err?.code === "ERR_STREAM_DESTROYED") return;
+    throw err;
+  });
+}
+process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
+  if (err?.code === "EPIPE" || err?.code === "ERR_STREAM_DESTROYED") return;
+  throw err;
+});
+
 const IS_DEV = !app.isPackaged;
 
 // ---------- User-Agent marker ----------

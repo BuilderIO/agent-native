@@ -3,9 +3,12 @@ import {
   BaseDirectory,
   create,
   mkdir,
+  readFile,
   remove,
+  writeFile,
   type FileHandle,
 } from "@tauri-apps/plugin-fs";
+import { injectWebmDuration } from "./webm-duration";
 
 export type LocalRecordingFileRole = "composed" | "desktop" | "camera";
 
@@ -114,11 +117,18 @@ function stopRecorder(target: PreparedLocalTarget): Promise<void> {
     } catch {
       // ignore
     }
-    try {
-      recorder.requestData();
-    } catch {
-      // ignore
-    }
+    // Do NOT call recorder.requestData() before stop(). stop() already
+    // synchronously flips state to "inactive" (so a queued requestData task
+    // just aborts) AND fires its own final `dataavailable` containing every
+    // sample since the last timeslice. Nudging the muxer with requestData()
+    // immediately before the encoder is torn down makes Chromium/WebKit drop
+    // the trailing sub-timeslice fragment — a consistent ~1–2s of lost frames
+    // at the end (ffprobe-confirmed: the camera's last real frame landed
+    // ~1.5s before the recording's true end while audio/screen ran full
+    // length). The start()-time ondataavailable handler chains stop()'s final
+    // blob into writeQueue, and stop(durationMs) awaits that queue, so the
+    // tail is fully flushed to disk. This was re-introduced once in a bulk
+    // sweep (dbf8db44e) — keep it removed.
     try {
       recorder.stop();
     } catch {
@@ -132,6 +142,53 @@ async function closeTargetFile(target: PreparedLocalTarget) {
     await target.file.close();
   } catch {
     // ignore
+  }
+}
+
+/**
+ * Reading the whole file back to patch its header is fine for the camera
+ * feed (the `separate`-mode case this exists for), but a long `composed`
+ * screen recording can be multi-GB. Skip the in-memory rewrite above this
+ * cap rather than risk an OOM in the webview — the file is still usable,
+ * just with MediaRecorder's slightly-short estimated duration.
+ */
+const MAX_DURATION_FIX_BYTES = 1_500 * 1024 * 1024;
+
+/**
+ * MediaRecorder WebM ships without a `Duration` element, so players
+ * under-report length by up to one timeslice — which is why a `separate`
+ * camera file lands ~2s shorter than the natively-muxed desktop MP4. After
+ * the file is fully written and closed, rewrite it with a correct
+ * `Duration` injected. Best-effort: any failure leaves the original
+ * (working, slightly-short) file untouched — never a corrupted recording.
+ */
+async function finalizeWebmDuration(
+  target: PreparedLocalTarget,
+  durationMs: number,
+): Promise<void> {
+  if (target.failed) return;
+  if (!/webm/i.test(target.mimeType)) return;
+  if (!(durationMs > 0)) return;
+  if (target.role !== "camera" && target.bytes > MAX_DURATION_FIX_BYTES) {
+    return;
+  }
+  try {
+    const original = await readFile(target.relativePath, {
+      baseDir: BaseDirectory.Video,
+    });
+    const patched = injectWebmDuration(original, durationMs);
+    // The injector returns the input reference unchanged on any no-op or
+    // unsafe-to-patch path; only rewrite when it actually produced a copy.
+    if (patched === original) return;
+    await writeFile(target.relativePath, patched, {
+      baseDir: BaseDirectory.Video,
+    });
+    target.bytes = patched.byteLength;
+  } catch (err) {
+    console.warn(
+      `[clips-local-export] could not inject WebM duration for ${target.fileName}; keeping original`,
+      err,
+    );
   }
 }
 
@@ -254,6 +311,9 @@ export async function prepareLocalRecordingExport(
         target.recorder.ondataavailable = null;
       }
       if (firstFailure) throw firstFailure;
+      await Promise.all(
+        prepared.map((target) => finalizeWebmDuration(target, durationMs)),
+      );
       return prepared.map((target) =>
         exportedFileForTarget(target, durationMs),
       );
