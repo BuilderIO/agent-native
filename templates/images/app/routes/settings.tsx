@@ -138,7 +138,7 @@ function ManageCredentialsSection() {
           type="button"
           variant="outline"
           size="sm"
-          onClick={flow.start}
+          onClick={() => flow.start()}
           disabled={flow.connecting}
           className="cursor-pointer"
         >

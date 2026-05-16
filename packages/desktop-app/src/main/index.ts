@@ -4165,7 +4165,8 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 // ---------- OAuth handling ----------
 // OAuth providers we recognize and keep out of app webviews. Depending on the
 // provider and flow, the URL is opened in an Electron BrowserWindow or the
-// system browser. Each provider specifies:
+// system browser. Builder opens in the system browser so users keep their
+// normal logged-in session and browser controls. Each provider specifies:
 //   - a `matches` predicate on the initial URL (from window.open)
 //   - a `callbackPathFragment` used to detect when the OAuth callback has
 //     been reached so we can auto-close the popup
@@ -4299,7 +4300,6 @@ function desktopBuilderCallbackPage(
       <h1>${title}</h1>
       <p>${message}</p>
     </main>
-    <script>setTimeout(function(){ window.close(); }, 700);</script>
   </body>
 </html>`;
 }
@@ -4308,23 +4308,14 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
   return new Promise((resolve) => {
     let settled = false;
     let callbackServer: HttpServer | null = null;
-    let authWindow: BrowserWindow | null = null;
     let timeout: NodeJS.Timeout | null = null;
 
-    const finish = (
-      result: CodeAgentProviderSettingsUpdateResult,
-      closeWindow = true,
-    ) => {
+    const finish = (result: CodeAgentProviderSettingsUpdateResult) => {
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
       if (callbackServer) {
         callbackServer.close(() => {});
-      }
-      if (closeWindow && authWindow && !authWindow.isDestroyed()) {
-        setTimeout(() => {
-          if (authWindow && !authWindow.isDestroyed()) authWindow.close();
-        }, 800);
       }
       resolve(result);
     };
@@ -4362,7 +4353,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       res.end(
         desktopBuilderCallbackPage(
           "success",
-          "You can close this window and return to Agent Native Desktop.",
+          "You can close this tab and return to Agent Native Desktop.",
         ),
       );
       finish({
@@ -4395,71 +4386,17 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
 
       const callbackUrl = `http://127.0.0.1:${address.port}/_agent-native/desktop-builder/callback`;
       const authUrl = buildDesktopBuilderCliAuthUrl(callbackUrl);
-      authWindow = new BrowserWindow({
-        width: 520,
-        height: 720,
-        title: "Connect Builder.io",
-        backgroundColor: "#111111",
-        parent: mainWindow ?? undefined,
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true,
-          session: session.defaultSession,
-        },
-      });
-
-      const builderProvider = OAUTH_PROVIDERS.find(
-        (provider) => provider.name === "builder",
-      );
-      if (builderProvider) {
-        authWindow.webContents.setWindowOpenHandler(({ url: childUrl }) => {
-          try {
-            const parsed = new URL(childUrl);
-            if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-              return { action: "deny" as const };
-            }
-            if (!isAllowedOAuthChildPopup(builderProvider, parsed)) {
-              openExternalUrl(childUrl);
-              return { action: "deny" as const };
-            }
-          } catch {
-            return { action: "deny" as const };
-          }
-          return {
-            action: "allow" as const,
-            overrideBrowserWindowOptions: {
-              width: 500,
-              height: 700,
-              backgroundColor: "#111111",
-              parent: authWindow ?? undefined,
-              modal: false,
-              webPreferences: {
-                nodeIntegration: false,
-                contextIsolation: true,
-                session: session.defaultSession,
-              },
-            },
-          };
+      if (!canOpenExternalUrl(authUrl)) {
+        finish({
+          ok: false,
+          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          message: "Could not open Builder.io connect.",
+          error: "The Builder.io connect URL was not valid.",
         });
+        return;
       }
 
-      authWindow.once("closed", () => {
-        if (!settled) {
-          finish(
-            {
-              ok: false,
-              settings: AppStore.getCodeAgentProviderSettingsStatus(),
-              message: "Builder.io connect was cancelled.",
-              error: "The Builder.io connect window was closed.",
-            },
-            false,
-          );
-        }
-      });
-      authWindow.show();
-      authWindow.focus();
-      authWindow.moveTop();
-      authWindow.loadURL(authUrl).catch((err) => {
+      shell.openExternal(authUrl).catch((err) => {
         finish({
           ok: false,
           settings: AppStore.getCodeAgentProviderSettingsStatus(),
@@ -4523,6 +4460,7 @@ function googleOAuthUsesDesktopExchange(url: URL): boolean {
 }
 
 function shouldOpenOAuthInSystemBrowser(provider: OAuthProvider, url: URL) {
+  if (provider.name === "builder") return true;
   // Google blocks embedded/Electron OAuth surfaces. Framework pages that pass
   // a flow id poll /desktop-exchange, so the system browser can complete the
   // OAuth callback and the app webview can claim the resulting session token.
