@@ -416,6 +416,22 @@ function filterReadOnlyActions(
   );
 }
 
+function filterPublicAgentActions(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(actions).filter(([, entry]) => {
+      const config = entry.publicAgent;
+      return (
+        config?.expose === true &&
+        config.readOnly === true &&
+        config.requiresAuth !== true &&
+        config.isConsequential !== true
+      );
+    }),
+  );
+}
+
 function resolveArtifactBaseUrl(event: any | undefined): string | undefined {
   const fromEnv =
     process.env.APP_URL ||
@@ -3338,6 +3354,7 @@ export function createAgentChatPlugin(
       const allScripts = attachToolSearch(
         canToggle
           ? {
+              ...filterPublicAgentActions(templateScripts),
               ...resourceScripts,
               ...docsScripts,
               ...(lazyContext ? frameworkContextTool : {}),
