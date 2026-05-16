@@ -34,6 +34,12 @@ const SKIP_SUBSTRINGS = [
   "/_agent-native/demo/status",
   "/_agent-native/poll",
   "/_agent-native/events",
+  // Never touch agent transport. The agent already gets in-process
+  // redaction of its tool results; faking its own transcript adds no demo
+  // value and must stay clear of the tool_use/tool_result protocol. Covers
+  // "/_agent-native/agent" (stream) and "/_agent-native/agent-chat"
+  // (thread history) and any sub-paths.
+  "/_agent-native/agent",
 ];
 
 let installed = false;
