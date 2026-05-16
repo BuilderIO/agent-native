@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.17.0
+
+### Minor Changes
+
+- a21633b: Add demo mode: a settings toggle / `toggle-demo-mode` agent action / `DEMO_MODE` env that deterministically replaces real names, emails, and numbers with realistic fake data in every action result — for both the UI and what the agent sees. IDs, dates, URLs, and structure are preserved (protect-first tokenization + key denylist) so the app keeps working. The redaction walk is fully gated and only runs when demo mode is on.
+
 ## 0.16.3
 
 ### Patch Changes
