@@ -571,7 +571,20 @@ function renderConnectPage(params: {
         // The token is minted a few seconds later, when the CLI next polls
         // /device/poll — so a single loadTokens() here runs BEFORE the row
         // exists and the list would wrongly read "No connections yet" until
-        // a manual reload. Poll until the new connection shows up.
+        // a manual reload. Snapshot the EXISTING non-revoked token ids first
+        // so we announce "Connected" only when THIS device's freshly-minted
+        // token appears — a user who already has tokens must not get a false
+        // success the instant they authorize.
+        var priorIds = {};
+        try {
+          var pr = await fetch(BASE + "/tokens", { credentials: "same-origin" });
+          if (pr.ok) {
+            var pd = await pr.json();
+            ((pd && pd.tokens) || []).forEach(function (t) {
+              if (!t.revokedAt) priorIds[t.id] = true;
+            });
+          }
+        } catch (e) {}
         loadTokens();
         var tries = 0;
         var iv = setInterval(async function () {
@@ -580,8 +593,10 @@ function renderConnectPage(params: {
             var res = await fetch(BASE + "/tokens", { credentials: "same-origin" });
             if (res.ok) {
               var data = await res.json();
-              var active = ((data && data.tokens) || []).filter(function (t) { return !t.revokedAt; });
-              if (active.length > 0) {
+              var fresh = ((data && data.tokens) || []).filter(function (t) {
+                return !t.revokedAt && !priorIds[t.id];
+              });
+              if (fresh.length > 0) {
                 clearInterval(iv);
                 showMsg("Connected. This device can now act as you — manage or revoke it below.", "ok");
                 loadTokens();
@@ -589,7 +604,14 @@ function renderConnectPage(params: {
               }
             }
           } catch (e) {}
-          if (tries >= 30) { clearInterval(iv); loadTokens(); }
+          if (tries >= 30) {
+            // No new token appeared in the window — e.g. the loopback
+            // dev-open path writes a header-only config and never mints.
+            // Don't claim "Connected" (we couldn't confirm a device token);
+            // keep the "authorized" message and just refresh the list.
+            clearInterval(iv);
+            loadTokens();
+          }
         }, 2000);
         return;
       } else {

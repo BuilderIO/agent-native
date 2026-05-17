@@ -30,6 +30,30 @@ export {
 };
 export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
 
+/**
+ * True for loopback request origins. Header-only dev-open (no A2A_SECRET /
+ * ACCESS_TOKEN configured, identity taken from `X-Agent-Native-Owner-Email`)
+ * is allowed ONLY for loopback so a misconfigured PUBLIC deployment can't be
+ * impersonated by anyone sending that header — which, combined with the
+ * `fullSurface` discriminator, would otherwise hand a spoofed caller the full
+ * mutating action surface. A deployed app missing both secrets fails closed.
+ */
+function isLoopbackOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host === "[::1]" ||
+      host.startsWith("127.")
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Runtime detection — Node fast-path vs. web-standard fallback
 // ---------------------------------------------------------------------------
@@ -188,7 +212,15 @@ export async function handleMcpRequest(
     event,
     "x-agent-native-owner-email",
   );
-  const authResult = await verifyAuth(authHeader, ownerEmailHeader);
+  // Derived before auth so the origin can gate header-only dev-open: a
+  // deployed app missing A2A_SECRET / ACCESS_TOKEN must fail closed rather
+  // than trust a caller-supplied owner-email header (which `fullSurface`
+  // would otherwise escalate to the full mutating surface). Only loopback
+  // dev gets the no-secret dev-open path.
+  const requestMeta = deriveRequestMeta(event);
+  const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+    allowDevOpen: isLoopbackOrigin(requestMeta.origin),
+  });
   if (!authResult.authed) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
@@ -216,7 +248,6 @@ export async function handleMcpRequest(
   // connected real caller (connect-minted token / `mcp install` /
   // ACCESS_TOKEN / production) gets the full action surface even in local
   // dev; unauthenticated dev probes stay sparse. See `external-agents` skill.
-  const requestMeta = deriveRequestMeta(event);
   const server = await createMCPServerForRequest(config, authResult.identity, {
     ...requestMeta,
     fullSurface: authResult.fullSurface === true,
