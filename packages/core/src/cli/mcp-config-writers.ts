@@ -43,11 +43,16 @@ export interface HttpMcpEntry {
 export function buildHttpMcpEntry(
   mcpUrl: string,
   token?: string,
+  headers?: Record<string, string>,
 ): HttpMcpEntry {
+  const mergedHeaders = {
+    ...(headers ?? {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
   return {
     type: "http",
     url: mcpUrl,
-    ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+    ...(Object.keys(mergedHeaders).length ? { headers: mergedHeaders } : {}),
   };
 }
 
@@ -163,12 +168,20 @@ export function buildCodexHttpBlock(
   name: string,
   mcpUrl: string,
   token?: string,
+  headers?: Record<string, string>,
 ): string {
   const lines: string[] = [codexMcpHeader(name)];
   lines.push(`url = ${tomlQuote(mcpUrl)}`);
-  if (token) {
+  const mergedHeaders = {
+    ...(headers ?? {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+  const headerEntries = Object.entries(mergedHeaders);
+  if (headerEntries.length) {
     lines.push(
-      `http_headers = { Authorization = ${tomlQuote(`Bearer ${token}`)} }`,
+      `http_headers = { ${headerEntries
+        .map(([key, value]) => `${tomlQuote(key)} = ${tomlQuote(value)}`)
+        .join(", ")} }`,
     );
   }
   return lines.join("\n") + "\n";
@@ -260,19 +273,23 @@ export function writeHttpEntryForClient(
   token: string | undefined,
   baseDir: string,
   scope: string | undefined,
+  headers?: Record<string, string>,
 ): string {
   const file = configPathFor(client, baseDir, scope);
   if (client === "codex") {
     writeCodexBlock(
       file,
       serverName,
-      buildCodexHttpBlock(serverName, mcpUrl, token),
+      buildCodexHttpBlock(serverName, mcpUrl, token, headers),
     );
   } else {
     writeJsonMcpEntry(
       file,
       serverName,
-      buildHttpMcpEntry(mcpUrl, token) as unknown as Record<string, unknown>,
+      buildHttpMcpEntry(mcpUrl, token, headers) as unknown as Record<
+        string,
+        unknown
+      >,
     );
   }
   return file;

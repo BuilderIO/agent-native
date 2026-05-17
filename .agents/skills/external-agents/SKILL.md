@@ -1,11 +1,11 @@
 ---
 name: external-agents
 description: >-
-  Connect external coding agents (Claude Code desktop & CLI, Claude Cowork,
-  Codex) to an agent-native app over MCP, and round-trip artifacts back into
-  the UI with deep links. Use when adding an action's `link` builder, wiring
-  the `/_agent-native/open` route, exposing an "ingest" action to MCP/A2A, or
-  scaffolding apps from an external agent.
+  Connect external coding agents (Claude Code desktop & CLI, Codex, Cursor,
+  Claude Cowork) to an agent-native app over MCP, and round-trip artifacts back
+  into the UI with deep links. Use when adding an action's `link` builder,
+  wiring the `/_agent-native/open` route, exposing an "ingest" action to
+  MCP/A2A, or scaffolding apps from an external agent.
 ---
 
 # External Agents (MCP bridge + deep links)
@@ -13,15 +13,15 @@ description: >-
 ## Rule
 
 An agent-native app is reachable by any external coding agent (Claude Code,
-Cowork, Codex) over MCP. The **recommended** way to connect to a deployed app
-is the one-command hosted flow — `npx @agent-native/core connect <url>` — which
-mints a per-user, scoped, revocable token from a logged-in browser session; no
-shared secret is copied. Once connected, every action that produces or lists a
-navigable resource SHOULD return a deep link from a `link` builder, so the
-external agent can surface an **"Open in <app> →"** link that drops the user
-back into the running UI at the right view and record. The link is a pure
-pointer — the record-focusing write is always scoped to the **browser
-session**, never the agent's token.
+Codex, Cursor, Cowork) over MCP. The **recommended** way to connect to a
+deployed app is the one-command hosted flow — `npx @agent-native/core connect
+<url>` — which mints a per-user, scoped, revocable token from a logged-in
+browser session; no shared secret is copied. Once connected, every action that
+produces or lists a navigable resource SHOULD return a deep link from a `link`
+builder, so the external agent can surface an **"Open in <app> →"** link that
+drops the user back into the running UI at the right view and record. The link
+is a pure pointer — the record-focusing write is always scoped to the
+**browser session**, never the agent's token.
 
 ## Why
 
@@ -39,8 +39,9 @@ mechanism.
 ### 1. Connect to a hosted app (recommended)
 
 The first-party hosted apps live at `mail.agent-native.com`,
-`calendar.agent-native.com`, etc. One command wires every detected agent
-client (Claude Code, Codex, Cowork) to one of them:
+`calendar.agent-native.com`, etc. One command wires every detected supported
+agent client (Claude Code, Codex, Cowork) to one of them. Cursor can use the
+same MCP endpoint via the no-CLI/manual config path:
 
 ```bash
 npx @agent-native/core connect https://mail.agent-native.com

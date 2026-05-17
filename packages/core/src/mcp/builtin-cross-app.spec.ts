@@ -47,6 +47,14 @@ describe("verifyAuth — static-token caller identity", () => {
     expect(res.identity?.userEmail).toBe("hdr@example.com");
   });
 
+  it("rejects dev-open owner hints when the route is not loopback/local", async () => {
+    const res = await verifyAuth(undefined, "hdr@example.com", {
+      allowDevOpen: false,
+    });
+    expect(res.authed).toBe(false);
+    expect(res.identity).toBeUndefined();
+  });
+
   it("static ACCESS_TOKEN match derives identity from owner env", async () => {
     process.env.ACCESS_TOKEN = "tok-123";
     process.env.AGENT_NATIVE_OWNER_EMAIL = "env-owner@example.com";
@@ -124,6 +132,34 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
       "/_agent-native/open?app=mail&view=inbox&threadId=abc",
     );
     expect(result.url.startsWith("/")).toBe(true);
+  });
+});
+
+describe("list_apps — reports the live request origin for the current app", () => {
+  // Bug #2: a single-app dev server reached over `connect` was reporting a
+  // guessed `PORT || 5173` URL + `running:false` (wrong whenever the dev
+  // server picked another port, e.g. `agent-native dev` on :8080). The MCP
+  // request is served BY the app, so the inbound origin is authoritative.
+  it("uses requestMeta.origin and running:true for the served app", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig({ appId: "content" }), {
+      origin: "http://localhost:8080",
+    });
+    const result: any = await tools.list_apps.run({});
+    expect(result.workspace).toBe(false);
+    expect(result.apps).toHaveLength(1);
+    expect(result.apps[0].url).toBe("http://localhost:8080");
+    expect(result.apps[0].port).toBe(8080);
+    expect(result.apps[0].running).toBe(true);
+  });
+
+  it("falls back to probed values when no request origin is known (stdio standalone)", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig({ appId: "content" }));
+    const result: any = await tools.list_apps.run({});
+    expect(result.apps).toHaveLength(1);
+    // No live origin → keep the resolver's URL (not overridden to a bogus
+    // live origin) and its real TCP-probe running state.
+    expect(result.apps[0].url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    expect(result.apps[0].running).toBe(false);
   });
 });
 

@@ -106,7 +106,10 @@ async function resolveTargetAppOrigin(
 // list_apps
 // ---------------------------------------------------------------------------
 
-function listAppsTool(config: MCPConfig): ActionEntry {
+function listAppsTool(
+  config: MCPConfig,
+  requestMeta?: { origin?: string },
+): ActionEntry {
   return {
     tool: tool(
       "List the workspace apps and their URLs. Use this to discover which " +
@@ -120,6 +123,29 @@ function listAppsTool(config: MCPConfig): ActionEntry {
       const { resolveWorkspace } = await import("./workspace-resolve.js");
       const ws = await resolveWorkspace();
 
+      // The MCP request is served BY the current app, so it is provably
+      // reachable at the inbound request origin — that beats a guessed
+      // `PORT || 5173` probe (which reports the wrong URL + `running:false`
+      // whenever the dev server picked a non-default port, e.g. `agent-
+      // native dev` on :8080). For the entry that IS this app (the sole
+      // entry when single-app, or the id matching `config.appId` in a
+      // workspace) prefer the live origin; other workspace apps keep their
+      // probed values.
+      const liveOrigin = requestMeta?.origin?.replace(/\/+$/, "") || "";
+      let livePort = 0;
+      if (liveOrigin) {
+        try {
+          const u = new URL(liveOrigin);
+          livePort = Number(u.port) || (u.protocol === "https:" ? 443 : 80);
+        } catch {
+          livePort = 0;
+        }
+      }
+      const selfId = (config.appId ?? "").toLowerCase();
+      const isSelf = (id: string) =>
+        !!liveOrigin &&
+        (!ws.isWorkspace || (!!selfId && id.toLowerCase() === selfId));
+
       interface AppEntry {
         id: string;
         url: string;
@@ -128,13 +154,23 @@ function listAppsTool(config: MCPConfig): ActionEntry {
         source: "workspace" | "org-directory";
       }
 
-      const apps: AppEntry[] = ws.apps.map((a) => ({
-        id: a.id,
-        url: a.url,
-        port: a.port as number | undefined,
-        running: a.running,
-        source: "workspace",
-      }));
+      const apps: AppEntry[] = ws.apps.map((a) =>
+        isSelf(a.id)
+          ? {
+              id: a.id,
+              url: liveOrigin,
+              port: (livePort || a.port) as number | undefined,
+              running: true,
+              source: "workspace" as const,
+            }
+          : {
+              id: a.id,
+              url: a.url,
+              port: a.port as number | undefined,
+              running: a.running,
+              source: "workspace" as const,
+            },
+      );
       const seenIds = new Set(apps.map((a) => a.id.toLowerCase()));
       const seenOrigins = new Set(apps.map((a) => a.url.replace(/\/+$/, "")));
 
@@ -532,9 +568,10 @@ function createWorkspaceAppTool(): ActionEntry {
  */
 export function getBuiltinCrossAppTools(
   config: MCPConfig,
+  requestMeta?: { origin?: string },
 ): Record<string, ActionEntry> {
   return {
-    list_apps: listAppsTool(config),
+    list_apps: listAppsTool(config, requestMeta),
     open_app: openAppTool(config),
     ask_app: askAppTool(config),
     create_workspace_app: createWorkspaceAppTool(),

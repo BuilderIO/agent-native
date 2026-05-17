@@ -30,6 +30,21 @@ export {
 };
 export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
 
+function isLoopbackOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host.startsWith("127.")
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Runtime detection — Node fast-path vs. web-standard fallback
 // ---------------------------------------------------------------------------
@@ -188,7 +203,15 @@ export async function handleMcpRequest(
     event,
     "x-agent-native-owner-email",
   );
-  const authResult = await verifyAuth(authHeader, ownerEmailHeader);
+  // Per-request stateless transport + server build the SAME server from the
+  // SAME config + verified identity + request meta on both runtimes. Derived
+  // before auth so the origin can gate header-only dev-open: a deployed app
+  // missing A2A_SECRET / ACCESS_TOKEN must fail closed instead of trusting a
+  // caller-supplied owner-email header (only loopback dev gets dev-open).
+  const requestMeta = deriveRequestMeta(event);
+  const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+    allowDevOpen: isLoopbackOrigin(requestMeta.origin),
+  });
   if (!authResult.authed) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
@@ -210,15 +233,13 @@ export async function handleMcpRequest(
   // stream is never consumed twice.
   const body = method === "POST" ? await readBody(event) : undefined;
 
-  // Per-request stateless transport + server. Both runtimes build the SAME
-  // server from the SAME config + verified identity + request meta, so
-  // tools/list, tools/call, and the deep-link `_meta` are identical.
-  const requestMeta = deriveRequestMeta(event);
-  const server = await createMCPServerForRequest(
-    config,
-    authResult.identity,
-    requestMeta,
-  );
+  // A connected real caller (connect-minted token / `mcp install` /
+  // ACCESS_TOKEN / production) gets the full action surface even in local
+  // dev; unauthenticated dev probes stay sparse. See `external-agents` skill.
+  const server = await createMCPServerForRequest(config, authResult.identity, {
+    ...requestMeta,
+    fullSurface: authResult.fullSurface === true,
+  });
 
   const { nodeReq, nodeRes } = getNodeReqRes(event);
 
