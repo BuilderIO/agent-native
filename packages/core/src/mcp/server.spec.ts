@@ -42,6 +42,11 @@ function makeWebEvent(opts: MakeEventOpts): any {
     "x-forwarded-proto": "https",
     accept: "application/json, text/event-stream",
     "content-type": "application/json",
+    // A deployed app (non-loopback host) is authenticated — header-only
+    // dev-open is loopback-only now (security: a public deploy with no
+    // secret must not be impersonable via X-Agent-Native-Owner-Email).
+    // Tests that exercise the unauthenticated path override this.
+    authorization: "Bearer test-access-token",
     ...(opts.headers ?? {}),
   };
   // h3 v2 web runtime: `event.req` IS the web Request. We hand a real one so
@@ -186,11 +191,15 @@ async function callWeb(rpc: Record<string, unknown>): Promise<any> {
 
 describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)", () => {
   beforeEach(() => {
-    delete process.env.ACCESS_TOKEN;
+    // A deployed app has a real token; the default makeWebEvent bearer
+    // matches it so these runtime-mechanics tests run as an authenticated
+    // caller (header-only dev-open is loopback-only — see security note).
+    process.env.ACCESS_TOKEN = "test-access-token";
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
   });
   afterEach(() => {
+    delete process.env.ACCESS_TOKEN;
     vi.clearAllMocks();
   });
 
@@ -300,11 +309,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
 describe("handleMcpRequest — Node fast-path still taken when event.node present", () => {
   beforeEach(() => {
-    delete process.env.ACCESS_TOKEN;
+    // Authenticated deployed-app caller (default makeWebEvent bearer matches);
+    // header-only dev-open is loopback-only now.
+    process.env.ACCESS_TOKEN = "test-access-token";
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
   });
   afterEach(() => {
+    delete process.env.ACCESS_TOKEN;
     vi.clearAllMocks();
     vi.restoreAllMocks();
   });

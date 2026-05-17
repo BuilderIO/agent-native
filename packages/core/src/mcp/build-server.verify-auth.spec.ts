@@ -139,3 +139,71 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(isJtiRevokedMock).not.toHaveBeenCalled();
   });
 });
+
+// Bug #3: a connected real caller (connect-minted token / `mcp install` /
+// ACCESS_TOKEN / production) must get the FULL MCP tool surface even in local
+// dev — the documented external-agents contract. `verifyAuth` reports this via
+// `fullSurface`, which `createMCPServerForRequest` uses to swap in
+// `config.productionActions`. The pure unauthenticated dev-open path stays
+// sparse (`fullSurface: false`).
+describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.A2A_SECRET;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+  });
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+  });
+
+  it("connect-minted JWT → fullSurface true", async () => {
+    process.env.A2A_SECRET = SECRET;
+    isJtiRevokedMock.mockResolvedValue(false);
+    const token = await sign({
+      sub: "a@example.com",
+      scope: "mcp-connect",
+      jti: "jti-connect",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(true);
+    expect(res.fullSurface).toBe(true);
+  });
+
+  it("ordinary A2A delegation JWT → fullSurface true", async () => {
+    process.env.A2A_SECRET = SECRET;
+    const token = await sign({ sub: "a@example.com" });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(true);
+    expect(res.fullSurface).toBe(true);
+  });
+
+  it("matching ACCESS_TOKEN → fullSurface true", async () => {
+    process.env.ACCESS_TOKEN = "static-tok";
+    const res = await verifyAuth("Bearer static-tok", "owner@example.com");
+    expect(res.authed).toBe(true);
+    expect(res.fullSurface).toBe(true);
+    expect(res.identity?.userEmail).toBe("owner@example.com");
+  });
+
+  it("no auth configured + forwarded owner header (mcp install) → authed, fullSurface true", async () => {
+    const res = await verifyAuth(undefined, "owner@example.com");
+    expect(res.authed).toBe(true);
+    expect(res.fullSurface).toBe(true);
+  });
+
+  it("no auth configured + no owner header (bare dev probe) → authed, fullSurface false (sparse)", async () => {
+    const res = await verifyAuth(undefined, undefined);
+    expect(res.authed).toBe(true);
+    expect(res.fullSurface).toBe(false);
+  });
+
+  it("no auth configured but allowDevOpen:false (deployed, no secret) → rejected", async () => {
+    const res = await verifyAuth(undefined, "owner@example.com", {
+      allowDevOpen: false,
+    });
+    expect(res.authed).toBe(false);
+  });
+});

@@ -546,7 +546,14 @@ export function isLoopbackAddress(ip: string | undefined): boolean {
   );
 }
 
-function isLoopbackRequest(event: H3Event): boolean {
+/**
+ * True when the request's actual socket peer is loopback. Uses
+ * `getRequestIP(event)` WITHOUT `{ xForwardedFor: true }`, so it reflects the
+ * real connecting IP and a remote client cannot spoof it via the `Host` /
+ * `X-Forwarded-*` headers. Use this — not a parsed `Host`-header origin — for
+ * any "is this local dev?" security gate (MCP/connect dev-open).
+ */
+export function isLoopbackRequest(event: H3Event): boolean {
   let ip: string | undefined;
   try {
     ip = getRequestIP(event) ?? undefined;

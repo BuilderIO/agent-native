@@ -42,6 +42,19 @@ export interface MCPConfig {
   version?: string;
   /** Action registry — same as agent chat and A2A */
   actions: Record<string, ActionEntry>;
+  /**
+   * Full ("production") action surface served to an **authenticated real
+   * caller** — a connect-minted token, an `agent-native mcp install` stdio
+   * proxy (owner-email header / `AGENT_NATIVE_OWNER_EMAIL`), or a deployed /
+   * `AGENT_MODE=production` app. In local dev `actions` is intentionally the
+   * sparse, dev-toggled surface (builtins + read-only public-agent actions)
+   * so the local agent chat and unauthenticated dev probes don't see every
+   * mutating tool; but per the external-agents contract a real caller that
+   * connected with a token MUST get the full surface even in dev. When unset
+   * (production, where `actions` already IS the full set) the swap is a
+   * no-op. See `external-agents` skill, "Dev vs production tool surface".
+   */
+  productionActions?: Record<string, ActionEntry>;
   /** Handler for the ask-agent meta-tool — runs the full agent loop */
   askAgent?: (message: string) => Promise<string>;
   /**
@@ -76,6 +89,15 @@ export interface MCPRequestMeta {
   origin?: string;
   /** Optional client preference for which URL the *markdown* link uses. */
   target?: "browser" | "desktop" | "terminal";
+  /**
+   * The caller authenticated with a real credential (verified A2A/connect
+   * JWT, matching ACCESS_TOKEN, or a forwarded owner-email header from
+   * `agent-native mcp install`) — not the unauthenticated local dev-open
+   * path. When true, `createMCPServerForRequest` serves
+   * `config.productionActions` (the full surface) instead of the sparse dev
+   * `config.actions`. Set by `mountMCP` from `verifyAuth`.
+   */
+  fullSurface?: boolean;
 }
 
 /**
@@ -125,12 +147,16 @@ export function buildLinkArtifacts(
  * The builtins are pure-ish navigators / scaffolders; they call back into the
  * same `config.actions` / `config.askAgent` so there is no second agent loop.
  */
-function mergeBuiltinTools(config: MCPConfig): Record<string, ActionEntry> {
-  if (config.builtinCrossAppTools === false) return config.actions;
-  const builtins = getBuiltinCrossAppTools(config);
+function mergeBuiltinTools(
+  config: MCPConfig,
+  baseActions: Record<string, ActionEntry>,
+  requestMeta?: MCPRequestMeta,
+): Record<string, ActionEntry> {
+  if (config.builtinCrossAppTools === false) return baseActions;
+  const builtins = getBuiltinCrossAppTools(config, requestMeta);
   const merged: Record<string, ActionEntry> = { ...builtins };
   // Template / app actions overwrite same-named builtins.
-  for (const [name, entry] of Object.entries(config.actions)) {
+  for (const [name, entry] of Object.entries(baseActions)) {
     merged[name] = entry;
   }
   return merged;
@@ -162,10 +188,6 @@ export async function createMCPServerForRequest(
     { capabilities: { tools: {} } },
   );
 
-  // The action set the request handlers operate on = template actions +
-  // generic cross-app builtins (template wins on name collision).
-  const actions = mergeBuiltinTools(config);
-
   // Resolve the effective caller identity. JWT / header-derived identity
   // (passed by `mountMCP` via `verifyAuth`) wins. When the caller passed no
   // identity — the stdio **standalone** path — fall back to the
@@ -180,6 +202,21 @@ export async function createMCPServerForRequest(
     (ownerFromEnv
       ? { userEmail: ownerFromEnv, orgDomain: undefined }
       : undefined);
+
+  // The action set the request handlers operate on = base actions + generic
+  // cross-app builtins (template wins on name collision). An authenticated
+  // real caller (connect-minted token / `mcp install` owner / production —
+  // `requestMeta.fullSurface`, or the stdio standalone path identified by
+  // `AGENT_NATIVE_OWNER_EMAIL`) gets the full `productionActions` surface
+  // even in local dev; the unauthenticated dev-open path keeps the sparse
+  // `config.actions`. See `external-agents` skill, "Dev vs production tool
+  // surface".
+  const useFullSurface = requestMeta?.fullSurface === true || !!ownerFromEnv;
+  const baseActions =
+    useFullSurface && config.productionActions
+      ? config.productionActions
+      : config.actions;
+  const actions = mergeBuiltinTools(config, baseActions, requestMeta);
 
   // Resolve orgId once per request (DB lookup) so subsequent wraps are
   // synchronous. The caller identity may be undefined for true dev-open —
@@ -394,15 +431,36 @@ function deriveStaticTokenIdentity(
 export async function verifyAuth(
   authHeader: string | undefined,
   ownerEmailHeader?: string | undefined,
-): Promise<{ authed: boolean; identity?: MCPCallerIdentity }> {
-  // No auth configured → allow (dev mode). Still honour an owner hint
-  // (env or forwarded header) so the install flow stays tenant-scoped.
+  options: { allowDevOpen?: boolean } = {},
+): Promise<{
+  authed: boolean;
+  identity?: MCPCallerIdentity;
+  /**
+   * The caller presented a real credential — a verified A2A/connect JWT, a
+   * matching ACCESS_TOKEN, or (on the no-auth-configured path) a forwarded
+   * owner-email header from `agent-native mcp install`. Drives the full vs
+   * sparse MCP tool surface in local dev. The pure unauthenticated dev-open
+   * path (no secret, no token, no owner header) is `false`.
+   */
+  fullSurface?: boolean;
+}> {
+  // No auth configured → allow only when the route caller has already
+  // established that this is a loopback/local dev request. Still honour an
+  // owner hint there so the local install/connect flow stays tenant-scoped.
   const accessTokens = getAccessTokens();
   const hasA2ASecret = !!process.env.A2A_SECRET;
   if (accessTokens.length === 0 && !hasA2ASecret) {
+    if (options.allowDevOpen === false) {
+      return { authed: false };
+    }
     return {
       authed: true,
       identity: deriveStaticTokenIdentity(ownerEmailHeader),
+      // `mcp install`'s stdio proxy forwards an owner-email header even when
+      // the local app has no secret configured — that is a real, identified
+      // caller and gets the full surface. A bare browser/curl dev probe with
+      // no owner hint stays on the sparse dev surface.
+      fullSurface: !!(ownerEmailHeader && ownerEmailHeader.trim()),
     };
   }
 
@@ -459,6 +517,8 @@ export async function verifyAuth(
               ? (payload.org_domain as string)
               : undefined,
         },
+        // Verified JWT (connect-minted or A2A delegation) — a real caller.
+        fullSurface: true,
       };
     } catch {
       // Not a valid JWT — fall through to token check
@@ -472,6 +532,8 @@ export async function verifyAuth(
     return {
       authed: true,
       identity: deriveStaticTokenIdentity(ownerEmailHeader),
+      // Matched a configured ACCESS_TOKEN — a real caller.
+      fullSurface: true,
     };
   }
 

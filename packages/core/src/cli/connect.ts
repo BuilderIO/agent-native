@@ -275,7 +275,12 @@ export async function runDeviceFlow(
   appSlug: string,
   clientArg: string,
   deps: ConnectDeps = {},
-): Promise<{ token: string; mcpUrl: string; serverName: string } | null> {
+): Promise<{
+  token?: string;
+  mcpUrl: string;
+  serverName: string;
+  headers?: Record<string, string>;
+} | null> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const sleep = deps.sleep ?? realSleep;
   const open = deps.openBrowser ?? openInBrowser;
@@ -347,12 +352,15 @@ export async function runDeviceFlow(
       const token = poll.token ?? "";
       const mcpUrl = poll.mcpUrl ?? `${baseUrl}/_agent-native/mcp`;
       const serverName = poll.serverName ?? `${SERVER_NAME_PREFIX}-${appSlug}`;
-      if (!token) {
-        logErr("  Server approved but returned no token. Aborting.");
-        return null;
-      }
+      const headers =
+        poll.mcpServerEntry &&
+        typeof poll.mcpServerEntry === "object" &&
+        poll.mcpServerEntry.headers &&
+        typeof poll.mcpServerEntry.headers === "object"
+          ? (poll.mcpServerEntry.headers as Record<string, string>)
+          : undefined;
       logOut("  Approved.");
-      return { token, mcpUrl, serverName };
+      return { token: token || undefined, mcpUrl, serverName, headers };
     }
     if (poll.status === "expired") {
       if (isTTY) process.stdout.write("\r\x1b[K");
@@ -408,9 +416,10 @@ export function writeConfigs(
   clients: ClientId[],
   serverName: string,
   mcpUrl: string,
-  token: string,
+  token: string | undefined,
   scope: string,
   baseDir: string = projectBaseDir(),
+  headers?: Record<string, string>,
 ): { client: ClientId; file: string }[] {
   const written: { client: ClientId; file: string }[] = [];
   for (const client of clients) {
@@ -421,6 +430,7 @@ export function writeConfigs(
       token,
       baseDir,
       scope,
+      headers,
     );
     written.push({ client, file });
   }
@@ -441,9 +451,10 @@ async function connectOne(
   const clients = resolveClients(parsed.client);
   const scope = parsed.scope === "user" ? "user" : "project";
 
-  let token: string;
+  let token: string | undefined;
   let mcpUrl: string;
   let serverName: string;
+  let headers: Record<string, string> | undefined;
 
   if (parsed.token) {
     // No-browser fallback: skip the device flow entirely.
@@ -458,9 +469,18 @@ async function connectOne(
     token = grant.token;
     mcpUrl = grant.mcpUrl;
     serverName = parsed.name ?? grant.serverName ?? defaultServerName(baseUrl);
+    headers = grant.headers;
   }
 
-  const written = writeConfigs(clients, serverName, mcpUrl, token, scope);
+  const written = writeConfigs(
+    clients,
+    serverName,
+    mcpUrl,
+    token,
+    scope,
+    undefined,
+    headers,
+  );
 
   logOut("");
   logOut(`  Connected "${serverName}" → ${mcpUrl}`);

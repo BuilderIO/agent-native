@@ -30,7 +30,11 @@
 import type { H3Event } from "h3";
 import { getMethod, getHeader } from "h3";
 import { readBody } from "../server/h3-helpers.js";
-import { getSession, getConfiguredLoginHtml } from "../server/auth.js";
+import {
+  getSession,
+  getConfiguredLoginHtml,
+  isLoopbackRequest,
+} from "../server/auth.js";
 import { signA2AToken } from "../a2a/client.js";
 import { getOrgDomain } from "../org/context.js";
 import { randomUUID } from "node:crypto";
@@ -41,6 +45,7 @@ import {
   createDeviceCode,
   getDeviceCode,
   approveDeviceCode,
+  consumeDeviceCode,
   claimDeviceCodeForMint,
   finishDeviceCodeMint,
   releaseDeviceCodeMint,
@@ -123,6 +128,20 @@ function serverName(origin: string, options: McpConnectRouteOptions): string {
   return `agent-native-${appLabel(origin, options)}`;
 }
 
+function canUseDevOpenConnect(event: H3Event): boolean {
+  // Loopback determined from the real socket peer (isLoopbackRequest →
+  // getRequestIP without xForwardedFor), NOT a parsed `Host` header — the
+  // header is client-controlled, and it also handles IPv6 `::1`. A
+  // misconfigured public deploy with no secret thus can't unlock dev-open
+  // by spoofing `Host: localhost`.
+  return (
+    isLoopbackRequest(event) &&
+    !process.env.A2A_SECRET?.trim() &&
+    !process.env.ACCESS_TOKEN?.trim() &&
+    !process.env.ACCESS_TOKENS?.trim()
+  );
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -189,19 +208,24 @@ async function mintConnectToken(params: {
 
 function mcpResultPayload(
   appUrl: string,
-  token: string,
   options: McpConnectRouteOptions,
+  auth: { token?: string; ownerEmail?: string },
 ) {
   const mcpUrl = `${appUrl}/_agent-native/mcp`;
   const name = serverName(appUrl, options);
+  const headers: Record<string, string> = {};
+  if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
+  if (!auth.token && auth.ownerEmail) {
+    headers["X-Agent-Native-Owner-Email"] = auth.ownerEmail;
+  }
   return {
-    token,
+    token: auth.token ?? "",
     mcpUrl,
     serverName: name,
     mcpServerEntry: {
       type: "http" as const,
       url: mcpUrl,
-      headers: { Authorization: `Bearer ${token}` },
+      ...(Object.keys(headers).length ? { headers } : {}),
     },
     cli: `agent-native connect ${appUrl}`,
   };
@@ -662,10 +686,57 @@ function renderConnectPage(params: {
           showMsg((a.data && a.data.error) || "Could not authorize this device code.");
           return;
         }
-        showMsg("Device authorized. Return to your terminal; it will connect automatically.", "ok");
+        showMsg("Device authorized — finishing connection… you can return to your terminal.", "ok");
         btn.classList.add("hidden");
         document.getElementById("mintForm").classList.add("hidden");
-        document.getElementById("codeCallout").classList.add("hidden");
+        var cc = document.getElementById("codeCallout");
+        if (cc) cc.classList.add("hidden");
+        // The token is minted a few seconds later, when the CLI next polls
+        // /device/poll — so a single loadTokens() here runs BEFORE the row
+        // exists and the list would wrongly read "No connections yet" until
+        // a manual reload. Snapshot the EXISTING non-revoked token ids first
+        // so we announce "Connected" only when THIS device's freshly-minted
+        // token appears — a user who already has tokens must not get a false
+        // success the instant they authorize.
+        var priorIds = {};
+        try {
+          var pr = await fetch(BASE + "/tokens", { credentials: "same-origin" });
+          if (pr.ok) {
+            var pd = await pr.json();
+            ((pd && pd.tokens) || []).forEach(function (t) {
+              if (!t.revokedAt) priorIds[t.id] = true;
+            });
+          }
+        } catch (e) {}
+        loadTokens();
+        var tries = 0;
+        var iv = setInterval(async function () {
+          tries++;
+          try {
+            var res = await fetch(BASE + "/tokens", { credentials: "same-origin" });
+            if (res.ok) {
+              var data = await res.json();
+              var fresh = ((data && data.tokens) || []).filter(function (t) {
+                return !t.revokedAt && !priorIds[t.id];
+              });
+              if (fresh.length > 0) {
+                clearInterval(iv);
+                showMsg("Connected. This device can now act as you — manage or revoke it below.", "ok");
+                loadTokens();
+                return;
+              }
+            }
+          } catch (e) {}
+          if (tries >= 30) {
+            // No new token appeared in the window — e.g. the loopback
+            // dev-open path writes a header-only config and never mints.
+            // Don't claim "Connected" (we couldn't confirm a device token);
+            // keep the "authorized" message and just refresh the list.
+            clearInterval(iv);
+            loadTokens();
+          }
+        }, 2000);
+        return;
       } else {
         var m = await postJson("/token", { label: label, ttlDays: ttlDays });
         if (!m.ok) {
@@ -763,6 +834,11 @@ export async function handleMcpConnect(
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
     if (!process.env.A2A_SECRET) {
+      if (canUseDevOpenConnect(event)) {
+        return json(
+          mcpResultPayload(appUrl, options, { ownerEmail: session.email }),
+        );
+      }
       return json(
         {
           error:
@@ -787,7 +863,7 @@ export async function handleMcpConnect(
         label,
         ttlDays,
       });
-      return json(mcpResultPayload(appUrl, token, options));
+      return json(mcpResultPayload(appUrl, options, { token }));
     } catch {
       return json({ error: "Failed to mint token." }, 500);
     }
@@ -873,6 +949,23 @@ export async function handleMcpConnect(
     }
     // status === "approved" && ownerEmail bound → mint exactly once.
     if (!process.env.A2A_SECRET) {
+      if (canUseDevOpenConnect(event)) {
+        const consumed = await consumeDeviceCode(
+          deviceCode,
+          `dev-open-${randomUUID()}`,
+        );
+        if (!consumed) {
+          const fresh = await getDeviceCode(deviceCode);
+          if (fresh?.status === "consumed") return json({ status: "consumed" });
+          return json({ status: "pending" });
+        }
+        return json({
+          status: "approved",
+          ...mcpResultPayload(appUrl, options, {
+            ownerEmail: row.ownerEmail,
+          }),
+        });
+      }
       return json({ status: "error", error: "A2A_SECRET not configured" }, 503);
     }
     try {
@@ -908,7 +1001,7 @@ export async function handleMcpConnect(
       }
       return json({
         status: "approved",
-        ...mcpResultPayload(appUrl, token, options),
+        ...mcpResultPayload(appUrl, options, { token }),
       });
     } catch {
       return json({ status: "error", error: "Failed to mint token." }, 500);

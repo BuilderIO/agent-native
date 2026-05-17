@@ -3428,6 +3428,39 @@ export function createAgentChatPlugin(
             },
       );
 
+      // Full ("production") MCP surface served to an authenticated *real
+      // caller* — a connect-minted token, an `agent-native mcp install` stdio
+      // proxy, or a deployed / AGENT_MODE=production app — even in local dev.
+      // `allScripts` above is intentionally the sparse, dev-toggled surface
+      // (builtins + read-only public-agent actions) used by the local agent
+      // chat and unauthenticated dev probes; per the external-agents contract
+      // a caller that connected with a token MUST get the full surface (so
+      // `create-document` etc. are callable over MCP). Only needed when
+      // `canToggle` (dev/test): in production `allScripts` already IS this
+      // composition, so leave it undefined and `mountMCP` skips the swap.
+      const mcpFullActions = canToggle
+        ? attachToolSearch({
+            ...discoveredActions,
+            ...templateScripts,
+            ...resourceScripts,
+            ...docsScripts,
+            ...dbScripts,
+            ...refreshScreenTool,
+            ...(lazyContext ? frameworkContextTool : {}),
+            ...urlTools,
+            ...chatScripts,
+            ...callAgentScript,
+            ...automationTools,
+            ...notificationTools,
+            ...progressTools,
+            ...fetchTool,
+            ...toolActions,
+            ...browserSessionTools,
+            ...browserTools,
+            ...devScriptsForA2A,
+          })
+        : undefined;
+
       const { mountA2A } = await import("../a2a/server.js");
       mountA2A(nitroApp, {
         name: options?.appId
@@ -3792,6 +3825,7 @@ export function createAgentChatPlugin(
         appId: options?.appId,
         description: `Agent-native ${options?.appId ?? "app"} agent`,
         actions: allScripts,
+        productionActions: mcpFullActions,
         askAgent: async (message: string) => {
           const mcpEngine = await resolveEngine({
             engineOption: options?.engine,

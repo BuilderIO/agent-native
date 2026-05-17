@@ -7,6 +7,8 @@ description: "Expose your agent-native app as a remote MCP server so Claude Code
 
 Every agent-native app automatically exposes a remote MCP (Model Context Protocol) server. This lets external AI tools like Claude Code, Cursor, and Windsurf discover and call your app's actions directly — no extra code needed.
 
+If your goal is to connect Claude Code, Codex, Cursor, or Claude Cowork to a hosted agent-native app, start with [External Agents](/docs/external-agents). It documents the one-command `agent-native connect https://mail.agent-native.com` flow, token minting, local client config writes, manual MCP config for clients like Cursor, and deep links back into the UI. This page is the lower-level MCP server reference.
+
 ## Overview {#overview}
 
 MCP is the standard protocol for connecting AI tools to external capabilities. When you deploy an agent-native app, it auto-mounts an MCP endpoint alongside the existing A2A endpoint. Any MCP-compatible client can connect and use your app's tools.
@@ -34,9 +36,9 @@ Both protocols are auto-mounted. Use whichever fits your use case:
 
 You can also use the `ask-agent` MCP tool to get the best of both worlds — call it from Claude Code and let your app's agent reason through complex tasks.
 
-## Connecting from Claude Code {#claude-code}
+## Manual MCP client config {#claude-code}
 
-Add your app as a remote MCP server in Claude Code's config:
+For the recommended one-command setup, use [External Agents](/docs/external-agents). If you are hand-writing MCP config, add your app as a remote MCP server in Claude Code's config:
 
 ```jsonc
 // ~/.claude/mcp_servers.json

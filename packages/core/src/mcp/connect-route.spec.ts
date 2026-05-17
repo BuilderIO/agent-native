@@ -14,9 +14,17 @@ vi.mock("../server/h3-helpers.js", () => ({
 
 const getSessionMock = vi.fn();
 const getConfiguredLoginHtmlMock = vi.fn(() => null);
+// Mirror the real socket-based isLoopbackRequest: dev-open is gated on the
+// actual peer, not the (spoofable) Host header. The test events carry no
+// socket, so derive loopback from the host they simulate connecting as —
+// localhost/127.x ⇒ a loopback peer, anything else ⇒ remote.
+const isLoopbackRequestMock = vi.fn((event: any) =>
+  /^(localhost|127\.|\[?::1\]?)(:|$)/i.test(String(event?.headers?.host ?? "")),
+);
 vi.mock("../server/auth.js", () => ({
   getSession: (...a: any[]) => getSessionMock(...a),
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
+  isLoopbackRequest: (...a: any[]) => isLoopbackRequestMock(...a),
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -252,6 +260,25 @@ describe("handleMcpConnect", () => {
       const res = await handleMcpConnect(ev({ method: "POST" }), "/token");
       expect(res.status).toBe(503);
     });
+
+    it("returns a dev-open localhost entry when no A2A_SECRET is configured", async () => {
+      delete process.env.A2A_SECRET;
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(
+        ev({ method: "POST", host: "localhost:4321" }),
+        "/token",
+      );
+      const data = await res.json();
+      expect(res.status).toBe(200);
+      expect(data.token).toBe("");
+      expect(data.mcpServerEntry).toEqual({
+        type: "http",
+        url: "http://localhost:4321/_agent-native/mcp",
+        headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
+      });
+    });
   });
 
   describe("token list + revoke", () => {
@@ -433,6 +460,44 @@ describe("handleMcpConnect", () => {
       const again = await res.json();
       expect(again.status).toBe("consumed");
       expect(again.token).toBeUndefined();
+    });
+
+    it("poll returns a dev-open localhost entry without A2A_SECRET", async () => {
+      delete process.env.A2A_SECRET;
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      await handleMcpConnect(
+        ev({ method: "POST", host: "localhost:4321" }),
+        "/device/start",
+      );
+      const dc = deviceRows[0].deviceCode;
+
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      await handleMcpConnect(
+        ev({
+          method: "POST",
+          host: "localhost:4321",
+          body: { user_code: "ABCD-2345" },
+        }),
+        "/device/authorize",
+      );
+
+      getSessionMock.mockResolvedValue(null);
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          host: "localhost:4321",
+          body: { device_code: dc },
+        }),
+        "/device/poll",
+      );
+      const data = await res.json();
+      expect(res.status).toBe(200);
+      expect(data.status).toBe("approved");
+      expect(data.token).toBe("");
+      expect(data.mcpServerEntry.headers).toEqual({
+        "X-Agent-Native-Owner-Email": "u@example.com",
+      });
     });
 
     it("poll returns expired for a past-TTL code", async () => {

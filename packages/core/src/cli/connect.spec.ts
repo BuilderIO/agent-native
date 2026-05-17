@@ -204,6 +204,37 @@ describe("runDeviceFlow", () => {
     );
   });
 
+  it("accepts an approved local entry without a bearer token", async () => {
+    const grant = await runDeviceFlow(
+      "http://localhost:4321",
+      "analytics",
+      "codex",
+      {
+        fetchImpl: makeFetch([
+          {
+            status: "approved",
+            token: "",
+            mcpUrl: "http://localhost:4321/_agent-native/mcp",
+            serverName: "agent-native-analytics-local",
+            mcpServerEntry: {
+              type: "http",
+              url: "http://localhost:4321/_agent-native/mcp",
+              headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
+            },
+          },
+        ]),
+        sleep: noopSleep,
+        openBrowser: vi.fn(),
+      },
+    );
+    expect(grant).toEqual({
+      token: undefined,
+      mcpUrl: "http://localhost:4321/_agent-native/mcp",
+      serverName: "agent-native-analytics-local",
+      headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
+    });
+  });
+
   it("returns null on expired", async () => {
     const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
       fetchImpl: makeFetch([{ status: "pending" }, { status: "expired" }]),
@@ -348,6 +379,25 @@ describe("writeConfigs", () => {
     });
   });
 
+  it("writes a JSON HTTP entry with server-provided headers and no token", () => {
+    const root = tmpDir();
+    const written = writeConfigs(
+      ["claude-code"],
+      "agent-native-analytics-local",
+      "http://localhost:4321/_agent-native/mcp",
+      undefined,
+      "project",
+      root,
+      { "X-Agent-Native-Owner-Email": "u@example.com" },
+    );
+    const cfg = JSON.parse(fs.readFileSync(written[0].file, "utf-8"));
+    expect(cfg.mcpServers["agent-native-analytics-local"]).toEqual({
+      type: "http",
+      url: "http://localhost:4321/_agent-native/mcp",
+      headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
+    });
+  });
+
   it("is idempotent: re-running replaces the same entry, no duplicates", () => {
     const root = tmpDir();
     writeConfigs(
@@ -419,7 +469,7 @@ describe("writeConfigs", () => {
       expect(toml).toContain(
         'url = "https://mail.agent-native.com/_agent-native/mcp"',
       );
-      expect(toml).toContain("Bearer tok-1");
+      expect(toml).toContain('"Authorization" = "Bearer tok-1"');
       // Re-run is idempotent (single block).
       writeConfigs(
         ["codex"],
@@ -437,6 +487,29 @@ describe("writeConfigs", () => {
     } finally {
       process.env.HOME = HOME;
       void codexFile;
+    }
+  });
+
+  it("writes Codex TOML headers returned by the server", () => {
+    const root = tmpDir();
+    const HOME = process.env.HOME;
+    const codexHome = tmpDir();
+    process.env.HOME = codexHome;
+    try {
+      const written = writeConfigs(
+        ["codex"],
+        "agent-native-analytics-local",
+        "http://localhost:4321/_agent-native/mcp",
+        undefined,
+        "project",
+        root,
+        { "X-Agent-Native-Owner-Email": "u@example.com" },
+      );
+      const toml = fs.readFileSync(written[0].file, "utf-8");
+      expect(toml).toContain('"X-Agent-Native-Owner-Email" = "u@example.com"');
+      expect(toml).not.toContain("Authorization");
+    } finally {
+      process.env.HOME = HOME;
     }
   });
 

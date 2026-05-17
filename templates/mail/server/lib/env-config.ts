@@ -28,9 +28,9 @@ export const envKeys: EnvKeyConfig[] = [
   },
   {
     key: "A2A_SECRET",
-    label: "Internal Task Signing Secret",
+    label: "Agent Signing Secret",
     required: false,
     helpText:
-      "Required in production for secure background processing of Slack webhooks.",
+      "Required in production for secure background processing and external-agent MCP connections.",
   },
 ];

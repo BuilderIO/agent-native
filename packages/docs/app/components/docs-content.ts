@@ -15,6 +15,7 @@ export interface DocEntry {
   slug: string;
   title: string;
   description: string;
+  search: string;
   raw: string; // full raw markdown (with frontmatter)
   body: string; // markdown body (without frontmatter)
   headings: { id: string; label: string; level: number }[];
@@ -26,6 +27,7 @@ export interface SearchEntry {
   section: string;
   sectionId: string;
   text: string;
+  keywords: string;
 }
 
 function parseFrontmatter(raw: string): {
@@ -75,6 +77,7 @@ for (const [path, raw] of Object.entries(mdModules)) {
     slug,
     title: data.title || slug,
     description: data.description || "",
+    search: data.search || "",
     raw,
     body,
     headings,
@@ -136,6 +139,7 @@ export function buildSearchIndex(): SearchEntry[] {
         pageText.length > 300
           ? pageText.slice(0, 300).replace(/\s\S*$/, "...")
           : pageText,
+      keywords: doc.search,
     });
 
     for (let i = 0; i < sections.length; i++) {
@@ -161,6 +165,7 @@ export function buildSearchIndex(): SearchEntry[] {
           text.length > 300
             ? text.slice(0, 300).replace(/\s\S*$/, "...")
             : text,
+        keywords: "",
       });
     }
   }

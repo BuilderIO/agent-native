@@ -361,6 +361,10 @@ function getCoreSourceAliases(
       coreSrc,
       "oauth-tokens/index.ts",
     ),
+    "@agent-native/core/workspace-connections": path.join(
+      coreSrc,
+      "workspace-connections/index.ts",
+    ),
     "@agent-native/core/a2a": path.join(coreSrc, "a2a/index.ts"),
     "@agent-native/core/router": path.join(coreSrc, "router/index.ts"),
     "@agent-native/core/terminal": path.join(

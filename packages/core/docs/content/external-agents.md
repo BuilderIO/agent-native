@@ -1,23 +1,42 @@
 ---
-title: "External Agents"
-description: "Connect your own Claude Code, Cowork, or Codex to a hosted agent-native app in one command — then round-trip artifacts back into the running UI with deep links."
+title: "External Agents: Claude Code, Codex, Cursor, Cowork"
+description: "Connect your own Claude Code, Codex, Cursor, or Claude Cowork to a hosted agent-native app — then round-trip artifacts back into the running UI with deep links."
+search: "Claude Code Codex Cursor Claude Cowork agent-native connect MCP local agent tools external agents"
 ---
 
 # External Agents
 
-An agent-native app is reachable by any external coding agent — Claude Code (desktop & CLI), Claude Cowork, Codex — over [MCP](/docs/mcp-protocol). External agents are great at producing artifacts (a draft, an event, a dashboard) but they live in a terminal or another app. Without a bridge, the user gets a wall of JSON and has to go find the thing.
+An agent-native app is reachable by any external coding agent — Claude Code (desktop & CLI), Codex, Cursor, Claude Cowork — over [MCP](/docs/mcp-protocol). External agents are great at producing artifacts (a draft, an event, a dashboard) but they live in a terminal or another app. Without a bridge, the user gets a wall of JSON and has to go find the thing.
 
 The external-agent bridge closes the loop. First you connect your own agent to a **hosted** app — one command, no token copying. Then the agent does the work over MCP and hands the user a single **"Open in &lt;app&gt; →"** link that opens the real app focused on exactly what was produced. It reuses the existing `navigate` / `application_state` contract the UI already drains every 2s (see [Context Awareness](/docs/context-awareness)) — there is no second navigation mechanism.
 
-## Connect in one command {#connect}
+## Connect Claude Code, Codex, Cursor, and Cowork {#connect}
 
-The first-party hosted apps live at `mail.agent-native.com`, `calendar.agent-native.com`, `analytics.agent-native.com`, and so on. To wire your own Claude Code (and Codex / Cowork if detected) to one of them:
+The first-party hosted apps live at `mail.agent-native.com`, `calendar.agent-native.com`, `analytics.agent-native.com`, and so on. This flow connects supported local agent clients on your machine — Claude Code, Claude Code CLI, Codex, and Claude Cowork — to a hosted agent-native app over MCP. Cursor can use the same MCP endpoint via the no-CLI/manual config path below.
+
+If you have the Agent-Native CLI installed, run:
+
+```bash
+agent-native connect https://mail.agent-native.com
+```
+
+Or run the same command through npm without installing anything globally:
 
 ```bash
 npx @agent-native/core connect https://mail.agent-native.com
 ```
 
-This opens your browser at the app. You are already logged in, so you just click **Authorize** once. The command detects every installed agent client and writes the MCP config for each — no token to copy, no local server to run. Connect every first-party hosted app at once with:
+This opens your browser at the app. You are already logged in, so you just click **Authorize** once. The command detects every installed agent client and writes the right MCP config for each:
+
+| Local client                  | Config written by `connect`                                 |
+| ----------------------------- | ----------------------------------------------------------- |
+| Claude Code / Claude Code CLI | `.mcp.json` or `~/.claude.json`, depending on `--scope`     |
+| Codex                         | `~/.codex/config.toml` under `[mcp_servers.<app>]`          |
+| Claude Cowork                 | `~/.cowork/mcp.json` using the Claude Code MCP server shape |
+
+There is no token to copy and no local server to run. Restart the agent client after connecting so it picks up the new MCP server.
+
+Connect every first-party hosted app at once with:
 
 ```bash
 npx @agent-native/core connect --all
@@ -43,6 +62,8 @@ If you'd rather not run a command, open the app in your browser and use its **Co
 ```
 
 Restart the agent client after connecting so it picks up the new MCP server.
+
+Use this manual block for MCP clients that are not yet written by `agent-native connect`, including Cursor.
 
 ## What you can do once connected {#what-you-can-do}
 

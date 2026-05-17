@@ -7,6 +7,7 @@ import {
   getRequestHeader,
 } from "h3";
 import { readBody } from "../server/h3-helpers.js";
+import { isLoopbackRequest } from "../server/auth.js";
 import {
   createMCPServerForRequest,
   verifyAuth,
@@ -188,7 +189,14 @@ export async function handleMcpRequest(
     event,
     "x-agent-native-owner-email",
   );
-  const authResult = await verifyAuth(authHeader, ownerEmailHeader);
+  // Gate header-only dev-open on the REAL socket peer, never a parsed
+  // `Host` header (client-controlled — an attacker could send
+  // `Host: localhost`). A deployed app missing A2A_SECRET / ACCESS_TOKEN
+  // must fail closed rather than trust a spoofable owner-email header that
+  // `fullSurface` would otherwise escalate to the full mutating surface.
+  const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+    allowDevOpen: isLoopbackRequest(event),
+  });
   if (!authResult.authed) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
@@ -212,13 +220,15 @@ export async function handleMcpRequest(
 
   // Per-request stateless transport + server. Both runtimes build the SAME
   // server from the SAME config + verified identity + request meta, so
-  // tools/list, tools/call, and the deep-link `_meta` are identical.
+  // tools/list, tools/call, and the deep-link `_meta` are identical. A
+  // connected real caller (connect-minted token / `mcp install` /
+  // ACCESS_TOKEN / production) gets the full action surface even in local
+  // dev; unauthenticated dev probes stay sparse. See `external-agents` skill.
   const requestMeta = deriveRequestMeta(event);
-  const server = await createMCPServerForRequest(
-    config,
-    authResult.identity,
-    requestMeta,
-  );
+  const server = await createMCPServerForRequest(config, authResult.identity, {
+    ...requestMeta,
+    fullSurface: authResult.fullSurface === true,
+  });
 
   const { nodeReq, nodeRes } = getNodeReqRes(event);
 
