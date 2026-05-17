@@ -119,6 +119,9 @@ describe("Mail Google auth-url handlers", () => {
     );
 
     expect(response).toBeInstanceOf(Response);
+    if (!(response instanceof Response)) {
+      throw new Error("expected a redirect Response");
+    }
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(
       "https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state",
@@ -136,6 +139,9 @@ describe("Mail Google auth-url handlers", () => {
     );
 
     expect(response).toBeInstanceOf(Response);
+    if (!(response instanceof Response)) {
+      throw new Error("expected a redirect Response");
+    }
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(
       "https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state",
