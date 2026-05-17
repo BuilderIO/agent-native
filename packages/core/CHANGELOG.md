@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.17.2
+
+### Patch Changes
+
+- 480c078: Cap the Postgres connection pool to a single connection per instance on serverless runtimes (Netlify Functions / AWS Lambda). Concurrent frozen Lambda instances each holding postgres.js's default 10-connection pool were exhausting Neon/Postgres' connection limit, causing "Max client connections reached" and HTTP 500s on every `/_agent-native/*` route. Long-lived Node servers keep the normal pool.
+
 ## 0.17.1
 
 ### Patch Changes

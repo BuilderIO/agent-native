@@ -1,5 +1,0 @@
----
-"@agent-native/core": patch
----
-
-Cap every Postgres connection pool to a small size (2 connections per instance) on serverless runtimes (Netlify / Vercel / AWS Lambda / Cloudflare Pages Functions). Concurrent frozen instances each holding postgres.js's default 10-connection pool were exhausting the database/pooler connection limit (observed against a Supabase transaction pooler as "Max client connections reached"), causing HTTP 500s — escalating to 502 gateway timeouts — on every `/_agent-native/*` route. The cap is now applied in all three places that open a pool: the shared app client (`db/client.ts`), the lazy Drizzle client (`db/create-get-db.ts`), and Better Auth's own adapter pool (`server/better-auth-instance.ts`) — the last is hit on a session lookup for essentially every authenticated request and was previously un-capped. A cap of 2 (rather than 1) keeps total connections bounded while still letting a second query proceed when one connection is busy, so a slow query or open transaction can't serialize the whole request. Long-lived Node servers keep the normal pool.
