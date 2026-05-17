@@ -2558,6 +2558,40 @@ describe("server/auth", () => {
       expect(AUTO_DEV_ACCOUNT_EMAIL).toMatch(/\.test$/);
     });
   });
+
+  describe("isLoopbackAddress", () => {
+    it("accepts loopback peers (IPv4, IPv6, IPv4-mapped, 127/8, zone id)", async () => {
+      const { isLoopbackAddress } = await import("./auth.js");
+      for (const ip of [
+        "127.0.0.1",
+        "127.5.6.7",
+        "::1",
+        "::1%lo0",
+        "::ffff:127.0.0.1",
+      ]) {
+        expect(isLoopbackAddress(ip)).toBe(true);
+      }
+    });
+
+    it("rejects every non-loopback / unknown peer (the dev auto-account + desktop-SSO gate)", async () => {
+      const { isLoopbackAddress } = await import("./auth.js");
+      for (const ip of [
+        "203.0.113.5",
+        "192.168.4.70",
+        "10.0.0.2",
+        "169.254.1.1",
+        "0.0.0.0",
+        "::",
+        "::ffff:192.168.4.70",
+        "1.127.0.0", // must NOT match the 127/8 prefix check
+        "localhost",
+        "",
+        undefined,
+      ]) {
+        expect(isLoopbackAddress(ip)).toBe(false);
+      }
+    });
+  });
 });
 
 // --- Mock helpers ---

@@ -535,13 +535,8 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
  * necessary but not sufficient gate — callers pair it with NODE_ENV and,
  * for the dev account, a throwaway per-DB password.
  */
-function isLoopbackRequest(event: H3Event): boolean {
-  let ip: string | undefined;
-  try {
-    ip = getRequestIP(event) ?? undefined;
-  } catch {
-    ip = undefined;
-  }
+export function isLoopbackAddress(ip: string | undefined): boolean {
+  // Strip an optional IPv6 zone id (e.g. "fe80::1%en0") before comparing.
   const normalised = (ip ?? "").split("%")[0];
   return (
     normalised === "127.0.0.1" ||
@@ -549,6 +544,16 @@ function isLoopbackRequest(event: H3Event): boolean {
     normalised === "::ffff:127.0.0.1" ||
     normalised.startsWith("127.")
   );
+}
+
+function isLoopbackRequest(event: H3Event): boolean {
+  let ip: string | undefined;
+  try {
+    ip = getRequestIP(event) ?? undefined;
+  } catch {
+    ip = undefined;
+  }
+  return isLoopbackAddress(ip);
 }
 
 /**
