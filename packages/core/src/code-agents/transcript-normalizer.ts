@@ -455,19 +455,33 @@ function assistantTextForEvent(
   event: CodeAgentTranscriptEvent,
   source: NormalizedCodeAgentAssistantTurn["source"],
 ): string {
-  if (source === "runner-stdout") return stripRunnerDiagnostics(event.message);
+  if (source === "runner-stdout") {
+    return stripRunnerDiagnostics(event.message, {
+      trim: !isAssistantDeltaEvent(event),
+    });
+  }
   return event.message;
 }
 
-function stripRunnerDiagnostics(value: string): string {
-  return value
+function stripRunnerDiagnostics(
+  value: string,
+  options: { trim?: boolean } = {},
+): string {
+  const stripped = value
     .replace(RUNNER_DIAGNOSTIC_LINE_PATTERNS.engineDetect, "")
-    .replace(RUNNER_DIAGNOSTIC_LINE_PATTERNS.builderEngine, "");
+    .replace(RUNNER_DIAGNOSTIC_LINE_PATTERNS.builderEngine, "")
+    .replace(RUNNER_DIAGNOSTIC_LINE_PATTERNS.sessionStartedBanner, "");
+  return options.trim === false ? stripped : stripped.trim();
 }
 
 const RUNNER_DIAGNOSTIC_LINE_PATTERNS = {
   engineDetect: /^\[engine-detect\][^\r\n]*(?:\r?\n|$)/gm,
   builderEngine: /^\[builder-engine\]\s*[←→][^\r\n]*(?:\r?\n|$)/gm,
+  // Strip the "Agent-Native Code session started." banner block that the CLI
+  // prints to stdout at the start of every run. It is informational for
+  // terminal users but clutters the chat transcript.
+  sessionStartedBanner:
+    /\n?Agent-Native Code session started\.[\s\S]*?Streaming output below\. The transcript is saved with this run\.\n?/,
 };
 
 function toolEventType(

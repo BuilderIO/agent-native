@@ -1,25 +1,51 @@
-import type {
-  AgentConversationArtifact,
-  AgentConversationMessage,
-  AgentConversationMessagePart,
-  AgentConversationNotice,
-  AgentConversationToolCall,
-} from "@agent-native/core/client";
 import {
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
   type NormalizedCodeAgentStatusEvent,
   type NormalizedCodeAgentToolEvent,
   type NormalizedCodeAgentTranscriptItem,
-} from "@agent-native/core/code-agents/transcript-normalizer";
-import type { CodeAgentTranscriptEvent } from "./types.js";
+} from "../../code-agents/transcript-normalizer.js";
+import type {
+  AgentConversationAttachment,
+  AgentConversationArtifact,
+  AgentConversationMessage,
+  AgentConversationMessagePart,
+  AgentConversationNotice,
+  AgentConversationToolCall,
+} from "./types.js";
+
+export type CodeAgentConversationTranscriptEventType =
+  | "user"
+  | "system"
+  | "artifact"
+  | "status"
+  | "note";
+
+/**
+ * Browser/UI transcript event shape used by Code-style hosts. It accepts both
+ * the local Code UI field names (`type`, `text`) and the core transcript-store
+ * field names (`kind`, `message`) so hosts can pass through either shape.
+ */
+export interface CodeAgentConversationTranscriptEvent {
+  id: string;
+  runId: string;
+  type?: CodeAgentConversationTranscriptEventType;
+  kind?: CodeAgentConversationTranscriptEventType;
+  title?: string;
+  text?: string;
+  message?: string;
+  createdAt: string;
+  artifactPath?: string;
+  artifactUrl?: string;
+  metadata?: Record<string, unknown>;
+}
 
 export interface NormalizeCodeAgentTranscriptOptions {
   hideCredentialMessages?: boolean;
 }
 
 export function normalizeCodeAgentTranscriptForConversation(
-  events: CodeAgentTranscriptEvent[],
+  events: readonly CodeAgentConversationTranscriptEvent[],
   options: NormalizeCodeAgentTranscriptOptions = {},
 ): AgentConversationMessage[] {
   const normalized = normalizeCodeAgentTranscript(
@@ -48,12 +74,14 @@ export function normalizeCodeAgentTranscriptForConversation(
 
   for (const item of normalized.items) {
     if (item.type === "user") {
+      const attachments = extractAttachments(item.events);
       messages.push({
         id: item.id,
         role: "user",
         text: item.text,
         createdAt: item.createdAt,
         pending: item.events.some((event) => event.metadata?.pending === true),
+        ...(attachments.length > 0 ? { attachments } : {}),
       });
       continue;
     }
@@ -115,14 +143,16 @@ function appendPart(
 }
 
 function toCoreTranscriptEvent(
-  event: CodeAgentTranscriptEvent,
+  event: CodeAgentConversationTranscriptEvent,
 ): CoreCodeAgentTranscriptEvent {
   return {
     schemaVersion: 1,
     id: event.id,
     runId: event.runId,
-    kind: event.type as CoreCodeAgentTranscriptEvent["kind"],
-    message: event.text,
+    kind: (event.kind ??
+      event.type ??
+      "status") as CoreCodeAgentTranscriptEvent["kind"],
+    message: event.message ?? event.text ?? "",
     createdAt: event.createdAt,
     metadata: {
       ...(event.metadata ?? {}),
@@ -217,4 +247,28 @@ function stringMetadata(
 
 function isCredentialText(value: string): boolean {
   return /No LLM provider key was found|Missing credentials/i.test(value);
+}
+
+function extractAttachments(
+  events: CoreCodeAgentTranscriptEvent[],
+): AgentConversationAttachment[] {
+  for (const event of events) {
+    const raw = event.metadata?.attachments;
+    if (!Array.isArray(raw) || raw.length === 0) continue;
+    const result: AgentConversationAttachment[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue;
+      const record = item as Record<string, unknown>;
+      const name = typeof record.name === "string" ? record.name : undefined;
+      if (!name) continue;
+      const attachment: AgentConversationAttachment = { name };
+      if (typeof record.type === "string") attachment.type = record.type;
+      if (typeof record.size === "number") attachment.size = record.size;
+      if (typeof record.dataUrl === "string")
+        attachment.dataUrl = record.dataUrl;
+      result.push(attachment);
+    }
+    if (result.length > 0) return result;
+  }
+  return [];
 }

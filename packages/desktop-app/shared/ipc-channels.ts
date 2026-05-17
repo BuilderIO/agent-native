@@ -49,6 +49,7 @@ export const IPC = {
   /** Agent-Native Code hub (renderer ↔ main) */
   CODE_AGENTS_LIST_RUNS: "code-agents:list-runs",
   CODE_AGENTS_CREATE_RUN: "code-agents:create-run",
+  CODE_AGENTS_LIST_MODELS: "code-agents:list-models",
   CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",
   CODE_AGENTS_APPEND_FOLLOW_UP: "code-agents:append-follow-up",
   CODE_AGENTS_UPDATE_RUN: "code-agents:update-run",
@@ -136,11 +137,35 @@ export type CodeAgentReasoningEffort =
   | "xhigh"
   | "max";
 
+export interface CodeAgentModelSelection {
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
+}
+
+export interface CodeAgentModelOption {
+  engine: string;
+  engineLabel: string;
+  model: string;
+  label: string;
+  description?: string;
+  configured?: boolean;
+}
+
+export interface CodeAgentModelListResult {
+  status: "ok" | "unavailable";
+  models: CodeAgentModelOption[];
+  selected?: CodeAgentModelSelection;
+  error?: string;
+}
+
 export interface CodeAgentPromptAttachment {
   name: string;
   type?: string;
   size?: number;
   text?: string;
+  /** Base64 data URL for image attachments (e.g. "data:image/png;base64,..."). */
+  dataUrl?: string;
 }
 
 export interface CodeAgentProjectCommand {

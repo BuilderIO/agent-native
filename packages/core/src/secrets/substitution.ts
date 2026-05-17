@@ -50,6 +50,13 @@ export interface ResolveKeyReferencesResult {
   resolved: string;
   usedKeys: string[];
   secretValues: string[];
+  resolvedKeys?: ResolvedKeyReference[];
+}
+
+export interface ResolvedKeyReference {
+  name: string;
+  scope: SecretScope;
+  scopeId: string;
 }
 
 /**
@@ -110,6 +117,87 @@ export async function resolveKeyReferences(
 }
 
 /**
+ * Resolve `${keys.NAME}` for browser extension fetches and other request-bound
+ * code paths that should honor the active workspace's shared credential store.
+ *
+ * Lookup order:
+ * 1. user scope for personal overrides
+ * 2. active org scope (Dispatch vault sync writes here for org workspaces)
+ * 3. active org workspace scope (legacy shared rows)
+ * 4. solo workspace scope when no org is active
+ */
+export async function resolveKeyReferencesWithRequestScopes(
+  text: string,
+  userScopeId: string,
+): Promise<ResolveKeyReferencesResult> {
+  const usedKeys: string[] = [];
+  const matches = Array.from(text.matchAll(KEY_REFERENCE_REGEX));
+  if (matches.length === 0) {
+    return { resolved: text, usedKeys, secretValues: [], resolvedKeys: [] };
+  }
+
+  const resolutions = new Map<string, string>();
+  const resolvedKeys: ResolvedKeyReference[] = [];
+  const secretValues: string[] = [];
+  for (const match of matches) {
+    const name = match[1];
+    if (resolutions.has(name)) continue;
+
+    const result = await readRequestScopedSecret(name, userScopeId);
+    if (!result) {
+      throw new Error(
+        `Referenced key "${name}" is not defined for this user or active workspace. Create it in Settings or the Dispatch vault before using this extension.`,
+      );
+    }
+    resolutions.set(name, result.value);
+    usedKeys.push(name);
+    resolvedKeys.push(result.ref);
+    if (result.value) secretValues.push(result.value);
+  }
+
+  const resolved = text.replace(KEY_REFERENCE_REGEX, (_, name: string) => {
+    const value = resolutions.get(name);
+    if (value === undefined) {
+      throw new Error(`Referenced key "${name}" was not resolved`);
+    }
+    return value;
+  });
+
+  return { resolved, usedKeys, secretValues, resolvedKeys };
+}
+
+async function readRequestScopedSecret(
+  name: string,
+  userScopeId: string,
+): Promise<{ value: string; ref: ResolvedKeyReference } | null> {
+  const candidates = requestSecretCandidates(userScopeId);
+  for (const ref of candidates) {
+    const result = await readAppSecret({ key: name, ...ref });
+    if (result) return { value: result.value, ref: { name, ...ref } };
+  }
+  return null;
+}
+
+function requestSecretCandidates(
+  userScopeId: string,
+): Array<{ scope: SecretScope; scopeId: string }> {
+  const orgId = getRequestOrgId();
+  if (orgId) {
+    return [
+      { scope: "user", scopeId: userScopeId },
+      { scope: "org", scopeId: orgId },
+      { scope: "workspace", scopeId: orgId },
+    ];
+  }
+
+  const email = getRequestUserEmail() || userScopeId;
+  return [
+    { scope: "user", scopeId: userScopeId },
+    { scope: "workspace", scopeId: `solo:${email}` },
+  ];
+}
+
+/**
  * Check if a URL is allowed by a key's URL allowlist. Returns true when no
  * allowlist is configured (permissive default — the allowlist is opt-in).
  *
@@ -160,6 +248,17 @@ export async function getKeyAllowlist(
       scopeId: getWorkspaceScopeId(scopeId),
     });
   }
+  return meta?.urlAllowlist ?? null;
+}
+
+export async function getResolvedKeyAllowlist(
+  ref: ResolvedKeyReference,
+): Promise<string[] | null> {
+  const meta = await readAppSecretMeta({
+    key: ref.name,
+    scope: ref.scope,
+    scopeId: ref.scopeId,
+  });
   return meta?.urlAllowlist ?? null;
 }
 

@@ -257,7 +257,9 @@ export async function createSecret(
       summary: `Updated vault secret "${input.name}" (${credentialKey})`,
     });
 
-    return getSecret(existing[0].id, ctx);
+    const updated = await getSecret(existing[0].id, ctx);
+    if (updated) await syncSecretsToCredentialStore([updated], ctx);
+    return updated;
   }
 
   const secretId = id();
@@ -291,7 +293,9 @@ export async function createSecret(
     summary: `Created vault secret "${input.name}" (${credentialKey})`,
   });
 
-  return getSecret(secretId, ctx);
+  const created = await getSecret(secretId, ctx);
+  if (created) await syncSecretsToCredentialStore([created], ctx);
+  return created;
 }
 
 export async function updateSecret(
@@ -319,7 +323,9 @@ export async function updateSecret(
     summary: `Updated value for secret "${existing.name}" (${existing.credentialKey})`,
   });
 
-  return getSecret(secretId, ctx);
+  const updated = await getSecret(secretId, ctx);
+  if (updated) await syncSecretsToCredentialStore([updated], ctx);
+  return updated;
 }
 
 export async function deleteSecret(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAssistantMessage,
+  buildRepositoryFromCodeAgentTranscript,
   buildUserMessage,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
@@ -604,6 +605,88 @@ describe("normalizeThreadRepository", () => {
         message: expect.objectContaining({ id: "assistant-1" }),
       }),
     ]);
+  });
+});
+
+describe("buildRepositoryFromCodeAgentTranscript", () => {
+  it("builds assistant-ui repository entries from Code transcript turns", () => {
+    const repo = buildRepositoryFromCodeAgentTranscript([
+      {
+        id: "evt-user",
+        runId: "run-code",
+        kind: "user",
+        message: "Fix the bug",
+        createdAt: "2026-05-17T12:00:00.000Z",
+        metadata: {
+          attachments: [
+            {
+              name: "notes.txt",
+              type: "text/plain",
+              text: "stack trace",
+            },
+          ],
+        },
+      },
+      {
+        id: "evt-assistant",
+        runId: "run-code",
+        kind: "system",
+        message: "I found the issue.",
+        createdAt: "2026-05-17T12:00:01.000Z",
+        metadata: { role: "assistant" },
+      },
+      {
+        id: "evt-tool-start",
+        runId: "run-code",
+        kind: "status",
+        message: "Running tests.",
+        createdAt: "2026-05-17T12:00:02.000Z",
+        metadata: { type: "tool_start", tool: "test", input: { file: "x" } },
+      },
+      {
+        id: "evt-tool-done",
+        runId: "run-code",
+        kind: "status",
+        message: "Finished tests.",
+        createdAt: "2026-05-17T12:00:03.000Z",
+        metadata: { type: "tool_done", tool: "test", result: "ok" },
+      },
+    ]);
+
+    expect(repo.messages).toHaveLength(2);
+    expect(repo.messages[0]?.message.role).toBe("user");
+    expect(repo.messages[0]?.message.attachments?.[0]?.name).toBe("notes.txt");
+    expect(repo.messages[1]?.message.role).toBe("assistant");
+    expect(repo.messages[1]?.message.content).toEqual([
+      { type: "text", text: "I found the issue." },
+      {
+        type: "tool-call",
+        toolCallId: "code-tool-evt-tool-start",
+        toolName: "test",
+        argsText: '{\n  "file": "x"\n}',
+        args: { file: "x" },
+        result: "ok",
+      },
+    ]);
+    expect(repo.headId).toBe(repo.messages[1]?.message.id);
+  });
+
+  it("can hide credential status messages from imported Code history", () => {
+    const repo = buildRepositoryFromCodeAgentTranscript(
+      [
+        {
+          id: "evt-status",
+          runId: "run-code",
+          kind: "status",
+          message: "Missing credentials for a provider.",
+          createdAt: "2026-05-17T12:00:00.000Z",
+          metadata: { type: "error" },
+        },
+      ],
+      { hideCredentialMessages: true },
+    );
+
+    expect(repo.messages).toEqual([]);
   });
 });
 

@@ -18,6 +18,7 @@ import {
   IconFolder,
   IconFolderPlus,
   IconLink,
+  IconPencil,
   IconPinned,
   IconPinnedOff,
   IconPlus,
@@ -32,16 +33,19 @@ import {
 } from "@tabler/icons-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
-  AgentConversation,
+  AssistantChat,
   PromptComposer,
-  type AgentConversationMessage,
+  buildRepositoryFromCodeAgentTranscript,
+  createCodeAgentChatAdapter,
+  isCodeAgentRunActive,
+  mergeCodeAgentTranscriptEvents,
+  readAgentPromptAttachment,
+  type CodeAgentChatController,
   type PromptComposerFile,
   type SlashCommand,
   type TiptapComposerHandle,
 } from "@agent-native/core/client";
 import { toast } from "sonner";
-import { readCodeAgentPromptAttachment } from "./composer-primitives.js";
-import { normalizeCodeAgentTranscriptForConversation } from "./transcript-conversation.js";
 import {
   CODE_AGENT_GOALS,
   DEFAULT_CODE_AGENT_PERMISSION_MODE,
@@ -236,6 +240,7 @@ const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
 ];
 
 const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
+const CODE_AGENT_VIEWED_RUN_IDS_KEY = "agent-native-code:viewed-run-ids";
 const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
 const DEFAULT_REMOTE_RELAY_URL = "https://dispatch.agent-native.com";
 
@@ -310,8 +315,6 @@ export default function CodeAgentsApp({
   >([]);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
-  const [followUpPrompt, setFollowUpPrompt] = useState("");
-  const [submittingFollowUp, setSubmittingFollowUp] = useState(false);
   const [newRunPermissionMode, setNewRunPermissionMode] =
     useState<CodeAgentPermissionMode>(DEFAULT_CODE_AGENT_PERMISSION_MODE);
   const [selectedPermissionMode, setSelectedPermissionMode] =
@@ -364,6 +367,30 @@ export default function CodeAgentsApp({
   const searchTranscriptCacheRef = useRef(
     new Map<string, CodeAgentTranscriptEvent[]>(),
   );
+  const initialViewedRunIdsRef = useRef<{
+    initialized: boolean;
+    ids: Set<string>;
+  } | null>(null);
+  if (initialViewedRunIdsRef.current === null) {
+    initialViewedRunIdsRef.current = readStoredViewedRunIds();
+  }
+  const viewedRunIdsInitializedRef = useRef(
+    initialViewedRunIdsRef.current.initialized,
+  );
+  const [viewedRunIds, setViewedRunIds] = useState<Set<string>>(
+    () => new Set(initialViewedRunIdsRef.current!.ids),
+  );
+
+  const markRunsViewed = useCallback((runIds: string[]) => {
+    const ids = runIds.filter(Boolean);
+    setViewedRunIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      if (next.size === current.size) return current;
+      writeStoredViewedRunIds(next);
+      return next;
+    });
+  }, []);
 
   const seedNewPrompt = useCallback((value: string) => {
     setNewPrompt(value);
@@ -380,6 +407,12 @@ export default function CodeAgentsApp({
         setStatus(result.status);
         setError(result.error ?? null);
         setRuns(result.runs);
+        if (result.status === "ok" && !viewedRunIdsInitializedRef.current) {
+          const initialIds = result.runs.map((run) => run.id);
+          viewedRunIdsInitializedRef.current = true;
+          setViewedRunIds(new Set(initialIds));
+          writeStoredViewedRunIds(new Set(initialIds));
+        }
       } catch (err) {
         setStatus("unavailable");
         setError(err instanceof Error ? err.message : String(err));
@@ -535,6 +568,13 @@ export default function CodeAgentsApp({
         });
       }
       await loadHostMetadata();
+      const modelResult = await host.listModels?.();
+      if (modelResult?.status === "ok" && modelResult.models.length > 0) {
+        setModelOptions(modelResult.models);
+        if (!modelSelection.model && modelResult.selected) {
+          setModelSelection(modelResult.selected);
+        }
+      }
       await loadRuns(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -543,7 +583,7 @@ export default function CodeAgentsApp({
     } finally {
       setBuilderConnecting(false);
     }
-  }, [host, loadHostMetadata, loadRuns, onOpenSettings]);
+  }, [host, loadHostMetadata, loadRuns, modelSelection.model, onOpenSettings]);
 
   useEffect(() => {
     if (!host.getRemoteConnectorStatus) return;
@@ -601,6 +641,10 @@ export default function CodeAgentsApp({
   useEffect(() => {
     setSelectedPermissionMode(selectedRunStoredPermissionMode);
   }, [selectedRunId, selectedRunStoredPermissionMode]);
+
+  useEffect(() => {
+    if (selectedRunId) markRunsViewed([selectedRunId]);
+  }, [markRunsViewed, selectedRunId]);
 
   useEffect(() => {
     if (!searchPanelOpen) return;
@@ -673,7 +717,7 @@ export default function CodeAgentsApp({
     return () => {
       cancelled = true;
     };
-  }, [host, modelSelection.model]);
+  }, [host, modelSelection.model, refreshKey]);
 
   useEffect(() => {
     void loadProjects();
@@ -742,6 +786,21 @@ export default function CodeAgentsApp({
     selectedRunId,
     selectedRunIsActive,
   ]);
+
+  // Cmd+N / Ctrl+N — start a new chat from anywhere in the Code tab.
+  // Use a ref so the effect is stable and doesn't re-register on every render.
+  const openSelectedGoalRef = useRef(openSelectedGoal);
+  openSelectedGoalRef.current = openSelectedGoal;
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "n") return;
+      if (e.altKey || e.shiftKey) return;
+      e.preventDefault();
+      openSelectedGoalRef.current();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   async function selectProjectFolder(pathValue: string) {
     if (!pathValue) return;
@@ -965,7 +1024,6 @@ export default function CodeAgentsApp({
     setWorkbenchOpen(false);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
-    setFollowUpPrompt("");
     setTranscriptEvents([]);
     setTranscriptError(null);
     seedNewPrompt("");
@@ -1144,82 +1202,6 @@ export default function CodeAgentsApp({
     }
   }
 
-  async function submitFollowUp(
-    preparedPrompt: string,
-    attachments: CodeAgentPromptAttachment[],
-    deliveryMode: CodeAgentFollowUpMode = "immediate",
-  ) {
-    if (providerGate.blocked && !selectedRunIsActive) {
-      toast("Connect a model provider first", {
-        description: providerGate.description,
-        duration: 3600,
-      });
-      return;
-    }
-    if (!selectedRun) {
-      toast("Select a session first", { duration: 1800 });
-      return;
-    }
-    const prompt = preparedPrompt.trim();
-    if (!prompt) {
-      toast("Enter a follow-up prompt", { duration: 1800 });
-      return;
-    }
-    const optimisticEvent: CodeAgentTranscriptEvent = {
-      id: `pending-${Date.now()}`,
-      runId: selectedRun.id,
-      type: "user",
-      title: "User prompt",
-      text: prompt,
-      createdAt: new Date().toISOString(),
-      metadata: {
-        source: "desktop",
-        queued: true,
-        pending: true,
-        followUpMode: selectedRunIsActive ? deliveryMode : "immediate",
-      },
-    };
-    setFollowUpPrompt("");
-    setTranscriptEvents((current) => [...current, optimisticEvent]);
-    setSubmittingFollowUp(true);
-    try {
-      const result = await host.appendFollowUp({
-        goalId: selectedGoal.id,
-        runId: selectedRun.id,
-        prompt,
-        followUpMode: selectedRunIsActive ? deliveryMode : "immediate",
-        permissionMode: selectedPermissionMode,
-        engine: selectedModelSelection.engine,
-        model: selectedModelSelection.model,
-        effort: selectedModelSelection.effort,
-        attachments,
-      });
-      if (!result.ok) {
-        setTranscriptEvents((current) =>
-          current.filter((item) => item.id !== optimisticEvent.id),
-        );
-        toast(result.message, {
-          description: result.error,
-          duration: 3600,
-        });
-        return;
-      }
-      toast(result.message, { duration: 1800 });
-      await loadRuns(true);
-      await loadTranscript(selectedRun.id, true);
-    } catch (err) {
-      setTranscriptEvents((current) =>
-        current.filter((item) => item.id !== optimisticEvent.id),
-      );
-      toast("Could not record the follow-up", {
-        description: err instanceof Error ? err.message : String(err),
-        duration: 3600,
-      });
-    } finally {
-      setSubmittingFollowUp(false);
-    }
-  }
-
   async function changeSelectedPermissionMode(
     nextMode: CodeAgentPermissionMode,
   ) {
@@ -1332,6 +1314,45 @@ export default function CodeAgentsApp({
     }
   }
 
+  async function renameRun(run: CodeAgentRun, newTitle: string) {
+    const trimmed = newTitle.trim();
+    if (!trimmed || trimmed === getRunTitle(run)) return;
+    const optimisticRun: CodeAgentRun = { ...run, title: trimmed };
+    setRuns((current) =>
+      current.map((item) => (item.id === run.id ? optimisticRun : item)),
+    );
+    try {
+      const result = await host.updateRun({
+        goalId: selectedGoal.id,
+        runId: run.id,
+        title: trimmed,
+      });
+      if (!result.ok) {
+        setRuns((current) =>
+          current.map((item) => (item.id === run.id ? run : item)),
+        );
+        toast(result.message, { description: result.error, duration: 3200 });
+        return;
+      }
+      if (result.run) {
+        setRuns((current) =>
+          current.map((item) =>
+            item.id === result.run!.id ? result.run! : item,
+          ),
+        );
+      }
+      toast("Session renamed", { duration: 1600 });
+    } catch (err) {
+      setRuns((current) =>
+        current.map((item) => (item.id === run.id ? run : item)),
+      );
+      toast("Could not rename session", {
+        description: err instanceof Error ? err.message : String(err),
+        duration: 3200,
+      });
+    }
+  }
+
   return (
     <section className="code-agents-surface" aria-label="Agent-Native Code">
       <aside
@@ -1402,18 +1423,22 @@ export default function CodeAgentsApp({
             <GroupedRunList
               runs={runs}
               selectedRunId={selectedRunId}
+              viewedRunIds={viewedRunIds}
               onSelect={(run) => {
+                markRunsViewed([run.id]);
                 setSelectedRunId(run.id);
                 setSearchPanelOpen(false);
                 setMobilePanelOpen(false);
               }}
               onOpen={(run) => {
+                markRunsViewed([run.id]);
                 setSelectedRunId(run.id);
                 setWorkbenchOpen(true);
                 setSearchPanelOpen(false);
                 setMobilePanelOpen(false);
               }}
               onTogglePin={toggleRunPinned}
+              onRename={renameRun}
             />
           )}
         </div>
@@ -1518,22 +1543,19 @@ export default function CodeAgentsApp({
 
                 {selectedRun ? (
                   <RunDetailCard
+                    host={host}
                     run={selectedRun}
                     selectedRunId={selectedRunId}
                     goal={selectedGoal}
                     transcriptEvents={transcriptEvents}
                     transcriptLoading={transcriptLoading}
                     transcriptError={transcriptError}
-                    followUpPrompt={followUpPrompt}
-                    submittingFollowUp={submittingFollowUp}
                     permissionMode={selectedPermissionMode}
                     modelSelection={selectedModelSelection}
                     modelOptions={modelOptions}
                     updatingPermissionMode={updatingPermissionMode}
-                    onFollowUpPromptChange={setFollowUpPrompt}
                     onPermissionModeChange={changeSelectedPermissionMode}
                     onModelSelectionChange={setModelSelection}
-                    onSubmitFollowUp={submitFollowUp}
                     onOpenWorkbench={() => setWorkbenchOpen(true)}
                     onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
                     onResume={() => controlRun("resume")}
@@ -1545,6 +1567,7 @@ export default function CodeAgentsApp({
                     builderConnectMessage={builderConnectMessage}
                     onConnectBuilder={connectBuilderProvider}
                     onOpenSettings={onOpenSettings}
+                    onConnectProvider={connectBuilderProvider}
                   />
                 ) : (
                   <div className="code-agents-start">
@@ -1573,6 +1596,7 @@ export default function CodeAgentsApp({
                       onModelSelectionChange={setModelSelection}
                       onSlashCommand={handleSlashCommand}
                       onSubmit={createRunFromPrompt}
+                      onConnectProvider={connectBuilderProvider}
                     />
                     {(projects.length > 0 || canChooseProjectFolder) && (
                       <ProjectFolderPicker
@@ -1642,7 +1666,7 @@ function ProjectFolderPicker({
       <p className="code-agents-rail-label">Folder</p>
       <div className="code-agents-project-picker__row">
         <Select
-          value={selectedPath || undefined}
+          value={selectedPath || ""}
           disabled={loading || projects.length === 0}
           onValueChange={(value) => {
             if (value === "__choose__") {
@@ -1715,6 +1739,7 @@ function NewSessionComposer({
   onModelSelectionChange,
   onSlashCommand,
   onSubmit,
+  onConnectProvider,
 }: {
   prompt: string;
   promptSeed: number;
@@ -1733,6 +1758,7 @@ function NewSessionComposer({
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
   ) => void;
+  onConnectProvider?: () => void;
 }) {
   return (
     <CodeAgentComposer
@@ -1752,6 +1778,7 @@ function NewSessionComposer({
       onModelSelectionChange={onModelSelectionChange}
       onSlashCommand={onSlashCommand}
       onSubmit={onSubmit}
+      onConnectProvider={onConnectProvider}
     />
   );
 }
@@ -1775,6 +1802,7 @@ function CodeAgentComposer({
   onSlashCommand,
   onSubmit,
   onStop,
+  onConnectProvider,
 }: {
   prompt: string;
   promptSeed?: string | number;
@@ -1798,6 +1826,7 @@ function CodeAgentComposer({
     followUpMode?: CodeAgentFollowUpMode,
   ) => void;
   onStop?: () => void;
+  onConnectProvider?: () => void;
 }) {
   const composerModelGroups = useMemo(
     () => modelOptionsToComposerGroups(modelOptions),
@@ -1837,7 +1866,7 @@ function CodeAgentComposer({
 
   const readPromptFiles = useCallback(
     async (files: PromptComposerFile[]) =>
-      Promise.all(files.map((file) => readCodeAgentPromptAttachment(file))),
+      Promise.all(files.map((file) => readAgentPromptAttachment(file))),
     [],
   );
 
@@ -1888,6 +1917,7 @@ function CodeAgentComposer({
       selectedEffort={selectedEffort}
       onModelChange={handleModelChange}
       onEffortChange={handleEffortChange}
+      modelStatusChecksEnabled={false}
       onTextChange={onPromptChange}
       slashCommands={slashCommands}
       includeDefaultSlashSkills={false}
@@ -1903,6 +1933,7 @@ function CodeAgentComposer({
       attachmentsEnabled
       voiceEnabled
       preserveDraftOnSubmit={false}
+      onConnectProvider={onConnectProvider}
     />
   );
 }
@@ -1926,15 +1957,17 @@ function modelOptionsToComposerGroups(models: CodeAgentModelOption[]): Array<{
   for (const option of models) {
     const label = providerLabelForModel(option);
     const key = `${option.engine}:${label}`;
+    const configured = option.configured !== false;
     const group = groups.get(key) ?? {
       engine: option.engine,
       label,
       models: [],
-      configured: true,
+      configured,
     };
     if (!group.models.includes(option.model)) {
       group.models.push(option.model);
     }
+    group.configured = group.configured || configured;
     groups.set(key, group);
   }
 
@@ -2130,6 +2163,45 @@ function writeStoredModelSelection(value: CodeAgentModelSelection): void {
   }
 }
 
+function readStoredViewedRunIds(): {
+  initialized: boolean;
+  ids: Set<string>;
+} {
+  if (typeof window === "undefined") {
+    return { initialized: true, ids: new Set() };
+  }
+  try {
+    const raw = window.localStorage.getItem(CODE_AGENT_VIEWED_RUN_IDS_KEY);
+    if (!raw) return { initialized: false, ids: new Set() };
+    const parsed = JSON.parse(raw) as unknown;
+    const ids = Array.isArray(parsed)
+      ? parsed
+      : parsed &&
+          typeof parsed === "object" &&
+          Array.isArray((parsed as { ids?: unknown }).ids)
+        ? (parsed as { ids: unknown[] }).ids
+        : [];
+    return {
+      initialized: true,
+      ids: new Set(ids.filter((id): id is string => typeof id === "string")),
+    };
+  } catch {
+    return { initialized: false, ids: new Set() };
+  }
+}
+
+function writeStoredViewedRunIds(ids: Set<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      CODE_AGENT_VIEWED_RUN_IDS_KEY,
+      JSON.stringify({ version: 1, ids: [...ids].slice(-1000) }),
+    );
+  } catch {
+    // Ignore private-mode storage failures.
+  }
+}
+
 function RunModeSelect({
   value,
   onChange,
@@ -2258,30 +2330,25 @@ function normalizePromptForSelectedGoal(
 }
 
 function isRunActive(run: CodeAgentRun): boolean {
-  return !(
-    run.status === "completed" ||
-    run.status === "errored" ||
-    run.status === "paused" ||
-    run.phase === "complete" ||
-    run.phase === "error" ||
-    run.phase === "paused" ||
-    run.phase === "missing-credentials" ||
-    run.phase === "stopped"
-  );
+  return isCodeAgentRunActive(run);
 }
 
 function GroupedRunList({
   runs,
   selectedRunId,
+  viewedRunIds,
   onSelect,
   onOpen,
   onTogglePin,
+  onRename,
 }: {
   runs: CodeAgentRun[];
   selectedRunId: string | null;
+  viewedRunIds: Set<string>;
   onSelect: (run: CodeAgentRun) => void;
   onOpen: (run: CodeAgentRun) => void;
   onTogglePin: (run: CodeAgentRun) => void;
+  onRename: (run: CodeAgentRun, newTitle: string) => void;
 }) {
   const sortedRuns = sortRunsForRail(runs);
   return (
@@ -2291,9 +2358,11 @@ function GroupedRunList({
           key={run.id}
           run={run}
           selected={run.id === selectedRunId}
+          unread={!viewedRunIds.has(run.id) && !isRunActive(run)}
           onSelect={() => onSelect(run)}
           onOpen={() => onOpen(run)}
           onTogglePin={() => onTogglePin(run)}
+          onRename={(newTitle) => onRename(run, newTitle)}
         />
       ))}
     </div>
@@ -2405,27 +2474,7 @@ function mergeTranscriptEvents(
   current: CodeAgentTranscriptEvent[],
   incoming: CodeAgentTranscriptEvent[],
 ): CodeAgentTranscriptEvent[] {
-  if (incoming.length === 0) return current;
-  const byId = new Map(current.map((event) => [event.id, event]));
-  for (const event of incoming) byId.set(event.id, event);
-  return [...byId.values()].sort(compareTranscriptEvents);
-}
-
-function compareTranscriptEvents(
-  a: CodeAgentTranscriptEvent,
-  b: CodeAgentTranscriptEvent,
-): number {
-  const seqA = getTranscriptSeq(a);
-  const seqB = getTranscriptSeq(b);
-  if (seqA !== null && seqB !== null && seqA !== seqB) return seqA - seqB;
-  const created = a.createdAt.localeCompare(b.createdAt);
-  if (created !== 0) return created;
-  return a.id.localeCompare(b.id);
-}
-
-function getTranscriptSeq(event: CodeAgentTranscriptEvent): number | null {
-  const value = event.metadata?.seq;
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  return mergeCodeAgentTranscriptEvents(current, incoming);
 }
 
 function getSearchMatchSnippet(text: string, tokens: string[]): string {
@@ -2554,65 +2603,137 @@ function renderControlButton(button: {
 function RunRailItem({
   run,
   selected,
+  unread,
   onSelect,
   onOpen,
   onTogglePin,
+  onRename,
 }: {
   run: CodeAgentRun;
   selected: boolean;
+  unread: boolean;
   onSelect: () => void;
   onOpen: () => void;
   onTogglePin: () => void;
+  onRename: (newTitle: string) => void;
 }) {
   const pinned = isRunPinned(run);
+  const active = isRunActive(run);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  function startRename() {
+    setRenameValue(getRunTitle(run) ?? "");
+    setRenaming(true);
+    window.requestAnimationFrame(() => {
+      renameInputRef.current?.select();
+    });
+  }
+
+  function commitRename() {
+    const trimmed = renameValue.trim();
+    setRenaming(false);
+    if (trimmed && trimmed !== getRunTitle(run)) {
+      onRename(trimmed);
+    }
+  }
+
+  function handleRenameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitRename();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setRenaming(false);
+    }
+  }
+
   return (
     <div
       className={`code-agents-run-row${
         selected ? " code-agents-run-row--active" : ""
-      }${pinned ? " code-agents-run-row--pinned" : ""}`}
+      }${pinned ? " code-agents-run-row--pinned" : ""}${
+        renaming ? " code-agents-run-row--renaming" : ""
+      }`}
     >
-      <button
-        type="button"
-        className="code-agents-run"
-        onClick={onSelect}
-        onDoubleClick={onOpen}
-        title={getRunTitle(run) ?? undefined}
-      >
-        <div className="code-agents-run__topline">
-          <span className="code-agents-run__name">{getRunTitle(run)}</span>
-          <span className="code-agents-run__time">
-            {formatRelativeTime(run.updatedAt)}
-          </span>
+      {renaming ? (
+        <div className="code-agents-run code-agents-run--rename">
+          <input
+            ref={renameInputRef}
+            className="code-agents-run__rename-input"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={handleRenameKeyDown}
+            onBlur={commitRename}
+            autoFocus
+            aria-label="Rename session"
+          />
         </div>
-      </button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className={`code-agents-run-menu${
-              pinned ? " code-agents-run-menu--pinned" : ""
-            }`}
-            aria-label={pinned ? "Unpin session" : "Pin session"}
-            title={pinned ? "Unpin session" : "Pin session"}
-          >
-            {pinned ? (
-              <IconPinned size={13} strokeWidth={1.8} />
-            ) : (
-              <IconDots size={14} strokeWidth={1.8} />
-            )}
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="right" sideOffset={8}>
-          <DropdownMenuItem onSelect={onTogglePin}>
-            {pinned ? (
-              <IconPinnedOff size={14} strokeWidth={1.8} />
-            ) : (
-              <IconPinned size={14} strokeWidth={1.8} />
-            )}
-            <span>{pinned ? "Unpin from top" : "Pin to top"}</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      ) : (
+        <button
+          type="button"
+          className="code-agents-run"
+          onClick={onSelect}
+          onDoubleClick={onOpen}
+          title={getRunTitle(run) ?? undefined}
+        >
+          <div className="code-agents-run__topline">
+            <span className="code-agents-run__name">{getRunTitle(run)}</span>
+            <span className="code-agents-run__time">
+              {active ? (
+                <span
+                  className="code-agents-run-status-spinner"
+                  aria-label="Running"
+                  title="Running"
+                />
+              ) : unread ? (
+                <span
+                  className="code-agents-run-status-dot"
+                  aria-label="Done — unread"
+                  title="Done"
+                />
+              ) : (
+                formatRelativeTime(run.updatedAt)
+              )}
+            </span>
+          </div>
+        </button>
+      )}
+      {!renaming && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={`code-agents-run-menu${
+                pinned ? " code-agents-run-menu--pinned" : ""
+              }`}
+              aria-label="Session options"
+              title="Session options"
+            >
+              {pinned ? (
+                <IconPinned size={13} strokeWidth={1.8} />
+              ) : (
+                <IconDots size={14} strokeWidth={1.8} />
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="right" sideOffset={8}>
+            <DropdownMenuItem onSelect={startRename}>
+              <IconPencil size={14} strokeWidth={1.8} />
+              <span>Rename</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onTogglePin}>
+              {pinned ? (
+                <IconPinnedOff size={14} strokeWidth={1.8} />
+              ) : (
+                <IconPinned size={14} strokeWidth={1.8} />
+              )}
+              <span>{pinned ? "Unpin from top" : "Pin to top"}</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }
@@ -3040,22 +3161,19 @@ function MobileConnectorPanel({
 }
 
 function RunDetailCard({
+  host,
   run,
   selectedRunId,
   goal,
   transcriptEvents,
   transcriptLoading,
   transcriptError,
-  followUpPrompt,
-  submittingFollowUp,
   permissionMode,
   modelSelection,
   modelOptions,
   updatingPermissionMode,
-  onFollowUpPromptChange,
   onPermissionModeChange,
   onModelSelectionChange,
-  onSubmitFollowUp,
   onOpenWorkbench,
   onOpenTerminal,
   onResume,
@@ -3067,27 +3185,21 @@ function RunDetailCard({
   builderConnectMessage,
   onConnectBuilder,
   onOpenSettings,
+  onConnectProvider,
 }: {
+  host: CodeAgentsHost;
   run: CodeAgentRun | null;
   selectedRunId: string | null;
   goal: CodeAgentGoalDefinition;
   transcriptEvents: CodeAgentTranscriptEvent[];
   transcriptLoading: boolean;
   transcriptError: string | null;
-  followUpPrompt: string;
-  submittingFollowUp: boolean;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   updatingPermissionMode: boolean;
-  onFollowUpPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onSubmitFollowUp: (
-    preparedPrompt: string,
-    attachments: CodeAgentPromptAttachment[],
-    followUpMode?: CodeAgentFollowUpMode,
-  ) => void;
   onOpenWorkbench: () => void;
   onOpenTerminal?: () => void;
   onResume: () => void;
@@ -3099,6 +3211,7 @@ function RunDetailCard({
   builderConnectMessage: string | null;
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
+  onConnectProvider?: () => void;
 }) {
   const runIsActive = run ? isRunActive(run) : false;
 
@@ -3256,98 +3369,275 @@ function RunDetailCard({
         )}
 
       <TranscriptPanel
+        host={host}
+        goal={goal}
+        run={run}
         events={transcriptEvents}
         loading={transcriptLoading}
         error={transcriptError}
-        followUpPrompt={followUpPrompt}
         runIsActive={runIsActive}
-        submitting={submittingFollowUp}
         permissionMode={permissionMode}
         modelSelection={modelSelection}
         modelOptions={modelOptions}
         hideCredentialMessages={hasCredentialGap}
-        onFollowUpPromptChange={onFollowUpPromptChange}
         onPermissionModeChange={onPermissionModeChange}
         onModelSelectionChange={onModelSelectionChange}
-        onSubmitFollowUp={onSubmitFollowUp}
         onStop={onStop}
+        onConnectProvider={onConnectProvider}
       />
     </div>
   );
 }
 
 function TranscriptPanel({
+  host,
+  goal,
+  run,
   events,
   loading,
   error,
-  followUpPrompt,
   runIsActive,
-  submitting,
   permissionMode,
   modelSelection,
   modelOptions,
   hideCredentialMessages = false,
-  onFollowUpPromptChange,
   onPermissionModeChange,
   onModelSelectionChange,
-  onSubmitFollowUp,
   onStop,
+  onConnectProvider,
 }: {
+  host: CodeAgentsHost;
+  goal: CodeAgentGoalDefinition;
+  run: CodeAgentRun;
   events: CodeAgentTranscriptEvent[];
   loading: boolean;
   error: string | null;
-  followUpPrompt: string;
   runIsActive: boolean;
-  submitting: boolean;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   hideCredentialMessages?: boolean;
-  onFollowUpPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onSubmitFollowUp: (
-    preparedPrompt: string,
-    attachments: CodeAgentPromptAttachment[],
-    followUpMode?: CodeAgentFollowUpMode,
-  ) => void;
   onStop: () => void;
+  onConnectProvider?: () => void;
 }) {
-  const messages = useMemo<AgentConversationMessage[]>(
+  const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
+  const selectedModel = normalizedModel.model ?? "auto";
+  const selectedEngine = normalizedModel.engine ?? "auto";
+  const selectedEffort = normalizeReasoningEffort(
+    normalizedModel.effort ?? "auto",
+  );
+  const eventsRef = useRef(events);
+  eventsRef.current = events;
+  const hideCredentialMessagesRef = useRef(hideCredentialMessages);
+  hideCredentialMessagesRef.current = hideCredentialMessages;
+  const runIdRef = useRef<string | null>(run.id);
+  runIdRef.current = run.id;
+  const permissionModeRef = useRef<string | undefined>(permissionMode);
+  permissionModeRef.current = permissionMode;
+  const modelRef = useRef<string | undefined>(selectedModel);
+  modelRef.current = selectedModel === "auto" ? undefined : selectedModel;
+  const engineRef = useRef<string | undefined>(selectedEngine);
+  engineRef.current = selectedEngine === "auto" ? undefined : selectedEngine;
+  const effortRef = useRef<CodeAgentReasoningEffort | undefined>(
+    selectedEffort,
+  );
+  effortRef.current = selectedEffort;
+  const followUpModeRef = useRef<CodeAgentFollowUpMode | undefined>(undefined);
+  const attachOnlyRef = useRef(false);
+  attachOnlyRef.current = false;
+
+  const controller = useMemo(
+    () => createHostCodeAgentChatController(host, goal.id),
+    [goal.id, host],
+  );
+  const createAdapter = useCallback(
     () =>
-      normalizeCodeAgentTranscriptForConversation(events, {
-        hideCredentialMessages,
+      createCodeAgentChatAdapter({
+        controller,
+        runIdRef,
+        permissionModeRef,
+        modelRef,
+        engineRef,
+        effortRef,
+        followUpModeRef,
+        attachOnlyRef,
+        tabId: `code-agent:${run.id}`,
       }),
-    [events, hideCredentialMessages],
+    [controller, run.id],
+  );
+  const loadHistoryRepository = useCallback(
+    async () =>
+      buildRepositoryFromCodeAgentTranscript(eventsRef.current, {
+        hideCredentialMessages: hideCredentialMessagesRef.current,
+      }),
+    [],
+  );
+  const historyReloadKey = useMemo(() => {
+    const lastEvent = events.length > 0 ? events[events.length - 1] : undefined;
+    return [
+      run.id,
+      events.length,
+      lastEvent?.id ?? "",
+      lastEvent?.createdAt ?? "",
+      hideCredentialMessages ? "hide" : "show",
+    ].join(":");
+  }, [events, hideCredentialMessages, run.id]);
+  const composerGroups = useMemo(
+    () => modelOptionsToComposerGroups(modelOptions),
+    [modelOptions],
   );
 
   return (
-    <AgentConversation
-      className="code-agents-transcript"
-      timelineClassName="code-agents-transcript__timeline"
-      messages={messages}
-      loading={loading}
-      error={error}
-      streaming={runIsActive}
-      emptyTitle="No messages yet."
-      composer={
-        <CodeAgentComposer
-          prompt={followUpPrompt}
-          submitting={submitting}
-          permissionMode={permissionMode}
-          modelSelection={modelSelection}
-          modelOptions={modelOptions}
-          placeholder="Ask for follow-up changes"
-          onPromptChange={onFollowUpPromptChange}
-          onPermissionModeChange={onPermissionModeChange}
-          onModelSelectionChange={onModelSelectionChange}
-          onSubmit={onSubmitFollowUp}
-          stopActive={runIsActive}
-          onStop={onStop}
+    <div className="code-agents-transcript">
+      {error && (
+        <div className="code-agents-transcript__error">
+          <IconAlertCircle size={15} strokeWidth={1.8} />
+          <span>{error}</span>
+        </div>
+      )}
+      {loading && events.length === 0 ? (
+        <div className="code-agents-transcript__empty">
+          Loading transcript...
+        </div>
+      ) : (
+        <AssistantChat
+          key={run.id}
+          className="code-agents-transcript__assistant"
+          tabId={`code-agent:${run.id}`}
+          showHeader={false}
+          emptyStateText="No messages yet."
+          suggestions={[]}
+          dynamicSuggestions={false}
+          plusMenuMode="upload-only"
+          providerStatusChecksEnabled={false}
+          createAdapter={createAdapter}
+          adapterReloadKey={controller}
+          loadHistoryRepository={loadHistoryRepository}
+          historyReloadKey={historyReloadKey}
+          composerSlot={
+            <CodeAgentChatComposerSlot
+              runIsActive={runIsActive}
+              permissionMode={permissionMode}
+              onPermissionModeChange={onPermissionModeChange}
+              onStop={onStop}
+            />
+          }
+          selectedModel={selectedModel}
+          selectedEngine={selectedEngine}
+          selectedEffort={selectedEffort}
+          availableModels={composerGroups}
+          onModelChange={(model, engine) => {
+            if (engine === "auto" && model === "auto") {
+              onModelSelectionChange({ effort: selectedEffort });
+              return;
+            }
+            onModelSelectionChange({ engine, model, effort: selectedEffort });
+          }}
+          onEffortChange={(effort) => {
+            onModelSelectionChange({
+              ...normalizedModel,
+              effort: normalizeReasoningEffort(effort),
+            });
+          }}
+          onConnectProvider={onConnectProvider}
         />
-      }
-    />
+      )}
+    </div>
   );
+}
+
+function CodeAgentChatComposerSlot({
+  runIsActive,
+  permissionMode,
+  onPermissionModeChange,
+  onStop,
+}: {
+  runIsActive: boolean;
+  permissionMode: CodeAgentPermissionMode;
+  onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
+  onStop: () => void;
+}) {
+  return (
+    <div className="code-agents-chat-composer-slot">
+      <RunModeSelect
+        value={permissionMode}
+        onChange={onPermissionModeChange}
+        compact
+      />
+      {runIsActive && (
+        <button
+          type="button"
+          onClick={onStop}
+          className="code-agents-composer-stop-button"
+          aria-label="Stop session"
+          title="Stop session (Esc)"
+        >
+          <IconPlayerStop size={14} strokeWidth={1.9} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function createHostCodeAgentChatController(
+  host: CodeAgentsHost,
+  goalId: string,
+): CodeAgentChatController {
+  return {
+    async get(runId) {
+      const result = await host.listRuns(goalId);
+      return result.runs.find((run) => run.id === runId) ?? null;
+    },
+    async transcript(runId) {
+      const result = await host.readTranscript({ goalId, runId });
+      return result.status === "ok" ? result.events : [];
+    },
+    async sendFollowUp(input) {
+      const result = await host.appendFollowUp({
+        goalId,
+        runId: input.runId,
+        prompt: input.prompt,
+        followUpMode: input.mode,
+        permissionMode: input.permissionMode as
+          | CodeAgentPermissionMode
+          | undefined,
+        engine: input.engine,
+        model: input.model,
+        effort: input.reasoningEffort as CodeAgentReasoningEffort | undefined,
+        attachments: normalizePromptAttachmentsForHost(input.metadata),
+      });
+      return {
+        ok: result.ok,
+        message: result.message,
+        error: result.error,
+      };
+    },
+    async control(input) {
+      const result = await host.controlRun(goalId, input.runId, "stop");
+      return {
+        ok: result.ok,
+        run: result.run ?? null,
+        message: result.message,
+        error: result.error,
+      };
+    },
+  };
+}
+
+function normalizePromptAttachmentsForHost(
+  metadata: Record<string, unknown> | undefined,
+): CodeAgentPromptAttachment[] | undefined {
+  const raw = metadata?.attachments;
+  if (!Array.isArray(raw)) return undefined;
+  return raw.filter((item): item is CodeAgentPromptAttachment => {
+    return Boolean(
+      item &&
+      typeof item === "object" &&
+      typeof (item as CodeAgentPromptAttachment).name === "string",
+    );
+  });
 }
 
 function Field({ label, value }: { label: string; value: string }) {

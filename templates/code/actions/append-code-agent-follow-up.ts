@@ -4,6 +4,14 @@ import type { CodeAgentReasoningEffort } from "@agent-native/code-agents-ui/type
 import { z } from "zod";
 import { appendFollowUpAndRun } from "./_code-agent-ui.js";
 
+const promptAttachmentSchema = z.object({
+  name: z.string().min(1),
+  type: z.string().optional(),
+  size: z.number().optional(),
+  text: z.string().optional(),
+  dataUrl: z.string().optional(),
+});
+
 export default defineAction({
   description:
     "Append a follow-up prompt to an existing local Agent-Native Code run and resume execution.",
@@ -16,6 +24,7 @@ export default defineAction({
     model: z.string().optional(),
     effort: z.string().optional(),
     followUpMode: z.enum(["immediate", "queued"]).optional(),
+    attachments: z.array(promptAttachmentSchema).optional(),
   }),
   run: async (args) => {
     const permissionMode = normalizeCodeAgentPermissionMode(
@@ -33,6 +42,7 @@ export default defineAction({
       model: args.model,
       effort,
       followUpMode: args.followUpMode,
+      attachments: args.attachments,
     });
     return {
       ok: true,

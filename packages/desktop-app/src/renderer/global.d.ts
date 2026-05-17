@@ -55,6 +55,28 @@ type CodeAgentReasoningEffort =
   | "xhigh"
   | "max";
 
+type CodeAgentModelSelection = {
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
+};
+
+type CodeAgentModelOption = {
+  engine: string;
+  engineLabel: string;
+  model: string;
+  label: string;
+  description?: string;
+  configured?: boolean;
+};
+
+type CodeAgentModelListResult = {
+  status: "ok" | "unavailable";
+  models: CodeAgentModelOption[];
+  selected?: CodeAgentModelSelection;
+  error?: string;
+};
+
 type CodeAgentRemoteConnectorState =
   | "disabled"
   | "unconfigured"
@@ -510,6 +532,7 @@ interface ElectronAPI {
 
   codeAgents: {
     listRuns(goalId?: string): Promise<CodeAgentRunListResult>;
+    listModels(): Promise<CodeAgentModelListResult>;
     createRun(
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult>;

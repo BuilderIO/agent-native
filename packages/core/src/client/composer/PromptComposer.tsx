@@ -128,8 +128,19 @@ export interface PromptComposerProps {
   selectedEffort?: ReasoningEffort;
   onModelChange?: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /**
+   * Enable server-backed model/provider status checks. Defaults off when the
+   * host supplies model state and callbacks, otherwise on.
+   */
+  modelStatusChecksEnabled?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  /**
+   * Override the Builder.io connect action in the model picker. When provided,
+   * clicking "Connect Builder.io" calls this instead of opening a browser popup.
+   * Used by the Electron desktop app to route through the native IPC handler.
+   */
+  onConnectProvider?: () => void;
   /** Imperative handle for focusing the composer. */
   composerRef?: Ref<TiptapComposerHandle>;
 }
@@ -471,12 +482,21 @@ function PromptComposerInner({
   selectedEffort,
   onModelChange,
   onEffortChange,
+  modelStatusChecksEnabled,
   onTextChange,
+  onConnectProvider,
   composerRef,
 }: PromptComposerProps) {
   const localRef = useRef<TiptapComposerHandle>(null);
   const handleRef = composerRef ?? localRef;
-  const models = useChatModels();
+  const hostManagedModels = Boolean(
+    availableModels && selectedModel && onModelChange,
+  );
+  const resolvedModelStatusChecksEnabled =
+    modelStatusChecksEnabled ?? !hostManagedModels;
+  const models = useChatModels({
+    enabled: showModelSelector && resolvedModelStatusChecksEnabled,
+  });
   const composerModel = showModelSelector
     ? (selectedModel ?? models.selectedModel)
     : undefined;
@@ -573,6 +593,8 @@ function PromptComposerInner({
         availableModels={composerModelGroups}
         onModelChange={handleModelChange}
         onEffortChange={handleEffortChange}
+        providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
+        onConnectProvider={onConnectProvider}
       />
     </AgentComposerFrame>
   );

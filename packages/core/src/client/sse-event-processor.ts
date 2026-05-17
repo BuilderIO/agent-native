@@ -121,6 +121,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "permission_error" ||
     code === "http_401" ||
     code === "http_403" ||
+    code === "rate_limit_exceeded" ||
     code === "gateway_not_enabled" ||
     code === "missing_api_key" ||
     code === "missing_credentials" ||
@@ -163,6 +164,8 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   }
 
   if (ev.recoverable === true) return true;
+
+  if (msg.includes("daily gateway request cap")) return false;
 
   // "gateway error" intentionally absent — that's the no-detail Builder
   // gateway fallback and the production-agent already retries it

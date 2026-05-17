@@ -8,6 +8,7 @@ vi.mock("./builder-frame.js", () => ({
 }));
 
 const {
+  consumeAgentSidebarUrlOpenOverride,
   dispatchAgentSidebarStateChange,
   getInitialAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
@@ -34,6 +35,7 @@ describe("getInitialAgentSidebarOpen", () => {
   beforeEach(() => {
     frameState.inBuilderFrame = false;
     window.localStorage.clear();
+    window.history.replaceState(null, "", "/");
     stubMatchMedia(false);
   });
 
@@ -63,11 +65,38 @@ describe("getInitialAgentSidebarOpen", () => {
 
     expect(getInitialAgentSidebarOpen(true)).toBe(false);
   });
+
+  it("starts closed from an external-agent deep-link hint even with a saved open preference", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
+    window.history.replaceState(
+      null,
+      "",
+      "/inbox?threadId=t1&agentSidebar=closed",
+    );
+
+    expect(getInitialAgentSidebarOpen(true)).toBe(false);
+  });
+
+  it("consumes the external-agent deep-link hint and persists the closed state", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
+    window.history.replaceState(
+      null,
+      "",
+      "/inbox?threadId=t1&agentSidebar=closed#message",
+    );
+
+    expect(consumeAgentSidebarUrlOpenOverride()).toBe(false);
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("false");
+    expect(window.location.pathname).toBe("/inbox");
+    expect(window.location.search).toBe("?threadId=t1");
+    expect(window.location.hash).toBe("#message");
+  });
 });
 
 describe("dispatchAgentSidebarStateChange", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.history.replaceState(null, "", "/");
     stubMatchMedia(false);
   });
 

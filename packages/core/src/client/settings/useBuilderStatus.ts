@@ -105,6 +105,8 @@ export function useBuilderStatus() {
 // caller already has it in hand.
 
 export interface BuilderConnectFlowOptions {
+  /** Skip server status polling for hosts that own provider routing. */
+  enabled?: boolean;
   /** URL to synchronously open on start(). Defaults to the 302 shortcut. */
   popupUrl?: string;
   /** Low-cardinality label for the UI surface that opened Builder connect. */
@@ -430,6 +432,7 @@ export function useBuilderConnectFlow(
   opts: BuilderConnectFlowOptions = {},
 ): BuilderConnectFlow {
   const {
+    enabled = true,
     popupUrl,
     trackingSource = "builder_connect_flow",
     trackingFlow,
@@ -466,6 +469,7 @@ export function useBuilderConnectFlow(
   }, []);
 
   const fetchStatus = useCallback(async () => {
+    if (!enabled) return null;
     const origin = getCallbackOrigin() || window.location.origin;
     try {
       const r = await fetch(
@@ -486,7 +490,7 @@ export function useBuilderConnectFlow(
     } catch {
       return null;
     }
-  }, []);
+  }, [enabled]);
 
   // Initial fetch + focus/visibility refresh so if the user completed the
   // flow in another tab (or a downgraded same-tab nav) we notice it. Also
@@ -494,6 +498,19 @@ export function useBuilderConnectFlow(
   // Settings propagates to any connect-CTA cards rendered elsewhere in
   // the app without waiting for the next focus event.
   useEffect(() => {
+    if (!enabled) {
+      setConfigured(false);
+      setEnvManaged(false);
+      setBuilderEnabled(false);
+      setOrgName(null);
+      setConnecting(false);
+      setError(null);
+      setHasFetchedStatus(false);
+      setStatusConnectUrl(null);
+      statusConnectUrlAtRef.current = null;
+      stopPoll();
+      return;
+    }
     mountedRef.current = true;
     let cancelled = false;
     const refresh = async () => {
@@ -553,10 +570,11 @@ export function useBuilderConnectFlow(
       window.removeEventListener("agent-engine:configured-changed", refresh);
       stopPoll();
     };
-  }, [fetchStatus, stopPoll]);
+  }, [enabled, fetchStatus, stopPoll]);
 
   const start = useCallback(
     (startOptions?: BuilderConnectStartOptions) => {
+      if (!enabled) return;
       stopPoll();
       const started = Date.now();
       const clickTrackingSource =
@@ -744,6 +762,7 @@ export function useBuilderConnectFlow(
       }, POLL_INTERVAL_MS);
     },
     [
+      enabled,
       fetchStatus,
       popupUrl,
       statusConnectUrl,

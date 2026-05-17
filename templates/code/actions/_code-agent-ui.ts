@@ -14,6 +14,7 @@ import {
   type CodeAgentTranscriptEvent as StoredTranscriptEvent,
 } from "@agent-native/core/code-agents";
 import type {
+  CodeAgentPromptAttachment,
   CodeAgentReasoningEffort,
   CodeAgentRun,
   CodeAgentTranscriptEvent,
@@ -121,6 +122,7 @@ export async function appendFollowUpAndRun(input: {
   model?: string;
   effort?: CodeAgentReasoningEffort;
   followUpMode?: CodeAgentFollowUpMode;
+  attachments?: CodeAgentPromptAttachment[];
 }): Promise<CodeAgentTranscriptEvent> {
   const record = getCodeAgentRunRecord(input.runId);
   if (!record)
@@ -133,6 +135,9 @@ export async function appendFollowUpAndRun(input: {
         ...(input.engine ? { engine: input.engine } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.effort ? { effort: input.effort } : {}),
+        ...(input.attachments && input.attachments.length > 0
+          ? { attachments: input.attachments }
+          : {}),
       },
     });
   } else if (input.engine || input.model || input.effort) {
@@ -141,6 +146,9 @@ export async function appendFollowUpAndRun(input: {
         ...(input.engine ? { engine: input.engine } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.effort ? { effort: input.effort } : {}),
+        ...(input.attachments && input.attachments.length > 0
+          ? { attachments: input.attachments }
+          : {}),
       },
     });
   }
@@ -156,6 +164,7 @@ export async function appendFollowUpAndRun(input: {
       engine: input.engine,
       model: input.model,
       effort: input.effort,
+      attachments: input.attachments,
     },
   });
   if (!result.ok) throw new Error(result.error ?? "Follow-up failed.");

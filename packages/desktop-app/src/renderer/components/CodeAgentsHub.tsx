@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import {
   CodeAgentsApp,
+  type CodeAgentModelListResult,
   type CodeAgentTranscriptEvent,
   type CodeAgentTranscriptRequest,
   type CodeAgentsHost,
@@ -67,6 +68,17 @@ export default function CodeAgentsHub({
           };
         }
         return api.createRun(request);
+      },
+      async listModels() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listModels) {
+          return {
+            status: "unavailable",
+            models: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.listModels() as Promise<CodeAgentModelListResult>;
       },
       async getHostMetadata() {
         const api = window.electronAPI?.codeAgents;

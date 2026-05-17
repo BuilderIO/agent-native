@@ -16,6 +16,7 @@
  * bridges external surfaces to the `navigate`/`application_state` contract the
  * UI already drains every 2s.
  */
+import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
 
 /** Path of the framework deep-link route, relative to the route prefix. */
 export const OPEN_ROUTE_SUBPATH = "/open";
@@ -57,7 +58,9 @@ function buildQuery(input: DeepLinkInput): string {
  * Per-app `link` builders call this; never hand-format the URL.
  */
 export function buildDeepLink(input: DeepLinkInput): string {
-  return `/_agent-native${OPEN_ROUTE_SUBPATH}?${buildQuery(input)}`;
+  return withCollapsedAgentSidebarParam(
+    `/_agent-native${OPEN_ROUTE_SUBPATH}?${buildQuery(input)}`,
+  );
 }
 
 /**

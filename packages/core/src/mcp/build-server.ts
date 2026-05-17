@@ -21,6 +21,10 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { toAbsoluteOpenUrl, toDesktopOpenUrl } from "../server/deep-link.js";
+import {
+  isAgentNativeOpenDeepLink,
+  withCollapsedAgentSidebarParam,
+} from "../shared/agent-sidebar-url.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import { MCP_CONNECT_SCOPE } from "./connect-store.js";
 
@@ -118,8 +122,11 @@ export function buildLinkArtifacts(
   try {
     const lk = entry.link({ args: args ?? {}, result });
     if (!lk?.url) return {};
-    const webUrl = toAbsoluteOpenUrl(lk.url, meta?.origin);
-    const desktopUrl = toDesktopOpenUrl(lk.url);
+    const linkUrl = isAgentNativeOpenDeepLink(lk.url)
+      ? withCollapsedAgentSidebarParam(lk.url)
+      : lk.url;
+    const webUrl = toAbsoluteOpenUrl(linkUrl, meta?.origin);
+    const desktopUrl = toDesktopOpenUrl(linkUrl);
     const markdownUrl = meta?.target === "desktop" ? desktopUrl : webUrl;
     return {
       block: { type: "text", text: `\n\n[${lk.label} →](${markdownUrl})` },

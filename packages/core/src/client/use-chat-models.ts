@@ -30,6 +30,11 @@ interface Options {
    * page loads. Pass `null` to disable persistence.
    */
   storageKey?: string | null;
+  /**
+   * Disable server-backed model discovery for hosts that provide their own
+   * model list/state, such as Electron Code.
+   */
+  enabled?: boolean;
 }
 
 const DEFAULT_STORAGE_KEY = "agent-native:chat-models:selection";
@@ -65,6 +70,7 @@ function writePersisted(key: string | null, value: PersistedSelection) {
  */
 export function useChatModels({
   storageKey = DEFAULT_STORAGE_KEY,
+  enabled = true,
 }: Options = {}): UseChatModelsResult {
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
     [],
@@ -128,6 +134,7 @@ export function useChatModels({
   );
 
   const refreshEngines = useCallback(() => {
+    if (!enabled) return;
     Promise.all([
       fetch(agentNativePath("/_agent-native/actions/manage-agent-engine"), {
         method: "POST",
@@ -311,11 +318,12 @@ export function useChatModels({
         }
       })
       .catch(() => {});
-  }, [storageKey]);
+  }, [enabled, storageKey]);
 
   useEffect(() => {
+    if (!enabled) return;
     refreshEngines();
-  }, [refreshEngines]);
+  }, [enabled, refreshEngines]);
 
   return {
     availableModels,

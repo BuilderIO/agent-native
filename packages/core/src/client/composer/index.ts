@@ -12,6 +12,16 @@ export {
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
 } from "./PromptComposer.js";
+export {
+  AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
+  AGENT_PROMPT_MAX_INLINE_TEXT_CHARS,
+  escapePromptAttachmentAttribute,
+  formatPromptWithAttachments,
+  isInlineableAgentPromptFile,
+  readAgentPromptAttachment,
+  type AgentPromptAttachment,
+  type ReadAgentPromptAttachmentOptions,
+} from "./prompt-attachments.js";
 export { MentionPopover } from "./MentionPopover.js";
 export { useMentionSearch } from "./use-mention-search.js";
 export type {

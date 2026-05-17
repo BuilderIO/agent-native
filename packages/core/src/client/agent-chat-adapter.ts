@@ -58,9 +58,16 @@ const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
 const MAX_STALE_RUN_CONTINUATIONS = 3;
 const MAX_STALLED_TRANSIENT_CONTINUATIONS = 8;
 const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 32;
+const MAX_EMPTY_TRANSIENT_CONTINUATIONS = 1;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
+const MAX_HISTORY_MESSAGES = 24;
+const MAX_HISTORY_TOTAL_CHARS = 64_000;
+const MAX_HISTORY_MESSAGE_CHARS = 12_000;
+const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
+const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
+const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 
 function normalizeMentions(text: string): string {
   return text.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1");
@@ -69,6 +76,16 @@ function normalizeMentions(text: string): string {
 function truncateForContinuation(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars)}\n\n...[truncated ${value.length - maxChars} chars from prior partial output]`;
+}
+
+function truncateForHistory(
+  value: string,
+  maxChars: number,
+  label: string,
+): string {
+  if (value.length <= maxChars) return value;
+  const omitted = value.length - maxChars;
+  return `${value.slice(0, maxChars)}\n\n[${label} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from prior chat history. Read the current app/resource state with tools if exact content is needed.]`;
 }
 
 function contentToContinuationHistory(content: ContentPart[]): string {
@@ -93,6 +110,43 @@ function contentToContinuationHistory(content: ContentPart[]): string {
 }
 
 function messageTextFromContent(
+  content: readonly { type: string; text?: string }[],
+): string {
+  return truncateForHistory(
+    content
+      .filter((p): p is { type: "text"; text: string } => p.type === "text")
+      .map((p) => normalizeMentions(p.text))
+      .join("\n"),
+    MAX_HISTORY_MESSAGE_CHARS,
+    "Message",
+  );
+}
+
+function truncateToolArgsForHistory(args: unknown): Record<string, unknown> {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return {};
+  try {
+    const json = JSON.stringify(args);
+    if (json.length <= MAX_HISTORY_TOOL_ARGS_CHARS) {
+      return args as Record<string, unknown>;
+    }
+    return {
+      __agentNativeTruncated: true,
+      note: "Tool input was too large to resend in chat history. Use the current app/resource state as the source of truth if exact content is needed.",
+      preview: truncateForHistory(
+        json,
+        MAX_HISTORY_TOOL_ARGS_CHARS,
+        "Tool input",
+      ),
+    };
+  } catch {
+    return {
+      __agentNativeTruncated: true,
+      note: "Tool input could not be serialized for prior chat history.",
+    };
+  }
+}
+
+function messageTextFromContentRaw(
   content: readonly { type: string; text?: string }[],
 ): string {
   return content
@@ -225,11 +279,15 @@ function messageTextForHistory(message: {
   content: readonly { type: string; text?: string }[];
   attachments?: readonly AssistantUiAttachment[];
 }): string {
-  const text = messageTextFromContent(message.content);
+  const text = messageTextFromContentRaw(message.content);
   const attachments = extractAttachmentsFromMessage(message)
     .map(attachmentHistoryText)
     .filter((part): part is string => !!part && part.trim().length > 0);
-  return [text, ...attachments].filter((part) => part.trim()).join("\n\n");
+  return truncateForHistory(
+    [text, ...attachments].filter((part) => part.trim()).join("\n\n"),
+    MAX_HISTORY_MESSAGE_CHARS,
+    "Message",
+  );
 }
 
 function isToolCallContentPart(
@@ -252,10 +310,12 @@ function toolResultContent(result: unknown): string {
 function contentToStructuredMessages(
   content: readonly ContentPart[],
   nextToolCallId: () => string,
+  options?: { truncateForHistory?: boolean },
 ): AgentChatStructuredMessage[] {
   const messages: AgentChatStructuredMessage[] = [];
   let assistantParts: AgentChatStructuredContentPart[] = [];
   let pendingToolResults: AgentChatStructuredContentPart[] = [];
+  const truncate = options?.truncateForHistory === true;
 
   const flushToolTurn = () => {
     if (pendingToolResults.length === 0) return;
@@ -271,7 +331,16 @@ function contentToStructuredMessages(
     if (part.type === "text") {
       if (pendingToolResults.length > 0) flushToolTurn();
       if (part.text.trim()) {
-        assistantParts.push({ type: "text", text: part.text });
+        assistantParts.push({
+          type: "text",
+          text: truncate
+            ? truncateForHistory(
+                part.text,
+                MAX_HISTORY_MESSAGE_CHARS,
+                "Assistant text",
+              )
+            : part.text,
+        });
       }
       continue;
     }
@@ -282,14 +351,22 @@ function contentToStructuredMessages(
         type: "tool-call",
         toolCallId,
         toolName: part.toolName,
-        args: part.args ?? {},
+        args: truncate
+          ? truncateToolArgsForHistory(part.args ?? {})
+          : (part.args ?? {}),
       });
       if (part.result !== undefined) {
         pendingToolResults.push({
           type: "tool-result",
           toolCallId,
           toolName: part.toolName,
-          content: toolResultContent(part.result),
+          content: truncate
+            ? truncateForHistory(
+                toolResultContent(part.result),
+                MAX_HISTORY_TOOL_RESULT_CHARS,
+                "Tool result",
+              )
+            : toolResultContent(part.result),
         });
       }
     }
@@ -359,10 +436,50 @@ function assistantUiMessagesToStructuredHistory(
         });
       }
     }
-    structured.push(...contentToStructuredMessages(content, nextToolCallId));
+    structured.push(
+      ...contentToStructuredMessages(content, nextToolCallId, {
+        truncateForHistory: true,
+      }),
+    );
   }
 
   return structured;
+}
+
+function estimateHistoryMessageCost(message: {
+  content: readonly { type: string; text?: string }[];
+  attachments?: readonly AssistantUiAttachment[];
+}): number {
+  return Math.max(1, messageTextForHistory(message).length);
+}
+
+function limitPriorMessagesForRequest<
+  T extends {
+    role: string;
+    content: readonly { type: string; text?: string }[];
+    attachments?: readonly AssistantUiAttachment[];
+  },
+>(messages: readonly T[]): T[] {
+  const recent = messages.slice(-MAX_HISTORY_MESSAGES);
+  const kept: T[] = [];
+  let totalChars = 0;
+
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const message = recent[i];
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    const cost = estimateHistoryMessageCost(message);
+    if (kept.length > 0 && totalChars + cost > MAX_HISTORY_TOTAL_CHARS) {
+      break;
+    }
+    kept.push(message);
+    totalChars += cost;
+  }
+
+  kept.reverse();
+  while (kept.length > 0 && kept[0].role !== "user") {
+    kept.shift();
+  }
+  return kept;
 }
 
 function combineContinuationHistory(fragments: string[]): string {
@@ -421,6 +538,50 @@ function delay(ms: number, abortSignal: AbortSignal): Promise<void> {
       { once: true },
     );
   });
+}
+
+class AgentStartupTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(
+      `Agent chat did not start streaming within ${Math.round(timeoutMs / 1000)}s.`,
+    );
+    this.name = "AgentStartupTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+async function fetchWithStartupTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+  abortSignal: AbortSignal,
+): Promise<Response> {
+  if (abortSignal.aborted) {
+    throw new DOMException("The operation was aborted.", "AbortError");
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const abort = () => controller.abort();
+  abortSignal.addEventListener("abort", abort, { once: true });
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (timedOut) {
+      throw new AgentStartupTimeoutError(timeoutMs);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    abortSignal.removeEventListener("abort", abort);
+  }
 }
 
 function retryDelay(attempt: number, abortSignal: AbortSignal): Promise<void> {
@@ -674,7 +835,9 @@ export function createAgentChatAdapter(options?: {
           ? rawMessageText
           : "Use the attached context.";
 
-      const priorMessages = messages.slice(0, -1); // exclude latest user message
+      const priorMessages = limitPriorMessagesForRequest(
+        messages.slice(0, -1) as any,
+      ); // exclude latest user message and cap resend size
       const history = priorMessages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
@@ -736,6 +899,18 @@ export function createAgentChatAdapter(options?: {
         ]
           .filter(Boolean)
           .join("\n");
+      };
+
+      const exhaustedRecoveryMessage = (reason?: string): string => {
+        if (
+          content.length === 0 &&
+          (reason === "run_timeout" ||
+            reason === "no_progress" ||
+            reason === "stream_ended")
+        ) {
+          return "The agent request started but did not produce any visible progress before timing out. I stopped the automatic retries so this chat would not stay stuck on Thinking.";
+        }
+        return "The agent connection kept failing after several automatic recovery attempts.";
       };
 
       const dispatchAuthError = (
@@ -1018,11 +1193,22 @@ export function createAgentChatAdapter(options?: {
           const currentPartialHistory =
             contentToContinuationHistory(visibleContent);
           const madeProgress = hasContinuationProgress(visibleContent);
+          const madeVisibleProgress = visibleContent.length > 0;
 
           if (signal.reason === "loop_limit") {
             stalledTransientContinuationAttempts = 0;
           } else {
             totalTransientContinuationAttempts += 1;
+            if (!madeVisibleProgress && signal.reason === "run_timeout") {
+              return { ok: false, resetVisibleContent: false };
+            }
+            if (
+              !madeVisibleProgress &&
+              totalTransientContinuationAttempts >
+                MAX_EMPTY_TRANSIENT_CONTINUATIONS
+            ) {
+              return { ok: false, resetVisibleContent: false };
+            }
             if (signal.reason === "stale_run") {
               staleRunContinuationAttempts += 1;
               if (staleRunContinuationAttempts > MAX_STALE_RUN_CONTINUATIONS) {
@@ -1101,31 +1287,35 @@ export function createAgentChatAdapter(options?: {
           try {
             runId = null;
             lastSeq = -1;
-            const res = await fetch(apiUrl, {
-              method: "POST",
-              headers,
-              body: JSON.stringify({
-                message: currentMessageText,
-                displayMessage: userMessageText,
-                history: currentHistory,
-                structuredHistory: currentStructuredHistory,
-                ...(threadId ? { threadId } : {}),
-                ...(internalContinuationRequest
-                  ? { internalContinuation: true }
-                  : {}),
-                ...(requestMode ? { mode: requestMode } : {}),
-                ...(modelRef?.current ? { model: modelRef.current } : {}),
-                ...(engineRef?.current ? { engine: engineRef.current } : {}),
-                ...(effortRef?.current ? { effort: effortRef.current } : {}),
-                ...(browserTabId ? { browserTabId } : {}),
-                ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
-                ...(includeAttachments ? { attachments } : {}),
-                ...(includeReferences && runConfig?.custom?.references
-                  ? { references: runConfig.custom.references }
-                  : {}),
-              }),
-              signal: abortSignal,
-            });
+            const res = await fetchWithStartupTimeout(
+              apiUrl,
+              {
+                method: "POST",
+                headers,
+                body: JSON.stringify({
+                  message: currentMessageText,
+                  displayMessage: userMessageText,
+                  history: currentHistory,
+                  structuredHistory: currentStructuredHistory,
+                  ...(threadId ? { threadId } : {}),
+                  ...(internalContinuationRequest
+                    ? { internalContinuation: true }
+                    : {}),
+                  ...(requestMode ? { mode: requestMode } : {}),
+                  ...(modelRef?.current ? { model: modelRef.current } : {}),
+                  ...(engineRef?.current ? { engine: engineRef.current } : {}),
+                  ...(effortRef?.current ? { effort: effortRef.current } : {}),
+                  ...(browserTabId ? { browserTabId } : {}),
+                  ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
+                  ...(includeAttachments ? { attachments } : {}),
+                  ...(includeReferences && runConfig?.custom?.references
+                    ? { references: runConfig.custom.references }
+                    : {}),
+                }),
+              },
+              STARTUP_RESPONSE_TIMEOUT_MS,
+              abortSignal,
+            );
 
             // Check for auth errors returned as 200 with JSON (common with middleware issues)
             const contentType = res.headers.get("content-type") || "";
@@ -1319,8 +1509,7 @@ export function createAgentChatAdapter(options?: {
               }
               const continuation = prepareAutoContinuation(err);
               if (!continuation.ok) {
-                const message =
-                  "The agent connection kept failing after several automatic recovery attempts.";
+                const message = exhaustedRecoveryMessage(err.reason);
                 captureChatClientError(err, "auto-continuation-exhausted", {
                   autoContinueReason: err.reason,
                 });
@@ -1416,6 +1605,42 @@ export function createAgentChatAdapter(options?: {
             const activeReconnected = yield* reconnectActiveRunForThread();
             if (activeReconnected) return;
 
+            if (err instanceof AgentStartupTimeoutError) {
+              const message =
+                "The agent chat endpoint accepted the request but did not start streaming in time. This usually means prompt setup, the LLM gateway, or the provider is stalled.";
+              captureChatClientError(err, "startup-timeout", {
+                timeoutMs: err.timeoutMs,
+              });
+              const runError = {
+                message,
+                details: connectionRecoveryDetails(),
+                errorCode: "startup_timeout",
+                recoverable: true,
+                ...(runId ? { runId } : {}),
+              };
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("agent-chat:run-error", {
+                    detail: { ...runError, tabId },
+                  }),
+                );
+              }
+              content.push({
+                type: "text",
+                text: `Something went wrong: ${message}`,
+              });
+              yield {
+                content: [...content],
+                status: {
+                  type: "incomplete" as const,
+                  reason: "error" as const,
+                },
+                metadata: { custom: { ...(runId ? { runId } : {}), runError } },
+              };
+              clearActiveRun();
+              return;
+            }
+
             // Reconnect failed or not possible — keep going from the partial
             // streamed content instead of surfacing a transient transport error.
             if (content.length > 0) {
@@ -1423,8 +1648,7 @@ export function createAgentChatAdapter(options?: {
                 new AgentAutoContinueSignal({ reason: "stream_ended" }),
               );
               if (!continuation.ok) {
-                const message =
-                  "The agent connection kept failing after several automatic recovery attempts.";
+                const message = exhaustedRecoveryMessage("stream_ended");
                 captureChatClientError(err, "recovery-exhausted");
                 const runError = {
                   message,

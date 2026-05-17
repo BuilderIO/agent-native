@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -15,6 +15,7 @@ import {
 import { cn } from "../utils.js";
 import { useNearBottomAutoscroll } from "./use-near-bottom-autoscroll.js";
 import type {
+  AgentConversationAttachment,
   AgentConversationArtifact,
   AgentConversationMessage,
   AgentConversationMessagePart,
@@ -131,6 +132,16 @@ export function AgentConversationMessageView({
         message.pending && "agent-conversation-message--pending",
       )}
     >
+      {message.attachments && message.attachments.length > 0 && (
+        <div className="agent-conversation-message__attachments">
+          {message.attachments.map((attachment, i) => (
+            <ConversationAttachmentChip
+              key={`${attachment.name}-${i}`}
+              attachment={attachment}
+            />
+          ))}
+        </div>
+      )}
       <div className="agent-conversation-message__body">
         {parts.map((part) => (
           <ConversationMessagePartView key={part.id} part={part} />
@@ -196,6 +207,117 @@ function ConversationMessagePartView({
   );
 }
 
+// ─── Shiki syntax highlighter (lazy-loaded) ──────────────────────────────────
+type ShikiHighlighter = {
+  codeToHtml: (
+    code: string,
+    options: {
+      lang: string;
+      themes: { light: string; dark: string };
+      defaultColor?: false | "light" | "dark";
+    },
+  ) => string | Promise<string>;
+  getLoadedLanguages: () => string[];
+};
+
+let _highlighterLoader: Promise<ShikiHighlighter> | null = null;
+function loadConversationHighlighter(): Promise<ShikiHighlighter> {
+  if (!_highlighterLoader) {
+    _highlighterLoader = (async () => {
+      const [{ createHighlighterCore }, { createOnigurumaEngine }] =
+        await Promise.all([
+          import("shiki/core"),
+          import("shiki/engine/oniguruma"),
+        ]);
+      return createHighlighterCore({
+        themes: [
+          import("shiki/themes/github-light-default.mjs"),
+          import("shiki/themes/github-dark-default.mjs"),
+        ],
+        langs: [
+          import("shiki/langs/javascript.mjs"),
+          import("shiki/langs/typescript.mjs"),
+          import("shiki/langs/jsx.mjs"),
+          import("shiki/langs/tsx.mjs"),
+          import("shiki/langs/json.mjs"),
+          import("shiki/langs/css.mjs"),
+          import("shiki/langs/html.mjs"),
+          import("shiki/langs/markdown.mjs"),
+          import("shiki/langs/bash.mjs"),
+          import("shiki/langs/shellscript.mjs"),
+          import("shiki/langs/python.mjs"),
+          import("shiki/langs/yaml.mjs"),
+          import("shiki/langs/sql.mjs"),
+        ],
+        engine: createOnigurumaEngine(import("shiki/wasm")),
+      }) as unknown as Promise<ShikiHighlighter>;
+    })().catch((err) => {
+      _highlighterLoader = null;
+      throw err;
+    });
+  }
+  return _highlighterLoader;
+}
+
+const LANG_ALIASES: Record<string, string> = {
+  js: "javascript",
+  ts: "typescript",
+  sh: "bash",
+  shell: "bash",
+  zsh: "bash",
+  py: "python",
+  yml: "yaml",
+  md: "markdown",
+  bq: "sql",
+  bigquery: "sql",
+};
+
+function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
+  const [html, setHtml] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadConversationHighlighter()
+      .then((highlighter) => {
+        const requested = (lang || "text").toLowerCase();
+        const resolved = LANG_ALIASES[requested] ?? requested;
+        const loaded = highlighter.getLoadedLanguages();
+        const finalLang = loaded.includes(resolved) ? resolved : "text";
+        return highlighter.codeToHtml(code, {
+          lang: finalLang,
+          themes: {
+            light: "github-light-default",
+            dark: "github-dark-default",
+          },
+          defaultColor: false,
+        });
+      })
+      .then((out) => {
+        if (!cancelled) setHtml(out as string);
+      })
+      .catch(() => {
+        if (!cancelled) setHtml(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [code, lang]);
+
+  if (html) {
+    return (
+      <div
+        className="agent-conversation-shiki"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+  return (
+    <pre>
+      <code className={lang ? `language-${lang}` : undefined}>{code}</code>
+    </pre>
+  );
+}
+
 function ConversationMarkdown({ text }: { text: string }) {
   return (
     <div className="agent-conversation-markdown">
@@ -218,12 +340,44 @@ function ConversationMarkdown({ text }: { text: string }) {
               </a>
             );
           },
+          pre(props: React.HTMLAttributes<HTMLPreElement>) {
+            const { children, ...rest } = props;
+            if (React.isValidElement(children)) {
+              const childProps = children.props as {
+                className?: string;
+                children?: React.ReactNode;
+              };
+              const langMatch = (childProps.className ?? "").match(
+                /\blanguage-([\w+-]+)\b/,
+              );
+              if (langMatch) {
+                const code = extractCodeText(childProps.children).replace(
+                  /\n$/,
+                  "",
+                );
+                return <HighlightedCodeBlock code={code} lang={langMatch[1]} />;
+              }
+            }
+            return <pre {...rest}>{children}</pre>;
+          },
         }}
       >
         {text}
       </ReactMarkdown>
     </div>
   );
+}
+
+function extractCodeText(node: React.ReactNode): string {
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractCodeText).join("");
+  if (React.isValidElement(node)) {
+    return extractCodeText(
+      (node.props as { children?: React.ReactNode }).children,
+    );
+  }
+  return "";
 }
 
 function openMarkdownLink(
@@ -335,4 +489,43 @@ function ConversationArtifact({
       )}
     </div>
   );
+}
+
+function ConversationAttachmentChip({
+  attachment,
+}: {
+  attachment: AgentConversationAttachment;
+}) {
+  if (attachment.dataUrl) {
+    return (
+      <div className="agent-conversation-attachment agent-conversation-attachment--image">
+        <img
+          src={attachment.dataUrl}
+          alt={attachment.name}
+          className="agent-conversation-attachment__image"
+        />
+        <span className="agent-conversation-attachment__name">
+          {attachment.name}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="agent-conversation-attachment agent-conversation-attachment--file">
+      <span className="agent-conversation-attachment__name">
+        {attachment.name}
+      </span>
+      {attachment.size !== undefined && (
+        <span className="agent-conversation-attachment__size">
+          {formatBytes(attachment.size)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

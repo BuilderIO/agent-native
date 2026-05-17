@@ -32,3 +32,10 @@ export {
   type WorkspaceAppRouteAccessFromConfig,
   type WorkspaceAppAudience,
 } from "./workspace-app-audience.js";
+export {
+  AGENT_NATIVE_OPEN_PATH,
+  AGENT_SIDEBAR_QUERY_PARAM,
+  AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
+  isAgentNativeOpenDeepLink,
+  withCollapsedAgentSidebarParam,
+} from "./agent-sidebar-url.js";
