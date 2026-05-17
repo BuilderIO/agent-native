@@ -1,5 +1,12 @@
 # @agent-native/frame
 
+## 0.1.93
+
+### Patch Changes
+
+- Updated dependencies [39b4db3]
+  - @agent-native/core@0.19.3
+
 ## 0.1.92
 
 ### Patch Changes
