@@ -63,10 +63,17 @@ export function mountMCP(
 
       const method = getMethod(event);
 
-      // Auth check — also extracts the caller's identity from the JWT so
-      // downstream tools run inside `runWithRequestContext`.
+      // Auth check — extracts the caller's identity from the JWT (`sub`),
+      // or, on the static-token / dev-open path, from the forwarded
+      // `X-Agent-Native-Owner-Email` hint the stdio proxy sends (the
+      // `agent-native mcp install` flow). Without this the install flow
+      // would run every tool unscoped (userEmail === undefined).
       const authHeader = getRequestHeader(event, "authorization");
-      const authResult = await verifyAuth(authHeader);
+      const ownerEmailHeader = getRequestHeader(
+        event,
+        "x-agent-native-owner-email",
+      );
+      const authResult = await verifyAuth(authHeader, ownerEmailHeader);
       if (!authResult.authed) {
         setResponseStatus(event, 401);
         return { error: "Unauthorized" };
@@ -135,7 +142,22 @@ export function mountMCP(
         setResponseStatus(event, 501);
         return { error: "MCP requires Node runtime" };
       }
-      await transport.handleRequest(nodeReq, nodeRes, body);
+      try {
+        await transport.handleRequest(nodeReq, nodeRes, body);
+      } catch (err: any) {
+        // The SDK transport writes directly to the Node response. If the
+        // socket is already closed/ended (client disconnected, or the host
+        // stream layer also flushed), Node throws ERR_STREAM_WRITE_AFTER_END
+        // *after* the MCP payload was already delivered correctly. Swallow
+        // that benign post-flush write so an external agent disconnecting
+        // mid-stream can never take down the server process; rethrow
+        // anything else.
+        if (err?.code !== "ERR_STREAM_WRITE_AFTER_END") throw err;
+        if (process.env.DEBUG)
+          console.log(
+            "[mcp] ignored post-flush ERR_STREAM_WRITE_AFTER_END (client disconnected)",
+          );
+      }
 
       // Prevent H3 from double-writing the response
       (event as any)._handled = true;

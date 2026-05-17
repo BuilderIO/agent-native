@@ -2489,6 +2489,33 @@ describe("server/auth", () => {
       );
     });
   });
+
+  // Regression guard: better-auth 1.6.0 validates emails with Zod v4's
+  // `z.email()`. The original auto dev-account email `dev@local` has no
+  // TLD and is rejected as INVALID_EMAIL, which silently broke the
+  // zero-setup auto-sign-in on every fresh local dev DB. The fix moves
+  // the constant to `dev@local.test` (RFC 6761 reserved, never resolves)
+  // while keeping `dev@local` recognized as the legacy dev account.
+  describe("auto dev account email format", () => {
+    // Must mirror AUTO_DEV_ACCOUNT_EMAIL / LEGACY_AUTO_DEV_ACCOUNT_EMAIL
+    // in auth.ts (module-private constants).
+    const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
+    const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
+
+    it("uses an address that passes better-auth's z.email() validator", async () => {
+      const z = await import("zod");
+      expect(z.email().safeParse(AUTO_DEV_ACCOUNT_EMAIL).success).toBe(true);
+      // The pre-fix address is exactly the one that failed validation.
+      expect(z.email().safeParse(LEGACY_AUTO_DEV_ACCOUNT_EMAIL).success).toBe(
+        false,
+      );
+    });
+
+    it("keeps the new and legacy emails distinct so both are excluded as the dev account", () => {
+      expect(AUTO_DEV_ACCOUNT_EMAIL).not.toBe(LEGACY_AUTO_DEV_ACCOUNT_EMAIL);
+      expect(AUTO_DEV_ACCOUNT_EMAIL).toMatch(/\.test$/);
+    });
+  });
 });
 
 // --- Mock helpers ---

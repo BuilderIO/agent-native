@@ -1,5 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { signShortLivedToken, buildDeepLink } from "@agent-native/core/server";
+import {
+  signShortLivedToken,
+  buildDeepLink,
+  getAppProductionUrl,
+} from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { schema } from "../server/db/index.js";
@@ -64,10 +68,17 @@ export default defineAction({
       ttlSeconds: HANDOFF_TTL_SECONDS,
     });
     const handoffFormat = normalizeHandoffFormat(format);
+    // External agents (MCP / A2A) that don't pass `origin` would otherwise get
+    // a relative URL they can't fetch. Fall back to the canonical app origin —
+    // the same resolution `buildDeepLink` absolutization uses for deployed
+    // first-party apps (env override → registry prodUrl → platform URL →
+    // localhost) — so `rawUrl` is absolute by default. An explicitly-passed
+    // `origin` still wins.
+    const resolvedOrigin = origin || getAppProductionUrl();
     const rawUrl = buildRawHandoffUrl({
       id,
       token,
-      origin,
+      origin: resolvedOrigin,
       format: handoffFormat,
     });
     const prompt = buildCodingHandoffPrompt({

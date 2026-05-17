@@ -33,6 +33,12 @@ const RESERVED = new Set(["app", "view", "to", "compose"]);
 // file stays plain ASCII.
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 
+// Compose-draft id charset. Mirrors `sanitizeDraftId` in
+// templates/mail/actions/manage-draft.ts so the id we concatenate into the
+// `compose-<id>` application-state key can't escape the key namespace
+// (path-traversal / key injection guard).
+const COMPOSE_ID = /^[a-zA-Z0-9_-]{1,64}$/;
+
 export interface OpenRouteOptions {
   /** Per-template override that turns the parsed deep-link params into the
    *  client-side SPA path to redirect to. Return `null` to use the default
@@ -130,7 +136,16 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
         if (compose) {
           try {
             const draft = JSON.parse(decodeBase64Url(compose));
-            if (draft && typeof draft === "object" && draft.id) {
+            // Validate the id before using it as a key segment. An unsafe id
+            // could escape the `compose-` namespace and clobber an unrelated
+            // application-state key; skip the write (the view still opens),
+            // mirroring the malformed-payload branch below.
+            if (
+              draft &&
+              typeof draft === "object" &&
+              typeof draft.id === "string" &&
+              COMPOSE_ID.test(draft.id)
+            ) {
               await appStatePut(session.email, `compose-${draft.id}`, draft, {
                 requestSource: "deep-link",
               });

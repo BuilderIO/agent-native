@@ -26,6 +26,15 @@ import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 export interface MCPConfig {
   /** App name shown in MCP server info */
   name: string;
+  /**
+   * Canonical app id (directory under `apps/`, e.g. `mail`) this MCP server
+   * is mounted for. Optional & back-compat: when omitted the builtin
+   * cross-app tools fall back to lowercasing `name`. Used by `open_app` /
+   * `ask_app` / `create_workspace_app` to tell "this app" from a cross-app
+   * target so they resolve the *target* app's origin rather than echoing the
+   * current request origin.
+   */
+  appId?: string;
   /** App description */
   description: string;
   /** Version string (default "1.0.0") */
@@ -156,12 +165,27 @@ export async function createMCPServerForRequest(
   // generic cross-app builtins (template wins on name collision).
   const actions = mergeBuiltinTools(config);
 
+  // Resolve the effective caller identity. JWT / header-derived identity
+  // (passed by `mountMCP` via `verifyAuth`) wins. When the caller passed no
+  // identity — the stdio **standalone** path — fall back to the
+  // `AGENT_NATIVE_OWNER_EMAIL` env the `agent-native mcp install` flow writes
+  // into the `agent-native mcp serve` process env, so standalone tool runs are
+  // tenant-scoped to the configured owner instead of running unscoped. Stays
+  // undefined for true dev-open (no token, no secret, no owner) — behavior
+  // there is unchanged.
+  const ownerFromEnv = process.env.AGENT_NATIVE_OWNER_EMAIL?.trim();
+  const effectiveIdentity: MCPCallerIdentity | undefined =
+    identity ??
+    (ownerFromEnv
+      ? { userEmail: ownerFromEnv, orgDomain: undefined }
+      : undefined);
+
   // Resolve orgId once per request (DB lookup) so subsequent wraps are
-  // synchronous. The caller identity may be undefined for ACCESS_TOKEN
-  // auth — in that case we run with no userEmail/orgId, which makes
-  // downstream tools that require per-user scope return empty results
-  // rather than cross-tenant data (the safe default).
-  const orgIdPromise = resolveOrgIdFromDomain(identity?.orgDomain);
+  // synchronous. The caller identity may be undefined for true dev-open —
+  // in that case we run with no userEmail/orgId, which makes downstream
+  // tools that require per-user scope return empty results rather than
+  // cross-tenant data (the safe default).
+  const orgIdPromise = resolveOrgIdFromDomain(effectiveIdentity?.orgDomain);
 
   /**
    * Wrap a callback in `runWithRequestContext({ userEmail, orgId }, fn)`.
@@ -172,7 +196,7 @@ export async function createMCPServerForRequest(
   async function withCallerContext<T>(fn: () => Promise<T>): Promise<T> {
     const orgId = await orgIdPromise;
     return runWithRequestContext(
-      { userEmail: identity?.userEmail, orgId },
+      { userEmail: effectiveIdentity?.userEmail, orgId },
       fn,
     ) as Promise<T>;
   }
@@ -299,9 +323,40 @@ export function getAccessTokens(): string[] {
 }
 
 /**
+ * Resolve the caller identity for a static-token (or dev-open) auth path.
+ *
+ * Static `ACCESS_TOKEN` / `ACCESS_TOKENS` auth carries no per-caller claims,
+ * so without this the MCP endpoint would run every tool with
+ * `userEmail === undefined` and per-user / per-org scoped actions
+ * (`accessFilter`, `resolveAccess`, `resolveCredential`) would return
+ * empty / wrong data. The `agent-native mcp install` flow writes
+ * `AGENT_NATIVE_OWNER_EMAIL` into the client config env and the stdio proxy
+ * forwards it as the `X-Agent-Native-Owner-Email` request header (see
+ * `mcp/stdio.ts#authHeaders`). We trust that owner hint *only* on the
+ * static-token path — JWT auth already carries a cryptographically verified
+ * `sub`, so the header is ignored there and never widens JWT scope.
+ *
+ * Returns `undefined` when no owner email is available (true dev-open: no
+ * token, no secret, no owner) so behavior there stays unchanged.
+ */
+function deriveStaticTokenIdentity(
+  ownerEmailHeader: string | undefined,
+): MCPCallerIdentity | undefined {
+  const owner =
+    (typeof ownerEmailHeader === "string" && ownerEmailHeader.trim()) ||
+    process.env.AGENT_NATIVE_OWNER_EMAIL?.trim() ||
+    "";
+  if (!owner) return undefined;
+  return { userEmail: owner, orgDomain: undefined };
+}
+
+/**
  * Verify the inbound auth header. Returns:
- *   - { authed: true, identity } when verified — `identity` may be empty
- *     when authed via a static ACCESS_TOKEN (no caller email available).
+ *   - { authed: true, identity } when verified — `identity` is derived from
+ *     the JWT (`sub` / `org_domain`) for JWT auth, or from the
+ *     `AGENT_NATIVE_OWNER_EMAIL` env / `X-Agent-Native-Owner-Email` header
+ *     for static-token auth (the `agent-native mcp install` flow). `identity`
+ *     is undefined only for true dev-open with no owner hint.
  *   - { authed: false } on rejection.
  *
  * When A2A_SECRET is set we extract the JWT's `sub` (caller email) and
@@ -309,15 +364,25 @@ export function getAccessTokens(): string[] {
  * `runWithRequestContext({ userEmail, orgId })`. Without that wrap, the
  * MCP endpoint loses tenant identity and downstream `accessFilter` /
  * `resolveCredential` calls fall back to platform-wide defaults.
+ *
+ * `ownerEmailHeader` is the forwarded `X-Agent-Native-Owner-Email` value; it
+ * is consulted ONLY on the static-token / dev-open path (never to influence
+ * verified JWT identity), so the install flow runs tools as the configured
+ * owner instead of an unscoped anonymous caller.
  */
 export async function verifyAuth(
   authHeader: string | undefined,
+  ownerEmailHeader?: string | undefined,
 ): Promise<{ authed: boolean; identity?: MCPCallerIdentity }> {
-  // No auth configured → allow (dev mode), but no identity to propagate.
+  // No auth configured → allow (dev mode). Still honour an owner hint
+  // (env or forwarded header) so the install flow stays tenant-scoped.
   const accessTokens = getAccessTokens();
   const hasA2ASecret = !!process.env.A2A_SECRET;
   if (accessTokens.length === 0 && !hasA2ASecret) {
-    return { authed: true };
+    return {
+      authed: true,
+      identity: deriveStaticTokenIdentity(ownerEmailHeader),
+    };
   }
 
   if (!authHeader?.startsWith("Bearer ")) return { authed: false };
@@ -346,9 +411,14 @@ export async function verifyAuth(
     }
   }
 
-  // Try ACCESS_TOKEN / ACCESS_TOKENS exact match (no per-caller identity).
+  // Try ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no
+  // per-caller claims, so derive identity from the forwarded owner-email
+  // hint (install flow) — otherwise tools would run unscoped.
   if (accessTokens.length > 0 && accessTokens.includes(token)) {
-    return { authed: true };
+    return {
+      authed: true,
+      identity: deriveStaticTokenIdentity(ownerEmailHeader),
+    };
   }
 
   return { authed: false };

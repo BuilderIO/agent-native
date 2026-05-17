@@ -211,6 +211,7 @@ async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
   const server = await createMCPServerForRequest(
     {
       name: appId.charAt(0).toUpperCase() + appId.slice(1),
+      appId,
       description: `Agent-native ${appId} app (standalone MCP)`,
       actions,
       // No askAgent in standalone — there is no running engine/runtime here.

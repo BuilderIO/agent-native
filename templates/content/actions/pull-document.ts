@@ -1,11 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { buildDeepLink } from "@agent-native/core/server";
+import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { hasCollabState } from "@agent-native/core/collab";
 import {
-  readAppState,
-  writeAppState,
-  deleteAppState,
+  appStateGet,
+  appStatePut,
+  appStateDelete,
 } from "@agent-native/core/application-state";
 import { z } from "zod";
 import "../server/db/index.js";
@@ -20,17 +20,26 @@ import "../server/db/index.js";
  * ProseMirror -> markdown serializer server-side:
  *
  *   1. If a collab session exists for this doc, write a one-shot
- *      `flush-request-<id>` app-state key (scoped to the caller's browser
- *      session — same scoping the `navigate` command uses).
+ *      `flush-request-<id>` app-state key under the DOCUMENT OWNER's session
+ *      (and, for back-compat, the caller's own session). The open editor polls
+ *      `/_agent-native/application-state/flush-request-<id>`, which the
+ *      framework scopes to the *logged-in browser user* — i.e. the human with
+ *      the editor open, which is the document owner. Scoping the write to the
+ *      external agent caller's session (the old behavior) meant the editor
+ *      never saw the key, so every external `pull-document` waited the full
+ *      timeout and returned stale DB content.
  *   2. The editor polls that key, serializes its current Y.Doc to markdown
  *      through its existing serializer, calls `update-document`, then deletes
  *      the key.
- *   3. We poll for the key to disappear (flush acknowledged) and then read the
- *      now-fresh row. If the key never clears (no editor actually open), we
- *      fall back to the DB column, which is the best available snapshot.
+ *   3. We poll (across both candidate sessions) for the key to disappear
+ *      (flush acknowledged) and then read the now-fresh row. If the key never
+ *      clears (no editor actually open), we fall back to the DB column, which
+ *      is the best available snapshot.
  *
  * When there is no live collab session the DB column is authoritative and we
- * skip the handshake entirely.
+ * skip the handshake entirely. The handshake itself is bounded by
+ * FLUSH_TIMEOUT_MS so a stale `hasCollabState` (presence lingering with no tab
+ * actually open) can never hang the request longer than a few seconds.
  */
 
 const FLUSH_POLL_INTERVAL_MS = 200;
@@ -58,15 +67,49 @@ export default defineAction({
     // for it to acknowledge by clearing the flush-request key.
     if (await hasCollabState(id)) {
       const flushKey = `flush-request-${id}`;
-      await writeAppState(flushKey, { id, ts: Date.now() });
+      // The editor polls `flush-request-<id>` via the framework app-state
+      // route, which scopes reads to the logged-in browser user (the document
+      // owner). Writing under the caller's (external agent's) session — what
+      // the old `writeAppState` helper did — meant the editor never saw the
+      // key. Write under the owner's session so the open editor's poll picks
+      // it up; also write under the caller's own session for back-compat (e.g.
+      // an in-app agent that is itself the owner), de-duped.
+      const ownerEmail =
+        (access.resource.ownerEmail as string | undefined) || undefined;
+      const callerEmail = getRequestUserEmail() || undefined;
+      const targetSessions = Array.from(
+        new Set(
+          [ownerEmail, callerEmail].filter(
+            (s): s is string => typeof s === "string" && s.length > 0,
+          ),
+        ),
+      );
+      const flushValue = { id, ts: Date.now() };
+      await Promise.all(
+        targetSessions.map((s) =>
+          appStatePut(s, flushKey, flushValue, {
+            requestSource: "agent",
+          }).catch(() => {}),
+        ),
+      );
       const deadline = Date.now() + FLUSH_TIMEOUT_MS;
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, FLUSH_POLL_INTERVAL_MS));
-        const pending = await readAppState(flushKey);
-        if (!pending) break;
+        // The editor deletes the key from whichever session it polls. Treat
+        // the flush as acknowledged once it is gone from all target sessions.
+        const pending = await Promise.all(
+          targetSessions.map((s) => appStateGet(s, flushKey)),
+        );
+        if (pending.every((p) => !p)) break;
       }
       // Best-effort cleanup if the editor never picked it up (no tab open).
-      await deleteAppState(flushKey).catch(() => {});
+      await Promise.all(
+        targetSessions.map((s) =>
+          appStateDelete(s, flushKey, { requestSource: "agent" }).catch(
+            () => {},
+          ),
+        ),
+      );
     }
 
     // Re-resolve so we read the now-fresh row (and re-check access).

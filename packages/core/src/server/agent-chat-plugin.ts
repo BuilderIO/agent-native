@@ -3788,6 +3788,7 @@ export function createAgentChatPlugin(
         name: options?.appId
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
           : "Agent",
+        appId: options?.appId,
         description: `Agent-native ${options?.appId ?? "app"} agent`,
         actions: allScripts,
         askAgent: async (message: string) => {

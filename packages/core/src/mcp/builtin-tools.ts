@@ -13,8 +13,15 @@
  * | --------------------- | ------------ | ---------------------------------------- |
  * | `list_apps`           | none         | `{ apps: [{ id, url, running }] }`       |
  * | `open_app`            | none         | `{ url }` (+ deep-link `link`)           |
- * | `ask_app`             | agent loop   | `{ app, response }`                      |
+ * | `ask_app`             | agent loop   | `{ app, routedVia, response }`           |
  * | `create_workspace_app`| scaffolds    | `{ name, url, port, deepLink }` (+ link) |
+ *
+ * `open_app` / `create_workspace_app` return an **absolute** URL on the
+ * *target* app's origin when it differs from this app (so a workspace link
+ * lands in the right app), and a relative path for the same app / standalone.
+ * `ask_app` routes to a *different* workspace app over A2A when possible and
+ * reports `routedVia: "a2a"`; otherwise it answers locally
+ * (`routedVia: "local"`) and never falsely claims cross-app delegation.
  * | `list_templates`      | none         | `{ templates: [...] }` (allow-list only) |
  *
  * Node-only at call time (workspace resolution + scaffolding use `fs`), but
@@ -55,6 +62,45 @@ function tool(
   };
 }
 
+/**
+ * The canonical app id this MCP server is mounted for. `MCPConfig.appId` is
+ * authoritative; fall back to lowercasing `name` (which is the capitalized
+ * app id at every call site) for back-compat with configs that predate the
+ * `appId` field.
+ */
+function currentAppId(config: MCPConfig): string {
+  return (config.appId || config.name || "app").toLowerCase();
+}
+
+/**
+ * Resolve the absolute origin of a *target* workspace app (e.g.
+ * `http://127.0.0.1:8101`) so cross-app deep links / A2A calls point at the
+ * right app instead of the current request's origin. Reuses the same
+ * workspace resolution `list_apps` / the stdio proxy use.
+ *
+ * Returns `null` when:
+ *   - the target is the current app (caller should keep relative behavior),
+ *   - there is no workspace info (standalone / single app), or
+ *   - the target app is unknown.
+ */
+async function resolveTargetAppOrigin(
+  config: MCPConfig,
+  targetAppId: string,
+): Promise<{ origin: string; id: string } | null> {
+  const target = targetAppId.trim().toLowerCase();
+  if (!target || target === currentAppId(config)) return null;
+  try {
+    const { resolveWorkspace } = await import("./workspace-resolve.js");
+    const ws = await resolveWorkspace();
+    if (!ws.isWorkspace) return null;
+    const match = ws.apps.find((a) => a.id.toLowerCase() === target);
+    if (!match) return null;
+    return { origin: match.url, id: match.id };
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // list_apps
 // ---------------------------------------------------------------------------
@@ -89,7 +135,7 @@ function listAppsTool(): ActionEntry {
 // open_app
 // ---------------------------------------------------------------------------
 
-function openAppTool(): ActionEntry {
+function openAppTool(config: MCPConfig): ActionEntry {
   return {
     tool: tool(
       "Build a deep link that opens an app at a specific view/record. No side " +
@@ -128,7 +174,18 @@ function openAppTool(): ActionEntry {
           params = undefined;
         }
       }
-      const url = buildDeepLink({ app, view, params });
+      const relUrl = buildDeepLink({ app, view, params });
+
+      // Cross-app target in a workspace: resolve the TARGET app's origin and
+      // return an absolute URL. Otherwise the MCP layer would prefix the
+      // relative path with the CURRENT request origin, landing the user in
+      // the wrong app (e.g. open_app({app:"calendar"}) served from Mail).
+      // Same-app / standalone keeps the relative path (current behavior).
+      const targetApp = await resolveTargetAppOrigin(config, app);
+      const url = targetApp
+        ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
+        : relUrl;
+
       return { app, view, url };
     },
     link: ({ result }) => {
@@ -154,7 +211,9 @@ function askAppTool(config: MCPConfig): ActionEntry {
       "Send a natural-language message to an app's AI agent and get its " +
         "response. Use for complex, multi-step tasks needing the agent's " +
         "reasoning and full app context. In a single-app project the 'app' " +
-        "param is optional (defaults to this app).",
+        "param is optional (defaults to this app). When 'app' names a " +
+        "different workspace app it is routed there over A2A; the result's " +
+        "'routedVia' field reports whether it ran cross-app or locally.",
       {
         app: {
           type: "string",
@@ -171,21 +230,65 @@ function askAppTool(config: MCPConfig): ActionEntry {
       const message = String(args.message ?? "").trim();
       if (!message) throw new Error("ask_app requires a 'message'.");
       const requestedApp = String(args.app ?? "").trim();
+      const selfId = currentAppId(config);
 
-      // This MCP server is mounted for a single app (`config`). Delegate to
-      // its own ask-agent handler — that is the same entry point the HTTP MCP
-      // mount + A2A use, so there is no second agent runner. Cross-app routing
-      // (talking to a *different* workspace app's agent) is intentionally not
-      // done here: the stdio proxy connects to one app, and cross-app fan-out
-      // is the workspace control plane's job (Dispatch / A2A).
+      // Cross-app: the caller named a *different* workspace app. Route the
+      // message to THAT app's agent over A2A (its `/_agent-native/a2a`
+      // endpoint runs the real agent loop with JWT identity) rather than
+      // silently answering from this app's agent and claiming delegation.
+      const targetApp = await resolveTargetAppOrigin(config, requestedApp);
+      if (targetApp) {
+        try {
+          const { callAgent } = await import("../a2a/client.js");
+          const { getRequestUserEmail } =
+            await import("../server/request-context.js");
+          // The MCP handler runs inside `runWithRequestContext`, so this is
+          // the verified caller's email — it lets `callAgent` mint a signed
+          // A2A JWT so the target app honours per-user scope.
+          const response = await callAgent(targetApp.origin, message, {
+            userEmail: getRequestUserEmail(),
+            // Bound the wait — cross-app A2A polls async by default.
+            timeoutMs: 5 * 60_000,
+          });
+          return {
+            app: targetApp.id,
+            routedVia: "a2a",
+            response,
+          };
+        } catch (err: any) {
+          // Be honest: routing was attempted and failed — do NOT fall back to
+          // this app's agent and pretend it was the target.
+          throw new Error(
+            `Failed to route ask_app to "${targetApp.id}" via A2A: ` +
+              `${err?.message ?? err}`,
+          );
+        }
+      }
+
+      // Same app (or no workspace / unknown target): answer locally with this
+      // app's own ask-agent handler — the same entry point the HTTP MCP mount
+      // + A2A use, so there is no second agent runner.
       if (!config.askAgent) {
         throw new Error(
           "This app does not expose an agent (no ask-agent handler).",
         );
       }
+
+      // If the caller named an app we couldn't route to (unknown id, or no
+      // workspace), say so honestly instead of claiming we reached it.
+      const unresolved =
+        !!requestedApp && requestedApp.toLowerCase() !== selfId;
       const response = await config.askAgent(message);
       return {
-        app: requestedApp || config.name,
+        app: selfId,
+        routedVia: "local",
+        ...(unresolved
+          ? {
+              note:
+                `Requested app "${requestedApp}" is not a reachable workspace ` +
+                `app; answered with this app ("${selfId}") instead.`,
+            }
+          : {}),
         response,
       };
     },
@@ -305,7 +408,15 @@ function createWorkspaceAppTool(): ActionEntry {
       const ws = await resolveWorkspace(root);
       const appInfo = ws.apps.find((a) => a.id === name);
       const port = appInfo?.port;
-      const deepLink = buildDeepLink({ app: name, view: "home" });
+      // The scaffolded app is always a *different* app from the host MCP
+      // server, so anchor the deep link to the new app's own origin. A
+      // relative path would otherwise be prefixed with the current request
+      // origin and land on the wrong app. Fall back to the relative path
+      // only if the gateway hasn't reported the new app's URL yet.
+      const relDeepLink = buildDeepLink({ app: name, view: "home" });
+      const deepLink = appInfo?.url
+        ? `${appInfo.url.replace(/\/+$/, "")}${relDeepLink}`
+        : relDeepLink;
 
       return {
         name,
@@ -345,7 +456,7 @@ export function getBuiltinCrossAppTools(
 ): Record<string, ActionEntry> {
   return {
     list_apps: listAppsTool(),
-    open_app: openAppTool(),
+    open_app: openAppTool(config),
     ask_app: askAppTool(config),
     create_workspace_app: createWorkspaceAppTool(),
     list_templates: listTemplatesTool(),

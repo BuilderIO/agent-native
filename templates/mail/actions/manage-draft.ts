@@ -10,6 +10,18 @@ import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { appendSignatureToBody } from "../shared/signature.js";
 
+/**
+ * Cap for the base64url `compose=` query param. A full draft (recipients +
+ * subject + entire body) base64-encoded can be many KB, and browsers / inline
+ * webviews silently truncate or reject very long URLs. When the self-contained
+ * payload would exceed this, we fall back to an id-only deep link: the draft
+ * is already persisted as a `compose-{id}` app-state entry by this action, so
+ * the compose panel resurfaces it from the persisted row for the creator. The
+ * threshold is conservative (well under the ~8KB practical URL ceiling, with
+ * headroom for the rest of the query string and host prefix).
+ */
+const MAX_COMPOSE_PAYLOAD_BYTES = 1536;
+
 /** Base64url-encode a compose draft so `/_agent-native/open?compose=…`
  *  decodes it back into a `compose-{id}` app-state entry the compose panel
  *  auto-opens. */
@@ -17,12 +29,32 @@ function encodeComposeDraft(draft: Record<string, string>): string {
   return Buffer.from(JSON.stringify(draft)).toString("base64url");
 }
 
+/**
+ * Build the compact `compose=` payload. Prefer the full self-contained draft
+ * (so a small draft opens instantly with content even before app-state polls),
+ * but if encoding the whole draft would blow the URL size budget, fall back to
+ * an id-only payload. `manage-draft` always persists the full draft to the
+ * `compose-{id}` app-state key, so the compose panel still resurfaces the
+ * complete draft by id for the creator — the URL just stays short.
+ */
+function encodeComposePayload(draft: Record<string, string>): string {
+  const full = encodeComposeDraft(draft);
+  if (Buffer.byteLength(full, "utf8") <= MAX_COMPOSE_PAYLOAD_BYTES) {
+    return full;
+  }
+  // Keep the id (required to resurface the persisted draft) plus a tiny
+  // subject hint so the link is still self-describing; drop the heavy body.
+  const compact: Record<string, string> = { id: draft.id };
+  if (draft.subject) compact.subject = draft.subject.slice(0, 120);
+  return encodeComposeDraft(compact);
+}
+
 /** Deep link that reopens a compose draft in the Mail compose panel. */
 function composeDeepLink(draft: Record<string, string>): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
-    compose: encodeComposeDraft(draft),
+    compose: encodeComposePayload(draft),
   });
 }
 
