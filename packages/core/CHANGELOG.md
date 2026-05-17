@@ -1,5 +1,63 @@
 # @agent-native/core
 
+## 0.19.0
+
+### Minor Changes
+
+- b3de2db: Cross-app SSO ("Sign in with Agent-Native", Dispatch as identity authority).
+  New opt-in env `AGENT_NATIVE_IDENTITY_HUB_URL`: when set, an app exposes
+  `/_agent-native/identity/login` + `/callback`, redirects to the hub's
+  `/_agent-native/identity/authorize`, verifies the short-lived `A2A_SECRET`-
+  signed identity token (strict `scope:"identity"`, single-use CSRF state,
+  `iat`/`exp` bounds), and **JIT-links to the local Better Auth user strictly by
+  verified email** — existing same-email user is linked (additive `account` row
+  via the adapter; the user/session rows are never modified, renamed, or
+  deleted), new email is created via the normal signup path — then mints a normal
+  local session. Unset = zero behavior change (fully reversible; per-app canary
+  via one env var). Identity rows are only ever added to, so rolling this out
+  logs users out once and they log back into the _same_ account with data intact.
+  Includes the `redirect()` staged-`Set-Cookie`-on-302 fix so the session
+  survives the federated callback. The Dispatch-side identity authority lives in
+  the (private) dispatch template.
+- b3de2db: Frictionless connect for external agents. New `agent-native connect <url>`
+  (and `connect --all`) drives an OAuth-style device-code flow: a logged-in
+  browser session mints a per-user, scoped, **revocable** MCP token (an
+  `A2A_SECRET`-signed JWT with a `jti`) and the CLI writes the HTTP MCP server
+  entry for every detected client (Claude Code desktop/CLI, Codex, Cowork) — no
+  shared secret copying, no local server. Adds the framework-served
+  `/_agent-native/mcp/connect` page + token mint / device-code / list / revoke
+  endpoints (mounted by the core routes plugin, gated by `disableMcpConnect`),
+  two additive framework tables (`mcp_connect_tokens`, `mcp_device_codes`), a
+  `jti` revoke check in the MCP `verifyAuth`, and an optional `extraClaims` on
+  `signA2AToken`. Connecting to hosted apps is now the primary documented path;
+  local-dev `mcp install` / stdio remains as the advanced path.
+
+### Patch Changes
+
+- b3de2db: Fix local-dev zero-setup auto-sign-in: the session cookie is now emitted on
+  the 302 itself. `maybeAutoCreateDevSession` returned a bare
+  `new Response("", { status: 302, headers: { Location } })` after staging the
+  session cookie via `setFrameworkSessionCookie`. h3 v2's `prepareResponse`
+  only merges the event's staged response headers into a returned web
+  `Response` when that Response is 2xx — its `!val.ok` early-return hands a
+  non-2xx Response (like a 302) back as-is, dropping the staged `Set-Cookie`.
+  A fresh `pnpm dev` therefore 302'd straight to the app and bounced back to
+  the login form. A new `redirectWithStagedCookies` helper mirrors the staged
+  cookies onto the redirect Response's own headers so the 302 actually carries
+  the session.
+
+  Also hardens the dev auto-account so the convenience can't become an
+  exposure: it now (1) only fires for **loopback** requests — a new shared
+  `isLoopbackRequest` helper (also adopted by the desktop-SSO broker) so a
+  tunnelled / reverse-proxied / misconfigured-non-prod dev server never
+  auto-signs-in a remote visitor; and (2) mints a **random per-DB password**
+  printed to the server console once, instead of the source-code-known fixed
+  `local-dev-account`, so there is no shared credential to reuse. Still gated
+  on `NODE_ENV` and `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`.
+
+- b3de2db: Remove the "Effective context" card grid from the resources editor and replace the section-title hover tooltips (Workspace / Organization / Personal) with a dedicated small help icon. The inherited Workspace section is now hidden unless workspace context exists.
+- b3de2db: Share composer submit intent, transcript normalization, and conversation scroll primitives with Agent-Native Code.
+
 ## 0.18.1
 
 ### Patch Changes
