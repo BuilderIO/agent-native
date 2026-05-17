@@ -12,6 +12,7 @@ import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconArrowUpRight,
   IconApps,
+  IconBrain,
   IconChartBar,
   IconBrandTelegram,
   IconKey,
@@ -149,6 +150,13 @@ const OPERATIONS_NAV_ITEMS = [
     to: "/audit",
     label: "Audit",
     icon: IconHistory,
+    section: "operations",
+  },
+  {
+    id: "dreams",
+    to: "/dreams",
+    label: "Dreams",
+    icon: IconBrain,
     section: "operations",
   },
   {
@@ -430,7 +438,7 @@ export function Layout({
         <AgentSidebar
           position="right"
           defaultOpen={false}
-          emptyStateText="Create apps, grant keys, and route work across the workspace."
+          emptyStateText="Create apps, manage vault keys, and route work across the workspace."
           suggestions={SIDEBAR_SUGGESTIONS}
         >
           {appContent}

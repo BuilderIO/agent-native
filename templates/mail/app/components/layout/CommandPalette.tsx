@@ -24,6 +24,7 @@ import {
 import { CommandMenu } from "@agent-native/core/client";
 import { useTheme } from "next-themes";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
+import { getResolvedTheme } from "@/lib/theme";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -80,7 +81,7 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
+  const isDark = getResolvedTheme(resolvedTheme) === "dark";
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const imagePolicy = settings?.imagePolicy ?? "show";
@@ -223,7 +224,11 @@ export function CommandPalette({
 
       <CommandMenu.Group heading="Appearance">
         <CommandMenu.Item
-          onSelect={() => setTheme(isDark ? "light" : "dark")}
+          onSelect={() =>
+            setTheme(
+              getResolvedTheme(resolvedTheme) === "dark" ? "light" : "dark",
+            )
+          }
           keywords={["theme", "dark", "light", "mode"]}
         >
           {isDark ? (

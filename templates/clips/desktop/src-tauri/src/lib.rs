@@ -27,7 +27,7 @@ use tauri::{Emitter, Manager};
 use clips::{position_popover, toggle_popover};
 use state::{
     DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
-    RecordingActive, TrayAnchor, VoiceWakePopover,
+    RecordingActive, TrayAnchor, TrayMeetings, VoiceWakePopover,
 };
 use util::{is_recording_active, set_capture_included};
 
@@ -58,12 +58,17 @@ pub fn run() {
             clips::hide_finalizing,
             clips::show_toolbar,
             clips::show_bubble,
+            clips::set_bubble_capture_excluded,
             clips::hide_overlays,
             clips::hide_recording_chrome,
+            clips::show_region_guides,
+            clips::hide_region_guides,
+            clips::show_region_guide_editor,
             clips::close_bubble,
             clips::show_popover,
             clips::park_popover_offscreen,
             clips::open_macos_privacy_settings,
+            clips::open_local_recording_folder,
             clips::request_macos_screen_recording_access,
             clips::resize_popover,
             clips::show_signin,
@@ -90,6 +95,7 @@ pub fn run() {
             native_screen::native_fullscreen_recording_start,
             native_screen::native_fullscreen_capture_thumbnail,
             native_screen::native_fullscreen_recording_stop_and_upload,
+            native_screen::native_fullscreen_recording_stop_and_save,
             native_screen::native_fullscreen_recording_cancel,
             native_screen::native_fullscreen_pending_uploads,
             native_screen::native_fullscreen_recording_retry_upload,
@@ -129,6 +135,7 @@ pub fn run() {
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("Clips")
@@ -138,6 +145,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(shortcuts::build_shortcut_plugin().build())
         .manage(TrayAnchor::default())
+        .manage(TrayMeetings::default())
         .manage(PopoverShownAt::default())
         .manage(RecordingActive::default())
         .manage(MeetingActive::default())
@@ -161,8 +169,13 @@ pub fn run() {
 
             tray::build_tray(app)?;
             config::sync_launch_at_login(app.handle());
+            // Re-show always-on region guides after relaunch/reboot when the
+            // setting is on (no-op if a recording owns the window or the
+            // toggle is off).
+            clips::reconcile_region_guides(app.handle());
             shortcuts::register_shortcuts(app)?;
             shortcuts::install_popover_dismiss_handler(app);
+            shortcuts::install_countdown_shortcut_handler(app);
 
             // Spawn the upcoming-meetings poller. Idempotent — gated by a
             // OnceLock inside `spawn_watcher`. The frontend wires the

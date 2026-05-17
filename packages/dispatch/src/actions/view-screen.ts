@@ -16,15 +16,39 @@ import {
   listSecrets,
   listGrants,
   listRequests,
+  getVaultAccessSettings,
 } from "../server/lib/vault-store.js";
 import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
 import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
-import { listWorkspaceResourceOptions } from "../server/lib/workspace-resources-store.js";
+import {
+  listWorkspaceResourceOptions,
+  listWorkspaceResourcesForApp,
+} from "../server/lib/workspace-resources-store.js";
 import {
   getAgentThreadDebug,
   listThreadDebugSources,
   searchAgentThreads,
 } from "../server/lib/thread-debug-store.js";
+
+async function runLocalDispatchAction(
+  name: string,
+  args: Record<string, unknown>,
+) {
+  const modulePath = `./${name}.js`;
+  const module = (await import(/* @vite-ignore */ modulePath)) as {
+    default?: {
+      run: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+    };
+  };
+  if (!module.default) throw new Error(`Dispatch action not found: ${name}`);
+  return module.default.run(stripUndefined(args));
+}
+
+function stripUndefined(args: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(args).filter(([, value]) => value !== undefined),
+  );
+}
 
 export default defineAction({
   description:
@@ -56,9 +80,32 @@ export default defineAction({
       navigation?.view === "apps" ||
       navigation?.view === "new-app"
     ) {
-      screen.workspaceApps = await listWorkspaceApps({
+      const workspaceApps = await listWorkspaceApps({
         includeAgentCards: true,
       });
+      screen.workspaceApps = workspaceApps;
+      if (navigation?.view === "apps") {
+        screen.workspaceAppResources = await Promise.all(
+          workspaceApps
+            .filter((app) => !app.isDispatch)
+            .slice(0, 12)
+            .map(async (app) => {
+              const result = await listWorkspaceResourcesForApp(app.id);
+              return {
+                appId: app.id,
+                appName: app.name,
+                counts: result.counts,
+                resources: result.resources.map((resource) => ({
+                  name: resource.name,
+                  path: resource.path,
+                  kind: resource.kind,
+                  source: resource.source,
+                  autoLoaded: resource.autoLoaded,
+                })),
+              };
+            }),
+        );
+      }
     }
     if (navigation?.view === "metrics") {
       try {
@@ -78,11 +125,13 @@ export default defineAction({
       }
     }
     if (navigation?.view === "vault" || navigation?.view === "new-app") {
-      const [secrets, grants, requests] = await Promise.all([
+      const [secrets, grants, requests, access] = await Promise.all([
         listSecrets(),
         listGrants(),
         listRequests({ status: "pending" }),
+        getVaultAccessSettings(),
       ]);
+      screen.vaultAccessMode = access.mode;
       screen.vaultSecrets = secrets.map((s) => ({
         id: s.id,
         name: s.name,
@@ -96,6 +145,16 @@ export default defineAction({
     }
     if (navigation?.view === "workspace" || navigation?.view === "new-app") {
       screen.workspaceResources = await listWorkspaceResourceOptions();
+      screen.workspaceResourceEffectiveContext = {
+        action: "get-workspace-resource-effective-context",
+        description:
+          "Preview workspace -> organization/app -> personal precedence for a resource path and optional app/user. All-app resources are inherited at runtime; selected resources are app-specific exceptions.",
+      };
+      screen.workspaceResourceImpactPreview = {
+        action: "preview-workspace-resource-change",
+        description:
+          "Preview All-app reach, overrides, and approval behavior before creating, updating, or deleting a workspace resource.",
+      };
     }
     if (navigation?.view === "thread-debug") {
       try {
@@ -130,6 +189,38 @@ export default defineAction({
         }
       } catch (error) {
         screen.threadDebugError =
+          error instanceof Error ? error.message : String(error);
+      }
+    }
+    if (navigation?.view === "dreams") {
+      try {
+        const nav = navigation as Record<string, any>;
+        const [sources, candidates, dreams, settings] = await Promise.all([
+          listThreadDebugSources(),
+          runLocalDispatchAction("list-dream-candidates", {
+            sourceId: nav.sourceId,
+            ownerEmail: nav.ownerEmail,
+            limit: 10,
+          }),
+          runLocalDispatchAction("list-dreams", {
+            status: nav.status,
+            limit: 10,
+          }),
+          runLocalDispatchAction("get-dream-settings", {}),
+        ]);
+        screen.dreamSources = sources;
+        screen.dreamCandidates = candidates;
+        screen.latestDreams = dreams;
+        screen.dreamSettings = settings;
+
+        const dreamId = nav.dreamId ?? nav.id;
+        if (dreamId) {
+          screen.dreamDetail = await runLocalDispatchAction("get-dream", {
+            id: dreamId,
+          });
+        }
+      } catch (error) {
+        screen.dreamsError =
           error instanceof Error ? error.message : String(error);
       }
     }

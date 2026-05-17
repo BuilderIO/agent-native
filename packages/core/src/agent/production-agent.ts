@@ -32,6 +32,8 @@ import {
 import { userFacingLlmCredentialError } from "./engine/credential-errors.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import { readAppState } from "../application-state/script-helpers.js";
+import { isDemoModeEnabled } from "../demo/config.js";
+import { redactDemoData, redactDemoString } from "../demo/redact.js";
 import {
   startRun,
   subscribeToRun,
@@ -42,8 +44,10 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
+import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import {
   getRequestRunContext,
+  ensureRequestRunContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -69,6 +73,48 @@ import { preUploadImageAttachments } from "../file-upload/pre-upload-attachments
 registerBuiltinEngines();
 
 export { PROVIDER_TO_ENV };
+
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+function normalizeBrowserTabId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+}
+
+function normalizeChatScope(
+  value: unknown,
+): { type: string; id: string; label?: string } | null | undefined {
+  if (value == null) return null;
+  if (typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type.trim() : "";
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  if (!type || !id || type.length > 64 || id.length > 256) {
+    return undefined;
+  }
+  const label =
+    typeof record.label === "string" && record.label.trim().length > 0
+      ? record.label.trim().slice(0, 256)
+      : undefined;
+  return { type, id, ...(label ? { label } : {}) };
+}
+
+function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
+  return browserTabId ? `${key}:${browserTabId}` : key;
+}
+
+async function readAppStateForBrowserTab<T>(
+  key: string,
+  browserTabId?: string,
+): Promise<T | null> {
+  const tabKey = appStateKeyForBrowserTab(key, browserTabId);
+  if (tabKey !== key) {
+    const scoped = (await readAppState(tabKey).catch(() => null)) as T | null;
+    if (scoped) return scoped;
+  }
+  return (await readAppState(key)) as T | null;
+}
 
 /**
  * Look up a user's persisted API key for the given provider. Returns
@@ -213,6 +259,9 @@ export interface ActionEntry {
   ) => Promise<any>;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
   http?: import("../action.js").ActionHttpConfig | false;
+  /** Explicit opt-in metadata for public agent protocols. Public routes never
+   *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
+  publicAgent?: import("../action.js").PublicAgentActionConfig;
   /** If true, completion does NOT trigger a screen-refresh poll event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
@@ -227,6 +276,10 @@ export interface ActionEntry {
    *  See `defineAction` (`packages/core/src/action.ts`) and audit H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /** Optional deep-link builder. When set, MCP/A2A surfaces append an
+   *  "Open in <app> →" link built from the call's args + result. Pure, sync,
+   *  best-effort. See `defineAction` and the `external-agents` skill. */
+  link?: import("../action.js").ActionLinkBuilder;
 }
 
 /** @deprecated Use `ActionEntry` instead */
@@ -239,7 +292,7 @@ export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
 You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
 
 Hard rules:
-- Use only read-only tools. Do not edit files, write resources, run shell commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
+- Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
 - If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
 - When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
 - Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector or /act before implementation.`;
@@ -336,12 +389,23 @@ export function isPlanModeToolCallAllowed(
     return PLAN_MODE_WEB_REQUEST_METHODS.has(getWebRequestMethod(input));
   }
 
+  if (name === "bash") {
+    return isPlanModeReadOnlyBashCall(input);
+  }
+
   const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
   if (allowedActions) {
     return allowedActions.includes(getToolAction(name, input));
   }
 
   return entry.readOnly === true;
+}
+
+function isPlanModeReadOnlyBashCall(input: unknown): boolean {
+  if (!input || typeof input !== "object") return false;
+  const command = (input as Record<string, unknown>).command;
+  if (typeof command !== "string") return false;
+  return isReadOnlyShellCommand(command);
 }
 
 function createPlanModeGuardedAction(
@@ -392,6 +456,23 @@ function createPlanModeWebRequestAction(entry: ActionEntry): ActionEntry {
   };
 }
 
+function createPlanModeBashAction(entry: ActionEntry): ActionEntry {
+  return {
+    ...entry,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description: `${entry.tool.description}\n\nPlan mode: only read-only inspection commands such as pwd, ls, find, rg, grep, cat, sed -n, head, tail, wc, and git status/diff/show/log are allowed.`,
+    },
+    run: async (args, context) => {
+      if (!isPlanModeReadOnlyBashCall(args)) {
+        return planModeBlockedMessage("bash", "command is not read-only");
+      }
+      return entry.run(args, context);
+    },
+  };
+}
+
 export function createPlanModeActionRegistry(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -409,6 +490,11 @@ export function createPlanModeActionRegistry(
 
     if (name === "web-request") {
       filtered[name] = createPlanModeWebRequestAction(entry);
+      continue;
+    }
+
+    if (name === "bash") {
+      filtered[name] = createPlanModeBashAction(entry);
       continue;
     }
 
@@ -440,6 +526,8 @@ export interface ProductionAgentOptions {
     | { name: string; config: Record<string, unknown> };
   /** Model to use. Defaults to the resolved engine's default model. */
   model?: string;
+  /** App/template id used for org-scoped per-app model defaults. */
+  appId?: string;
   /** Default reasoning effort for requests that do not supply an override. */
   reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
@@ -846,7 +934,7 @@ function enrichMessage(
         skillRefs
           .map(
             (r) =>
-              `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read-file"}`,
+              `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read"}`,
           )
           .join("\n"),
     );
@@ -1602,8 +1690,31 @@ export async function runAgentLoop(opts: {
             );
           }),
         ]);
+        // Demo mode: the agent must see the same fake data the UI shows, so
+        // it can't read out a real name/email on a live screen share. Redact
+        // the structured result (not the JSON string) so IDs/dates/URLs stay
+        // intact and follow-up tool calls still work. Gated — the expensive
+        // walk only runs when demo mode is on.
+        let redacted: unknown = raw;
+        if (await isDemoModeEnabled()) {
+          if (typeof raw === "string") {
+            try {
+              redacted = JSON.stringify(
+                redactDemoData(JSON.parse(raw)),
+                null,
+                2,
+              );
+            } catch {
+              redacted = redactDemoString(raw);
+            }
+          } else {
+            redacted = redactDemoData(raw);
+          }
+        }
         let resultStr =
-          typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+          typeof redacted === "string"
+            ? redacted
+            : JSON.stringify(redacted, null, 2);
         if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
           const truncated = resultStr.slice(0, MAX_TOOL_RESULT_CHARS);
           resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${MAX_TOOL_RESULT_CHARS.toLocaleString()} shown]`;
@@ -1771,7 +1882,16 @@ export function createProductionAgentHandler(
       model: requestModel,
       engine: requestEngine,
       effort: requestEffort,
+      browserTabId,
+      scope,
     } = body;
+    const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
+    const requestChatScope = normalizeChatScope(scope);
+    const requestRunCtx = ensureRequestRunContext();
+    if (requestRunCtx) {
+      requestRunCtx.browserTabId = requestBrowserTabId;
+      requestRunCtx.chatScope = requestChatScope;
+    }
     const requestMode: AgentExecutionMode =
       body.mode === "plan" ? "plan" : "act";
     const hasMessageText =
@@ -1879,10 +1999,12 @@ export function createProductionAgentHandler(
         engineOption: requestEngine ?? options.engine,
         apiKey: effectiveApiKey,
         model: configuredModel,
+        appId: options.appId,
       });
     } catch {
       engine = await resolveEngine({
         apiKey: effectiveApiKey,
+        appId: options.appId,
       });
     }
 
@@ -1894,7 +2016,7 @@ export function createProductionAgentHandler(
     const model =
       requestModel ??
       configuredModel ??
-      (await getStoredModelForEngine(engine)) ??
+      (await getStoredModelForEngine(engine, { appId: options.appId })) ??
       engine.defaultModel;
     const reasoningEffort = normalizeReasoningEffortForModel(
       model,
@@ -1966,7 +2088,10 @@ export function createProductionAgentHandler(
             return `\n\n<current-screen>\n${screenText}\n</current-screen>`;
           }
         } else {
-          const navigation = await readAppState("navigation");
+          const navigation = await readAppStateForBrowserTab(
+            "navigation",
+            requestBrowserTabId,
+          );
           if (navigation) {
             return `\n\n<current-screen>\n${JSON.stringify(navigation, null, 2)}\n</current-screen>`;
           }
@@ -1979,7 +2104,10 @@ export function createProductionAgentHandler(
 
     const urlContextPromise = (async (): Promise<string> => {
       try {
-        const url = (await readAppState("__url__")) as {
+        const url = (await readAppStateForBrowserTab(
+          "__url__",
+          requestBrowserTabId,
+        )) as {
           pathname?: string;
           search?: string;
           hash?: string;

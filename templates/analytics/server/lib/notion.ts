@@ -1,12 +1,9 @@
-// Notion API helper for content calendar database & page rendering
-// Docs: https://developers.notion.com/reference/post-database-query
-
-import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
   requireRequestCredentialContext,
   scopedCredentialCacheKey,
 } from "./credentials-context";
+import { resolveAnalyticsProviderCredential } from "./provider-credentials";
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
@@ -24,9 +21,13 @@ const pageCache = new Map<string, { data: NotionPageData; ts: number }>();
 
 async function getApiKey(): Promise<string> {
   const ctx = requireRequestCredentialContext("NOTION_API_KEY");
-  const key = await resolveCredential("NOTION_API_KEY", ctx);
-  if (!key) throw new Error("NOTION_API_KEY not configured");
-  return key;
+  const credential = await resolveAnalyticsProviderCredential({
+    provider: "notion",
+    keys: ["NOTION_API_KEY"],
+    ctx,
+  });
+  if (!credential) throw new Error("NOTION_API_KEY not configured");
+  return credential.value;
 }
 
 async function notionGet(path: string): Promise<unknown> {

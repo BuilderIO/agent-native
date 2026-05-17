@@ -1,10 +1,67 @@
-import { app } from "electron";
+import { app, safeStorage } from "electron";
 import fs from "fs";
 import path from "path";
-import { DEFAULT_APPS, type AppConfig } from "@agent-native/shared-app-config";
+import {
+  DESKTOP_DEFAULT_APPS,
+  TEMPLATE_APPS,
+  type AppConfig,
+} from "@shared/app-registry";
+import type {
+  CodeAgentProviderCredentialKey,
+  CodeAgentProviderSettings,
+  CodeAgentProviderSettingsUpdate,
+  CodeAgentProviderStatus,
+} from "@shared/ipc-channels";
 
 const STORE_FILE = "app-config.json";
 const FRAME_STORE_FILE = "frame-config.json";
+const REMOTE_CONNECTOR_STORE_FILE = "remote-connector-config.json";
+const CODE_AGENT_PROVIDER_STORE_FILE = "code-agent-providers.json";
+const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
+
+type StoredSecret =
+  | { encoding: "safeStorage-v1"; value: string; updatedAt?: string }
+  | { encoding: "plain"; value: string; updatedAt?: string };
+
+interface CodeAgentProviderStore {
+  version: 1;
+  credentials: Partial<Record<CodeAgentProviderCredentialKey, StoredSecret>>;
+}
+
+const CODE_AGENT_PROVIDER_DEFINITIONS: Array<{
+  id: CodeAgentProviderStatus["id"];
+  label: string;
+  keys: CodeAgentProviderCredentialKey[];
+}> = [
+  {
+    id: "builder",
+    label: "Builder.io",
+    keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    keys: ["ANTHROPIC_API_KEY"],
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    keys: ["OPENAI_API_KEY"],
+  },
+  {
+    id: "google",
+    label: "Gemini",
+    keys: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+  },
+];
+
+const CODE_AGENT_PROVIDER_KEYS = CODE_AGENT_PROVIDER_DEFINITIONS.flatMap(
+  (provider) => provider.keys,
+);
+
+const INITIAL_CODE_AGENT_PROVIDER_ENV = new Map(
+  CODE_AGENT_PROVIDER_KEYS.map((key) => [key, process.env[key]]),
+);
 
 /** Settings for the local dev frame */
 export interface FrameSettings {
@@ -16,6 +73,10 @@ export interface FrameSettings {
   prodUrl?: string;
 }
 
+export interface RemoteConnectorSettings {
+  enabled: boolean;
+}
+
 function defaultFrameSettings(): FrameSettings {
   return {
     enabled: true,
@@ -23,14 +84,23 @@ function defaultFrameSettings(): FrameSettings {
   };
 }
 
+function defaultRemoteConnectorSettings(): RemoteConnectorSettings {
+  return {
+    enabled: true,
+  };
+}
+
 function defaultApps(): AppConfig[] {
-  return DEFAULT_APPS.map((def) => ({
+  return DESKTOP_DEFAULT_APPS.map((def) => ({
     ...def,
-    mode: app.isPackaged ? (def.mode ?? "prod") : "dev",
+    mode:
+      app.isPackaged || def.id === "dispatch" ? (def.mode ?? "prod") : "dev",
   }));
 }
 
 function canonicalizeDefaultApp(appConfig: AppConfig, def: AppConfig) {
+  const shouldBackfillProdUrl = !appConfig.url?.trim() && Boolean(def.url);
+
   // Preserve everything the user can edit in the settings dialog. Only
   // structural fields the user can't edit (id, icon, isBuiltIn, placeholder)
   // and template-canonical metadata (color) come from `def`. Without this,
@@ -38,18 +108,196 @@ function canonicalizeDefaultApp(appConfig: AppConfig, def: AppConfig) {
   return {
     ...def,
     enabled: appConfig.enabled ?? def.enabled,
-    mode: appConfig.mode ?? def.mode,
+    mode: shouldBackfillProdUrl
+      ? (def.mode ?? "prod")
+      : (appConfig.mode ?? def.mode),
     name: appConfig.name || def.name,
     description: appConfig.description || def.description,
-    url: appConfig.url ?? def.url,
+    url: shouldBackfillProdUrl ? def.url : (appConfig.url ?? def.url),
     devUrl: appConfig.devUrl ?? def.devUrl,
     devCommand: appConfig.devCommand ?? def.devCommand,
     devPort: appConfig.devPort || def.devPort,
   };
 }
 
+function canonicalizeTemplateApp(appConfig: AppConfig, def: AppConfig) {
+  const shouldBackfillProdUrl = !appConfig.url?.trim() && Boolean(def.url);
+  const shouldBackfillDevUrl = !appConfig.devUrl?.trim() && Boolean(def.devUrl);
+
+  return {
+    ...appConfig,
+    icon: appConfig.icon || def.icon,
+    color: appConfig.color ?? def.color,
+    colorRgb: appConfig.colorRgb ?? def.colorRgb,
+    mode: shouldBackfillProdUrl
+      ? (def.mode ?? "prod")
+      : (appConfig.mode ?? def.mode),
+    name: appConfig.name || def.name,
+    description: appConfig.description || def.description,
+    url: shouldBackfillProdUrl ? def.url : (appConfig.url ?? def.url),
+    devUrl: shouldBackfillDevUrl
+      ? def.devUrl
+      : (appConfig.devUrl ?? def.devUrl),
+    devPort: appConfig.devPort || def.devPort,
+  };
+}
+
 function getFrameStorePath(): string {
   return path.join(app.getPath("userData"), FRAME_STORE_FILE);
+}
+
+function getRemoteConnectorStorePath(): string {
+  return path.join(app.getPath("userData"), REMOTE_CONNECTOR_STORE_FILE);
+}
+
+function getCodeAgentProviderStorePath(): string {
+  return path.join(app.getPath("userData"), CODE_AGENT_PROVIDER_STORE_FILE);
+}
+
+function defaultCodeAgentProviderStore(): CodeAgentProviderStore {
+  return { version: 1, credentials: {} };
+}
+
+function loadCodeAgentProviderStore(): CodeAgentProviderStore {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(getCodeAgentProviderStorePath(), "utf-8"),
+    ) as Partial<CodeAgentProviderStore>;
+    return {
+      version: 1,
+      credentials:
+        raw.credentials && typeof raw.credentials === "object"
+          ? raw.credentials
+          : {},
+    };
+  } catch {
+    return defaultCodeAgentProviderStore();
+  }
+}
+
+function saveCodeAgentProviderStore(store: CodeAgentProviderStore): void {
+  const storePath = getCodeAgentProviderStorePath();
+  fs.writeFileSync(storePath, JSON.stringify(store, null, 2), {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
+  try {
+    fs.chmodSync(storePath, 0o600);
+  } catch {
+    // Best effort: the file still lives inside Electron's userData directory.
+  }
+}
+
+function encryptProviderSecret(value: string): StoredSecret {
+  if (safeStorage.isEncryptionAvailable()) {
+    return {
+      encoding: "safeStorage-v1",
+      value: safeStorage.encryptString(value).toString("base64"),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  return {
+    encoding: "plain",
+    value,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function decryptProviderSecret(
+  secret: StoredSecret | undefined,
+): string | null {
+  if (!secret?.value) return null;
+  if (secret.encoding === "plain") return secret.value;
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(secret.value, "base64"));
+  } catch {
+    return null;
+  }
+}
+
+export function loadCodeAgentProviderCredentials(): Partial<
+  Record<CodeAgentProviderCredentialKey, string>
+> {
+  const store = loadCodeAgentProviderStore();
+  const credentials: Partial<Record<CodeAgentProviderCredentialKey, string>> =
+    {};
+  for (const key of CODE_AGENT_PROVIDER_KEYS) {
+    const value = decryptProviderSecret(store.credentials[key]);
+    if (value) credentials[key] = value;
+  }
+  return credentials;
+}
+
+export function saveCodeAgentProviderCredentials(
+  updates: CodeAgentProviderSettingsUpdate,
+): CodeAgentProviderSettings {
+  const store = loadCodeAgentProviderStore();
+  for (const key of CODE_AGENT_PROVIDER_KEYS) {
+    if (!(key in updates)) continue;
+    const value = updates[key]?.trim() ?? "";
+    if (!value) {
+      delete store.credentials[key];
+    } else {
+      store.credentials[key] = encryptProviderSecret(value);
+    }
+  }
+  saveCodeAgentProviderStore(store);
+  applyCodeAgentProviderCredentialsToEnv();
+  return getCodeAgentProviderSettingsStatus();
+}
+
+export function applyCodeAgentProviderCredentialsToEnv(): void {
+  const credentials = loadCodeAgentProviderCredentials();
+  for (const key of CODE_AGENT_PROVIDER_KEYS) {
+    const value = credentials[key] ?? INITIAL_CODE_AGENT_PROVIDER_ENV.get(key);
+    if (value) {
+      process.env[key] = value;
+    } else {
+      delete process.env[key];
+    }
+  }
+}
+
+export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings {
+  const savedCredentials = loadCodeAgentProviderCredentials();
+  const providers = CODE_AGENT_PROVIDER_DEFINITIONS.map((provider) => {
+    const configuredKeys = provider.keys.filter((key) =>
+      Boolean(process.env[key]),
+    );
+    const savedKeys = provider.keys.filter((key) =>
+      Boolean(savedCredentials[key]),
+    );
+    const missingKeys = provider.keys.filter((key) => !process.env[key]);
+    const configured = missingKeys.length === 0;
+    const hasSaved = savedKeys.length > 0;
+    const hasEnv = configuredKeys.some((key) => !savedCredentials[key]);
+    const source: CodeAgentProviderStatus["source"] | undefined = configured
+      ? hasSaved && hasEnv
+        ? "mixed"
+        : hasSaved
+          ? "desktop-settings"
+          : "environment"
+      : undefined;
+    return {
+      id: provider.id,
+      label: provider.label,
+      configured,
+      configuredKeys,
+      missingKeys,
+      savedKeys,
+      source,
+    };
+  });
+  return {
+    configured: providers.some((provider) => provider.configured),
+    configuredProviders: providers
+      .filter((provider) => provider.configured)
+      .map((provider) => provider.label),
+    providers,
+    encryptionAvailable: safeStorage.isEncryptionAvailable(),
+    storagePath: getCodeAgentProviderStorePath(),
+  };
 }
 
 export function loadFrameSettings(): FrameSettings {
@@ -74,6 +322,28 @@ export function saveFrameSettings(
   return updated;
 }
 
+export function loadRemoteConnectorSettings(): RemoteConnectorSettings {
+  try {
+    const raw = fs.readFileSync(getRemoteConnectorStorePath(), "utf-8");
+    return { ...defaultRemoteConnectorSettings(), ...JSON.parse(raw) };
+  } catch {
+    return defaultRemoteConnectorSettings();
+  }
+}
+
+export function saveRemoteConnectorSettings(
+  settings: Partial<RemoteConnectorSettings>,
+): RemoteConnectorSettings {
+  const current = loadRemoteConnectorSettings();
+  const updated = { ...current, ...settings };
+  fs.writeFileSync(
+    getRemoteConnectorStorePath(),
+    JSON.stringify(updated, null, 2),
+    "utf-8",
+  );
+  return updated;
+}
+
 function getStorePath(): string {
   return path.join(app.getPath("userData"), STORE_FILE);
 }
@@ -88,11 +358,18 @@ export function loadApps(): AppConfig[] {
     // Build a lookup of canonical built-in app defaults by id
     const defaults = defaultApps();
     const defaultsById = new Map(defaults.map((d) => [d.id, d]));
+    const templateAppsById = new Map(TEMPLATE_APPS.map((d) => [d.id, d]));
     const persistedIds = new Set(apps.map((a) => a.id));
 
-    // Remove stale built-in apps that no longer exist in DEFAULT_APPS
+    // Remove stale desktop apps that should no longer appear, then preserve
+    // other first-party template ids so existing user configs can still be
+    // migrated instead of disappearing.
     const before = apps.length;
-    apps = apps.filter((a) => !a.isBuiltIn || defaultsById.has(a.id));
+    apps = apps.filter(
+      (a) =>
+        !REMOVED_DESKTOP_APP_IDS.has(a.id) &&
+        (!a.isBuiltIn || defaultsById.has(a.id) || templateAppsById.has(a.id)),
+    );
     if (apps.length !== before) migrated = true;
 
     // Add new built-in apps that aren't in the persisted config
@@ -118,10 +395,25 @@ export function loadApps(): AppConfig[] {
 
       // Sync any app whose id matches a default back to canonical built-in
       // metadata. Older persisted configs could keep stale placeholder/URL
-      // fields and leave apps such as Starter or Dispatch non-rendering.
+      // fields and leave apps such as Dispatch non-rendering.
       const def = defaultsById.get(app.id);
       if (def) {
         const canonical = canonicalizeDefaultApp(app, def);
+        if (JSON.stringify(app) !== JSON.stringify(canonical)) {
+          apps[i] = canonical;
+          migrated = true;
+        }
+        continue;
+      }
+
+      // User-added or legacy entries that match a first-party template should
+      // still get canonical URL backfills. This covers old desktop configs
+      // where hidden-but-known templates existed with an empty production URL,
+      // which otherwise falls through to the local dev frame in packaged builds
+      // and renders a blank tab.
+      const templateDef = templateAppsById.get(app.id);
+      if (templateDef) {
+        const canonical = canonicalizeTemplateApp(app, templateDef);
         if (JSON.stringify(app) !== JSON.stringify(canonical)) {
           apps[i] = canonical;
           migrated = true;

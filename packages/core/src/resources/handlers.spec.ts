@@ -10,10 +10,12 @@ const mockResourceDeleteByPath = vi.fn();
 const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
 const mockResourceMove = vi.fn();
+const mockResourceEffectiveContext = vi.fn();
 const mockEnsurePersonalDefaults = vi.fn();
 
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
+  WORKSPACE_OWNER: "__workspace__",
   resourceGet: (...args: any[]) => mockResourceGet(...args),
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
@@ -23,6 +25,8 @@ vi.mock("./store.js", () => ({
   resourceListAccessible: (...args: any[]) =>
     mockResourceListAccessible(...args),
   resourceMove: (...args: any[]) => mockResourceMove(...args),
+  resourceEffectiveContext: (...args: any[]) =>
+    mockResourceEffectiveContext(...args),
   ensurePersonalDefaults: (...args: any[]) =>
     mockEnsurePersonalDefaults(...args),
 }));
@@ -63,6 +67,7 @@ import { getSession } from "../server/auth.js";
 import {
   handleListResources,
   handleGetResourceTree,
+  handleGetEffectiveResourceContext,
   handleGetResource,
   handleCreateResource,
   handleUpdateResource,
@@ -85,10 +90,11 @@ describe("resource handlers", () => {
   });
 
   describe("handleListResources", () => {
-    it("lists all resources (personal + shared) by default", async () => {
+    it("lists all accessible resources by default", async () => {
       mockResourceListAccessible.mockResolvedValue([
         { id: "1", path: "a.md", owner: "test@test.com" },
         { id: "2", path: "b.md", owner: "__shared__" },
+        { id: "3", path: "context/brand.md", owner: "__workspace__" },
       ]);
 
       const event = { _query: {} };
@@ -99,7 +105,7 @@ describe("resource handlers", () => {
         "test@test.com",
         undefined,
       );
-      expect(result.resources).toHaveLength(2);
+      expect(result.resources).toHaveLength(3);
     });
 
     it("lists only personal resources when scope=personal", async () => {
@@ -120,6 +126,15 @@ describe("resource handlers", () => {
       expect(mockResourceList).toHaveBeenCalledWith("__shared__", undefined);
     });
 
+    it("lists only workspace resources when scope=workspace", async () => {
+      mockResourceList.mockResolvedValue([]);
+
+      const event = { _query: { scope: "workspace" } };
+      await handleListResources(event);
+
+      expect(mockResourceList).toHaveBeenCalledWith("__workspace__", undefined);
+    });
+
     it("passes prefix filter", async () => {
       mockResourceListAccessible.mockResolvedValue([]);
 
@@ -130,6 +145,55 @@ describe("resource handlers", () => {
         "test@test.com",
         "skills/",
       );
+    });
+
+    it("includes agent scratch resources only when requested", async () => {
+      mockResourceListAccessible.mockResolvedValue([]);
+
+      const event = {
+        _query: { includeAgentScratch: "true" },
+      };
+      await handleListResources(event);
+
+      expect(mockResourceListAccessible).toHaveBeenCalledWith(
+        "test@test.com",
+        undefined,
+        { includeAgentScratch: true },
+      );
+    });
+  });
+
+  describe("handleGetEffectiveResourceContext", () => {
+    it("returns the inheritance stack for a path", async () => {
+      const context = {
+        path: "instructions/guardrails.md",
+        effectiveScope: "shared",
+        layers: [
+          { scope: "workspace", exists: true, effective: false },
+          { scope: "shared", exists: true, effective: true },
+          { scope: "personal", exists: false, effective: false },
+        ],
+      };
+      mockResourceEffectiveContext.mockResolvedValue(context);
+
+      const result = await handleGetEffectiveResourceContext({
+        _query: { path: "instructions/guardrails.md" },
+      });
+
+      expect(mockEnsurePersonalDefaults).toHaveBeenCalledWith("test@test.com");
+      expect(mockResourceEffectiveContext).toHaveBeenCalledWith(
+        "test@test.com",
+        "instructions/guardrails.md",
+      );
+      expect(result).toEqual(context);
+    });
+
+    it("returns 400 when path is missing", async () => {
+      const result = await handleGetEffectiveResourceContext({ _query: {} });
+
+      expect(lastStatus).toBe(400);
+      expect(result).toEqual({ error: "path is required" });
+      expect(mockResourceEffectiveContext).not.toHaveBeenCalled();
     });
   });
 
@@ -192,6 +256,25 @@ describe("resource handlers", () => {
 
       expect(lastStatus).toBe(404);
       expect(result).toEqual({ error: "Resource not found" });
+    });
+
+    it("returns inherited workspace resources by id", async () => {
+      const resource = {
+        id: "workspace_1",
+        path: "context/brand.md",
+        owner: "__workspace__",
+        content: "# Brand",
+        mimeType: "text/markdown",
+        size: 7,
+        createdAt: 1000,
+        updatedAt: 2000,
+      };
+      mockResourceGet.mockResolvedValue(resource);
+
+      const event = { _params: { id: "workspace_1" }, _query: {}, context: {} };
+      const result = await handleGetResource(event);
+
+      expect(result).toEqual(resource);
     });
 
     it("strips content from binary resources in JSON response", async () => {
@@ -590,6 +673,21 @@ describe("resource handlers", () => {
       const result = await handleGetResourceTree(event);
 
       expect(result.tree).toEqual([]);
+    });
+
+    it("passes includeAgentScratch through to tree lists", async () => {
+      mockResourceList.mockResolvedValue([]);
+
+      const event = {
+        _query: { scope: "personal", includeAgentScratch: "true" },
+      };
+      await handleGetResourceTree(event);
+
+      expect(mockResourceList).toHaveBeenCalledWith(
+        "test@test.com",
+        undefined,
+        { includeAgentScratch: true },
+      );
     });
 
     it("creates file nodes with resource metadata", async () => {

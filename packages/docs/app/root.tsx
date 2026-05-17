@@ -18,6 +18,8 @@ import { defaultSocialImageMeta } from "./seo";
 
 import appCss from "./global.css?url";
 
+const SITE_URL = "https://www.agent-native.com";
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -31,21 +33,38 @@ const GA_SCRIPT = `window.dataLayer=window.dataLayer||[];function gtag(){dataLay
 
 const JSON_LD = JSON.stringify({
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Agent-Native",
-  applicationCategory: "DeveloperApplication",
-  operatingSystem: "Cross-platform",
-  description:
-    "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
-  url: "https://agent-native.com",
-  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  license: "https://opensource.org/licenses/MIT",
-  sourceOrganization: {
-    "@type": "Organization",
-    name: "Builder.io",
-    url: "https://builder.io",
-  },
-  codeRepository: "https://github.com/BuilderIO/agent-native",
+  "@graph": [
+    {
+      "@type": "Organization",
+      name: "Builder.io",
+      url: "https://builder.io",
+      sameAs: ["https://github.com/BuilderIO/agent-native"],
+    },
+    {
+      "@type": "WebSite",
+      name: "Agent-Native",
+      url: SITE_URL,
+      description:
+        "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
+    },
+    {
+      "@type": "SoftwareApplication",
+      name: "Agent-Native",
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Cross-platform",
+      description:
+        "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
+      url: SITE_URL,
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      license: "https://opensource.org/licenses/MIT",
+      sourceOrganization: {
+        "@type": "Organization",
+        name: "Builder.io",
+        url: "https://builder.io",
+      },
+      codeRepository: "https://github.com/BuilderIO/agent-native",
+    },
+  ],
 });
 
 export const links = () => [
@@ -72,14 +91,24 @@ export const meta = () => [
       "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork templates.",
   },
   { property: "og:type", content: "website" },
-  { property: "og:url", content: "https://agent-native.com" },
+  { property: "og:url", content: SITE_URL },
   { property: "og:site_name", content: "Agent-Native" },
 ];
+
+// Aliases that serve the same content under multiple paths. Both surfaces
+// link rel=canonical to the primary path so search engines don't see them
+// as duplicates. Keep in sync with the alias mapping in
+// `packages/docs/server/routes/[...page].get.ts` (currently /docs serves
+// docs/getting-started.md, so /docs/getting-started canonicalizes to /docs).
+const CANONICAL_ALIASES: Record<string, string> = {
+  "/docs/getting-started": "/docs",
+};
 
 function CanonicalLink() {
   const location = useLocation();
   const path = location.pathname.replace(/\/$/, "") || "/";
-  const canonical = `https://agent-native.com${path}`;
+  const canonicalPath = CANONICAL_ALIASES[path] ?? path;
+  const canonical = `${SITE_URL}${canonicalPath}`;
   return <link rel="canonical" href={canonical} />;
 }
 

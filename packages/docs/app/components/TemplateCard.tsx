@@ -106,6 +106,17 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F678be5a501a14ab8a508e5f7bc92c468?format=webp&width=800",
   },
   {
+    name: "Brain",
+    slug: "brain",
+    replaces:
+      "Replaces or augments team wikis, Glean-style recall, and institutional memory tools",
+    cliCommand: "npx @agent-native/core create my-brain-app --template brain",
+    demoUrl: "https://brain.agent-native.com",
+    description:
+      "Full-page company chat over cited memory from approved Slack, Clips, Granola, GitHub, and transcript sources, with review gates, evals, and shared connection readiness built in.",
+    color: "#8B5CF6",
+  },
+  {
     name: "Design",
     slug: "design",
     replaces: "Replaces or augments design prototyping tools",
@@ -143,7 +154,7 @@ export const templates = [
 export type Template = (typeof templates)[number];
 
 export const featuredTemplates = templates.filter(
-  (template) => template.slug !== "video",
+  (template) => !["brain", "video"].includes(template.slug),
 );
 
 function CliPopoverContent({ template }: { template: Template }) {

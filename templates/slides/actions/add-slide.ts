@@ -1,8 +1,4 @@
 import { defineAction } from "@agent-native/core";
-import {
-  readAppState,
-  writeAppState,
-} from "@agent-native/core/application-state";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
@@ -14,6 +10,10 @@ import {
   awaitLayoutFitCheck,
   formatOverflowForTool,
 } from "./_await-fit-check.js";
+import {
+  readAppStateForCurrentTab,
+  writeAppStateForCurrentTab,
+} from "./_tab-state.js";
 
 // In-process serialization per deckId. `add-slide` is intentionally advertised
 // as a sequential write, but the lock still protects against accidental
@@ -135,12 +135,14 @@ export default defineAction({
       // IT (not whichever slide was previously selected). Only fires when an
       // editor is open on this deck; navigation state is a no-op if nobody
       // is watching.
-      const nav = (await readAppState("navigation").catch(() => null)) as {
+      const nav = (await readAppStateForCurrentTab("navigation", {
+        fallbackToGlobal: false,
+      }).catch(() => null)) as {
         view?: string;
         deckId?: string;
       } | null;
       if (nav?.view === "editor" && nav.deckId === deckId) {
-        await writeAppState("navigate", {
+        await writeAppStateForCurrentTab("navigate", {
           deckId,
           slideIndex: insertIndex,
           // Unique-per-write token. The UI's `use-navigation-state` hook

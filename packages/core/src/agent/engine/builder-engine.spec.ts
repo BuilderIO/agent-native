@@ -12,6 +12,7 @@ const credentialState = vi.hoisted(() => ({
   builderPublicKey: "space-test" as string | null,
   builderUserId: "builder-user-123" as string | null,
   builderOrgName: null as string | null,
+  recordBuilderCredentialAuthFailure: vi.fn(async () => {}),
 }));
 
 // Mock the credential provider so tests do not hit the DB (app_secrets table).
@@ -32,6 +33,8 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
       const key = credentialState.builderPrivateKey;
       return key ? `Bearer ${key}` : null;
     }),
+    recordBuilderCredentialAuthFailure:
+      credentialState.recordBuilderCredentialAuthFailure,
     getBuilderGatewayBaseUrl: original.getBuilderGatewayBaseUrl,
   };
 });
@@ -78,6 +81,7 @@ describe("createBuilderEngine", () => {
     credentialState.builderPublicKey = "space-test";
     credentialState.builderUserId = "builder-user-123";
     credentialState.builderOrgName = null;
+    credentialState.recordBuilderCredentialAuthFailure.mockClear();
     vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
     vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
     vi.stubEnv("BUILDER_USER_ID", "builder-user-123");
@@ -173,10 +177,29 @@ describe("createBuilderEngine", () => {
 
     const body = JSON.parse(init.body);
     expect(body.model).toBe("claude-sonnet-4-6");
+    expect(body.max_tokens).toBe(32768);
     expect(body.system).toBe("You are helpful.");
     expect(body.messages).toEqual([
       { role: "user", content: [{ type: "text", text: "Hi" }] },
     ]);
+  });
+
+  it("honors an explicit max output token override", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream({ ...BASE_OPTS, maxOutputTokens: 1024 }));
+
+    const [, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.max_tokens).toBe(1024);
   });
 
   it("streams text-delta events and emits assistant-content + stop(end_turn)", async () => {
@@ -374,6 +397,13 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_auth_error");
     expect(stop?.error).toContain("Builder authentication failed");
+    expect(
+      credentialState.recordBuilderCredentialAuthFailure,
+    ).toHaveBeenCalledWith({
+      status: 401,
+      code: "unauthorized",
+      message: "Invalid key",
+    });
   });
 
   it("maps 403 invalid token to Builder auth stop-error", async () => {
@@ -393,6 +423,13 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_auth_error");
     expect(stop?.error).toContain("Builder authentication failed");
+    expect(
+      credentialState.recordBuilderCredentialAuthFailure,
+    ).toHaveBeenCalledWith({
+      status: 403,
+      code: "http_403",
+      message: "Invalid token",
+    });
   });
 
   it("surfaces a non-JSON 4xx body (e.g. proxy HTML) in the error message", async () => {

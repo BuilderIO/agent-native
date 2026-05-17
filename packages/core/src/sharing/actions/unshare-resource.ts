@@ -3,6 +3,10 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { assertAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+import {
+  getExtensionShareChangeTargets,
+  notifyExtensionShareChanged,
+} from "./extension-change.js";
 
 export default defineAction({
   description:
@@ -18,6 +22,10 @@ export default defineAction({
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
     await assertAccess(args.resourceType, args.resourceId, "admin");
+    const beforeExtensionTargets = await getExtensionShareChangeTargets(
+      args.resourceType,
+      args.resourceId,
+    );
     const db = reg.getDb() as any;
     await db
       .delete(reg.sharesTable)
@@ -28,6 +36,11 @@ export default defineAction({
           eq(reg.sharesTable.principalId, args.principalId),
         ),
       );
+    await notifyExtensionShareChanged(
+      args.resourceType,
+      args.resourceId,
+      beforeExtensionTargets,
+    );
     return { ok: true };
   },
 });

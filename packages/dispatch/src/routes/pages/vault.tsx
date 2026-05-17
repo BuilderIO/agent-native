@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -60,6 +61,8 @@ const PROVIDERS = [
   "anthropic",
   "other",
 ];
+
+type VaultAccessMode = "all-apps" | "manual";
 
 export function meta() {
   return [{ title: "Vault — Dispatch" }];
@@ -241,7 +244,53 @@ function GrantDialog({
   );
 }
 
-function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
+function VaultAccessSettingsCard({ mode }: { mode: VaultAccessMode }) {
+  const update = useActionMutation("set-vault-access-settings", {
+    onSuccess: (next: any) =>
+      toast.success(
+        next?.mode === "manual"
+          ? "Manual vault access enabled"
+          : "All apps can use vault keys",
+      ),
+    onError: (err) => toast.error(String(err)),
+  });
+  const allApps = mode !== "manual";
+
+  return (
+    <div className="rounded-xl border bg-card px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <Label className="text-sm font-medium">
+            All apps can use vault keys
+          </Label>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {allApps
+              ? "Every workspace app can receive every saved key."
+              : "Only apps with explicit grants can receive saved keys."}
+          </p>
+        </div>
+        <Switch
+          checked={allApps}
+          disabled={update.isPending}
+          onCheckedChange={(checked) =>
+            update.mutate({ mode: checked ? "all-apps" : "manual" })
+          }
+          aria-label="Allow all workspace apps to use vault keys"
+        />
+      </div>
+    </div>
+  );
+}
+
+function SecretRow({
+  secret,
+  grants,
+  accessMode,
+}: {
+  secret: any;
+  grants: any[];
+  accessMode: VaultAccessMode;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [showValue, setShowValue] = useState(false);
 
@@ -260,6 +309,7 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
   });
 
   const activeGrants = grants.filter((g) => g.status === "active");
+  const allApps = accessMode !== "manual";
 
   return (
     <div className="rounded-xl border bg-card">
@@ -290,7 +340,9 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-xs">
-            {activeGrants.length} grant{activeGrants.length !== 1 ? "s" : ""}
+            {allApps
+              ? "All apps"
+              : `${activeGrants.length} grant${activeGrants.length !== 1 ? "s" : ""}`}
           </Badge>
         </div>
       </button>
@@ -320,11 +372,17 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-foreground">
-                Grants
+                {allApps ? "Access" : "Grants"}
               </span>
-              <GrantDialog secretId={secret.id} secretName={secret.name} />
+              {!allApps && (
+                <GrantDialog secretId={secret.id} secretName={secret.name} />
+              )}
             </div>
-            {activeGrants.length > 0 ? (
+            {allApps ? (
+              <div className="rounded-lg border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
+                Available to every workspace app.
+              </div>
+            ) : activeGrants.length > 0 ? (
               <div className="space-y-1.5">
                 {activeGrants.map((grant: any) => (
                   <div
@@ -366,7 +424,7 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
               </div>
             ) : (
               <div className="rounded-lg border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
-                No grants yet. Grant this secret to an app to share it.
+                No grants yet.
               </div>
             )}
           </div>
@@ -388,8 +446,8 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
                   <AlertDialogTitle>Delete this secret?</AlertDialogTitle>
                   <AlertDialogDescription>
                     Removing “{secret.name}” revokes all of its grants. Apps
-                    that depended on this credential will lose access on the
-                    next sync. This cannot be undone.
+                    that depended on this credential can lose access on the next
+                    sync. This cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -508,6 +566,12 @@ export default function VaultRoute() {
   const { data: grants } = useActionQuery("list-vault-grants", {});
   const { data: requests } = useActionQuery("list-vault-requests", {});
   const { data: audit } = useActionQuery("list-vault-audit", { limit: 20 });
+  const { data: accessSettings } = useActionQuery(
+    "get-vault-access-settings",
+    {},
+  );
+  const accessMode: VaultAccessMode =
+    (accessSettings as any)?.mode === "manual" ? "manual" : "all-apps";
 
   const grantsBySecret = (grants || []).reduce(
     (acc: Record<string, any[]>, g: any) => {
@@ -525,7 +589,7 @@ export default function VaultRoute() {
   return (
     <DispatchShell
       title="Vault"
-      description="Centralized secret management for your workspace. Store credentials once, grant them to apps."
+      description="Centralized secret management for your workspace. Store credentials once and sync them to apps."
     >
       <Tabs defaultValue="secrets">
         <TabsList>
@@ -547,6 +611,8 @@ export default function VaultRoute() {
         </TabsList>
 
         <TabsContent value="secrets" className="mt-4 space-y-3">
+          <VaultAccessSettingsCard mode={accessMode} />
+
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <IconKey size={16} />
@@ -576,6 +642,7 @@ export default function VaultRoute() {
                   key={secret.id}
                   secret={secret}
                   grants={grantsBySecret[secret.id] || []}
+                  accessMode={accessMode}
                 />
               ))}
 

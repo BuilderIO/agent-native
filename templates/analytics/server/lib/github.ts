@@ -2,11 +2,11 @@
 // Auth: GITHUB_TOKEN (personal access token or GitHub App token)
 // Mirrors patterns from server/lib/gong.ts
 
-import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,
   scopedCredentialCacheKey,
 } from "./credentials-context";
+import { getGitHubAccessToken } from "./github-oauth";
 
 const REST_BASE = "https://api.github.com";
 const GRAPHQL_URL = "https://api.github.com/graphql";
@@ -17,15 +17,15 @@ const MAX_CACHE = 200;
 
 async function getToken(): Promise<string> {
   const ctx = requireRequestCredentialContext("GITHUB_TOKEN");
-  const token = await resolveCredential("GITHUB_TOKEN", ctx);
-  if (!token) throw new Error("GITHUB_TOKEN not configured");
+  const { token } = await getGitHubAccessToken(ctx);
+  if (!token) throw new Error("GitHub is not connected");
   return token;
 }
 
-async function getHeaders(): Promise<Record<string, string>> {
+async function getHeaders(accept?: string): Promise<Record<string, string>> {
   return {
     Authorization: `Bearer ${await getToken()}`,
-    Accept: "application/vnd.github+json",
+    Accept: accept ?? "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
     "Content-Type": "application/json",
   };
@@ -39,13 +39,17 @@ function cacheSet(key: string, data: unknown) {
   cache.set(key, { data, ts: Date.now() });
 }
 
-async function restGet<T>(path: string, cacheKey?: string): Promise<T> {
+async function restGet<T>(
+  path: string,
+  cacheKey?: string,
+  accept?: string,
+): Promise<T> {
   const key = scopedCredentialCacheKey(cacheKey ?? path, "GITHUB_TOKEN");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data as T;
 
   const res = await fetch(`${REST_BASE}${path}`, {
-    headers: await getHeaders(),
+    headers: await getHeaders(accept),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -419,4 +423,260 @@ export async function searchOrgPRs(opts: {
   const q = `org:${org} is:pr ${query}${stateQ}`.trim();
 
   return searchPRs({ query: q, type: "pr", limit });
+}
+
+// ─── Repositories and code search ───────────────────────────────────────────
+
+export interface GitHubRepository {
+  name: string;
+  fullName: string;
+  owner: string;
+  private: boolean;
+  fork: boolean;
+  archived: boolean;
+  defaultBranch: string;
+  description?: string;
+  language?: string;
+  updatedAt: string;
+  url: string;
+}
+
+export interface GitHubCodeSearchResult {
+  repo: string;
+  path: string;
+  name: string;
+  sha: string;
+  url: string;
+  score: number;
+  textMatches: Array<{
+    fragment: string;
+    matches: Array<{ text: string; indices: [number, number] }>;
+  }>;
+}
+
+export interface GitHubFileContent {
+  repo: string;
+  path: string;
+  ref?: string;
+  sha?: string;
+  size?: number;
+  encoding?: string;
+  content?: string;
+  truncated?: boolean;
+  entries?: Array<{
+    name: string;
+    path: string;
+    type: string;
+    size?: number;
+    sha?: string;
+    url?: string;
+  }>;
+}
+
+interface RawRepo {
+  name: string;
+  full_name: string;
+  owner: { login: string };
+  private: boolean;
+  fork: boolean;
+  archived: boolean;
+  default_branch: string;
+  description?: string | null;
+  language?: string | null;
+  updated_at: string;
+  html_url: string;
+}
+
+interface RawCodeSearchItem {
+  name: string;
+  path: string;
+  sha: string;
+  html_url: string;
+  score: number;
+  repository: { full_name: string };
+  text_matches?: Array<{
+    fragment?: string;
+    matches?: Array<{ text?: string; indices?: [number, number] }>;
+  }>;
+}
+
+interface RawContentItem {
+  type?: string;
+  name?: string;
+  path?: string;
+  sha?: string;
+  size?: number;
+  html_url?: string;
+  encoding?: string;
+  content?: string;
+}
+
+function mapRepository(repo: RawRepo): GitHubRepository {
+  return {
+    name: repo.name,
+    fullName: repo.full_name,
+    owner: repo.owner?.login ?? repo.full_name.split("/")[0] ?? "",
+    private: repo.private,
+    fork: repo.fork,
+    archived: repo.archived,
+    defaultBranch: repo.default_branch,
+    description: repo.description ?? undefined,
+    language: repo.language ?? undefined,
+    updatedAt: repo.updated_at,
+    url: repo.html_url,
+  };
+}
+
+function parseRepo(repo: string): { owner: string; name: string } {
+  const [owner, name] = repo.split("/");
+  if (!owner || !name || repo.split("/").length !== 2) {
+    throw new Error("repo must be in owner/repo format");
+  }
+  return { owner, name };
+}
+
+function encodeRepoPath(path: string): string {
+  return path
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+export async function listRepos(
+  opts: {
+    query?: string;
+    visibility?: "all" | "public" | "private";
+    limit?: number;
+  } = {},
+): Promise<GitHubRepository[]> {
+  const limit = Math.min(opts.limit ?? 50, 100);
+  const visibility = opts.visibility ?? "all";
+  const data = await restGet<RawRepo[]>(
+    `/user/repos?per_page=${limit}&sort=updated&direction=desc&visibility=${visibility}&affiliation=owner,collaborator,organization_member`,
+    `repos:${visibility}:${limit}`,
+  );
+  const repos = data.map(mapRepository);
+  const query = opts.query?.trim().toLowerCase();
+  if (!query) return repos;
+  return repos.filter((repo) => {
+    return (
+      repo.fullName.toLowerCase().includes(query) ||
+      repo.name.toLowerCase().includes(query) ||
+      (repo.description ?? "").toLowerCase().includes(query)
+    );
+  });
+}
+
+export async function getRepo(
+  owner: string,
+  repo: string,
+): Promise<GitHubRepository> {
+  return mapRepository(
+    await restGet<RawRepo>(`/repos/${owner}/${repo}`, `repo:${owner}/${repo}`),
+  );
+}
+
+export async function searchCode(opts: {
+  query: string;
+  repo?: string;
+  org?: string;
+  user?: string;
+  path?: string;
+  extension?: string;
+  filename?: string;
+  limit?: number;
+}): Promise<GitHubCodeSearchResult[]> {
+  const limit = Math.min(opts.limit ?? 30, 100);
+  const parts = [opts.query.trim()];
+  if (!parts[0]) throw new Error("query is required");
+  if (opts.repo) parts.push(`repo:${opts.repo}`);
+  if (opts.org) parts.push(`org:${opts.org}`);
+  if (opts.user) parts.push(`user:${opts.user}`);
+  if (opts.path) parts.push(`path:${opts.path}`);
+  if (opts.extension) parts.push(`extension:${opts.extension}`);
+  if (opts.filename) parts.push(`filename:${opts.filename}`);
+  const q = parts.join(" ");
+  const data = await restGet<{ items: RawCodeSearchItem[] }>(
+    `/search/code?q=${encodeURIComponent(q)}&per_page=${limit}`,
+    `code:${q}:${limit}`,
+    "application/vnd.github.text-match+json",
+  );
+
+  return (data.items ?? []).map((item) => ({
+    repo: item.repository?.full_name ?? "",
+    path: item.path,
+    name: item.name,
+    sha: item.sha,
+    url: item.html_url,
+    score: item.score,
+    textMatches: (item.text_matches ?? []).map((match) => ({
+      fragment: match.fragment ?? "",
+      matches: (match.matches ?? []).map((m) => ({
+        text: m.text ?? "",
+        indices: m.indices ?? [0, 0],
+      })),
+    })),
+  }));
+}
+
+export async function getFileContent(opts: {
+  repo: string;
+  path: string;
+  ref?: string;
+  maxBytes?: number;
+}): Promise<GitHubFileContent> {
+  const { owner, name } = parseRepo(opts.repo);
+  const encodedPath = encodeRepoPath(opts.path);
+  const refQuery = opts.ref ? `?ref=${encodeURIComponent(opts.ref)}` : "";
+  const data = await restGet<RawContentItem | RawContentItem[]>(
+    `/repos/${owner}/${name}/contents/${encodedPath}${refQuery}`,
+    `content:${opts.repo}:${opts.path}:${opts.ref ?? ""}`,
+  );
+
+  if (Array.isArray(data)) {
+    return {
+      repo: opts.repo,
+      path: opts.path,
+      ref: opts.ref,
+      entries: data.map((entry) => ({
+        name: entry.name ?? "",
+        path: entry.path ?? "",
+        type: entry.type ?? "",
+        size: entry.size,
+        sha: entry.sha,
+        url: entry.html_url,
+      })),
+    };
+  }
+
+  if (data.type !== "file") {
+    return {
+      repo: opts.repo,
+      path: opts.path,
+      ref: opts.ref,
+      sha: data.sha,
+      size: data.size,
+      encoding: data.encoding,
+    };
+  }
+
+  const rawContent =
+    data.encoding === "base64" && data.content
+      ? Buffer.from(data.content.replace(/\s/g, ""), "base64").toString("utf8")
+      : (data.content ?? "");
+  const maxBytes = Math.min(opts.maxBytes ?? 80_000, 200_000);
+  const truncated = Buffer.byteLength(rawContent, "utf8") > maxBytes;
+  const content = truncated ? rawContent.slice(0, maxBytes) : rawContent;
+
+  return {
+    repo: opts.repo,
+    path: opts.path,
+    ref: opts.ref,
+    sha: data.sha,
+    size: data.size,
+    encoding: data.encoding,
+    content,
+    truncated,
+  };
 }

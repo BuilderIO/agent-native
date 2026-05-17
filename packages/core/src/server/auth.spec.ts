@@ -395,6 +395,74 @@ describe("server/auth", () => {
       expect(result).toBeUndefined();
     });
 
+    it("allows public workspace app pages while keeping API and framework routes protected", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_BASE_PATH", "/portal");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_AUDIENCE", "public");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS", '["/admin"]');
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(createMockEvent({ path: "/portal" })),
+      ).resolves.toBeUndefined();
+      await expect(
+        guard(createMockEvent({ path: "/portal/pricing" })),
+      ).resolves.toBeUndefined();
+
+      const adminResult = await guard(
+        createMockEvent({ path: "/portal/admin/users" }),
+      );
+      expect(adminResult).toBeInstanceOf(Response);
+
+      const apiResult = await guard(
+        createMockEvent({ path: "/portal/api/private" }),
+      );
+      expect(apiResult).toEqual({ error: "Unauthorized" });
+
+      const actionResult = await guard(
+        createMockEvent({ path: "/portal/_agent-native/actions/list" }),
+      );
+      expect(actionResult).toEqual({ error: "Unauthorized" });
+    });
+
+    it("allows selected public workspace page paths in an internal app", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_BASE_PATH", "/docs");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_AUDIENCE", "internal");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS", "/,/share");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(createMockEvent({ path: "/docs" })),
+      ).resolves.toBeUndefined();
+      await expect(
+        guard(createMockEvent({ path: "/docs/share/report" })),
+      ).resolves.toBeUndefined();
+
+      const privateResult = await guard(
+        createMockEvent({ path: "/docs/admin" }),
+      );
+      expect(privateResult).toBeInstanceOf(Response);
+    });
+
     it("relays root workspace OAuth callbacks to the app from state", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -426,6 +494,104 @@ describe("server/auth", () => {
       );
     });
 
+    it("lets signed Builder connect URLs bypass the global auth guard", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
+      vi.stubEnv("APP_BASE_PATH", "/todays-priorities");
+      const { autoMountAuth } = await import("./auth.js");
+      const { BUILDER_CONNECT_PARAM, signBuilderConnectToken } =
+        await import("./builder-browser.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const token = signBuilderConnectToken("jameson@builder.io");
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/todays-priorities/_agent-native/builder/connect",
+            query: { [BUILDER_CONNECT_PARAM]: token },
+          }),
+        ),
+      ).resolves.toBeUndefined();
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/todays-priorities/_agent-native/builder/connect",
+            query: { [BUILDER_CONNECT_PARAM]: `${token}.tampered` },
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
+    });
+
+    it("lets Builder connect callbacks with owner cookies bypass the global auth guard", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
+      vi.stubEnv("APP_BASE_PATH", "/todays-priorities");
+      const { autoMountAuth } = await import("./auth.js");
+      const { BUILDER_CONNECT_OWNER_COOKIE, signBuilderConnectToken } =
+        await import("./builder-browser.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const token = signBuilderConnectToken("jameson@builder.io");
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/todays-priorities/_agent-native/builder/callback",
+            headers: {
+              cookie: `${BUILDER_CONNECT_OWNER_COOKIE}=${token}`,
+            },
+          }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it("lets Builder connect callbacks with signed callback state bypass the global auth guard", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
+      vi.stubEnv("APP_BASE_PATH", "/todays-priorities");
+      const { autoMountAuth } = await import("./auth.js");
+      const { BUILDER_STATE_PARAM, signBuilderCallbackState } =
+        await import("./builder-browser.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const state = signBuilderCallbackState("jameson@builder.io");
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/todays-priorities/_agent-native/builder/callback",
+            query: { [BUILDER_STATE_PARAM]: state },
+          }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
     it("lets signed integration processor routes bypass the global auth guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -451,6 +617,48 @@ describe("server/auth", () => {
         event.node.req.method = "POST";
 
         await expect(guard(event)).resolves.toBeUndefined();
+      }
+    });
+
+    it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const app = createMockApp();
+      await autoMountAuth(app);
+      logSpy.mockRestore();
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      // Env UNSET → the identity routes are NOT bypassed: the guard must
+      // treat them like any other unauthenticated /_agent-native/* request
+      // (it returns a 401 body, i.e. NOT `undefined`). This is the
+      // regression assertion for the env-unset-no-op invariant.
+      for (const path of [
+        "/_agent-native/identity/login",
+        "/_agent-native/identity/callback",
+      ]) {
+        const result = await guard(createMockEvent({ path }));
+        expect(result).not.toBeUndefined();
+      }
+
+      // Env SET → both routes bypass the blanket guard so the handler can
+      // run its own signature/CSRF verification.
+      vi.stubEnv(
+        "AGENT_NATIVE_IDENTITY_HUB_URL",
+        "https://dispatch.agent-native.com",
+      );
+      for (const path of [
+        "/_agent-native/identity/login",
+        "/_agent-native/identity/callback",
+      ]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
       }
     });
 
@@ -853,6 +1061,88 @@ describe("server/auth", () => {
         code: "account_owner_mismatch",
         accountId: "steve@builder.io",
         attemptedOwner: "other@example.com",
+      });
+    });
+
+    it("surfaces Google callback failures through desktop exchange polling", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const { encodeOAuthState } = await import("./google-oauth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const callbackHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/google/callback",
+      )?.[1];
+      const exchangeHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/desktop-exchange",
+      )?.[1];
+      expect(callbackHandler).toBeTypeOf("function");
+      expect(exchangeHandler).toBeTypeOf("function");
+
+      const state = encodeOAuthState({
+        redirectUri:
+          "https://agent-workspace.builder.io/_agent-native/google/callback",
+        desktop: true,
+        flowId: "flow-denied",
+      });
+      const response = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: {
+            state,
+            error: "access_denied",
+            error_description: "The user denied access",
+          },
+          headers: {
+            host: "agent-workspace.builder.io",
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+      expect(response).toBeInstanceOf(Response);
+      await expect((response as Response).text()).resolves.toContain(
+        "The user denied access",
+      );
+
+      const result = await exchangeHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/desktop-exchange",
+          query: { flow_id: "flow-denied" },
+        }),
+      );
+
+      expect(result).toMatchObject({
+        error: "Google sign-in failed: The user denied access",
+        message: "Google sign-in failed: The user denied access",
+        code: "access_denied",
       });
     });
 
@@ -1426,7 +1716,7 @@ describe("server/auth", () => {
   });
 
   describe("onboarding Google sign-in", () => {
-    it("keeps popup OAuth for browser Builder previews and uses redirect for Builder desktop", async () => {
+    it("uses popup OAuth in Builder iframes and redirect OAuth for top-level Builder", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
@@ -1439,6 +1729,7 @@ describe("server/auth", () => {
       );
       expect(html).toContain('var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";');
       expect(html).toContain("__anStartPopupOAuth(ret, btn, err)");
+      expect(html).toContain("__anStartNativeDesktopOAuth(ret, btn, err)");
       expect(html).toContain(
         "__anPath('/_agent-native/auth/desktop-exchange')",
       );
@@ -1450,23 +1741,57 @@ describe("server/auth", () => {
         "Google popup was blocked. Allow popups for this site",
       );
       expect(html).toContain(
-        "check server logs for [agent-native][google-oauth]",
+        "never reached this app. Check the Google OAuth redirect URI",
       );
       expect(html).not.toContain("&debug=1");
       expect(html).toContain("params.set('desktop', '1')");
       expect(html).toContain("params.set('flow_id', flowId)");
       expect(html).toContain("params.set('redirect', '1')");
-      expect(html).toContain("__anIsBuilderDesktop()");
+      expect(html).toContain("var __anBuilderPreviewSeen = false");
+      expect(html).toContain("function __anRememberBuilderPreview()");
       expect(html).toContain(
-        "if (__anIsBuilderPreview() && !__anIsBuilderDesktop())",
+        "sessionStorage.setItem('__an_builder_preview_seen', '1')",
+      );
+      expect(html).toContain("function __anHasBuilderPreviewSignal()");
+      expect(html).toContain("params.has('builder.preview')");
+      expect(html).toContain("__anIsBuilderPreview();");
+      expect(html).toContain("__anIsBuilderDesktop()");
+      expect(html).toContain("__anIsAgentNativeDesktop()");
+      expect(html).toContain("function __anIsInFrame()");
+      expect(html).toContain(
+        "if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect'",
+      );
+      expect(html).toContain(
+        "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
       );
       expect(html).toContain(
         "__anSetOAuthDebug('Opening Google sign-in redirect')",
       );
       expect(html).toContain("function __anBuilderPreviewReturnOrigin()");
+      expect(html).toContain("function __anGoogleAuthUrlPath()");
       expect(html).toContain("function __anOAuthReturnTarget(ret)");
       expect(html).toContain(
+        "function __anSessionBridgeUrl(ret, sessionToken)",
+      );
+      expect(html).toContain(
+        "function __anFinishOAuthExchange(ret, flowId, sessionToken)",
+      );
+      expect(html).toContain(
+        "window.location.replace(__anSessionBridgeUrl(ret, sessionToken))",
+      );
+      expect(html).toContain(
         "params.set('return', __anOAuthReturnTarget(ret))",
+      );
+      expect(html).toContain(
+        "var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
+      );
+      expect(html).toContain(
+        "__anFinishOAuthExchange(ret, flowId, data.token)",
+      );
+      expect(html).toContain("__anWaitForOAuthExchange(flowId, ret, btn, err)");
+      expect(html).toContain("window.location.reload()");
+      expect(html).not.toContain(
+        "__anWaitForOAuthExchange(flowId, target, btn, err)",
       );
       expect(html).toContain(
         "window.open('', '_blank', 'width=640,height=760')",
@@ -1499,17 +1824,56 @@ describe("server/auth", () => {
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
       );
-      expect(loginHtml).toContain("__anIsBuilderDesktop()");
+      expect(loginHtml).toContain("var __anBuilderPreviewSeen = false");
+      expect(loginHtml).toContain("function __anRememberBuilderPreview()");
       expect(loginHtml).toContain(
-        "if (__anIsBuilderPreview() && !__anIsBuilderDesktop())",
+        "sessionStorage.setItem('__an_builder_preview_seen', '1')",
+      );
+      expect(loginHtml).toContain("function __anHasBuilderPreviewSignal()");
+      expect(loginHtml).toContain("params.has('builder.preview')");
+      expect(loginHtml).toContain("__anIsBuilderPreview();");
+      expect(loginHtml).toContain("__anIsBuilderDesktop()");
+      expect(loginHtml).toContain("__anIsAgentNativeDesktop()");
+      expect(loginHtml).toContain("function __anIsInFrame()");
+      expect(loginHtml).toContain(
+        "if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect'",
+      );
+      expect(loginHtml).toContain(
+        "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
       );
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Opening Google sign-in redirect')",
       );
       expect(loginHtml).toContain("function __anBuilderPreviewReturnOrigin()");
+      expect(loginHtml).toContain(
+        "var candidates = [window.location.href, document.referrer || ''];",
+      );
+      expect(loginHtml).toContain("function __anGoogleAuthUrlPath()");
       expect(loginHtml).toContain("function __anOAuthReturnTarget(ret)");
       expect(loginHtml).toContain(
+        "function __anSessionBridgeUrl(ret, sessionToken)",
+      );
+      expect(loginHtml).toContain(
+        "function __anFinishOAuthExchange(ret, flowId, sessionToken)",
+      );
+      expect(loginHtml).toContain(
+        "window.location.replace(__anSessionBridgeUrl(ret, sessionToken))",
+      );
+      expect(loginHtml).toContain(
+        "var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
+      );
+      expect(loginHtml).toContain(
         "params.set('return', __anOAuthReturnTarget(ret))",
+      );
+      expect(loginHtml).toContain(
+        "__anWaitForOAuthExchange(flowId, ret, btn, err)",
+      );
+      expect(loginHtml).toContain(
+        "__anFinishOAuthExchange(ret, flowId, data.token)",
+      );
+      expect(loginHtml).toContain("window.location.reload()");
+      expect(loginHtml).not.toContain(
+        "__anWaitForOAuthExchange(flowId, target, btn, err)",
       );
       expect(loginHtml).toContain(
         "window.open('', '_blank', 'width=640,height=760')",
@@ -1519,7 +1883,7 @@ describe("server/auth", () => {
         "Google popup was blocked. Allow popups for this site",
       );
       expect(loginHtml).toContain(
-        "check server logs for [agent-native][google-oauth]",
+        "never reached this app. Check the Google OAuth redirect URI",
       );
       expect(loginHtml).not.toContain("&debug=1");
     });
@@ -1889,6 +2253,25 @@ describe("server/auth", () => {
     });
   });
 
+  describe("getAppProductionUrl", () => {
+    it("uses the workspace OAuth origin ahead of a loopback gateway", async () => {
+      vi.stubEnv("WORKSPACE_OAUTH_ORIGIN", "https://auth.agent.example");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+      const { getAppProductionUrl } = await import("./app-url.js");
+
+      expect(getAppProductionUrl()).toBe("https://auth.agent.example");
+    });
+
+    it("uses platform URLs ahead of loopback workspace gateways in production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("URL", "https://workspace.example.test");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+      const { getAppProductionUrl } = await import("./app-url.js");
+
+      expect(getAppProductionUrl()).toBe("https://workspace.example.test");
+    });
+  });
+
   describe("resolveOAuthRedirectUri", () => {
     it("defaults root workspace framework-route requests to the root callback", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
@@ -1956,6 +2339,46 @@ describe("server/auth", () => {
 
       expect(resolveOAuthRedirectUri(event)).toBe(
         "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+    });
+
+    it("uses the configured workspace OAuth origin instead of the local gateway", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("WORKSPACE_OAUTH_ORIGIN", "https://auth.agent.example");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: "127.0.0.1:8080",
+          referer:
+            "https://940ebc5a83164aa6a37dde445e494f3a-thunder-handle-xmq6tgfy.builderio.xyz/?builder.preview=interact",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://auth.agent.example/_agent-native/google/callback",
+      );
+    });
+
+    it("prefers platform public URLs over loopback workspace gateways in production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("URL", "https://workspace.example.test");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: "127.0.0.1:8080",
+          "x-forwarded-proto": "http",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://workspace.example.test/_agent-native/google/callback",
       );
     });
 
@@ -2106,6 +2529,67 @@ describe("server/auth", () => {
       expect(resolveOAuthRedirectUri(event)).toBe(
         "https://agent-workspace.builder.io/_agent-native/google/callback",
       );
+    });
+  });
+
+  // Regression guard: better-auth 1.6.0 validates emails with Zod v4's
+  // `z.email()`. The original auto dev-account email `dev@local` has no
+  // TLD and is rejected as INVALID_EMAIL, which silently broke the
+  // zero-setup auto-sign-in on every fresh local dev DB. The fix moves
+  // the constant to `dev@local.test` (RFC 6761 reserved, never resolves)
+  // while keeping `dev@local` recognized as the legacy dev account.
+  describe("auto dev account email format", () => {
+    // Must mirror AUTO_DEV_ACCOUNT_EMAIL / LEGACY_AUTO_DEV_ACCOUNT_EMAIL
+    // in auth.ts (module-private constants).
+    const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
+    const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
+
+    it("uses an address that passes better-auth's z.email() validator", async () => {
+      const z = await import("zod");
+      expect(z.email().safeParse(AUTO_DEV_ACCOUNT_EMAIL).success).toBe(true);
+      // The pre-fix address is exactly the one that failed validation.
+      expect(z.email().safeParse(LEGACY_AUTO_DEV_ACCOUNT_EMAIL).success).toBe(
+        false,
+      );
+    });
+
+    it("keeps the new and legacy emails distinct so both are excluded as the dev account", () => {
+      expect(AUTO_DEV_ACCOUNT_EMAIL).not.toBe(LEGACY_AUTO_DEV_ACCOUNT_EMAIL);
+      expect(AUTO_DEV_ACCOUNT_EMAIL).toMatch(/\.test$/);
+    });
+  });
+
+  describe("isLoopbackAddress", () => {
+    it("accepts loopback peers (IPv4, IPv6, IPv4-mapped, 127/8, zone id)", async () => {
+      const { isLoopbackAddress } = await import("./auth.js");
+      for (const ip of [
+        "127.0.0.1",
+        "127.5.6.7",
+        "::1",
+        "::1%lo0",
+        "::ffff:127.0.0.1",
+      ]) {
+        expect(isLoopbackAddress(ip)).toBe(true);
+      }
+    });
+
+    it("rejects every non-loopback / unknown peer (the dev auto-account + desktop-SSO gate)", async () => {
+      const { isLoopbackAddress } = await import("./auth.js");
+      for (const ip of [
+        "203.0.113.5",
+        "192.168.4.70",
+        "10.0.0.2",
+        "169.254.1.1",
+        "0.0.0.0",
+        "::",
+        "::ffff:192.168.4.70",
+        "1.127.0.0", // must NOT match the 127/8 prefix check
+        "localhost",
+        "",
+        undefined,
+      ]) {
+        expect(isLoopbackAddress(ip)).toBe(false);
+      }
     });
   });
 });

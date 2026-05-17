@@ -15,7 +15,10 @@ export async function createDb(config: DbConfig) {
   if (config.driver === "postgres") {
     const { drizzle: drizzlePg } = await import("drizzle-orm/postgres-js");
     const { default: pg } = await import("postgres");
-    return drizzlePg(pg(config.connectionString));
+    const { pgPoolOptions } = await import("./client.js");
+    return drizzlePg(
+      pg(config.connectionString, pgPoolOptions(config.connectionString)),
+    );
   }
   if (config.driver === "sqlite") {
     const sqlite = new Database(config.filename);

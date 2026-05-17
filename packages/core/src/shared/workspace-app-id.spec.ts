@@ -21,6 +21,7 @@ describe("workspace app id validation", () => {
       "dispatch",
       "apps",
       "approval",
+      "thread-debug",
       "login",
       "tools",
       "_agent-native",

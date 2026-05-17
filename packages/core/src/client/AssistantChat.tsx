@@ -17,7 +17,6 @@ import {
   useComposerRuntime,
   useMessageRuntime,
   ThreadPrimitive,
-  ComposerPrimitive,
   MessagePrimitive,
 } from "@assistant-ui/react";
 import type {
@@ -32,15 +31,24 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import {
+  useAgentDynamicSuggestions,
+  type AgentDynamicSuggestionsOption,
+} from "./dynamic-suggestions.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type {
+  ChatThreadScope,
+  ChatThreadSnapshot,
+} from "./use-chat-threads.js";
 import { getActiveRun } from "./active-run-state.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
   readSSEStreamRaw,
 } from "./sse-event-processor.js";
-import { captureError } from "./analytics.js";
+import { captureError, trackEvent } from "./analytics.js";
 import { cn } from "./utils.js";
+import { useNearBottomAutoscroll } from "./conversation/index.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
@@ -69,8 +77,10 @@ import {
 import { ThumbsFeedback } from "./observability/ThumbsFeedback.js";
 import {
   TiptapComposer,
+  type ComposerSubmitIntent,
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
+import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
 import type { Reference } from "./composer/types.js";
 import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
 import { PastedTextChip } from "./composer/PastedTextChip.js";
@@ -1472,6 +1482,9 @@ function ToolCallDisplay({
           <ConnectBuilderCard
             configured={!!parsed.configured}
             builderEnabled={parsed.builderEnabled !== false}
+            // Ignore saved cliAuthUrl values from older tool results. They
+            // contain signed callback state and can expire while a chat sits
+            // open; the card's hook fetches a fresh signed URL on mount/click.
             connectUrl={parsed.connectUrl || ""}
             orgName={parsed.orgName ?? null}
             prompt={typeof parsed.prompt === "string" ? parsed.prompt : ""}
@@ -1788,21 +1801,22 @@ export function isAssistantUiStaleIndexError(error: unknown): boolean {
   );
 }
 
-type AssistantMessageListErrorBoundaryProps = {
+type AssistantUiStaleIndexErrorBoundaryProps = {
   resetKey: string;
+  componentName?: string;
   children: React.ReactNode;
 };
 
-type AssistantMessageListErrorBoundaryState = {
+type AssistantUiStaleIndexErrorBoundaryState = {
   error: Error | null;
   retryToken: number;
 };
 
-export class AssistantMessageListErrorBoundary extends React.Component<
-  AssistantMessageListErrorBoundaryProps,
-  AssistantMessageListErrorBoundaryState
+export class AssistantUiStaleIndexErrorBoundary extends React.Component<
+  AssistantUiStaleIndexErrorBoundaryProps,
+  AssistantUiStaleIndexErrorBoundaryState
 > {
-  state: AssistantMessageListErrorBoundaryState = {
+  state: AssistantUiStaleIndexErrorBoundaryState = {
     error: null,
     retryToken: 0,
   };
@@ -1811,7 +1825,7 @@ export class AssistantMessageListErrorBoundary extends React.Component<
 
   static getDerivedStateFromError(
     error: unknown,
-  ): Partial<AssistantMessageListErrorBoundaryState> {
+  ): Partial<AssistantUiStaleIndexErrorBoundaryState> {
     return {
       error: error instanceof Error ? error : new Error(String(error ?? "")),
     };
@@ -1822,7 +1836,7 @@ export class AssistantMessageListErrorBoundary extends React.Component<
 
     captureError(error, {
       tags: {
-        component: "AssistantChat",
+        component: this.props.componentName ?? "AssistantChat",
         recoverable: "assistant-ui-stale-message-index",
       },
       extra: {
@@ -1843,7 +1857,7 @@ export class AssistantMessageListErrorBoundary extends React.Component<
     }, 0);
   }
 
-  componentDidUpdate(prevProps: AssistantMessageListErrorBoundaryProps) {
+  componentDidUpdate(prevProps: AssistantUiStaleIndexErrorBoundaryProps) {
     if (
       this.state.error &&
       isAssistantUiStaleIndexError(this.state.error) &&
@@ -1876,6 +1890,23 @@ export class AssistantMessageListErrorBoundary extends React.Component<
       </React.Fragment>
     );
   }
+}
+
+export function AssistantMessageListErrorBoundary({
+  resetKey,
+  children,
+}: {
+  resetKey: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <AssistantUiStaleIndexErrorBoundary
+      resetKey={resetKey}
+      componentName="AssistantMessageList"
+    >
+      {children}
+    </AssistantUiStaleIndexErrorBoundary>
+  );
 }
 
 function UserMessageAttachments() {
@@ -2040,7 +2071,7 @@ const CheckpointContext = React.createContext<{
 } | null>(null);
 
 const MessageActionsContext = React.createContext<{
-  onForkChat?: () => void;
+  onForkChat?: () => void | boolean | Promise<void | boolean>;
 } | null>(null);
 
 function MessageActionsMenu({
@@ -2394,6 +2425,7 @@ function BuilderConnectCta({
 }) {
   const { configured, orgName, connecting, error, start } =
     useBuilderConnectFlow({
+      trackingSource: "assistant_chat_builder_cta",
       onConnected,
     });
 
@@ -2432,7 +2464,7 @@ function BuilderConnectCta({
       </div>
       <button
         type="button"
-        onClick={start}
+        onClick={() => start()}
         disabled={connecting}
         className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
         aria-busy={connecting}
@@ -2634,6 +2666,16 @@ function isProviderQueryRunError(info: RunErrorInfo): boolean {
   );
 }
 
+function isConnectionRecoveryRunError(info: RunErrorInfo): boolean {
+  const code = (info.errorCode ?? "").toLowerCase();
+  const message = info.message.toLowerCase();
+  return (
+    code === "connection_error" ||
+    message.includes("connection kept failing") ||
+    message.includes("automatic recovery attempts")
+  );
+}
+
 function getMessageText(message: unknown): string {
   const msg = (message as { message?: unknown })?.message ?? message;
   const content = (msg as { content?: unknown })?.content;
@@ -2657,14 +2699,24 @@ function RunErrorRecoveryCard({
   info: RunErrorInfo;
   onContinue: () => void;
   onRetry: () => void;
-  onFork?: () => void;
+  onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [forking, setForking] = useState(false);
+  const [forkError, setForkError] = useState<string | null>(null);
+  const builderReconnect = useBuilderConnectFlow({
+    trackingSource: "assistant_chat_reconnect_error",
+  });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
+  const builderReconnectResolved =
+    shouldShowBuilderReconnect &&
+    builderReconnect.hasFetchedStatus &&
+    builderReconnect.configured;
   const isQueryError = isProviderQueryRunError(info);
+  const isConnectionRecoveryError = isConnectionRecoveryRunError(info);
   const copyLabel =
     info.runId || info.errorCode || info.details ? "Copy debug" : "Copy";
   const copyDetails = useCallback(() => {
@@ -2680,6 +2732,32 @@ function RunErrorRecoveryCard({
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   }, [info]);
+  const startNewChat = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
+    onDismiss();
+  }, [onDismiss]);
+
+  const handleFork = useCallback(async () => {
+    if (!onFork || forking) return;
+    setForking(true);
+    setForkError(null);
+    try {
+      const result = await onFork();
+      if (result === false) {
+        setForkError("Could not fork this chat. Try starting a new chat.");
+      }
+    } catch {
+      setForkError("Could not fork this chat. Try starting a new chat.");
+    } finally {
+      setForking(false);
+    }
+  }, [forking, onFork]);
+
+  useEffect(() => {
+    if (builderReconnectResolved) {
+      onDismiss();
+    }
+  }, [builderReconnectResolved, onDismiss]);
 
   return (
     <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
@@ -2696,10 +2774,16 @@ function RunErrorRecoveryCard({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {info.message}
           </p>
-          {shouldShowBuilderReconnect && (
+          {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               The current Builder.io or model-provider credential was rejected.
               Reconnect Builder.io, then retry this message.
+            </p>
+          )}
+          {isConnectionRecoveryError && (
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              If retry lands on the same error, start a new chat session and
+              continue from what already changed.
             </p>
           )}
           {(info.runId || info.errorCode || info.details) && (
@@ -2740,16 +2824,22 @@ function RunErrorRecoveryCard({
         </button>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {shouldShowBuilderReconnect && (
-          <a
-            href={agentNativePath("/_agent-native/builder/connect")}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+        {shouldShowBuilderReconnect && !builderReconnectResolved && (
+          <button
+            type="button"
+            onClick={() => builderReconnect.start()}
+            disabled={builderReconnect.connecting}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
           >
-            <IconExternalLink size={13} />
-            Reconnect Builder.io
-          </a>
+            {builderReconnect.connecting ? (
+              <IconLoader2 size={13} className="animate-spin" />
+            ) : (
+              <IconExternalLink size={13} />
+            )}
+            {builderReconnect.connecting
+              ? "Connecting Builder.io"
+              : "Reconnect Builder.io"}
+          </button>
         )}
         {canRecover && (
           <>
@@ -2771,16 +2861,31 @@ function RunErrorRecoveryCard({
             </button>
           </>
         )}
-        {canRecover && onFork && (
+        {canRecover && isConnectionRecoveryError && (
           <button
             type="button"
-            onClick={onFork}
-            title="Fork this conversation into a separate chat thread."
-            aria-label="Fork this conversation into a separate chat thread"
+            onClick={startNewChat}
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
           >
-            <IconGitFork size={13} />
-            Fork chat
+            <IconPlus size={13} />
+            New chat
+          </button>
+        )}
+        {canRecover && onFork && !isConnectionRecoveryError && (
+          <button
+            type="button"
+            onClick={handleFork}
+            disabled={forking}
+            title="Fork this conversation into a separate chat thread."
+            aria-label="Fork this conversation into a separate chat thread"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-70"
+          >
+            {forking ? (
+              <IconLoader2 size={13} className="animate-spin" />
+            ) : (
+              <IconGitFork size={13} />
+            )}
+            {forking ? "Forking..." : "Fork chat"}
           </button>
         )}
         <button
@@ -2792,6 +2897,14 @@ function RunErrorRecoveryCard({
           {copied ? "Copied" : copyLabel}
         </button>
       </div>
+      {shouldShowBuilderReconnect && builderReconnect.error && (
+        <p className="mt-2 text-xs leading-relaxed text-red-500">
+          {builderReconnect.error}
+        </p>
+      )}
+      {forkError && (
+        <p className="mt-2 text-xs leading-relaxed text-red-500">{forkError}</p>
+      )}
     </div>
   );
 }
@@ -3036,6 +3149,8 @@ export interface AssistantChatHandle {
   isRunning(): boolean;
   /** Focus the composer input */
   focusComposer(): void;
+  /** Export the currently visible client-side thread for operations like fork. */
+  exportThreadSnapshot(): ChatThreadSnapshot | null;
 }
 
 export interface AssistantChatProps {
@@ -3043,12 +3158,18 @@ export interface AssistantChatProps {
   apiUrl?: string;
   /** Stable tab identifier passed to the adapter for event correlation */
   tabId?: string;
+  /** Stable browser tab id used for tab-scoped app-state context. */
+  browserTabId?: string;
   /** Thread ID for SQL-backed persistence. When set, messages are loaded from and saved to the server. */
   threadId?: string;
+  /** Resource scope to include with chat requests for server-side context. */
+  contextScope?: ChatThreadScope | null;
   /** Placeholder text for empty state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
   suggestions?: string[];
+  /** Context-aware suggestions merged with `suggestions`. Enabled by default. */
+  dynamicSuggestions?: AgentDynamicSuggestionsOption;
   /** Optional content rendered in the empty state, above the suggestion buttons.
    *  Used by MultiTabAssistantChat to surface "previous chats for this design"
    *  when the current thread is empty but the scope has other threads. */
@@ -3111,7 +3232,7 @@ export interface AssistantChatProps {
   /** Callback when user picks a reasoning effort from the picker */
   onEffortChange?: (effort: ReasoningEffort) => void;
   /** Callback when user clicks "Fork Chat" in the message actions menu */
-  onForkChat?: () => void;
+  onForkChat?: () => void | boolean | Promise<void | boolean>;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -3171,13 +3292,16 @@ const AssistantChatInner = forwardRef<
   {
     emptyStateText,
     suggestions,
+    dynamicSuggestions,
     emptyStateAddon,
     showHeader = true,
     onSwitchToCli,
     className,
     apiUrl,
     tabId,
+    browserTabId,
     threadId,
+    contextScope,
     onMessageCountChange,
     onSaveThread,
     onGenerateTitle,
@@ -3201,12 +3325,18 @@ const AssistantChatInner = forwardRef<
   },
   ref,
 ) {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const threadRuntime = useThreadRuntime();
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
+  const resolvedSuggestions = useAgentDynamicSuggestions({
+    staticSuggestions: suggestions,
+    dynamicSuggestions,
+    browserTabId,
+    scope: contextScope,
+    enabled: messages.length === 0,
+  });
   const messageListResetKey = useMemo(
     () => messages.map((message) => message.id).join("|"),
     [messages],
@@ -4144,6 +4274,7 @@ const AssistantChatInner = forwardRef<
       references?: Reference[],
       attachments?: ReadonlyArray<unknown>,
       requestMode?: AgentRequestMode,
+      intent: ComposerSubmitIntent = "queued",
     ) => {
       setShowContinue(false);
       setLoopLimitInfo(null);
@@ -4160,8 +4291,7 @@ const AssistantChatInner = forwardRef<
       // user had scrolled up to read history. The sticky-bottom override
       // exists to stop streaming from yanking the viewport, not to swallow
       // direct sends.
-      isNearBottomRef.current = true;
-      setShowScrollToBottom(false);
+      markNearBottom();
       const queuedAttachments = await serializeQueuedAttachments(attachments);
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
@@ -4174,7 +4304,7 @@ const AssistantChatInner = forwardRef<
           : execMode === "build"
             ? "act"
             : undefined);
-      if (isRunning) {
+      if (isRunning && intent === "queued") {
         setQueuedMessages((prev) => [
           ...prev,
           {
@@ -4227,45 +4357,32 @@ const AssistantChatInner = forwardRef<
       focusComposer() {
         tiptapRef.current?.focus();
       },
+      exportThreadSnapshot() {
+        if (messages.length === 0) return null;
+        const repo = threadRuntime.export();
+        const { title, preview } = extractThreadMeta(repo);
+        return {
+          threadData: JSON.stringify(repo),
+          title,
+          preview,
+          messageCount: messages.length,
+        };
+      },
     }),
-    [addToQueue, thread.isRunning],
+    [addToQueue, messages.length, thread.isRunning, threadRuntime],
   );
 
-  // Track whether user has scrolled away from bottom
-  const isNearBottomRef = useRef(true);
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    function onScroll() {
-      if (!el) return;
-      const threshold = 40;
-      const nearBottom =
-        el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-      isNearBottomRef.current = nearBottom;
-      setShowScrollToBottom(!nearBottom && messages.length > 0);
-    }
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [messages.length]);
-
-  const scrollToBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
-      isNearBottomRef.current = true;
-      setShowScrollToBottom(false);
-    }
-  }, []);
-
-  const scrollToBottomAfterPaint = useCallback(() => {
-    scrollToBottom();
-    requestAnimationFrame(() => {
-      scrollToBottom();
-      requestAnimationFrame(scrollToBottom);
-    });
-    setTimeout(scrollToBottom, 80);
-  }, [scrollToBottom]);
+  const {
+    scrollRef,
+    isNearBottomRef,
+    showScrollToBottom,
+    markNearBottom,
+    scrollToBottom,
+    scrollToBottomAfterPaint,
+  } = useNearBottomAutoscroll<HTMLDivElement>({
+    followKey: [messages, queuedMessages],
+    streaming: isRunning,
+  });
 
   const scrollToBottomWhileLayoutSettles = useCallback(() => {
     scrollToBottomAfterPaint();
@@ -4300,32 +4417,11 @@ const AssistantChatInner = forwardRef<
     }
   }, [isRestoring, scrollToBottomWhileLayoutSettles]);
 
-  // Auto-scroll on new messages or queued messages (only if near bottom)
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el && isNearBottomRef.current) {
-      scrollToBottomAfterPaint();
-    }
-  }, [messages, queuedMessages, scrollToBottomAfterPaint]);
-
   useEffect(() => {
     if (!isRunning && isNearBottomRef.current) {
       scrollToBottomAfterPaint();
     }
   }, [isRunning, scrollToBottomAfterPaint]);
-
-  // Continuous auto-scroll while streaming (only if near bottom)
-  useEffect(() => {
-    if (!isRunning) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const interval = setInterval(() => {
-      if (isNearBottomRef.current) {
-        el.scrollTop = el.scrollHeight;
-      }
-    }, 100);
-    return () => clearInterval(interval);
-  }, [isRunning]);
 
   const { isDevMode: cpDevMode } = useDevMode(apiUrl);
   const checkpointCtx = useMemo(
@@ -4544,9 +4640,9 @@ const AssistantChatInner = forwardRef<
                     {emptyStateText ?? "How can I help you?"}
                   </p>
                   {emptyStateAddon}
-                  {suggestions && suggestions.length > 0 && (
+                  {resolvedSuggestions && resolvedSuggestions.length > 0 && (
                     <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
-                      {suggestions.map((suggestion) => (
+                      {resolvedSuggestions.map((suggestion) => (
                         <button
                           key={suggestion}
                           onClick={() => {
@@ -4707,9 +4803,8 @@ const AssistantChatInner = forwardRef<
             )}
             <SelectionAttachedPill />
             {/* Input area */}
-            <div
+            <AgentComposerFrame
               className={cn(
-                "agent-composer-area shrink-0 px-3 py-2",
                 missingApiKey && "cursor-pointer",
                 isComposerDisabled && "opacity-70",
               )}
@@ -4719,106 +4814,104 @@ const AssistantChatInner = forwardRef<
                   : undefined
               }
             >
-              <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
-                <ComposerAttachmentPreviewStrip />
-                <TiptapComposer
-                  focusRef={tiptapRef}
-                  disabled={isComposerDisabled}
-                  placeholder={
-                    missingApiKey
-                      ? "Connect an AI engine above to start chatting…"
-                      : composerDisabled
-                        ? (composerDisabledPlaceholder ??
-                          "Open Desktop to use this chat.")
-                        : isRunning
-                          ? queuedMessages.length > 0
-                            ? `${queuedMessages.length} queued — type another...`
-                            : "Queue a message..."
-                          : undefined
-                  }
-                  onSubmit={
-                    isRunning
-                      ? (text, references, attachments) =>
-                          void addToQueue(
-                            text,
-                            undefined,
-                            references.length > 0 ? references : undefined,
-                            attachments,
-                          )
-                      : undefined
-                  }
-                  onSlashCommand={onSlashCommand}
-                  execMode={execMode}
-                  onExecModeChange={onExecModeChange}
-                  planModeDisabled={planModeDisabled}
-                  planModeDisabledReason={planModeDisabledReason}
-                  selectedModel={selectedModel ?? defaultModel}
-                  selectedEffort={selectedEffort}
-                  availableModels={availableModels}
-                  onModelChange={onModelChange}
-                  onEffortChange={onEffortChange}
-                  draftScope={threadId || tabId}
-                  interceptBuildRequestsForBuilder
-                  extraActionButton={
-                    showRunningInUI ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              // Nuclear stop: flip forceStopped so isRunning is false
-                              // immediately. This unblocks submission even if the
-                              // runtime or reconnect state is stuck.
-                              setForceStopped(true);
-                              const activeRun = getActiveRun();
-                              const runIdToAbort =
-                                reconnectRunIdRef.current ?? activeRun?.runId;
-                              userStoppedRunRef.current = {
-                                at: Date.now(),
-                                ...(runIdToAbort
-                                  ? { runId: runIdToAbort }
-                                  : {}),
-                              };
-                              setRunErrorInfo(null);
-                              setDismissedRunErrorKey(null);
-                              if (runIdToAbort) {
-                                fetch(
-                                  `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
-                                  { method: "POST" },
-                                ).catch(() => {});
-                              }
+              <ComposerAttachmentPreviewStrip />
+              <TiptapComposer
+                focusRef={tiptapRef}
+                disabled={isComposerDisabled}
+                placeholder={
+                  missingApiKey
+                    ? "Connect an AI engine above to start chatting…"
+                    : composerDisabled
+                      ? (composerDisabledPlaceholder ??
+                        "Open Desktop to use this chat.")
+                      : isRunning
+                        ? queuedMessages.length > 0
+                          ? `${queuedMessages.length} queued — send a follow-up...`
+                          : "Send a follow-up..."
+                        : undefined
+                }
+                onSubmit={
+                  isRunning
+                    ? (text, references, attachments, options) =>
+                        void addToQueue(
+                          text,
+                          undefined,
+                          references.length > 0 ? references : undefined,
+                          attachments,
+                          undefined,
+                          options?.intent ?? "immediate",
+                        )
+                    : undefined
+                }
+                onSlashCommand={onSlashCommand}
+                execMode={execMode}
+                onExecModeChange={onExecModeChange}
+                planModeDisabled={planModeDisabled}
+                planModeDisabledReason={planModeDisabledReason}
+                selectedModel={selectedModel ?? defaultModel}
+                selectedEffort={selectedEffort}
+                availableModels={availableModels}
+                onModelChange={onModelChange}
+                onEffortChange={onEffortChange}
+                draftScope={threadId || tabId}
+                interceptBuildRequestsForBuilder
+                extraActionButton={
+                  showRunningInUI ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Nuclear stop: flip forceStopped so isRunning is false
+                            // immediately. This unblocks submission even if the
+                            // runtime or reconnect state is stuck.
+                            setForceStopped(true);
+                            const activeRun = getActiveRun();
+                            const runIdToAbort =
+                              reconnectRunIdRef.current ?? activeRun?.runId;
+                            userStoppedRunRef.current = {
+                              at: Date.now(),
+                              ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+                            };
+                            setRunErrorInfo(null);
+                            setDismissedRunErrorKey(null);
+                            if (runIdToAbort) {
+                              fetch(
+                                `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
+                                { method: "POST" },
+                              ).catch(() => {});
+                            }
 
-                              if (isReconnecting) {
-                                reconnectAbortRef.current?.abort();
-                                reconnectAbortRef.current = null;
-                                reconnectRunIdRef.current = null;
-                                setIsReconnecting(false);
-                                setReconnectFrozen(reconnectContent.length > 0);
-                              }
+                            if (isReconnecting) {
+                              reconnectAbortRef.current?.abort();
+                              reconnectAbortRef.current = null;
+                              reconnectRunIdRef.current = null;
+                              setIsReconnecting(false);
+                              setReconnectFrozen(reconnectContent.length > 0);
+                            }
 
-                              threadRuntime.cancelRun();
+                            threadRuntime.cancelRun();
 
-                              window.dispatchEvent(
-                                new CustomEvent("agentNative.chatRunning", {
-                                  detail: {
-                                    isRunning: false,
-                                    tabId: tabId || threadId,
-                                  },
-                                }),
-                              );
-                            }}
-                            className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
-                          >
-                            <IconPlayerStop className="h-3.5 w-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>Stop generating</TooltipContent>
-                      </Tooltip>
-                    ) : undefined
-                  }
-                />
-              </ComposerPrimitive.Root>
-            </div>
+                            window.dispatchEvent(
+                              new CustomEvent("agentNative.chatRunning", {
+                                detail: {
+                                  isRunning: false,
+                                  tabId: tabId || threadId,
+                                },
+                              }),
+                            );
+                          }}
+                          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                        >
+                          <IconPlayerStop className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Stop generating</TooltipContent>
+                    </Tooltip>
+                  ) : undefined
+                }
+              />
+            </AgentComposerFrame>
           </div>
         </ChatRunningContext.Provider>
       </MessageActionsContext.Provider>
@@ -4833,7 +4926,9 @@ export const AssistantChat = forwardRef<
   {
     apiUrl = agentNativePath("/_agent-native/agent-chat"),
     tabId,
+    browserTabId,
     threadId,
+    contextScope,
     ...props
   },
   ref,
@@ -4846,6 +4941,8 @@ export const AssistantChat = forwardRef<
   effortRef.current = props.selectedEffort;
   const execModeRef = useRef<"build" | "plan" | undefined>(props.execMode);
   execModeRef.current = props.execMode;
+  const scopeRef = useRef<ChatThreadScope | null | undefined>(contextScope);
+  scopeRef.current = contextScope;
 
   const adapter = useMemo(
     () =>
@@ -4857,8 +4954,10 @@ export const AssistantChat = forwardRef<
         engineRef,
         effortRef,
         execModeRef,
+        browserTabId,
+        scopeRef,
       }),
-    [apiUrl, tabId, threadId],
+    [apiUrl, tabId, threadId, browserTabId],
   );
   const attachmentAdapter = useMemo(
     () =>
@@ -4876,13 +4975,20 @@ export const AssistantChat = forwardRef<
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
-        <AssistantChatInner
-          ref={ref}
-          {...props}
-          apiUrl={apiUrl}
-          tabId={tabId}
-          threadId={threadId}
-        />
+        <AssistantUiStaleIndexErrorBoundary
+          resetKey={`${tabId ?? ""}:${threadId ?? ""}`}
+          componentName="AssistantChat"
+        >
+          <AssistantChatInner
+            ref={ref}
+            {...props}
+            browserTabId={browserTabId}
+            contextScope={contextScope}
+            apiUrl={apiUrl}
+            tabId={tabId}
+            threadId={threadId}
+          />
+        </AssistantUiStaleIndexErrorBoundary>
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );

@@ -11,6 +11,7 @@ import {
   putUserSetting,
 } from "@agent-native/core/settings";
 import { cliBoolean } from "./schema-helpers.js";
+import { resolveDictionaryTrustDefaults } from "./data-dictionary-trust.js";
 
 const KEY_PREFIX = "data-dict-";
 
@@ -98,7 +99,9 @@ export default defineAction({
       .describe("Person / team responsible for this metric"),
     approved: cliBoolean
       .optional()
-      .describe("Whether this entry has been reviewed and approved"),
+      .describe(
+        "Whether this entry has been reviewed and approved. Defaults to true for human-authored entries and false for AI-generated suggestions.",
+      ),
     aiGenerated: cliBoolean
       .optional()
       .describe("True when the agent proposed this entry (vs. human-authored)"),
@@ -127,6 +130,11 @@ export default defineAction({
       // not found
     }
 
+    const { approved, aiGenerated } = resolveDictionaryTrustDefaults(
+      args,
+      existing as { approved?: boolean; aiGenerated?: boolean } | null,
+    );
+
     const entry: Record<string, unknown> = {
       id,
       metric: args.metric,
@@ -152,8 +160,8 @@ export default defineAction({
       exampleUseCase:
         args.exampleUseCase ?? (existing as any)?.exampleUseCase ?? "",
       owner: args.owner ?? (existing as any)?.owner ?? "",
-      approved: args.approved ?? (existing as any)?.approved ?? false,
-      aiGenerated: args.aiGenerated ?? (existing as any)?.aiGenerated ?? false,
+      approved,
+      aiGenerated,
       sourceUrl: args.sourceUrl ?? (existing as any)?.sourceUrl ?? "",
       createdAt: (existing as any)?.createdAt ?? now,
       updatedAt: now,

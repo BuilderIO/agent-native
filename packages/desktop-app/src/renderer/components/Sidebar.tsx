@@ -14,13 +14,21 @@ import {
   IconSettings,
   IconScreenShare,
   IconBrush,
+  IconBrain,
   IconPhone,
   IconNote,
   IconMicrophone,
   IconCalendarTime,
+  IconPlus,
+  IconWorld,
 } from "@tabler/icons-react";
 import type { AppDefinition } from "@shared/app-registry";
 import { UpdateIndicator } from "./UpdateIndicator.js";
+
+const agentNativeIconUrl = new URL(
+  "../assets/agent-native-icon-dark.svg",
+  import.meta.url,
+).href;
 
 // Map icon name strings (from shared-app-config) to Tabler components
 const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
@@ -37,16 +45,21 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   MessageCircle: IconMessageCircle,
   ScreenShare: IconScreenShare,
   Brush: IconBrush,
+  Brain: IconBrain,
   Phone: IconPhone,
   Note: IconNote,
   Microphone: IconMicrophone,
   CalendarTime: IconCalendarTime,
+  Globe: IconWorld,
 };
 
 interface SidebarProps {
   apps: AppDefinition[];
   activeAppId: string;
   onTabChange: (appId: string) => void;
+  onAddAppClick?: () => void;
+  isCodeAgentsActive?: boolean;
+  onCodeAgentsClick?: () => void;
   onSettingsClick?: () => void;
 }
 
@@ -54,9 +67,12 @@ export default function Sidebar({
   apps,
   activeAppId,
   onTabChange,
+  onAddAppClick,
+  isCodeAgentsActive = false,
+  onCodeAgentsClick,
   onSettingsClick,
 }: SidebarProps) {
-  const pinnedBottomOrder = ["dispatch", "starter"];
+  const pinnedBottomOrder = ["dispatch"];
   const pinnedBottom = pinnedBottomOrder
     .map((id) => apps.find((app) => app.id === id))
     .filter((app): app is AppDefinition => !!app);
@@ -97,11 +113,32 @@ export default function Sidebar({
             onClick={() => onTabChange(app.id)}
           />
         ))}
+        {onAddAppClick && <SidebarAddButton onClick={onAddAppClick} />}
       </nav>
 
       {/* Footer: update indicator (when relevant) + settings */}
       <div className="sidebar-footer">
         <UpdateIndicator />
+        {onCodeAgentsClick && (
+          <button
+            className={`sidebar-item${isCodeAgentsActive ? " sidebar-item--active" : ""}`}
+            tabIndex={-1}
+            onClick={onCodeAgentsClick}
+            title="Agent-Native Code"
+            aria-label="Agent-Native Code"
+            aria-current={isCodeAgentsActive ? "page" : undefined}
+          >
+            <span className="icon-wrapper">
+              <img
+                src={agentNativeIconUrl}
+                alt=""
+                aria-hidden="true"
+                className="sidebar-agent-native-icon"
+              />
+            </span>
+            <span className="item-label">Code</span>
+          </button>
+        )}
         {onSettingsClick && (
           <button
             className="sidebar-item"
@@ -118,6 +155,23 @@ export default function Sidebar({
         )}
       </div>
     </aside>
+  );
+}
+
+function SidebarAddButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      className="sidebar-item sidebar-item--add"
+      tabIndex={-1}
+      onClick={onClick}
+      title="Add an app"
+      aria-label="Add an app"
+    >
+      <span className="icon-wrapper">
+        <IconPlus size={18} strokeWidth={1.75} />
+      </span>
+      <span className="item-label">Add</span>
+    </button>
   );
 }
 

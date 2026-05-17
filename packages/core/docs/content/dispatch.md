@@ -17,7 +17,7 @@ Reach for Dispatch when any of these are true:
 
 - You're running a [multi-app workspace](/docs/multi-app-workspace) — mail, calendar, analytics, content, recruiting — and you don't want one Slack bot per app.
 - You want **one inbox for "the agent"** so users DM a single bot and the right specialist app picks up the work behind the scenes.
-- You have **workspace-wide secrets** (Stripe key, OpenAI key, third-party API tokens) that several apps need but you'd rather grant per-app than copy into every `.env`.
+- You have **workspace-wide secrets** (Stripe key, OpenAI key, third-party API tokens) that several apps need and you want one vault instead of copying values into every `.env`.
 - You want a **runtime approval flow** in front of sensitive changes (saved destinations, policy edits) so non-admins can request and admins can sign off without a code deploy.
 - You want **shared skills, instructions, and agent profiles** that every app in the workspace inherits — change once, reach all.
 
@@ -35,7 +35,7 @@ See [Messaging](/docs/messaging) for the credentials and webhook URLs for each p
 
 ### Secret vault
 
-Store credentials once in Dispatch's vault and grant them to the apps that need them. Non-admins can **request** a secret for an app; admins **approve**, which creates the secret + grant in one step. Every read, grant, sync, and rotation is captured in an audit log. `sync-vault-to-app` pushes granted secrets into the target app's env so you don't have to redeploy or re-paste anything.
+Store credentials once in Dispatch's vault. By default, vault access is **all apps**: every saved key is available to every workspace app, and `sync-vault-to-app` pushes the full vault to the target app. Workspaces that need stricter separation can switch the vault to **manual** mode, where explicit per-app grants are required before sync. Non-admins can **request** a secret for an app; admins **approve**, which creates the secret and, in manual workflows, the grant. Every read, grant, sync, and rotation is captured in an audit log.
 
 This is what makes "rotate the OpenAI key" a one-click operation across ten apps instead of ten PRs.
 
@@ -47,11 +47,48 @@ The behavioral rule lives in the dispatch agent's instructions: domain work belo
 
 ### Workspace resources
 
-Skills, agent profiles, and instructions can be authored once in Dispatch and granted out to the rest of the workspace. `sync-workspace-resources-to-all` pushes them to every app's `.agents/` directory so every agent in every app picks them up. This is how a team-wide change ("always use British English in customer-facing replies") propagates without editing ten repos.
+Skills, guardrail instructions, agent profiles, and reference resources can be authored once in Dispatch and inherited by the rest of the workspace. Resources with **All apps** scope are global: Dispatch stores them once at workspace scope, and every app agent reads them at runtime. They are not copied into each app, and there is no manual workspace-resource sync step. App shared resources and personal resources can override or narrow the workspace defaults locally. Selected resources use explicit per-app grants for app-specific exceptions.
+
+Use the canonical paths to control how agents consume them:
+
+- `AGENTS.md` or `instructions/<slug>.md` for always-on guardrails loaded by every app agent
+- `skills/<slug>/SKILL.md` for on-demand skills available through `/` commands and the prompt skill index
+- `context/<slug>.md` for brand, persona, positioning, messaging, company facts, and other reference material the agent reads when relevant
+- `agents/<slug>.md` for reusable custom agent profiles
+
+Starter global resources usually look like:
+
+```text
+context/company.md
+context/brand.md
+context/messaging.md
+instructions/guardrails.md
+skills/company-voice/SKILL.md
+```
+
+Set these to **All apps** when every app should inherit the same company facts, brand rules, messaging, safety constraints, and customer-facing writing style. Use selected-app grants only for resources that are genuinely app-specific.
+
+The **Resources** page highlights this starter pack in a Global context section so admins can quickly see which files exist, whether they are scoped to all apps, restore missing starter files without overwriting existing ones, and edit their contents. Expand any resource to preview its effective runtime stack for a selected app/user: workspace default, organization/app override, then personal override. Each app card also has a **Context** view that shows exactly what that app receives: inherited workspace resources, selected grants, and auto-loaded instructions. Use a resource row's **Stack** control to inspect which layer wins for that app.
+
+This is how a team-wide change ("always use British English in customer-facing replies") or a shared brand guideline propagates without editing ten repos.
+
+### Dreams
+
+Dispatch Dreams review prior agent runs, feedback, evals, and repeated failures to propose durable improvements. A dream report is a review surface, not a silent rewrite: it can suggest personal memory updates, stale-memory cleanup, shared `LEARNINGS.md` edits, workspace instruction/skill/knowledge/agent resources, or recurring jobs, and each proposal links back to the runs that justify it. Shared instructions and team-wide resources require review before they are applied, especially when the evidence came from inbound Slack, email, Telegram, WhatsApp, or web content.
+
+Before proposing a write, Dreams compare the evidence against the personal memory index, existing `memory/*.md` notes, and shared `LEARNINGS.md`. If a lesson is already captured, the report records that it was skipped; if a related personal memory looks stale, the proposal targets that existing note instead of creating a duplicate. Dream reports deduplicate repeated evidence by thread, signal type, and normalized quote, strip injected context from correction detection, and summarize raw eval/tool rows into readable bullets. If a pass finds signals but creates no proposals, guardrail notes explain which evidence was suppressed.
+
+Use Dreams as the workspace's offline reflection loop: "what did agents keep getting wrong this week?", "what should we remember?", and "which repeated workflow should become a skill or scheduled job?"
+
+Start from the **Dreams** tab in Dispatch. Run a manual pass first, open a proposal review sheet to compare the current target with the proposed content and source evidence, then apply only the changes you want to keep. Once the reports are consistently useful, Dispatch can create a recurring dream job that keeps producing proposals without auto-applying shared or instruction-level changes. Workspace-instruction proposals require durable evidence from at least two threads or two source apps, while eval-only noise, account setup issues, quota limits, and single-app UI wording corrections remain out of all-app instructions.
+
+When a workspace has several thread-debug sources, Dreams can scan them together with `sourceId: "all"` or an explicit `sourceIds` list. Each source gets its own timeout, start stagger, concurrency cap, per-thread timeout, and persisted health row, so a slow or unavailable production database produces a partial result instead of blocking the whole dream pass.
+
+Recurring dream settings are stored at user or org scope and can be edited from the Dreams settings sheet. They control the cron schedule, source selection, per-source timeout, source concurrency, source start stagger, per-thread timeout, candidate limit, and minimum candidate threshold. The default recurring shape is a weekly all-source review that writes proposals only; applying shared or workspace-resource proposals still goes through review and approval.
 
 ### Approval flow
 
-Dispatch can gate sensitive runtime changes behind admin review. Today this covers **saved destinations** (the Slack channels and email addresses the agent can proactively send to) and **dispatch approval policy** itself. When the policy is enabled, the change is queued and the agent surfaces an inline approval preview directly in chat — admins approve or reject without leaving the conversation. Resource-wide approval interception is planned but not yet shipped.
+Dispatch can gate sensitive runtime changes behind admin review. Today this covers **saved destinations** (the Slack channels and email addresses the agent can proactively send to), shared/team **dream proposals**, All-app **workspace resource** creates/updates/deletes, and **dispatch approval policy** itself. When the policy is enabled, the change is queued and the agent surfaces an inline approval preview directly in chat — admins approve or reject without leaving the conversation.
 
 ## How a Slack message flows through Dispatch {#flow}
 
@@ -83,7 +120,7 @@ Three short steps:
 2. **Connect messaging.** Open **Settings → Messaging** in Dispatch and click connect for Slack, Email, Telegram, or WhatsApp. The form fields match the env vars in the [Messaging](/docs/messaging) doc — refer there for what each platform needs.
 3. **Add other apps.** Run `npx @agent-native/core add-app` from the workspace root for each domain app. They auto-appear as A2A peers in Dispatch's `list-workspace-apps` — no manual registration, no agent-card editing. Dispatch will start delegating to them as soon as their agent cards are reachable.
 
-Then add credentials to the vault, grant them to the apps that need them, and (optionally) author workspace skills under **Resources** and sync them out.
+Then add credentials to the vault and (optionally) author global workspace resources under **Resources**. Vault keys can still be synced or granted depending on access mode; All-app workspace resources are inherited automatically. If you need per-app secret isolation, switch the vault access setting to manual before granting individual apps.
 
 ## See also {#see-also}
 

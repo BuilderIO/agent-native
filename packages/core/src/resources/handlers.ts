@@ -16,8 +16,10 @@ import {
   resourceList,
   resourceListAccessible,
   resourceMove,
+  resourceEffectiveContext,
   ensurePersonalDefaults,
   SHARED_OWNER,
+  WORKSPACE_OWNER,
   type Resource,
   type ResourceMeta,
 } from "./store.js";
@@ -52,6 +54,10 @@ async function resolveOwner(event: any, shared?: boolean): Promise<string> {
   return session.email;
 }
 
+function canReadOwner(owner: string, email: string): boolean {
+  return owner === email || owner === SHARED_OWNER || owner === WORKSPACE_OWNER;
+}
+
 async function resolveEmail(event: any): Promise<string> {
   const session = await getSession(event);
   if (!session?.email) {
@@ -78,6 +84,15 @@ async function assertCanEditShared(event: any): Promise<void> {
     statusCode: 403,
     message: "Only organization admins can edit organization files",
   });
+}
+
+function shouldIncludeAgentScratch(query: Record<string, unknown>): boolean {
+  return (
+    query.includeAgentScratch === "true" ||
+    query.includeScratch === "true" ||
+    query.includeAgentScratch === true ||
+    query.includeScratch === true
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +184,9 @@ export async function handleListResources(event: any) {
   const prefix = (query.prefix as string) || undefined;
   const scope = (query.scope as string) || "all";
   const email = await resolveEmail(event);
+  const listOptions = shouldIncludeAgentScratch(query)
+    ? { includeAgentScratch: true }
+    : undefined;
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
   await ensurePersonalDefaults(email);
@@ -176,12 +194,22 @@ export async function handleListResources(event: any) {
   let resources: ResourceMeta[];
 
   if (scope === "personal") {
-    resources = await resourceList(email, prefix);
+    resources = listOptions
+      ? await resourceList(email, prefix, listOptions)
+      : await resourceList(email, prefix);
+  } else if (scope === "workspace") {
+    resources = listOptions
+      ? await resourceList(WORKSPACE_OWNER, prefix, listOptions)
+      : await resourceList(WORKSPACE_OWNER, prefix);
   } else if (scope === "shared") {
-    resources = await resourceList(SHARED_OWNER, prefix);
+    resources = listOptions
+      ? await resourceList(SHARED_OWNER, prefix, listOptions)
+      : await resourceList(SHARED_OWNER, prefix);
   } else {
-    // "all" — personal + shared
-    resources = await resourceListAccessible(email, prefix);
+    // "all" — personal + organization/shared + inherited workspace
+    resources = listOptions
+      ? await resourceListAccessible(email, prefix, listOptions)
+      : await resourceListAccessible(email, prefix);
   }
 
   return { resources };
@@ -192,6 +220,9 @@ export async function handleGetResourceTree(event: any) {
   const query = getQuery(event);
   const scope = (query.scope as string) || "all";
   const email = await resolveEmail(event);
+  const listOptions = shouldIncludeAgentScratch(query)
+    ? { includeAgentScratch: true }
+    : undefined;
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
   await ensurePersonalDefaults(email);
@@ -199,11 +230,21 @@ export async function handleGetResourceTree(event: any) {
   let resources: ResourceMeta[];
 
   if (scope === "personal") {
-    resources = await resourceList(email);
+    resources = listOptions
+      ? await resourceList(email, undefined, listOptions)
+      : await resourceList(email);
+  } else if (scope === "workspace") {
+    resources = listOptions
+      ? await resourceList(WORKSPACE_OWNER, undefined, listOptions)
+      : await resourceList(WORKSPACE_OWNER);
   } else if (scope === "shared") {
-    resources = await resourceList(SHARED_OWNER);
+    resources = listOptions
+      ? await resourceList(SHARED_OWNER, undefined, listOptions)
+      : await resourceList(SHARED_OWNER);
   } else {
-    resources = await resourceListAccessible(email);
+    resources = listOptions
+      ? await resourceListAccessible(email, undefined, listOptions)
+      : await resourceListAccessible(email);
   }
 
   const tree = buildTree(resources);
@@ -212,6 +253,20 @@ export async function handleGetResourceTree(event: any) {
   await enrichTreeNodes(tree);
 
   return { tree };
+}
+
+/** GET /_agent-native/resources/effective?path=... — show inheritance stack */
+export async function handleGetEffectiveResourceContext(event: any) {
+  const query = getQuery(event);
+  const path = query.path;
+  if (typeof path !== "string" || path.trim().length === 0) {
+    setResponseStatus(event, 400);
+    return { error: "path is required" };
+  }
+
+  const email = await resolveEmail(event);
+  await ensurePersonalDefaults(email);
+  return resourceEffectiveContext(email, path);
 }
 
 /**
@@ -302,7 +357,7 @@ export async function handleGetResource(event: any) {
   }
 
   const email = await resolveEmail(event);
-  if (resource.owner !== SHARED_OWNER && resource.owner !== email) {
+  if (!canReadOwner(resource.owner, email)) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
@@ -364,12 +419,17 @@ export async function handleCreateResource(event: any) {
     }
   }
 
-  const resource = await resourcePut(
-    owner,
-    body.path,
-    body.content ?? "",
-    body.mimeType,
-  );
+  const writeOptions =
+    body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+  const resource = writeOptions
+    ? await resourcePut(
+        owner,
+        body.path,
+        body.content ?? "",
+        body.mimeType,
+        writeOptions,
+      )
+    : await resourcePut(owner, body.path, body.content ?? "", body.mimeType);
 
   setResponseStatus(event, 201);
   return resource;
@@ -391,9 +451,13 @@ export async function handleUpdateResource(event: any) {
 
   // Ownership check: only the owner (or shared resource editors) can update
   const email = await resolveEmail(event);
-  if (existing.owner !== SHARED_OWNER && existing.owner !== email) {
+  if (!canReadOwner(existing.owner, email)) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
+  }
+  if (existing.owner === WORKSPACE_OWNER) {
+    setResponseStatus(event, 403);
+    return { error: "Workspace resources are managed from Dispatch" };
   }
   if (existing.owner === SHARED_OWNER) {
     await assertCanEditShared(event);
@@ -407,12 +471,22 @@ export async function handleUpdateResource(event: any) {
   }
 
   // Update content/mimeType by re-putting
-  const resource = await resourcePut(
-    existing.owner,
-    body.path ?? existing.path,
-    body.content ?? existing.content,
-    body.mimeType ?? existing.mimeType,
-  );
+  const writeOptions =
+    body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+  const resource = writeOptions
+    ? await resourcePut(
+        existing.owner,
+        body.path ?? existing.path,
+        body.content ?? existing.content,
+        body.mimeType ?? existing.mimeType,
+        writeOptions,
+      )
+    : await resourcePut(
+        existing.owner,
+        body.path ?? existing.path,
+        body.content ?? existing.content,
+        body.mimeType ?? existing.mimeType,
+      );
 
   return resource;
 }
@@ -433,9 +507,13 @@ export async function handleDeleteResource(event: any) {
 
   // Ownership check: only the owner (or shared resource editors) can delete
   const email = await resolveEmail(event);
-  if (existing.owner !== SHARED_OWNER && existing.owner !== email) {
+  if (!canReadOwner(existing.owner, email)) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
+  }
+  if (existing.owner === WORKSPACE_OWNER) {
+    setResponseStatus(event, 403);
+    return { error: "Workspace resources are managed from Dispatch" };
   }
   if (existing.owner === SHARED_OWNER) {
     await assertCanEditShared(event);

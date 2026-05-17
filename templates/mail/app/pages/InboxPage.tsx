@@ -24,9 +24,15 @@ import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import type { EmailMessage } from "@shared/types";
 import {
   isInboxScopedAppLabel,
-  mailLabelMatches,
-  shortMailLabel,
+  mailLabelsInclude,
+  mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
+import {
+  resolvePinnedLabels,
+  pinnedTriageLabels,
+  augmentSelfSentLabels,
+  filterInboxTabEmails,
+} from "@/lib/inbox-tabs";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 function ContactPanel({
@@ -40,7 +46,8 @@ function ContactPanel({
 }) {
   // Look up from already-cached list data instead of making a separate API call
   const email = useMemo(
-    () => emails.find((e) => e.id === emailId),
+    () =>
+      emails.find((e) => e.id === emailId || (e.threadId || e.id) === emailId),
     [emails, emailId],
   );
   // Always use inbox emails for "recent from contact" — shares React Query cache,
@@ -71,9 +78,22 @@ function ContactPanel({
       displayName={displayName || displayEmail}
       recentEmails={recentFromContact}
       threadId={email?.threadId}
-      focusedEmailId={emailId}
+      focusedEmailId={email?.id ?? emailId}
     />
   );
+}
+
+function formatSidebarSender(thread: ThreadSummary): string {
+  if (thread.messageCount <= 1) {
+    return thread.latestMessage.from.name || thread.latestMessage.from.email;
+  }
+
+  if (thread.participants.length <= 1) return thread.participants[0] || "";
+  const firstNames = thread.participants.map(
+    (participant) => participant.split(" ")[0],
+  );
+  if (firstNames.length <= 2) return firstNames.join(", ");
+  return `${firstNames[0]} .. ${firstNames[firstNames.length - 1]}`;
 }
 
 function ThreadListSidebar({
@@ -110,13 +130,14 @@ function ThreadListSidebar({
   useKeyboardShortcuts([{ key: "a", meta: true, handler: selectAllThreads }]);
 
   return (
-    <div className="w-[220px] shrink-0 flex flex-col border-r border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] overflow-hidden">
+    <div className="flex h-full w-[220px] min-w-0 shrink-0 flex-col overflow-hidden border-r border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => {
           const email = thread.latestMessage;
           const threadKey = email.threadId || email.id;
           const isActive = threadKey === activeThreadId;
           const isMultiSelected = selectedIds.has(threadKey);
+          const senderName = formatSidebarSender(thread);
           return (
             <button
               key={email.id}
@@ -143,17 +164,29 @@ function ThreadListSidebar({
                     : "hover:bg-accent dark:hover:bg-[hsl(220,5%,13%)]",
               )}
             >
-              <div className="flex items-center gap-2 min-w-0 w-full">
+              <div className="flex items-center gap-1.5 min-w-0 w-full">
                 {thread.hasUnread && (
                   <div className="h-[7px] w-[7px] rounded-full bg-primary shrink-0" />
                 )}
                 <span
                   className={cn(
-                    "text-[13px] truncate",
+                    "max-w-[46%] shrink-0 truncate text-[13px]",
                     thread.hasUnread
                       ? "font-semibold text-foreground"
                       : "text-foreground/90",
                   )}
+                  title={senderName}
+                >
+                  {senderName}
+                </span>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-[13px]",
+                    thread.hasUnread
+                      ? "font-medium text-foreground"
+                      : "text-muted-foreground/90",
+                  )}
+                  title={email.subject}
                 >
                   {email.subject}
                 </span>
@@ -229,15 +262,6 @@ export function InboxPage() {
     ? `?${searchParams.toString()}`
     : "";
 
-  // Always fetch from the URL view (inbox, starred, etc.)
-  // Label tabs use ?label= param and always fetch inbox
-  const searchQuery = searchParams.get("q") ?? undefined;
-  const {
-    data: rawEmails = [],
-    isLoading,
-    isError,
-    error: emailsError,
-  } = useEmails(view, searchQuery, activeLabel ?? undefined);
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
 
@@ -258,35 +282,44 @@ export function InboxPage() {
     [settings?.pinnedLabels],
   );
   const pinnedLabels = useMemo(
-    () =>
-      isGoogleConnected
-        ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
-        : userPinnedLabels,
+    () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
     [isGoogleConnected, userPinnedLabels],
   );
-  const pinnedUserLabels = useMemo(
-    () =>
-      pinnedLabels.filter(
-        (id) => !["starred", "sent", "drafts", "archive", "trash"].includes(id),
-      ),
+  const triageLabels = useMemo(
+    () => pinnedTriageLabels(pinnedLabels),
     [pinnedLabels],
   );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
 
+  // Always fetch from the URL view (inbox, starred, etc.).
+  // Top-bar triage tabs (Important / pinned labels / "Other") are slices of
+  // the single inbox query — NOT a separate Gmail `label:` search — so the
+  // tab badge count and the list it shows always agree. Non-pinned sidebar
+  // labels (and label searches) still hit the server label query.
+  const searchQuery = searchParams.get("q") ?? undefined;
+  const isPinnedTab =
+    !!activeLabel &&
+    view === "inbox" &&
+    mailLabelsInclude(triageLabels, activeLabel);
+  const clientSliceTab = isPinnedTab && !searchQuery;
+  const effectiveLabel = clientSliceTab
+    ? undefined
+    : (activeLabel ?? undefined);
+  const {
+    data: rawEmails = [],
+    isLoading,
+    isError,
+    error: emailsError,
+  } = useEmails(view, searchQuery, effectiveLabel);
+
   const emails = useMemo(() => {
-    // Augment emails with virtual labels:
-    // - Self-sent emails get "important" (or "note-to-self" if that tab is pinned)
-    let filtered = rawEmails.map((e) => {
-      if (!isGoogleConnected) return e;
-      const isSelfSent = connectedEmails.has(e.from.email.toLowerCase());
-      if (!isSelfSent) return e;
-      const virtualLabel = hasNoteToSelf ? "note-to-self" : "important";
-      if (e.labelIds.includes(virtualLabel)) return e;
-      // Add virtual label, remove "important" if routing to note-to-self
-      let labelIds = [...e.labelIds];
-      if (hasNoteToSelf) labelIds = labelIds.filter((l) => l !== "important");
-      if (!labelIds.includes(virtualLabel)) labelIds.push(virtualLabel);
-      return { ...e, labelIds };
+    // Self-sent mail → virtual "important"/"note-to-self" so it lands in the
+    // matching triage tab. Shared with the badge counts (AppLayout) so the
+    // two agree on self-sent threads.
+    let filtered = augmentSelfSentLabels(rawEmails, {
+      isGoogleConnected,
+      connectedEmails,
+      hasNoteToSelf,
     });
 
     // Filter by active accounts (empty set = all accounts, no filtering)
@@ -296,15 +329,30 @@ export function InboxPage() {
       );
     }
 
+    // Top-bar triage tab: slice the loaded inbox with the exact same
+    // membership rule the badge uses (qualifiesForInboxTab). This is what
+    // keeps the tab number equal to the emails listed under it.
+    if (clientSliceTab && activeLabel) {
+      return filterInboxTabEmails(filtered, activeLabel, pinnedLabels);
+    }
+    // "Other" tab — the inbox remainder, same partition as its badge.
+    if (
+      !searchQuery &&
+      view === "inbox" &&
+      !activeLabel &&
+      triageLabels.length > 0
+    ) {
+      return filterInboxTabEmails(filtered, null, pinnedLabels);
+    }
+
     if (activeLabel) {
-      // App triage labels are latest-message slices. User Gmail labels keep
-      // thread membership when any inbox message in the fetched thread carries
-      // the label, so replies do not disappear just because the latest row
-      // differs.
+      // Non-pinned sidebar label (or a label search): server-fetched. User
+      // Gmail labels keep thread membership when any fetched message carries
+      // the label, so replies don't disappear just because the latest row
+      // differs; inbox-scoped app labels stay a latest-message slice.
       const isInboxScopedLabel = isInboxScopedAppLabel(activeLabel);
       const hasLabel = (e: (typeof filtered)[0]) =>
-        e.labelIds.some((l) => mailLabelMatches(l, activeLabel));
-      // Find the latest message per thread
+        mailLabelsInclude(e.labelIds, activeLabel);
       const latestByThread = new Map<string, (typeof filtered)[0]>();
       const labelThreadIds = new Set<string>();
       for (const e of filtered) {
@@ -315,13 +363,10 @@ export function InboxPage() {
           latestByThread.set(key, e);
         }
       }
-      // Keep threads whose latest message has the label
       // For "important", exclude threads that belong to any other pinned tab
-      const otherPinnedShorts =
+      const otherPinnedLabels =
         activeLabel === "important"
-          ? pinnedUserLabels
-              .filter((l) => l !== "important")
-              .map((l) => shortMailLabel(l))
+          ? triageLabels.filter((l) => l !== "important")
           : [];
       const qualifiedThreadIds = new Set(
         [...latestByThread.entries()]
@@ -332,10 +377,9 @@ export function InboxPage() {
                 : !labelThreadIds.has(threadKey)
             )
               return false;
-            // If viewing "important", skip threads that match another pinned tab
             if (
-              otherPinnedShorts.length > 0 &&
-              latest.labelIds.some((lid) => otherPinnedShorts.includes(lid))
+              otherPinnedLabels.length > 0 &&
+              mailLabelsIncludeAny(latest.labelIds, otherPinnedLabels)
             )
               return false;
             return true;
@@ -344,25 +388,15 @@ export function InboxPage() {
       );
       return filtered.filter((e) => qualifiedThreadIds.has(e.threadId || e.id));
     }
-    if (!searchQuery && view === "inbox" && pinnedUserLabels.length > 0) {
-      // "Other" is the inbox remainder: messages that do not belong to one of
-      // the pinned triage labels.
-      const pinnedShortNames = pinnedUserLabels.map((l) => shortMailLabel(l));
-      return filtered.filter(
-        (e) =>
-          !e.labelIds.some(
-            (lid) =>
-              pinnedUserLabels.includes(lid) || pinnedShortNames.includes(lid),
-          ),
-      );
-    }
     return filtered;
   }, [
     rawEmails,
     view,
     searchQuery,
     activeLabel,
-    pinnedUserLabels,
+    clientSliceTab,
+    pinnedLabels,
+    triageLabels,
     activeAccounts,
     isGoogleConnected,
     connectedEmails,
@@ -400,7 +434,13 @@ export function InboxPage() {
     const targetView = navCommand.view || view;
     const targetThread = navCommand.threadId;
 
-    if (targetView === "draft-queue") {
+    if (navCommand.composeDraftId && !targetThread) {
+      // A deep link reopened a compose draft. The open route already wrote the
+      // matching compose-<id> app-state entry, which the compose panel
+      // auto-opens via polling — we just need to land on the inbox so the
+      // panel is visible.
+      if (view !== "inbox") navigate("/inbox");
+    } else if (targetView === "draft-queue") {
       const target = navCommand.queuedDraftId
         ? `/draft-queue?id=${encodeURIComponent(navCommand.queuedDraftId)}`
         : "/draft-queue";
@@ -567,11 +607,11 @@ export function InboxPage() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Thin email list sidebar — shown when viewing a thread, hidden on mobile or when maximized */}
+      {/* Main content */}
       {hasThread && !isMobile && !isMaximized && (
         <ThreadListSidebar
           emails={emails}
-          activeThreadId={threadId!}
+          activeThreadId={threadId}
           view={view}
           routeSearchSuffix={routeSearchSuffix}
           selectedIds={selectedIds}
@@ -579,9 +619,7 @@ export function InboxPage() {
           onNavigateThread={handleOptimisticThreadNavigation}
         />
       )}
-
-      {/* Center area — email list OR thread view */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {hasThread ? (
           <EmailThread
             activeThreadId={threadId}

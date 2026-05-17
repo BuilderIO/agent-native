@@ -145,7 +145,7 @@ Generate forms from a prompt, branch logic with the agent, and own every respons
 </tr>
 </table>
 
-Every template is cloneable SaaS — fork it, customize it with the agent, own it. Try them with example data before connecting your own sources.
+Every template is a complete cloneable SaaS — fork it, customize it with the agent, own it. Try them with example data before connecting your own sources.
 
 ## Quick Start
 
@@ -162,6 +162,43 @@ Want a single app, no monorepo? Use `--standalone`:
 
 ```bash
 npx @agent-native/core create my-app --standalone --template mail
+```
+
+Need a coding agent workspace? `agent-native` or `agent-native code` opens an open-source Claude Code/Codex-like Code workspace with no prompt required. From there, type a task, run slash goals interactively, or call them directly from your shell:
+
+```bash
+npx @agent-native/core@latest
+npx @agent-native/core@latest "fix the failing auth tests"
+npx @agent-native/core@latest code
+npx @agent-native/core@latest code "fix the failing auth tests"
+npx @agent-native/core@latest code exec "fix the failing auth tests"
+npx @agent-native/core@latest code -p "fix the failing auth tests"
+npx @agent-native/core@latest code --plan "explain the auth test failures"
+npx @agent-native/core@latest code --auto "fix the failing auth tests"
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate ./my-next-app --emit ../migration-dossier
+npx @agent-native/core@latest code list
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code approve --last
+npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code --continue "check the auth edge cases next"
+npx @agent-native/core@latest code resume --last "check the auth edge cases next"
+```
+
+Slash goals can run from the interactive shell or directly from the command line, and `agent-native code goals` shows the goals registered in your checkout. A bare prompt starts a local coding-agent session, streams work, records transcript/status/tool events, and accepts follow-up prompts; `/migrate` is one specialized capability inside that general Code workspace. Project-specific slash commands live in `.agents/commands/*.md`, so teams can add prompts such as `/release-check` or `/migrate-commerce` without changing the framework. Installed `agent-native` with no arguments launches the Code workspace; `agent-native "fix tests"` starts an Agent-Native Code task directly. Use `agent-native create` when you want to create apps or workspaces.
+
+The Code workspace uses the familiar Codex/Claude-style session loop: pick a previous session, list runs, attach to live output, print logs, resume with context, and continue the same run from Desktop or CLI. The primary modes are intentionally simple:
+
+- **Plan mode** (`--plan`) inspects, explains, and proposes without writing files.
+- **Auto mode** (`--auto`, default) edits files, runs checks, and only pauses for genuinely destructive file, git, publish, or data operations.
+
+`agent-native migrate` still works as a direct shortcut; `code /migrate` is the Agent-Native Code entrypoint for the migration goal. By default it creates an Agent-Native Code session and portable migration dossier, not a scaffolded app/template. `resume --last` reopens the latest run handoff; adding a quoted prompt records it as a follow-up transcript event for that run so the next active coding agent can pick it up. If a high-risk command is paused for approval, `code approve --last` runs that one pending command and then points you back to resume the session. Use `--app-surface` only when you want the legacy hidden migration detail app for assessment, approval, tasks, artifacts, and verification.
+Use `--emit` when you want only the portable dossier for Codex, Claude Code, Cursor, or another coding agent.
+Agent-Native Code also includes lightweight goals such as `/audit`:
+
+```bash
+npx @agent-native/core@latest code /audit --url https://example.com
 ```
 
 ## Workspaces (Monorepo)
@@ -184,7 +221,7 @@ my-platform/
 Add another app later:
 
 ```bash
-agent-native add-app notes --template content
+npx @agent-native/core add-app notes --template content
 ```
 
 Deploy every app behind one origin:

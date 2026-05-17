@@ -1,10 +1,13 @@
 import { defineAction } from "@agent-native/core";
-import { readAppState } from "@agent-native/core/application-state";
+import {
+  getRequestRunContext,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { readAppStateForCurrentTab } from "./_tab-state.js";
 
 export default defineAction({
   description:
@@ -12,22 +15,41 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async (_args) => {
-    const navigation = (await readAppState("navigation")) as {
+    const navigation = (await readAppStateForCurrentTab("navigation")) as {
       view?: string;
       deckId?: string;
       deckFilter?: "all" | "created-by-me";
+      slideNumber?: number;
       slideIndex?: number;
     } | null;
+    const chatScope = getRequestRunContext()?.chatScope;
+    const scopedDeckId =
+      chatScope?.type === "deck" && typeof chatScope.id === "string"
+        ? chatScope.id
+        : null;
+    const effectiveNavigation = scopedDeckId
+      ? {
+          ...(navigation ?? {}),
+          view: "editor",
+          deckId: scopedDeckId,
+          slideNumber:
+            navigation?.deckId === scopedDeckId
+              ? navigation.slideNumber
+              : undefined,
+          slideIndex:
+            navigation?.deckId === scopedDeckId ? navigation.slideIndex : 0,
+        }
+      : navigation;
     const db = getDb();
 
     // ─── Editor view: user has a specific deck open ─────────────────────
-    if (navigation?.deckId) {
+    if (effectiveNavigation?.deckId) {
       const rows = await db
         .select()
         .from(schema.decks)
         .where(
           and(
-            eq(schema.decks.id, navigation.deckId),
+            eq(schema.decks.id, effectiveNavigation.deckId),
             accessFilter(schema.decks, schema.deckShares),
           ),
         )
@@ -35,8 +57,8 @@ export default defineAction({
 
       if (rows.length === 0) {
         return [
-          `view: ${navigation.view ?? "editor"}`,
-          `deckId: ${navigation.deckId}  (NOT FOUND in database — the deck may have just been created and not yet persisted)`,
+          `view: ${effectiveNavigation.view ?? "editor"}`,
+          `deckId: ${effectiveNavigation.deckId}  (NOT FOUND in database — the deck may have just been created and not yet persisted)`,
           "",
           "Wait a moment and call view-screen again, or list-decks to see what's available.",
         ].join("\n");
@@ -48,7 +70,14 @@ export default defineAction({
         layout?: string;
         content?: string;
       }> = Array.isArray(deck?.slides) ? deck.slides : [];
-      const slideIndex = navigation.slideIndex ?? 0;
+      const slideIndex =
+        typeof effectiveNavigation.slideIndex === "number"
+          ? effectiveNavigation.slideIndex
+          : typeof effectiveNavigation.slideNumber === "number" &&
+              Number.isFinite(effectiveNavigation.slideNumber) &&
+              effectiveNavigation.slideNumber >= 1
+            ? effectiveNavigation.slideNumber - 1
+            : 0;
       const slideNumber = slideIndex + 1;
       const currentSlide = slides[slideIndex] ?? null;
 
@@ -58,7 +87,7 @@ export default defineAction({
       const lines: string[] = [];
       lines.push(`## Current Screen`);
       lines.push(``);
-      lines.push(`view: ${navigation.view ?? "editor"}`);
+      lines.push(`view: ${effectiveNavigation.view ?? "editor"}`);
       lines.push(
         `deckId: ${rows[0].id}            ← use this for add-slide / update-slide / create-deck --deckId`,
       );
@@ -119,7 +148,7 @@ export default defineAction({
       // here whenever the natural content height exceeds the canvas content
       // area. If this block is present, the current slide's HTML is too tall
       // and needs to be rewritten to fit the canvas.
-      const overflow = (await readAppState("slide-fit-check")) as {
+      const overflow = (await readAppStateForCurrentTab("slide-fit-check")) as {
         slideId?: string;
         verticalOverflow?: number;
         contentHeight?: number;
@@ -169,7 +198,7 @@ export default defineAction({
     const lines: string[] = [];
     lines.push(`## Current Screen`);
     lines.push(``);
-    lines.push(`view: ${navigation?.view ?? "list"}`);
+    lines.push(`view: ${effectiveNavigation?.view ?? "list"}`);
     lines.push(`No deck currently open. User is on the deck list.`);
     lines.push(
       `deckFilter: ${

@@ -31,6 +31,7 @@ import type { DesignSystemData } from "../../../shared/api";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { TAB_ID } from "@/lib/tab-id";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
@@ -350,9 +351,10 @@ function syncSelectionToAppState(
 }
 
 /**
- * Push the current slide's vertical-fit measurement to application_state
- * under `slide-fit-check`. Always written, even when the slide fits — the
- * `add-slide` / `update-slide` actions poll this key and use the
+ * Push the current slide's vertical-fit measurement to application_state.
+ * Browser-tab requests read the tab-scoped key; the legacy global key stays
+ * available for CLI/headless runs. Always written, even when the slide fits —
+ * the `add-slide` / `update-slide` actions poll this key and use the
  * `measuredAt` timestamp + matching `slideId` to confirm the slide they
  * just wrote has actually been re-rendered and re-measured. If
  * `verticalOverflow > 0`, the action returns an "overflow" message so the
@@ -370,26 +372,34 @@ function syncOverflowToAppState(
     verticalOverflow: number;
   } | null,
 ) {
-  const url = agentNativePath(
-    "/_agent-native/application-state/slide-fit-check",
+  const keys = Array.from(
+    new Set([
+      appStateKeyForBrowserTab("slide-fit-check", TAB_ID),
+      "slide-fit-check",
+    ]),
   );
   if (!payload) {
-    fetch(url, {
-      method: "DELETE",
-      keepalive: true,
-      headers: { "X-Request-Source": TAB_ID },
-    }).catch(() => {});
+    for (const key of keys) {
+      fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
+        method: "DELETE",
+        keepalive: true,
+        headers: { "X-Request-Source": TAB_ID },
+      }).catch(() => {});
+    }
     return;
   }
-  fetch(url, {
-    method: "PUT",
-    keepalive: true,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Request-Source": TAB_ID,
-    },
-    body: JSON.stringify({ ...payload, measuredAt: Date.now() }),
-  }).catch(() => {});
+  const body = JSON.stringify({ ...payload, measuredAt: Date.now() });
+  for (const key of keys) {
+    fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
+      method: "PUT",
+      keepalive: true,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-Source": TAB_ID,
+      },
+      body,
+    }).catch(() => {});
+  }
 }
 
 export default function SlideEditor({

@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { listWorkspaceApps } from "./app-creation-store.js";
+import {
+  generateWorkspaceAppDescription,
+  listWorkspaceApps,
+} from "./app-creation-store.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -21,7 +24,15 @@ describe("listWorkspaceApps", () => {
               name: "Agent-Native Dispatch",
               path: "/dispatch",
             },
-            { id: "todo", name: "Todo", path: "/todo" },
+            {
+              id: "todo",
+              name: "Todo",
+              description: "Tracks personal tasks and follow-ups",
+              path: "/todo",
+              audience: "public",
+              publicPaths: ["/"],
+              protectedPaths: ["/admin"],
+            },
           ],
         }),
         { headers: { "content-type": "application/json" } },
@@ -47,5 +58,53 @@ describe("listWorkspaceApps", () => {
       }),
     );
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "todo"]);
+    expect(apps.find((app) => app.id === "todo")?.description).toBe(
+      "Tracks personal tasks and follow-ups",
+    );
+    expect(apps.find((app) => app.id === "todo")?.audience).toBe("public");
+    expect(apps.find((app) => app.id === "todo")?.publicPaths).toEqual(["/"]);
+    expect(apps.find((app) => app.id === "todo")?.protectedPaths).toEqual([
+      "/admin",
+    ]);
+  });
+
+  it("filters workspace apps by audience", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          path: "/dispatch",
+          audience: "internal",
+        },
+        {
+          id: "portal",
+          name: "Portal",
+          path: "/portal",
+          audience: "public",
+        },
+      ]),
+    );
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () =>
+        listWorkspaceApps({
+          includeAgentCards: false,
+          audience: "public",
+        }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["portal"]);
+  });
+
+  it("generates a concise seed description from an app prompt", () => {
+    expect(
+      generateWorkspaceAppDescription(
+        "Build me an app that tracks customer onboarding risks and handoffs",
+        "customer-onboarding",
+      ),
+    ).toBe("Tracks customer onboarding risks and handoffs.");
   });
 });

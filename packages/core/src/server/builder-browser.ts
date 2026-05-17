@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
+import { getHeader } from "h3";
 import { getAuthSecret } from "./better-auth-instance.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 
@@ -9,6 +10,23 @@ const BUILDER_BROWSER_HOST = "agent-native-browser";
 const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
 
 export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (ch) => {
+    switch (ch) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
+}
 
 /**
  * Query-param name carrying the signed CSRF state on the connect→callback
@@ -20,8 +38,70 @@ export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
  */
 export const BUILDER_STATE_PARAM = "_an_state";
 export const BUILDER_CONNECT_PARAM = "_an_connect";
+export const BUILDER_CONNECT_OWNER_COOKIE = "an_builder_connect_owner";
+export const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
+export const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
+export const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM =
+  "agentNativeConnectSource";
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
+const BUILDER_SIGNUP_SOURCE = "agent-native";
+
+export interface BuilderConnectTrackingParams {
+  signupSource?: string;
+  agentNativeFlow?: string;
+  agentNativeConnectSource?: string;
+}
+
+function cleanTrackingParam(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 120) : undefined;
+}
+
+export function getBuilderConnectTrackingParams(
+  params: URLSearchParams,
+): BuilderConnectTrackingParams {
+  return {
+    signupSource:
+      cleanTrackingParam(params.get(BUILDER_SIGNUP_SOURCE_PARAM)) ??
+      BUILDER_SIGNUP_SOURCE,
+    agentNativeFlow: cleanTrackingParam(
+      params.get(BUILDER_AGENT_NATIVE_FLOW_PARAM),
+    ),
+    agentNativeConnectSource: cleanTrackingParam(
+      params.get(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM),
+    ),
+  };
+}
+
+export function builderConnectTrackingProperties(
+  tracking: BuilderConnectTrackingParams,
+): Record<string, string> {
+  const properties: Record<string, string> = {};
+  if (tracking.signupSource) properties.signup_source = tracking.signupSource;
+  if (tracking.agentNativeFlow) {
+    properties.agent_native_flow = tracking.agentNativeFlow;
+  }
+  if (tracking.agentNativeConnectSource) {
+    properties.agent_native_connect_source = tracking.agentNativeConnectSource;
+  }
+  return properties;
+}
+
+function applyBuilderConnectTrackingParams(
+  params: URLSearchParams,
+  tracking: BuilderConnectTrackingParams,
+) {
+  params.set(
+    BUILDER_SIGNUP_SOURCE_PARAM,
+    cleanTrackingParam(tracking.signupSource) ?? BUILDER_SIGNUP_SOURCE,
+  );
+  const flow = cleanTrackingParam(tracking.agentNativeFlow);
+  if (flow) params.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, flow);
+  const source = cleanTrackingParam(tracking.agentNativeConnectSource);
+  if (source) params.set(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM, source);
+}
 
 export interface BuilderBrowserStatus {
   configured: boolean;
@@ -34,9 +114,23 @@ export interface BuilderBrowserStatus {
    * account, which takes precedence for their request.
    */
   envManaged: boolean;
-  credentialSource?: "user" | "org" | "env";
+  credentialSource?: "user" | "org" | "workspace" | "env";
+  /**
+   * The currently effective Builder credential was rejected by Builder's API.
+   * This is durable status about the credential pair, not a failure of an
+   * in-progress cli-auth callback.
+   */
+  authError?: { message: string; at: number };
+  connectError?: { message: string; at: number };
   appHost: string;
   apiHost: string;
+  /**
+   * Ready-to-open Builder CLI auth URL for this request owner, when the
+   * callback can return to the same deployment that minted the state. Preview
+   * deployments that must callback through a gateway omit this and use
+   * connectUrl so the server can write a pending-connect row first.
+   */
+  cliAuthUrl?: string;
   connectUrl: string;
   publicKeyConfigured: boolean;
   privateKeyConfigured: boolean;
@@ -143,6 +237,25 @@ export function verifyBuilderCallbackState(
   return verifyEmailBoundBuilderToken(token, sessionEmail, "callback");
 }
 
+export function verifyBuilderCallbackStateAndGetOwner(
+  token: string | null | undefined,
+): string | null {
+  if (typeof token !== "string" || token.length === 0) return null;
+  const parts = token.split(".");
+  if (parts.length !== 4) return null;
+  const emailEncoded = parts[1];
+  if (!emailEncoded) return null;
+
+  let ownerEmail: string;
+  try {
+    ownerEmail = Buffer.from(emailEncoded, "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
+  if (!ownerEmail) return null;
+  return verifyBuilderCallbackState(token, ownerEmail) ? ownerEmail : null;
+}
+
 export function signBuilderConnectToken(ownerEmail: string): string {
   return signEmailBoundBuilderToken(ownerEmail, "connect");
 }
@@ -152,6 +265,25 @@ export function verifyBuilderConnectToken(
   ownerEmail: string,
 ): boolean {
   return verifyEmailBoundBuilderToken(token, ownerEmail, "connect");
+}
+
+export function verifyBuilderConnectTokenAndGetOwner(
+  token: string | null | undefined,
+): string | null {
+  if (typeof token !== "string" || token.length === 0) return null;
+  const parts = token.split(".");
+  if (parts.length !== 4) return null;
+  const emailEncoded = parts[1];
+  if (!emailEncoded) return null;
+
+  let ownerEmail: string;
+  try {
+    ownerEmail = Buffer.from(emailEncoded, "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
+  if (!ownerEmail) return null;
+  return verifyBuilderConnectToken(token, ownerEmail) ? ownerEmail : null;
 }
 
 export function appendBuilderConnectToken(
@@ -177,7 +309,16 @@ function isAllowedBrowserReturnUrl(urlString: string): boolean {
       hostname === "127.0.0.1" ||
       hostname === "[::1]";
     const isBuilderDomain =
-      hostname === "builder.io" || hostname.endsWith(".builder.io");
+      hostname === "builder.io" ||
+      hostname.endsWith(".builder.io") ||
+      hostname === "builder.my" ||
+      hostname.endsWith(".builder.my") ||
+      hostname === "builderio.xyz" ||
+      hostname.endsWith(".builderio.xyz") ||
+      hostname === "builderio.dev" ||
+      hostname.endsWith(".builderio.dev") ||
+      hostname === "builder.codes" ||
+      hostname.endsWith(".builder.codes");
     const isAgentNativeDomain =
       hostname === "agent-native.com" || hostname.endsWith(".agent-native.com");
     return (
@@ -251,6 +392,75 @@ export async function resolveIsBuilderBranchingEnabled(): Promise<boolean> {
   return !!(await resolveBuilderBranchProjectId());
 }
 
+function isBuilderCliAuthAllowedOrigin(origin: string | null | undefined) {
+  if (!origin) return false;
+  try {
+    const parsed = new URL(origin);
+    const hostname = parsed.hostname.toLowerCase();
+    const isAllowedProtocol =
+      parsed.protocol === "http:" || parsed.protocol === "https:";
+    const isLocalhost =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]";
+    const isBuilderDomain =
+      hostname === "builder.io" || hostname.endsWith(".builder.io");
+    const isAgentNativeDomain =
+      hostname === "agent-native.com" || hostname.endsWith(".agent-native.com");
+    return (
+      isAllowedProtocol &&
+      (isLocalhost || isBuilderDomain || isAgentNativeDomain)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function firstBuilderCliAuthCallbackOriginFromEnv(): string | null {
+  for (const key of [
+    "APP_URL",
+    "VITE_APP_URL",
+    "BETTER_AUTH_URL",
+    "VITE_BETTER_AUTH_URL",
+    "WORKSPACE_GATEWAY_URL",
+    "VITE_WORKSPACE_GATEWAY_URL",
+  ]) {
+    const raw = process.env[key];
+    if (!raw) continue;
+    try {
+      const origin = new URL(raw).origin;
+      if (isBuilderCliAuthAllowedOrigin(origin)) return origin;
+    } catch {
+      // Ignore malformed environment values.
+    }
+  }
+  return null;
+}
+
+/**
+ * Query param on the callback URL that carries the original preview opener
+ * origin when cli-auth's allow-list forces `preview_url` to the gateway.
+ * Read on the callback to derive the correct postMessage targetOrigin.
+ *
+ * Not signed: the receive-side trust check in `useBuilderStatus` still
+ * gates messages by allow-listed origin. The worst an attacker could do by
+ * crafting a different `_an_opener` value is target a postMessage to an
+ * origin that doesn't match the actual opener — postMessage drops the
+ * message in that case, identical to the legacy wildcard-fallback path.
+ */
+export const BUILDER_OPENER_PARAM = "_an_opener";
+
+function isBuilderOpenerOriginSafe(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Build the Builder cli-auth URL for the connect popup. When a signed
  * `state` token is supplied it is embedded inside the `redirect_url`
@@ -259,31 +469,64 @@ export async function resolveIsBuilderBranchingEnabled(): Promise<boolean> {
  * api-key / etc., so we don't depend on Builder echoing a top-level
  * `state` parameter (it doesn't).
  *
- * The user-facing connect entry point is `/_agent-native/builder/connect`
- * (a server-side 302). Status / chat-card responses surface that path
- * rather than the cli-auth URL directly, so the 302 handler can mint a
- * fresh state bound to the current session on every click.
+ * Status responses can surface this URL directly; the legacy
+ * `/_agent-native/builder/connect` trampoline still calls this helper for
+ * clients that only know the app-local connect URL.
  */
 export function buildBuilderCliAuthUrl(
-  origin: string,
+  callbackOrigin: string,
   state: string | null = null,
+  options: {
+    previewOrigin?: string;
+    tracking?: BuilderConnectTrackingParams;
+  } = {},
 ): string {
-  const normalizedOrigin = normalizeOrigin(origin);
+  const normalizedCallbackOrigin = normalizeOrigin(callbackOrigin);
+  const requestedPreviewOrigin = normalizeOrigin(
+    options.previewOrigin || callbackOrigin,
+  );
+  const normalizedPreviewOrigin = isBuilderCliAuthAllowedOrigin(
+    requestedPreviewOrigin,
+  )
+    ? requestedPreviewOrigin
+    : normalizedCallbackOrigin;
   const appBasePath = getAppBasePath();
   const callbackUrl = new URL(
     `${appBasePath}${BUILDER_CALLBACK_PATH}`,
-    normalizedOrigin,
+    normalizedCallbackOrigin,
   );
   if (state) {
     callbackUrl.searchParams.set(BUILDER_STATE_PARAM, state);
   }
+  // When the cli-auth allow-list forces preview_url onto the gateway origin,
+  // the callback would otherwise lose the real opener origin and post its
+  // success message to the gateway instead of the preview tab. Embed the
+  // original preview origin in the callback's own query string so the
+  // callback handler can recover it for parentOrigin / postMessage. Builder
+  // preserves the redirect_url's query verbatim, so this round-trips.
+  if (
+    requestedPreviewOrigin &&
+    requestedPreviewOrigin !== normalizedPreviewOrigin &&
+    isBuilderOpenerOriginSafe(requestedPreviewOrigin)
+  ) {
+    callbackUrl.searchParams.set(BUILDER_OPENER_PARAM, requestedPreviewOrigin);
+  }
+  const tracking = {
+    signupSource: BUILDER_SIGNUP_SOURCE,
+    ...options.tracking,
+  };
+  applyBuilderConnectTrackingParams(callbackUrl.searchParams, tracking);
   const url = new URL("/cli-auth", getBuilderAppHost());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("host", BUILDER_BROWSER_HOST);
   url.searchParams.set("client_id", BUILDER_BROWSER_CLIENT_ID);
   url.searchParams.set("redirect_url", callbackUrl.toString());
-  url.searchParams.set("preview_url", `${normalizedOrigin}${appBasePath}`);
+  url.searchParams.set(
+    "preview_url",
+    `${normalizedPreviewOrigin}${appBasePath}`,
+  );
   url.searchParams.set("framework", "agent-native");
+  applyBuilderConnectTrackingParams(url.searchParams, tracking);
   return url.toString();
 }
 
@@ -295,6 +538,133 @@ export function buildBuilderCliAuthUrl(
  */
 export function getBuilderBrowserConnectUrl(origin: string): string {
   return `${normalizeOrigin(origin)}${getAppBasePath()}/_agent-native/builder/connect`;
+}
+
+function firstHeaderValue(value: string | undefined): string | undefined {
+  return value?.split(",")[0]?.trim() || undefined;
+}
+
+function readEventHeader(event: H3Event, name: string): string | undefined {
+  try {
+    return getHeader(event, name) ?? undefined;
+  } catch {
+    const headers = (
+      event as unknown as {
+        node?: {
+          req?: { headers?: Record<string, string | string[] | undefined> };
+        };
+      }
+    ).node?.req?.headers;
+    const value = headers?.[name.toLowerCase()] ?? headers?.[name];
+    if (Array.isArray(value)) return value[0];
+    return typeof value === "string" ? value : undefined;
+  }
+}
+
+function isTrustedBuilderRequestHost(host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    const hostname = new URL(`http://${host}`).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]" ||
+      hostname === "builderio.xyz" ||
+      hostname.endsWith(".builderio.xyz") ||
+      hostname === "builderio.dev" ||
+      hostname.endsWith(".builderio.dev") ||
+      hostname === "builder.codes" ||
+      hostname.endsWith(".builder.codes") ||
+      hostname === "builder.io" ||
+      hostname.endsWith(".builder.io") ||
+      hostname === "builder.my" ||
+      hostname.endsWith(".builder.my")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackBuilderRequestHost(host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    const hostname = new URL(`http://${host}`).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function firstPublicBuilderPreviewOriginFromEnv(): string | null {
+  for (const key of [
+    "FUSION_ENV_ORIGIN",
+    "VITE_FUSION_ENV_ORIGIN",
+    "BUILDER_PREVIEW_URL",
+    "VITE_BUILDER_PREVIEW_URL",
+  ]) {
+    const raw = process.env[key];
+    if (!raw) continue;
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      if (isLoopbackBuilderRequestHost(url.host)) continue;
+      if (!isTrustedBuilderRequestHost(url.host)) continue;
+      return url.origin;
+    } catch {
+      // Ignore malformed environment values.
+    }
+  }
+  return null;
+}
+
+/**
+ * User-visible Builder connect origin. In Builder/Fusion previews, keep the
+ * connect URL on the actual app preview origin so clicking Connect happens in
+ * the same deployment that minted the signed connect token.
+ */
+export function getBuilderBrowserOriginForEvent(event: H3Event): string {
+  const headerHost = firstHeaderValue(
+    readEventHeader(event, "x-forwarded-host") ||
+      readEventHeader(event, "host"),
+  );
+  if (!isTrustedBuilderRequestHost(headerHost)) return getOrigin(event);
+  if (isLoopbackBuilderRequestHost(headerHost)) {
+    const publicPreviewOrigin = firstPublicBuilderPreviewOriginFromEnv();
+    if (publicPreviewOrigin) return publicPreviewOrigin;
+  }
+
+  const rawProto = firstHeaderValue(
+    readEventHeader(event, "x-forwarded-proto"),
+  );
+  const proto =
+    rawProto === "http" || rawProto === "https"
+      ? rawProto
+      : process.env.NODE_ENV === "production"
+        ? "https"
+        : "http";
+  return `${proto}://${headerHost}`;
+}
+
+/**
+ * Builder's /cli-auth page currently only accepts localhost, *.builder.io,
+ * *.agent-native.com, or builder: redirect_url destinations. Preview hosts
+ * such as *.builderio.xyz and *.builder.codes are valid app origins for us,
+ * but Builder rejects them and falls back to http://localhost:10110/auth.
+ * Use a configured public gateway for the callback in those cases while
+ * leaving the surfaced connect URL on the user's active preview.
+ */
+export function getBuilderCliAuthCallbackOriginForEvent(
+  event: H3Event,
+): string {
+  const previewOrigin = getBuilderBrowserOriginForEvent(event);
+  if (isBuilderCliAuthAllowedOrigin(previewOrigin)) return previewOrigin;
+  return firstBuilderCliAuthCallbackOriginFromEnv() ?? previewOrigin;
 }
 
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
@@ -323,7 +693,7 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
 export function getBuilderBrowserStatusForEvent(
   event: H3Event,
 ): BuilderBrowserStatus {
-  return getBuilderBrowserStatus(getOrigin(event));
+  return getBuilderBrowserStatus(getBuilderBrowserOriginForEvent(event));
 }
 
 /**
@@ -367,7 +737,7 @@ export function resolveSafePreviewUrl(
   if (previewUrl && isAllowedBrowserReturnUrl(previewUrl)) {
     return previewUrl;
   }
-  return getOrigin(event);
+  return getBuilderBrowserOriginForEvent(event);
 }
 
 /**
@@ -516,8 +886,27 @@ const BUILDER_CALLBACK_BASE_CSS = `
   }
 `;
 
-export function createBuilderBrowserCallbackPage(previewUrl: string): string {
+function safeOriginFromUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+export function createBuilderBrowserCallbackPage(
+  previewUrl: string,
+  opts: { parentOrigin?: string } = {},
+): string {
   const escapedUrl = JSON.stringify(previewUrl);
+  const parentOrigin =
+    safeOriginFromUrl(opts.parentOrigin) ?? safeOriginFromUrl(previewUrl);
+  // postMessage requires a specific target origin for cross-origin opener
+  // delivery; only fall back to "*" when we have no usable origin (the
+  // BroadcastChannel path on the success page still works for same-origin
+  // openers in that case).
+  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -560,7 +949,7 @@ export function createBuilderBrowserCallbackPage(previewUrl: string): string {
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage(
             { type: "builder-connect-success" },
-            window.location.origin,
+            ${escapedTargetOrigin},
           );
         }
       } catch (e) {}
@@ -595,8 +984,24 @@ export function createBuilderBrowserCallbackPage(previewUrl: string): string {
  *    polling stops immediately rather than waiting for the next /status
  *    poll to surface the SQL `builder-connect-error:<email>` row.
  */
-export function createBuilderBrowserCallbackErrorPage(message: string): string {
+export function createBuilderBrowserCallbackErrorPage(
+  message: string,
+  opts: {
+    title?: string;
+    body?: string;
+    closeHint?: string;
+    parentOrigin?: string;
+  } = {},
+): string {
   const escapedMessage = JSON.stringify(message);
+  const parentOrigin = safeOriginFromUrl(opts.parentOrigin);
+  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
+  const title = opts.title ?? "Couldn't save Builder connection";
+  const body =
+    opts.body ??
+    "Builder authorized your account but the server couldn't persist the credentials.";
+  const closeHint =
+    opts.closeHint ?? "You can close this tab and try again from settings.";
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -614,10 +1019,10 @@ export function createBuilderBrowserCallbackErrorPage(message: string): string {
       <span class="icon icon-error" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
       </span>
-      <h1>Couldn't save Builder connection</h1>
-      <p class="muted">Builder authorized your account but the server couldn't persist the credentials.</p>
+      <h1>${escapeHtml(title)}</h1>
+      <p class="muted">${escapeHtml(body)}</p>
       <pre class="error-detail" id="msg"></pre>
-      <p class="muted" style="margin-top:12px">You can close this tab and try again from settings.</p>
+      <p class="muted" style="margin-top:12px">${escapeHtml(closeHint)}</p>
     </main>
     <script>
       try {
@@ -641,7 +1046,7 @@ export function createBuilderBrowserCallbackErrorPage(message: string): string {
           try {
             window.opener.postMessage(
               { type: "builder-connect-error", message: msg },
-              window.location.origin,
+              ${escapedTargetOrigin},
             );
           } catch (e) {}
         }

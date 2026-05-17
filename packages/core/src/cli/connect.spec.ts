@@ -1,0 +1,586 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  ConnectDeps,
+  hostedApps,
+  normalizeUrl,
+  parseConnectArgs,
+  resolveClients,
+  runConnect,
+  runDeviceFlow,
+  writeConfigs,
+} from "./connect.js";
+
+const tmpRoots: string[] = [];
+
+beforeEach(() => {
+  // Keep CLI output out of the test log; individual tests that assert on
+  // output re-spy with their own captured implementation.
+  vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+});
+
+afterEach(() => {
+  for (const root of tmpRoots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  vi.restoreAllMocks();
+});
+
+function tmpDir(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-connect-"));
+  tmpRoots.push(root);
+  return root;
+}
+
+const noopSleep = () => Promise.resolve();
+
+// ---------------------------------------------------------------------------
+// Arg parsing
+// ---------------------------------------------------------------------------
+
+describe("parseConnectArgs", () => {
+  it("parses the positional url and defaults", () => {
+    const p = parseConnectArgs(["https://mail.agent-native.com"]);
+    expect(p.url).toBe("https://mail.agent-native.com");
+    expect(p.client).toBe("all");
+    expect(p.scope).toBe("user");
+    expect(p.all).toBe(false);
+    expect(p.token).toBeUndefined();
+  });
+
+  it("parses flags in both --flag value and --flag=value forms", () => {
+    const p = parseConnectArgs([
+      "https://x.com",
+      "--client",
+      "codex",
+      "--scope=user",
+      "--name",
+      "my-server",
+      "--token=abc123",
+    ]);
+    expect(p.client).toBe("codex");
+    expect(p.scope).toBe("user");
+    expect(p.name).toBe("my-server");
+    expect(p.token).toBe("abc123");
+  });
+
+  it("parses --all without a url", () => {
+    const p = parseConnectArgs(["--all", "--client", "claude-code"]);
+    expect(p.all).toBe(true);
+    expect(p.url).toBeUndefined();
+    expect(p.client).toBe("claude-code");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// URL normalization
+// ---------------------------------------------------------------------------
+
+describe("normalizeUrl", () => {
+  it("strips trailing slashes and keeps the origin", () => {
+    expect(normalizeUrl("https://mail.agent-native.com/")).toBe(
+      "https://mail.agent-native.com",
+    );
+    expect(normalizeUrl("https://mail.agent-native.com///")).toBe(
+      "https://mail.agent-native.com",
+    );
+    expect(normalizeUrl("  http://localhost:3000  ")).toBe(
+      "http://localhost:3000",
+    );
+  });
+
+  it("rejects empty input", () => {
+    expect(() => normalizeUrl("")).toThrow(/Missing app URL/);
+  });
+
+  it("rejects non-URLs", () => {
+    expect(() => normalizeUrl("mail.agent-native.com")).toThrow(
+      /Not a valid URL/,
+    );
+  });
+
+  it("rejects unsupported schemes", () => {
+    expect(() => normalizeUrl("ftp://example.com")).toThrow(
+      /Unsupported URL scheme/,
+    );
+  });
+
+  it("rejects plaintext HTTP for non-loopback hosts", () => {
+    expect(() => normalizeUrl("http://mail.agent-native.com")).toThrow(
+      /Refusing plaintext HTTP/,
+    );
+    expect(normalizeUrl("http://127.0.0.1:3000/app")).toBe(
+      "http://127.0.0.1:3000/app",
+    );
+  });
+});
+
+describe("resolveClients", () => {
+  it("expands 'all' to every supported client", () => {
+    expect(resolveClients("all")).toEqual([
+      "claude-code",
+      "claude-code-cli",
+      "codex",
+      "cowork",
+    ]);
+  });
+
+  it("returns a single client when named", () => {
+    expect(resolveClients("codex")).toEqual(["codex"]);
+  });
+
+  it("throws on an unknown client", () => {
+    expect(() => resolveClients("vim")).toThrow(/Unknown --client/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Device-flow poll state machine
+// ---------------------------------------------------------------------------
+
+function makeFetch(
+  pollResponses: any[],
+  start: Record<string, unknown> = {},
+): typeof fetch {
+  let pollIdx = 0;
+  return vi.fn(async (url: string) => {
+    if (String(url).endsWith("/device/start")) {
+      return new Response(
+        JSON.stringify({
+          device_code: "dev-123",
+          user_code: "WXYZ-1234",
+          verification_uri: "https://app.example.com/connect",
+          verification_uri_complete:
+            "https://app.example.com/connect?code=WXYZ-1234",
+          interval: 1,
+          expires_in: 600,
+          ...start,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    const body = pollResponses[Math.min(pollIdx++, pollResponses.length - 1)];
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+}
+
+describe("runDeviceFlow", () => {
+  it("polls pending then resolves on approved", async () => {
+    const open = vi.fn();
+    const deps: ConnectDeps = {
+      fetchImpl: makeFetch([
+        { status: "pending" },
+        { status: "pending" },
+        {
+          status: "approved",
+          token: "tok-abc",
+          mcpUrl: "https://app.example.com/_agent-native/mcp",
+          serverName: "agent-native-app",
+        },
+      ]),
+      sleep: noopSleep,
+      openBrowser: open,
+    };
+    const grant = await runDeviceFlow(
+      "https://app.example.com",
+      "app",
+      "all",
+      deps,
+    );
+    expect(grant).toEqual({
+      token: "tok-abc",
+      mcpUrl: "https://app.example.com/_agent-native/mcp",
+      serverName: "agent-native-app",
+    });
+    expect(open).toHaveBeenCalledWith(
+      "https://app.example.com/connect?code=WXYZ-1234",
+    );
+  });
+
+  it("returns null on expired", async () => {
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl: makeFetch([{ status: "pending" }, { status: "expired" }]),
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+    expect(grant).toBeNull();
+  });
+
+  it("returns null on consumed", async () => {
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl: makeFetch([{ status: "consumed" }]),
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+    expect(grant).toBeNull();
+  });
+
+  it("times out when the deadline passes with no approval", async () => {
+    let t = 0;
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl: makeFetch([{ status: "pending" }], { expires_in: 2 }),
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+      // First call (deadline calc) → 0; subsequent loop checks advance past
+      // the 2s expiry so the loop exits.
+      now: () => (t === 0 ? ((t = 1), 0) : 5000),
+    });
+    expect(grant).toBeNull();
+  });
+
+  it("returns null when the start endpoint is unreachable", async () => {
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl: vi.fn(async () => {
+        throw new Error("ECONNREFUSED");
+      }) as unknown as typeof fetch,
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+    expect(grant).toBeNull();
+  });
+
+  it("returns null immediately when polling gets a server error", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    let pollCount = 0;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/device/start")) {
+        return new Response(
+          JSON.stringify({
+            device_code: "dev-123",
+            user_code: "WXYZ-1234",
+            verification_uri: "https://app.example.com/connect",
+            verification_uri_complete:
+              "https://app.example.com/connect?code=WXYZ-1234",
+            interval: 1,
+            expires_in: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      pollCount++;
+      return new Response(JSON.stringify({ error: "database unavailable" }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl,
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+
+    expect(grant).toBeNull();
+    expect(pollCount).toBe(1);
+    expect(err.mock.calls.flat().join("")).toContain("database unavailable");
+  });
+
+  it("returns null immediately when polling returns a terminal error body", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    let pollCount = 0;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/device/start")) {
+        return new Response(
+          JSON.stringify({
+            device_code: "dev-123",
+            user_code: "WXYZ-1234",
+            verification_uri: "https://app.example.com/connect",
+            verification_uri_complete:
+              "https://app.example.com/connect?code=WXYZ-1234",
+            interval: 1,
+            expires_in: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      pollCount++;
+      return new Response(
+        JSON.stringify({ status: "not_found", message: "unknown code" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl,
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+
+    expect(grant).toBeNull();
+    expect(pollCount).toBe(1);
+    expect(err.mock.calls.flat().join("")).toContain("unknown code");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Idempotent config writing
+// ---------------------------------------------------------------------------
+
+describe("writeConfigs", () => {
+  it("writes a JSON HTTP entry for claude-code (project scope)", () => {
+    const root = tmpDir();
+    const written = writeConfigs(
+      ["claude-code"],
+      "agent-native-mail",
+      "https://mail.agent-native.com/_agent-native/mcp",
+      "tok-1",
+      "project",
+      root,
+    );
+    const file = written[0].file;
+    expect(file).toBe(path.join(root, ".mcp.json"));
+    const cfg = JSON.parse(fs.readFileSync(file, "utf-8"));
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/_agent-native/mcp",
+      headers: { Authorization: "Bearer tok-1" },
+    });
+  });
+
+  it("is idempotent: re-running replaces the same entry, no duplicates", () => {
+    const root = tmpDir();
+    writeConfigs(
+      ["claude-code"],
+      "agent-native-mail",
+      "https://mail.agent-native.com/_agent-native/mcp",
+      "tok-1",
+      "project",
+      root,
+    );
+    writeConfigs(
+      ["claude-code"],
+      "agent-native-mail",
+      "https://mail.agent-native.com/_agent-native/mcp",
+      "tok-2",
+      "project",
+      root,
+    );
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(Object.keys(cfg.mcpServers)).toEqual(["agent-native-mail"]);
+    expect(cfg.mcpServers["agent-native-mail"].headers.Authorization).toBe(
+      "Bearer tok-2",
+    );
+  });
+
+  it("preserves unrelated existing JSON entries", () => {
+    const root = tmpDir();
+    fs.writeFileSync(
+      path.join(root, ".mcp.json"),
+      JSON.stringify({ mcpServers: { other: { command: "x" } } }, null, 2),
+    );
+    writeConfigs(
+      ["claude-code"],
+      "agent-native-mail",
+      "https://mail.agent-native.com/_agent-native/mcp",
+      "tok-1",
+      "project",
+      root,
+    );
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers.other).toEqual({ command: "x" });
+    expect(cfg.mcpServers["agent-native-mail"].type).toBe("http");
+  });
+
+  it("writes a Codex TOML block with HTTP url + auth header", () => {
+    const root = tmpDir();
+    const codexFile = path.join(root, "config.toml");
+    const HOME = process.env.HOME;
+    // Point HOME at our tmp dir so ~/.codex/config.toml lands under it.
+    const codexHome = tmpDir();
+    process.env.HOME = codexHome;
+    try {
+      const written = writeConfigs(
+        ["codex"],
+        "agent-native-mail",
+        "https://mail.agent-native.com/_agent-native/mcp",
+        "tok-1",
+        "project",
+        root,
+      );
+      const f = written[0].file;
+      expect(f).toBe(path.join(codexHome, ".codex", "config.toml"));
+      const toml = fs.readFileSync(f, "utf-8");
+      expect(toml).toContain('[mcp_servers."agent-native-mail"]');
+      expect(toml).toContain(
+        'url = "https://mail.agent-native.com/_agent-native/mcp"',
+      );
+      expect(toml).toContain("Bearer tok-1");
+      // Re-run is idempotent (single block).
+      writeConfigs(
+        ["codex"],
+        "agent-native-mail",
+        "https://mail.agent-native.com/_agent-native/mcp",
+        "tok-2",
+        "project",
+        root,
+      );
+      const toml2 = fs.readFileSync(f, "utf-8");
+      const occurrences =
+        toml2.split('[mcp_servers."agent-native-mail"]').length - 1;
+      expect(occurrences).toBe(1);
+      expect(toml2).toContain("Bearer tok-2");
+    } finally {
+      process.env.HOME = HOME;
+      void codexFile;
+    }
+  });
+
+  it("quotes Codex TOML server names with punctuation", () => {
+    const root = tmpDir();
+    const HOME = process.env.HOME;
+    const codexHome = tmpDir();
+    process.env.HOME = codexHome;
+    try {
+      const written = writeConfigs(
+        ["codex"],
+        'agent.native "mail"',
+        "https://mail.agent-native.com/_agent-native/mcp",
+        "tok-1",
+        "project",
+        root,
+      );
+      const toml = fs.readFileSync(written[0].file, "utf-8");
+      expect(toml).toContain('[mcp_servers."agent.native \\"mail\\""]');
+    } finally {
+      process.env.HOME = HOME;
+    }
+  });
+
+  it("replaces legacy unquoted Codex TOML blocks for safe names", () => {
+    const root = tmpDir();
+    const HOME = process.env.HOME;
+    const codexHome = tmpDir();
+    const codexFile = path.join(codexHome, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    fs.writeFileSync(
+      codexFile,
+      '[mcp_servers.agent-native-mail]\nurl = "https://old.example/mcp"\n',
+    );
+    process.env.HOME = codexHome;
+    try {
+      writeConfigs(
+        ["codex"],
+        "agent-native-mail",
+        "https://mail.agent-native.com/_agent-native/mcp",
+        "tok-1",
+        "project",
+        root,
+      );
+      const toml = fs.readFileSync(codexFile, "utf-8");
+      expect(toml).not.toContain("[mcp_servers.agent-native-mail]");
+      expect(toml).toContain('[mcp_servers."agent-native-mail"]');
+      expect(toml).toContain(
+        'url = "https://mail.agent-native.com/_agent-native/mcp"',
+      );
+    } finally {
+      process.env.HOME = HOME;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hostedApps respects the allow-list
+// ---------------------------------------------------------------------------
+
+describe("hostedApps", () => {
+  it("returns only visible (non-hidden) templates that have a prodUrl", () => {
+    const apps = hostedApps();
+    const names = apps.map((a) => a.name);
+    // Allow-listed hosted apps are present.
+    expect(names).toContain("mail");
+    expect(names).toContain("calendar");
+    // Hidden templates must never appear.
+    expect(names).not.toContain("voice");
+    expect(names).not.toContain("scheduling");
+    expect(names).not.toContain("macros");
+    // Every returned app has an https prodUrl.
+    for (const a of apps) {
+      expect(a.url).toMatch(/^https:\/\//);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runConnect end-to-end (token fallback + exit codes)
+// ---------------------------------------------------------------------------
+
+describe("runConnect", () => {
+  const originalExitCode = process.exitCode;
+  const originalCwd = process.cwd();
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+    process.chdir(originalCwd);
+  });
+
+  it("token fallback skips the device flow and writes the entry", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runConnect([
+      "https://mail.agent-native.com",
+      "--client",
+      "claude-code",
+      "--scope",
+      "project",
+      "--token",
+      "tok-fallback",
+    ]);
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/_agent-native/mcp",
+      headers: { Authorization: "Bearer tok-fallback" },
+    });
+  });
+
+  it("sets a non-zero exit code when no url and not --all", async () => {
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await runConnect([]);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("sets a non-zero exit code when the device flow fails", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    await runConnect(["https://app.example.com", "--client", "claude-code"], {
+      fetchImpl: makeFetch([{ status: "expired" }]),
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("prints help and exits cleanly for --help", async () => {
+    const out = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    await runConnect(["--help"]);
+    expect(process.exitCode).toBeFalsy();
+    expect(out.mock.calls.flat().join("")).toContain("agent-native connect");
+  });
+});

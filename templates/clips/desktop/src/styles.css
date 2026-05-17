@@ -1232,6 +1232,33 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   gap: 6px;
 }
 
+.setup-advanced {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.setup-advanced-summary {
+  padding: 9px 10px;
+  cursor: pointer;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+  list-style-position: inside;
+}
+
+.setup-advanced-summary:hover {
+  color: var(--fg);
+}
+
+.setup-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding: 10px;
+}
+
 .setup-header {
   display: flex;
   align-items: center;
@@ -1280,14 +1307,89 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .setup-help {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
   color: var(--fg-muted);
   opacity: 0.6;
-  cursor: help;
+  cursor: pointer;
   transition: opacity 120ms;
 }
 
-.setup-help:hover {
+.setup-help:hover,
+.setup-help:focus-visible,
+.setup-help[data-state="delayed-open"],
+.setup-help[data-state="instant-open"] {
   opacity: 1;
+}
+
+.setup-help:focus-visible {
+  outline: none;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Tooltip (shadcn-style, Radix-backed)                                       */
+/* ------------------------------------------------------------------------- */
+
+.tooltip-content {
+  z-index: 60;
+  max-width: 260px;
+  /* No border: shadcn's tooltip is borderless (solid bg + shadow). A border
+     would also detach visually from the Radix arrow, whose flush base can't
+     carry a matching CSS border. Shadow alone gives separation in both
+     themes. */
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow-md);
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  user-select: none;
+  transform-origin: var(--radix-tooltip-content-transform-origin);
+}
+
+.tooltip-content[data-state="delayed-open"],
+.tooltip-content[data-state="instant-open"] {
+  animation: tooltip-in 120ms ease-out;
+}
+
+.tooltip-content[data-state="closed"] {
+  animation: tooltip-out 90ms ease-in;
+}
+
+.tooltip-arrow {
+  fill: var(--bg);
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes tooltip-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
 
 .setup-toggle-row {
@@ -1424,6 +1526,18 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   gap: 8px;
 }
 
+.setup-button-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.setup-button-row .secondary {
+  min-width: 0;
+  height: 36px;
+  padding-inline: 10px;
+}
+
 .setup-key-save {
   width: auto;
   min-width: 72px;
@@ -1536,6 +1650,80 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pending-upload-retry:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+.local-recording-banner,
+.local-save-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 11px;
+  line-height: 1.3;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.local-recording-banner svg {
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+}
+
+.local-save-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.local-save-copy {
+  min-width: 0;
+}
+
+.local-save-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.local-save-sub {
+  margin-top: 2px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.local-save-banner button {
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--fg);
+  color: var(--bg);
+  cursor: pointer;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.local-save-banner button:hover {
+  background: var(--brand-hover);
+  border-color: transparent;
+}
+
+.local-save-banner .local-save-dismiss {
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.local-save-banner .local-save-dismiss:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--fg);
 }
 
 .error-banner {
@@ -1697,6 +1885,46 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
      recorded output. */
   animation: cd-pop 0.85s ease-out forwards;
   line-height: 1;
+}
+
+.countdown-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-pill);
+  background: rgba(10, 12, 16, 0.28);
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  transform: translateX(-50%);
+  backdrop-filter: blur(8px);
+}
+
+.countdown-hint span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.countdown-hint kbd {
+  min-width: 24px;
+  padding: 3px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.74);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
 }
 
 @keyframes cd-pop {
@@ -3005,6 +3233,233 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .flow-bar-cancel svg {
   display: block;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: private screen region guides                                      */
+/* ------------------------------------------------------------------------- */
+
+.region-guides-layer,
+.region-guides-editor {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.region-guides-layer {
+  pointer-events: none;
+}
+
+.region-guides-editor {
+  cursor: crosshair;
+  user-select: none;
+  background: rgba(0, 0, 0, 0.015);
+  touch-action: none;
+}
+
+.region-guide-rect {
+  position: absolute;
+  border: 1.5px solid rgba(255, 255, 255, 0.62);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.018);
+  box-shadow:
+    0 0 120px 42px rgba(0, 0, 0, 0.075),
+    inset 0 0 34px rgba(0, 0, 0, 0.06),
+    0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.region-guide-rect-editable {
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+}
+
+.region-guide-rect-editable:hover,
+.region-guide-rect-editable.selected {
+  border-color: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 0 150px 50px rgba(0, 0, 0, 0.105),
+    inset 0 0 36px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+.region-guide-rect-editable:focus-visible {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 0 0 2px rgba(15, 23, 42, 0.5),
+    0 0 150px 50px rgba(0, 0, 0, 0.12),
+    inset 0 0 36px rgba(0, 0, 0, 0.08);
+}
+
+.region-guide-rect-draft {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.region-guide-handle {
+  position: absolute;
+  z-index: 2;
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.38);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 3px 12px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.region-guide-handle-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+  transform: translate(-50%, -50%);
+}
+
+.region-guide-handle-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+  transform: translate(50%, -50%);
+}
+
+.region-guide-handle-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+  transform: translate(-50%, 50%);
+}
+
+.region-guide-handle-se {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+  transform: translate(50%, 50%);
+}
+
+.region-guide-editor-bar {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(760px, calc(100vw - 36px));
+  padding: 9px 10px 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(15, 17, 21, 0.74);
+  color: #f8fafc;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
+  transform: translateX(-50%);
+  backdrop-filter: blur(18px);
+}
+
+.region-guide-editor-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.region-guide-editor-count {
+  color: rgba(248, 250, 252, 0.58);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.region-guide-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.region-guide-editor-button,
+.region-guide-editor-icon {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  cursor: pointer;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms;
+}
+
+.region-guide-editor-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 72px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.region-guide-editor-button-primary {
+  background: rgba(255, 255, 255, 0.92);
+  color: #111827;
+}
+
+.region-guide-editor-button:hover,
+.region-guide-editor-icon:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.region-guide-editor-button-primary:hover {
+  background: #ffffff;
+}
+
+.region-guide-editor-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.region-guide-editor-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.region-guide-editor-message {
+  min-width: 78px;
+  color: rgba(248, 250, 252, 0.68);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.region-guide-editor-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  z-index: 10;
+  max-width: min(420px, calc(100vw - 36px));
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(15, 17, 21, 0.6);
+  color: rgba(248, 250, 252, 0.76);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  transform: translateX(-50%);
+  backdrop-filter: blur(14px);
 }
 
 @keyframes flow-bar-in {

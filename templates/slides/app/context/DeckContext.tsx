@@ -287,6 +287,18 @@ async function createDeckOnAPI(deck: Deck): Promise<void> {
   }
 }
 
+export function changedDeckIds(before: Deck[], after: Deck[]): string[] {
+  const beforeById = new Map(before.map((deck) => [deck.id, deck]));
+  const changed: string[] = [];
+  for (const deck of after) {
+    const previous = beforeById.get(deck.id);
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(deck)) {
+      changed.push(deck.id);
+    }
+  }
+  return changed;
+}
+
 export const defaultSlideContent: Record<SlideLayout, string> = {
   title: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: space-between;">
   <div>
@@ -353,6 +365,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // Prevents the poll from wiping optimistic decks before their POST lands.
   const pendingCreateIdsRef = useRef<Set<string>>(new Set());
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
+  const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
+
+  const markDeckDirty = useCallback((deckId: string) => {
+    lastExternalUpdateRef.current = 0;
+    dirtyDeckIdsRef.current.add(deckId);
+  }, []);
+
+  const markChangedDecksDirty = useCallback((nextDecks: Deck[]) => {
+    const ids = changedDeckIds(decksRef.current, nextDecks);
+    if (ids.length === 0) return;
+    lastExternalUpdateRef.current = 0;
+    for (const id of ids) dirtyDeckIdsRef.current.add(id);
+  }, []);
 
   useEffect(() => {
     decksRef.current = decks;
@@ -532,12 +557,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     };
   }, [loading]);
 
-  // Save ALL changed decks to API — files are the single source of truth
+  // Save only decks dirtied by local edits. Saving every deck in local state
+  // lets one tab PUT stale snapshots of decks the user is editing elsewhere.
   // Skip saves that happen within 2s of an external update (SSE or initial load)
   useEffect(() => {
     if (loading) return;
     if (Date.now() - lastExternalUpdateRef.current < 2000) return;
-    for (const deck of decks) {
+    const dirtyIds = Array.from(dirtyDeckIdsRef.current);
+    if (dirtyIds.length === 0) return;
+    for (const id of dirtyIds) {
+      const deck = decks.find((d) => d.id === id);
+      dirtyDeckIdsRef.current.delete(id);
+      if (!deck) continue;
       saveDeckToAPI(deck);
     }
   }, [decks, loading]);
@@ -626,27 +657,33 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const undo = useCallback(() => {
     if (historyIndex <= 0) return;
     const newIndex = historyIndex - 1;
+    const nextDecks = JSON.parse(JSON.stringify(history[newIndex].decks));
+    markChangedDecksDirty(nextDecks);
     setHistoryIndex(newIndex);
     skipHistoryRef.current = true;
-    setDecks(JSON.parse(JSON.stringify(history[newIndex].decks)));
-  }, [historyIndex, history]);
+    setDecks(nextDecks);
+  }, [historyIndex, history, markChangedDecksDirty]);
 
   const redo = useCallback(() => {
     if (historyIndex >= history.length - 1) return;
     const newIndex = historyIndex + 1;
+    const nextDecks = JSON.parse(JSON.stringify(history[newIndex].decks));
+    markChangedDecksDirty(nextDecks);
     setHistoryIndex(newIndex);
     skipHistoryRef.current = true;
-    setDecks(JSON.parse(JSON.stringify(history[newIndex].decks)));
-  }, [historyIndex, history]);
+    setDecks(nextDecks);
+  }, [historyIndex, history, markChangedDecksDirty]);
 
   const restoreFromHistory = useCallback(
     (index: number) => {
       if (index < 0 || index >= history.length) return;
+      const nextDecks = JSON.parse(JSON.stringify(history[index].decks));
+      markChangedDecksDirty(nextDecks);
       setHistoryIndex(index);
       skipHistoryRef.current = true;
-      setDecks(JSON.parse(JSON.stringify(history[index].decks)));
+      setDecks(nextDecks);
     },
-    [history],
+    [history, markChangedDecksDirty],
   );
 
   // Keyboard shortcuts for undo/redo
@@ -800,7 +837,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Don't push history for title changes (too noisy)
       // Clear the external-update suppression window so a rename/update that
       // happens within 2s of page load (or an SSE event) is not silently dropped.
-      lastExternalUpdateRef.current = 0;
+      markDeckDirty(id);
       setDecks((prev) =>
         prev.map((d) =>
           d.id === id
@@ -809,7 +846,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         ),
       );
     },
-    [],
+    [markDeckDirty],
   );
 
   const getDeck = useCallback(
@@ -819,6 +856,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const addSlide = useCallback(
     (deckId: string, layout: SlideLayout = "content", afterIndex?: number) => {
+      markDeckDirty(deckId);
       const newSlide: Slide = {
         id: nanoid(8),
         content: defaultSlideContent[layout],
@@ -838,11 +876,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       );
       return newSlide.id;
     },
-    [setDecksWithHistory],
+    [markDeckDirty, setDecksWithHistory],
   );
 
   const updateSlide = useCallback(
     (deckId: string, slideId: string, updates: Partial<Omit<Slide, "id">>) => {
+      markDeckDirty(deckId);
       const label = updates.layout
         ? "Change layout"
         : updates.background
@@ -863,11 +902,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }),
       );
     },
-    [setDecksWithHistory],
+    [markDeckDirty, setDecksWithHistory],
   );
 
   const deleteSlide = useCallback(
     (deckId: string, slideId: string) => {
+      markDeckDirty(deckId);
       setDecksWithHistory("Delete slide", (prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
@@ -884,11 +924,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }),
       );
     },
-    [setDecksWithHistory],
+    [markDeckDirty, setDecksWithHistory],
   );
 
   const duplicateSlide = useCallback(
     (deckId: string, slideId: string) => {
+      markDeckDirty(deckId);
       setDecksWithHistory("Duplicate slide", (prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
@@ -902,11 +943,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }),
       );
     },
-    [setDecksWithHistory],
+    [markDeckDirty, setDecksWithHistory],
   );
 
   const reorderSlides = useCallback(
     (deckId: string, oldIndex: number, newIndex: number) => {
+      markDeckDirty(deckId);
       setDecksWithHistory("Reorder slides", (prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
@@ -917,11 +959,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }),
       );
     },
-    [setDecksWithHistory],
+    [markDeckDirty, setDecksWithHistory],
   );
 
   const setDeckSlides = useCallback(
     (deckId: string, slides: Slide[]) => {
+      markDeckDirty(deckId);
       setDecksWithHistory("Generate slides", (prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
@@ -929,7 +972,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }),
       );
     },
-    [setDecksWithHistory],
+    [markDeckDirty, setDecksWithHistory],
   );
 
   return (

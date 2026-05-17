@@ -212,6 +212,26 @@ describe("AgentEngine registry", () => {
       const fakeEngine = { name: "ai-sdk:openai" } as any;
       expect(await getStoredModelForEngine(fakeEngine)).toBe("gpt-4o");
     });
+
+    it("prefers a current app default model over the global model", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "owner@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn(async (key: string) => {
+          if (key === "u:owner@example.com:agent-app-model-default:analytics") {
+            return { engine: "builder", model: "gemini-3-1-pro" };
+          }
+          return { engine: "builder", model: "claude-sonnet-4-6" };
+        }),
+      }));
+      const { getStoredModelForEngine } = await import("./registry.js");
+
+      expect(
+        await getStoredModelForEngine("builder", { appId: "analytics" }),
+      ).toBe("gemini-3-1-pro");
+    });
   });
 
   it("resolveEngine uses env AGENT_ENGINE when set", async () => {
@@ -342,6 +362,69 @@ describe("AgentEngine registry", () => {
       "sk-global-config",
     );
     expect(resolved).toBe(fakeEngine);
+  });
+
+  it("resolveEngine honors a usable app default before the global setting", async () => {
+    vi.doMock("../../server/request-context.js", () => ({
+      getRequestUserEmail: () => "owner@example.com",
+      getRequestOrgId: () => undefined,
+    }));
+    vi.doMock("../../settings/store.js", () => ({
+      getSetting: vi.fn(async (key: string) => {
+        if (key === "u:owner@example.com:agent-app-model-default:analytics") {
+          return { engine: "app-engine", model: "app-model" };
+        }
+        if (key === "agent-engine") {
+          return { engine: "global-engine", model: "global-model" };
+        }
+        return null;
+      }),
+    }));
+
+    const { registerAgentEngine, resolveEngine } =
+      await import("./registry.js");
+
+    const appEngine = { name: "app-engine", stream: vi.fn() } as any;
+    const globalEngine = { name: "global-engine", stream: vi.fn() } as any;
+    const appCreate = vi.fn().mockReturnValue(appEngine);
+    const globalCreate = vi.fn().mockReturnValue(globalEngine);
+
+    registerAgentEngine({
+      name: "app-engine",
+      label: "App Engine",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "app-model",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: appCreate,
+    });
+    registerAgentEngine({
+      name: "global-engine",
+      label: "Global Engine",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "global-model",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: globalCreate,
+    });
+    registerAgentEngine({
+      name: "anthropic",
+      label: "Anthropic",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "m",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: vi.fn() as any,
+    });
+
+    const resolved = await resolveEngine({ appId: "analytics" });
+
+    expect(appCreate).toHaveBeenCalled();
+    expect(globalCreate).not.toHaveBeenCalled();
+    expect(resolved).toBe(appEngine);
   });
 
   describe("detectEngineFromUserSecrets", () => {

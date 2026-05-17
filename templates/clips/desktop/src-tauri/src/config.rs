@@ -5,6 +5,37 @@ use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RegionGuideRect {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegionGuidesConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub rects: Vec<RegionGuideRect>,
+    #[serde(default)]
+    pub always_visible: bool,
+}
+
+impl Default for RegionGuidesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            rects: Vec::new(),
+            always_visible: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FeatureConfig {
     pub clips_enabled: bool,
     pub meetings_enabled: bool,
@@ -15,6 +46,8 @@ pub struct FeatureConfig {
     pub auto_hide_popover_enabled: bool,
     #[serde(default = "default_meeting_transcription_mode")]
     pub meeting_transcription_mode: MeetingTranscriptionMode,
+    #[serde(default)]
+    pub local_recording_mode: LocalRecordingMode,
     #[serde(default = "default_show_meeting_widget_enabled")]
     pub show_meeting_widget_enabled: bool,
     // Debug / demo aid: when true, Clips's own overlay windows (popover,
@@ -24,6 +57,8 @@ pub struct FeatureConfig {
     // captures so they don't leak into the user's recorded video.
     #[serde(default)]
     pub show_in_screen_capture: bool,
+    #[serde(default)]
+    pub region_guides: RegionGuidesConfig,
     pub onboarding_complete: bool,
 }
 
@@ -33,6 +68,15 @@ pub enum MeetingTranscriptionMode {
     Manual,
     Ask,
     Auto,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LocalRecordingMode {
+    #[default]
+    Off,
+    Composed,
+    Separate,
 }
 
 fn default_launch_at_login_enabled() -> bool {
@@ -56,8 +100,10 @@ impl Default for FeatureConfig {
             launch_at_login_enabled: true,
             auto_hide_popover_enabled: false,
             meeting_transcription_mode: default_meeting_transcription_mode(),
+            local_recording_mode: LocalRecordingMode::Off,
             show_meeting_widget_enabled: default_show_meeting_widget_enabled(),
             show_in_screen_capture: false,
+            region_guides: RegionGuidesConfig::default(),
             onboarding_complete: false,
         }
     }
@@ -173,6 +219,10 @@ pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result
         // recording-flow round trip.
         crate::util::reapply_capture_exclusion_to_overlays(&app);
     }
+    // Apply the region-guides visibility decision (always-on toggle, preset
+    // changes, master enable/disable) without requiring a recording-flow
+    // round trip. Cheap — it just inspects current state.
+    crate::clips::reconcile_region_guides(&app);
     let _ = app.emit("app:feature-config-changed", config);
     Ok(())
 }

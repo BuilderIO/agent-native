@@ -4,14 +4,14 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 
 #[cfg(target_os = "macos")]
 use screencapturekit::recording_output::{
     SCRecordingOutput, SCRecordingOutputCodec, SCRecordingOutputConfiguration,
-    SCRecordingOutputFileType,
+    SCRecordingOutputDelegate, SCRecordingOutputFileType,
 };
 #[cfg(target_os = "macos")]
 use screencapturekit::shareable_content::SCShareableContent;
@@ -57,7 +57,75 @@ enum NativeFullscreenBackend {
     ScreenCaptureKit {
         stream: SCStream,
         recording: SCRecordingOutput,
+        finish: Arc<RecordingFinish>,
     },
+}
+
+/// `SCRecordingOutput` finalizes the MP4 *asynchronously*: after
+/// `stop_capture()` / `remove_recording_output()` it still has to flush its
+/// last buffered sample fragment and write the `moov` atom, then it calls
+/// `recording_did_finish` (or `recording_did_fail`). If we move the file
+/// before that callback we lose the trailing fragment — a consistent
+/// multi-second tail truncation with the head intact. This handle lets the
+/// stop path block on that callback (bounded by a timeout) before the file
+/// is moved.
+#[cfg(target_os = "macos")]
+struct RecordingFinish {
+    /// `None` while recording; `Some(Ok)` finished; `Some(Err)` failed.
+    state: Mutex<Option<Result<(), String>>>,
+    cv: Condvar,
+}
+
+#[cfg(target_os = "macos")]
+impl RecordingFinish {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(None),
+            cv: Condvar::new(),
+        }
+    }
+
+    fn signal(&self, outcome: Result<(), String>) {
+        if let Ok(mut guard) = self.state.lock() {
+            if guard.is_none() {
+                *guard = Some(outcome);
+                self.cv.notify_all();
+            }
+        }
+    }
+
+    /// Block until the recording output reports finished/failed, or `timeout`
+    /// elapses. Returns `true` if a terminal signal was observed.
+    fn wait(&self, timeout: Duration) -> bool {
+        let Ok(guard) = self.state.lock() else {
+            return false;
+        };
+        let (guard, result) = self
+            .cv
+            .wait_timeout_while(guard, timeout, |state| state.is_none())
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let observed = guard.is_some();
+        drop(guard);
+        observed && !result.timed_out()
+    }
+}
+
+/// Bridges `SCRecordingOutput`'s async finalize callbacks into a
+/// [`RecordingFinish`] the stop path can wait on.
+#[cfg(target_os = "macos")]
+struct FinishDelegate {
+    finish: Arc<RecordingFinish>,
+}
+
+#[cfg(target_os = "macos")]
+impl SCRecordingOutputDelegate for FinishDelegate {
+    fn recording_did_fail(&self, error: String) {
+        self.finish.signal(Err(error));
+    }
+
+    fn recording_did_finish(&self) {
+        self.finish.signal(Ok(()));
+    }
 }
 
 struct PreparedRecordingFile {
@@ -119,6 +187,27 @@ pub struct NativeFullscreenUploadResult {
     width: Option<u32>,
     height: Option<u32>,
     bytes: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeLocalRecordingFile {
+    role: String,
+    path: String,
+    file_name: String,
+    mime_type: String,
+    bytes: u64,
+    duration_ms: u128,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeFullscreenSaveResult {
+    recording_id: String,
+    folder_path: String,
+    file: NativeLocalRecordingFile,
 }
 
 impl From<&SavedNativeRecording> for PendingNativeRecording {
@@ -189,7 +278,7 @@ pub async fn native_fullscreen_recording_start(
             guard.take()
         };
         if let Some(mut previous) = previous {
-            let _ = stop_native_recording(&mut previous.backend);
+            let _ = stop_native_recording(&mut previous.backend, false);
             let _ = std::fs::remove_file(previous.path);
         }
 
@@ -229,7 +318,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     // remove_recording_output occasionally fires even though the file is
     // playable. Persist the recovery metadata first so a finalize failure
     // doesn't orphan the file — pending-uploads can then retry it.
-    let stop_outcome = stop_native_recording(&mut session.backend);
+    let stop_outcome = stop_native_recording(&mut session.backend, true);
     let duration_ms = session.started_at.elapsed().as_millis();
     let mut saved = saved_recording_from_session(
         &session,
@@ -279,6 +368,30 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 }
 
 #[tauri::command]
+pub async fn native_fullscreen_recording_stop_and_save(
+    app: AppHandle,
+    state: State<'_, NativeFullscreenRecordingState>,
+    folder_name: String,
+    file_role: String,
+) -> Result<NativeFullscreenSaveResult, String> {
+    let mut session = {
+        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+        guard.take()
+    }
+    .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+
+    let stop_outcome = stop_native_recording(&mut session.backend, true);
+    let duration_ms = session.started_at.elapsed().as_millis();
+    if let Err(err) = &stop_outcome {
+        eprintln!(
+            "[clips-tray] native local recording stop reported an error; attempting to save file anyway: {err}"
+        );
+    }
+
+    save_native_recording_to_local_export(&app, &session, &folder_name, &file_role, duration_ms)
+}
+
+#[tauri::command]
 pub async fn native_fullscreen_capture_thumbnail(
     app: AppHandle,
     server_url: String,
@@ -312,7 +425,7 @@ pub async fn native_fullscreen_recording_cancel(
         guard.take()
     };
     if let Some(mut session) = session {
-        let _ = stop_native_recording(&mut session.backend);
+        let _ = stop_native_recording(&mut session.backend, false);
         let _ = std::fs::remove_file(session.path);
     }
     Ok(())
@@ -433,6 +546,96 @@ fn pending_recording_path(
         std::process::id(),
         extension.trim_start_matches('.')
     )))
+}
+
+fn sanitize_path_component(value: &str, fallback: &str) -> String {
+    let safe: String = value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if safe.is_empty() {
+        fallback.to_string()
+    } else {
+        safe
+    }
+}
+
+fn native_extension_for_mime_type(mime_type: &str) -> &'static str {
+    if mime_type.eq_ignore_ascii_case(MP4_RECORDING_MIME_TYPE) {
+        "mp4"
+    } else {
+        "mov"
+    }
+}
+
+fn local_role_file_stem(role: &str) -> &'static str {
+    match role {
+        "composed" => "clip",
+        "desktop" => "desktop",
+        _ => "desktop",
+    }
+}
+
+fn move_or_copy_file(from: &Path, to: &Path) -> Result<(), String> {
+    if let Err(rename_err) = std::fs::rename(from, to) {
+        std::fs::copy(from, to).map_err(|copy_err| {
+            format!("local recording copy failed: {copy_err}; rename failed: {rename_err}")
+        })?;
+        std::fs::remove_file(from)
+            .map_err(|remove_err| format!("local recording cleanup failed: {remove_err}"))?;
+    }
+    Ok(())
+}
+
+fn save_native_recording_to_local_export(
+    app: &AppHandle,
+    session: &NativeFullscreenSession,
+    folder_name: &str,
+    file_role: &str,
+    duration_ms: u128,
+) -> Result<NativeFullscreenSaveResult, String> {
+    let safe_folder_name = sanitize_path_component(folder_name, "clip");
+    let safe_role = match file_role {
+        "composed" | "desktop" => file_role,
+        _ => "desktop",
+    };
+    let folder = app
+        .path()
+        .video_dir()
+        .map_err(|e| format!("videos directory unavailable: {e}"))?
+        .join("Clips")
+        .join(&safe_folder_name);
+    std::fs::create_dir_all(&folder)
+        .map_err(|e| format!("local recording folder unavailable: {e}"))?;
+
+    let extension = native_extension_for_mime_type(session.mime_type);
+    let file_name = format!("{}.{}", local_role_file_stem(safe_role), extension);
+    let destination = folder.join(&file_name);
+    let _ = std::fs::remove_file(&destination);
+    move_or_copy_file(&session.path, &destination)?;
+
+    let bytes = std::fs::metadata(&destination)
+        .map_err(|e| format!("local recording metadata unavailable: {e}"))?
+        .len();
+    if bytes == 0 {
+        let _ = std::fs::remove_file(&destination);
+        return Err("Native recording produced an empty file.".into());
+    }
+
+    Ok(NativeFullscreenSaveResult {
+        recording_id: safe_folder_name,
+        folder_path: folder.to_string_lossy().to_string(),
+        file: NativeLocalRecordingFile {
+            role: safe_role.to_string(),
+            path: destination.to_string_lossy().to_string(),
+            file_name,
+            mime_type: session.mime_type.to_string(),
+            bytes,
+            duration_ms,
+            width: session.width,
+            height: session.height,
+        },
+    })
 }
 
 fn saved_recording_metadata_path(app: &AppHandle, recording_id: &str) -> Result<PathBuf, String> {
@@ -654,7 +857,14 @@ fn start_screencapturekit_recording(
         .with_output_url(&path)
         .with_video_codec(SCRecordingOutputCodec::H264)
         .with_output_file_type(SCRecordingOutputFileType::MP4);
-    let recording = SCRecordingOutput::new(&recording_config).ok_or_else(|| {
+    let finish = Arc::new(RecordingFinish::new());
+    let recording = SCRecordingOutput::new_with_delegate(
+        &recording_config,
+        FinishDelegate {
+            finish: Arc::clone(&finish),
+        },
+    )
+    .ok_or_else(|| {
         "ScreenCaptureKit recording output could not be created. macOS 15+ is required.".to_string()
     })?;
     let stream = SCStream::new(&filter, &config);
@@ -672,7 +882,11 @@ fn start_screencapturekit_recording(
 
     let (fallback_width, fallback_height) = primary_monitor_size(app);
     Ok(NativeFullscreenSession {
-        backend: NativeFullscreenBackend::ScreenCaptureKit { stream, recording },
+        backend: NativeFullscreenBackend::ScreenCaptureKit {
+            stream,
+            recording,
+            finish,
+        },
         path,
         mime_type: MP4_RECORDING_MIME_TYPE,
         started_at: Instant::now(),
@@ -748,11 +962,31 @@ fn primary_monitor_size(app: &AppHandle) -> (Option<u32>, Option<u32>) {
     )
 }
 
-fn stop_native_recording(backend: &mut NativeFullscreenBackend) -> Result<(), String> {
+/// How long to wait for `SCRecordingOutput` to flush its trailing fragment
+/// and write the `moov` after we ask it to stop. Normal finalize is well
+/// under a second for these clips; this is only a safety ceiling for the
+/// degraded case where the delegate never fires (we then save as-is rather
+/// than hang the stop button forever).
+#[cfg(target_os = "macos")]
+const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Stop the active recording. When `wait_for_finalize` is set (save/upload
+/// paths — the file is about to be moved) this blocks until ScreenCaptureKit
+/// signals the recording finished, so the caller never moves a half-written
+/// MP4. Cancel passes `false` (the file is discarded immediately, so there's
+/// nothing to wait for and no reason to delay teardown).
+fn stop_native_recording(
+    backend: &mut NativeFullscreenBackend,
+    wait_for_finalize: bool,
+) -> Result<(), String> {
     match backend {
         NativeFullscreenBackend::Screencapture { child } => stop_screencapture(child),
         #[cfg(target_os = "macos")]
-        NativeFullscreenBackend::ScreenCaptureKit { stream, recording } => {
+        NativeFullscreenBackend::ScreenCaptureKit {
+            stream,
+            recording,
+            finish,
+        } => {
             let stop_result = stream
                 .stop_capture()
                 .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
@@ -776,6 +1010,21 @@ fn stop_native_recording(backend: &mut NativeFullscreenBackend) -> Result<(), St
                     })
                 }
             };
+            // stop_capture()/remove_recording_output() only *trigger* the
+            // async finalize; the MP4 isn't complete until the delegate's
+            // recording_did_finish fires. Block on it before the caller moves
+            // the file — without this we move it mid-flush and lose the last
+            // buffered fragment (a consistent multi-second tail truncation).
+            // Skip the wait only when both teardown calls hard-failed (the
+            // delegate won't fire, so don't burn the timeout for nothing).
+            if wait_for_finalize && (stop_result.is_ok() || remove_result.is_ok()) {
+                if !finish.wait(SCK_FINALIZE_TIMEOUT) {
+                    eprintln!(
+                        "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s; saving file as-is",
+                        SCK_FINALIZE_TIMEOUT.as_secs()
+                    );
+                }
+            }
             stop_result.and(remove_result)
         }
     }

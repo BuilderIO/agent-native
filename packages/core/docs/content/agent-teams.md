@@ -18,6 +18,23 @@ This keeps the main thread focused, lets sub-agents run in parallel, and gives y
 
 Sub-agent state is persisted in the `application_state` SQL table (under `agent-task:<taskId>`), so tasks survive serverless cold starts and work across multiple processes.
 
+Agent Teams runs on the same core `run-manager` harness/controller as hosted
+agent chat: events are streamed and persisted, aborts propagate through SQL,
+heartbeats mark active work, and stale runs can be reaped consistently. New
+background-agent UIs should reuse `run-manager` or `spawnTask()` instead of
+introducing a separate runner with its own lifecycle rules.
+
+Agent-Native Code is the sibling local surface, not a second hosted-agent
+lifecycle. Code currently keeps long-running local sessions in the file-backed
+Code run store and exposes them through the shared background-run foundation.
+The CLI commands (`agent-native`, `agent-native code`, `resume`, `status`,
+`stop`, `ui`), the Desktop Code tab, background sessions, and sub-agent
+sessions should present the same run model even when their persistence layer is
+different. When a new surface needs both hosted sub-agents and local Code
+sessions, adapt those sources into the shared background-run/run-manager
+vocabulary instead of adding another queue, transcript model, or process
+tracker.
+
 ## When to spawn a sub-agent {#when-to-spawn}
 
 Spawn when the task:
@@ -77,6 +94,12 @@ spawnTask()
 ```
 
 At any point the parent agent can resume the sub-agent with a follow-up via `sendToTask(taskId, message)`. If the sub-agent errors, `markTaskErrored(taskId, reason)` records the failure and surfaces it to the user.
+
+Two-way messaging is durable. Parent follow-ups to running sub-agents are
+delivered through the task lifecycle; if the sub-agent cannot consume them in
+the current step, they should remain queued and be applied at a safe
+continuation point. Sub-agents can also message back when they need clarification
+instead of blocking invisibly.
 
 ## Reading task state {#reading-state}
 

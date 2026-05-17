@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockReadAppSecret = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
+const mockGetSetting = vi.fn();
+const mockPutSetting = vi.fn();
+const mockDeleteSetting = vi.fn();
 const mockGetRequestUserEmail = vi.fn<[], string | undefined>();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
 const mockIsLocalDatabase = vi.fn<[], boolean>();
@@ -19,9 +22,17 @@ vi.mock("./request-context.js", () => ({
 vi.mock("../db/client.js", () => ({
   isLocalDatabase: () => mockIsLocalDatabase(),
 }));
+vi.mock("../settings/store.js", () => ({
+  getSetting: (...args: any[]) => mockGetSetting(...args),
+  putSetting: (...args: any[]) => mockPutSetting(...args),
+  deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
+}));
 
 import {
+  builderCredentialFingerprint,
   canUseDeployCredentialFallbackForRequest,
+  getBuilderCredentialAuthFailure,
+  recordBuilderCredentialAuthFailure,
   resolveCredentialWriteScope,
   writeBuilderCredentials,
   deleteBuilderCredentials,
@@ -40,12 +51,20 @@ beforeEach(() => {
     process.env.NODE_ENV = ORIGINAL_NODE_ENV;
   }
   delete process.env.AGENT_ENGINE;
+  delete process.env.AGENT_NATIVE_WORKSPACE;
+  delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+  delete process.env.FUSION_ENVIRONMENT;
+  delete process.env.FUSION_ENV_ORIGIN;
+  delete process.env.VITE_FUSION_ENV_ORIGIN;
   delete process.env.BUILDER_PRIVATE_KEY;
   delete process.env.BUILDER_PUBLIC_KEY;
   delete process.env.OPENAI_API_KEY;
   mockReadAppSecret.mockResolvedValue(null);
   mockWriteAppSecret.mockResolvedValue("id");
   mockDeleteAppSecret.mockResolvedValue(true);
+  mockGetSetting.mockResolvedValue(null);
+  mockPutSetting.mockResolvedValue(undefined);
+  mockDeleteSetting.mockResolvedValue(true);
   mockGetRequestUserEmail.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
   mockIsLocalDatabase.mockReturnValue(true);
@@ -223,6 +242,69 @@ describe("writeBuilderCredentials", () => {
     expect(lastDelete).toBeGreaterThan(-1);
     expect(lastDelete).toBeLessThan(firstWrite);
   });
+
+  it("clears the auth-failure marker for the new key pair", async () => {
+    await writeBuilderCredentials(
+      "owner@b.com",
+      { privateKey: "pk-new", publicKey: "pub-new" },
+      { orgId: "builder_io", role: "owner" },
+    );
+    const fingerprint = builderCredentialFingerprint("pk-new", "pub-new");
+    expect(mockDeleteSetting).toHaveBeenCalledWith(
+      `builder-auth-failure:${fingerprint}`,
+    );
+  });
+});
+
+describe("Builder credential auth failure markers", () => {
+  it("records gateway auth failures against a fingerprint without storing raw keys in the setting key", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "bpk-secret";
+    process.env.BUILDER_PUBLIC_KEY = "pub-secret";
+
+    await recordBuilderCredentialAuthFailure({
+      status: 401,
+      code: "unauthorized",
+      message: "Invalid key",
+    });
+
+    expect(mockPutSetting).toHaveBeenCalledTimes(1);
+    const [key, value] = mockPutSetting.mock.calls[0];
+    expect(key).toMatch(/^builder-auth-failure:[a-f0-9]{24}$/);
+    expect(key).not.toContain("bpk-secret");
+    expect(key).not.toContain("pub-secret");
+    expect(value).toMatchObject({
+      message: "Invalid key",
+      status: 401,
+      code: "unauthorized",
+      ownerEmail: null,
+      orgId: null,
+    });
+  });
+
+  it("reads an auth-failure marker for the same effective key pair", async () => {
+    mockGetSetting.mockResolvedValue({
+      message: "Invalid key",
+      status: 401,
+      code: "unauthorized",
+      at: 123,
+    });
+
+    const failure = await getBuilderCredentialAuthFailure({
+      privateKey: "bpk-secret",
+      publicKey: "pub-secret",
+    });
+
+    expect(failure).toMatchObject({
+      fingerprint: builderCredentialFingerprint("bpk-secret", "pub-secret"),
+      message: "Invalid key",
+      status: 401,
+      code: "unauthorized",
+      at: 123,
+    });
+    expect(mockGetSetting).toHaveBeenCalledWith(
+      `builder-auth-failure:${builderCredentialFingerprint("bpk-secret", "pub-secret")}`,
+    );
+  });
 });
 
 describe("deleteBuilderCredentials", () => {
@@ -294,6 +376,27 @@ describe("resolveBuilderCredential", () => {
 
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
+  });
+
+  it("does not use deploy-level Builder keys for signed-in hosted workspace users", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "space-id";
+    process.env.OPENAI_API_KEY = "openai-deploy-key";
+    // Fusion/workspace dev servers can still look "local" to DB detection
+    // during startup, but their Builder env fallback must not impersonate the
+    // signed-in user.
+    mockIsLocalDatabase.mockReturnValue(true);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(await resolveBuilderCredentialSource()).toBeNull();
+    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
+    expect(canUseDeployCredentialFallbackForRequest()).toBe(true);
   });
 
   it("falls back to org scope when no user-scope row exists", async () => {

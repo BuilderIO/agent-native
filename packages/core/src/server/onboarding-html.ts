@@ -13,6 +13,7 @@ import {
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
+import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
 
 function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -79,8 +80,8 @@ export interface OnboardingHtmlOptions {
   };
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
-   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. The Builder.io
-   * browser iframe always uses popup regardless (Google blocks framing).
+   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. Builder web
+   * iframes use popup; Builder desktop preview/editor surfaces use redirect.
    */
   googleAuthMode?: GoogleAuthMode;
 }
@@ -810,7 +811,7 @@ ${marketingPanelHtml}
     id="upgrade-note"
     data-upgrade-copy="Continue signing in to attach this app to your account and migrate local data."
   ></p>
-
+${identitySsoLoginButtonHtml()}
 ${
   showGoogle
     ? `
@@ -923,19 +924,33 @@ ${
       var origin = __anIsBuilderPreview() ? __anConfiguredOAuthOrigin() : '';
       return origin ? origin + path : __anPath(path);
     }
+    function __anGoogleAuthUrlPath() {
+      return __anIsBuilderPreview()
+        ? __anAuthPath('/_agent-native/google/auth-url')
+        : __anPath('/_agent-native/google/auth-url');
+    }
     function __anBuilderPreviewReturnOrigin() {
+      var candidates = [window.location.href, document.referrer || ''];
       try {
-        var url = new URL(window.location.href);
-        var host = url.hostname.toLowerCase();
-        var isPreviewHost =
-          host === 'builderio.xyz' || host.slice(-14) === '.builderio.xyz' ||
-          host === 'builderio.dev' || host.slice(-14) === '.builderio.dev' ||
-          host === 'builder.codes' || host.slice(-14) === '.builder.codes' ||
-          host === 'builder.my' || host.slice(-11) === '.builder.my';
-        return url.protocol === 'https:' && isPreviewHost ? url.origin : '';
-      } catch(e) {
-        return '';
+        if (window.location.ancestorOrigins) {
+          for (var j = 0; j < window.location.ancestorOrigins.length; j++) {
+            candidates.push(window.location.ancestorOrigins[j]);
+          }
+        }
+      } catch(e) {}
+      for (var i = 0; i < candidates.length; i++) {
+        try {
+          var url = new URL(candidates[i]);
+          var host = url.hostname.toLowerCase();
+          var isPreviewHost =
+            host === 'builderio.xyz' || host.slice(-14) === '.builderio.xyz' ||
+            host === 'builderio.dev' || host.slice(-14) === '.builderio.dev' ||
+            host === 'builder.codes' || host.slice(-14) === '.builder.codes' ||
+            host === 'builder.my' || host.slice(-11) === '.builder.my';
+          if (url.protocol === 'https:' && isPreviewHost) return url.origin;
+        } catch(e) {}
       }
+      return '';
     }
     function __anWorkspaceGatewayReturnOrigin() {
       var previewOrigin = __anBuilderPreviewReturnOrigin();
@@ -975,6 +990,30 @@ ${
       var origin = __anWorkspaceGatewayReturnOrigin();
       return origin ? origin + path : path;
     }
+    function __anSessionBridgeUrl(ret, sessionToken) {
+      try {
+        var url = new URL(ret || window.location.pathname + window.location.search, window.location.origin);
+        url.searchParams.set('_session', sessionToken);
+        return url.pathname + url.search + url.hash;
+      } catch(e) {
+        var sep = (ret || '/').indexOf('?') === -1 ? '?' : '&';
+        return (ret || '/') + sep + '_session=' + encodeURIComponent(sessionToken);
+      }
+    }
+    function __anFinishOAuthExchange(ret, flowId, sessionToken) {
+      if (__anIsBuilderPreview()) {
+        if (sessionToken) {
+          __anSetOAuthDebug('OAuth exchange redeemed; applying session bridge to embedded app', flowId);
+          window.location.replace(__anSessionBridgeUrl(ret, sessionToken));
+          return;
+        }
+        __anSetOAuthDebug('OAuth exchange redeemed; reloading the embedded app', flowId);
+        window.location.reload();
+        return;
+      }
+      __anSetOAuthDebug('OAuth exchange redeemed; returning to the app', flowId);
+      window.location.href = ret || '/';
+    }
     function __anGetReturnPath() {
       try {
         var inner = new URLSearchParams(window.location.search).get('return');
@@ -982,24 +1021,60 @@ ${
       } catch(e) {}
       return window.location.pathname + window.location.search;
     }
-    function __anIsBuilderPreview() {
+    var __anBuilderPreviewSeen = false;
+    function __anRememberBuilderPreview() {
+      __anBuilderPreviewSeen = true;
+      try { sessionStorage.setItem('__an_builder_preview_seen', '1'); } catch(e) {}
+    }
+    function __anHasBuilderPreviewSignal() {
       try {
         var params = new URLSearchParams(window.location.search);
         if (params.has('builder.preview') || params.has('builder.frameEditing') || params.has('__builder_editing__')) return true;
       } catch(e) {}
+      return false;
+    }
+    function __anIsBuilderPreview() {
+      if (__anBuilderPreviewSeen) return true;
+      if (__anHasBuilderPreviewSignal()) {
+        __anRememberBuilderPreview();
+        return true;
+      }
+      try {
+        if (sessionStorage.getItem('__an_builder_preview_seen') === '1') {
+          __anBuilderPreviewSeen = true;
+          return true;
+        }
+      } catch(e) {}
       try {
         var ref = document.referrer || '';
-        return ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1 || ref.indexOf('builderio.xyz') !== -1 || ref.indexOf('builderio.dev') !== -1 || ref.indexOf('builder.codes') !== -1;
+        var fromBuilder = ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1 || ref.indexOf('builderio.xyz') !== -1 || ref.indexOf('builderio.dev') !== -1 || ref.indexOf('builder.codes') !== -1;
+        if (fromBuilder) __anRememberBuilderPreview();
+        return fromBuilder;
       } catch(e) {
         return false;
       }
     }
+    __anIsBuilderPreview();
     function __anIsBuilderDesktop() {
       try {
         var ua = navigator.userAgent || '';
         return ua.indexOf('Electron') !== -1 && ua.indexOf('AgentNativeDesktop') === -1;
       } catch(e) {
         return false;
+      }
+    }
+    function __anIsAgentNativeDesktop() {
+      try {
+        return (navigator.userAgent || '').indexOf('AgentNativeDesktop') !== -1;
+      } catch(e) {
+        return false;
+      }
+    }
+    function __anIsInFrame() {
+      try {
+        return window.self !== window.top;
+      } catch(e) {
+        return true;
       }
     }
     function __anIsElectron() {
@@ -1010,19 +1085,17 @@ ${
       }
     }
     function __anResolveAuthFlow() {
-      // Per-session override for ad-hoc testing: append ?authMode=popup
-      // or ?authMode=redirect to the sign-in URL. Wins over every other rule.
+      if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect';
+      // Per-session override for ad-hoc testing outside Builder: append
+      // ?authMode=popup or ?authMode=redirect to the sign-in URL.
       try {
         var qp = new URLSearchParams(window.location.search).get('authMode');
         if (qp === 'popup' || qp === 'redirect') return qp;
       } catch(e) {}
-      // Builder.io browser iframe must use popup — Google sets
-      // X-Frame-Options: DENY so a redirect inside the iframe fails.
-      if (__anIsBuilderPreview() && !__anIsBuilderDesktop()) return 'popup';
       var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
       if (mode === 'popup') return 'popup';
       if (mode === 'redirect') return 'redirect';
-      return __anIsElectron() ? 'redirect' : 'popup';
+      return __anIsAgentNativeDesktop() ? 'redirect' : 'popup';
     }
     var __anOAuthPollTimer = null;
     var __anOAuthPollCount = 0;
@@ -1040,7 +1113,7 @@ ${
     function __anSetOAuthDebug(message, flowId) {
       var text = message + (flowId ? ' (flow ' + __anFlowDebugId(flowId) + ')' : '');
       try {
-        console.info('[agent-native][google-oauth]', { message: message, flow: __anFlowDebugId(flowId) || undefined });
+        console.info('[agent-native][google-oauth] ' + text);
       } catch(e) {}
       // Only surface the debug overlay when explicitly opted in via #oauth-debug
       // hash or ?oauth_debug=1 query — otherwise it leaks raw flow IDs and
@@ -1079,8 +1152,7 @@ ${
           if (data && (data.email || data.token)) {
             if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
             __anOAuthPollTimer = null;
-            __anSetOAuthDebug('OAuth exchange redeemed; returning to the app', flowId);
-            window.location.href = ret || '/';
+            __anFinishOAuthExchange(ret, flowId, data.token);
             return;
           }
           if (data && data.error) {
@@ -1097,7 +1169,7 @@ ${
           }
         }
         if (Date.now() - started > timeoutMs) {
-          __anShowOAuthError(err, btn, 'Google sign-in did not finish. Flow ' + __anFlowDebugId(flowId) + ' never redeemed; check server logs for [agent-native][google-oauth].');
+          __anShowOAuthError(err, btn, 'Google sign-in did not finish. Flow ' + __anFlowDebugId(flowId) + ' never reached this app. Check the Google OAuth redirect URI and server logs for [agent-native][google-oauth].');
         }
       }
       if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
@@ -1106,12 +1178,13 @@ ${
     }
     function __anStartPopupOAuth(ret, btn, err) {
       var flowId = __anNewOAuthFlowId();
+      var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
       var params = new URLSearchParams();
-      if (ret) params.set('return', ret);
+      if (oauthReturn) params.set('return', oauthReturn);
       params.set('desktop', '1');
       params.set('flow_id', flowId);
       params.set('redirect', '1');
-      var url = __anPath('/_agent-native/google/auth-url') + '?' + params.toString();
+      var url = __anGoogleAuthUrlPath() + '?' + params.toString();
       try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
       __anSetOAuthDebug('Opening Google sign-in popup', flowId);
       try {
@@ -1133,6 +1206,18 @@ ${
         __anShowOAuthError(err, btn, 'Could not open Google popup for flow ' + __anFlowDebugId(flowId) + ': ' + (e && e.message ? e.message : 'unknown error'));
         return;
       }
+      __anWaitForOAuthExchange(flowId, ret, btn, err);
+    }
+    function __anStartNativeDesktopOAuth(ret, btn, err) {
+      var flowId = __anNewOAuthFlowId();
+      var params = new URLSearchParams();
+      if (ret) params.set('return', ret);
+      params.set('desktop', '1');
+      params.set('flow_id', flowId);
+      params.set('redirect', '1');
+      var url = __anGoogleAuthUrlPath() + '?' + params.toString();
+      __anSetOAuthDebug('Opening Google sign-in in system browser', flowId);
+      __anOpenOAuthUrl(url);
       __anWaitForOAuthExchange(flowId, ret, btn, err);
     }
     function __anOpenOAuthUrl(url) {
@@ -1617,16 +1702,20 @@ ${
       __anStartPopupOAuth(ret, btn, err);
       return;
     }
+    if (__anIsAgentNativeDesktop()) {
+      __anStartNativeDesktopOAuth(ret, btn, err);
+      return;
+    }
     if (__anIsBuilderPreview()) {
       var params = new URLSearchParams();
       if (ret) params.set('return', __anOAuthReturnTarget(ret));
       params.set('redirect', '1');
       __anSetOAuthDebug('Opening Google sign-in redirect');
-      __anOpenOAuthUrl(__anAuthPath('/_agent-native/google/auth-url') + '?' + params.toString());
+      __anOpenOAuthUrl(__anGoogleAuthUrlPath() + '?' + params.toString());
       return;
     }
     try {
-      var authUrl = __anPath('/_agent-native/google/auth-url') + '?return=' + encodeURIComponent(ret);
+      var authUrl = __anGoogleAuthUrlPath() + '?return=' + encodeURIComponent(ret);
       var res = await fetch(authUrl);
       var data = await res.json();
       if (data.url) {

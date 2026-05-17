@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import {
   listGmailMessages,
   gmailToEmailMessage,
@@ -125,6 +125,17 @@ export default defineAction({
     compact: cliBoolean.optional().describe("Set to true for compact output"),
   }),
   http: { method: "GET" },
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  link: ({ args }) => {
+    const q = typeof args?.q === "string" ? args.q : undefined;
+    if (!q) return null;
+    return {
+      url: buildDeepLink({ app: "mail", view: "inbox", params: { search: q } }),
+      label: "Open search in Mail",
+      view: "inbox",
+    };
+  },
   run: async (args) => {
     if (!args.q) return "Error: --q is required";
     const view = args.view ?? "all";

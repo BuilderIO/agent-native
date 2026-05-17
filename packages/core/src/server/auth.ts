@@ -4,7 +4,6 @@ import {
   getMethod,
   getQuery,
   getRequestIP,
-  sendRedirect,
   setResponseHeader,
   setResponseStatus,
   getCookie,
@@ -89,6 +88,23 @@ import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import { captureAuthError } from "./sentry.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
+import {
+  normalizeWorkspaceAppAudience,
+  workspaceAppAudienceFromEnv,
+  workspaceAppRouteAccessFromEnv,
+  type WorkspaceAppAudience,
+} from "../shared/workspace-app-audience.js";
+import {
+  BUILDER_CONNECT_OWNER_COOKIE,
+  BUILDER_CONNECT_PARAM,
+  BUILDER_STATE_PARAM,
+  verifyBuilderCallbackStateAndGetOwner,
+  verifyBuilderConnectTokenAndGetOwner,
+} from "./builder-browser.js";
+// Pure env-read feature switch from a leaf module (no dependency back on
+// auth.ts), so the guard and the SSO route handler share one validator and
+// can never disagree about whether federated SSO is enabled.
+import { isIdentitySsoEnabled } from "./identity-sso-store.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -128,6 +144,27 @@ export interface AuthOptions {
    * Both page routes and API routes can be made public.
    */
   publicPaths?: string[];
+  /**
+   * Workspace-level audience for the app.
+   *
+   * "internal" keeps the existing behavior: every app page requires an
+   * authenticated workspace member unless listed in publicPaths.
+   *
+   * "public" lets unauthenticated visitors load page routes, while framework
+   * and API routes remain protected unless explicitly listed in publicPaths.
+   */
+  workspaceAppAudience?: WorkspaceAppAudience;
+  /**
+   * Workspace app page paths that anonymous visitors can load.
+   * Uses the same prefix matching as publicPaths, but only for page routes:
+   * framework, API, and .well-known routes stay protected.
+   */
+  workspaceAppPublicPaths?: string[];
+  /**
+   * Workspace app page paths that still require auth when the app audience is
+   * public. Useful for public sites with login-only admin/management pages.
+   */
+  workspaceAppProtectedPaths?: string[];
   /**
    * Custom login page HTML. When provided, this HTML is served to
    * unauthenticated page requests instead of the built-in login form.
@@ -196,11 +233,10 @@ export interface AuthOptions {
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
    *
-   * - `'auto'` — popup in normal browsers, redirect in Electron. Always uses
-   *   popup inside the Builder.io browser iframe (Google blocks framing).
+   * - `'auto'` — popup in normal browsers and Builder web iframes, redirect in
+   *   Electron and Builder desktop preview/editor surfaces.
    * - `'popup'` — force popup everywhere.
-   * - `'redirect'` — force redirect everywhere except the Builder.io browser
-   *   iframe, which stays popup for technical reasons.
+   * - `'redirect'` — force redirect everywhere.
    *
    * Falls back to the `GOOGLE_AUTH_MODE` env var, then `'auto'`.
    */
@@ -468,6 +504,59 @@ export function safeReturnPath(raw: string | null | undefined): string {
 }
 
 /**
+ * Return the configured login HTML for this request, or `null` when no auth
+ * guard is installed. Used by the `/_agent-native/open` deep-link route to
+ * serve the same sign-in form the auth guard would — at the original deep
+ * link URL — so the login form's `window.location.replace(href)` success
+ * handler reloads the same URL and the (now authenticated) open route
+ * proceeds. Mirrors the rawPath/getLoginHtml resolution in the auth guard.
+ */
+export function getConfiguredLoginHtml(event: H3Event): string | null {
+  const config = _authGuardConfig;
+  if (!config) return null;
+  const url = event.node?.req?.url ?? event.path ?? "/";
+  const queryStart = url.indexOf("?");
+  const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
+  return config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
+}
+
+/**
+ * True only when the request originates from the local machine — the raw
+ * socket peer is `127.0.0.0/8`, `::1`, or the IPv4-mapped `::ffff:127.0.0.1`
+ * (an optional IPv6 zone id like `fe80::1%en0` is stripped first).
+ *
+ * `getRequestIP(event)` is called WITHOUT `{ xForwardedFor: true }`, so it
+ * returns the real connection peer and never an attacker-controlled
+ * `X-Forwarded-For` value — a remote client cannot spoof its way past this.
+ * Used to scope local-only conveniences (the desktop SSO broker and the dev
+ * auto-account) so a directly network-reachable dev server never exposes
+ * them to a remote visitor. NOTE: a reverse proxy / tunnel that connects to
+ * the dev server over localhost still appears as loopback, so this is a
+ * necessary but not sufficient gate — callers pair it with NODE_ENV and,
+ * for the dev account, a throwaway per-DB password.
+ */
+export function isLoopbackAddress(ip: string | undefined): boolean {
+  // Strip an optional IPv6 zone id (e.g. "fe80::1%en0") before comparing.
+  const normalised = (ip ?? "").split("%")[0];
+  return (
+    normalised === "127.0.0.1" ||
+    normalised === "::1" ||
+    normalised === "::ffff:127.0.0.1" ||
+    normalised.startsWith("127.")
+  );
+}
+
+function isLoopbackRequest(event: H3Event): boolean {
+  let ip: string | undefined;
+  try {
+    ip = getRequestIP(event) ?? undefined;
+  } catch {
+    ip = undefined;
+  }
+  return isLoopbackAddress(ip);
+}
+
+/**
  * Read the desktop-SSO broker file, but only if the request is plausibly
  * from the Electron desktop app *and* coming from the local machine.
  *
@@ -486,21 +575,7 @@ async function readDesktopSsoSafely(
 ): Promise<Awaited<ReturnType<typeof readDesktopSso>>> {
   if (process.env.NODE_ENV === "production") return null;
   if (!isElectronRequest(event)) return null;
-  // Loopback-only: 127.0.0.1, ::1, and the IPv4-mapped form.
-  let ip: string | undefined;
-  try {
-    ip = getRequestIP(event) ?? undefined;
-  } catch {
-    ip = undefined;
-  }
-  // Strip an optional zone id (e.g. "fe80::1%en0") before comparing.
-  const normalised = (ip ?? "").split("%")[0];
-  const isLoopback =
-    normalised === "127.0.0.1" ||
-    normalised === "::1" ||
-    normalised === "::ffff:127.0.0.1" ||
-    normalised.startsWith("127.");
-  if (!isLoopback) return null;
+  if (!isLoopbackRequest(event)) return null;
   return await readDesktopSso();
 }
 
@@ -626,7 +701,7 @@ const EXPECTED_AUTH_FAILURE_PATTERNS: RegExp[] = [
   /not\s+verified/i,
 ];
 
-function isExpectedAuthFailure(error: unknown): boolean {
+export function isExpectedAuthFailure(error: unknown): boolean {
   const msg = (error as { message?: unknown })?.message;
   if (typeof msg !== "string") return false;
   return EXPECTED_AUTH_FAILURE_PATTERNS.some((re) => re.test(msg));
@@ -759,9 +834,33 @@ interface AuthGuardConfig {
   loginHtml: string;
   getLoginHtml?: (event: H3Event, rawPath: string) => string;
   publicPaths: string[];
+  workspaceAppAudience: WorkspaceAppAudience;
+  workspaceAppPublicPaths: string[];
+  workspaceAppProtectedPaths: string[];
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
 const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
+
+function resolveWorkspaceAppAudience(
+  options: Pick<AuthOptions, "workspaceAppAudience"> = {},
+): WorkspaceAppAudience {
+  return normalizeWorkspaceAppAudience(
+    options.workspaceAppAudience ?? workspaceAppAudienceFromEnv(),
+  );
+}
+
+function resolveWorkspaceAppRouteAccess(
+  options: Pick<
+    AuthOptions,
+    "workspaceAppPublicPaths" | "workspaceAppProtectedPaths"
+  > = {},
+): { publicPaths: string[]; protectedPaths: string[] } {
+  const env = workspaceAppRouteAccessFromEnv();
+  return {
+    publicPaths: options.workspaceAppPublicPaths ?? env.publicPaths,
+    protectedPaths: options.workspaceAppProtectedPaths ?? env.protectedPaths,
+  };
+}
 
 function setGenericGoogleOAuthRoutesEnabled(
   app: H3App,
@@ -1078,6 +1177,51 @@ function workspaceOAuthCallbackRelayResponse(
   });
 }
 
+function verifiedBuilderConnectOwnerFromUrl(url: string): string | null {
+  const queryStart = url.indexOf("?");
+  if (queryStart < 0) return null;
+  const token = new URLSearchParams(url.slice(queryStart + 1)).get(
+    BUILDER_CONNECT_PARAM,
+  );
+  return verifyBuilderConnectTokenAndGetOwner(token);
+}
+
+function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
+  if (p === "/_agent-native/builder/connect") {
+    const url = event.node?.req?.url ?? event.path ?? "/";
+    return Boolean(verifiedBuilderConnectOwnerFromUrl(url));
+  }
+
+  if (p === "/_agent-native/builder/callback") {
+    const url = event.node?.req?.url ?? event.path ?? "/";
+    const queryStart = url.indexOf("?");
+    const state =
+      queryStart >= 0
+        ? new URLSearchParams(url.slice(queryStart + 1)).get(
+            BUILDER_STATE_PARAM,
+          )
+        : null;
+    // The signed `_an_state` only authenticates the popup back to our app
+    // when the redirect chain through Builder dropped the session cookie
+    // (preview hosts, third-party-cookie blockers, etc). It is NOT a
+    // bearer credential that should let *any* request through. We bypass
+    // the auth guard only when no session exists (the legitimate
+    // session-lost popup case) — when a session IS present, the normal
+    // guard runs and the callback handler cross-checks the state owner
+    // against the session.
+    const hasSession = Boolean(getCookie(event, COOKIE_NAME));
+    if (hasSession) return false;
+    return Boolean(
+      verifyBuilderCallbackStateAndGetOwner(state) ||
+      verifyBuilderConnectTokenAndGetOwner(
+        getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
+      ),
+    );
+  }
+
+  return false;
+}
+
 function createAuthGuardFn(): (
   event: H3Event,
 ) => Promise<Response | object | string | void> {
@@ -1120,6 +1264,15 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // The deep-link route resolves the *browser* session itself and serves
+    // the sign-in form inline when unauthenticated (so the post-login reload
+    // returns to the same deep link). It must bypass the guard's blanket
+    // 401-for-/_agent-native/* so an external-agent "Open in … →" link
+    // clicked in any browser/webview lands correctly.
+    if (p === "/_agent-native/open") {
+      return;
+    }
+
     // Integration webhook endpoints verify authenticity via platform-specific
     // signature verification (Slack HMAC, Telegram token, etc.), not sessions.
     if (/^\/_agent-native\/integrations\/[^/]+\/webhook$/.test(p)) {
@@ -1146,6 +1299,61 @@ function createAuthGuardFn(): (
     // A2A endpoint verifies authenticity via JWT signed with the org's A2A
     // secret (or the global A2A_SECRET fallback), not via session cookies.
     if (p === "/_agent-native/a2a") {
+      return;
+    }
+
+    // MCP protocol endpoint. `mountMCP` runs its own `verifyAuth` (Bearer
+    // ACCESS_TOKEN/ACCESS_TOKENS or A2A_SECRET JWT, open in dev) and is the
+    // authoritative gate — exactly like A2A above. Without this bypass the
+    // guard's blanket 401-for-/_agent-native/* below shadows that check, so
+    // an external coding agent (Claude Code / Codex / Cowork) connecting via
+    // the stdio proxy or HTTP can never reach it. Exact path only: the MCP
+    // handler returns early for `/_agent-native/mcp/*` management subroutes,
+    // which keep their normal session auth.
+    if (p === "/_agent-native/mcp") {
+      return;
+    }
+
+    // MCP connect — frictionless external-agent connection. Like /open
+    // above, the connect *page* resolves the browser session itself and
+    // serves its own login form when unauthenticated (so the post-login
+    // reload returns to the same URL, carrying the device user_code in the
+    // query). The two unauthenticated device endpoints below are the CLI's
+    // OAuth-style polling pair: `device/start` (mint a device+user code) and
+    // `device/poll` (exchange an approved code for the token) — both must be
+    // reachable without a browser session because the CLI has none. They are
+    // protected by short-TTL, single-use, crypto-random codes + a creation
+    // rate-limit, not cookies.
+    //
+    // Everything that MINTS or MUTATES on behalf of the user — `/token`,
+    // `/device/authorize`, `/tokens`, `/tokens/revoke` — is intentionally
+    // NOT bypassed: the guard's default 401-for-/_agent-native/* is the
+    // correct gate for them. Those are POSTed by the in-page fetch, which
+    // carries the session cookie, so the guard (which only 401s when there
+    // is no session) lets the authenticated same-origin request through and
+    // the handler then re-checks the session itself (defense in depth).
+    if (
+      p === "/_agent-native/mcp/connect" ||
+      p === "/_agent-native/mcp/connect/device/start" ||
+      p === "/_agent-native/mcp/connect/device/poll"
+    ) {
+      return;
+    }
+
+    // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. Both the
+    // `/login` entry point and the `/callback` (hit by a user who is, by
+    // definition, NOT yet signed in to THIS app) must bypass the blanket
+    // 401-for-/_agent-native/*: they resolve / mint the browser session
+    // themselves and verify a signature-bound, single-use, CSRF-stated
+    // hub token — not a cookie. This bypass is GATED on the opt-in env var
+    // so an unset `AGENT_NATIVE_IDENTITY_HUB_URL` is a true no-op (the
+    // guard's behaviour is byte-for-byte unchanged when SSO is off). The
+    // handler itself 404s when disabled as defence in depth.
+    if (
+      isIdentitySsoEnabled() &&
+      (p === "/_agent-native/identity/login" ||
+        p === "/_agent-native/identity/callback")
+    ) {
       return;
     }
 
@@ -1242,6 +1450,10 @@ function createAuthGuardFn(): (
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (isPublicPath(normalizedUrl, publicPaths)) return;
+    if (shouldBypassAuthForBuilderConnect(event, p)) return;
+    if (isPublicWorkspacePageRequest(event, p, config)) {
+      return;
+    }
 
     const session = await getSession(event);
     if (session) return;
@@ -1252,8 +1464,8 @@ function createAuthGuardFn(): (
     }
 
     // Local-dev convenience: on the first page GET of a freshly-scaffolded
-    // app, transparently create + sign in `dev@local` instead of showing the
-    // sign-up form. Gated on NODE_ENV=development AND no real users in the
+    // app, transparently create + sign in `dev@local.test` instead of
+    // showing the sign-up form. Gated on NODE_ENV=development AND no real users in the
     // DB, so production and any app that has ever had a real signup are
     // unaffected. See maybeAutoCreateDevSession for full conditions.
     if (getMethod(event) === "GET") {
@@ -1268,32 +1480,52 @@ function createAuthGuardFn(): (
   };
 }
 
-const AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
-const AUTO_DEV_ACCOUNT_PASSWORD = "local-dev-account";
+// `.test` is an RFC 6761 reserved TLD that never resolves, so this stays a
+// safe local-only address while still passing better-auth's `z.email()`
+// validator (a bare `dev@local` has no TLD and is rejected as INVALID_EMAIL,
+// which silently broke the zero-setup auto-sign-in on every fresh dev DB).
+const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
+// No fixed password: maybeAutoCreateDevSession mints a random one per DB
+// and prints it to the console once (see there).
+
+// Pre-fix local dev DBs may already contain a `dev@local` user. Treat that
+// legacy address as the dev account too, so the "any real users?" check
+// below doesn't mistake the old auto-account for a real signup (which would
+// permanently disable auto-create) and the post-logout guard still fires.
+const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
 
 /**
  * Local-dev convenience: skip the sign-up wall on first run.
  *
  * When NODE_ENV=development AND the `user` table has no rows for any
- * email other than `dev@local`, transparently sign up (or sign back in
+ * email other than the dev account (`dev@local.test`, or the legacy
+ * `dev@local` on pre-fix DBs), transparently sign up (or sign back in
  * to) the auto-managed dev account and return a 302 to the original URL
  * with a session cookie set. A developer who just ran `pnpm dev` lands
  * in the app immediately instead of being asked to fill in name + email
  * + password to try the framework.
  *
- * Auto-create fires exactly once per local DB: as soon as `dev@local`
- * (or any real user) exists in the `user` table, the helper returns
- * null and the normal login flow takes over. Signing out then leaves
- * the user on the regular sign-in form; without this guard the
+ * Auto-create fires exactly once per local DB: as soon as the dev
+ * account (or any real user) exists in the `user` table, the helper
+ * returns null and the normal login flow takes over. Signing out then
+ * leaves the user on the regular sign-in form; without this guard the
  * post-logout reload would silently re-create the session.
  *
- * The fixed password is intentional: it means a developer who signs
- * out can sign back in with `dev@local` / `local-dev-account` from
- * the regular login form. To get the auto-flow back, drop the user
- * row or wipe the local DB. Set
- * `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely
- * (useful for tests that exercise the unauthenticated branch). This
- * is local-only — the helper is gated on NODE_ENV.
+ * Hardening (this is a convenience, not an auth bypass — it uses the
+ * real Better Auth sign-up/sign-in, but a known-credential local account
+ * is still worth not shipping):
+ *  - **Loopback only.** Gated on `isLoopbackRequest`, so a tunnelled /
+ *    reverse-proxied / misconfigured-non-prod dev server never auto-signs
+ *    in a directly-remote visitor (mirrors the desktop SSO broker).
+ *  - **Random per-DB password.** The account password is freshly
+ *    generated on creation and printed to the server console exactly
+ *    once — there is no source-code-known credential. After logout the
+ *    auto-flow won't refire (dev row exists), so signing back in uses
+ *    that printed password; lost it ⇒ drop the row or wipe the local DB.
+ *  - **NODE_ENV.** Still gated on development/test.
+ *
+ * Set `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely
+ * (useful for tests that exercise the unauthenticated branch).
  */
 async function maybeAutoCreateDevSession(
   event: H3Event,
@@ -1301,39 +1533,56 @@ async function maybeAutoCreateDevSession(
 ): Promise<Response | null> {
   if (!isDevEnvironment()) return null;
   if (process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT === "1") return null;
+  // Local machine only: never auto-sign-in a remote visitor, even if a
+  // dev server is exposed (tunnel, reverse proxy, misconfigured NODE_ENV).
+  if (!isLoopbackRequest(event)) return null;
 
   try {
     const db = getDbExec();
+    // Exclude BOTH the current and the legacy dev-account email so a
+    // pre-fix local DB that still holds a `dev@local` row isn't treated
+    // as having a "real user" (which would permanently disable
+    // auto-create on that DB).
     const { rows: realUsers } = await db.execute({
-      sql: 'SELECT 1 FROM "user" WHERE email != ? LIMIT 1',
-      args: [AUTO_DEV_ACCOUNT_EMAIL],
+      sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
+      args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
     });
     if (realUsers.length > 0) return null;
 
-    // If `dev@local` already exists, this is not a freshly-scaffolded
+    // If the dev account already exists, this is not a freshly-scaffolded
     // app — the user has been through the auto-create flow at least
     // once. Skip auto-create so signing out actually works: without
     // this guard, the post-logout reload immediately re-creates the
-    // session and the user is stuck in dev@local forever (or has to
-    // set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1). To get the demo
-    // experience back, drop the row or wipe the local DB.
+    // session and the user is stuck in the dev account forever (or has
+    // to set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1). To get the demo
+    // experience back, drop the row or wipe the local DB. The legacy
+    // `dev@local` address is matched too so pre-fix DBs still suppress
+    // re-create after logout.
     const { rows: devUsers } = await db.execute({
-      sql: 'SELECT 1 FROM "user" WHERE email = ? LIMIT 1',
-      args: [AUTO_DEV_ACCOUNT_EMAIL],
+      sql: 'SELECT 1 FROM "user" WHERE email IN (?, ?) LIMIT 1',
+      args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
     });
     if (devUsers.length > 0) return null;
 
     const auth = await getBetterAuth();
     if (!auth) return null;
 
-    // Idempotent sign-up: succeeds on first run, throws an "already exists"
-    // failure on subsequent runs (which we swallow before falling through
-    // to the sign-in path below).
+    // Random per-DB password — there is no source-code-known credential
+    // for this account. Printed once below so the developer can sign back
+    // in after logout (the auto-flow won't refire while the dev row
+    // exists).
+    const devPassword = crypto.randomBytes(18).toString("base64url");
+
+    // The dev account does not exist at this point (the devUsers check
+    // above returned early otherwise). The "already exists" swallow only
+    // matters under a rare concurrent first-hit race — in that case the
+    // sign-in below fails the password check and we return null, leaving
+    // the racing request that already won to keep the session.
     try {
       await auth.api.signUpEmail({
         body: {
           email: AUTO_DEV_ACCOUNT_EMAIL,
-          password: AUTO_DEV_ACCOUNT_PASSWORD,
+          password: devPassword,
           name: "Dev",
         },
       });
@@ -1344,7 +1593,7 @@ async function maybeAutoCreateDevSession(
     const result = await auth.api.signInEmail({
       body: {
         email: AUTO_DEV_ACCOUNT_EMAIL,
-        password: AUTO_DEV_ACCOUNT_PASSWORD,
+        password: devPassword,
       },
     });
     if (!result?.token) return null;
@@ -1352,10 +1601,22 @@ async function maybeAutoCreateDevSession(
     setFrameworkSessionCookie(event, result.token);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
 
-    return new Response("", {
-      status: 302,
-      headers: { Location: redirectTo },
-    });
+    // Print the throwaway credential exactly once so the developer can
+    // sign back in manually after logout (auto-flow won't refire once the
+    // dev row exists). Local console only — never Sentry.
+    console.log(
+      `\n[agent-native] Local dev auto-login ready.\n` +
+        `  email:    ${AUTO_DEV_ACCOUNT_EMAIL}\n` +
+        `  password: ${devPassword}\n` +
+        `  (random, this DB only — needed to sign back in after logout.\n` +
+        `   Set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 to disable.)\n`,
+    );
+
+    // Emit the session cookie ON the 302 itself. Returning a bare
+    // `new Response(...)` here drops the cookie staged on event.node.res
+    // (see redirectWithStagedCookies), so the developer would 302 to the
+    // app and immediately bounce back to the login form.
+    return redirectWithStagedCookies(event, redirectTo);
   } catch (e) {
     // Local-dev only — log to console for debugging, but don't surface
     // through Sentry. Falling back to the regular login form is the
@@ -1520,6 +1781,37 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
   });
 }
 
+/**
+ * Build a redirect `Response` that carries whatever `Set-Cookie` headers were
+ * just staged on the event (e.g. by `setFrameworkSessionCookie`).
+ *
+ * h3 v2's `setCookie` appends the cookie onto `event.res.headers`. When a
+ * handler returns a plain object/string, h3's `prepareResponse` merges those
+ * staged headers into the synthesized response, so the cookie survives. But
+ * when a handler returns a web `Response`, `prepareResponse` only merges the
+ * staged headers if the Response is 2xx — its `!val.ok` early-return hands a
+ * non-2xx Response (like a 302) straight back WITHOUT merging. A bare
+ * `new Response("", { status: 302, headers: { Location } })` therefore 302s
+ * the browser with no session cookie, so the zero-setup dev auto-sign-in
+ * bounces straight back to the login form.
+ *
+ * Mirroring the staged cookies onto the redirect Response's own headers makes
+ * them part of the Response that's returned as-is, so the 302 actually
+ * carries the session cookie. (`event.res.headers` is also left intact for
+ * any non-Response continuation path; h3 only skips the merge for the
+ * Response branch, so there's no double-emit.)
+ */
+function redirectWithStagedCookies(
+  event: H3Event,
+  location: string,
+  status = 302,
+): Response {
+  const headers = new Headers({ Location: location });
+  const staged = event.res?.headers?.getSetCookie?.() ?? [];
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response("", { status, headers });
+}
+
 function isHttpsRequest(event: H3Event): boolean {
   try {
     const xfProto = getHeader(event, "x-forwarded-proto");
@@ -1543,7 +1835,38 @@ function isHttpsRequest(event: H3Event): boolean {
 
 function isPublicPath(url: string, publicPaths: string[]): boolean {
   const p = url.split("?")[0];
-  return publicPaths.some((pp) => p === pp || p.startsWith(pp + "/"));
+  return matchesPathList(p, publicPaths);
+}
+
+function matchesPathList(path: string, paths: string[]): boolean {
+  return paths.some((candidate) => {
+    const normalized =
+      candidate.length > 1 && candidate.endsWith("/")
+        ? candidate.slice(0, -1)
+        : candidate;
+    return path === normalized || path.startsWith(normalized + "/");
+  });
+}
+
+function isPublicWorkspacePageRequest(
+  event: H3Event,
+  path: string,
+  config: AuthGuardConfig,
+): boolean {
+  if (!isReadMethod(event)) return false;
+  if (
+    path === "/_agent-native" ||
+    path.startsWith("/_agent-native/") ||
+    path === "/api" ||
+    path.startsWith("/api/") ||
+    path === "/.well-known" ||
+    path.startsWith("/.well-known/")
+  ) {
+    return false;
+  }
+  if (matchesPathList(path, config.workspaceAppProtectedPaths)) return false;
+  if (matchesPathList(path, config.workspaceAppPublicPaths)) return true;
+  return config.workspaceAppAudience === "public";
 }
 
 function stripAppBasePath(pathname: string): string {
@@ -1897,6 +2220,8 @@ async function mountBetterAuthRoutes(
   options: AuthOptions,
 ): Promise<void> {
   const publicPaths = [...(options.publicPaths ?? [])];
+  const workspaceAppAudience = resolveWorkspaceAppAudience(options);
+  const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
   // The A2A agent card is part of an open protocol — other agents must be
   // able to discover it without auth. Same for favicons and similar probes.
@@ -1990,7 +2315,18 @@ async function mountBetterAuthRoutes(
         });
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
         if (q.redirect === "1") {
-          return sendRedirect(event, authUrl, 302);
+          // Return a native web Response — NOT h3 v2's `sendRedirect`. Under
+          // h3 `2.0.1-rc.20`, `sendRedirect = (_, loc, code) => redirect(...)`
+          // ignores the event and returns a non-standard `HTTPResponse` class
+          // instance; the framework request-handler shim doesn't unwrap it and
+          // String()-coerces it to the literal text "[object Object]" with a
+          // 200 status (no Location header), which broke the popup-based
+          // Google sign-in in production. Web `Response` is the proven idiom
+          // here — `oauthCallbackResponse`/`oauthErrorPage` use it and work.
+          return new Response(null, {
+            status: 302,
+            headers: { Location: authUrl },
+          });
         }
         return { url: authUrl };
       }),
@@ -2011,11 +2347,6 @@ async function mountBetterAuthRoutes(
         try {
           const query = getQuery(event);
           const code = query.code as string;
-          if (!code) {
-            setResponseStatus(event, 400);
-            return { error: "Missing authorization code" };
-          }
-
           const { redirectUri, desktop, returnUrl, flowId } = decodeOAuthState(
             query.state as string | undefined,
             getAppUrl(event, "/_agent-native/google/callback"),
@@ -2029,14 +2360,54 @@ async function mountBetterAuthRoutes(
             hasCode: !!code,
             returnUrl,
           });
+          if (!code) {
+            const providerError =
+              typeof query.error === "string" && query.error
+                ? query.error
+                : undefined;
+            const providerDescription =
+              typeof query.error_description === "string" &&
+              query.error_description
+                ? query.error_description
+                : undefined;
+            const msg =
+              providerDescription ||
+              providerError ||
+              "Missing authorization code";
+            if (flowId) {
+              setDesktopExchangeError(flowId, {
+                message: `Google sign-in failed: ${msg}`,
+                code: providerError || "missing_authorization_code",
+              });
+            }
+            logGoogleOAuthDebug(event, "callback-error", {
+              flowId,
+              desktop,
+              message: msg,
+              code: providerError,
+            });
+            return oauthErrorPage(`Connection failed: ${msg}`);
+          }
           // Defence in depth: the state is HMAC-signed, but if the signing
           // key ever leaked an attacker could mint state with their own
           // redirect_uri. Re-validate against the same allowlist used at
           // auth-url time so the token exchange is always sent to a URI we
           // own.
           if (!isAllowedOAuthRedirectUri(redirectUri, event)) {
-            setResponseStatus(event, 400);
-            return { error: "Invalid redirect_uri in state" };
+            const msg =
+              "Invalid Google OAuth redirect URI in state. Restart sign-in from this app.";
+            if (flowId) {
+              setDesktopExchangeError(flowId, {
+                message: msg,
+                code: "invalid_redirect_uri",
+              });
+            }
+            logGoogleOAuthDebug(event, "callback-error", {
+              flowId,
+              desktop,
+              message: msg,
+            });
+            return oauthErrorPage(`Connection failed: ${msg}`);
           }
 
           const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -2117,6 +2488,12 @@ async function mountBetterAuthRoutes(
           });
         } catch (error: any) {
           const msg = error.message || "Unknown error";
+          if (callbackFlowId) {
+            setDesktopExchangeError(callbackFlowId, {
+              message: `Google sign-in failed: ${msg}`,
+              code: "callback_error",
+            });
+          }
           logGoogleOAuthDebug(event, "callback-error", {
             flowId: callbackFlowId,
             desktop: callbackDesktop,
@@ -2609,7 +2986,13 @@ async function mountBetterAuthRoutes(
       googleSignInNotice: options.googleSignInNotice,
       googleAuthMode: options.googleAuthMode,
     });
-  _authGuardConfig = { loginHtml, publicPaths };
+  _authGuardConfig = {
+    loginHtml,
+    publicPaths,
+    workspaceAppAudience,
+    workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
+    workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
+  };
   const guardFn = createAuthGuardFn();
   _authGuardFn = guardFn;
   app.use(defineEventHandler(guardFn));
@@ -2623,6 +3006,8 @@ function mountTokenOnlyRoutes(
   app: H3App,
   accessTokens: string[],
   publicPaths: string[] = [],
+  workspaceAppAudience = resolveWorkspaceAppAudience(),
+  workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(),
 ): void {
   app.use(
     "/_agent-native/auth/login",
@@ -2679,6 +3064,9 @@ function mountTokenOnlyRoutes(
     getLoginHtml: (_event, rawPath) =>
       getTokenLoginHtml({ requestPath: rawPath }),
     publicPaths,
+    workspaceAppAudience,
+    workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
+    workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
   };
   const guardFn = createAuthGuardFn();
   _authGuardFn = guardFn;
@@ -2877,6 +3265,18 @@ export async function autoMountAuth(
           ...options.publicPaths,
         ];
       }
+      if (options.workspaceAppAudience) {
+        _authGuardConfig.workspaceAppAudience =
+          resolveWorkspaceAppAudience(options);
+      }
+      if (options.workspaceAppPublicPaths) {
+        _authGuardConfig.workspaceAppPublicPaths =
+          options.workspaceAppPublicPaths;
+      }
+      if (options.workspaceAppProtectedPaths) {
+        _authGuardConfig.workspaceAppProtectedPaths =
+          options.workspaceAppProtectedPaths;
+      }
     }
     return true;
   }
@@ -2901,6 +3301,8 @@ export async function autoMountAuth(
   customGetSession = null;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = options.publicPaths ?? [];
+  const workspaceAppAudience = resolveWorkspaceAppAudience(options);
+  const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
   mountAuthCorsMiddleware(app);
 
@@ -2949,6 +3351,9 @@ export async function autoMountAuth(
               getTokenLoginHtml({ requestPath: rawPath }),
           }),
       publicPaths,
+      workspaceAppAudience,
+      workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
+      workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
     };
     const guardFn = createAuthGuardFn();
     _authGuardFn = guardFn;
@@ -2962,7 +3367,13 @@ export async function autoMountAuth(
   // ACCESS_TOKEN-only mode
   const tokens = getAccessTokens();
   if (tokens.length > 0) {
-    mountTokenOnlyRoutes(app, tokens, publicPaths);
+    mountTokenOnlyRoutes(
+      app,
+      tokens,
+      publicPaths,
+      workspaceAppAudience,
+      workspaceAppRouteAccess,
+    );
     if (process.env.DEBUG)
       console.log(
         `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
@@ -2991,7 +3402,13 @@ export async function autoMountAuth(
         googleSignInNotice: options.googleSignInNotice,
         googleAuthMode: options.googleAuthMode,
       });
-    _authGuardConfig = { loginHtml, publicPaths };
+    _authGuardConfig = {
+      loginHtml,
+      publicPaths,
+      workspaceAppAudience,
+      workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
+      workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
+    };
     const guardFn = createAuthGuardFn();
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));

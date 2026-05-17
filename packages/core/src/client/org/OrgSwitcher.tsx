@@ -2,10 +2,14 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
+  IconApps,
+  IconArrowUpRight,
   IconBuilding,
   IconCheck,
+  IconChevronRight,
   IconLoader2,
   IconLogout,
+  IconMessageCircle,
   IconPlus,
   IconSelector,
   IconSettings,
@@ -21,6 +25,12 @@ import {
   useJoinByDomain,
 } from "./hooks.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  ORG_SWITCHER_MAX_APP_LINKS,
+  useOrgSwitcherAppLinks,
+  visibleOrgAppLinks,
+  type OrgSwitcherAppLink,
+} from "./workspace-app-links.js";
 
 export interface OrgSwitcherProps {
   className?: string;
@@ -29,12 +39,12 @@ export interface OrgSwitcherProps {
   /** Keep the switcher's button height reserved while org state is loading. */
   reserveSpace?: boolean;
   /**
-   * Optional path to navigate to when the user clicks "Workspace settings".
-   * Templates that mount a dedicated team page (e.g. Dispatch's `/team`) can
-   * pass it here. When unset, only the in-sidebar settings panel opens —
-   * suitable for templates without a dedicated team page.
+   * Path to navigate to when the user clicks "Organization settings".
+   * Defaults to `/team`, the standard organization-management route. Templates
+   * with an established org surface can pass their own path; pass `null` to
+   * only open the in-sidebar settings panel.
    */
-  settingsPath?: string;
+  settingsPath?: string | null;
 }
 
 function personalLabelFromEmail(email: string | null | undefined): string {
@@ -60,8 +70,153 @@ const ITEM_CLASS =
 const SECTION_LABEL_CLASS =
   "px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground";
 
-function workspaceSettingsPath(path: string): string {
+const APP_SUBMENU_CONTENT_CLASS =
+  "z-50 w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2";
+
+const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/team";
+
+function organizationSettingsPath(path: string): string {
   return `${path.replace(/#.*$/, "")}#workspace-settings`;
+}
+
+function AppMenuLink({
+  app,
+  onNavigate,
+}: {
+  app: OrgSwitcherAppLink;
+  onNavigate: () => void;
+}) {
+  const Icon = app.isDispatch ? IconMessageCircle : IconApps;
+  return (
+    <a
+      href={app.href}
+      onClick={onNavigate}
+      className={`flex items-center gap-2 rounded-sm px-2.5 py-2 text-xs outline-none hover:bg-accent focus:bg-accent ${
+        app.isDispatch ? "border border-primary/20 bg-primary/5" : ""
+      }`}
+    >
+      <span
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
+          app.isDispatch
+            ? "bg-primary text-primary-foreground"
+            : "bg-muted text-muted-foreground"
+        }`}
+      >
+        <Icon className="h-3.5 w-3.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium text-foreground">
+          {app.name}
+        </span>
+        <span className="block truncate text-[11px] text-muted-foreground">
+          {app.isDispatch
+            ? "Main hub"
+            : app.status === "pending"
+              ? "Building"
+              : "Open app"}
+        </span>
+      </span>
+      <IconArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    </a>
+  );
+}
+
+function AppsSubmenu({
+  apps,
+  isWorkspace,
+  isLoading,
+  dispatchHref,
+  dispatchAllAppsHref,
+  onNavigate,
+}: {
+  apps: OrgSwitcherAppLink[];
+  isWorkspace: boolean;
+  isLoading: boolean;
+  dispatchHref: string;
+  dispatchAllAppsHref: string;
+  onNavigate: () => void;
+}) {
+  const { links, overflowCount } = visibleOrgAppLinks(apps);
+  const visibleDispatchApp = links.find((app) => app.isDispatch);
+  const dispatchApp =
+    visibleDispatchApp ??
+    ({
+      id: "dispatch",
+      name: "Dispatch",
+      href: dispatchHref,
+      isDispatch: true,
+      status: "ready",
+    } satisfies OrgSwitcherAppLink);
+  const visibleNonDispatch = links
+    .filter((app) => !app.isDispatch)
+    .slice(0, visibleDispatchApp ? undefined : ORG_SWITCHER_MAX_APP_LINKS - 1);
+  const shownCount = (dispatchApp ? 1 : 0) + visibleNonDispatch.length;
+  const remainingCount = Math.max(overflowCount, apps.length - shownCount);
+
+  return (
+    <PopoverPrimitive.Root>
+      <PopoverPrimitive.Trigger asChild>
+        <button type="button" className={`${ITEM_CLASS} cursor-pointer`}>
+          <IconApps className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="flex-1 text-left">Apps</span>
+          <span className="text-[11px] text-muted-foreground">
+            {isLoading ? (
+              <IconLoader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              apps.length
+            )}
+          </span>
+          <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="right"
+          align="start"
+          sideOffset={8}
+          collisionPadding={12}
+          className={APP_SUBMENU_CONTENT_CLASS}
+        >
+          <div className="px-2.5 py-1.5">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              {isWorkspace ? "Workspace apps" : "Default apps"}
+            </div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
+              {isWorkspace
+                ? "Dispatch is the workspace hub."
+                : "Dispatch is the home base."}
+            </div>
+          </div>
+
+          <AppMenuLink app={dispatchApp} onNavigate={onNavigate} />
+
+          {visibleNonDispatch.length > 0 && (
+            <div className="my-1 h-px bg-border" />
+          )}
+          {visibleNonDispatch.map((app) => (
+            <AppMenuLink key={app.id} app={app} onNavigate={onNavigate} />
+          ))}
+
+          {remainingCount > 0 && (
+            <>
+              <div className="my-1 h-px bg-border" />
+              <a
+                href={dispatchAllAppsHref}
+                onClick={onNavigate}
+                className="flex items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs text-foreground outline-none hover:bg-accent focus:bg-accent"
+              >
+                <IconMessageCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="flex-1">
+                  {`View ${remainingCount} more in Dispatch`}
+                </span>
+                <IconArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </a>
+            </>
+          )}
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
+  );
 }
 
 /**
@@ -74,7 +229,7 @@ export function OrgSwitcher({
   className,
   hideWhenSingle,
   reserveSpace,
-  settingsPath,
+  settingsPath = DEFAULT_ORGANIZATION_SETTINGS_PATH,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
   const switchOrg = useSwitchOrg();
@@ -89,6 +244,7 @@ export function OrgSwitcher({
   const [inviteEmail, setInviteEmail] = useState("");
   const [signingOut, setSigningOut] = useState(false);
   const [joiningOrgId, setJoiningOrgId] = useState<string | null>(null);
+  const appLinks = useOrgSwitcherAppLinks(open);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -148,6 +304,9 @@ export function OrgSwitcher({
   const inOrg = !!org.orgId;
   const buttonLabel = org.orgName ?? "Personal";
   const ButtonIcon = inOrg ? IconBuilding : IconUser;
+  const organizationSettingsHref = settingsPath
+    ? organizationSettingsPath(settingsPath)
+    : null;
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
@@ -300,6 +459,14 @@ export function OrgSwitcher({
               )}
 
               <div className="my-1 h-px bg-border" />
+              <AppsSubmenu
+                apps={appLinks.apps}
+                isWorkspace={appLinks.isWorkspace}
+                isLoading={appLinks.isLoading}
+                dispatchHref={appLinks.dispatchHref}
+                dispatchAllAppsHref={appLinks.dispatchAllAppsHref}
+                onNavigate={() => setOpen(false)}
+              />
               {inOrg && (
                 <button
                   type="button"
@@ -311,14 +478,16 @@ export function OrgSwitcher({
                         detail: { section: "workspace-settings" },
                       }),
                     );
-                    if (settingsPath) {
-                      navigate(workspaceSettingsPath(settingsPath));
+                    if (organizationSettingsHref) {
+                      navigate(organizationSettingsHref);
                     }
                   }}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
                   <IconSettings className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-left">Workspace settings</span>
+                  <span className="flex-1 text-left">
+                    Organization settings
+                  </span>
                 </button>
               )}
               <button

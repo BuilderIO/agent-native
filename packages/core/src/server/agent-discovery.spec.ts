@@ -6,10 +6,12 @@ import {
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
+import { runWithRequestContext } from "./request-context.js";
 
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceListAccessibleMock = vi.hoisted(() => vi.fn());
 const resourceGetMock = vi.hoisted(() => vi.fn());
+const getSettingMock = vi.hoisted(() => vi.fn());
 let previousWorkspaceAppsJson: string | undefined;
 let previousAppUrl: string | undefined;
 
@@ -20,12 +22,18 @@ vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
 }));
 
+vi.mock("../settings/index.js", () => ({
+  getSetting: getSettingMock,
+  putSetting: vi.fn(),
+}));
+
 describe("agent discovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resourceListMock.mockResolvedValue([]);
     resourceListAccessibleMock.mockResolvedValue([]);
     resourceGetMock.mockResolvedValue(null);
+    getSettingMock.mockResolvedValue(null);
     previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
     previousAppUrl = process.env.APP_URL;
     delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -226,6 +234,90 @@ describe("agent discovery", () => {
       name: "Workspace Mail",
       description: "Custom workspace mail app",
       url: "https://mail.workspace.example.test/",
+    });
+  });
+
+  it("applies human-edited workspace app metadata to A2A discovery", async () => {
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "briefs",
+          name: "Briefs",
+          description: "Original app description",
+          path: "/briefs",
+        },
+      ],
+    });
+    getSettingMock.mockResolvedValue({
+      apps: {
+        briefs: {
+          name: "Research Briefs",
+          description: "Turns research notes into field-ready briefs",
+          updatedAt: "2026-05-13T00:00:00.000Z",
+        },
+      },
+    });
+
+    const agents = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => discoverAgents("dispatch"),
+    );
+
+    expect(getSettingMock).toHaveBeenCalledWith(
+      "workspace-app-metadata:user:dev@example.test",
+    );
+    expect(agents.find((agent) => agent.id === "briefs")).toMatchObject({
+      id: "briefs",
+      name: "Research Briefs",
+      description: "Turns research notes into field-ready briefs",
+      url: "https://workspace.example.test/briefs",
+    });
+  });
+
+  it("uses generated metadata only as a fallback for blank descriptions", async () => {
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "docs",
+          name: "Docs",
+          description: "Package description",
+          path: "/docs",
+        },
+        {
+          id: "briefs",
+          name: "Briefs",
+          description: "",
+          path: "/briefs",
+        },
+      ],
+    });
+    getSettingMock.mockResolvedValue({
+      apps: {
+        docs: {
+          description: "Seeded generated description",
+          generated: true,
+        },
+        briefs: {
+          description: "Seeded briefs description",
+          generated: true,
+        },
+      },
+    });
+
+    const agents = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => discoverAgents("dispatch"),
+    );
+
+    expect(agents.find((agent) => agent.id === "docs")).toMatchObject({
+      description: "Package description",
+    });
+    expect(agents.find((agent) => agent.id === "briefs")).toMatchObject({
+      description: "Seeded briefs description",
     });
   });
 });

@@ -9,7 +9,7 @@ export default function NewAppRoute() {
   return (
     <DispatchShell
       title="New App"
-      description="Create a workspace app from a prompt and grant it selected vault keys."
+      description="Create a workspace app from a prompt and apply the workspace vault policy."
     >
       <NewWorkspaceAppFlow sourceApp="dispatch" className="px-0 py-0" />
     </DispatchShell>

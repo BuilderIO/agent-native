@@ -29,11 +29,11 @@ Use `update-dashboard` for dashboard edits. It resolves the current user/org con
 
 `panel.source` is a backend selector, not a table name. It must be one of:
 
-| Source        | Query shape                                                                                     |
-| ------------- | ------------------------------------------------------------------------------------------------ |
-| `bigquery`    | Literal warehouse SQL. Table names belong inside the SQL string.                                |
-| `ga4`         | JSON descriptor for the Google Analytics Data API.                                               |
-| `amplitude`   | JSON descriptor for an Amplitude query.                                                          |
+| Source        | Query shape                                                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------------- |
+| `bigquery`    | Literal warehouse SQL. Table names belong inside the SQL string.                                         |
+| `ga4`         | JSON descriptor for the Google Analytics Data API.                                                       |
+| `amplitude`   | JSON descriptor for an Amplitude query.                                                                  |
 | `first-party` | Read-only SQL over this template's `analytics_events` table, usually via `query-agent-native-analytics`. |
 
 Do not use `app-db` as a dashboard source. For first-party events collected through `/track`, use `source: "first-party"` or the `query-agent-native-analytics` action rather than raw internal `db-query`.
@@ -49,7 +49,7 @@ When the user asks for a dashboard:
 5. Persist with `update-dashboard`, not raw SQL or settings writes.
 6. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
 
-Layout is always **1 column on screens narrower than `md`** (panels stack), then expands to the configured column count from `md` and up. So picking 3 or 4 columns is fine — the renderer keeps mobile/narrow layouts readable automatically.
+Layout is always **1 column when the available content width is below the `md` threshold** (panels stack), then expands to the configured column count at/above it. The grid uses a container query, so it also stacks when the agent sidebar narrows the content pane — not only at narrow viewports. So picking 3 or 4 columns is fine — the renderer keeps narrow layouts readable automatically.
 
 ```bash
 pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
@@ -68,27 +68,59 @@ The save path dry-runs BigQuery panels before persisting. If validation returns 
   // The grid is always 1 column on small screens and expands at `md:`.
   "columns": 3,
   "filters": [
-    { "id": "date", "type": "date-range", "label": "Date Range", "default": "30d" }
+    {
+      "id": "date",
+      "type": "date-range",
+      "label": "Date Range",
+      "default": "30d",
+    },
   ],
   "variables": {
-    "EVENTS": "`my_project.analytics.events`"
+    "EVENTS": "`my_project.analytics.events`",
   },
   "panels": [
     // 3 metric cards sit side-by-side at md+ thanks to the dashboard's "columns": 3.
-    { "id": "kpi-clicks", "title": "Clicks", "source": "first-party", "chartType": "metric", "width": 1, "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'click'" },
-    { "id": "kpi-signups", "title": "Signups", "source": "first-party", "chartType": "metric", "width": 1, "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'signup'" },
-    { "id": "kpi-active", "title": "Active users", "source": "first-party", "chartType": "metric", "width": 1, "sql": "SELECT COUNT(DISTINCT user_id) AS value FROM analytics_events" },
+    {
+      "id": "kpi-clicks",
+      "title": "Clicks",
+      "source": "first-party",
+      "chartType": "metric",
+      "width": 1,
+      "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'click'",
+    },
+    {
+      "id": "kpi-signups",
+      "title": "Signups",
+      "source": "first-party",
+      "chartType": "metric",
+      "width": 1,
+      "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'signup'",
+    },
+    {
+      "id": "kpi-active",
+      "title": "Active users",
+      "source": "first-party",
+      "chartType": "metric",
+      "width": 1,
+      "sql": "SELECT COUNT(DISTINCT user_id) AS value FROM analytics_events",
+    },
     // Section header switches the grid to 2 columns for the panels below it.
-    { "id": "trends", "title": "Trends", "chartType": "section", "width": 1, "columns": 2 },
+    {
+      "id": "trends",
+      "title": "Trends",
+      "chartType": "section",
+      "width": 1,
+      "columns": 2,
+    },
     {
       "id": "events",
       "title": "Events",
       "source": "first-party",
       "chartType": "line",
       "width": 2,
-      "sql": "SELECT DATE(timestamp) AS date, COUNT(*) AS value FROM analytics_events WHERE timestamp >= '{{dateStart}}' AND timestamp < '{{dateEnd}}' GROUP BY 1 ORDER BY 1"
-    }
-  ]
+      "sql": "SELECT DATE(timestamp) AS date, COUNT(*) AS value FROM analytics_events WHERE timestamp >= '{{dateStart}}' AND timestamp < '{{dateEnd}}' GROUP BY 1 ORDER BY 1",
+    },
+  ],
 }
 ```
 

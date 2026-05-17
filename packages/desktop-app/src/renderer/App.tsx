@@ -1,8 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Toaster, toast } from "sonner";
 import {
-  APP_REGISTRY,
-  DEFAULT_APPS,
+  DESKTOP_DEFAULT_APPS,
   type AppDefinition,
   type AppConfig,
   toAppDefinition,
@@ -10,8 +9,14 @@ import {
 import Sidebar from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
 import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
-import AppSettings from "./components/AppSettings.js";
+import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
+import CodeAgentsHub from "./components/CodeAgentsHub.js";
+import {
+  CODE_AGENTS_SURFACE_ID,
+  MIGRATION_APP_ID,
+  getCodeAgentGoal,
+} from "@shared/code-agents";
 
 export interface Tab {
   id: string;
@@ -35,17 +40,6 @@ interface AppTabState {
   activeTabId: string;
 }
 
-function initAppTabs(
-  apps: (AppDefinition | AppConfig)[],
-): Record<string, AppTabState> {
-  const state: Record<string, AppTabState> = {};
-  for (const app of apps) {
-    const tab = createTab(app);
-    state[app.id] = { tabs: [tab], activeTabId: tab.id };
-  }
-  return state;
-}
-
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
@@ -57,6 +51,7 @@ function isShellShortcut(e: KeyboardEvent): boolean {
 
   const key = e.key.toLowerCase();
   if (e.altKey && (key === "arrowup" || key === "arrowdown")) return true;
+  if (isAgentSidebarToggleShortcut(e)) return true;
 
   return (
     key === "f" ||
@@ -69,10 +64,25 @@ function isShellShortcut(e: KeyboardEvent): boolean {
   );
 }
 
+function isAgentSidebarToggleShortcut(e: KeyboardEvent): boolean {
+  return (
+    (e.metaKey || e.ctrlKey) &&
+    !e.altKey &&
+    !e.shiftKey &&
+    (e.key === "\\" || e.code === "Backslash")
+  );
+}
+
 export default function App() {
   const [apps, setApps] = useState<AppConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAddApp, setShowAddApp] = useState(false);
+  const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
+    goalId?: string;
+    runId?: string;
+    nonce: number;
+  }>();
 
   // Load apps from persistent store
   useEffect(() => {
@@ -82,7 +92,7 @@ export default function App() {
         setApps(loaded);
       } else {
         // Fallback for dev without electron — use full config with production URLs
-        setApps(DEFAULT_APPS);
+        setApps(DESKTOP_DEFAULT_APPS);
       }
       setLoading(false);
     }
@@ -93,7 +103,7 @@ export default function App() {
   const enabledAppIdsKey = enabledApps.map((a) => a.id).join(",");
   const rawAppDefs = enabledApps.map(toAppDefinition);
   // Keep this in sync with Sidebar's pinned-bottom order.
-  const PINNED_BOTTOM_ORDER = ["dispatch", "starter"];
+  const PINNED_BOTTOM_ORDER = ["dispatch"];
   const pinnedBottomDefs = PINNED_BOTTOM_ORDER.map((id) =>
     rawAppDefs.find((a) => a.id === id),
   ).filter((a): a is NonNullable<typeof a> => !!a);
@@ -101,8 +111,6 @@ export default function App() {
     (a) => !PINNED_BOTTOM_ORDER.includes(a.id),
   );
   const appDefs = [...mainDefs, ...pinnedBottomDefs];
-
-  const defaultApp = appDefs.find((a) => !a.placeholder) ?? appDefs[0];
 
   const [activeSidebarAppId, setActiveSidebarAppId] = useState("");
   const [appTabs, setAppTabs] = useState<Record<string, AppTabState>>({});
@@ -146,6 +154,7 @@ export default function App() {
 
   useEffect(() => {
     if (!activeSidebarAppId) return;
+    if (activeSidebarAppId === CODE_AGENTS_SURFACE_ID) return;
     setMountedAppIds((prev) => {
       if (prev.has(activeSidebarAppId)) return prev;
       const next = new Set(prev);
@@ -170,8 +179,26 @@ export default function App() {
     setApps(newApps);
   }, []);
 
+  const handleAddApp = useCallback(async (app: AppConfig) => {
+    if (window.electronAPI?.appConfig) {
+      const updated = await window.electronAPI.appConfig.add(app);
+      setApps(updated);
+    } else {
+      setApps((prev) => [...prev, app]);
+    }
+    setActiveSidebarAppId(app.id);
+    setShowAddApp(false);
+  }, []);
+
   const handleSidebarTabChange = useCallback((appId: string) => {
     setActiveSidebarAppId(appId);
+    setShowSettings(false);
+  }, []);
+
+  const handleCodeAgentsClick = useCallback(() => {
+    setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
+    setShowSettings(false);
+    setShowAddApp(false);
   }, []);
 
   const handleTabSelect = useCallback(
@@ -329,6 +356,11 @@ export default function App() {
         return;
       }
 
+      if (k === "\\") {
+        webviewRefs.current.get(activeTabIdRef.current)?.toggleAgentSidebar();
+        return;
+      }
+
       if (k === "r") {
         setRefreshKey((n) => n + 1);
         return;
@@ -370,9 +402,15 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!isShellShortcut(e) || isEditableTarget(e.target)) return;
+      if (!isShellShortcut(e)) return;
+      const isSidebarToggle = isAgentSidebarToggleShortcut(e);
+      if (!isSidebarToggle && isEditableTarget(e.target)) return;
       e.preventDefault();
-      handleShortcut(e.key, e.shiftKey, e.altKey);
+      handleShortcut(
+        e.code === "Backslash" ? "\\" : e.key,
+        e.shiftKey,
+        e.altKey,
+      );
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -386,6 +424,31 @@ export default function App() {
       },
     );
   }, [handleShortcut]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.codeAgents?.onOpenRequest) return;
+    return window.electronAPI.codeAgents.onOpenRequest((request) => {
+      const goal = getCodeAgentGoal(request.goalId);
+      if (
+        !goal &&
+        request.app &&
+        request.app !== MIGRATION_APP_ID &&
+        request.app !== CODE_AGENTS_SURFACE_ID
+      ) {
+        return;
+      }
+      setCodeAgentsOpenRequest({
+        goalId:
+          goal?.id ??
+          (request.app === MIGRATION_APP_ID ? "migrate" : undefined),
+        runId: request.runId,
+        nonce: Date.now(),
+      });
+      setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
+      setShowSettings(false);
+      setShowAddApp(false);
+    });
+  }, []);
 
   // Report the active app to main process so DevTools targets the right webview
   useEffect(() => {
@@ -435,6 +498,8 @@ export default function App() {
       </div>
     );
   }
+
+  const isCodeAgentsActive = activeSidebarAppId === CODE_AGENTS_SURFACE_ID;
 
   // Keep app webviews warm once visited so switching apps feels like browser
   // tabs: the guest page remains alive offscreen and keeps its runtime state.
@@ -518,35 +583,61 @@ export default function App() {
           </button>
         </div>
       )}
-      <TabBar
-        tabs={currentAppTabs?.tabs ?? []}
-        activeTabId={currentAppTabs?.activeTabId ?? ""}
-        onTabSelect={handleTabSelect}
-        onTabClose={handleTabClose}
-        onNewTab={handleNewTab}
-      />
+      {isCodeAgentsActive ? (
+        <div className="tabbar tabbar--shell">
+          <div className="tab tab--active tab--locked">
+            <span className="tab-label">Code</span>
+          </div>
+        </div>
+      ) : (
+        <TabBar
+          tabs={currentAppTabs?.tabs ?? []}
+          activeTabId={currentAppTabs?.activeTabId ?? ""}
+          onTabSelect={handleTabSelect}
+          onTabClose={handleTabClose}
+          onNewTab={handleNewTab}
+        />
+      )}
       <div className="shell-body">
         <Sidebar
           apps={appDefs}
           activeAppId={activeSidebarAppId}
           onTabChange={handleSidebarTabChange}
+          onAddAppClick={() => setShowAddApp(true)}
+          isCodeAgentsActive={isCodeAgentsActive}
+          onCodeAgentsClick={handleCodeAgentsClick}
           onSettingsClick={() => setShowSettings(true)}
         />
-        <div className="content-area">
-          {allWebviews.map(({ tab, app, appDef, isActive }) => (
-            <AppWebview
-              key={tab.id}
-              ref={(instance) => {
-                if (instance) webviewRefs.current.set(tab.id, instance);
-                else webviewRefs.current.delete(tab.id);
-              }}
-              app={appDef}
-              appConfig={app}
-              isActive={isActive}
-              refreshKey={isActive ? refreshKey : 0}
-              onAppsChanged={handleAppsChanged}
-            />
-          ))}
+        <div
+          className={`content-area${
+            isCodeAgentsActive ? " content-area--code-agents" : ""
+          }`}
+        >
+          {isCodeAgentsActive && (
+            <div className="code-agents-shell-surface">
+              <CodeAgentsHub
+                apps={apps}
+                openRequest={codeAgentsOpenRequest}
+                refreshKey={refreshKey}
+                onOpenSettings={() => setShowSettings(true)}
+              />
+            </div>
+          )}
+          {!isCodeAgentsActive &&
+            allWebviews.map(({ tab, app, appDef, isActive }) => (
+              <AppWebview
+                key={tab.id}
+                ref={(instance) => {
+                  if (instance) webviewRefs.current.set(tab.id, instance);
+                  else webviewRefs.current.delete(tab.id);
+                }}
+                app={appDef}
+                appConfig={app}
+                isActive={isActive}
+                refreshKey={isActive ? refreshKey : 0}
+                onAppsChanged={handleAppsChanged}
+              />
+            ))}
         </div>
       </div>
 
@@ -555,6 +646,18 @@ export default function App() {
           apps={apps}
           onClose={() => setShowSettings(false)}
           onAppsChanged={handleAppsChanged}
+          onCodeAgentProvidersChanged={() => setRefreshKey((n) => n + 1)}
+          onAddAppClick={() => {
+            setShowSettings(false);
+            setShowAddApp(true);
+          }}
+        />
+      )}
+
+      {showAddApp && (
+        <AddAppDialog
+          onSave={handleAddApp}
+          onCancel={() => setShowAddApp(false)}
         />
       )}
 

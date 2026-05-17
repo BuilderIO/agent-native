@@ -33,9 +33,11 @@ const TEMPLATES_DIR = path.join(ROOT, "templates");
 const CONFIG_PATH = path.join(ROOT, "packages/shared-app-config/templates.ts");
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";
 const DEFAULT_GATEWAY_PORT = 8080;
+const FRAME_PORT = 3334;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
+const POLLING_WATCH_INTERVAL_MS = "1000";
 
 function hasFlag(name: string): boolean {
   return argv.includes(name);
@@ -63,6 +65,7 @@ Options:
   --apps=<names>       Same as --apps <names>
   --all                Expose every template in packages/shared-app-config
   --desktop            Also start the clips-desktop tray (Tauri)
+  --electron           Also start the Electron desktop shell and frame
   --eager              Start every exposed template immediately
   --open               Open the gateway URL in the browser on ready
   --no-open            (legacy / no-op — auto-open is off by default)
@@ -73,6 +76,7 @@ Options:
 Examples:
   pnpm dev:lazy
   pnpm dev:lazy -- --apps dispatch,mail,calendar
+  pnpm dev:electron:lazy
   pnpm dev:lazy:desktop`);
 }
 
@@ -145,6 +149,7 @@ if (requestedApps.length === 0) {
 const apps = requestedApps.sort(compareApps);
 const selectedById = new Map(apps.map((app) => [app.id, app]));
 const includeDesktop = hasFlag("--desktop");
+const includeElectron = hasFlag("--electron");
 const eager = hasFlag("--eager");
 const dryRun = hasFlag("--dry-run");
 const isHeadlessEnv =
@@ -172,6 +177,101 @@ const defaultApp = selectedById.has("dispatch") ? "dispatch" : apps[0].id;
 const backgroundProcesses: ChildProcess[] = [];
 let shuttingDown = false;
 let gatewayServer: http.Server | undefined;
+
+function readBooleanEnv(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+type PollingFileWatcherMode = "enable" | "disable-explicit" | "disable-default";
+
+function pollingFileWatcherMode(
+  env: NodeJS.ProcessEnv,
+  root: string,
+): PollingFileWatcherMode {
+  const explicit =
+    readBooleanEnv(env.AGENT_NATIVE_DEV_USE_POLLING) ??
+    readBooleanEnv(env.WORKSPACE_USE_POLLING_WATCHER);
+  if (explicit === true) return "enable";
+  if (explicit === false) return "disable-explicit";
+
+  const chokidarExplicit = readBooleanEnv(env.CHOKIDAR_USEPOLLING);
+  if (chokidarExplicit === true) return "enable";
+  if (chokidarExplicit === false) return "disable-explicit";
+
+  const autoEnable = Boolean(
+    env.BUILDER_IO_DEV_SERVER ||
+    env.BUILDER_PROJECT_ID ||
+    env.BUILDER_WORKSPACE_ID ||
+    env.CODESPACES ||
+    env.GITPOD_WORKSPACE_ID ||
+    env.REMOTE_CONTAINERS ||
+    env.DEVCONTAINER ||
+    root.startsWith("/root/app/"),
+  );
+  return autoEnable ? "enable" : "disable-default";
+}
+
+const pollingMode = pollingFileWatcherMode(process.env, ROOT);
+const usePollingFileWatcher = pollingMode === "enable";
+
+function devWatcherEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (pollingMode === "enable") {
+    return {
+      ...env,
+      CHOKIDAR_USEPOLLING: "1",
+      CHOKIDAR_INTERVAL: env.CHOKIDAR_INTERVAL ?? POLLING_WATCH_INTERVAL_MS,
+      TSC_WATCHFILE: env.TSC_WATCHFILE ?? "DynamicPriorityPolling",
+      TSC_WATCHDIRECTORY: env.TSC_WATCHDIRECTORY ?? "DynamicPriorityPolling",
+    };
+  }
+  if (pollingMode === "disable-explicit") {
+    // The user explicitly turned polling off. Strip the watcher vars from
+    // the child env so an inherited parent-shell CHOKIDAR_USEPOLLING=1 (or
+    // stale TSC_WATCH* override) can't silently re-enable polling against
+    // the user's explicit wish.
+    const {
+      CHOKIDAR_USEPOLLING: _polling,
+      CHOKIDAR_INTERVAL: _interval,
+      TSC_WATCHFILE: _watchFile,
+      TSC_WATCHDIRECTORY: _watchDir,
+      ...rest
+    } = env;
+    return rest;
+  }
+  // disable-default: no explicit signal either way. Pass the env through
+  // unchanged so legitimate user overrides like
+  // TSC_WATCHFILE=UseFsEventsWithFallbackDynamicPolling survive.
+  return env;
+}
+
+function normalizeOrigin(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function workspaceOAuthOrigin(
+  env: NodeJS.ProcessEnv,
+  gatewayUrl: string,
+): string | undefined {
+  return (
+    normalizeOrigin(env.VITE_WORKSPACE_OAUTH_ORIGIN) ||
+    normalizeOrigin(env.WORKSPACE_OAUTH_ORIGIN) ||
+    normalizeOrigin(env.APP_URL) ||
+    normalizeOrigin(env.VITE_APP_URL) ||
+    normalizeOrigin(env.BETTER_AUTH_URL) ||
+    normalizeOrigin(env.VITE_BETTER_AUTH_URL) ||
+    normalizeOrigin(env.BUILDER_IO_DEV_SERVER) ||
+    normalizeOrigin(gatewayUrl)
+  );
+}
 
 function workspaceAppsJson(): string {
   return JSON.stringify(
@@ -481,7 +581,7 @@ function startApp(app: TemplateApp): void {
     {
       cwd: ROOT,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
+      env: devWatcherEnv({
         ...process.env,
         // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors
         // skip colors by default. FORCE_COLOR=1 re-enables them — the parent's
@@ -492,10 +592,16 @@ function startApp(app: TemplateApp): void {
         AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
         APP_BASE_PATH: basePath,
         VITE_AGENT_NATIVE_WORKSPACE: "1",
+        VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
         VITE_APP_BASE_PATH: basePath,
+        VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(
+          process.env,
+          gatewayUrl,
+        ),
+        VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
         PORT: String(app.port),
         WORKSPACE_GATEWAY_URL: gatewayUrl,
-      },
+      }),
     },
   );
 
@@ -730,6 +836,50 @@ function openBrowser(url: string): void {
   child.unref();
 }
 
+function ensureElectronBinary() {
+  try {
+    execSync(
+      `pnpm --filter @agent-native/desktop-app exec node -e "require('electron')"`,
+      { stdio: "ignore" },
+    );
+    return;
+  } catch {
+    console.log(
+      "[dev-lazy] Electron binary is missing; rebuilding the desktop dependency...",
+    );
+  }
+
+  try {
+    execSync("pnpm --filter @agent-native/desktop-app rebuild electron", {
+      stdio: "inherit",
+    });
+    execSync(
+      `pnpm --filter @agent-native/desktop-app exec node -e "require('electron')"`,
+      { stdio: "ignore" },
+    );
+  } catch (err) {
+    console.error(
+      "[dev-lazy] Electron is installed but its binary could not be prepared.",
+    );
+    console.error(
+      "Run this once and retry:\n  pnpm --filter @agent-native/desktop-app rebuild electron",
+    );
+    throw err;
+  }
+}
+
+function electronLazyEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    AGENT_NATIVE_TEMPLATE_GATEWAY_URL: gatewayUrl,
+    VITE_AGENT_NATIVE_TEMPLATE_GATEWAY_URL: gatewayUrl,
+    AGENT_NATIVE_USE_TEMPLATE_GATEWAY: "1",
+    VITE_AGENT_NATIVE_USE_TEMPLATE_GATEWAY: "1",
+    WORKSPACE_GATEWAY_URL: gatewayUrl,
+    VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
+  };
+}
+
 function startBackgroundProcess(
   name: string,
   command: string,
@@ -739,7 +889,7 @@ function startBackgroundProcess(
   const child = spawn(command, args, {
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...env, FORCE_COLOR: "1" },
+    env: devWatcherEnv({ ...env, FORCE_COLOR: "1" }),
     shell: process.platform === "win32",
   });
   backgroundProcesses.push(child);
@@ -787,22 +937,45 @@ function shutdown(code = 0): void {
 if (dryRun) {
   console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
   console.log(`[dev-lazy] Mode: ${eager ? "eager" : "lazy"}`);
+  if (usePollingFileWatcher) {
+    console.log(
+      `[dev-lazy] Watch mode: polling (${POLLING_WATCH_INTERVAL_MS}ms)`,
+    );
+  }
   for (const app of apps) {
     console.log(`[dev-lazy] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
   }
   if (includeDesktop) {
     console.log("[dev-lazy] tray: clips-desktop dev (Tauri)");
   }
+  if (includeElectron) {
+    console.log(`[dev-lazy] frame: http://localhost:${FRAME_PORT}`);
+    console.log("[dev-lazy] electron: @agent-native/desktop-app dev");
+  }
   process.exit(0);
 }
 
+if (includeElectron) {
+  ensureElectronBinary();
+}
+
 if (shouldKill) {
-  const ports = [requestedGatewayPort, ...apps.map((app) => app.port)];
+  const ports = [
+    requestedGatewayPort,
+    ...(includeElectron ? [FRAME_PORT] : []),
+    ...apps.map((app) => app.port),
+  ];
   for (const port of ports) killPort(port);
 }
 
 console.log("[dev-lazy] Prebuilding @agent-native/core...");
 execSync("pnpm --filter @agent-native/core build", { stdio: "inherit" });
+
+if (usePollingFileWatcher) {
+  console.log(
+    `[dev-lazy] Using polling file watchers (${POLLING_WATCH_INTERVAL_MS}ms) to avoid remote-container inotify limits.`,
+  );
+}
 
 startBackgroundProcess("core", "pnpm", [
   "--filter",
@@ -839,21 +1012,59 @@ function listen(port: number, attempts = 20): void {
 
     if (eager) {
       for (const app of apps) startApp(app);
-    } else {
+    } else if (!includeElectron) {
       const app = selectedById.get(defaultApp);
       if (app) startApp(app);
     }
 
     if (includeDesktop) {
-      // Matches dev:all:desktop: boot the Tauri clips tray only. The Electron
-      // desktop-app + its frame renderer are intentionally skipped here — they
-      // require a working `electron` binary in node_modules and aren't what
-      // anyone reaches for via dev:lazy:desktop.
-      startBackgroundProcess("tray", "pnpm", [
-        "--filter",
-        "clips-desktop",
-        "dev",
-      ]);
+      // Boot the Tauri clips tray after its backend is reachable. The tray's
+      // Google sign-in opens the Clips backend URL directly in the browser.
+      const startClipsTray = () => {
+        if (shuttingDown) return;
+        startBackgroundProcess("tray", "pnpm", [
+          "--filter",
+          "clips-desktop",
+          "dev",
+        ]);
+      };
+      const clipsApp = selectedById.get("clips");
+      if (clipsApp) {
+        startApp(clipsApp);
+        void waitForPort(clipsApp.port, Date.now() + proxyReadyTimeoutMs).then(
+          (ready) => {
+            if (ready) {
+              clipsApp.ready = true;
+            } else {
+              console.warn(
+                `[dev-lazy] Clips server did not become ready before starting tray; Google sign-in may fail until 127.0.0.1:${clipsApp.port} is reachable.`,
+              );
+            }
+            startClipsTray();
+          },
+        );
+      } else {
+        console.warn(
+          "[dev-lazy] --desktop starts the Clips tray, but the clips template is not selected.",
+        );
+        startClipsTray();
+      }
+    }
+
+    if (includeElectron) {
+      const env = electronLazyEnv();
+      startBackgroundProcess(
+        "frame",
+        "pnpm",
+        ["--filter", "@agent-native/frame", "dev"],
+        env,
+      );
+      startBackgroundProcess(
+        "electron",
+        "pnpm",
+        ["--filter", "@agent-native/desktop-app", "dev"],
+        env,
+      );
     }
 
     openBrowser(`${gatewayUrl}/${defaultApp}`);

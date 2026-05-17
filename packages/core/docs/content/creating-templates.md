@@ -364,3 +364,19 @@ Community templates can be created from a GitHub repo:
 ```bash
 pnpm dlx @agent-native/core create my-app --template github:user/repo
 ```
+
+## Test Unpublished Framework Changes {#test-unpublished-framework-changes}
+
+When you are working inside the framework monorepo and need a generated
+workspace to use unpublished package or template changes, run create with the
+local-package flag:
+
+```bash
+AGENT_NATIVE_CREATE_USE_LOCAL_CORE=1 pnpm --filter @agent-native/core create my-platform
+```
+
+The generated workspace links the local `@agent-native/core` and
+`@agent-native/dispatch` packages, so changes to Core APIs, Dispatch workspace
+behavior, or first-party templates can be tested before publishing. The package
+`prepack` scripts build `dist` before linking, which keeps the generated
+workspace pointed at current build output.

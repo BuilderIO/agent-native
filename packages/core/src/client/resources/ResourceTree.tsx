@@ -11,9 +11,12 @@ import {
   IconTrash,
   IconMessageChatbot,
   IconPlugConnected,
+  IconBrowser,
+  IconDeviceDesktop,
   IconBulb,
   IconClockHour3,
   IconLoader2,
+  IconHelpCircle,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import type { TreeNode, ResourceMeta, JobMetadata } from "./use-resources.js";
@@ -58,6 +61,13 @@ function getFileIcon(node: TreeNode): React.ReactNode {
   if (node.kind === "remote-agent" || node.kind === "mcp-server") {
     return (
       <IconPlugConnected className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    );
+  }
+  if (node.kind === "mcp-builtin") {
+    return node.mcpBuiltinMeta?.exclusiveGroup === "browser" ? (
+      <IconBrowser className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    ) : (
+      <IconDeviceDesktop className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
     );
   }
   if (node.kind === "skill") {
@@ -136,6 +146,44 @@ function McpStatusDot({ server }: { server: McpServer }) {
       tooltip="Connecting…"
     />
   );
+}
+
+function BuiltinStatusDot({ node }: { node: TreeNode }) {
+  const meta = node.mcpBuiltinMeta;
+  if (!meta?.available) {
+    return (
+      <StatusDot
+        className="rounded-full bg-muted-foreground/30"
+        tooltip={meta?.unavailableReason ?? "Not available on this host"}
+      />
+    );
+  }
+  if (!meta.scopeEnabled) {
+    return (
+      <StatusDot
+        className="rounded-full bg-muted-foreground/40"
+        tooltip="Disabled"
+      />
+    );
+  }
+  const status = meta.status?.[meta.scope];
+  if (status?.state === "connected") {
+    return (
+      <StatusDot
+        className="rounded-full bg-green-500"
+        tooltip={`Connected — ${status.toolCount} tool${status.toolCount === 1 ? "" : "s"}`}
+      />
+    );
+  }
+  if (status?.state === "error") {
+    return (
+      <StatusDot
+        className="rounded-full bg-red-500"
+        tooltip={`Error: ${status.error}`}
+      />
+    );
+  }
+  return <StatusDot className="rounded-full bg-amber-500" tooltip="Enabled" />;
 }
 
 function JobStatusDot({ meta }: { meta: JobMetadata }) {
@@ -250,6 +298,7 @@ function TreeNodeRow({
         </span>
         {node.jobMeta && <JobStatusDot meta={node.jobMeta} />}
         {node.mcpServerMeta && <McpStatusDot server={node.mcpServerMeta} />}
+        {node.mcpBuiltinMeta && <BuiltinStatusDot node={node} />}
         {!readOnly && (
           <div
             className={cn(
@@ -276,6 +325,7 @@ function TreeNodeRow({
                 </Tooltip>
               )}
               {node.resource &&
+                node.kind !== "mcp-builtin" &&
                 (isDeleting ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -495,30 +545,28 @@ export function ResourceTree({
       {/* Section heading */}
       <div className="group/root flex items-center justify-between px-1.5 py-1">
         <TooltipProvider delayDuration={200}>
-          {titleTooltip ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
-                  {title}
-                  {headingHint && (
-                    <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">
-                      {headingHint}
-                    </span>
-                  )}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{titleTooltip}</TooltipContent>
-            </Tooltip>
-          ) : (
-            <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
-              {title}
-              {headingHint && (
-                <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">
-                  {headingHint}
-                </span>
-              )}
-            </span>
-          )}
+          <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+            {title}
+            {headingHint && (
+              <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">
+                {headingHint}
+              </span>
+            )}
+            {titleTooltip && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`About ${title}`}
+                    className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-muted-foreground/40 hover:text-muted-foreground"
+                  >
+                    <IconHelpCircle className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{titleTooltip}</TooltipContent>
+              </Tooltip>
+            )}
+          </span>
           {!readOnly && (
             <Tooltip>
               <TooltipTrigger asChild>

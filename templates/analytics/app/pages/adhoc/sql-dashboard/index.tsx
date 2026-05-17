@@ -71,6 +71,7 @@ import {
 import { interpolate } from "./interpolate";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { ViewsMenu } from "./ViewsMenu";
+import BlankDashboard from "../BlankDashboard";
 import {
   clampDashboardColumns,
   clampPanelWidth,
@@ -81,6 +82,10 @@ import {
 import { useUserPref } from "@/hooks/use-user-pref";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { incrementItemView } from "@/lib/item-popularity";
+import {
+  sqlDashboardPrefetchKey,
+  type PrefetchSnapshot,
+} from "@/lib/prefetch-keys";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -117,6 +122,7 @@ async function fetchWithAuth(url: string, options?: RequestInit) {
 }
 
 type FetchedDashboard = {
+  id: string;
   config: SqlDashboardConfig;
   archivedAt: string | null;
   updatedAt: string | null;
@@ -129,6 +135,7 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   if (!res.ok) return null;
   const data = await res.json();
   return {
+    id,
     config: {
       name: data.name ?? "Untitled Dashboard",
       description: data.description,
@@ -209,8 +216,29 @@ export default function SqlDashboardPage() {
       if (!dashboardId) return null;
       return fetchDashboard(dashboardId);
     },
-    staleTime: 2_000,
+    staleTime: 30_000,
     placeholderData: (prev) => prev,
+    initialData: () => {
+      if (!dashboardId) return undefined;
+      const snapshot = queryClient.getQueryData<
+        PrefetchSnapshot<FetchedDashboard | null>
+      >(sqlDashboardPrefetchKey(dashboardId));
+      if (snapshot?.data === null && snapshot.syncVersion !== sync) {
+        return undefined;
+      }
+      return snapshot?.data;
+    },
+    initialDataUpdatedAt: () => {
+      if (!dashboardId) return undefined;
+      const queryKey = sqlDashboardPrefetchKey(dashboardId);
+      const snapshot =
+        queryClient.getQueryData<PrefetchSnapshot<FetchedDashboard | null>>(
+          queryKey,
+        );
+      if (!snapshot) return undefined;
+      if (snapshot.syncVersion !== sync) return 0;
+      return queryClient.getQueryState(queryKey)?.dataUpdatedAt;
+    },
   });
 
   // Panel edit dialog state
@@ -317,11 +345,8 @@ export default function SqlDashboardPage() {
   useEffect(() => {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
     const fetched = dashboardQuery.data;
-    const next = fetched?.config ?? {
-      name: "Untitled Dashboard",
-      panels: [],
-    };
-    setDashboard(next);
+    if (fetched && fetched.id !== dashboardId) return;
+    setDashboard(fetched?.config ?? null);
     setArchivedAt(fetched?.archivedAt ?? null);
     setDashboardUpdatedAt(fetched?.updatedAt ?? null);
     setDashboardOwner(fetched?.ownerEmail ?? null);
@@ -432,6 +457,9 @@ export default function SqlDashboardPage() {
       pushToCollab(updated);
       saveDashboard(dashboardId, updated)
         .then(() => {
+          queryClient.removeQueries({
+            queryKey: sqlDashboardPrefetchKey(dashboardId),
+          });
           queryClient.invalidateQueries({
             queryKey: ["sql-dashboards-sidebar"],
           });
@@ -463,6 +491,9 @@ export default function SqlDashboardPage() {
       await saveDashboard(dashboardId, updated);
       setDashboard(updated);
       pushToCollab(updated);
+      queryClient.removeQueries({
+        queryKey: sqlDashboardPrefetchKey(dashboardId),
+      });
       queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
       queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
       queryClient.invalidateQueries({
@@ -680,6 +711,9 @@ export default function SqlDashboardPage() {
       queryKey: ["sql-dashboards-archived-sidebar"],
     });
     queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
+    queryClient.removeQueries({
+      queryKey: sqlDashboardPrefetchKey(dashboardId),
+    });
     queryClient.invalidateQueries({
       queryKey: ["data", "sql-dashboard", dashboardId],
     });
@@ -708,6 +742,9 @@ export default function SqlDashboardPage() {
         queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
         queryClient.invalidateQueries({
           queryKey: ["sql-dashboards-archived-sidebar"],
+        });
+        queryClient.removeQueries({
+          queryKey: sqlDashboardPrefetchKey(dashboardId),
         });
         queryClient.invalidateQueries({
           queryKey: ["data", "sql-dashboard", dashboardId],
@@ -908,8 +945,11 @@ export default function SqlDashboardPage() {
     // text fills in. Otherwise the bare h-64 rectangles jump into Card-chromed
     // panels and the page visibly shifts.
     return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="dashboard-grid-container space-y-4">
+        <div
+          className="dashboard-grid"
+          style={{ "--dash-cols": 2 } as React.CSSProperties}
+        >
           {[0, 1].map((i) => (
             <Card key={i} className="flex flex-col overflow-visible">
               <CardHeader className="pb-2 shrink-0">
@@ -925,7 +965,7 @@ export default function SqlDashboardPage() {
     );
   }
 
-  if (!dashboard) return null;
+  if (!dashboard) return <BlankDashboard />;
 
   return (
     <div className="space-y-4">
@@ -1067,7 +1107,7 @@ export default function SqlDashboardPage() {
             items={visiblePanels.map((p) => p.id)}
             strategy={rectSortingStrategy}
           >
-            <div className="flex flex-col gap-4">
+            <div className="dashboard-grid-container flex flex-col gap-4">
               {panelGroups.map((group) => {
                 const renderPanelCell = (panel: SqlPanel) => {
                   const resolved = panel.config?.description
@@ -1087,7 +1127,7 @@ export default function SqlDashboardPage() {
                   return (
                     <div
                       key={panel.id}
-                      className="relative h-full md:[grid-column:span_var(--panel-span)]"
+                      className="dashboard-grid-cell relative h-full"
                       style={
                         {
                           "--panel-span": span,
@@ -1180,7 +1220,7 @@ export default function SqlDashboardPage() {
                     {group.section && renderSection(group.section)}
                     {group.panels.length > 0 && (
                       <div
-                        className="grid auto-rows-auto grid-cols-1 items-stretch gap-4 md:[grid-template-columns:repeat(var(--dash-cols),minmax(0,1fr))]"
+                        className="dashboard-grid"
                         style={
                           {
                             "--dash-cols": group.columns,

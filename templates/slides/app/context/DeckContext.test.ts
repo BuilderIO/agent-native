@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  changedDeckIds,
   deckIdFromPathname,
   includeOpenDeckIfMissing,
   type Deck,
@@ -39,5 +40,12 @@ describe("DeckContext route hydration helpers", () => {
       includeOpenDeckIfMissing([deck("deck-owned")], "deck-owned", fetchById),
     ).resolves.toEqual([deck("deck-owned")]);
     expect(fetchById).not.toHaveBeenCalled();
+  });
+
+  it("reports only decks whose snapshot changed", () => {
+    const before = [deck("a"), deck("b")];
+    const after = [deck("a"), { ...deck("b"), title: "Updated" }, deck("c")];
+
+    expect(changedDeckIds(before, after)).toEqual(["b", "c"]);
   });
 });

@@ -6,6 +6,7 @@ import {
   type ViewMode,
 } from "@/components/layout/AppLayout";
 import { agentNativePath } from "@agent-native/core/client";
+import type { CalendarEvent } from "@shared/api";
 
 interface NavigationState {
   view: string;
@@ -20,8 +21,14 @@ export function useNavigationState() {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { selectedDate, viewMode, setViewMode, setSelectedDate, sidebarEvent } =
-    useCalendarContext();
+  const {
+    selectedDate,
+    viewMode,
+    setViewMode,
+    setSelectedDate,
+    setSidebarEvent,
+    sidebarEvent,
+  } = useCalendarContext();
 
   // Sync current route to application state
   useEffect(() => {
@@ -127,5 +134,37 @@ export function useNavigationState() {
 
     navigate(path);
     qc.setQueryData(["navigate-command"], null);
-  }, [navCommand, navigate, qc, setViewMode, setSelectedDate]);
+
+    // A deep link can carry an eventId to focus a specific event. Fetch it
+    // via the read-only get-event action, open it in the sidebar, and move
+    // the calendar to its start date so the user lands on the event.
+    if (cmd.eventId) {
+      const eventId = cmd.eventId;
+      (async () => {
+        try {
+          const res = await fetch(
+            agentNativePath(
+              `/_agent-native/actions/get-event?id=${encodeURIComponent(
+                eventId,
+              )}`,
+            ),
+          );
+          if (!res.ok) return;
+          const evt = (await res.json()) as CalendarEvent & {
+            error?: string;
+          };
+          if (!evt || evt.error || !evt.id) return;
+          if (!cmd.date && typeof evt.start === "string" && evt.start) {
+            const startDate = new Date(evt.start);
+            if (!Number.isNaN(startDate.getTime())) {
+              setSelectedDate(startDate);
+            }
+          }
+          setSidebarEvent(evt);
+        } catch {
+          // Best-effort — a failed focus must not break navigation.
+        }
+      })();
+    }
+  }, [navCommand, navigate, qc, setViewMode, setSelectedDate, setSidebarEvent]);
 }

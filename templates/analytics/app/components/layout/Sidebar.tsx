@@ -4,7 +4,12 @@ import { useTheme } from "next-themes";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query";
 import {
   IconChartBar,
   IconLogout,
@@ -95,11 +100,16 @@ import { NewDashboardDialog } from "./NewDashboardDialog";
 import { NewAnalysisDialog } from "./NewAnalysisDialog";
 import { useUserPref } from "@/hooks/use-user-pref";
 import {
-  useAllDashboardViews,
+  useDashboardViews,
   useDeleteDashboardView,
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
+import {
+  analysisDetailPrefetchKey,
+  sqlDashboardPrefetchKey,
+  type PrefetchSnapshot,
+} from "@/lib/prefetch-keys";
 
 const SIDEBAR_PREVIEW_COUNT = 5;
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
@@ -264,6 +274,7 @@ function SortableRow({
   onDelete,
   onRename,
   onArchive,
+  onPrefetch,
   archived,
   visibility,
   onSetVisibility,
@@ -282,6 +293,7 @@ function SortableRow({
    *  action and Delete becomes a confirm-gated "Delete permanently". When
    *  omitted, Delete fires immediately with no confirm (analyses behavior). */
   onArchive?: (action: "archive" | "restore") => Promise<void> | void;
+  onPrefetch?: () => void;
   archived?: boolean;
   visibility?: Visibility;
   onSetVisibility?: (visibility: Visibility) => Promise<void> | void;
@@ -426,6 +438,9 @@ function SortableRow({
             <TooltipTrigger asChild>
               <Link
                 to={href}
+                onFocus={onPrefetch}
+                onMouseEnter={onPrefetch}
+                onTouchStart={onPrefetch}
                 className="min-w-0 flex-1 px-2 py-1.5 pr-12 text-xs transition-[padding] md:pr-2 md:group-hover/item:pr-12 md:group-focus-within/item:pr-12"
               >
                 <span className="flex items-center gap-1.5">
@@ -619,6 +634,7 @@ function SortableDashboardItem({
   onDelete,
   onRename,
   onArchive,
+  onPrefetch,
   views,
   onSetVisibility,
 }: {
@@ -633,6 +649,7 @@ function SortableDashboardItem({
     d: SidebarDashboard,
     action: "archive" | "restore",
   ) => Promise<void>;
+  onPrefetch?: (d: SidebarDashboard) => void;
   views?: DashboardView[];
   onSetVisibility?: (
     d: SidebarDashboard,
@@ -688,6 +705,7 @@ function SortableDashboardItem({
       onDelete={() => onDelete(d)}
       onRename={(name) => onRename(d, name)}
       onArchive={onArchive ? (action) => onArchive(d, action) : undefined}
+      onPrefetch={() => onPrefetch?.(d)}
       archived={!!d.archivedAt}
       visibility={d.visibility}
       onSetVisibility={
@@ -1053,6 +1071,82 @@ async function fetchSidebarAnalyses(): Promise<
     }));
 }
 
+type PrefetchedSqlDashboard = {
+  id: string;
+  config: {
+    name: string;
+    description?: string;
+    filters?: unknown;
+    variables?: unknown;
+    columns?: number;
+    panels: unknown[];
+  };
+  archivedAt: string | null;
+};
+
+async function fetchSqlDashboardForPrefetch(
+  id: string,
+): Promise<PrefetchedSqlDashboard | null> {
+  const token = await getIdToken();
+  const res = await fetch(appApiPath(`/api/sql-dashboards/${id}`), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Dashboard prefetch failed (${res.status})`);
+  }
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error("Dashboard prefetch returned invalid JSON");
+  }
+  return {
+    id,
+    config: {
+      name:
+        typeof data.name === "string" && data.name.trim().length > 0
+          ? data.name
+          : "Untitled Dashboard",
+      description: data.description,
+      filters: data.filters,
+      variables: data.variables,
+      columns: typeof data.columns === "number" ? data.columns : undefined,
+      panels: Array.isArray(data.panels) ? data.panels : [],
+    },
+    archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+  };
+}
+
+async function fetchAnalysisDetailForPrefetch(id: string): Promise<unknown> {
+  const token = await getIdToken();
+  const res = await fetch(appApiPath(`/api/analyses/${id}`), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Analysis prefetch failed (${res.status})`);
+  }
+  try {
+    return await res.json();
+  } catch {
+    throw new Error("Analysis prefetch returned invalid JSON");
+  }
+}
+
+function getQuerySnapshots<T>(queryClient: QueryClient, queryKey: QueryKey) {
+  return queryClient.getQueriesData<T>({ queryKey });
+}
+
+function restoreQuerySnapshots<T>(
+  queryClient: QueryClient,
+  snapshots: Array<[QueryKey, T | undefined]>,
+) {
+  for (const [key, data] of snapshots) {
+    queryClient.setQueryData(key, data);
+  }
+}
+
 function persistThemePreference(theme: "light" | "dark") {
   fetch(appApiPath("/api/theme"), {
     method: "POST",
@@ -1248,16 +1342,61 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [filteredAnalyses, analysesShowAll],
   );
 
-  // Fetch views for all dashboards (for sidebar sub-items)
-  const allDashboardIds = useMemo(() => {
-    const ids = dashboards.map((d) => d.id);
-    for (const sd of sqlDashboards) {
-      if (!ids.includes(sd.id)) ids.push(sd.id);
-    }
-    return ids;
-  }, [sqlDashboards]);
+  const activeDashboardId = useMemo(() => {
+    const match = location.pathname.match(/^\/adhoc\/([^/]+)/);
+    if (!match?.[1]) return null;
+    return new URLSearchParams(location.search).get("id") || match[1];
+  }, [location.pathname, location.search]);
 
-  const { data: allViewsMap = {} } = useAllDashboardViews(allDashboardIds);
+  // Only the active dashboard can display saved views in the sidebar, so avoid
+  // issuing one request per dashboard on every sidebar mount.
+  const { views: activeDashboardViews = [] } = useDashboardViews(
+    activeDashboardId ?? undefined,
+  );
+  const allViewsMap = useMemo<Record<string, DashboardView[]>>(
+    () =>
+      activeDashboardId ? { [activeDashboardId]: activeDashboardViews } : {},
+    [activeDashboardId, activeDashboardViews],
+  );
+
+  const prefetchDashboard = useCallback(
+    (d: SidebarDashboard) => {
+      if (d.source !== "sql") return;
+      const queryKey = sqlDashboardPrefetchKey(d.id);
+      const cached =
+        queryClient.getQueryData<
+          PrefetchSnapshot<PrefetchedSqlDashboard | null>
+        >(queryKey);
+      void import("@/pages/adhoc/sql-dashboard");
+      void queryClient.prefetchQuery({
+        queryKey,
+        queryFn: async () => ({
+          data: await fetchSqlDashboardForPrefetch(d.id),
+          syncVersion: dashboardsSync,
+        }),
+        staleTime: cached?.syncVersion === dashboardsSync ? 30_000 : 0,
+      });
+    },
+    [dashboardsSync, queryClient],
+  );
+
+  const prefetchAnalysis = useCallback(
+    (id: string) => {
+      const queryKey = analysisDetailPrefetchKey(id);
+      const cached =
+        queryClient.getQueryData<PrefetchSnapshot<unknown | null>>(queryKey);
+      void import("@/pages/analyses/AnalysisDetail");
+      void queryClient.prefetchQuery({
+        queryKey,
+        queryFn: async () => ({
+          data: await fetchAnalysisDetailForPrefetch(id),
+          syncVersion: analysesSync,
+        }),
+        staleTime: cached?.syncVersion === analysesSync ? 30_000 : 0,
+      });
+    },
+    [analysesSync, queryClient],
+  );
 
   const visibleDashboards = useMemo<SidebarDashboard[]>(() => {
     const staticItems: SidebarDashboard[] = dashboards
@@ -1331,15 +1470,21 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       // the prior values so we can roll back on failure.
       const activeKey = ["sql-dashboards-sidebar"] as const;
       const archivedKey = ["sql-dashboards-archived-sidebar"] as const;
-      const prevActive =
-        queryClient.getQueryData<SqlDashboardListItem[]>(activeKey);
-      const prevArchived =
-        queryClient.getQueryData<SqlDashboardListItem[]>(archivedKey);
-      queryClient.setQueryData<SqlDashboardListItem[]>(activeKey, (old) =>
-        (old ?? []).filter((item) => item.id !== d.id),
+      const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
+        queryClient,
+        activeKey,
       );
-      queryClient.setQueryData<SqlDashboardListItem[]>(archivedKey, (old) =>
-        (old ?? []).filter((item) => item.id !== d.id),
+      const prevArchived = getQuerySnapshots<SqlDashboardListItem[]>(
+        queryClient,
+        archivedKey,
+      );
+      queryClient.setQueriesData<SqlDashboardListItem[]>(
+        { queryKey: activeKey },
+        (old) => (old ?? []).filter((item) => item.id !== d.id),
+      );
+      queryClient.setQueriesData<SqlDashboardListItem[]>(
+        { queryKey: archivedKey },
+        (old) => (old ?? []).filter((item) => item.id !== d.id),
       );
       try {
         const token = await getIdToken();
@@ -1350,11 +1495,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         if (!res.ok) {
           throw new Error(`Delete failed: ${res.status}`);
         }
+        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
         queryClient.invalidateQueries({ queryKey: activeKey });
         queryClient.invalidateQueries({ queryKey: archivedKey });
       } catch (err) {
-        if (prevActive) queryClient.setQueryData(activeKey, prevActive);
-        if (prevArchived) queryClient.setQueryData(archivedKey, prevArchived);
+        restoreQuerySnapshots(queryClient, prevActive);
+        restoreQuerySnapshots(queryClient, prevArchived);
         throw err;
       }
     },
@@ -1374,27 +1520,39 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       }
       const activeKey = ["sql-dashboards-sidebar"] as const;
       const archivedKey = ["sql-dashboards-archived-sidebar"] as const;
-      const prevActive =
-        queryClient.getQueryData<SqlDashboardListItem[]>(activeKey);
-      const prevArchived =
-        queryClient.getQueryData<SqlDashboardListItem[]>(archivedKey);
+      const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
+        queryClient,
+        activeKey,
+      );
+      const prevArchived = getQuerySnapshots<SqlDashboardListItem[]>(
+        queryClient,
+        archivedKey,
+      );
       // Optimistic move between the two lists.
       if (action === "archive") {
-        queryClient.setQueryData<SqlDashboardListItem[]>(activeKey, (old) =>
-          (old ?? []).filter((item) => item.id !== d.id),
+        queryClient.setQueriesData<SqlDashboardListItem[]>(
+          { queryKey: activeKey },
+          (old) => (old ?? []).filter((item) => item.id !== d.id),
         );
-        queryClient.setQueryData<SqlDashboardListItem[]>(archivedKey, (old) => [
-          ...(old ?? []),
-          { id: d.id, name: d.name, archivedAt: new Date().toISOString() },
-        ]);
+        queryClient.setQueriesData<SqlDashboardListItem[]>(
+          { queryKey: archivedKey },
+          (old) => [
+            ...(old ?? []),
+            { id: d.id, name: d.name, archivedAt: new Date().toISOString() },
+          ],
+        );
       } else {
-        queryClient.setQueryData<SqlDashboardListItem[]>(archivedKey, (old) =>
-          (old ?? []).filter((item) => item.id !== d.id),
+        queryClient.setQueriesData<SqlDashboardListItem[]>(
+          { queryKey: archivedKey },
+          (old) => (old ?? []).filter((item) => item.id !== d.id),
         );
-        queryClient.setQueryData<SqlDashboardListItem[]>(activeKey, (old) => [
-          ...(old ?? []),
-          { id: d.id, name: d.name, archivedAt: null },
-        ]);
+        queryClient.setQueriesData<SqlDashboardListItem[]>(
+          { queryKey: activeKey },
+          (old) => [
+            ...(old ?? []),
+            { id: d.id, name: d.name, archivedAt: null },
+          ],
+        );
       }
       try {
         const token = await getIdToken();
@@ -1407,6 +1565,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (!res.ok) throw new Error(`${action} failed: ${res.status}`);
+        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
         queryClient.invalidateQueries({ queryKey: activeKey });
         queryClient.invalidateQueries({ queryKey: archivedKey });
         toast.success(
@@ -1415,8 +1574,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             : `Restored "${d.name}"`,
         );
       } catch (err) {
-        if (prevActive) queryClient.setQueryData(activeKey, prevActive);
-        if (prevArchived) queryClient.setQueryData(archivedKey, prevArchived);
+        restoreQuerySnapshots(queryClient, prevActive);
+        restoreQuerySnapshots(queryClient, prevArchived);
         throw err;
       }
     },
@@ -1438,23 +1597,24 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       }
 
       const queryKey = ["sql-dashboards-sidebar"] as const;
-      const prev =
-        queryClient.getQueryData<{ id: string; name: string }[]>(queryKey);
-      queryClient.setQueryData<{ id: string; name: string }[]>(
+      const prev = getQuerySnapshots<SqlDashboardListItem[]>(
+        queryClient,
         queryKey,
-        (old) =>
-          (old ?? []).map((item) =>
-            item.id === d.id ? { ...item, name: trimmed } : item,
-          ),
+      );
+      queryClient.setQueriesData<SqlDashboardListItem[]>({ queryKey }, (old) =>
+        (old ?? []).map((item) =>
+          item.id === d.id ? { ...item, name: trimmed } : item,
+        ),
       );
       try {
         await renameDashboard({ id: d.id, name: trimmed });
+        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
         queryClient.invalidateQueries({ queryKey });
         queryClient.invalidateQueries({
           queryKey: ["sql-dashboards-palette"],
         });
       } catch (err) {
-        if (prev) queryClient.setQueryData(queryKey, prev);
+        restoreQuerySnapshots(queryClient, prev);
         throw err;
       }
     },
@@ -1464,10 +1624,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const handleAnalysisDelete = useCallback(
     async (a: { id: string; name: string }) => {
       const queryKey = ["analyses-sidebar"] as const;
-      const prev =
-        queryClient.getQueryData<{ id: string; name: string }[]>(queryKey);
-      queryClient.setQueryData<{ id: string; name: string }[]>(
+      const prev = getQuerySnapshots<{ id: string; name: string }[]>(
+        queryClient,
         queryKey,
+      );
+      queryClient.setQueriesData<{ id: string; name: string }[]>(
+        { queryKey },
         (old) => (old ?? []).filter((item) => item.id !== a.id),
       );
       try {
@@ -1479,10 +1641,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         if (!res.ok) {
           throw new Error(`Delete failed: ${res.status}`);
         }
+        queryClient.removeQueries({
+          queryKey: analysisDetailPrefetchKey(a.id),
+        });
         queryClient.invalidateQueries({ queryKey });
         queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
       } catch (err) {
-        if (prev) queryClient.setQueryData(queryKey, prev);
+        restoreQuerySnapshots(queryClient, prev);
         throw err;
       }
     },
@@ -1568,36 +1733,41 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       const sidebarKey = ["analyses-sidebar"] as const;
       const listKey = ["analyses-list"] as const;
       const detailKey = ["analysis-detail", a.id] as const;
-      const prevSidebar =
-        queryClient.getQueryData<{ id: string; name: string }[]>(sidebarKey);
-      const prevList = queryClient.getQueryData<any[]>(listKey);
-      const prevDetail = queryClient.getQueryData<any>(detailKey);
-
-      queryClient.setQueryData<{ id: string; name: string }[]>(
+      const prevSidebar = getQuerySnapshots<{ id: string; name: string }[]>(
+        queryClient,
         sidebarKey,
+      );
+      const prevList = getQuerySnapshots<any[]>(queryClient, listKey);
+      const prevDetail = getQuerySnapshots<any>(queryClient, detailKey);
+
+      queryClient.setQueriesData<{ id: string; name: string }[]>(
+        { queryKey: sidebarKey },
         (old) =>
           (old ?? []).map((item) =>
             item.id === a.id ? { ...item, name: trimmed } : item,
           ),
       );
-      queryClient.setQueryData<any[]>(listKey, (old) =>
+      queryClient.setQueriesData<any[]>({ queryKey: listKey }, (old) =>
         (old ?? []).map((item) =>
           item.id === a.id ? { ...item, name: trimmed } : item,
         ),
       );
-      queryClient.setQueryData<any>(detailKey, (old) =>
+      queryClient.setQueriesData<any>({ queryKey: detailKey }, (old) =>
         old ? { ...old, name: trimmed } : old,
       );
 
       try {
         await renameAnalysis({ id: a.id, name: trimmed });
+        queryClient.removeQueries({
+          queryKey: analysisDetailPrefetchKey(a.id),
+        });
         queryClient.invalidateQueries({ queryKey: sidebarKey });
         queryClient.invalidateQueries({ queryKey: listKey });
         queryClient.invalidateQueries({ queryKey: detailKey });
       } catch (err) {
-        if (prevSidebar) queryClient.setQueryData(sidebarKey, prevSidebar);
-        if (prevList) queryClient.setQueryData(listKey, prevList);
-        if (prevDetail) queryClient.setQueryData(detailKey, prevDetail);
+        restoreQuerySnapshots(queryClient, prevSidebar);
+        restoreQuerySnapshots(queryClient, prevList);
+        restoreQuerySnapshots(queryClient, prevDetail);
         throw err;
       }
     },
@@ -1840,14 +2010,15 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     <SortableDashboardItem
                       key={d.id}
                       d={d}
-                      isActive={location.pathname === `/adhoc/${d.id}`}
+                      isActive={activeDashboardId === d.id}
                       location={location}
                       favoriteIds={favoriteIds}
                       onToggleFavorite={toggleFavorite}
                       onDelete={handleDashboardDelete}
                       onRename={handleDashboardRename}
                       onArchive={handleDashboardArchive}
-                      onSetVisibility={handleDashboardSetVisibility}
+onSetVisibility={handleDashboardSetVisibility}
+                      onPrefetch={prefetchDashboard}
                       views={allViewsMap[d.id]}
                     />
                   ))}
@@ -2022,8 +2193,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       onToggleFavorite={toggleFavorite}
                       onDelete={() => handleAnalysisDelete(a)}
                       onRename={(name) => handleAnalysisRename(a, name)}
-                      visibility={a.visibility}
+visibility={a.visibility}
                       onSetVisibility={(v) => handleAnalysisSetVisibility(a, v)}
+                      onPrefetch={() => prefetchAnalysis(a.id)}
                     />
                   ))}
                   {filteredAnalyses.length > SIDEBAR_PREVIEW_COUNT && (

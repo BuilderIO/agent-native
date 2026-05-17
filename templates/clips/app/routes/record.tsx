@@ -633,11 +633,15 @@ export default function RecordRoute() {
   const { isDesktopApp } = useDesktopPromo();
   const storageQuery = useVideoStorageStatus();
 
-  // When the user clicks "Record for this space", the empty-state CTA appends
-  // ?spaceId=... so the new recording lands in that space.
+  // When the user clicks "Record for this space/folder", the empty-state CTA
+  // appends ?spaceId or ?folderId so the new recording lands there.
   const spaceIdFromUrl = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return params.get("spaceId") || null;
+  }, [location.search]);
+  const folderIdFromUrl = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("folderId") || null;
   }, [location.search]);
   const storageConfigured: boolean | null = storageQuery.isLoading
     ? null
@@ -898,6 +902,7 @@ export default function RecordRoute() {
               hasAudio: wantsMic,
               visibility: "public",
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
+              folderId: folderIdFromUrl ?? undefined,
             }),
           },
         );
@@ -1165,6 +1170,7 @@ export default function RecordRoute() {
               width: meta.width,
               height: meta.height,
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
+              folderId: folderIdFromUrl ?? undefined,
             }),
           },
         );

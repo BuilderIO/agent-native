@@ -43,4 +43,28 @@ describe("action discovery", () => {
 
     expect(registry["safe-write"].parallelSafe).toBe(true);
   });
+
+  it("preserves publicAgent metadata from static defineAction entries", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "public-search": {
+        default: {
+          tool: { description: "Public search", parameters: {} },
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+            isConsequential: false,
+          },
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["public-search"].publicAgent).toEqual({
+      expose: true,
+      readOnly: true,
+      requiresAuth: false,
+      isConsequential: false,
+    });
+  });
 });

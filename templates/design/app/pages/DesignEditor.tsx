@@ -79,6 +79,10 @@ import {
 } from "@/lib/pending-generation";
 import type { TweakDefinition } from "@shared/api";
 import {
+  resolveTweaksToCssVars,
+  type TweakSelections,
+} from "@shared/resolve-tweaks";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -344,13 +348,16 @@ export default function DesignEditor() {
     }
   }, [id, markGenerationStale, trackAgentGeneration]);
 
+  const pendingGenerationActive =
+    hasPendingGeneration && !!readPendingGeneration(id);
+
   const { data: designResult, isLoading: designLoading } = useActionQuery<
     DesignData | string
   >(
     "get-design",
     { id: id! },
     {
-      refetchInterval: hasPendingGeneration || generating ? 1000 : false,
+      refetchInterval: pendingGenerationActive || generating ? 1000 : false,
     },
   );
 
@@ -383,6 +390,7 @@ export default function DesignEditor() {
 
   const updateFileMutation = useActionMutation("update-file");
   const updateDesignMutation = useActionMutation("update-design");
+  const applyTweaksMutation = useActionMutation("apply-tweaks");
   const createCodingHandoffMutation = useActionMutation(
     "export-coding-handoff",
   );
@@ -417,6 +425,41 @@ export default function DesignEditor() {
     return () => {
       if (fileSaveTimerRef.current) {
         window.clearTimeout(fileSaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Debounced persistence of the user's live tweak knob values into
+  // designs.data.tweakSelections (additive JSON merge, server-side). This is
+  // what makes the visual-tune survive reload and feeds the snapshot/handoff
+  // round-trip so external agents continue from the *tuned* design.
+  const pendingTweakSaveRef = useRef<TweakSelections | null>(null);
+  const tweakSaveTimerRef = useRef<number | null>(null);
+  const queueTweakSave = useCallback(
+    (selections: TweakSelections) => {
+      if (!id) return;
+      pendingTweakSaveRef.current = selections;
+      if (tweakSaveTimerRef.current) {
+        window.clearTimeout(tweakSaveTimerRef.current);
+      }
+      tweakSaveTimerRef.current = window.setTimeout(() => {
+        const pending = pendingTweakSaveRef.current;
+        pendingTweakSaveRef.current = null;
+        tweakSaveTimerRef.current = null;
+        if (!pending) return;
+        applyTweaksMutation.mutate({
+          designId: id,
+          selections: pending,
+        } as any);
+      }, 600);
+    },
+    [id, applyTweaksMutation],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (tweakSaveTimerRef.current) {
+        window.clearTimeout(tweakSaveTimerRef.current);
       }
     };
   }, []);
@@ -496,8 +539,14 @@ export default function DesignEditor() {
     const uploadedFiles = Array.isArray(pending.files) ? pending.files : [];
     const fileContext = formatUploadedFileContext(uploadedFiles);
     const sourceContext = pending.source
-      ? `The user picked the "${pending.source}" example template.`
+      ? `The user picked the "${pending.source}" template.`
       : "The user just created a new empty design.";
+
+    if (pending.autoGenerate === false) {
+      setGenerationIssue(null);
+      setHasPendingGeneration(true);
+      return;
+    }
 
     const context = [
       sourceContext,
@@ -622,7 +671,23 @@ export default function DesignEditor() {
     }
   }, [design?.data]);
 
-  // Initialize tweak selections from defaults the first time we see a tweak set.
+  // Persisted user knob values live in designs.data.tweakSelections (written by
+  // the apply-tweaks action). Restoring them on load is what makes the
+  // visual-tune round-trip survive a refresh and feed the snapshot/handoff.
+  const persistedSelections: TweakSelections = useMemo(() => {
+    if (!design?.data) return {};
+    try {
+      const parsed = JSON.parse(design.data);
+      const sel = parsed?.tweakSelections;
+      return sel && typeof sel === "object" && !Array.isArray(sel) ? sel : {};
+    } catch {
+      return {};
+    }
+  }, [design?.data]);
+
+  // Initialize tweak selections: persisted user value first, then the tweak's
+  // default. Runs once per design load (only fills keys still undefined locally
+  // so an in-progress drag isn't clobbered by a slightly-stale fetch).
   useEffect(() => {
     if (tweaks.length === 0) return;
     setTweakSelections((prev) => {
@@ -630,33 +695,22 @@ export default function DesignEditor() {
       let changed = false;
       for (const t of tweaks) {
         if (next[t.id] === undefined) {
-          next[t.id] = t.defaultValue;
+          const persisted = persistedSelections[t.id];
+          next[t.id] = persisted !== undefined ? persisted : t.defaultValue;
           changed = true;
         }
       }
       return changed ? next : prev;
     });
-  }, [tweaks]);
+  }, [tweaks, persistedSelections]);
 
   // Map tweak selections (id -> value) to CSS-var assignments (--var -> value)
-  // for the iframe bridge. Toggle booleans become "1"/"0"; numbers get the
-  // unit they're declared with (px for radius, otherwise unitless).
-  const cssVarValues = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const t of tweaks) {
-      if (!t.cssVar) continue;
-      const v = tweakSelections[t.id] ?? t.defaultValue;
-      if (typeof v === "boolean") {
-        out[t.cssVar] = v ? "1" : "0";
-      } else if (typeof v === "number") {
-        const unit = t.cssVar.toLowerCase().includes("radius") ? "px" : "";
-        out[t.cssVar] = `${v}${unit}`;
-      } else {
-        out[t.cssVar] = String(v);
-      }
-    }
-    return out;
-  }, [tweaks, tweakSelections]);
+  // for the iframe bridge. Shared with the snapshot/handoff actions via
+  // `@shared/resolve-tweaks` so the UI and external agents resolve identically.
+  const cssVarValues = useMemo(
+    () => resolveTweaksToCssVars(tweaks, tweakSelections),
+    [tweaks, tweakSelections],
+  );
 
   // Expose selection state for agent context
   useEffect(() => {
@@ -998,7 +1052,7 @@ export default function DesignEditor() {
     return null;
   }
 
-  if (designLoading || (!design && hasPendingGeneration)) {
+  if (designLoading || (!design && pendingGenerationActive)) {
     return (
       <div className="flex-1 bg-background flex items-center justify-center">
         <Spinner className="size-8 text-foreground/30" />
@@ -1462,7 +1516,7 @@ export default function DesignEditor() {
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              {generating || hasPendingGeneration ? (
+              {generating || pendingGenerationActive ? (
                 <>
                   <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
                   <p className="text-sm text-muted-foreground">
@@ -1529,8 +1583,12 @@ export default function DesignEditor() {
             <TweaksPanel
               tweaks={tweaks}
               values={tweakSelections}
-              onChange={(id, value) =>
-                setTweakSelections((prev) => ({ ...prev, [id]: value }))
+              onChange={(tweakId, value) =>
+                setTweakSelections((prev) => {
+                  const next = { ...prev, [tweakId]: value };
+                  queueTweakSave(next);
+                  return next;
+                })
               }
               onClose={() => setTweaksVisible(false)}
               visible

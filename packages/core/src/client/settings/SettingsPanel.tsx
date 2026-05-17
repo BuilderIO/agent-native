@@ -26,9 +26,11 @@ import {
   IconMail,
   IconKey,
   IconMicrophone,
+  IconEyeOff,
   IconBolt,
   IconGauge,
   IconUserCircle,
+  IconApps,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import {
@@ -41,6 +43,7 @@ import { AgentsSection } from "./AgentsSection.js";
 import { UsageSection } from "./UsageSection.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
+import { DemoModeSection } from "./DemoModeSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
 import {
@@ -321,6 +324,8 @@ function UseBuilderCard({
   orgName,
   envManaged,
   credentialSource,
+  trackingSource = "settings_panel_builder_card",
+  trackingFlow = "connect_llm",
   label = "Connect Builder.io",
   subtitle = "Free credits to start — no API key needed.",
   dim,
@@ -330,7 +335,9 @@ function UseBuilderCard({
   connected: boolean;
   orgName?: string;
   envManaged?: boolean;
-  credentialSource?: "user" | "org" | "env";
+  credentialSource?: "user" | "org" | "workspace" | "env";
+  trackingSource?: string;
+  trackingFlow?: string;
   label?: string;
   subtitle?: string;
   dim?: boolean;
@@ -368,7 +375,9 @@ function UseBuilderCard({
             {connectUrl && (
               <button
                 type="button"
-                onClick={builderFlow.start}
+                onClick={() =>
+                  builderFlow.start({ trackingSource, trackingFlow })
+                }
                 disabled={builderFlow.connecting}
                 className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60"
               >
@@ -392,7 +401,7 @@ function UseBuilderCard({
   return (
     <button
       type="button"
-      onClick={builderFlow.start}
+      onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
       disabled={builderFlow.connecting}
       className={`block w-full rounded-md border border-border px-3 py-3 text-left no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70`}
     >
@@ -519,6 +528,7 @@ function computeSourceBadge(args: {
   builderConnected: boolean;
 }): string | undefined {
   const { settingsConfigured, settingsStatus } = args;
+  if (args.builderConnected) return "Connected via Builder";
   if (settingsConfigured) {
     if (settingsStatus?.source === "env") {
       return `Connected via ${settingsStatus.envVar ?? args.envVar ?? "env"}`;
@@ -526,7 +536,6 @@ function computeSourceBadge(args: {
     return "Connected via template (server-side)";
   }
   if (args.envConfigured) return `Connected via ${args.envVar ?? "env"}`;
-  if (args.builderConnected) return "Connected via Builder";
   return undefined;
 }
 
@@ -589,7 +598,7 @@ function LLMSectionInner({
   connected: boolean;
   orgName?: string;
   envManaged?: boolean;
-  credentialSource?: "user" | "org" | "env";
+  credentialSource?: "user" | "org" | "workspace" | "env";
   open?: boolean;
   onToggle?: () => void;
 }) {
@@ -685,13 +694,15 @@ function LLMSectionInner({
     : false;
   const settingsConfigured =
     settingsStatus != null && settingsStatus.engine === currentEngine;
-  const anyKeyConfigured = envConfigured || connected || settingsConfigured;
+  const builderConnected = connected || builderFlow.configured;
+  const anyKeyConfigured =
+    envConfigured || builderConnected || settingsConfigured;
   const sourceBadge = computeSourceBadge({
     settingsConfigured,
     settingsStatus,
     envConfigured,
     envVar,
-    builderConnected: connected,
+    builderConnected,
   });
 
   const engineChanged =
@@ -858,9 +869,11 @@ function LLMSectionInner({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="llm_settings"
+            trackingFlow="connect_llm"
             label="Connect Builder.io"
           />
-          {!connected && (
+          {!builderConnected && (
             <ManualSetupCard
               hint="Choose your AI provider and model."
               docsUrl={PROVIDER_DOCS[selectedEngine]}
@@ -1010,6 +1023,309 @@ function LLMSectionInner({
             </ManualSetupCard>
           )}
         </div>
+      )}
+    </SettingsSection>
+  );
+}
+
+// ─── App Default Model Section ──────────────────────────────────────────────
+
+interface AppModelDefaultEngine extends EngineInfo {
+  configured: boolean;
+}
+
+interface AppModelDefaultsResponse {
+  appId: string;
+  engine: string | null;
+  model: string | null;
+  scope: "org" | "user" | "default";
+  source: "org" | "user" | "default";
+  canUpdate: boolean;
+  orgId?: string | null;
+  orgName?: string | null;
+  role?: string | null;
+  engines: AppModelDefaultEngine[];
+}
+
+function friendlyAppName(appId: string): string {
+  return appId
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function AppModelDefaultsSectionInner({
+  open,
+  onToggle,
+}: {
+  open?: boolean;
+  onToggle?: () => void;
+}) {
+  const [settings, setSettings] = useState<AppModelDefaultsResponse | null>(
+    null,
+  );
+  const [selectedEngine, setSelectedEngine] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(agentNativePath("/_agent-native/agent-model-defaults"))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: AppModelDefaultsResponse | null) => {
+        if (cancelled || !data) return;
+        setSettings(data);
+        const firstConfigured =
+          data.engines.find((engine) => engine.configured) ?? data.engines[0];
+        const nextEngine = data.engine ?? firstConfigured?.name ?? "";
+        const nextEngineInfo =
+          data.engines.find((engine) => engine.name === nextEngine) ??
+          firstConfigured;
+        setSelectedEngine(nextEngine);
+        setSelectedModel(data.model ?? nextEngineInfo?.defaultModel ?? "");
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => load(), [load]);
+
+  const selectedEngineInfo =
+    settings?.engines.find((engine) => engine.name === selectedEngine) ?? null;
+  const engineOptions: SettingsSelectOption[] = (settings?.engines ?? [])
+    .filter(
+      (engine) =>
+        engine.name === selectedEngine ||
+        (engine.name !== "ai-sdk:anthropic" && engine.name !== "ai-sdk:ollama"),
+    )
+    .map((engine) => ({
+      value: engine.name,
+      label:
+        engine.name === "builder"
+          ? "Builder.io Gateway"
+          : engine.label || engine.name,
+      description: engine.configured
+        ? "Configured for this workspace"
+        : "Credentials not detected yet",
+    }));
+  const modelOptions: SettingsSelectOption[] = latestModelsOnly(
+    selectedEngineInfo?.supportedModels ?? [],
+  ).map((model) => ({ value: model, label: friendlyModelName(model) }));
+  const hasPendingChange =
+    !!settings &&
+    settings.canUpdate &&
+    !!selectedEngine &&
+    !!selectedModel.trim() &&
+    (selectedEngine !== settings.engine ||
+      selectedModel.trim() !== settings.model);
+  const hasAppDefault = settings?.source !== "default";
+  const scopeLabel =
+    settings?.scope === "org"
+      ? settings.orgName
+        ? `${settings.orgName} organization`
+        : "organization"
+      : "your account";
+
+  const notifyChanged = () => {
+    window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
+  };
+
+  const save = async () => {
+    if (!hasPendingChange) return;
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      const res = await fetch(
+        agentNativePath("/_agent-native/agent-model-defaults"),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            engine: selectedEngine,
+            model: selectedModel.trim(),
+          }),
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(body?.error ?? `Save failed (${res.status})`);
+      const next = body as AppModelDefaultsResponse;
+      setSettings(next);
+      setSelectedEngine(next.engine ?? selectedEngine);
+      setSelectedModel(next.model ?? selectedModel.trim());
+      setSaved(true);
+      notifyChanged();
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reset = async () => {
+    if (!settings?.canUpdate || !hasAppDefault) return;
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      const res = await fetch(
+        agentNativePath("/_agent-native/agent-model-defaults"),
+        { method: "DELETE" },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(body?.error ?? `Reset failed (${res.status})`);
+      const next = body as AppModelDefaultsResponse;
+      setSettings(next);
+      const fallback = next.engines.find((engine) => engine.configured);
+      setSelectedEngine(next.engine ?? fallback?.name ?? selectedEngine);
+      setSelectedModel(next.model ?? fallback?.defaultModel ?? selectedModel);
+      notifyChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reset failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SettingsSection
+      id={settingsSectionDomId("app-models")}
+      icon={<IconApps size={14} />}
+      title="App Default Model"
+      subtitle="Choose the default model for this app/template when no one-off composer model is selected."
+      connected={loading ? undefined : hasAppDefault}
+      open={open}
+      onToggle={onToggle}
+    >
+      {loading ? (
+        <SettingsSkeleton lines={2} />
+      ) : settings ? (
+        <div className="space-y-2">
+          <div className="rounded-md border border-border bg-accent/20 px-2.5 py-2">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-[11px] font-medium text-foreground">
+                  {friendlyAppName(settings.appId) || "This app"}
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  {hasAppDefault
+                    ? `Applies to ${scopeLabel}.`
+                    : "Using the global LLM default."}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {settings.source}
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              <SettingsSelect
+                label="Provider"
+                value={selectedEngine}
+                options={engineOptions}
+                onValueChange={(value) => {
+                  setSelectedEngine(value);
+                  const info = settings.engines.find(
+                    (engine) => engine.name === value,
+                  );
+                  setSelectedModel(info?.defaultModel ?? "");
+                  setError(null);
+                }}
+              />
+
+              <div className="space-y-1.5">
+                <p className="text-[12px] font-medium text-foreground">Model</p>
+                <input
+                  type="text"
+                  list={`app-model-suggestions-${selectedEngine}`}
+                  value={selectedModel}
+                  disabled={!settings.canUpdate || saving}
+                  onChange={(event) => {
+                    setSelectedModel(event.target.value);
+                    setError(null);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && hasPendingChange) void save();
+                  }}
+                  placeholder={selectedEngineInfo?.defaultModel ?? "model-id"}
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent placeholder:text-muted-foreground/50 disabled:opacity-60"
+                  style={CONTROL_STYLE}
+                />
+                {modelOptions.length > 0 && (
+                  <datalist id={`app-model-suggestions-${selectedEngine}`}>
+                    {modelOptions.map((option) => (
+                      <option
+                        key={option.value}
+                        value={option.value}
+                        label={option.label}
+                      />
+                    ))}
+                  </datalist>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={save}
+                  disabled={!hasPendingChange || saving}
+                  className="inline-flex h-8 items-center gap-1 rounded bg-accent px-2.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                >
+                  {saving ? (
+                    <IconLoader2 size={10} className="animate-spin" />
+                  ) : saved ? (
+                    <IconCheck size={10} />
+                  ) : (
+                    "Save"
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={reset}
+                  disabled={!settings.canUpdate || !hasAppDefault || saving}
+                  className="h-8 rounded border border-border px-2.5 text-[10px] font-medium text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            {!settings.canUpdate && (
+              <p className="mt-2 text-[10px] text-muted-foreground">
+                Only organization owners and admins can change app model
+                defaults.
+              </p>
+            )}
+            {selectedEngineInfo && !selectedEngineInfo.configured && (
+              <p className="mt-2 text-[10px] text-muted-foreground">
+                Credentials for this provider were not detected; runtime will
+                fall back if the model cannot be used.
+              </p>
+            )}
+            {error && (
+              <p className="mt-2 text-[10px] text-destructive">{error}</p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <p className="text-[10px] text-muted-foreground">
+          App model defaults are unavailable.
+        </p>
       )}
     </SettingsSection>
   );
@@ -1525,8 +1841,10 @@ export interface SettingsPanelProps {
 type SettingsSectionId =
   | "account"
   | "llm"
+  | "app-models"
   | "limits"
   | "voice"
+  | "demo-mode"
   | "automations"
   | "secrets"
   | "hosting"
@@ -1543,8 +1861,10 @@ type SettingsSectionId =
 const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
   "account",
   "llm",
+  "app-models",
   "limits",
   "voice",
+  "demo-mode",
   "automations",
   "secrets",
   "hosting",
@@ -1574,6 +1894,13 @@ function normalizeSettingsSection(
     return "secrets";
   }
   if (normalized === "agent-engine") return "llm";
+  if (
+    normalized === "agent-model-defaults" ||
+    normalized === "app-model-defaults" ||
+    normalized === "models"
+  ) {
+    return "app-models";
+  }
   if (normalized === "agent-limits" || normalized === "loop-settings") {
     return "limits";
   }
@@ -1596,12 +1923,12 @@ const environmentOptions: SettingsSelectOption[] = [
     value: "production",
     label: "Production",
     description:
-      "App tools only; code, shell, and files require Builder or a local clone.",
+      "App tools only; code, bash, and files require Builder or a local clone.",
   },
   {
     value: "development",
     label: "Development",
-    description: "Full access to code editing, shell, and files.",
+    description: "Full access to code editing, bash, and files.",
   },
 ];
 
@@ -1797,12 +2124,15 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const { status: builder, loading: builderLoading } = useBuilderStatus();
   const connected = builder?.configured ?? false;
-  const connectUrl = builder?.connectUrl;
+  const connectUrl = builder?.cliAuthUrl ?? builder?.connectUrl;
   const orgName = builder?.orgName;
   const envManaged = !!builder?.envManaged;
   const credentialSource = builder?.credentialSource;
   const builderBranchesAvailable = !!builder?.builderEnabled;
-  const builderFlow = useBuilderConnectFlow({ popupUrl: connectUrl });
+  const builderFlow = useBuilderConnectFlow({
+    popupUrl: connectUrl,
+    trackingSource: "settings_panel_builder_card",
+  });
 
   // Detect whether the app registered any secrets — controls whether the
   // "API Keys & Connections" section renders at all.
@@ -1929,6 +2259,12 @@ export function SettingsPanel({
         onToggle={() => toggle("llm")}
       />
 
+      {/* App default model */}
+      <AppModelDefaultsSectionInner
+        open={openSection === "app-models"}
+        onToggle={() => toggle("app-models")}
+      />
+
       {/* Agent limits */}
       <AgentLimitsSectionInner
         open={openSection === "limits"}
@@ -1944,6 +2280,17 @@ export function SettingsPanel({
         onToggle={() => toggle("voice")}
       >
         <VoiceTranscriptionSection />
+      </SettingsSection>
+
+      {/* Demo mode */}
+      <SettingsSection
+        icon={<IconEyeOff size={14} />}
+        title="Demo mode"
+        subtitle="Replace names, emails, and numbers with realistic fake data everywhere — in the UI and what the agent sees. IDs and structure are preserved so the app keeps working."
+        open={openSection === "demo-mode"}
+        onToggle={() => toggle("demo-mode")}
+      >
+        <DemoModeSection />
       </SettingsSection>
 
       {/* Automations */}
@@ -1986,6 +2333,8 @@ export function SettingsPanel({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="hosting_settings"
+            trackingFlow="hosting"
           />
           <ManualSetupCard
             hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
@@ -2012,6 +2361,8 @@ export function SettingsPanel({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="database_settings"
+            trackingFlow="database"
           />
           <ManualSetupCard
             hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, or any Postgres/SQLite database."
@@ -2038,6 +2389,8 @@ export function SettingsPanel({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="file_upload_settings"
+            trackingFlow="file_upload"
           />
           <ManualSetupCard
             hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
@@ -2064,6 +2417,8 @@ export function SettingsPanel({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="auth_settings"
+            trackingFlow="auth"
           />
           <ManualSetupCard
             hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
@@ -2095,6 +2450,8 @@ export function SettingsPanel({
           orgName={orgName}
           envManaged={envManaged}
           credentialSource={credentialSource}
+          trackingSource="browser_settings"
+          trackingFlow="browser_automation"
         />
       </SettingsSection>
 
@@ -2114,6 +2471,8 @@ export function SettingsPanel({
             orgName={orgName}
             envManaged={envManaged}
             credentialSource={credentialSource}
+            trackingSource="background_agent_settings"
+            trackingFlow="background_agent"
           />
         </SettingsSection>
       )}

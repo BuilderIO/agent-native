@@ -1,4 +1,5 @@
 // A2A Protocol types (spec v0.3) + framework config types
+import type { PublicAgentActionConfig } from "../action.js";
 
 // --- Parts (content atoms) ---
 
@@ -70,6 +71,11 @@ export interface AgentSkill {
   description: string;
   tags?: string[];
   examples?: string[];
+  public?: boolean;
+  readOnly?: boolean;
+  requiresAuth?: boolean;
+  isConsequential?: boolean;
+  publicAgent?: PublicAgentActionConfig;
 }
 
 export interface AgentCapabilities {
@@ -147,6 +153,8 @@ export interface A2AConfig {
   description: string;
   version?: string;
   skills: AgentSkill[];
+  /** If true, public agent-card discovery includes only explicit public-safe skills. */
+  publicSkillsOnly?: boolean;
   handler?: A2AHandler;
   apiKeyEnv?: string;
   streaming?: boolean;

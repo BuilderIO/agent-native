@@ -25,10 +25,10 @@ Use `getSession(event)` server-side and `useSession()` client-side.
 
 Resources are SQL-backed persistent files for notes, learnings, and context.
 
-**At the start of every conversation, read these resources (both personal and shared scopes):**
+**At the start of every conversation, read these resources (workspace, shared, and personal scopes as relevant):**
 
-1. **`AGENTS.md`** -- user-specific context. Read both `--scope personal` and `--scope shared`.
-2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read both scopes.
+1. **`AGENTS.md`** -- inherited workspace defaults, app/team instructions, and user-specific context.
+2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read personal and shared scopes.
 
 **Update `LEARNINGS.md` when you learn something important.**
 
@@ -100,6 +100,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | `self-modifying-code` | Before editing source, components, or styles                                      |
 | `capture-learnings`   | Before recording user preferences or corrections                                  |
 | `frontend-design`     | Before building or restyling any UI component, page, or layout                    |
+| `shadcn-ui`           | Before adding, updating, or debugging shadcn/ui components                        |
 | `agent-engines`       | Before switching LLM providers or registering a custom engine                     |
 | `notifications`       | Before surfacing alerts/progress to the user or adding channels                   |
 | `progress`            | Before running any task that takes more than a few seconds                        |

@@ -31,6 +31,14 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface RequestRunContext {
   /** Origin of the current request (used by the builder-browser tool). */
   requestOrigin?: string;
+  /** Stable browser tab id for tab-scoped app-state reads/writes. */
+  browserTabId?: string;
+  /** Resource scope for the current chat thread, e.g. the active deck. */
+  chatScope?: {
+    type: string;
+    id: string;
+    label?: string;
+  } | null;
   /** Resolved owner email (set by prepareRun). */
   owner?: string;
   /** Owner's active Anthropic API key (set by prepareRun). */
@@ -54,6 +62,14 @@ export interface RequestContext {
   userName?: string;
   orgId?: string;
   timezone?: string;
+  /**
+   * Origin of the inbound request (e.g. `http://127.0.0.1:8100`). Set by the
+   * MCP mount from the request headers so actions that build externally
+   * fetchable URLs (e.g. design `export-coding-handoff`'s signed raw-code URL)
+   * resolve the real local-workspace origin instead of a prod/localhost
+   * fallback. Optional — absent on paths that don't populate it.
+   */
+  requestOrigin?: string;
   /**
    * True when this request is being processed by an integration-platform
    * webhook (Slack, Telegram, etc.) where the function timeout is the

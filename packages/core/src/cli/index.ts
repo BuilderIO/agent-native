@@ -573,6 +573,46 @@ switch (command) {
     break;
   }
 
+  case "migrate": {
+    import("./migrate.js")
+      .then((m) => m.runMigrate(args))
+      .catch(handleScaffoldImportError);
+    break;
+  }
+
+  case "code": {
+    import("./code.js")
+      .then((m) => m.runCode(args))
+      .catch(handleScaffoldImportError);
+    break;
+  }
+
+  case "mcp": {
+    // Connect external coding agents (Claude Code, Cowork, Codex) over MCP.
+    // `mcp serve` runs the stdio transport; install/uninstall/status/token
+    // manage client configs + the local token.
+    import("./mcp.js")
+      .then((m) => m.runMcp(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "connect": {
+    // Wire your local coding agent to a DEPLOYED agent-native app via a
+    // browser device-code flow (no token copying). `--all` connects every
+    // first-party hosted app; `--token` is the no-browser fallback.
+    import("./connect.js")
+      .then((m) => m.runConnect(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "create-workspace": {
     // Deprecated alias for `create` (since workspace is now the default).
     const parsed = parseScaffoldArgs(args);
@@ -619,18 +659,35 @@ switch (command) {
     break;
   }
 
+  case "audit-agent-web": {
+    import("./audit-agent-web.js")
+      .then((m) => m.runAuditAgentWeb(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "--version":
   case "-v": {
     console.log(_version);
     break;
   }
 
+  case undefined:
+    import("./code.js")
+      .then((m) => m.runCode([]))
+      .catch(handleScaffoldImportError);
+    break;
+
   case "--help":
   case "-h":
-  case undefined:
     console.log(`agent-native v${_version}
 
 Usage:
+  agent-native                  Launch Agent-Native Code workspace
+  agent-native "fix tests"      Start an Agent-Native Code coding session
   agent-native dev              Start development server
                                 (or the workspace gateway at a workspace root)
   agent-native build            Build for production (client + server)
@@ -641,6 +698,19 @@ Usage:
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
                                 for a single-app scaffold.
+  agent-native code             Launch Agent-Native Code workspace. Type a task or
+                                use goals like /migrate and /audit.
+  agent-native code serve       Run the Agent-Native Code remote connector.
+  agent-native mcp <cmd>        Connect external coding agents over MCP.
+                                cmds: serve | install | uninstall | status |
+                                token (--client claude-code|claude-code-cli|
+                                codex|cowork)
+  agent-native connect <url>    Wire your coding agent to a DEPLOYED app via
+                                a browser device-code flow. --all connects
+                                every first-party app; --token is the
+                                no-browser fallback.
+  agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
+                                --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
@@ -648,6 +718,7 @@ Usage:
   agent-native setup-agents     Create symlinks for all agent tools
   agent-native info <pkg>       Print info about an installed package:
                                 exports, source paths, and docs links.
+  agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
 
 Options:
   -h, --help                    Show this help message
@@ -656,16 +727,25 @@ Options:
                                 (mail,calendar,analytics,...) — or
                                 github:user/repo for community templates
   --standalone                  Scaffold a single standalone app (no workspace)
+  --emit [dir]                  With migrate, emit an own-agent dossier
+  --describe <text>             With migrate, describe URL/prose-only sources
   --preset <name>               Workspace deploy preset:
                                 cloudflare_pages (default), netlify, or vercel
   --build-only                  Build workspace deploy artifacts without publishing
   --eager                       With workspace dev, start every app immediately
+  --url <url>                   URL to audit with audit-agent-web
 
 Feedback:  ${FEEDBACK_URL}
 Bugs:      ${BUGS_URL}`);
     break;
 
   default:
+    if (command && !command.startsWith("-")) {
+      import("./code.js")
+        .then((m) => m.runCode([command, ...args]))
+        .catch(handleScaffoldImportError);
+      break;
+    }
     console.error(`Unknown command: ${command}`);
     console.error('Run "agent-native --help" for usage.');
     console.error(`Bugs: ${BUGS_URL}`);

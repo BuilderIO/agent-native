@@ -45,6 +45,10 @@ import {
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
 import { cn } from "@/lib/utils";
+import {
+  analysisDetailPrefetchKey,
+  type PrefetchSnapshot,
+} from "@/lib/prefetch-keys";
 
 interface Analysis {
   id: string;
@@ -101,6 +105,25 @@ export default function AnalysisDetail() {
     enabled: !!id,
     staleTime: 10_000,
     placeholderData: (prev) => prev,
+    initialData: () => {
+      if (!id) return undefined;
+      const snapshot = queryClient.getQueryData<
+        PrefetchSnapshot<Analysis | null>
+      >(analysisDetailPrefetchKey(id));
+      if (snapshot?.data === null && snapshot.syncVersion !== analysesSync) {
+        return undefined;
+      }
+      return snapshot?.data;
+    },
+    initialDataUpdatedAt: () => {
+      if (!id) return undefined;
+      const queryKey = analysisDetailPrefetchKey(id);
+      const snapshot =
+        queryClient.getQueryData<PrefetchSnapshot<Analysis | null>>(queryKey);
+      if (!snapshot) return undefined;
+      if (snapshot.syncVersion !== analysesSync) return 0;
+      return queryClient.getQueryState(queryKey)?.dataUpdatedAt;
+    },
   });
 
   useEffect(() => {
@@ -125,6 +148,7 @@ export default function AnalysisDetail() {
   const handleDelete = async () => {
     if (!id) return;
     await deleteAnalysis(id);
+    queryClient.removeQueries({ queryKey: analysisDetailPrefetchKey(id) });
     queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
     navigate("/analyses");
   };

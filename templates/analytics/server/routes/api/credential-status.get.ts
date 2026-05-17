@@ -2,6 +2,7 @@ import { defineEventHandler, createError } from "h3";
 import { hasCredential } from "../../lib/credentials";
 import { credentialKeys } from "../../lib/credential-keys";
 import { getCredentialContextFromEvent } from "../../lib/credentials";
+import { getGitHubAccessToken } from "../../lib/github-oauth";
 
 export default defineEventHandler(async (event) => {
   const ctx = await getCredentialContextFromEvent(event);
@@ -12,12 +13,18 @@ export default defineEventHandler(async (event) => {
     });
   }
   const results = await Promise.all(
-    credentialKeys.map(async (cfg) => ({
-      key: cfg.key,
-      label: cfg.label,
-      required: cfg.required,
-      configured: await hasCredential(cfg.key, ctx),
-    })),
+    credentialKeys.map(async (cfg) => {
+      const configured =
+        cfg.key === "GITHUB_TOKEN"
+          ? !!(await getGitHubAccessToken(ctx)).token
+          : await hasCredential(cfg.key, ctx);
+      return {
+        key: cfg.key,
+        label: cfg.label,
+        required: cfg.required,
+        configured,
+      };
+    }),
   );
   return results;
 });

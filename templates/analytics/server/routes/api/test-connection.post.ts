@@ -100,7 +100,9 @@ export default defineEventHandler(async (event) => {
         }
 
         case "github": {
-          const token = await resolveCredential("GITHUB_TOKEN", ctx);
+          const { getGitHubAccessToken } =
+            await import("../../lib/github-oauth");
+          const { token } = await getGitHubAccessToken(ctx);
           if (!token) return { ok: false, error: "Missing token" };
           const res = await fetch("https://api.github.com/user", {
             headers: { Authorization: `Bearer ${token}` },

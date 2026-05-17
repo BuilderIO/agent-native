@@ -17,6 +17,11 @@ import { EventEmitter } from "node:events";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { getAppStateEmitter } from "../application-state/emitter.js";
 import { getDbExec } from "../db/client.js";
+import {
+  EXTENSION_CHANGE_MARKER_KEY,
+  parseExtensionChangeMarker,
+  type ExtensionChangeTarget,
+} from "../extensions/change-marker.js";
 import { getSettingsEmitter } from "../settings/store.js";
 import { getSession } from "./auth.js";
 
@@ -59,6 +64,9 @@ let _versionSeeded = false;
 let _lastDbCheck = 0;
 let _lastAppStateTs = 0;
 let _lastSettingsTs = 0;
+let _lastExtensionsTs = 0;
+let _lastExtensionsUpdatedAt: string | number | undefined;
+let _lastExtensionMarkerTs = 0;
 
 /**
  * Tracks the latest updated_at seen on the `__screen_refresh__` key in
@@ -84,6 +92,67 @@ function wireLocalEmitters(): void {
   getSettingsEmitter().on("settings", (event) => {
     recordChange(event);
   });
+}
+
+function timestampValue(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sqlWatermarkValue(value: unknown): string | number | undefined {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return undefined;
+}
+
+async function readMaxUpdatedAtRaw(
+  db: {
+    execute: (
+      query: string | { sql: string; args?: unknown[] },
+    ) => Promise<{ rows: Array<Record<string, unknown>> }>;
+  },
+  table: "application_state" | "settings" | "tools",
+): Promise<unknown> {
+  try {
+    const result = await db.execute(
+      `SELECT MAX(updated_at) as max_ts FROM ${table}`,
+    );
+    return result.rows[0]?.max_ts;
+  } catch {
+    // Optional framework tables may not exist in every app yet.
+    return undefined;
+  }
+}
+
+async function readMaxUpdatedAt(
+  db: {
+    execute: (
+      query: string | { sql: string; args?: unknown[] },
+    ) => Promise<{ rows: Array<Record<string, unknown>> }>;
+  },
+  table: "application_state" | "settings" | "tools",
+): Promise<number> {
+  return timestampValue(await readMaxUpdatedAtRaw(db, table));
+}
+
+async function readExtensionMarkerMaxUpdatedAt(db: {
+  execute: (
+    query: string | { sql: string; args?: unknown[] },
+  ) => Promise<{ rows: Array<Record<string, unknown>> }>;
+}): Promise<number> {
+  try {
+    const result = await db.execute({
+      sql: "SELECT MAX(updated_at) as max_ts FROM application_state WHERE key = ?",
+      args: [EXTENSION_CHANGE_MARKER_KEY],
+    });
+    return timestampValue(result.rows[0]?.max_ts);
+  } catch {
+    return 0;
+  }
 }
 
 /** Get the current global version counter. */
@@ -124,6 +193,103 @@ export function recordChange(event: {
     _buffer.splice(0, _buffer.length - MAX_BUFFER);
   }
   _pollEmitter.emit(POLL_CHANGE_EVENT, entry);
+}
+
+function extensionTargetKey(target: ExtensionChangeTarget): string | null {
+  if (target.owner) return `owner:${target.owner}`;
+  if (target.orgId) return `org:${target.orgId}`;
+  return null;
+}
+
+function addExtensionTarget(
+  targets: Map<string, ExtensionChangeTarget>,
+  target: ExtensionChangeTarget,
+): void {
+  const key = extensionTargetKey(target);
+  if (key) targets.set(key, target);
+}
+
+function recordExtensionChanges(targets: ExtensionChangeTarget[]): void {
+  const uniqueTargets = new Map<string, ExtensionChangeTarget>();
+  for (const target of targets) addExtensionTarget(uniqueTargets, target);
+  for (const target of uniqueTargets.values()) {
+    recordChange({
+      source: "extensions",
+      type: "change",
+      key: "*",
+      ...(target.owner ? { owner: target.owner } : {}),
+      ...(target.orgId ? { orgId: target.orgId } : {}),
+    });
+  }
+}
+
+function extensionTargetsForRow(
+  row: Record<string, unknown>,
+  shareRows: Array<Record<string, unknown>>,
+): ExtensionChangeTarget[] {
+  const targets = new Map<string, ExtensionChangeTarget>();
+  const owner = typeof row.owner_email === "string" ? row.owner_email : "";
+  const orgId = typeof row.org_id === "string" ? row.org_id : "";
+  const visibility =
+    typeof row.visibility === "string" ? row.visibility : "private";
+
+  if (owner) addExtensionTarget(targets, { owner });
+  if (visibility === "org" && orgId) addExtensionTarget(targets, { orgId });
+
+  for (const share of shareRows) {
+    const principalType =
+      typeof share.principal_type === "string" ? share.principal_type : "";
+    const principalId =
+      typeof share.principal_id === "string" ? share.principal_id : "";
+    if (principalType === "user" && principalId) {
+      addExtensionTarget(targets, { owner: principalId });
+    } else if (principalType === "org" && principalId) {
+      addExtensionTarget(targets, { orgId: principalId });
+    }
+  }
+
+  return Array.from(targets.values());
+}
+
+async function readExtensionTargetsForRows(
+  db: {
+    execute: (
+      query: string | { sql: string; args?: unknown[] },
+    ) => Promise<{ rows: Array<Record<string, unknown>> }>;
+  },
+  rows: Array<Record<string, unknown>>,
+): Promise<ExtensionChangeTarget[][]> {
+  const ids = rows
+    .map((row) => (typeof row.id === "string" ? row.id : ""))
+    .filter(Boolean);
+  const sharesByResourceId = new Map<string, Array<Record<string, unknown>>>();
+
+  if (ids.length > 0) {
+    try {
+      const placeholders = ids.map(() => "?").join(", ");
+      const shareResult = await db.execute({
+        sql: `SELECT resource_id, principal_type, principal_id FROM tool_shares WHERE resource_id IN (${placeholders})`,
+        args: ids,
+      });
+      for (const share of shareResult.rows) {
+        const resourceId =
+          typeof share.resource_id === "string" ? share.resource_id : "";
+        if (!resourceId) continue;
+        const bucket = sharesByResourceId.get(resourceId) ?? [];
+        bucket.push(share);
+        sharesByResourceId.set(resourceId, bucket);
+      }
+    } catch {
+      // Sharing tables are optional during early app initialization.
+    }
+  }
+
+  return rows.map((row) =>
+    extensionTargetsForRow(
+      row,
+      sharesByResourceId.get(typeof row.id === "string" ? row.id : "") ?? [],
+    ),
+  );
 }
 
 /** Get all changes after a given version. */
@@ -174,25 +340,43 @@ async function seedVersionFromDb(): Promise<void> {
   try {
     const db = getDbExec();
 
-    const [appResult, settingsResult, refreshResult] = await Promise.all([
-      db.execute("SELECT MAX(updated_at) as max_ts FROM application_state"),
-      db.execute("SELECT MAX(updated_at) as max_ts FROM settings"),
-      db.execute({
-        sql: "SELECT updated_at FROM application_state WHERE key = ?",
-        args: [SCREEN_REFRESH_KEY],
-      }),
+    const [
+      appTs,
+      settingsTs,
+      extensionsMaxUpdatedAt,
+      extensionMarkerTs,
+      refreshResult,
+    ] = await Promise.all([
+      readMaxUpdatedAt(db, "application_state"),
+      readMaxUpdatedAt(db, "settings"),
+      readMaxUpdatedAtRaw(db, "tools"),
+      readExtensionMarkerMaxUpdatedAt(db),
+      db
+        .execute({
+          sql: "SELECT updated_at FROM application_state WHERE key = ?",
+          args: [SCREEN_REFRESH_KEY],
+        })
+        .catch(() => ({ rows: [] })),
     ]);
 
-    const appTs = Number(appResult.rows[0]?.max_ts) || 0;
-    const settingsTs = Number(settingsResult.rows[0]?.max_ts) || 0;
-    const refreshTs = Number(refreshResult.rows[0]?.updated_at) || 0;
+    const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
+    const refreshTs = timestampValue(refreshResult.rows[0]?.updated_at);
 
     // Seed version — never decrease an already-set value
-    _version = Math.max(_version, appTs, settingsTs);
+    _version = Math.max(
+      _version,
+      appTs,
+      settingsTs,
+      extensionsTs,
+      extensionMarkerTs,
+    );
 
     // Set baselines so checkExternalDbChanges detects future writes
     _lastAppStateTs = appTs;
     _lastSettingsTs = settingsTs;
+    _lastExtensionsTs = extensionsTs;
+    _lastExtensionsUpdatedAt = sqlWatermarkValue(extensionsMaxUpdatedAt);
+    _lastExtensionMarkerTs = extensionMarkerTs;
     _lastScreenRefreshTs = refreshTs;
     _screenRefreshInitialized = true;
   } catch {
@@ -222,12 +406,13 @@ async function checkExternalDbChanges(): Promise<void> {
     });
     if (appResult.rows.length > 0) {
       const appTs = appResult.rows.reduce(
-        (max, row) => Math.max(max, Number(row.updated_at) || 0),
+        (max, row) => Math.max(max, timestampValue(row.updated_at)),
         _lastAppStateTs,
       );
       if (_lastAppStateTs > 0) {
         for (const row of appResult.rows) {
           const key = typeof row.key === "string" ? row.key : "*";
+          if (key === EXTENSION_CHANGE_MARKER_KEY) continue;
           const owner =
             typeof row.session_id === "string" ? row.session_id : undefined;
           recordChange({
@@ -249,7 +434,7 @@ async function checkExternalDbChanges(): Promise<void> {
       sql: "SELECT updated_at, value FROM application_state WHERE key = ?",
       args: [SCREEN_REFRESH_KEY],
     });
-    const refreshTs = Number(refreshResult.rows[0]?.updated_at) || 0;
+    const refreshTs = timestampValue(refreshResult.rows[0]?.updated_at);
     if (!_screenRefreshInitialized) {
       _lastScreenRefreshTs = refreshTs;
       _screenRefreshInitialized = true;
@@ -271,16 +456,67 @@ async function checkExternalDbChanges(): Promise<void> {
       _lastScreenRefreshTs = refreshTs;
     }
 
+    // Extension mutations write a durable marker row so delete and hide/unhide
+    // operations are visible across serverless invocations. Translate those
+    // marker rows back into extension-source events for targeted client
+    // invalidation while preserving user/org scope.
+    const extensionMarkerTs = await readExtensionMarkerMaxUpdatedAt(db);
+    if (extensionMarkerTs > _lastExtensionMarkerTs) {
+      const extensionMarkerResult = await db.execute({
+        sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
+        args: [EXTENSION_CHANGE_MARKER_KEY],
+      });
+      const changedExtensionMarkers = extensionMarkerResult.rows.filter(
+        (row) => timestampValue(row.updated_at) > _lastExtensionMarkerTs,
+      );
+      if (_lastExtensionMarkerTs > 0) {
+        recordExtensionChanges(
+          changedExtensionMarkers
+            .map((row) => parseExtensionChangeMarker(row.session_id, row.value))
+            .filter((target): target is ExtensionChangeTarget => !!target),
+        );
+      }
+      _lastExtensionMarkerTs = extensionMarkerTs;
+    }
+
     // Check settings for external writes
-    const settingsResult = await db.execute(
-      "SELECT MAX(updated_at) as max_ts FROM settings",
-    );
-    const settingsTs = Number(settingsResult.rows[0]?.max_ts) || 0;
+    const settingsTs = await readMaxUpdatedAt(db, "settings");
     if (settingsTs > _lastSettingsTs) {
       if (_lastSettingsTs > 0) {
         recordChange({ source: "settings", type: "change", key: "*" });
       }
       _lastSettingsTs = settingsTs;
+    }
+
+    // Extension rows live in the legacy physical `tools` table. Keep this as a
+    // compatibility fallback for direct table writes, but scope events to the
+    // resource owner/share targets instead of broadcasting deployment-wide.
+    const extensionsMaxUpdatedAt = await readMaxUpdatedAtRaw(db, "tools");
+    const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
+    if (extensionsTs > _lastExtensionsTs) {
+      const since = _lastExtensionsUpdatedAt;
+      const extensionResult =
+        since === undefined
+          ? await db.execute({
+              sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools ORDER BY updated_at ASC",
+              args: [],
+            })
+          : await db.execute({
+              sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools WHERE updated_at > ? ORDER BY updated_at ASC",
+              args: [since],
+            });
+      const changedExtensionRows = extensionResult.rows.filter(
+        (row) => timestampValue(row.updated_at) > _lastExtensionsTs,
+      );
+      if (_lastExtensionsTs > 0) {
+        const targetsByRow = await readExtensionTargetsForRows(
+          db,
+          changedExtensionRows,
+        );
+        for (const targets of targetsByRow) recordExtensionChanges(targets);
+      }
+      _lastExtensionsTs = extensionsTs;
+      _lastExtensionsUpdatedAt = sqlWatermarkValue(extensionsMaxUpdatedAt);
     }
   } catch {
     // Tables may not exist yet — ignore

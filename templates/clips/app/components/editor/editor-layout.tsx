@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   agentNativePath,
+  appBasePath,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
@@ -81,6 +82,53 @@ export interface EditorLayoutProps {
 }
 
 const WAVEFORM_HEIGHT = 120;
+
+function shouldProxyWaveformUrl(videoUrl: string): boolean {
+  try {
+    const parsed = new URL(
+      videoUrl,
+      typeof window === "undefined"
+        ? "http://local.test"
+        : window.location.href,
+    );
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+    if (
+      typeof window !== "undefined" &&
+      parsed.origin === window.location.origin
+    ) {
+      return false;
+    }
+    return /^https?:\/\//i.test(videoUrl);
+  } catch {
+    return false;
+  }
+}
+
+function getWaveformMediaUrl({
+  recordingId,
+  videoUrl,
+  password,
+  role,
+}: {
+  recordingId: string;
+  videoUrl: string | null;
+  password?: string | null;
+  role?: string | null;
+}): string | null {
+  if (!videoUrl) return null;
+  if (!shouldProxyWaveformUrl(videoUrl)) {
+    return videoUrl.startsWith("/") ? `${appBasePath()}${videoUrl}` : videoUrl;
+  }
+
+  const params = new URLSearchParams();
+  if (password && role !== "owner") params.set("password", password);
+  const qs = params.toString();
+  return `${appBasePath()}/api/video/${encodeURIComponent(recordingId)}${
+    qs ? `?${qs}` : ""
+  }`;
+}
 
 export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   // --- server state -------------------------------------------------------
@@ -238,8 +286,19 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   // --- waveform peaks, cached in application_state ------------------------
   const [peaks, setPeaks] = useState<WaveformPeaks | null>(null);
+  const waveformMediaUrl = useMemo(
+    () =>
+      getWaveformMediaUrl({
+        recordingId,
+        videoUrl,
+        password: recording?.password,
+        role: playerData?.role,
+      }),
+    [recording?.password, recordingId, playerData?.role, videoUrl],
+  );
+
   useEffect(() => {
-    if (!videoUrl) return;
+    if (!waveformMediaUrl) return;
     let cancelled = false;
     (async () => {
       // 1) Try cached peaks.
@@ -250,8 +309,9 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         if (!cancelled) setPeaks(cached);
         return;
       }
-      // 2) Compute from the video URL.
-      const result = await computePeaks(videoUrl);
+      // 2) Compute from the video URL. Cross-origin provider URLs go through
+      // the same-origin /api/video proxy so CDN CORS cannot blank the waveform.
+      const result = await computePeaks(waveformMediaUrl);
       if (cancelled) return;
       setPeaks(result);
       if (result) {
@@ -261,7 +321,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     return () => {
       cancelled = true;
     };
-  }, [recordingId, videoUrl]);
+  }, [recordingId, waveformMediaUrl]);
 
   // --- actions ------------------------------------------------------------
   const trim = useActionMutation("trim-recording" as any);
