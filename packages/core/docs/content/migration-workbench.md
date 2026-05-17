@@ -59,6 +59,11 @@ code> /migrate ./my-next-app --out ../migrated-app
 code> /audit --url https://example.com
 ```
 
+Agent-Native Code uses the same minimal coding tools as the sidebar development
+agent: `bash` for discovery/search/tests/builds, `read` for line-numbered file
+reads, `edit` for exact replacements, and `write` for new files or full
+rewrites.
+
 The same goals can run directly from the command line:
 
 ```bash

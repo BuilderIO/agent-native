@@ -1995,6 +1995,10 @@ export function MultiTabAssistantChat({
             const tabScope =
               tabThread?.scope ??
               (tabId === activeThreadId ? activeThreadScope : null);
+            const tabDynamicSuggestions =
+              tabId === activeThreadId && !contentHidden
+                ? props.dynamicSuggestions
+                : false;
             return (
               <div
                 key={tabId}
@@ -2016,6 +2020,7 @@ export function MultiTabAssistantChat({
                 />
                 <AssistantChat
                   {...props}
+                  dynamicSuggestions={tabDynamicSuggestions}
                   emptyStateText={
                     tabScope?.label && tabId === activeThreadId
                       ? `Ask about ${tabScope.label}`

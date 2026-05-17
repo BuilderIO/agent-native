@@ -44,6 +44,7 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
+import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import {
   getRequestRunContext,
   ensureRequestRunContext,
@@ -291,7 +292,7 @@ export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
 You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
 
 Hard rules:
-- Use only read-only tools. Do not edit files, write resources, run shell commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
+- Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
 - If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
 - When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
 - Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector or /act before implementation.`;
@@ -388,12 +389,23 @@ export function isPlanModeToolCallAllowed(
     return PLAN_MODE_WEB_REQUEST_METHODS.has(getWebRequestMethod(input));
   }
 
+  if (name === "bash") {
+    return isPlanModeReadOnlyBashCall(input);
+  }
+
   const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
   if (allowedActions) {
     return allowedActions.includes(getToolAction(name, input));
   }
 
   return entry.readOnly === true;
+}
+
+function isPlanModeReadOnlyBashCall(input: unknown): boolean {
+  if (!input || typeof input !== "object") return false;
+  const command = (input as Record<string, unknown>).command;
+  if (typeof command !== "string") return false;
+  return isReadOnlyShellCommand(command);
 }
 
 function createPlanModeGuardedAction(
@@ -444,6 +456,23 @@ function createPlanModeWebRequestAction(entry: ActionEntry): ActionEntry {
   };
 }
 
+function createPlanModeBashAction(entry: ActionEntry): ActionEntry {
+  return {
+    ...entry,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description: `${entry.tool.description}\n\nPlan mode: only read-only inspection commands such as pwd, ls, find, rg, grep, cat, sed -n, head, tail, wc, and git status/diff/show/log are allowed.`,
+    },
+    run: async (args, context) => {
+      if (!isPlanModeReadOnlyBashCall(args)) {
+        return planModeBlockedMessage("bash", "command is not read-only");
+      }
+      return entry.run(args, context);
+    },
+  };
+}
+
 export function createPlanModeActionRegistry(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -461,6 +490,11 @@ export function createPlanModeActionRegistry(
 
     if (name === "web-request") {
       filtered[name] = createPlanModeWebRequestAction(entry);
+      continue;
+    }
+
+    if (name === "bash") {
+      filtered[name] = createPlanModeBashAction(entry);
       continue;
     }
 
@@ -900,7 +934,7 @@ function enrichMessage(
         skillRefs
           .map(
             (r) =>
-              `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read-file"}`,
+              `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read"}`,
           )
           .join("\n"),
     );

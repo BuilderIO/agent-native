@@ -32,6 +32,7 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import { buildDeepLink } from "../server/deep-link.js";
 import type { MCPConfig } from "./build-server.js";
+import { fetchOrgApps, type OrgApp } from "./org-directory.js";
 
 import type { ActionTool } from "../agent/types.js";
 
@@ -105,27 +106,64 @@ async function resolveTargetAppOrigin(
 // list_apps
 // ---------------------------------------------------------------------------
 
-function listAppsTool(): ActionEntry {
+function listAppsTool(config: MCPConfig): ActionEntry {
   return {
     tool: tool(
-      "List the workspace apps and their local dev URLs/ports. Use this to " +
-        "discover which apps exist before opening or asking one. In a single-" +
-        "app project this returns just that app.",
+      "List the workspace apps and their URLs. Use this to discover which " +
+        "apps exist before opening or asking one. In a single-app project " +
+        "this returns just that app. When an org directory is configured " +
+        "this also includes the org's deployed sibling apps.",
     ),
     readOnly: true,
     parallelSafe: true,
     run: async () => {
       const { resolveWorkspace } = await import("./workspace-resolve.js");
       const ws = await resolveWorkspace();
+
+      interface AppEntry {
+        id: string;
+        url: string;
+        port: number | undefined;
+        running: boolean;
+        source: "workspace" | "org-directory";
+      }
+
+      const apps: AppEntry[] = ws.apps.map((a) => ({
+        id: a.id,
+        url: a.url,
+        port: a.port as number | undefined,
+        running: a.running,
+        source: "workspace",
+      }));
+      const seenIds = new Set(apps.map((a) => a.id.toLowerCase()));
+      const seenOrigins = new Set(apps.map((a) => a.url.replace(/\/+$/, "")));
+
+      // Merge the org directory's deployed sibling apps. Inactive (no env)
+      // or any failure ⇒ fetchOrgApps() returns [] and this is a no-op, so
+      // the existing local/workspace behavior is preserved exactly.
+      const orgApps = await fetchOrgApps({
+        selfId: currentAppId(config),
+      }).catch(() => [] as OrgApp[]);
+      for (const oa of orgApps) {
+        const idKey = oa.id.toLowerCase();
+        const originKey = oa.url.replace(/\/+$/, "");
+        // Dedupe by id OR origin — a workspace app already listed wins.
+        if (seenIds.has(idKey) || seenOrigins.has(originKey)) continue;
+        seenIds.add(idKey);
+        seenOrigins.add(originKey);
+        apps.push({
+          id: oa.id,
+          url: oa.url,
+          port: undefined,
+          running: true,
+          source: "org-directory",
+        });
+      }
+
       return {
         workspace: ws.isWorkspace,
         gatewayUrl: ws.gatewayUrl,
-        apps: ws.apps.map((a) => ({
-          id: a.id,
-          url: a.url,
-          port: a.port,
-          running: a.running,
-        })),
+        apps,
       };
     },
   };
@@ -201,6 +239,38 @@ function openAppTool(config: MCPConfig): ActionEntry {
   };
 }
 
+/**
+ * Route an `ask_app` message to a *different* app's agent over A2A. Shared by
+ * the workspace-resolved path and the org-directory-resolved path so the A2A
+ * call logic is not duplicated. `origin` is the target app's A2A base
+ * (workspace dev origin or the directory's `a2aUrl`); `id` is reported back.
+ *
+ * Throws on failure so the caller can be honest — it never falls back to this
+ * app's agent and pretends it was the target.
+ */
+async function routeAskOverA2A(
+  origin: string,
+  id: string,
+  message: string,
+): Promise<{ app: string; routedVia: "a2a"; response: string }> {
+  const { callAgent } = await import("../a2a/client.js");
+  const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
+  // The MCP handler runs inside `runWithRequestContext`, so this is the
+  // verified caller identity and org scope. Reuse the same auth resolver as
+  // org-directory discovery so the directory lookup and actual A2A call are
+  // scoped the same way.
+  const auth = await resolveA2ACallerAuth();
+  const response = await callAgent(origin, message, {
+    apiKey: auth.apiKey,
+    userEmail: auth.userEmail,
+    orgDomain: auth.orgDomain,
+    orgSecret: auth.orgSecret,
+    // Bound the wait — cross-app A2A polls async by default.
+    timeoutMs: 5 * 60_000,
+  });
+  return { app: id, routedVia: "a2a", response };
+}
+
 // ---------------------------------------------------------------------------
 // ask_app
 // ---------------------------------------------------------------------------
@@ -239,22 +309,7 @@ function askAppTool(config: MCPConfig): ActionEntry {
       const targetApp = await resolveTargetAppOrigin(config, requestedApp);
       if (targetApp) {
         try {
-          const { callAgent } = await import("../a2a/client.js");
-          const { getRequestUserEmail } =
-            await import("../server/request-context.js");
-          // The MCP handler runs inside `runWithRequestContext`, so this is
-          // the verified caller's email — it lets `callAgent` mint a signed
-          // A2A JWT so the target app honours per-user scope.
-          const response = await callAgent(targetApp.origin, message, {
-            userEmail: getRequestUserEmail(),
-            // Bound the wait — cross-app A2A polls async by default.
-            timeoutMs: 5 * 60_000,
-          });
-          return {
-            app: targetApp.id,
-            routedVia: "a2a",
-            response,
-          };
+          return await routeAskOverA2A(targetApp.origin, targetApp.id, message);
         } catch (err: any) {
           // Be honest: routing was attempted and failed — do NOT fall back to
           // this app's agent and pretend it was the target.
@@ -262,6 +317,30 @@ function askAppTool(config: MCPConfig): ActionEntry {
             `Failed to route ask_app to "${targetApp.id}" via A2A: ` +
               `${err?.message ?? err}`,
           );
+        }
+      }
+
+      // Not a known local/workspace app — try the org directory. When a
+      // directory is configured and the requested app is one of the org's
+      // deployed sibling apps, route to it over A2A (same path as above,
+      // against its `a2aUrl`). Inactive directory / any failure ⇒ orgApps is
+      // [] and this is skipped, preserving the exact local-only behavior.
+      if (requestedApp && requestedApp.toLowerCase() !== selfId) {
+        const orgApps = await fetchOrgApps({ selfId }).catch(
+          () => [] as OrgApp[],
+        );
+        const dirMatch = orgApps.find(
+          (a) => a.id === requestedApp.toLowerCase(),
+        );
+        if (dirMatch) {
+          try {
+            return await routeAskOverA2A(dirMatch.a2aUrl, dirMatch.id, message);
+          } catch (err: any) {
+            throw new Error(
+              `Failed to route ask_app to "${dirMatch.id}" via A2A ` +
+                `(org directory): ${err?.message ?? err}`,
+            );
+          }
         }
       }
 
@@ -455,7 +534,7 @@ export function getBuiltinCrossAppTools(
   config: MCPConfig,
 ): Record<string, ActionEntry> {
   return {
-    list_apps: listAppsTool(),
+    list_apps: listAppsTool(config),
     open_app: openAppTool(config),
     ask_app: askAppTool(config),
     create_workspace_app: createWorkspaceAppTool(),

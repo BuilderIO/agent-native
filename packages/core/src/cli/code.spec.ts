@@ -821,7 +821,7 @@ describe("generic task sessions", () => {
       metadata: {
         pendingApproval: {
           id: "approval-test",
-          tool: "run_command",
+          tool: "bash",
           command:
             "node -e \"require('fs').writeFileSync('approved.txt', 'ok')\"",
           reason: "destructive recursive delete",

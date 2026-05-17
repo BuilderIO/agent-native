@@ -12,7 +12,7 @@ Agent-native apps run with an AI agent alongside the app UI. Locally, the agent 
 - Ships with `@agent-native/core` — no separate package needed
 - Agent panel embedded directly in your app with chat and optional CLI terminal
 - Supports multiple AI coding CLIs — switch between them from the settings panel
-- Toggle between production mode (app tools only) and development mode (full filesystem, shell, and database access)
+- Toggle between production mode (app tools only) and development mode (shared `bash`/`read`/`edit`/`write` coding tools plus database access)
 - Great for local development, self-hosted production, and OSS
 
 ## Supported CLIs {#supported-clis}

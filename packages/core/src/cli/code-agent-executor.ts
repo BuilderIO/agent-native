@@ -1,12 +1,13 @@
-import { spawn } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
-import { once } from "node:events";
-
 import {
   createToolSearchEntry,
   TOOL_SEARCH_ACTION_NAME,
 } from "../agent/tool-search.js";
+import {
+  createCodingToolRegistry,
+  isReadOnlyShellCommand,
+  runCodingCommand,
+  truncateCodingOutput,
+} from "../coding-tools/index.js";
 import {
   buildMergedConfig,
   McpClientManager,
@@ -57,16 +58,9 @@ export interface ExecuteCodeAgentRunOptions {
   signal?: AbortSignal;
 }
 
-interface CommandResult {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
-}
-
 interface PendingCodeAgentApproval {
   id: string;
-  tool: "run_command";
+  tool: "bash" | "run_command";
   command: string;
   reason: string;
   requestedAt: string;
@@ -218,7 +212,7 @@ export async function executeCodeAgentRun(
         metadata: {
           type: "tool_done",
           tool: event.tool,
-          result: truncate(event.result, 4000),
+          result: truncateCodingOutput(event.result, 4000),
         },
       });
       return;
@@ -425,12 +419,12 @@ export async function executePendingCodeAgentApproval(
       command: approval.command,
     },
   });
-  const result = await runCommand(
+  const result = await runCodingCommand(
     approval.command,
     record.cwd || process.cwd(),
     DEFAULT_COMMAND_TIMEOUT_MS,
   );
-  const summary = truncate(
+  const summary = truncateCodingOutput(
     [
       `Approved command finished with exit code ${result.code}.`,
       result.timedOut ? "Timed out: true" : "",
@@ -655,7 +649,8 @@ Work like a careful senior engineer:
 - In Auto mode, edit files and run ordinary project commands without pausing. Pause only for genuinely destructive operations such as recursive deletes, package publishing, privileged commands, destructive database operations, or forbidden git branch/reset/stash/rebase operations.
 - Do not create, switch, delete, reset, rebase, or stash git branches.
 - Do not run destructive git commands.
-- Use apply_patch or write_file for edits, then run focused verification.
+- Use the shared coding tools: bash for search/list/test/build commands, read for file reads, edit for exact replacement edits, and write only for new files or intentional full rewrites.
+- Prefer edit over write when changing existing files, then run focused verification with bash.
 - Use tool-search when you need a capability that may come from MCP, including browser automation or computer control.
 - Prefer Playwright MCP for deterministic browser testing; prefer Chrome DevTools MCP when the user needs their live logged-in Chrome session.
 - Only use computer-control MCP tools when they are explicitly available and the user request warrants controlling the local computer.
@@ -668,211 +663,44 @@ function createLocalCodeAgentActions(
   permissionMode: CodeAgentPermissionMode,
   runId: string,
 ): Record<string, ActionEntry> {
-  const actions: Record<string, ActionEntry> = {
-    list_files: {
-      readOnly: true,
-      tool: {
-        description: "List files under the current repository/workspace.",
-        parameters: {
-          type: "object",
-          properties: {
-            pattern: {
-              type: "string",
-              description:
-                "Optional substring or glob-like fragment to filter.",
-            },
-          },
-          required: [],
-        },
-      },
-      run: async (args) => {
-        const result = await runCommand("rg --files", cwd, 30_000);
-        const output =
-          result.code === 0
-            ? result.stdout
-            : (await runCommand("find . -type f | sed 's#^./##'", cwd, 30_000))
-                .stdout;
-        const pattern = stringArg(args.pattern).toLowerCase();
-        const files = output
-          .split(/\r?\n/)
-          .filter(Boolean)
-          .filter((file) => !pattern || file.toLowerCase().includes(pattern))
-          .slice(0, 500);
-        return files.join("\n") || "(no files found)";
-      },
-    },
-    search_files: {
-      readOnly: true,
-      tool: {
-        description: "Search files with ripgrep.",
-        parameters: {
-          type: "object",
-          properties: {
-            query: { type: "string", description: "Search query or regex." },
-            glob: {
-              type: "string",
-              description: "Optional glob, for example src/**/*.ts.",
-            },
-          },
-          required: ["query"],
-        },
-      },
-      run: async (args) => {
-        const query = stringArg(args.query);
-        if (!query) return "Error: query is required.";
-        const glob = stringArg(args.glob);
-        const command = glob
-          ? `rg --line-number --no-heading ${shellQuote(query)} -g ${shellQuote(glob)}`
-          : `rg --line-number --no-heading ${shellQuote(query)}`;
-        const result = await runCommand(command, cwd, 30_000);
-        return truncate(
-          result.stdout || result.stderr || "(no matches)",
-          MAX_TOOL_OUTPUT_CHARS,
-        );
-      },
-    },
-    read_file: {
-      readOnly: true,
-      tool: {
-        description: "Read a UTF-8 text file inside the workspace.",
-        parameters: {
-          type: "object",
-          properties: {
-            path: { type: "string", description: "Relative file path." },
-          },
-          required: ["path"],
-        },
-      },
-      run: async (args) => {
-        const filePath = resolveInsideCwd(cwd, stringArg(args.path));
-        if (!filePath) return "Error: path must stay inside the workspace.";
-        if (!fs.existsSync(filePath))
-          return `Error: file not found: ${args.path}`;
-        const stat = fs.statSync(filePath);
-        if (!stat.isFile()) return `Error: not a file: ${args.path}`;
-        return truncate(fs.readFileSync(filePath, "utf8"), MAX_FILE_READ_CHARS);
-      },
-    },
-    write_file: {
-      tool: {
-        description: "Write a complete UTF-8 text file inside the workspace.",
-        parameters: {
-          type: "object",
-          properties: {
-            path: { type: "string", description: "Relative file path." },
-            content: { type: "string", description: "Full file content." },
-          },
-          required: ["path", "content"],
-        },
-      },
-      run: async (args) => {
-        const permissionError = permissionErrorForWrite(
-          permissionMode,
-          "write_file",
-        );
+  const actions = createCodingToolRegistry({
+    cwd,
+    restrictToCwd: true,
+    commandTimeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
+    maxOutputChars: MAX_TOOL_OUTPUT_CHARS,
+    maxFileReadChars: MAX_FILE_READ_CHARS,
+    canWrite: (toolName) => permissionErrorForWrite(permissionMode, toolName),
+    beforeBash: ({ command }) => {
+      const permission = classifyCodeAgentCommandPermission(command);
+      if (permission.kind === "forbidden") {
+        return `Error: command is blocked by Agent-Native Code policy: ${permission.reason}`;
+      }
+      if (permission.kind !== "read") {
+        const permissionError = permissionErrorForWrite(permissionMode, "bash");
         if (permissionError) return permissionError;
-        const filePath = resolveInsideCwd(cwd, stringArg(args.path));
-        if (!filePath) return "Error: path must stay inside the workspace.";
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, stringArg(args.content));
-        return `Wrote ${path.relative(cwd, filePath)}`;
-      },
-    },
-    apply_patch: {
-      tool: {
-        description:
-          "Apply a unified git patch from the workspace root. Prefer this for precise edits.",
-        parameters: {
-          type: "object",
-          properties: {
-            patch: { type: "string", description: "Unified diff patch text." },
-          },
-          required: ["patch"],
-        },
-      },
-      run: async (args) => {
-        const permissionError = permissionErrorForWrite(
-          permissionMode,
-          "apply_patch",
-        );
-        if (permissionError) return permissionError;
-        const patch = stringArg(args.patch);
-        if (!patch.trim()) return "Error: patch is required.";
-        const result = await runCommand(
-          "git apply --whitespace=nowarn -",
-          cwd,
-          30_000,
-          patch,
-        );
-        if (result.code !== 0) {
-          return `Error applying patch:\n${result.stderr || result.stdout}`;
-        }
-        return "Patch applied.";
-      },
-    },
-    run_command: {
-      tool: {
-        description:
-          "Run a shell command from the workspace root. Use for tests, typechecks, and safe project commands.",
-        parameters: {
-          type: "object",
-          properties: {
-            command: { type: "string", description: "Shell command to run." },
-            timeoutMs: {
-              type: "string",
-              description: "Optional timeout in milliseconds.",
-            },
-          },
-          required: ["command"],
-        },
-      },
-      run: async (args) => {
-        const command = stringArg(args.command);
-        if (!command) return "Error: command is required.";
-        const permission = classifyCodeAgentCommandPermission(command);
-        if (permission.kind === "forbidden") {
-          return `Error: command is blocked by Agent-Native Code policy: ${permission.reason}`;
-        }
-        if (permission.kind === "approval-required") {
-          const approval = requestCodeAgentApproval(runId, {
-            tool: "run_command",
-            command,
-            reason: permission.reason,
-            permissionMode,
-          });
-          return [
-            `Approval required before running this command: ${permission.reason}.`,
-            `Approval id: ${approval.id}`,
-            `Command: ${command}`,
-            "The run is paused; approve from the Agent-Native Code UI/CLI if this command is intentional.",
-          ].join("\n");
-        }
-        const timeoutMs = Number(args.timeoutMs);
-        const result = await runCommand(
+      }
+      if (permission.kind === "approval-required") {
+        const approval = requestCodeAgentApproval(runId, {
+          tool: "bash",
           command,
-          cwd,
-          Number.isFinite(timeoutMs) && timeoutMs > 0
-            ? Math.min(timeoutMs, 10 * 60_000)
-            : DEFAULT_COMMAND_TIMEOUT_MS,
-        );
-        return truncate(
-          [
-            `exitCode: ${result.code}`,
-            result.timedOut ? "timedOut: true" : "",
-            result.stdout ? `stdout:\n${result.stdout}` : "",
-            result.stderr ? `stderr:\n${result.stderr}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
-          MAX_TOOL_OUTPUT_CHARS,
-        );
-      },
+          reason: permission.reason,
+          permissionMode,
+        });
+        return [
+          `Approval required before running this command: ${permission.reason}.`,
+          `Approval id: ${approval.id}`,
+          `Command: ${command}`,
+          "The run is paused; approve from the Agent-Native Code UI/CLI if this command is intentional.",
+        ].join("\n");
+      }
+      return null;
     },
-  };
+  });
   if (permissionMode === "read-only") {
-    return Object.fromEntries(
-      Object.entries(actions).filter(([, action]) => action.readOnly),
-    );
+    return {
+      bash: actions.bash,
+      read: actions.read,
+    };
   }
   return actions;
 }
@@ -922,23 +750,7 @@ export function classifyCodeAgentCommandPermission(
     }
   }
 
-  const readPatterns = [
-    /^pwd\b/,
-    /^ls\b/,
-    /^find\b/,
-    /^rg\b/,
-    /^grep\b/,
-    /^cat\b/,
-    /^sed\s+-n\b/,
-    /^head\b/,
-    /^tail\b/,
-    /^wc\b/,
-    /^git\s+(status|diff|show|log)\b/,
-    /^git\s+branch\s+--show-current\b/,
-    /^pnpm\b.*\b(test|typecheck|lint|check)\b/,
-    /^npm\b.*\b(test|run\s+(test|typecheck|lint|check))\b/,
-  ];
-  if (readPatterns.some((pattern) => pattern.test(normalized))) {
+  if (isReadOnlyShellCommand(command)) {
     return { kind: "read" };
   }
 
@@ -1017,8 +829,12 @@ function getPendingApproval(runId: string): PendingCodeAgentApproval | null {
   const approval = record?.metadata?.pendingApproval;
   if (!approval || typeof approval !== "object") return null;
   const candidate = approval as Record<string, unknown>;
+  const tool =
+    candidate.tool === "bash" || candidate.tool === "run_command"
+      ? candidate.tool
+      : null;
   if (
-    candidate.tool !== "run_command" ||
+    !tool ||
     typeof candidate.command !== "string" ||
     typeof candidate.reason !== "string" ||
     typeof candidate.id !== "string" ||
@@ -1028,7 +844,7 @@ function getPendingApproval(runId: string): PendingCodeAgentApproval | null {
   }
   return {
     id: candidate.id,
-    tool: "run_command",
+    tool,
     command: candidate.command,
     reason: candidate.reason,
     requestedAt: candidate.requestedAt,
@@ -1040,56 +856,4 @@ function getPendingApproval(runId: string): PendingCodeAgentApproval | null {
         ? candidate.permissionMode
         : "full-auto",
   };
-}
-
-function resolveInsideCwd(cwd: string, value: string): string | null {
-  if (!value.trim()) return null;
-  const resolved = path.resolve(cwd, value);
-  const relative = path.relative(cwd, resolved);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
-  return resolved;
-}
-
-async function runCommand(
-  command: string,
-  cwd: string,
-  timeoutMs: number,
-  stdin?: string,
-): Promise<CommandResult> {
-  const child = spawn(command, {
-    cwd,
-    shell: true,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  let stdout = "";
-  let stderr = "";
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    child.kill("SIGTERM");
-  }, timeoutMs);
-  child.stdout?.on("data", (chunk) => {
-    stdout += chunk.toString();
-  });
-  child.stderr?.on("data", (chunk) => {
-    stderr += chunk.toString();
-  });
-  if (stdin) child.stdin?.end(stdin);
-  else child.stdin?.end();
-  const [code] = (await once(child, "exit")) as [number | null];
-  clearTimeout(timer);
-  return { code, stdout, stderr, timedOut };
-}
-
-function stringArg(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-function truncate(value: string, max: number): string {
-  if (value.length <= max) return value;
-  return `${value.slice(0, max)}\n\n...[truncated ${value.length - max} chars]`;
 }

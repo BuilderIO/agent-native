@@ -102,6 +102,21 @@ sendToAgentChat({
 | `preset`              | `string?`   | Optional preset name for downstream consumers  |
 | `referenceImagePaths` | `string[]?` | Optional reference image paths                 |
 
+## Dynamic Suggestions {#dynamic-suggestions}
+
+`<AgentSidebar>`, `<AgentPanel>`, and `<AssistantChat>` merge static `suggestions` with context-aware suggestions by default. The framework reads `navigation`, `selection`, `pending-selection-context`, and the current URL from application state while an empty chat is visible, then offers prompt chips that match the current screen.
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{ max: 4 }}
+>
+  <App />
+</AgentSidebar>
+```
+
+Set `dynamicSuggestions={false}` to keep only static chips. Pass `getSuggestions` when an app wants deterministic domain-specific chips from the same application-state context.
+
 ## useAgentChatGenerating() {#useagentchatgenerating}
 
 React hook that wraps sendToAgentChat with loading state tracking:

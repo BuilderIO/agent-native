@@ -1,7 +1,6 @@
 import {
   defineEventHandler,
   getQuery,
-  sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -23,6 +22,16 @@ const GOOGLE_IDENTITY_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
+
+function oauthRedirectResponse(url: string) {
+  // h3 v2 sendRedirect returns an object the framework shim can stringify as
+  // "[object Object]" in production auth-url popups. Native Response stays a
+  // real 302 across the stack.
+  return new Response(null, {
+    status: 302,
+    headers: { Location: url },
+  });
+}
 
 export default defineEventHandler(async (event: H3Event) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -96,7 +105,7 @@ export default defineEventHandler(async (event: H3Event) => {
     }
 
     const url = `${GOOGLE_AUTH_URL}?${params.toString()}`;
-    if (q.redirect === "1") return sendRedirect(event, url, 302);
+    if (q.redirect === "1") return oauthRedirectResponse(url);
     return { url };
   } catch (err: any) {
     setResponseStatus(event, 500);

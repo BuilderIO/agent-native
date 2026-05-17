@@ -480,6 +480,7 @@ function AgentPanelInner({
   emptyStateText,
   emptyStateAddon,
   suggestions,
+  dynamicSuggestions,
   showHeader = true,
   onCollapse,
   isFullscreen,
@@ -1352,6 +1353,7 @@ function AgentPanelInner({
             emptyStateText={emptyStateText}
             emptyStateAddon={emptyStateAddon}
             suggestions={suggestions}
+            dynamicSuggestions={dynamicSuggestions}
             onSwitchToCli={() => switchMode("cli")}
             execMode={execMode}
             onExecModeChange={switchExecMode}
@@ -1961,6 +1963,8 @@ export interface AgentSidebarProps {
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
   suggestions?: string[];
+  /** Context-aware suggestions merged with `suggestions`. Enabled by default. */
+  dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
   /** Initial sidebar width in pixels. Mount-only; user resize and a saved
    *  localStorage value override this. Default: 380 */
   defaultSidebarWidth?: number;
@@ -1991,6 +1995,7 @@ export function AgentSidebar({
   children,
   emptyStateText = "How can I help you?",
   suggestions,
+  dynamicSuggestions,
   defaultSidebarWidth,
   sidebarWidth,
   position = "right",
@@ -2355,6 +2360,7 @@ export function AgentSidebar({
         <AgentPanel
           emptyStateText={emptyStateText}
           suggestions={suggestions}
+          dynamicSuggestions={dynamicSuggestions}
           onCollapse={() => setOpenPersisted(false)}
           isFullscreen={effectiveFullscreen}
           onToggleFullscreen={isMobile ? undefined : toggleFullscreen}

@@ -31,6 +31,10 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import {
+  useAgentDynamicSuggestions,
+  type AgentDynamicSuggestionsOption,
+} from "./dynamic-suggestions.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type {
   ChatThreadScope,
@@ -3164,6 +3168,8 @@ export interface AssistantChatProps {
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
   suggestions?: string[];
+  /** Context-aware suggestions merged with `suggestions`. Enabled by default. */
+  dynamicSuggestions?: AgentDynamicSuggestionsOption;
   /** Optional content rendered in the empty state, above the suggestion buttons.
    *  Used by MultiTabAssistantChat to surface "previous chats for this design"
    *  when the current thread is empty but the scope has other threads. */
@@ -3286,13 +3292,16 @@ const AssistantChatInner = forwardRef<
   {
     emptyStateText,
     suggestions,
+    dynamicSuggestions,
     emptyStateAddon,
     showHeader = true,
     onSwitchToCli,
     className,
     apiUrl,
     tabId,
+    browserTabId,
     threadId,
+    contextScope,
     onMessageCountChange,
     onSaveThread,
     onGenerateTitle,
@@ -3321,6 +3330,13 @@ const AssistantChatInner = forwardRef<
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
+  const resolvedSuggestions = useAgentDynamicSuggestions({
+    staticSuggestions: suggestions,
+    dynamicSuggestions,
+    browserTabId,
+    scope: contextScope,
+    enabled: messages.length === 0,
+  });
   const messageListResetKey = useMemo(
     () => messages.map((message) => message.id).join("|"),
     [messages],
@@ -4624,9 +4640,9 @@ const AssistantChatInner = forwardRef<
                     {emptyStateText ?? "How can I help you?"}
                   </p>
                   {emptyStateAddon}
-                  {suggestions && suggestions.length > 0 && (
+                  {resolvedSuggestions && resolvedSuggestions.length > 0 && (
                     <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
-                      {suggestions.map((suggestion) => (
+                      {resolvedSuggestions.map((suggestion) => (
                         <button
                           key={suggestion}
                           onClick={() => {
@@ -4966,6 +4982,8 @@ export const AssistantChat = forwardRef<
           <AssistantChatInner
             ref={ref}
             {...props}
+            browserTabId={browserTabId}
+            contextScope={contextScope}
             apiUrl={apiUrl}
             tabId={tabId}
             threadId={threadId}

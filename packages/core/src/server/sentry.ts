@@ -129,10 +129,10 @@ export function initServerSentry(): boolean {
       // application-thrown socket errors from being silenced.
       const exceptionValue = event.exception?.values?.[0]?.value ?? "";
       const exceptionMechanism = event.exception?.values?.[0]?.mechanism?.type;
-      if (
-        exceptionValue === "socket hang up" &&
-        exceptionMechanism === "onunhandledrejection"
-      ) {
+      const isUnhandledRejection =
+        typeof exceptionMechanism === "string" &&
+        exceptionMechanism.endsWith("onunhandledrejection");
+      if (exceptionValue === "socket hang up" && isUnhandledRejection) {
         const frames = event.exception?.values?.[0]?.stacktrace?.frames ?? [];
         const fromHttpClient = frames.some(
           (f) =>
@@ -140,6 +140,21 @@ export function initServerSentry(): boolean {
             f?.filename === "node:_http_client",
         );
         if (fromHttpClient) {
+          return null;
+        }
+      }
+      // Drop SDK-only ErrorEvent promise rejections. These arrive as Node
+      // unhandled rejections with no application frames, usually from a
+      // browser ErrorEvent object crossing the shared browser/server bundle
+      // boundary. Keep any event with app frames so real thrown ErrorEvents
+      // are still visible.
+      if (exceptionValue === "[object ErrorEvent]" && isUnhandledRejection) {
+        const frames = event.exception?.values?.[0]?.stacktrace?.frames ?? [];
+        const hasApplicationFrame = frames.some((frame) => frame?.in_app);
+        const hasSentryFrame = frames.some((frame) =>
+          String(frame?.filename ?? "").includes("sentry"),
+        );
+        if (!hasApplicationFrame && hasSentryFrame) {
           return null;
         }
       }
@@ -175,6 +190,7 @@ export function initServerSentry(): boolean {
           /^Cannot find any route matching/i.test(value) ||
           / not found$/i.test(value) ||
           /Unauthenticated$/i.test(value) ||
+          /^Unauthorized$/i.test(value) ||
           /^No access to /i.test(value)
         ) {
           return null;

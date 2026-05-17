@@ -1,7 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { verifyAuth } from "./build-server.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import type { MCPConfig } from "./build-server.js";
+import * as orgDirectory from "./org-directory.js";
+import * as a2aClient from "../a2a/client.js";
+import * as callerAuth from "../a2a/caller-auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -11,11 +14,14 @@ function resetEnv() {
   delete process.env.ACCESS_TOKENS;
   delete process.env.A2A_SECRET;
   delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+  delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
+  delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 }
 
 beforeEach(resetEnv);
 afterEach(() => {
   process.env = ORIGINAL_ENV;
+  vi.restoreAllMocks();
 });
 
 // ---------------------------------------------------------------------------
@@ -166,5 +172,117 @@ describe("ask_app — honest routing metadata", () => {
     await expect(tools.ask_app.run({ message: "hi" })).rejects.toThrow(
       /does not expose an agent/,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3b — org-directory auto-discovery merged into list_apps / ask_app
+// ---------------------------------------------------------------------------
+
+describe("list_apps — org-directory merge", () => {
+  it("no directory env ⇒ fetchOrgApps()=[] and list_apps unchanged", async () => {
+    // No directory env configured: the real fetchOrgApps short-circuits to []
+    // so list_apps must report only the local/workspace app(s).
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.list_apps.run({});
+    expect(Array.isArray(result.apps)).toBe(true);
+    for (const a of result.apps) {
+      expect(a.source).toBe("workspace");
+    }
+  });
+
+  it("directory returns apps ⇒ list_apps merges + dedupes by id/origin", async () => {
+    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
+      {
+        id: "calendar",
+        name: "Calendar",
+        url: "https://calendar.acme.com",
+        a2aUrl: "https://calendar.acme.com/_agent-native/a2a",
+      },
+      {
+        // Duplicate id of the current app — must be deduped out.
+        id: "mail",
+        name: "Mail",
+        url: "https://mail.acme.com",
+        a2aUrl: "https://mail.acme.com/_agent-native/a2a",
+      },
+    ]);
+
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.list_apps.run({});
+    const calendar = result.apps.find((a: any) => a.id === "calendar");
+    expect(calendar).toBeDefined();
+    expect(calendar.source).toBe("org-directory");
+    expect(calendar.url).toBe("https://calendar.acme.com");
+    // Only one "mail" entry — the workspace one wins, the directory dup drops.
+    expect(result.apps.filter((a: any) => a.id === "mail").length).toBe(1);
+  });
+});
+
+describe("ask_app — org-directory routing", () => {
+  it("routes an org-directory-only app over A2A and reports it honestly", async () => {
+    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
+      {
+        id: "calendar",
+        name: "Calendar",
+        url: "https://calendar.acme.com",
+        a2aUrl: "https://calendar.acme.com/_agent-native/a2a",
+      },
+    ]);
+    const callAgentSpy = vi
+      .spyOn(a2aClient, "callAgent")
+      .mockResolvedValue("calendar-says-hi");
+    vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgId: "org-1",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "local-answer" }),
+    );
+    const result: any = await tools.ask_app.run({
+      app: "calendar",
+      message: "what's on my schedule?",
+    });
+
+    // Routed over A2A against the directory's a2aUrl — not answered locally.
+    expect(callAgentSpy).toHaveBeenCalledTimes(1);
+    expect(callAgentSpy.mock.calls[0][0]).toBe(
+      "https://calendar.acme.com/_agent-native/a2a",
+    );
+    expect(callAgentSpy.mock.calls[0][2]).toMatchObject({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+    });
+    expect(result.routedVia).toBe("a2a");
+    expect(result.app).toBe("calendar");
+    expect(result.response).toBe("calendar-says-hi");
+    expect(result.note).toBeUndefined();
+  });
+
+  it("directory error ⇒ silent [] ⇒ falls back to honest local answer", async () => {
+    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([]);
+    const callAgentSpy = vi.spyOn(a2aClient, "callAgent");
+
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "local-answer" }),
+    );
+    const result: any = await tools.ask_app.run({
+      app: "calendar",
+      message: "hi",
+    });
+
+    expect(callAgentSpy).not.toHaveBeenCalled();
+    expect(result.routedVia).toBe("local");
+    expect(result.app).toBe("mail");
+    expect(typeof result.note).toBe("string");
+    expect(result.note).toContain("calendar");
+    expect(result.response).toBe("local-answer");
   });
 });

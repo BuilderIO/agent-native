@@ -223,8 +223,9 @@ describe("buildUserContentWithAttachments", () => {
 
   it("builds a plan-mode registry with only read-only tools", async () => {
     const registry = attachToolSearch({
-      "read-file": actionEntry({ readOnly: true }),
-      "write-file": actionEntry({ readOnly: false }),
+      read: actionEntry({ readOnly: true }),
+      write: actionEntry({ readOnly: false }),
+      bash: actionEntry({ readOnly: false }),
       "set-url-path": actionEntry({ readOnly: true }),
       resources: actionEntry({
         actions: ["list", "read", "write", "delete"],
@@ -234,7 +235,8 @@ describe("buildUserContentWithAttachments", () => {
     const planRegistry = createPlanModeActionRegistry(registry);
 
     expect(Object.keys(planRegistry).sort()).toEqual([
-      "read-file",
+      "bash",
+      "read",
       "resources",
       "tool-search",
     ]);
@@ -247,12 +249,21 @@ describe("buildUserContentWithAttachments", () => {
     await expect(
       planRegistry.resources.run({ action: "write" }),
     ).resolves.toContain("Plan mode blocked");
+    await expect(
+      planRegistry.bash.run({ command: "rg button src" }),
+    ).resolves.toContain('"command":"rg button src"');
+    await expect(
+      planRegistry.bash.run({ command: "echo hi > notes.txt" }),
+    ).resolves.toContain("Plan mode blocked");
+    await expect(
+      planRegistry.bash.run({ command: "rg button; node -e '1'" }),
+    ).resolves.toContain("Plan mode blocked");
 
     const searchResult = await planRegistry["tool-search"].run({
       query: "write file",
     } as any);
     expect(searchResult.results.map((tool: any) => tool.name)).not.toContain(
-      "write-file",
+      "write",
     );
   });
 
@@ -267,6 +278,25 @@ describe("buildUserContentWithAttachments", () => {
 
     const urlTool = actionEntry({ readOnly: true });
     expect(isPlanModeToolCallAllowed("set-url-path", {}, urlTool)).toBe(false);
+
+    const bashTool = actionEntry({ readOnly: false });
+    expect(
+      isPlanModeToolCallAllowed("bash", { command: "rg button src" }, bashTool),
+    ).toBe(true);
+    expect(
+      isPlanModeToolCallAllowed(
+        "bash",
+        { command: "echo hi > notes.txt" },
+        bashTool,
+      ),
+    ).toBe(false);
+    expect(
+      isPlanModeToolCallAllowed(
+        "bash",
+        { command: "rg button; node -e '1'" },
+        bashTool,
+      ),
+    ).toBe(false);
   });
 });
 
