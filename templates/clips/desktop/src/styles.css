@@ -1307,14 +1307,86 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .setup-help {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
   color: var(--fg-muted);
   opacity: 0.6;
   cursor: help;
   transition: opacity 120ms;
 }
 
-.setup-help:hover {
+.setup-help:hover,
+.setup-help:focus-visible,
+.setup-help[data-state="delayed-open"],
+.setup-help[data-state="instant-open"] {
   opacity: 1;
+}
+
+.setup-help:focus-visible {
+  outline: none;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Tooltip (shadcn-style, Radix-backed)                                       */
+/* ------------------------------------------------------------------------- */
+
+.tooltip-content {
+  z-index: 60;
+  max-width: 260px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow-md);
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  user-select: none;
+  transform-origin: var(--radix-tooltip-content-transform-origin);
+}
+
+.tooltip-content[data-state="delayed-open"],
+.tooltip-content[data-state="instant-open"] {
+  animation: tooltip-in 120ms ease-out;
+}
+
+.tooltip-content[data-state="closed"] {
+  animation: tooltip-out 90ms ease-in;
+}
+
+.tooltip-arrow {
+  fill: var(--bg);
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes tooltip-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
 
 .setup-toggle-row {

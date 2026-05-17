@@ -33,6 +33,7 @@ import {
 } from "./lib/voice-dictation";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { FeedbackButton } from "./components/FeedbackButton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import {
   IconArrowLeft,
@@ -4324,9 +4325,14 @@ function SettingLabel({
   return (
     <label className="setup-label" htmlFor={htmlFor}>
       <span>{label}</span>
-      <span className="setup-help" title={hint} aria-label={hint} role="img">
-        <IconInfoCircle size={14} stroke={1.75} />
-      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" className="setup-help" aria-label={hint}>
+            <IconInfoCircle size={14} stroke={1.75} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{hint}</TooltipContent>
+      </Tooltip>
     </label>
   );
 }
