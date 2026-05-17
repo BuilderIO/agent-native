@@ -1,5 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { signShortLivedToken, buildDeepLink } from "@agent-native/core/server";
+import {
+  signShortLivedToken,
+  buildDeepLink,
+  getAppProductionUrl,
+  getRequestContext,
+} from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { schema } from "../server/db/index.js";
@@ -64,10 +69,21 @@ export default defineAction({
       ttlSeconds: HANDOFF_TTL_SECONDS,
     });
     const handoffFormat = normalizeHandoffFormat(format);
+    // External agents (MCP / A2A) that don't pass `origin` would otherwise get
+    // a relative URL they can't fetch. Resolution order:
+    //   1. explicit `origin` arg (caller knows best),
+    //   2. the live request origin from the request context (set by the MCP
+    //      layer from the inbound request — the actual local-workspace app
+    //      origin, e.g. http://127.0.0.1:8085, so the signed raw-code URL is
+    //      fetchable in dev/workspace setups), then
+    //   3. the canonical first-party app origin (env override → registry
+    //      prodUrl → platform URL → localhost) for deployed apps.
+    const resolvedOrigin =
+      origin || getRequestContext()?.requestOrigin || getAppProductionUrl();
     const rawUrl = buildRawHandoffUrl({
       id,
       token,
-      origin,
+      origin: resolvedOrigin,
       format: handoffFormat,
     });
     const prompt = buildCodingHandoffPrompt({

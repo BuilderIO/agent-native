@@ -24,7 +24,7 @@
 import type { H3Event } from "h3";
 import { defineEventHandler, getMethod } from "h3";
 import { getSession, getConfiguredLoginHtml } from "./auth.js";
-import { appStatePut } from "../application-state/store.js";
+import { appStatePut, appStateGet } from "../application-state/store.js";
 
 /** Query keys that are route control, not navigation payload. */
 const RESERVED = new Set(["app", "view", "to", "compose"]);
@@ -32,6 +32,12 @@ const RESERVED = new Set(["app", "view", "to", "compose"]);
 // Control-char guard (NUL..US + DEL). Defined via codepoints so the source
 // file stays plain ASCII.
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
+
+// Compose-draft id charset. Mirrors `sanitizeDraftId` in
+// templates/mail/actions/manage-draft.ts so the id we concatenate into the
+// `compose-<id>` application-state key can't escape the key namespace
+// (path-traversal / key injection guard).
+const COMPOSE_ID = /^[a-zA-Z0-9_-]{1,64}$/;
 
 export interface OpenRouteOptions {
   /** Per-template override that turns the parsed deep-link params into the
@@ -130,10 +136,39 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
         if (compose) {
           try {
             const draft = JSON.parse(decodeBase64Url(compose));
-            if (draft && typeof draft === "object" && draft.id) {
-              await appStatePut(session.email, `compose-${draft.id}`, draft, {
-                requestSource: "deep-link",
-              });
+            // Validate the id before using it as a key segment. An unsafe id
+            // could escape the `compose-` namespace and clobber an unrelated
+            // application-state key; skip the write (the view still opens),
+            // mirroring the malformed-payload branch below.
+            if (
+              draft &&
+              typeof draft === "object" &&
+              typeof draft.id === "string" &&
+              COMPOSE_ID.test(draft.id)
+            ) {
+              const composeKey = `compose-${draft.id}`;
+              // A compact deep link may carry only `{ id, subject }` when the
+              // full draft was too large to inline in the URL. The complete
+              // draft is already persisted at `compose-<id>` by manage-draft
+              // on create/update. Never let the truncated stub overwrite that
+              // richer saved draft (would silently lose body / recipients /
+              // reply metadata). Only write when the payload actually carries
+              // content, or when nothing is saved yet (composer still opens).
+              const hasContent =
+                (typeof draft.body === "string" && draft.body.length > 0) ||
+                !!draft.to ||
+                !!draft.cc ||
+                !!draft.bcc ||
+                !!draft.html ||
+                !!draft.replyToThreadId;
+              const existing = hasContent
+                ? null
+                : await appStateGet(session.email, composeKey);
+              if (hasContent || !existing) {
+                await appStatePut(session.email, composeKey, draft, {
+                  requestSource: "deep-link",
+                });
+              }
             }
           } catch {
             // Malformed compose payload — skip; the view still opens.

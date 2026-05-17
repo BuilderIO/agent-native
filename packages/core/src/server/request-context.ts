@@ -63,6 +63,14 @@ export interface RequestContext {
   orgId?: string;
   timezone?: string;
   /**
+   * Origin of the inbound request (e.g. `http://127.0.0.1:8100`). Set by the
+   * MCP mount from the request headers so actions that build externally
+   * fetchable URLs (e.g. design `export-coding-handoff`'s signed raw-code URL)
+   * resolve the real local-workspace origin instead of a prod/localhost
+   * fallback. Optional — absent on paths that don't populate it.
+   */
+  requestOrigin?: string;
+  /**
    * True when this request is being processed by an integration-platform
    * webhook (Slack, Telegram, etc.) where the function timeout is the
    * binding constraint. Code that calls slow remote APIs can use this to apply

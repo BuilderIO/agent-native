@@ -79,6 +79,19 @@ predictable surface without guessing per-app action names:
 A same-named template action overrides a builtin (template-over-core
 precedence). Disable the set with `MCPConfig.builtinCrossAppTools: false`.
 
+### 1c. Dev vs production tool surface (expect a sparse `tools/list` in plain dev)
+
+In plain local dev (`NODE_ENV=development` and `AGENT_MODE !== "production"`)
+the MCP `tools/list` deliberately exposes only the generic builtins plus
+actions with `publicAgent.requiresAuth === false` — the per-app ingest actions
+(`requiresAuth: true`) and mutating actions (no `publicAgent`) are filtered out
+(`filterPublicAgentActions`). The full per-app surface appears when the request
+is authenticated as a real caller: a deployed/`AGENT_MODE=production` app, or a
+local app reached through `agent-native mcp install` (which provisions an
+`ACCESS_TOKEN` / signed JWT so the caller has an identity). So if `tools/list`
+looks sparse, you are hitting an unauthenticated dev endpoint — install the MCP
+server (or present a token) rather than assuming the action is missing.
+
 ### 2. Add a `link` builder to an action
 
 `defineAction` accepts an optional `link` builder. When set, every MCP/A2A

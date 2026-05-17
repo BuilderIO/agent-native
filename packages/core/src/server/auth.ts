@@ -1276,6 +1276,18 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // MCP protocol endpoint. `mountMCP` runs its own `verifyAuth` (Bearer
+    // ACCESS_TOKEN/ACCESS_TOKENS or A2A_SECRET JWT, open in dev) and is the
+    // authoritative gate — exactly like A2A above. Without this bypass the
+    // guard's blanket 401-for-/_agent-native/* below shadows that check, so
+    // an external coding agent (Claude Code / Codex / Cowork) connecting via
+    // the stdio proxy or HTTP can never reach it. Exact path only: the MCP
+    // handler returns early for `/_agent-native/mcp/*` management subroutes,
+    // which keep their normal session auth.
+    if (p === "/_agent-native/mcp") {
+      return;
+    }
+
     // Internal processor endpoint for the A2A async-mode fanout. Mirrors the
     // integration webhook fanout: when `message/send` is called with
     // `async: true`, the JSON-RPC handler enqueues to a2a_tasks and self-
@@ -1383,8 +1395,8 @@ function createAuthGuardFn(): (
     }
 
     // Local-dev convenience: on the first page GET of a freshly-scaffolded
-    // app, transparently create + sign in `dev@local` instead of showing the
-    // sign-up form. Gated on NODE_ENV=development AND no real users in the
+    // app, transparently create + sign in `dev@local.test` instead of
+    // showing the sign-up form. Gated on NODE_ENV=development AND no real users in the
     // DB, so production and any app that has ever had a real signup are
     // unaffected. See maybeAutoCreateDevSession for full conditions.
     if (getMethod(event) === "GET") {
@@ -1399,29 +1411,40 @@ function createAuthGuardFn(): (
   };
 }
 
-const AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
+// `.test` is an RFC 6761 reserved TLD that never resolves, so this stays a
+// safe local-only address while still passing better-auth's `z.email()`
+// validator (a bare `dev@local` has no TLD and is rejected as INVALID_EMAIL,
+// which silently broke the zero-setup auto-sign-in on every fresh dev DB).
+const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
 const AUTO_DEV_ACCOUNT_PASSWORD = "local-dev-account";
+
+// Pre-fix local dev DBs may already contain a `dev@local` user. Treat that
+// legacy address as the dev account too, so the "any real users?" check
+// below doesn't mistake the old auto-account for a real signup (which would
+// permanently disable auto-create) and the post-logout guard still fires.
+const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
 
 /**
  * Local-dev convenience: skip the sign-up wall on first run.
  *
  * When NODE_ENV=development AND the `user` table has no rows for any
- * email other than `dev@local`, transparently sign up (or sign back in
+ * email other than the dev account (`dev@local.test`, or the legacy
+ * `dev@local` on pre-fix DBs), transparently sign up (or sign back in
  * to) the auto-managed dev account and return a 302 to the original URL
  * with a session cookie set. A developer who just ran `pnpm dev` lands
  * in the app immediately instead of being asked to fill in name + email
  * + password to try the framework.
  *
- * Auto-create fires exactly once per local DB: as soon as `dev@local`
- * (or any real user) exists in the `user` table, the helper returns
- * null and the normal login flow takes over. Signing out then leaves
- * the user on the regular sign-in form; without this guard the
+ * Auto-create fires exactly once per local DB: as soon as the dev
+ * account (or any real user) exists in the `user` table, the helper
+ * returns null and the normal login flow takes over. Signing out then
+ * leaves the user on the regular sign-in form; without this guard the
  * post-logout reload would silently re-create the session.
  *
  * The fixed password is intentional: it means a developer who signs
- * out can sign back in with `dev@local` / `local-dev-account` from
- * the regular login form. To get the auto-flow back, drop the user
- * row or wipe the local DB. Set
+ * out can sign back in with `dev@local.test` / `local-dev-account`
+ * from the regular login form. To get the auto-flow back, drop the
+ * user row or wipe the local DB. Set
  * `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely
  * (useful for tests that exercise the unauthenticated branch). This
  * is local-only — the helper is gated on NODE_ENV.
@@ -1435,22 +1458,28 @@ async function maybeAutoCreateDevSession(
 
   try {
     const db = getDbExec();
+    // Exclude BOTH the current and the legacy dev-account email so a
+    // pre-fix local DB that still holds a `dev@local` row isn't treated
+    // as having a "real user" (which would permanently disable
+    // auto-create on that DB).
     const { rows: realUsers } = await db.execute({
-      sql: 'SELECT 1 FROM "user" WHERE email != ? LIMIT 1',
-      args: [AUTO_DEV_ACCOUNT_EMAIL],
+      sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
+      args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
     });
     if (realUsers.length > 0) return null;
 
-    // If `dev@local` already exists, this is not a freshly-scaffolded
+    // If the dev account already exists, this is not a freshly-scaffolded
     // app — the user has been through the auto-create flow at least
     // once. Skip auto-create so signing out actually works: without
     // this guard, the post-logout reload immediately re-creates the
-    // session and the user is stuck in dev@local forever (or has to
-    // set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1). To get the demo
-    // experience back, drop the row or wipe the local DB.
+    // session and the user is stuck in the dev account forever (or has
+    // to set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1). To get the demo
+    // experience back, drop the row or wipe the local DB. The legacy
+    // `dev@local` address is matched too so pre-fix DBs still suppress
+    // re-create after logout.
     const { rows: devUsers } = await db.execute({
-      sql: 'SELECT 1 FROM "user" WHERE email = ? LIMIT 1',
-      args: [AUTO_DEV_ACCOUNT_EMAIL],
+      sql: 'SELECT 1 FROM "user" WHERE email IN (?, ?) LIMIT 1',
+      args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
     });
     if (devUsers.length > 0) return null;
 

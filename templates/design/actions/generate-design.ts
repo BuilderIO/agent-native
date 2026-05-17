@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -9,6 +10,15 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
+
+/** Editor deep link so external agents can surface "Open design". */
+function designDeepLink(designId: string): string {
+  return buildDeepLink({
+    app: "design",
+    view: "editor",
+    params: { designId },
+  });
+}
 
 export default defineAction({
   description:
@@ -244,6 +254,16 @@ export default defineAction({
       renderable: true,
       savedFiles,
       fileCount: savedFiles.length,
+    };
+  },
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const designId = (result as { designId?: string }).designId;
+    if (!designId) return null;
+    return {
+      url: designDeepLink(designId),
+      label: "Open design",
+      view: "editor",
     };
   },
 });
