@@ -629,9 +629,9 @@ You are a focused sub-agent with a specific task. You have been given a curated 
 
 **Start immediately with your task. Do NOT:**
 - Run \`db-schema\` to explore the database structure
-- Run \`search-files\` or \`list-files\` to find code
+- Run \`bash\` just to search/list files
 - Try to \`curl\` or access external URLs to find the app
-- Use \`shell\` for exploration — only for running \`pnpm action\` commands when no direct action exists
+- Use \`bash\` for exploration — only for running \`pnpm action\` commands when no direct action exists
 
 **Your available actions (${actionNames}) work directly. Use them.**
 

@@ -1923,12 +1923,12 @@ const environmentOptions: SettingsSelectOption[] = [
     value: "production",
     label: "Production",
     description:
-      "App tools only; code, shell, and files require Builder or a local clone.",
+      "App tools only; code, bash, and files require Builder or a local clone.",
   },
   {
     value: "development",
     label: "Development",
-    description: "Full access to code editing, shell, and files.",
+    description: "Full access to code editing, bash, and files.",
   },
 ];
 

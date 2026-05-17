@@ -53,6 +53,16 @@ export {
   getChangeVersion,
   bumpChangeVersion,
 } from "./use-change-version.js";
+export {
+  buildDynamicAgentSuggestions,
+  dedupeSuggestions,
+  mergeAgentSuggestions,
+  normalizeAgentDynamicSuggestionsConfig,
+  useAgentDynamicSuggestions,
+  type AgentDynamicSuggestionContext,
+  type AgentDynamicSuggestionsConfig,
+  type AgentDynamicSuggestionsOption,
+} from "./dynamic-suggestions.js";
 export { cn } from "./utils.js";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";

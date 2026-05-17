@@ -208,7 +208,7 @@ describe("executeCodeAgentRun", () => {
     );
   });
 
-  it("executes an explicitly approved pending command and clears the approval", async () => {
+  it("executes a legacy run_command pending approval and clears it", async () => {
     const root = useTempCodeAgentsHome();
     const cwd = path.join(root, "repo");
     const target = path.join(cwd, "approval-target");

@@ -291,7 +291,7 @@ export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
 You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
 
 Hard rules:
-- Use only read-only tools. Do not edit files, write resources, run shell commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
+- Use only read-only tools. Do not edit files, write resources, run bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
 - If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
 - When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
 - Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector or /act before implementation.`;
@@ -900,7 +900,7 @@ function enrichMessage(
         skillRefs
           .map(
             (r) =>
-              `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read-file"}`,
+              `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read"}`,
           )
           .join("\n"),
     );

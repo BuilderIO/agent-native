@@ -210,7 +210,7 @@ Browser hosts should return a graceful `openTerminal` error instead of trying to
 
 Agent-Native Code uses the same `AgentComposerFrame` + `PromptComposer` /
 `TiptapComposer` stack as the framework agent sidebar. Do not fork a separate
-textarea, shell, upload picker, voice button, model picker, or Enter-to-submit
+textarea, coding-tool picker, upload picker, voice button, model picker, or Enter-to-submit
 implementation for Code-like surfaces. If a host needs one extra control, pass
 it through the shared composer extension points so the sidebar, Code UI, and
 Brain chat keep the same interaction model and visual field.
@@ -218,6 +218,16 @@ Brain chat keep the same interaction model and visual field.
 Brain's Ask route uses `AgentChatSurface`, which is already backed by the
 standard sidebar composer. Code uses `PromptComposer` directly because the host
 owns run creation, transcripts, and follow-up delivery.
+
+## Shared Coding Tools
+
+The sidebar development agent and Agent-Native Code both use the same minimal
+coding-tool profile: `bash`, `read`, `edit`, and `write`. `bash` is the default
+for listing/searching files, running tests, and invoking project CLIs; `read`
+shows line-numbered file slices; `edit` applies exact text replacements; and
+`write` is reserved for new files or intentional full rewrites. Older aliases
+such as `shell`, `read-file`, `write-file`, `list-files`, and `search-files`
+are compatibility-only and are not part of the default advertised surface.
 
 Code-specific UI belongs around the composer, not inside a forked chatfield. The
 shared Code UI may add slots for:
