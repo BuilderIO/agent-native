@@ -135,7 +135,12 @@ async function signIdentity(
   claims: Record<string, unknown>,
   opts: { secret?: string; expiresIn?: string; iat?: number } = {},
 ): Promise<string> {
-  const b = new jose.SignJWT(claims)
+  const b = new jose.SignJWT({
+    aud: "https://mail.agent-native.com/_agent-native/identity/callback",
+    redirect_uri:
+      "https://mail.agent-native.com/_agent-native/identity/callback",
+    ...claims,
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime(opts.expiresIn ?? "5m");
   if (opts.iat !== undefined) b.setIssuedAt(opts.iat);
@@ -257,6 +262,43 @@ describe("identity SSO — /callback rejects bad tokens", () => {
       scope: "mcp-connect",
       jti: "j3",
     });
+    const res = await handleIdentitySso(
+      ev({ path: `/callback?token=${token}&state=${state}` }),
+      "/callback",
+    );
+    expect(res.status).toBe(400);
+    expect(createOAuthSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a token minted for another app callback", async () => {
+    const state = await mintState();
+    const token = await signIdentity({
+      email: "x@y.com",
+      scope: "identity",
+      jti: "wrong-aud",
+      aud: "https://calendar.agent-native.com/_agent-native/identity/callback",
+      redirect_uri:
+        "https://calendar.agent-native.com/_agent-native/identity/callback",
+    });
+    const res = await handleIdentitySso(
+      ev({ path: `/callback?token=${token}&state=${state}` }),
+      "/callback",
+    );
+    expect(res.status).toBe(400);
+    expect(createOAuthSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a legacy identity token without an audience", async () => {
+    const state = await mintState();
+    const token = await new jose.SignJWT({
+      email: "x@y.com",
+      scope: "identity",
+      jti: "missing-aud",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode(SECRET));
     const res = await handleIdentitySso(
       ev({ path: `/callback?token=${token}&state=${state}` }),
       "/callback",

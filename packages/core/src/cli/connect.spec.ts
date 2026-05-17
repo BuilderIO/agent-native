@@ -47,7 +47,7 @@ describe("parseConnectArgs", () => {
     const p = parseConnectArgs(["https://mail.agent-native.com"]);
     expect(p.url).toBe("https://mail.agent-native.com");
     expect(p.client).toBe("all");
-    expect(p.scope).toBe("project");
+    expect(p.scope).toBe("user");
     expect(p.all).toBe(false);
     expect(p.token).toBeUndefined();
   });
@@ -106,6 +106,15 @@ describe("normalizeUrl", () => {
   it("rejects unsupported schemes", () => {
     expect(() => normalizeUrl("ftp://example.com")).toThrow(
       /Unsupported URL scheme/,
+    );
+  });
+
+  it("rejects plaintext HTTP for non-loopback hosts", () => {
+    expect(() => normalizeUrl("http://mail.agent-native.com")).toThrow(
+      /Refusing plaintext HTTP/,
+    );
+    expect(normalizeUrl("http://127.0.0.1:3000/app")).toBe(
+      "http://127.0.0.1:3000/app",
     );
   });
 });
@@ -330,7 +339,7 @@ describe("writeConfigs", () => {
       const f = written[0].file;
       expect(f).toBe(path.join(codexHome, ".codex", "config.toml"));
       const toml = fs.readFileSync(f, "utf-8");
-      expect(toml).toContain("[mcp_servers.agent-native-mail]");
+      expect(toml).toContain('[mcp_servers."agent-native-mail"]');
       expect(toml).toContain(
         'url = "https://mail.agent-native.com/_agent-native/mcp"',
       );
@@ -346,12 +355,64 @@ describe("writeConfigs", () => {
       );
       const toml2 = fs.readFileSync(f, "utf-8");
       const occurrences =
-        toml2.split("[mcp_servers.agent-native-mail]").length - 1;
+        toml2.split('[mcp_servers."agent-native-mail"]').length - 1;
       expect(occurrences).toBe(1);
       expect(toml2).toContain("Bearer tok-2");
     } finally {
       process.env.HOME = HOME;
       void codexFile;
+    }
+  });
+
+  it("quotes Codex TOML server names with punctuation", () => {
+    const root = tmpDir();
+    const HOME = process.env.HOME;
+    const codexHome = tmpDir();
+    process.env.HOME = codexHome;
+    try {
+      const written = writeConfigs(
+        ["codex"],
+        'agent.native "mail"',
+        "https://mail.agent-native.com/_agent-native/mcp",
+        "tok-1",
+        "project",
+        root,
+      );
+      const toml = fs.readFileSync(written[0].file, "utf-8");
+      expect(toml).toContain('[mcp_servers."agent.native \\"mail\\""]');
+    } finally {
+      process.env.HOME = HOME;
+    }
+  });
+
+  it("replaces legacy unquoted Codex TOML blocks for safe names", () => {
+    const root = tmpDir();
+    const HOME = process.env.HOME;
+    const codexHome = tmpDir();
+    const codexFile = path.join(codexHome, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    fs.writeFileSync(
+      codexFile,
+      '[mcp_servers.agent-native-mail]\nurl = "https://old.example/mcp"\n',
+    );
+    process.env.HOME = codexHome;
+    try {
+      writeConfigs(
+        ["codex"],
+        "agent-native-mail",
+        "https://mail.agent-native.com/_agent-native/mcp",
+        "tok-1",
+        "project",
+        root,
+      );
+      const toml = fs.readFileSync(codexFile, "utf-8");
+      expect(toml).not.toContain("[mcp_servers.agent-native-mail]");
+      expect(toml).toContain('[mcp_servers."agent-native-mail"]');
+      expect(toml).toContain(
+        'url = "https://mail.agent-native.com/_agent-native/mcp"',
+      );
+    } finally {
+      process.env.HOME = HOME;
     }
   });
 });
@@ -400,6 +461,8 @@ describe("runConnect", () => {
       "https://mail.agent-native.com",
       "--client",
       "claude-code",
+      "--scope",
+      "project",
       "--token",
       "tok-fallback",
     ]);

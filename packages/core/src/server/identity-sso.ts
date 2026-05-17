@@ -267,6 +267,8 @@ interface VerifiedIdentity {
  * `jose.jwtVerify(token, A2A_SECRET)`. `jwtVerify` enforces `exp`
  * automatically. We additionally require:
  *   - `scope === "identity"` (so an A2A delegation token can't be replayed)
+ *   - `aud` is THIS app's callback URL (so a token minted for one app cannot
+ *     be replayed against another app's callback with a fresh state)
  *   - a non-empty `email` claim (the join key — comes ONLY from the verified
  *     token, never a query param)
  *   - issued no more than `MAX_TOKEN_AGE_SECONDS` ago (belt-and-braces on top
@@ -278,6 +280,7 @@ interface VerifiedIdentity {
  */
 async function verifyIdentityToken(
   token: string,
+  expectedAudience: string,
 ): Promise<VerifiedIdentity | null> {
   const secret = process.env.A2A_SECRET;
   if (!secret || !token) return null;
@@ -287,6 +290,17 @@ async function verifyIdentityToken(
       new TextEncoder().encode(secret),
     );
     if (payload.scope !== IDENTITY_SSO_SCOPE) return null;
+    const aud = payload.aud;
+    const audienceMatches = Array.isArray(aud)
+      ? aud.includes(expectedAudience)
+      : aud === expectedAudience;
+    if (!audienceMatches) return null;
+    if (
+      typeof payload.redirect_uri === "string" &&
+      payload.redirect_uri !== expectedAudience
+    ) {
+      return null;
+    }
     const email =
       typeof payload.email === "string" && payload.email.includes("@")
         ? payload.email.trim().toLowerCase()
@@ -427,7 +441,8 @@ export async function handleIdentitySso(
 
     // Identity comes ONLY from the signature-verified token. The query
     // `email` (if any) is never trusted.
-    const identity = await verifyIdentityToken(token);
+    const expectedAudience = `${origin}/_agent-native/identity/callback`;
+    const identity = await verifyIdentityToken(token, expectedAudience);
     if (!identity) {
       return errorPage(
         "We could not verify the sign-in response. Please try again.",

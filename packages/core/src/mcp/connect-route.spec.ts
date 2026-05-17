@@ -97,6 +97,25 @@ vi.mock("./connect-store.js", () => ({
     r.tokenJti = jti;
     return { ...r, status: "approved" };
   }),
+  claimDeviceCodeForMint: vi.fn(async (dc: string, jti: string) => {
+    const r = deviceRows.find((d) => d.deviceCode === dc);
+    if (!r || r.status !== "approved") return null;
+    r.status = "minting";
+    r.tokenJti = jti;
+    return { ...r, status: "approved" };
+  }),
+  finishDeviceCodeMint: vi.fn(async (dc: string, jti: string) => {
+    const r = deviceRows.find((d) => d.deviceCode === dc);
+    if (!r || r.status !== "minting" || r.tokenJti !== jti) return false;
+    r.status = "consumed";
+    return true;
+  }),
+  releaseDeviceCodeMint: vi.fn(async (dc: string, jti: string) => {
+    const r = deviceRows.find((d) => d.deviceCode === dc);
+    if (!r || r.status !== "minting" || r.tokenJti !== jti) return;
+    r.status = "approved";
+    r.tokenJti = null;
+  }),
   expireDeviceCode: vi.fn(async () => {}),
 }));
 
@@ -308,6 +327,33 @@ describe("handleMcpConnect", () => {
       );
       expect(data.interval).toBe(3);
       expect(data.expires_in).toBe(600);
+    });
+
+    it("device/start and returned MCP config include APP_BASE_PATH", async () => {
+      process.env.APP_BASE_PATH = "/mail";
+      try {
+        await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+        const dc = deviceRows[0].deviceCode;
+        getSessionMock.mockResolvedValue({ email: "u@example.com" });
+        await handleMcpConnect(
+          ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+          "/device/authorize",
+        );
+        getSessionMock.mockResolvedValue(null);
+        const res = await handleMcpConnect(
+          ev({ method: "POST", body: { device_code: dc } }),
+          "/device/poll",
+        );
+        const data = await res.json();
+        expect(data.mcpUrl).toBe(
+          "https://mail.agent-native.com/mail/_agent-native/mcp",
+        );
+        expect(data.cli).toBe(
+          "agent-native connect https://mail.agent-native.com/mail",
+        );
+      } finally {
+        delete process.env.APP_BASE_PATH;
+      }
     });
 
     it("device/authorize requires a session and binds the user", async () => {

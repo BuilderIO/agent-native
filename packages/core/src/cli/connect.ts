@@ -56,7 +56,7 @@ export interface ParsedConnectArgs {
   url?: string;
   /** all | claude-code | claude-code-cli | codex | cowork (default "all"). */
   client: string;
-  /** user | project (default "project"). */
+  /** user | project (default "user"). */
   scope: string;
   /** Override the minted MCP server name. */
   name?: string;
@@ -69,7 +69,7 @@ export interface ParsedConnectArgs {
 export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
   const out: ParsedConnectArgs = {
     client: "all",
-    scope: "project",
+    scope: "user",
     all: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -111,6 +111,19 @@ export function normalizeUrl(raw: string): string {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error(
       `Unsupported URL scheme "${parsed.protocol}". Use http:// or https://`,
+    );
+  }
+  const host = parsed.hostname.toLowerCase();
+  const isLoopback =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "[::1]" ||
+    host.startsWith("127.");
+  if (parsed.protocol === "http:" && !isLoopback) {
+    throw new Error(
+      `Refusing plaintext HTTP for non-loopback host "${parsed.hostname}". ` +
+        `Use https:// so bearer tokens are not sent in cleartext.`,
     );
   }
   // origin + pathname, trailing slash stripped (origin keeps no path).

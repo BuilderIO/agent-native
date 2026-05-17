@@ -27,8 +27,9 @@
  *   4. Mint a SHORT-LIVED signed identity JWT using the EXISTING A2A signer
  *      (`signA2AToken`, HS256 over the shared `A2A_SECRET`). Claims are
  *      exactly: sub=email, email, name?, org_domain?, scope:"identity",
- *      jti, short exp (<= 5 min). 302 to `redirect_uri` with the token and
- *      the caller's UNTOUCHED `state` appended as query params.
+ *      aud=redirect_uri, redirect_uri, jti, short exp (<= 5 min). 302 to
+ *      `redirect_uri` with the token and the caller's UNTOUCHED `state`
+ *      appended as query params.
  *
  * Why no `/token` code-exchange endpoint:
  *   The token is already (a) short-lived (<=2 min exp), (b) signature-
@@ -205,6 +206,8 @@ const authorizeHandler = defineEventHandler(
           email: claims.email,
           ...(claims.name ? { name: claims.name } : {}),
           scope: claims.scope,
+          aud: safeRedirectUri,
+          redirect_uri: safeRedirectUri,
           jti: claims.jti,
         },
       });

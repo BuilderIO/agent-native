@@ -113,7 +113,11 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     const d = devices.find((r) => r.user_code === args[0]);
     return { rows: d ? [{ ...d }] : [], rowsAffected: 0 };
   }
-  if (/^UPDATE mcp_device_codes SET status = 'approved'/i.test(sql)) {
+  if (
+    /^UPDATE mcp_device_codes SET status = 'approved', owner_email = \?/i.test(
+      sql,
+    )
+  ) {
     const d = devices.find(
       (r) => r.user_code === args[2] && r.status === "pending",
     );
@@ -125,12 +129,41 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   }
   if (/^UPDATE mcp_device_codes SET status = 'consumed'/i.test(sql)) {
     const d = devices.find(
-      (r) => r.device_code === args[2] && r.status === "approved",
+      (r) =>
+        (r.device_code === args[2] && r.status === "approved") ||
+        (r.device_code === args[0] &&
+          r.status === "minting" &&
+          r.token_jti === args[1]),
     );
     if (!d) return { rows: [], rowsAffected: 0 };
     d.status = "consumed";
+    if (args.length > 2) {
+      d.token_jti = args[0];
+      d.consumed_at = args[1];
+    }
+    return { rows: [], rowsAffected: 1 };
+  }
+  if (/^UPDATE mcp_device_codes SET status = 'minting'/i.test(sql)) {
+    const d = devices.find(
+      (r) => r.device_code === args[2] && r.status === "approved",
+    );
+    if (!d) return { rows: [], rowsAffected: 0 };
+    d.status = "minting";
     d.token_jti = args[0];
     d.consumed_at = args[1];
+    return { rows: [], rowsAffected: 1 };
+  }
+  if (/^UPDATE mcp_device_codes SET status = 'approved'/i.test(sql)) {
+    const d = devices.find(
+      (r) =>
+        r.device_code === args[0] &&
+        r.status === "minting" &&
+        r.token_jti === args[1],
+    );
+    if (!d) return { rows: [], rowsAffected: 0 };
+    d.status = "approved";
+    d.token_jti = null;
+    d.consumed_at = null;
     return { rows: [], rowsAffected: 1 };
   }
   if (/^UPDATE mcp_device_codes SET status = 'expired'/i.test(sql)) {
@@ -297,6 +330,36 @@ describe("connect-store", () => {
       const row = await store.getDeviceCode(created.deviceCode);
       expect(row?.status).toBe("consumed");
       expect(row?.tokenJti).toBe("jti-x");
+    });
+
+    it("claim mint can be released and retried before final consume", async () => {
+      const created = await store.createDeviceCode();
+      await store.approveDeviceCode(created.userCode, "u@example.com", "org-1");
+      const claimed = await store.claimDeviceCodeForMint(
+        created.deviceCode,
+        "jti-1",
+      );
+      expect(claimed?.ownerEmail).toBe("u@example.com");
+      expect((await store.getDeviceCode(created.deviceCode))?.status).toBe(
+        "minting",
+      );
+
+      await store.releaseDeviceCodeMint(created.deviceCode, "jti-1");
+      expect((await store.getDeviceCode(created.deviceCode))?.status).toBe(
+        "approved",
+      );
+
+      const claimedAgain = await store.claimDeviceCodeForMint(
+        created.deviceCode,
+        "jti-2",
+      );
+      expect(claimedAgain?.ownerEmail).toBe("u@example.com");
+      expect(
+        await store.finishDeviceCodeMint(created.deviceCode, "jti-2"),
+      ).toBe(true);
+      expect((await store.getDeviceCode(created.deviceCode))?.status).toBe(
+        "consumed",
+      );
     });
 
     it("rejects approving an unknown / already-used code", async () => {

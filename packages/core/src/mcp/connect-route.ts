@@ -41,7 +41,9 @@ import {
   createDeviceCode,
   getDeviceCode,
   approveDeviceCode,
-  consumeDeviceCode,
+  claimDeviceCodeForMint,
+  finishDeviceCodeMint,
+  releaseDeviceCodeMint,
   expireDeviceCode,
   MCP_CONNECT_SCOPE,
   DEFAULT_TOKEN_TTL_DAYS,
@@ -86,6 +88,25 @@ function deriveOrigin(event: H3Event): string {
     forwardedProto?.split(",")[0]?.trim() ||
     (host && /^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
   return host ? `${proto}://${host}` : "";
+}
+
+function normalizeBasePath(raw: string | undefined): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed || trimmed === "/") return "";
+  const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return withSlash.replace(/\/+$/, "");
+}
+
+function configuredBasePath(): string {
+  return normalizeBasePath(
+    process.env.APP_BASE_PATH || process.env.VITE_APP_BASE_PATH,
+  );
+}
+
+function joinAppPath(basePath: string, path: string): string {
+  if (!basePath) return path;
+  if (path === "/") return basePath;
+  return `${basePath}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
 function appLabel(origin: string, options: McpConnectRouteOptions): string {
@@ -167,12 +188,12 @@ async function mintConnectToken(params: {
 }
 
 function mcpResultPayload(
-  origin: string,
+  appUrl: string,
   token: string,
   options: McpConnectRouteOptions,
 ) {
-  const mcpUrl = `${origin}/_agent-native/mcp`;
-  const name = serverName(origin, options);
+  const mcpUrl = `${appUrl}/_agent-native/mcp`;
+  const name = serverName(appUrl, options);
   return {
     token,
     mcpUrl,
@@ -182,7 +203,7 @@ function mcpResultPayload(
       url: mcpUrl,
       headers: { Authorization: `Bearer ${token}` },
     },
-    cli: `agent-native connect ${origin}`,
+    cli: `agent-native connect ${appUrl}`,
   };
 }
 
@@ -192,11 +213,12 @@ function mcpResultPayload(
 
 function renderConnectPage(params: {
   origin: string;
+  connectBasePath: string;
   email: string;
   appName: string;
   userCode: string | null;
 }): string {
-  const { origin, email, appName, userCode } = params;
+  const { origin, connectBasePath, email, appName, userCode } = params;
   const safeOrigin = escapeHtml(origin);
   const safeEmail = escapeHtml(email);
   const safeApp = escapeHtml(appName);
@@ -322,7 +344,7 @@ function renderConnectPage(params: {
 </div>
 <script>
 (function () {
-  var BASE = "/_agent-native/mcp/connect";
+  var BASE = ${JSON.stringify(joinAppPath(connectBasePath, "/_agent-native/mcp/connect"))};
   var USER_CODE = ${JSON.stringify(safeUserCode || null)};
   var msgEl = document.getElementById("msg");
   function showMsg(text, kind) {
@@ -451,6 +473,8 @@ export async function handleMcpConnect(
 ): Promise<Response> {
   const method = getMethod(event);
   const origin = deriveOrigin(event);
+  const basePath = configuredBasePath();
+  const appUrl = `${origin}${basePath}`;
   const sub = ("/" + subpath.replace(/^\/+/, "").replace(/\/+$/, "")).replace(
     /^\/$/,
     "",
@@ -470,9 +494,10 @@ export async function handleMcpConnect(
       // Fully-open app (no auth guard): nothing to scope a mint to.
       return html(
         renderConnectPage({
-          origin,
+          origin: appUrl,
+          connectBasePath: basePath,
           email: "(no auth configured)",
-          appName: options.appName || appLabel(origin, options),
+          appName: options.appName || appLabel(appUrl, options),
           userCode: null,
         }),
       );
@@ -490,9 +515,10 @@ export async function handleMcpConnect(
     }
     return html(
       renderConnectPage({
-        origin,
+        origin: appUrl,
+        connectBasePath: basePath,
         email: session.email,
-        appName: options.appName || appLabel(origin, options),
+        appName: options.appName || appLabel(appUrl, options),
         userCode,
       }),
     );
@@ -528,7 +554,7 @@ export async function handleMcpConnect(
         label,
         ttlDays,
       });
-      return json(mcpResultPayload(origin, token, options));
+      return json(mcpResultPayload(appUrl, token, options));
     } catch {
       return json({ error: "Failed to mint token." }, 500);
     }
@@ -539,7 +565,7 @@ export async function handleMcpConnect(
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     try {
       const row = await createDeviceCode();
-      const verificationUri = `${origin}/_agent-native/mcp/connect`;
+      const verificationUri = `${appUrl}/_agent-native/mcp/connect`;
       return json({
         device_code: row.deviceCode,
         user_code: row.userCode,
@@ -605,7 +631,11 @@ export async function handleMcpConnect(
       if (row.status !== "expired") void expireDeviceCode(deviceCode);
       return json({ status: "expired" });
     }
-    if (row.status === "pending" || !row.ownerEmail) {
+    if (
+      row.status === "pending" ||
+      row.status === "minting" ||
+      !row.ownerEmail
+    ) {
       return json({ status: "pending" });
     }
     // status === "approved" && ownerEmail bound → mint exactly once.
@@ -614,34 +644,38 @@ export async function handleMcpConnect(
     }
     try {
       const jti = randomUUID();
-      // Claim the single-use transition FIRST (atomic), then mint. If the
-      // claim fails we lost the race / it was already consumed.
-      const claimed = await consumeDeviceCode(deviceCode, jti);
+      // Claim a retryable minting state first. If signing or recording fails,
+      // release the row back to approved so the CLI can poll again.
+      const claimed = await claimDeviceCodeForMint(deviceCode, jti);
       if (!claimed) {
         const fresh = await getDeviceCode(deviceCode);
         if (fresh?.status === "consumed") return json({ status: "consumed" });
         return json({ status: "pending" });
       }
-      const orgDomain = await resolveOrgDomain(claimed.orgId ?? undefined);
-      const token = await signA2AToken(
-        claimed.ownerEmail!,
-        orgDomain,
-        undefined,
-        {
+      let token: string;
+      try {
+        const orgDomain = await resolveOrgDomain(claimed.orgId ?? undefined);
+        token = await signA2AToken(claimed.ownerEmail!, orgDomain, undefined, {
           preferGlobalSecret: true,
           expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
           extraClaims: { jti, scope: MCP_CONNECT_SCOPE },
-        },
-      );
-      await recordMintedToken({
-        jti,
-        ownerEmail: claimed.ownerEmail!,
-        orgId: claimed.orgId,
-        label: "Device connection",
-      });
+        });
+        await recordMintedToken({
+          jti,
+          ownerEmail: claimed.ownerEmail!,
+          orgId: claimed.orgId,
+          label: "Device connection",
+        });
+        if (!(await finishDeviceCodeMint(deviceCode, jti))) {
+          return json({ status: "pending" });
+        }
+      } catch (err) {
+        await releaseDeviceCodeMint(deviceCode, jti);
+        throw err;
+      }
       return json({
         status: "approved",
-        ...mcpResultPayload(origin, token, options),
+        ...mcpResultPayload(appUrl, token, options),
       });
     } catch {
       return json({ status: "error", error: "Failed to mint token." }, 500);

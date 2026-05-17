@@ -232,7 +232,7 @@ export interface DeviceCodeRow {
   userCode: string;
   ownerEmail: string | null;
   orgId: string | null;
-  status: "pending" | "approved" | "consumed" | "expired";
+  status: "pending" | "approved" | "minting" | "consumed" | "expired";
   tokenJti: string | null;
   createdAt: number | null;
   expiresAt: number | null;
@@ -424,6 +424,57 @@ export async function consumeDeviceCode(
   });
   if (result.rowsAffected === 0) return null; // lost the single-use race
   return row;
+}
+
+/**
+ * Claim an approved device code for token minting without making it terminal.
+ * If signing or token recording fails, callers release this back to approved
+ * so the CLI can retry the poll instead of being stuck at "consumed".
+ */
+export async function claimDeviceCodeForMint(
+  deviceCode: string,
+  tokenJti: string,
+): Promise<DeviceCodeRow | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const row = await getDeviceCode(deviceCode);
+  if (!row || row.status !== "approved") return null;
+  const result = await client.execute({
+    sql: `UPDATE mcp_device_codes SET status = 'minting', token_jti = ?, consumed_at = ? WHERE device_code = ? AND status = 'approved'`,
+    args: [tokenJti, Date.now(), deviceCode],
+  });
+  if (result.rowsAffected === 0) return null;
+  return row;
+}
+
+export async function finishDeviceCodeMint(
+  deviceCode: string,
+  tokenJti: string,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE mcp_device_codes SET status = 'consumed' WHERE device_code = ? AND status = 'minting' AND token_jti = ?`,
+    args: [deviceCode, tokenJti],
+  });
+  return result.rowsAffected > 0;
+}
+
+export async function releaseDeviceCodeMint(
+  deviceCode: string,
+  tokenJti: string,
+): Promise<void> {
+  try {
+    await ensureTable();
+    const client = getDbExec();
+    await client.execute({
+      sql: `UPDATE mcp_device_codes SET status = 'approved', token_jti = NULL, consumed_at = NULL WHERE device_code = ? AND status = 'minting' AND token_jti = ?`,
+      args: [deviceCode, tokenJti],
+    });
+  } catch {
+    // The next poll will keep returning pending for a minting row until a
+    // later cleanup/retry path can observe or repair it. Do not throw here.
+  }
 }
 
 /**
