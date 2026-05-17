@@ -29,10 +29,10 @@
  *   - On ANY error (no env, unreachable, 401, non-2xx, bad JSON, no signed
  *     token) `fetchOrgApps()` returns `[]` and NEVER throws — the cross-app
  *     verbs degrade silently to their exact current local-only behavior.
- *   - A short in-memory TTL cache (default 60s) keyed by directory origin so
- *     the directory is not fetched on every tool call. Empty results are
- *     cached too (with a shorter TTL) so a transient failure doesn't hammer
- *     the directory on every call.
+ *   - A short in-memory TTL cache (default 60s) keyed by directory origin and
+ *     caller identity/org scope so sibling app lists never cross tenants.
+ *     Empty authenticated results are cached too (with a shorter TTL) so a
+ *     transient failure doesn't hammer the directory on every call.
  *   - No secrets are ever logged.
  *
  * Bundled alongside `mountMCP` (no Node-only top-level imports). The A2A
@@ -131,6 +131,21 @@ function sameOrigin(a: string, b: string): boolean {
   }
 }
 
+function scopedCacheKey(
+  origin: string,
+  auth: {
+    userEmail?: string;
+    orgId?: string;
+    orgDomain?: string;
+  },
+): string {
+  return [
+    origin,
+    `user:${auth.userEmail ?? ""}`,
+    `org:${auth.orgId ?? auth.orgDomain ?? ""}`,
+  ].join("|");
+}
+
 /**
  * Fetch the org's first-party sibling apps from the org directory.
  *
@@ -164,12 +179,7 @@ export async function fetchOrgApps(opts?: {
       return true;
     });
 
-  const now = Date.now();
-  const cached = cache.get(origin);
-  if (cached && cached.expiresAt > now) {
-    return stripSelf(cached.apps);
-  }
-
+  let cacheKey: string | null = null;
   let apps: OrgApp[] = [];
   let ttl = EMPTY_TTL_MS;
   try {
@@ -182,8 +192,14 @@ export async function fetchOrgApps(opts?: {
     if (!auth.apiKey) {
       // No signed token available (no A2A secret / no caller identity) — the
       // directory requires the org bearer, so degrade silently to local-only.
-      cache.set(origin, { apps: [], expiresAt: now + EMPTY_TTL_MS });
       return [];
+    }
+
+    const now = Date.now();
+    cacheKey = scopedCacheKey(origin, auth);
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return stripSelf(cached.apps);
     }
 
     const res = await fetch(`${origin}/_agent-native/org/apps`, {
@@ -207,7 +223,12 @@ export async function fetchOrgApps(opts?: {
     ttl = EMPTY_TTL_MS;
   }
 
-  cache.set(origin, { apps, expiresAt: now + ttl });
+  if (cacheKey) {
+    cache.set(cacheKey, {
+      apps,
+      expiresAt: Date.now() + ttl,
+    });
+  }
   return stripSelf(apps);
 }
 

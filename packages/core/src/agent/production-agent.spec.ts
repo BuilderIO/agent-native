@@ -255,6 +255,9 @@ describe("buildUserContentWithAttachments", () => {
     await expect(
       planRegistry.bash.run({ command: "echo hi > notes.txt" }),
     ).resolves.toContain("Plan mode blocked");
+    await expect(
+      planRegistry.bash.run({ command: "rg button; node -e '1'" }),
+    ).resolves.toContain("Plan mode blocked");
 
     const searchResult = await planRegistry["tool-search"].run({
       query: "write file",
@@ -284,6 +287,13 @@ describe("buildUserContentWithAttachments", () => {
       isPlanModeToolCallAllowed(
         "bash",
         { command: "echo hi > notes.txt" },
+        bashTool,
+      ),
+    ).toBe(false);
+    expect(
+      isPlanModeToolCallAllowed(
+        "bash",
+        { command: "rg button; node -e '1'" },
         bashTool,
       ),
     ).toBe(false);

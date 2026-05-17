@@ -4,6 +4,7 @@ import {
 } from "../agent/tool-search.js";
 import {
   createCodingToolRegistry,
+  isReadOnlyShellCommand,
   runCodingCommand,
   truncateCodingOutput,
 } from "../coding-tools/index.js";
@@ -749,23 +750,7 @@ export function classifyCodeAgentCommandPermission(
     }
   }
 
-  const readPatterns = [
-    /^pwd\b/,
-    /^ls\b/,
-    /^find\b/,
-    /^rg\b/,
-    /^grep\b/,
-    /^cat\b/,
-    /^sed\s+-n\b/,
-    /^head\b/,
-    /^tail\b/,
-    /^wc\b/,
-    /^git\s+(status|diff|show|log)\b/,
-    /^git\s+branch\s+--show-current\b/,
-    /^pnpm\b.*\b(test|typecheck|lint|check)\b/,
-    /^npm\b.*\b(test|run\s+(test|typecheck|lint|check))\b/,
-  ];
-  if (readPatterns.some((pattern) => pattern.test(normalized))) {
+  if (isReadOnlyShellCommand(command)) {
     return { kind: "read" };
   }
 

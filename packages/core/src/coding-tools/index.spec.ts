@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { actionsToEngineTools } from "../agent/production-agent.js";
 import { createDevScriptRegistry } from "../scripts/dev/index.js";
-import { createCodingToolRegistry } from "./index.js";
+import { createCodingToolRegistry, isReadOnlyShellCommand } from "./index.js";
 
 const tmpRoots: string[] = [];
 
@@ -41,9 +41,9 @@ describe("shared coding tools", () => {
     expect(fs.readFileSync(path.join(cwd, "hello.txt"), "utf8")).toBe(
       "hi\nworld\n",
     );
-    await expect(
-      registry.bash.run({ command: "ls -a" }),
-    ).resolves.toContain("hello.txt");
+    await expect(registry.bash.run({ command: "ls -a" })).resolves.toContain(
+      "hello.txt",
+    );
   });
 
   it("keeps sidebar dev mode on the shared tools and hides legacy aliases by default", async () => {
@@ -68,6 +68,15 @@ describe("shared coding tools", () => {
     expect(registry["write-file"]).toBeDefined();
     expect(registry["list-files"]).toBeDefined();
     expect(registry["search-files"]).toBeDefined();
+  });
+
+  it("accepts only a single simple read-only shell command", () => {
+    expect(isReadOnlyShellCommand("rg button src")).toBe(true);
+    expect(isReadOnlyShellCommand("git diff -- packages/core")).toBe(true);
+    expect(isReadOnlyShellCommand("rg button > out.txt")).toBe(false);
+    expect(isReadOnlyShellCommand("rg button; node -e '1'")).toBe(false);
+    expect(isReadOnlyShellCommand("rg button | tee out.txt")).toBe(false);
+    expect(isReadOnlyShellCommand("rg $(node -e '1')")).toBe(false);
   });
 });
 

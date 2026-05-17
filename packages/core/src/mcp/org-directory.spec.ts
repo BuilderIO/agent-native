@@ -190,6 +190,68 @@ describe("fetchOrgApps", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("scopes the cache by caller org identity", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const mod = await import("../a2a/caller-auth.js");
+    vi.mocked(mod.resolveA2ACallerAuth)
+      .mockResolvedValueOnce({
+        apiKey: "jwt-org-a",
+        userEmail: "caller@acme.com",
+        orgId: "org-a",
+        orgDomain: "a.example",
+        orgSecret: "secret-a",
+        metadata: {},
+      })
+      .mockResolvedValueOnce({
+        apiKey: "jwt-org-b",
+        userEmail: "caller@acme.com",
+        orgId: "org-b",
+        orgDomain: "b.example",
+        orgSecret: "secret-b",
+        metadata: {},
+      })
+      .mockResolvedValueOnce({
+        apiKey: "jwt-org-a",
+        userEmail: "caller@acme.com",
+        orgId: "org-a",
+        orgDomain: "a.example",
+        orgSecret: "secret-a",
+        metadata: {},
+      });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            apps: [
+              { id: "calendar", name: "Cal", url: "https://a.example/cal" },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            apps: [{ id: "mail", name: "Mail", url: "https://b.example/mail" }],
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgApps({ selfId: "dispatch" })).resolves.toEqual([
+      expect.objectContaining({ id: "calendar" }),
+    ]);
+    await expect(fetchOrgApps({ selfId: "dispatch" })).resolves.toEqual([
+      expect.objectContaining({ id: "mail" }),
+    ]);
+    await expect(fetchOrgApps({ selfId: "dispatch" })).resolves.toEqual([
+      expect.objectContaining({ id: "calendar" }),
+    ]);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("degrades silently when no signed bearer is available", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     const mod = await import("../a2a/caller-auth.js");
@@ -204,5 +266,42 @@ describe("fetchOrgApps", () => {
     vi.stubGlobal("fetch", fetchSpy);
     await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not cache unauthenticated empty results across a later valid caller", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const mod = await import("../a2a/caller-auth.js");
+    vi.mocked(mod.resolveA2ACallerAuth)
+      .mockResolvedValueOnce({
+        apiKey: undefined,
+        userEmail: undefined,
+        orgDomain: undefined,
+        orgSecret: undefined,
+        metadata: {},
+      })
+      .mockResolvedValueOnce({
+        apiKey: "signed-org-jwt",
+        userEmail: "caller@acme.com",
+        orgId: "org-a",
+        orgDomain: "acme.com",
+        orgSecret: "org-secret",
+        metadata: {},
+      });
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            apps: [{ id: "calendar", name: "Cal", url: "https://c.acme.com" }],
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
+    await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([
+      expect.objectContaining({ id: "calendar" }),
+    ]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

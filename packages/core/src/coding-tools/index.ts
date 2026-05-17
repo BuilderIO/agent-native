@@ -337,6 +337,33 @@ export function truncateCodingOutput(value: string, max: number): string {
   return `${value.slice(0, max)}\n\n...[truncated ${value.length - max} chars]`;
 }
 
+export function isReadOnlyShellCommand(command: string): boolean {
+  const normalized = command.trim().toLowerCase();
+  if (!normalized) return false;
+
+  // Read-only modes get a deliberately tiny shell grammar: one command only,
+  // no redirection, pipes, sequencing, backgrounding, or command substitution.
+  // Prefix allowlists are not safe until these shell forms are excluded.
+  if (/[\n\r;&|<>]/.test(normalized)) return false;
+  if (/\$\(|`|\${|\\\n/.test(command)) return false;
+
+  const allowedPrefixes = [
+    /^pwd\b/,
+    /^ls\b/,
+    /^find\b/,
+    /^rg\b/,
+    /^grep\b/,
+    /^cat\b/,
+    /^sed\s+-n\b/,
+    /^head\b/,
+    /^tail\b/,
+    /^wc\b/,
+    /^git\s+(status|diff|show|log)\b/,
+    /^git\s+branch\s+--show-current\b/,
+  ];
+  return allowedPrefixes.some((pattern) => pattern.test(normalized));
+}
+
 function resolveCodingPath(
   cwd: string,
   value: string,

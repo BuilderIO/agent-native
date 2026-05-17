@@ -254,12 +254,17 @@ async function routeAskOverA2A(
   message: string,
 ): Promise<{ app: string; routedVia: "a2a"; response: string }> {
   const { callAgent } = await import("../a2a/client.js");
-  const { getRequestUserEmail } = await import("../server/request-context.js");
+  const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
   // The MCP handler runs inside `runWithRequestContext`, so this is the
-  // verified caller's email — it lets `callAgent` mint a signed A2A JWT so
-  // the target app honours per-user scope.
+  // verified caller identity and org scope. Reuse the same auth resolver as
+  // org-directory discovery so the directory lookup and actual A2A call are
+  // scoped the same way.
+  const auth = await resolveA2ACallerAuth();
   const response = await callAgent(origin, message, {
-    userEmail: getRequestUserEmail(),
+    apiKey: auth.apiKey,
+    userEmail: auth.userEmail,
+    orgDomain: auth.orgDomain,
+    orgSecret: auth.orgSecret,
     // Bound the wait — cross-app A2A polls async by default.
     timeoutMs: 5 * 60_000,
   });

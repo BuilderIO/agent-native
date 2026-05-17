@@ -4,6 +4,7 @@ import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import type { MCPConfig } from "./build-server.js";
 import * as orgDirectory from "./org-directory.js";
 import * as a2aClient from "../a2a/client.js";
+import * as callerAuth from "../a2a/caller-auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -231,6 +232,14 @@ describe("ask_app — org-directory routing", () => {
     const callAgentSpy = vi
       .spyOn(a2aClient, "callAgent")
       .mockResolvedValue("calendar-says-hi");
+    vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgId: "org-1",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
 
     const tools = getBuiltinCrossAppTools(
       baseConfig({ askAgent: async () => "local-answer" }),
@@ -245,6 +254,12 @@ describe("ask_app — org-directory routing", () => {
     expect(callAgentSpy.mock.calls[0][0]).toBe(
       "https://calendar.acme.com/_agent-native/a2a",
     );
+    expect(callAgentSpy.mock.calls[0][2]).toMatchObject({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+    });
     expect(result.routedVia).toBe("a2a");
     expect(result.app).toBe("calendar");
     expect(result.response).toBe("calendar-says-hi");

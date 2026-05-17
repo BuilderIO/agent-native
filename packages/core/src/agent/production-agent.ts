@@ -44,6 +44,7 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
+import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import {
   getRequestRunContext,
   ensureRequestRunContext,
@@ -404,35 +405,7 @@ function isPlanModeReadOnlyBashCall(input: unknown): boolean {
   if (!input || typeof input !== "object") return false;
   const command = (input as Record<string, unknown>).command;
   if (typeof command !== "string") return false;
-  const normalized = command.trim().toLowerCase();
-  if (!normalized) return false;
-
-  const blocked = [
-    /(^|[^>])>(?!>)/,
-    />>/,
-    /\b(rm|mv|cp|touch|mkdir|chmod|chown|tee|write)\b/,
-    /\b(git\s+(checkout|switch|reset|rebase|stash|clean|worktree|commit|push|pull|merge))\b/,
-    /\b(npm|pnpm|yarn|bun)\s+(add|install|remove|uninstall|publish|dlx)\b/,
-    /\b(curl|wget|fetch)\b.*\|\s*(sh|bash|zsh)\b/,
-    /\b(drop|truncate|delete\s+from|update\s+\w+\s+set|insert\s+into)\b/,
-  ];
-  if (blocked.some((pattern) => pattern.test(normalized))) return false;
-
-  const allowedPrefixes = [
-    /^pwd\b/,
-    /^ls\b/,
-    /^find\b/,
-    /^rg\b/,
-    /^grep\b/,
-    /^cat\b/,
-    /^sed\s+-n\b/,
-    /^head\b/,
-    /^tail\b/,
-    /^wc\b/,
-    /^git\s+(status|diff|show|log)\b/,
-    /^git\s+branch\s+--show-current\b/,
-  ];
-  return allowedPrefixes.some((pattern) => pattern.test(normalized));
+  return isReadOnlyShellCommand(command);
 }
 
 function createPlanModeGuardedAction(

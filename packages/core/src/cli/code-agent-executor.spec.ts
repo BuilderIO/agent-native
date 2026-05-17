@@ -302,6 +302,17 @@ describe("classifyCodeAgentCommandPermission", () => {
     });
   });
 
+  it("does not classify shell redirection or compound commands as read-only", () => {
+    expect(classifyCodeAgentCommandPermission("git diff > notes.txt")).toEqual({
+      kind: "write",
+    });
+    expect(
+      classifyCodeAgentCommandPermission("rg button; node -e '1'"),
+    ).toEqual({
+      kind: "write",
+    });
+  });
+
   it("classifies file-writing commands as write operations", () => {
     expect(classifyCodeAgentCommandPermission("echo hi > notes.txt")).toEqual({
       kind: "write",
