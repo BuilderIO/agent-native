@@ -24,7 +24,7 @@
 import type { H3Event } from "h3";
 import { defineEventHandler, getMethod } from "h3";
 import { getSession, getConfiguredLoginHtml } from "./auth.js";
-import { appStatePut } from "../application-state/store.js";
+import { appStatePut, appStateGet } from "../application-state/store.js";
 
 /** Query keys that are route control, not navigation payload. */
 const RESERVED = new Set(["app", "view", "to", "compose"]);
@@ -146,9 +146,29 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
               typeof draft.id === "string" &&
               COMPOSE_ID.test(draft.id)
             ) {
-              await appStatePut(session.email, `compose-${draft.id}`, draft, {
-                requestSource: "deep-link",
-              });
+              const composeKey = `compose-${draft.id}`;
+              // A compact deep link may carry only `{ id, subject }` when the
+              // full draft was too large to inline in the URL. The complete
+              // draft is already persisted at `compose-<id>` by manage-draft
+              // on create/update. Never let the truncated stub overwrite that
+              // richer saved draft (would silently lose body / recipients /
+              // reply metadata). Only write when the payload actually carries
+              // content, or when nothing is saved yet (composer still opens).
+              const hasContent =
+                (typeof draft.body === "string" && draft.body.length > 0) ||
+                !!draft.to ||
+                !!draft.cc ||
+                !!draft.bcc ||
+                !!draft.html ||
+                !!draft.replyToThreadId;
+              const existing = hasContent
+                ? null
+                : await appStateGet(session.email, composeKey);
+              if (hasContent || !existing) {
+                await appStatePut(session.email, composeKey, draft, {
+                  requestSource: "deep-link",
+                });
+              }
             }
           } catch {
             // Malformed compose payload — skip; the view still opens.

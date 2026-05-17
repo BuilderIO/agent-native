@@ -3,6 +3,7 @@ import {
   signShortLivedToken,
   buildDeepLink,
   getAppProductionUrl,
+  getRequestContext,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -69,12 +70,16 @@ export default defineAction({
     });
     const handoffFormat = normalizeHandoffFormat(format);
     // External agents (MCP / A2A) that don't pass `origin` would otherwise get
-    // a relative URL they can't fetch. Fall back to the canonical app origin —
-    // the same resolution `buildDeepLink` absolutization uses for deployed
-    // first-party apps (env override → registry prodUrl → platform URL →
-    // localhost) — so `rawUrl` is absolute by default. An explicitly-passed
-    // `origin` still wins.
-    const resolvedOrigin = origin || getAppProductionUrl();
+    // a relative URL they can't fetch. Resolution order:
+    //   1. explicit `origin` arg (caller knows best),
+    //   2. the live request origin from the request context (set by the MCP
+    //      layer from the inbound request — the actual local-workspace app
+    //      origin, e.g. http://127.0.0.1:8085, so the signed raw-code URL is
+    //      fetchable in dev/workspace setups), then
+    //   3. the canonical first-party app origin (env override → registry
+    //      prodUrl → platform URL → localhost) for deployed apps.
+    const resolvedOrigin =
+      origin || getRequestContext()?.requestOrigin || getAppProductionUrl();
     const rawUrl = buildRawHandoffUrl({
       id,
       token,

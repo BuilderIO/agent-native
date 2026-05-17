@@ -188,15 +188,24 @@ export async function createMCPServerForRequest(
   const orgIdPromise = resolveOrgIdFromDomain(effectiveIdentity?.orgDomain);
 
   /**
-   * Wrap a callback in `runWithRequestContext({ userEmail, orgId }, fn)`.
+   * Wrap a callback in
+   * `runWithRequestContext({ userEmail, orgId, requestOrigin }, fn)`.
    * Both the tools/list and tools/call handlers go through this so
    * downstream `accessFilter`, `resolveCredential`, and per-user MCP
-   * visibility checks see the verified caller's identity.
+   * visibility checks see the verified caller's identity. `requestOrigin`
+   * is the live server origin derived from the inbound request (same value
+   * used to absolutize deep links) so actions that build fetchable URLs
+   * (e.g. design `export-coding-handoff`'s signed raw-code URL) resolve the
+   * correct local-workspace origin instead of a prod/localhost fallback.
    */
   async function withCallerContext<T>(fn: () => Promise<T>): Promise<T> {
     const orgId = await orgIdPromise;
     return runWithRequestContext(
-      { userEmail: effectiveIdentity?.userEmail, orgId },
+      {
+        userEmail: effectiveIdentity?.userEmail,
+        orgId,
+        ...(requestMeta?.origin ? { requestOrigin: requestMeta.origin } : {}),
+      },
       fn,
     ) as Promise<T>;
   }
@@ -336,6 +345,17 @@ export function getAccessTokens(): string[] {
  * static-token path — JWT auth already carries a cryptographically verified
  * `sub`, so the header is ignored there and never widens JWT scope.
  *
+ * Precedence is server-trusted-first: the server process's
+ * `AGENT_NATIVE_OWNER_EMAIL` env (set out-of-band by the operator / deploy)
+ * ALWAYS wins, and a client-supplied `X-Agent-Native-Owner-Email` header is
+ * honored *only as a fallback when that env is unset*. A static `ACCESS_TOKEN`
+ * is a shared bearer secret; letting a request header override a
+ * server-configured owner would let anyone holding a leaked token act as any
+ * user. The header path remains for the single-tenant local-dev install flow
+ * where the app server process has no owner env and the token *is* the
+ * workspace secret; multi-tenant deployments must use A2A JWT (verified `sub`),
+ * not a static token, for per-user scope.
+ *
  * Returns `undefined` when no owner email is available (true dev-open: no
  * token, no secret, no owner) so behavior there stays unchanged.
  */
@@ -343,8 +363,8 @@ function deriveStaticTokenIdentity(
   ownerEmailHeader: string | undefined,
 ): MCPCallerIdentity | undefined {
   const owner =
-    (typeof ownerEmailHeader === "string" && ownerEmailHeader.trim()) ||
     process.env.AGENT_NATIVE_OWNER_EMAIL?.trim() ||
+    (typeof ownerEmailHeader === "string" && ownerEmailHeader.trim()) ||
     "";
   if (!owner) return undefined;
   return { userEmail: owner, orgDomain: undefined };
