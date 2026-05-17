@@ -29,12 +29,19 @@ interface DeviceRow {
 
 let tokens: TokenRow[] = [];
 let devices: DeviceRow[] = [];
+let failNextCreateTable = false;
 
 const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   const sql = (typeof input === "string" ? input : input.sql).trim();
   const args = (typeof input === "string" ? [] : (input.args ?? [])) as any[];
 
-  if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
+  if (/^CREATE TABLE/i.test(sql)) {
+    if (failNextCreateTable) {
+      failNextCreateTable = false;
+      throw new Error("transient create-table failure");
+    }
+    return { rows: [], rowsAffected: 0 };
+  }
 
   // --- mcp_connect_tokens ---
   if (/^INSERT INTO mcp_connect_tokens/i.test(sql)) {
@@ -153,7 +160,26 @@ describe("connect-store", () => {
   beforeEach(() => {
     tokens = [];
     devices = [];
+    failNextCreateTable = false;
     vi.restoreAllMocks();
+  });
+
+  it("retries table initialization after a transient failure", async () => {
+    failNextCreateTable = true;
+    await expect(
+      store.recordMintedToken({
+        jti: "jti-fail-once",
+        ownerEmail: "a@example.com",
+      }),
+    ).rejects.toThrow("transient create-table failure");
+
+    await expect(
+      store.recordMintedToken({
+        jti: "jti-retry",
+        ownerEmail: "a@example.com",
+      }),
+    ).resolves.toBeTruthy();
+    expect(tokens.map((t) => t.jti)).toEqual(["jti-retry"]);
   });
 
   describe("token records", () => {

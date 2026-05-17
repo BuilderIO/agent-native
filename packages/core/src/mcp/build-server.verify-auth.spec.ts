@@ -46,6 +46,30 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
+  it("rejects identity-scoped SSO JWTs on the MCP endpoint", async () => {
+    const token = await sign({
+      sub: "a@example.com",
+      scope: "identity",
+      jti: "identity-jti",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(false);
+    expect(res.identity).toBeUndefined();
+    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown scoped JWTs on the MCP endpoint", async () => {
+    const token = await sign({
+      sub: "a@example.com",
+      scope: "some-other-scope",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(false);
+    expect(res.identity).toBeUndefined();
+    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+  });
+
   it("accepts a connect-scoped token whose jti is not revoked", async () => {
     isJtiRevokedMock.mockResolvedValue(false);
     const token = await sign({
@@ -62,6 +86,17 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-active");
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-active");
+  });
+
+  it("rejects a connect-scoped token without a jti", async () => {
+    const token = await sign({
+      sub: "a@example.com",
+      scope: "mcp-connect",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(false);
+    expect(res.identity).toBeUndefined();
+    expect(isJtiRevokedMock).not.toHaveBeenCalled();
   });
 
   it("rejects a connect-scoped token whose jti has been revoked", async () => {

@@ -82,7 +82,12 @@ async function ensureTable(): Promise<void> {
           consumed_at ${intType()}
         )
       `);
-    })();
+    })().catch((err) => {
+      // Don't cache a rejected init. A transient DB blip should let the next
+      // connect/mint/revoke call retry rather than wedging the process.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }

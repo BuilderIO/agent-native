@@ -418,6 +418,12 @@ export async function verifyAuth(
         new TextEncoder().encode(process.env.A2A_SECRET!),
       );
 
+      const tokenScope =
+        typeof payload.scope === "string" ? payload.scope : undefined;
+      if (tokenScope && tokenScope !== MCP_CONNECT_SCOPE) {
+        return { authed: false };
+      }
+
       // Connect-minted tokens (scope === "mcp-connect") carry a random `jti`
       // and are individually revocable. Only these tokens hit the revoke
       // store — ordinary A2A delegation JWTs skip the DB lookup entirely so
@@ -426,11 +432,10 @@ export async function verifyAuth(
       // connected agent out. The signature was already cryptographically
       // verified above, so failing open here only widens the explicit-revoke
       // gate, never the trust boundary.
-      if (
-        payload.scope === MCP_CONNECT_SCOPE &&
-        typeof payload.jti === "string" &&
-        payload.jti
-      ) {
+      if (tokenScope === MCP_CONNECT_SCOPE) {
+        if (typeof payload.jti !== "string" || !payload.jti) {
+          return { authed: false };
+        }
         const jti = payload.jti;
         try {
           const { isJtiRevoked, touchTokenUsed } =
