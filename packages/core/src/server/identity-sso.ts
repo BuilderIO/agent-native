@@ -111,8 +111,19 @@ function html(body: string, status = 200): Response {
   });
 }
 
-function redirect(location: string): Response {
-  return new Response("", { status: 302, headers: { Location: location } });
+function redirect(event: H3Event, location: string): Response {
+  // Mirror any Set-Cookie staged on the event (e.g. the framework session
+  // cookie set by `createOAuthSession`) onto the 302. h3 v2's
+  // `prepareResponse` only merges staged Set-Cookie into a *2xx* web
+  // Response and drops them for non-2xx — so a bare
+  // `new Response("", { status: 302 })` here would silently lose the
+  // session cookie and the user would finish "Sign in with Agent-Native"
+  // still logged out. This mirrors the framework's `redirectWithStagedCookies`
+  // (auth.ts) exactly; it is a no-op when nothing is staged.
+  const headers = new Headers({ Location: location });
+  const staged = (event as any).res?.headers?.getSetCookie?.() ?? [];
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response("", { status: 302, headers });
 }
 
 /**
@@ -355,7 +366,7 @@ export async function handleIdentitySso(
       returnPath = "/";
     }
     if (existing?.email) {
-      return redirect(returnPath);
+      return redirect(event, returnPath);
     }
 
     let state: string;
@@ -380,7 +391,7 @@ export async function handleIdentitySso(
       `?app=${encodeURIComponent(resolveAppId(event))}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
       `&state=${encodeURIComponent(state)}`;
-    return redirect(authorizeUrl);
+    return redirect(event, authorizeUrl);
   }
 
   // ---- GET /callback → verify token, JIT-link, mint session ------------
@@ -463,7 +474,7 @@ export async function handleIdentitySso(
 
     // Land the user back where they started (validated same-origin path).
     const dest = safeReturnPath(stateResult.returnPath);
-    return redirect(dest);
+    return redirect(event, dest);
   }
 
   return new Response("Not found", { status: 404 });

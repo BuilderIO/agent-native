@@ -521,6 +521,37 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
 }
 
 /**
+ * True only when the request originates from the local machine — the raw
+ * socket peer is `127.0.0.0/8`, `::1`, or the IPv4-mapped `::ffff:127.0.0.1`
+ * (an optional IPv6 zone id like `fe80::1%en0` is stripped first).
+ *
+ * `getRequestIP(event)` is called WITHOUT `{ xForwardedFor: true }`, so it
+ * returns the real connection peer and never an attacker-controlled
+ * `X-Forwarded-For` value — a remote client cannot spoof its way past this.
+ * Used to scope local-only conveniences (the desktop SSO broker and the dev
+ * auto-account) so a directly network-reachable dev server never exposes
+ * them to a remote visitor. NOTE: a reverse proxy / tunnel that connects to
+ * the dev server over localhost still appears as loopback, so this is a
+ * necessary but not sufficient gate — callers pair it with NODE_ENV and,
+ * for the dev account, a throwaway per-DB password.
+ */
+function isLoopbackRequest(event: H3Event): boolean {
+  let ip: string | undefined;
+  try {
+    ip = getRequestIP(event) ?? undefined;
+  } catch {
+    ip = undefined;
+  }
+  const normalised = (ip ?? "").split("%")[0];
+  return (
+    normalised === "127.0.0.1" ||
+    normalised === "::1" ||
+    normalised === "::ffff:127.0.0.1" ||
+    normalised.startsWith("127.")
+  );
+}
+
+/**
  * Read the desktop-SSO broker file, but only if the request is plausibly
  * from the Electron desktop app *and* coming from the local machine.
  *
@@ -539,21 +570,7 @@ async function readDesktopSsoSafely(
 ): Promise<Awaited<ReturnType<typeof readDesktopSso>>> {
   if (process.env.NODE_ENV === "production") return null;
   if (!isElectronRequest(event)) return null;
-  // Loopback-only: 127.0.0.1, ::1, and the IPv4-mapped form.
-  let ip: string | undefined;
-  try {
-    ip = getRequestIP(event) ?? undefined;
-  } catch {
-    ip = undefined;
-  }
-  // Strip an optional zone id (e.g. "fe80::1%en0") before comparing.
-  const normalised = (ip ?? "").split("%")[0];
-  const isLoopback =
-    normalised === "127.0.0.1" ||
-    normalised === "::1" ||
-    normalised === "::ffff:127.0.0.1" ||
-    normalised.startsWith("127.");
-  if (!isLoopback) return null;
+  if (!isLoopbackRequest(event)) return null;
   return await readDesktopSso();
 }
 
@@ -1463,7 +1480,8 @@ function createAuthGuardFn(): (
 // validator (a bare `dev@local` has no TLD and is rejected as INVALID_EMAIL,
 // which silently broke the zero-setup auto-sign-in on every fresh dev DB).
 const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
-const AUTO_DEV_ACCOUNT_PASSWORD = "local-dev-account";
+// No fixed password: maybeAutoCreateDevSession mints a random one per DB
+// and prints it to the console once (see there).
 
 // Pre-fix local dev DBs may already contain a `dev@local` user. Treat that
 // legacy address as the dev account too, so the "any real users?" check
@@ -1488,13 +1506,21 @@ const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
  * leaves the user on the regular sign-in form; without this guard the
  * post-logout reload would silently re-create the session.
  *
- * The fixed password is intentional: it means a developer who signs
- * out can sign back in with `dev@local.test` / `local-dev-account`
- * from the regular login form. To get the auto-flow back, drop the
- * user row or wipe the local DB. Set
- * `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely
- * (useful for tests that exercise the unauthenticated branch). This
- * is local-only — the helper is gated on NODE_ENV.
+ * Hardening (this is a convenience, not an auth bypass — it uses the
+ * real Better Auth sign-up/sign-in, but a known-credential local account
+ * is still worth not shipping):
+ *  - **Loopback only.** Gated on `isLoopbackRequest`, so a tunnelled /
+ *    reverse-proxied / misconfigured-non-prod dev server never auto-signs
+ *    in a directly-remote visitor (mirrors the desktop SSO broker).
+ *  - **Random per-DB password.** The account password is freshly
+ *    generated on creation and printed to the server console exactly
+ *    once — there is no source-code-known credential. After logout the
+ *    auto-flow won't refire (dev row exists), so signing back in uses
+ *    that printed password; lost it ⇒ drop the row or wipe the local DB.
+ *  - **NODE_ENV.** Still gated on development/test.
+ *
+ * Set `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely
+ * (useful for tests that exercise the unauthenticated branch).
  */
 async function maybeAutoCreateDevSession(
   event: H3Event,
@@ -1502,6 +1528,9 @@ async function maybeAutoCreateDevSession(
 ): Promise<Response | null> {
   if (!isDevEnvironment()) return null;
   if (process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT === "1") return null;
+  // Local machine only: never auto-sign-in a remote visitor, even if a
+  // dev server is exposed (tunnel, reverse proxy, misconfigured NODE_ENV).
+  if (!isLoopbackRequest(event)) return null;
 
   try {
     const db = getDbExec();
@@ -1533,14 +1562,22 @@ async function maybeAutoCreateDevSession(
     const auth = await getBetterAuth();
     if (!auth) return null;
 
-    // Idempotent sign-up: succeeds on first run, throws an "already exists"
-    // failure on subsequent runs (which we swallow before falling through
-    // to the sign-in path below).
+    // Random per-DB password — there is no source-code-known credential
+    // for this account. Printed once below so the developer can sign back
+    // in after logout (the auto-flow won't refire while the dev row
+    // exists).
+    const devPassword = crypto.randomBytes(18).toString("base64url");
+
+    // The dev account does not exist at this point (the devUsers check
+    // above returned early otherwise). The "already exists" swallow only
+    // matters under a rare concurrent first-hit race — in that case the
+    // sign-in below fails the password check and we return null, leaving
+    // the racing request that already won to keep the session.
     try {
       await auth.api.signUpEmail({
         body: {
           email: AUTO_DEV_ACCOUNT_EMAIL,
-          password: AUTO_DEV_ACCOUNT_PASSWORD,
+          password: devPassword,
           name: "Dev",
         },
       });
@@ -1551,13 +1588,24 @@ async function maybeAutoCreateDevSession(
     const result = await auth.api.signInEmail({
       body: {
         email: AUTO_DEV_ACCOUNT_EMAIL,
-        password: AUTO_DEV_ACCOUNT_PASSWORD,
+        password: devPassword,
       },
     });
     if (!result?.token) return null;
 
     setFrameworkSessionCookie(event, result.token);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
+
+    // Print the throwaway credential exactly once so the developer can
+    // sign back in manually after logout (auto-flow won't refire once the
+    // dev row exists). Local console only — never Sentry.
+    console.log(
+      `\n[agent-native] Local dev auto-login ready.\n` +
+        `  email:    ${AUTO_DEV_ACCOUNT_EMAIL}\n` +
+        `  password: ${devPassword}\n` +
+        `  (random, this DB only — needed to sign back in after logout.\n` +
+        `   Set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 to disable.)\n`,
+    );
 
     // Emit the session cookie ON the 302 itself. Returning a bare
     // `new Response(...)` here drops the cookie staged on event.node.res
