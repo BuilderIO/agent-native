@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.19.1
+
+### Patch Changes
+
+- 310c02f: Add context-aware dynamic prompt suggestions to the agent chat empty state.
+- 310c02f: Tighten read-only bash command guards and scope org-directory/A2A routing auth by caller org identity.
+- 310c02f: Reduce production Sentry noise from expected transport and authorization errors.
+- 310c02f: Share the minimal bash/read/edit/write coding tool profile between Agent-Native Code and sidebar development mode.
+
 ## 0.19.0
 
 ### Minor Changes
