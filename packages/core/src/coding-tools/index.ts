@@ -96,8 +96,11 @@ export function createCodingToolRegistry(
             : commandTimeoutMs;
 
         const policyResult =
-          (await options.beforeBash?.({ command, cwd: commandCwd, timeoutMs })) ??
-          null;
+          (await options.beforeBash?.({
+            command,
+            cwd: commandCwd,
+            timeoutMs,
+          })) ?? null;
         if (policyResult) return policyResult;
 
         const result = await runCodingCommand(command, commandCwd, timeoutMs, {
@@ -407,7 +410,9 @@ function normalizeEditOperation(
   }
   if (newText === undefined) {
     throw new Error(
-      index === 0 ? "newText is required." : `edits[${index}].newText is required.`,
+      index === 0
+        ? "newText is required."
+        : `edits[${index}].newText is required.`,
     );
   }
   return {
@@ -433,7 +438,8 @@ function queueFileMutation<T>(filePath: string, task: () => Promise<T> | T) {
   const next = previous.catch(() => undefined).then(task);
   let queued: Promise<unknown>;
   queued = next.finally(() => {
-    if (mutationQueues.get(filePath) === queued) mutationQueues.delete(filePath);
+    if (mutationQueues.get(filePath) === queued)
+      mutationQueues.delete(filePath);
   });
   mutationQueues.set(filePath, queued);
   return next;
