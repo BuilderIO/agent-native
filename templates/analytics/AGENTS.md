@@ -56,14 +56,13 @@ When the user names a data source or tool, that source is authoritative for the 
 
 Connected MCP/provider tools are also real source access. If `tool-search` returns a provider-specific MCP tool for a named source (for example a HubSpot search tool), use it when it is the best match and treat the returned records as evidence.
 
-If a provider action returns an error:
+If a provider action returns an error, handle it by error class:
 
-- **Credentials not configured** — surface the action's message and settings path when provided, and point the user at Settings → Data sources.
-- **Query/API error** (unknown table, unknown column, syntax, permission) — show the actual error and offer to fix the query or use another configured source.
-- **Quota / network blip** — say so and offer to retry.
+- **Credentials not configured** — non-recoverable in this turn. Surface the action's message and settings path, and point the user at Settings → Data sources. Don't retry.
+- **Query / SQL / schema error** (unknown dataset, table, or column, syntax, "Did you mean…") — this is a normal, recoverable debugging signal, not a stopping point. Look up the real schema (`search-bigquery-schema`, `INFORMATION_SCHEMA`, the data dictionary, or existing dashboard SQL), correct the query based on the error, and run it again. A few corrective iterations are expected and good. Change something based on the error each time — never blindly rerun identical SQL.
+- **Quota / permission / network** — usually non-recoverable in this turn. Say so and surface the exact error; retry only a transient network blip.
 
-After a provider error, stop using that provider for the current turn. Do not keep retrying, reformulating, or continuing into follow-up analysis unless the user explicitly asks you to.
-If the user responds with "yes", "try again", or similar after a query/API error, treat that as permission to diagnose and correct the failed query first. Do not rerun the exact same failing SQL or provider request unless the user explicitly asks for an exact rerun.
+Bound the loop: if a query still fails after a few corrective attempts, or the error is non-recoverable (missing credentials, permission denied, quota), stop and report the exact error and what you tried. Don't loop indefinitely, and never substitute guessed or made-up numbers for data you couldn't query — reporting the real blocker is always the correct answer.
 
 For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query or bounded evidence batch. Do not turn a "what to look into next" section into more tool calls unless the user asked for a deeper investigation.
 
@@ -530,6 +529,10 @@ Use only when writing an analysis artifact via `save-analysis` — the markdown 
 **Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
 
 **Never use browser dialogs** (`window.confirm`, `window.alert`, `window.prompt`) — use shadcn AlertDialog instead.
+
+## Deep Links
+
+Analysis and dashboard actions return deep links so an external agent (MCP / A2A) can surface an "Open in Analytics →" link that drops the user back into the running UI focused on the right resource. `save-analysis` and `update-dashboard` keep all existing return fields and additionally include a `deepLink` plus a `link` builder — `save-analysis`/`get-analysis` target `view: "analyses"` with `analysisId`, and `update-dashboard` targets `view: "adhoc"` with `dashboardId`. `get-analysis` and `list-analyses` (the latter links to the `analyses` list view with no id) are GET + `readOnly` + `publicAgent` (exposed to external agents). No navigate-consumer wiring change was needed: `use-navigation-state` already routes the one-shot `navigate` command to `/analyses/:analysisId` (view `analyses`) and `/adhoc/:dashboardId` (view `adhoc`), so the open route's `view` + id params focus the resource as-is.
 
 ## TypeScript Everywhere
 

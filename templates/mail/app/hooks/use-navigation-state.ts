@@ -12,6 +12,7 @@ export interface NavigationState {
   queuedDraftId?: string;
   queueScope?: string;
   settingsSection?: string;
+  composeDraftId?: string;
   _ts?: number;
 }
 

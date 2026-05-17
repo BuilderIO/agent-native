@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import {
   readBrainAgentGuidance,
@@ -97,9 +98,25 @@ function rankRowsForQuestion(rows: KnowledgeSearchRow[], question: string) {
     .map((entry) => entry.row);
 }
 
+function knowledgeDeepLink(knowledgeId: string): string {
+  return buildDeepLink({
+    app: "brain",
+    view: "knowledge",
+    params: { knowledgeId },
+  });
+}
+
+function captureDeepLink(captureId: string): string {
+  return buildDeepLink({
+    app: "brain",
+    view: "capture",
+    params: { captureId },
+  });
+}
+
 export default defineAction({
   description:
-    "Answer a company-memory question from published Brain knowledge, falling back to cited raw capture matches when approved knowledge is thin.",
+    "Answer a company-memory question from published Brain knowledge, falling back to cited raw capture matches when approved knowledge is thin. The external-facing public-agent company lookup: returns a cited answer plus deep links into the Brain knowledge/capture records.",
   schema: z.object({
     question: z.string().min(1),
     mode: z.enum(["cited"]).default("cited"),
@@ -107,6 +124,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async ({ question, filters }) => {
     const { guidance } = await readBrainAgentGuidance();
     const federatedCoveragePromise = buildFederatedSearchCoverage({
@@ -174,19 +192,23 @@ export default defineAction({
     const knowledgeCitations = knowledge.flatMap((item) =>
       item.evidence.slice(0, 2).map((evidence, index) => ({
         id: `${item.id}-${index}`,
+        knowledgeId: item.id,
         title: item.title,
         sourceName: evidence.captureTitle,
         excerpt: evidence.quote,
         confidence: item.confidence / 100,
         url: evidence.sourceUrl ?? evidence.url ?? null,
+        deepLink: knowledgeDeepLink(item.id),
       })),
     );
     const captureCitations = captureFallback.map((item) => ({
       id: item.id,
+      captureId: item.id,
       title: item.title,
       sourceName: item.source?.title ?? item.title,
       excerpt: item.snippet,
       url: item.sourceUrl,
+      deepLink: captureDeepLink(item.id),
     }));
     const answerParts = [];
     const hasCitations = knowledgeCitations.length || captureCitations.length;
@@ -227,15 +249,37 @@ export default defineAction({
     }
 
     const federatedCoverage = await federatedCoveragePromise;
+    const citations = [...knowledgeCitations, ...captureCitations];
+    const primary = citations[0] ?? null;
     return {
       answer: formatAnswer(answerParts.join("\n\n"), guidance),
-      citations: [...knowledgeCitations, ...captureCitations],
+      citations,
+      deepLink: primary?.deepLink ?? null,
       knowledge,
       captures: captureFallback,
       results: captureFallback,
       policy: guidance.retrieval,
       responseGuidance: guidance.response,
       federatedCoverage,
+    };
+  },
+  link: ({ result }) => {
+    const r = result as {
+      deepLink?: string | null;
+      citations?: Array<{
+        knowledgeId?: string;
+        captureId?: string;
+      }>;
+    } | null;
+    const url = r?.deepLink;
+    if (!url) return null;
+    const first = r?.citations?.[0];
+    return {
+      url,
+      label: first?.knowledgeId
+        ? "Open knowledge in Brain"
+        : "Open capture in Brain",
+      view: first?.knowledgeId ? "knowledge" : "capture",
     };
   },
 });

@@ -119,8 +119,8 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         });
       } else {
         _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {
-          // pgPoolOptions caps the pool to one connection on serverless so
-          // concurrent frozen Lambda instances don't exhaust Neon/Postgres'
+          // pgPoolOptions caps the pool to a small size on serverless so
+          // concurrent frozen instances don't exhaust Neon/Postgres'
           // connection limit ("Max client connections reached").
           const client = postgres(url, pgPoolOptions(url));
           _db = drizzle(client, { schema });

@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { createQueuedDraft } from "../server/lib/queued-drafts.js";
 
@@ -41,5 +42,21 @@ export default defineAction({
   }),
   run: async (args) => {
     return createQueuedDraft(args);
+  },
+  link: ({ result }) => {
+    const id =
+      result && typeof result === "object"
+        ? (result as { id?: string }).id
+        : undefined;
+    if (!id) return null;
+    return {
+      url: buildDeepLink({
+        app: "mail",
+        view: "draft-queue",
+        params: { queuedDraftId: id },
+      }),
+      label: "Review draft in Mail",
+      view: "draft-queue",
+    };
   },
 });

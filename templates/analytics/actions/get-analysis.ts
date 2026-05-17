@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
 import { getAnalysis } from "../server/lib/dashboards-store";
@@ -12,6 +13,22 @@ export default defineAction({
     id: z.string().describe("The analysis ID"),
   }),
   http: { method: "GET" },
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const a = result as { id?: string; error?: string };
+    if (a.error || !a.id) return null;
+    return {
+      url: buildDeepLink({
+        app: "analytics",
+        view: "analyses",
+        params: { analysisId: a.id },
+      }),
+      label: "Open analysis in Analytics",
+      view: "analyses",
+    };
+  },
   run: async (args) => {
     const orgId = getRequestOrgId() || null;
     const email = getRequestUserEmail();

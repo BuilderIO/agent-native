@@ -301,6 +301,23 @@ review gates, and citation requirements. If a request asks Brain to mutate
 state, sync a source, approve/reject review items, or write knowledge, it should
 go through authenticated app actions instead of the public retrieval fallback.
 
+`ask-brain` is the external-facing public-agent company lookup. It is GET +
+read-only + `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`,
+so an external coding agent or A2A peer can ask a company-memory question over
+MCP and get a cited answer back. Every citation now carries a `deepLink`:
+knowledge citations link to `view: "knowledge"` + `knowledgeId`, capture
+citations to `view: "capture"` + `captureId` (resolved to the Search surface,
+which is where raw captures live). The result also exposes a top-level
+`deepLink` pointing at the primary citation and surfaces an
+"Open knowledge/capture in Brain" deep link so the calling agent can drop the
+user straight into the focused Brain record. `search-everything` is the same
+shape for the broader Brain-wide search: every result gets a per-record
+`deepLink` and the response carries a top-level "Open search in Brain" list
+link. These links are pure pointers — the record-focusing `navigate` write is
+always scoped to the browser session via `/_agent-native/open`, never the
+external agent's token, and retrieval still obeys access filters, source policy,
+redaction, and citation requirements.
+
 Auto-sync is controlled per source with `config.autoSync` and
 `config.pollMinutes`. The background job is gated by `RUN_BACKGROUND_JOBS`; use
 `sync-due-sources` when the user wants to kick due Slack/Granola polling from

@@ -14,6 +14,7 @@ import {
   buildDesignHandoffPayload,
   normalizeHandoffFormat,
 } from "../../../lib/coding-handoff.js";
+import { buildDesignSnapshot } from "../../../lib/design-snapshot.js";
 
 function notFound(event: H3Event) {
   setResponseStatus(event, 404);
@@ -50,17 +51,21 @@ export default defineEventHandler(async (event: H3Event) => {
     .limit(1);
   if (!design) return notFound(event);
 
-  const files = await db
-    .select({
-      filename: schema.designFiles.filename,
-      fileType: schema.designFiles.fileType,
-      content: schema.designFiles.content,
-    })
-    .from(schema.designFiles)
-    .where(eq(schema.designFiles.designId, id));
-  if (files.length === 0) return notFound(event);
+  // Build from the shared snapshot so the bundle reflects the design's
+  // current state: live editor (collab) content plus the user's applied
+  // visual tweaks resolved into the HTML :root.
+  const snapshot = await buildDesignSnapshot(id, design.data);
+  if (snapshot.files.length === 0) return notFound(event);
 
-  const payload = buildDesignHandoffPayload({ design, files });
+  const payload = buildDesignHandoffPayload({
+    design,
+    files: snapshot.files.map((f) => ({
+      filename: f.filename,
+      fileType: f.fileType,
+      content: f.content,
+    })),
+    resolvedCssVars: snapshot.resolvedCssVars,
+  });
   const format = normalizeHandoffFormat(q.format);
 
   setResponseHeader(event, "Cache-Control", "no-store");

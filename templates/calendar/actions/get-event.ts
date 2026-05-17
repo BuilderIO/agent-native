@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
@@ -21,6 +21,26 @@ export default defineAction({
       .describe('Calendar id — defaults to "primary"'),
   }),
   http: { method: "GET" },
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const evt = result as { id?: string; start?: string; error?: string };
+    if (evt.error || !evt.id) return null;
+    const date =
+      typeof evt.start === "string" && evt.start
+        ? evt.start.slice(0, 10)
+        : undefined;
+    return {
+      url: buildDeepLink({
+        app: "calendar",
+        view: "calendar",
+        params: { eventId: evt.id, date },
+      }),
+      label: "Open event in Calendar",
+      view: "calendar",
+    };
+  },
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

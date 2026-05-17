@@ -10,7 +10,7 @@ Seed learnings the agent starts with. Personal learnings go in `learnings.md` (g
 
 ## UI
 
-- Inter font, monochrome palette, no decorative CSS transitions.
+- Inter font, monochrome palette. Keep shadcn's default transitions; custom motion only when it's short, purposeful, and matches shadcn's feel (no slow/decorative animation).
 - Tabler Icons only. No robot or sparkle icons for the agent.
 - shadcn/ui for every standard UI pattern. No `window.confirm` / `alert` / `prompt` — use shadcn `AlertDialog`.
 

@@ -155,10 +155,12 @@ can _manage_ a resource, not who can book against it.
   no emoji icons.
 - **No browser dialogs** (`window.confirm/alert/prompt`) — use
   `AlertDialog` from shadcn.
-- **Keep shadcn default transitions** (animate-in/out, fade, zoom, slide).
-  Avoid custom decorative transitions — keep the UI snappy. Framer-motion is
-  allowed for booker stage transitions where a continuous, animated feel is
-  the intended product polish.
+- **Keep shadcn default transitions** (animate-in/out, fade, zoom, slide) —
+  never strip them. Purposeful custom transitions that communicate a state
+  change and match shadcn's motion (short, ease-out, `data-[state]`-gated)
+  are fine; avoid slow or decorative animation. Framer-motion is allowed for
+  booker stage transitions where a continuous, animated feel is the intended
+  product polish. See the `shadcn-ui` skill → Transitions And Motion.
 - **Use shadcn's default pill tabs** for the event type editor — not
   MUI-style underline tabs.
 - **Call view-screen first** when the user's request is ambiguous about

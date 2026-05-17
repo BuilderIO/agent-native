@@ -6,9 +6,25 @@ import {
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
 import { getUserSetting } from "@agent-native/core/settings";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { appendSignatureToBody } from "../shared/signature.js";
+
+/** Base64url-encode a compose draft so `/_agent-native/open?compose=…`
+ *  decodes it back into a `compose-{id}` app-state entry the compose panel
+ *  auto-opens. */
+function encodeComposeDraft(draft: Record<string, string>): string {
+  return Buffer.from(JSON.stringify(draft)).toString("base64url");
+}
+
+/** Deep link that reopens a compose draft in the Mail compose panel. */
+function composeDeepLink(draft: Record<string, string>): string {
+  return buildDeepLink({
+    app: "mail",
+    view: "inbox",
+    compose: encodeComposeDraft(draft),
+  });
+}
 
 /** Reject IDs that could escape via path traversal. */
 function sanitizeDraftId(id: string): string | null {
@@ -95,7 +111,12 @@ export default defineAction({
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
       if (args.accountEmail) draft.accountEmail = args.accountEmail;
       await writeAppState(`compose-${id}`, draft);
-      return `Created draft ${id}`;
+      return {
+        id,
+        draft,
+        deepLink: composeDeepLink(draft),
+        message: `Created draft ${id}`,
+      };
     }
 
     if (action === "update") {
@@ -118,9 +139,25 @@ export default defineAction({
         if (args[key] !== undefined) (draft as any)[key] = args[key];
       }
       await writeAppState(`compose-${safeId}`, draft);
-      return `Updated draft ${safeId}`;
+      return {
+        id: safeId,
+        draft,
+        deepLink: composeDeepLink(draft as Record<string, string>),
+        message: `Updated draft ${safeId}`,
+      };
     }
 
     return `Error: Unknown action "${action}". Valid: create, update, delete, delete-all`;
+  },
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const draft = (result as { draft?: Record<string, string> }).draft;
+    const id = (result as { id?: string }).id;
+    if (!draft || !id) return null;
+    return {
+      url: composeDeepLink(draft),
+      label: "Open draft in Mail",
+      view: "inbox",
+    };
   },
 });

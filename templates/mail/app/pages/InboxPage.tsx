@@ -434,7 +434,13 @@ export function InboxPage() {
     const targetView = navCommand.view || view;
     const targetThread = navCommand.threadId;
 
-    if (targetView === "draft-queue") {
+    if (navCommand.composeDraftId && !targetThread) {
+      // A deep link reopened a compose draft. The open route already wrote the
+      // matching compose-<id> app-state entry, which the compose panel
+      // auto-opens via polling — we just need to land on the inbox so the
+      // panel is visible.
+      if (view !== "inbox") navigate("/inbox");
+    } else if (targetView === "draft-queue") {
       const target = navCommand.queuedDraftId
         ? `/draft-queue?id=${encodeURIComponent(navCommand.queuedDraftId)}`
         : "/draft-queue";

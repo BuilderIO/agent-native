@@ -1,12 +1,12 @@
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Listener, Manager,
 };
 
 use crate::clips::toggle_popover;
 use crate::dlog;
-use crate::state::TrayAnchor;
+use crate::state::{TrayAnchor, TrayMeetings};
 use crate::tray_meetings::{build_meetings_section, handle_meeting_menu_click, MeetingItem};
 use crate::util::is_recording_active;
 use crate::TRAY_PNG;
@@ -22,6 +22,15 @@ fn build_menu_with_meetings(
     let meetings_submenu = build_meetings_section(app, meetings)?;
     let show_item = MenuItem::with_id(app, "show", "Show popover", true, None::<&str>)?;
     let stop_item = MenuItem::with_id(app, "stop", "Stop recording", true, None::<&str>)?;
+    let guides = crate::config::feature_config(app).region_guides;
+    let region_guides_item = CheckMenuItem::with_id(
+        app,
+        "toggle-region-guides",
+        "Show region guides on screen",
+        true,
+        guides.always_visible,
+        None::<&str>,
+    )?;
     let devtools_item =
         MenuItem::with_id(app, "devtools", "Toggle DevTools", true, Some("Cmd+Alt+I"))?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit Clips", true, None::<&str>)?;
@@ -33,11 +42,40 @@ fn build_menu_with_meetings(
             &separator,
             &show_item,
             &stop_item,
+            &region_guides_item,
             &devtools_item,
             &quit_item,
         ],
     )?;
     Ok(menu)
+}
+
+/// Rebuild the tray menu from the cached meetings snapshot. Tauri 2 menu APIs
+/// are main-thread-only on macOS, so this hops back via `run_on_main_thread`
+/// before swapping the menu (`set_menu` is atomic — the documented Tauri 2
+/// way to update a tray; there's no partial-update API for items).
+fn rebuild_tray_menu(app: &tauri::AppHandle) {
+    let app = app.clone();
+    let _ = app.clone().run_on_main_thread(move || {
+        let meetings = app
+            .try_state::<TrayMeetings>()
+            .and_then(|s| s.0.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        let new_menu = match build_menu_with_meetings(&app, meetings) {
+            Ok(m) => m,
+            Err(err) => {
+                eprintln!("[clips-tray] rebuild menu failed: {err}");
+                return;
+            }
+        };
+        if let Some(tray) = app.tray_by_id("main") {
+            if let Err(err) = tray.set_menu(Some(new_menu)) {
+                eprintln!("[clips-tray] set_menu failed: {err}");
+            } else {
+                dlog!("[clips-tray] tray menu rebuilt");
+            }
+        }
+    });
 }
 
 pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -68,6 +106,35 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 "show" => toggle_popover(app),
                 "stop" => {
                     let _ = app.emit("clips:recorder-stop", ());
+                }
+                "toggle-region-guides" => {
+                    let mut new_config = crate::config::feature_config(app);
+                    let next_visible = !new_config.region_guides.always_visible;
+                    new_config.region_guides.always_visible = next_visible;
+                    // Mirrors the Settings "open the editor" choice: turning
+                    // it on with no preset drawn opens the region-guide editor
+                    // so the user can draw one — we still persist
+                    // always_visible = true so it activates once a preset is
+                    // saved.
+                    if next_visible && new_config.region_guides.rects.is_empty() {
+                        let a = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = crate::clips::show_region_guide_editor(a).await;
+                        });
+                    }
+                    // set_feature_config is async (saves + emits
+                    // app:feature-config-changed to keep the Settings switch in
+                    // sync + calls reconcile_region_guides). Spawn it from this
+                    // sync handler.
+                    let a = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(err) = crate::config::set_feature_config(a, new_config).await {
+                            eprintln!("[clips-tray] toggle-region-guides save failed: {err}");
+                        }
+                    });
+                    // Rebuild the tray menu immediately so the checkmark
+                    // reflects the new state without waiting on the async save.
+                    rebuild_tray_menu(app);
                 }
                 "devtools" => {
                     #[cfg(debug_assertions)]
@@ -146,25 +213,14 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
         };
-        let app = app_handle.clone();
-        // Tauri 2 menu APIs are main-thread-only on macOS; hop back via
-        // run_on_main_thread before touching the tray.
-        let _ = app_handle.run_on_main_thread(move || {
-            let new_menu = match build_menu_with_meetings(&app, parsed.meetings) {
-                Ok(m) => m,
-                Err(err) => {
-                    eprintln!("[clips-tray] rebuild menu failed: {err}");
-                    return;
-                }
-            };
-            if let Some(tray) = app.tray_by_id("main") {
-                if let Err(err) = tray.set_menu(Some(new_menu)) {
-                    eprintln!("[clips-tray] set_menu failed: {err}");
-                } else {
-                    dlog!("[clips-tray] tray menu rebuilt with fresh meetings");
-                }
+        // Cache the latest snapshot so on-demand rebuilds (e.g. toggling the
+        // region-guides check item) keep the meetings submenu.
+        if let Some(state) = app_handle.try_state::<TrayMeetings>() {
+            if let Ok(mut g) = state.0.lock() {
+                *g = parsed.meetings;
             }
-        });
+        }
+        rebuild_tray_menu(&app_handle);
     });
 
     Ok(())

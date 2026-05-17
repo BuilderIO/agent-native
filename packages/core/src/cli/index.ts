@@ -587,6 +587,19 @@ switch (command) {
     break;
   }
 
+  case "mcp": {
+    // Connect external coding agents (Claude Code, Cowork, Codex) over MCP.
+    // `mcp serve` runs the stdio transport; install/uninstall/status/token
+    // manage client configs + the local token.
+    import("./mcp.js")
+      .then((m) => m.runMcp(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "create-workspace": {
     // Deprecated alias for `create` (since workspace is now the default).
     const parsed = parseScaffoldArgs(args);
@@ -675,6 +688,10 @@ Usage:
   agent-native code             Launch Agent-Native Code workspace. Type a task or
                                 use goals like /migrate and /audit.
   agent-native code serve       Run the Agent-Native Code remote connector.
+  agent-native mcp <cmd>        Connect external coding agents over MCP.
+                                cmds: serve | install | uninstall | status |
+                                token (--client claude-code|claude-code-cli|
+                                codex|cowork)
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  buildDeepLink,
 } from "@agent-native/core/server";
 import { listAnalyses } from "../server/lib/dashboards-store";
 
@@ -11,6 +12,13 @@ export default defineAction({
     "List all saved ad-hoc analyses. Returns their IDs, names, descriptions, and last updated timestamps.",
   schema: z.object({}),
   http: { method: "GET" },
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  link: () => ({
+    url: buildDeepLink({ app: "analytics", view: "analyses" }),
+    label: "Open analyses in Analytics",
+    view: "analyses",
+  }),
   run: async () => {
     const orgId = getRequestOrgId() || null;
     const email = getRequestUserEmail();

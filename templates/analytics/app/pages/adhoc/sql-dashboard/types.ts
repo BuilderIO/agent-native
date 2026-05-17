@@ -110,8 +110,10 @@ export interface SqlDashboardConfig {
   variables?: Record<string, string>;
   /**
    * Default column count for panels that appear before any section. Sections
-   * can override this via their own `columns`. Always 1 column on screens
-   * narrower than the `md` breakpoint. Defaults to 2.
+   * can override this via their own `columns`. Always 1 column when the
+   * available content width is below the `md` threshold (the grid uses a
+   * container query, so it stacks when the agent sidebar narrows the pane —
+   * not only at narrow viewports). Defaults to 2.
    */
   columns?: number;
   panels: SqlPanel[];

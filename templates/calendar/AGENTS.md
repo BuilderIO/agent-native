@@ -278,3 +278,7 @@ Prefer editing the package component (`packages/scheduling/src/react/components/
 - At booking time, `createZoomMeeting()` runs when `conferencing.type === "zoom"`; the returned URL lands on `bookings.meeting_link`.
 - For regular calendar events, use `create-event --addZoom=true` or `update-event --addZoom=true`. The action creates a real Zoom meeting with the user's connected Zoom account and writes the link into the Google Calendar event location/description.
 - If Zoom is not connected, use `get-zoom-status` and navigate the user to `settings`; do not create an extension for Zoom, Google Meet, or any first-party calendar/video integration.
+
+## Deep Links
+
+`create-event` and `get-event` return their existing event object unchanged and additionally expose a `link` builder so an external agent (MCP / A2A) can surface an "Open event in Calendar →" link. The link is built with `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })` where `date` is the `YYYY-MM-DD` of the event start. `get-event` is now GET + `readOnly` + `publicAgent` (exposed to external agents). When the deep link is opened, the open route writes the one-shot `navigate` command with `eventId` (+ `date`); **`navigate --eventId` now focuses the event** — the calendar's `use-navigation-state` consumer fetches the event via `get-event`, opens it in the sidebar (`setSidebarEvent`), and moves the calendar to its start date, instead of dropping the id.

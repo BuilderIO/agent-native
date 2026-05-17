@@ -127,3 +127,33 @@
     stroke: #d4d4d8 !important;
   }
 }
+
+/* The dashboard grid responds to the available content width — which shrinks
+   when the agent sidebar is open — not the viewport. Below the threshold it
+   stacks to one column (mobile layout); at/above it expands to the dashboard's
+   configured column count. Mirrors templates/macros/app/global.css. */
+.dashboard-grid-container {
+  container: dashboard-grid / inline-size;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-auto-rows: auto;
+  align-items: stretch;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dashboard-grid > .dashboard-grid-cell {
+  grid-column: auto;
+}
+
+@container dashboard-grid (min-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(var(--dash-cols), minmax(0, 1fr));
+  }
+
+  .dashboard-grid > .dashboard-grid-cell {
+    grid-column: span var(--panel-span);
+  }
+}

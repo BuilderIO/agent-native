@@ -85,6 +85,7 @@ Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant s
 | `authentication`       | Auth modes, sessions, orgs, protecting routes                   |
 | `security`             | Input validation, SQL injection, XSS, secrets, data scoping     |
 | `a2a-protocol`         | Enabling inter-agent communication                              |
+| `external-agents`      | Connecting Claude Code/Cowork/Codex; deep links; `link` builder |
 | `recurring-jobs`       | Scheduled tasks the agent runs on a cron schedule               |
 | `onboarding`           | Registering setup steps for API keys / OAuth                    |
 | `secrets`              | Declaratively register API keys the template needs              |

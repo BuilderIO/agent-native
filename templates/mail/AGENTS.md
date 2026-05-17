@@ -569,6 +569,10 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 **Never use browser dialogs** (`window.confirm`, `window.alert`, `window.prompt`) — use shadcn AlertDialog instead.
 
+## Deep Links
+
+Artifact-producing and read actions return deep links so an external agent (MCP / A2A) can hand the user a single "Open in Mail →" link that drops them back into the running UI focused on the right record. `manage-draft` (create/update) now returns an object with `id`, `draft`, `deepLink`, and `message` (instead of a bare string) plus a `link` builder that targets the compose draft via a base64url `compose` payload — the open route decodes it into the `compose-<id>` app-state key the compose panel auto-opens. `queue-email-draft` adds a `link` beside the existing `reviewUrl` pointing at `draft-queue` with `queuedDraftId`. `search-emails`, `list-emails`, and `get-thread` are GET + `readOnly` + `publicAgent` and return a list/thread `link` (`view: "inbox"` with `search`/`label`/`threadId` params). `navigate` accepts an optional `--composeDraftId` that lands the user on the inbox so the auto-opening compose panel shows that draft.
+
 ## Development
 
 For code editing and development guidance, read `DEVELOPING.md`.

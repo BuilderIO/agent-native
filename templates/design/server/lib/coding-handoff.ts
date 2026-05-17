@@ -31,6 +31,9 @@ export interface DesignHandoffPayload {
     fileType: string;
     content: string;
   }>;
+  /** The user's tuned tweak knob values, resolved to CSS custom properties.
+   *  Empty when the design has no tweaks or none have been adjusted. */
+  appliedDesignTokens?: Record<string, string>;
 }
 
 function appPath(path: string): string {
@@ -99,18 +102,60 @@ function sortHandoffFiles(files: HandoffFile[]) {
   });
 }
 
+/**
+ * Inject the user's resolved tweak tokens into an HTML file's `:root` block so
+ * an external agent that only consumes the file content still gets the *tuned*
+ * design. Appends a sentinel-marked override block to the last `:root { … }`;
+ * if none exists, prepends a `<style>` block. Idempotent via the marker.
+ */
+function injectResolvedTokensIntoHtml(
+  content: string,
+  resolvedCssVars: Record<string, string>,
+): string {
+  const entries = Object.entries(resolvedCssVars);
+  if (entries.length === 0) return content;
+  if (/applied-design-tokens/.test(content)) return content;
+
+  const decls = entries
+    .map(([name, value]) => `  ${name}: ${value}; /* applied-design-tokens */`)
+    .join("\n");
+
+  // Override the last :root declaration block (closest to the cascade end).
+  const rootOpen = content.lastIndexOf(":root");
+  if (rootOpen !== -1) {
+    const braceOpen = content.indexOf("{", rootOpen);
+    const braceClose = content.indexOf("}", braceOpen);
+    if (braceOpen !== -1 && braceClose !== -1) {
+      return `${content.slice(0, braceClose)}\n${decls}\n${content.slice(braceClose)}`;
+    }
+  }
+
+  const styleBlock = `<style data-applied-design-tokens>\n:root {\n${decls}\n}\n</style>`;
+  const headClose = content.lastIndexOf("</head>");
+  if (headClose !== -1) {
+    return `${content.slice(0, headClose)}${styleBlock}\n${content.slice(headClose)}`;
+  }
+  return `${styleBlock}\n${content}`;
+}
+
 export function buildDesignHandoffPayload({
   design,
   files,
+  resolvedCssVars,
   exportedAt = new Date().toISOString(),
 }: {
   design: HandoffDesign;
   files: HandoffFile[];
+  /** Resolved tweak tokens (`--var` -> value). When present, injected into
+   *  HTML files' `:root` and surfaced as an explicit tokens block. */
+  resolvedCssVars?: Record<string, string>;
   exportedAt?: string;
 }): DesignHandoffPayload {
   const data = parseDesignData(design.data);
   const lastPrompt =
     typeof data.lastPrompt === "string" ? data.lastPrompt : undefined;
+  const tokens = resolvedCssVars ?? {};
+  const hasTokens = Object.keys(tokens).length > 0;
 
   return {
     exportedAt,
@@ -123,11 +168,22 @@ export function buildDesignHandoffPayload({
       lastPrompt,
       data,
     },
-    files: sortHandoffFiles(files).map((file) => ({
-      filename: file.filename,
-      fileType: file.fileType || "html",
-      content: file.content,
-    })),
+    files: sortHandoffFiles(files).map((file) => {
+      const fileType = file.fileType || "html";
+      const isHtml =
+        fileType === "html" ||
+        fileType === "jsx" ||
+        /\.(html?|jsx|tsx)$/i.test(file.filename);
+      return {
+        filename: file.filename,
+        fileType,
+        content:
+          hasTokens && isHtml
+            ? injectResolvedTokensIntoHtml(file.content, tokens)
+            : file.content,
+      };
+    }),
+    appliedDesignTokens: hasTokens ? tokens : undefined,
   };
 }
 
@@ -173,6 +229,25 @@ export function buildDesignHandoffMarkdown(
   }
   if (payload.design.lastPrompt) {
     lines.push("", "## Last Prompt", "", payload.design.lastPrompt);
+  }
+
+  const tokens = payload.appliedDesignTokens;
+  if (tokens && Object.keys(tokens).length > 0) {
+    lines.push(
+      "",
+      "## Applied Design Tokens",
+      "",
+      "The user tuned this design in the visual editor. These resolved CSS " +
+        "custom properties reflect the final intended look and have already " +
+        "been merged into the HTML `:root`. Treat them as authoritative over " +
+        "the original generated token values.",
+      "",
+      "```css",
+      ":root {",
+      ...Object.entries(tokens).map(([name, value]) => `  ${name}: ${value};`),
+      "}",
+      "```",
+    );
   }
 
   lines.push(

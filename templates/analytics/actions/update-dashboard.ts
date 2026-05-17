@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
 import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
@@ -456,6 +457,11 @@ export default defineAction({
             ? args.config.name
             : args.dashboardId,
         urlPath: `/adhoc/${args.dashboardId}`,
+        deepLink: buildDeepLink({
+          app: "analytics",
+          view: "adhoc",
+          params: { dashboardId: args.dashboardId },
+        }),
         message: `Dashboard "${args.dashboardId}" replaced.`,
       };
     }
@@ -491,9 +497,30 @@ export default defineAction({
       dashboardId: args.dashboardId,
       name: typeof root.name === "string" ? root.name : args.dashboardId,
       urlPath: `/adhoc/${args.dashboardId}`,
+      deepLink: buildDeepLink({
+        app: "analytics",
+        view: "adhoc",
+        params: { dashboardId: args.dashboardId },
+      }),
       message:
         `Dashboard "${args.dashboardId}" updated. ` +
         `Applied ${details.length} op(s): ${details.join("; ")}.`,
+    };
+  },
+  link: ({ result }) => {
+    const dashboardId =
+      result && typeof result === "object"
+        ? (result as { dashboardId?: string }).dashboardId
+        : undefined;
+    if (!dashboardId) return null;
+    return {
+      url: buildDeepLink({
+        app: "analytics",
+        view: "adhoc",
+        params: { dashboardId },
+      }),
+      label: "Open dashboard in Analytics",
+      view: "adhoc",
     };
   },
 });

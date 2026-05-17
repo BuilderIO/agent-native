@@ -500,6 +500,23 @@ export function safeReturnPath(raw: string | null | undefined): string {
 }
 
 /**
+ * Return the configured login HTML for this request, or `null` when no auth
+ * guard is installed. Used by the `/_agent-native/open` deep-link route to
+ * serve the same sign-in form the auth guard would — at the original deep
+ * link URL — so the login form's `window.location.replace(href)` success
+ * handler reloads the same URL and the (now authenticated) open route
+ * proceeds. Mirrors the rawPath/getLoginHtml resolution in the auth guard.
+ */
+export function getConfiguredLoginHtml(event: H3Event): string | null {
+  const config = _authGuardConfig;
+  if (!config) return null;
+  const url = event.node?.req?.url ?? event.path ?? "/";
+  const queryStart = url.indexOf("?");
+  const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
+  return config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
+}
+
+/**
  * Read the desktop-SSO broker file, but only if the request is plausibly
  * from the Electron desktop app *and* coming from the local machine.
  *
@@ -1218,6 +1235,15 @@ function createAuthGuardFn(): (
       p === "/_agent-native/google/auth-url" ||
       p === "/_agent-native/google/add-account/callback"
     ) {
+      return;
+    }
+
+    // The deep-link route resolves the *browser* session itself and serves
+    // the sign-in form inline when unauthenticated (so the post-login reload
+    // returns to the same deep link). It must bypass the guard's blanket
+    // 401-for-/_agent-native/* so an external-agent "Open in … →" link
+    // clicked in any browser/webview lands correctly.
+    if (p === "/_agent-native/open") {
       return;
     }
 

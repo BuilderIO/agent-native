@@ -20,6 +20,8 @@ pub struct RegionGuidesConfig {
     pub enabled: bool,
     #[serde(default)]
     pub rects: Vec<RegionGuideRect>,
+    #[serde(default)]
+    pub always_visible: bool,
 }
 
 impl Default for RegionGuidesConfig {
@@ -27,6 +29,7 @@ impl Default for RegionGuidesConfig {
         Self {
             enabled: false,
             rects: Vec::new(),
+            always_visible: false,
         }
     }
 }
@@ -216,6 +219,10 @@ pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result
         // recording-flow round trip.
         crate::util::reapply_capture_exclusion_to_overlays(&app);
     }
+    // Apply the region-guides visibility decision (always-on toggle, preset
+    // changes, master enable/disable) without requiring a recording-flow
+    // round trip. Cheap — it just inspects current state.
+    crate::clips::reconcile_region_guides(&app);
     let _ = app.emit("app:feature-config-changed", config);
     Ok(())
 }

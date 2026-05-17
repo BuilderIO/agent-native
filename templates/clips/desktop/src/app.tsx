@@ -3515,9 +3515,11 @@ function Setup({
   const regionGuides = featureConfig?.regionGuides ?? {
     enabled: false,
     rects: [],
+    alwaysVisible: false,
   };
   const regionGuideRects = regionGuides.rects ?? [];
   const regionGuideCount = regionGuideRects.length;
+  const regionGuidesAlwaysVisible = regionGuides.alwaysVisible === true;
   const meetingTranscriptionMode: MeetingTranscriptionMode =
     featureConfig?.meetingTranscriptionMode ?? "ask";
   const showMeetingWidgetEnabled =
@@ -3592,7 +3594,46 @@ function Setup({
     invoke("set_feature_config", {
       config: {
         ...featureConfig,
-        regionGuides: { ...regionGuides, enabled, rects: regionGuideRects },
+        regionGuides: {
+          ...regionGuides,
+          enabled,
+          rects: regionGuideRects,
+          ...(enabled ? {} : { alwaysVisible: false }),
+        },
+      },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function setRegionGuidesAlwaysVisible(enabled: boolean) {
+    if (!featureConfig) return;
+    if (enabled && regionGuideCount === 0) {
+      openRegionGuideEditor();
+      invoke("set_feature_config", {
+        config: {
+          ...featureConfig,
+          regionGuides: {
+            ...regionGuides,
+            enabled: true,
+            alwaysVisible: true,
+            rects: regionGuideRects,
+          },
+        },
+      }).catch((err) =>
+        console.error("[settings] set_feature_config failed", err),
+      );
+      return;
+    }
+    invoke("set_feature_config", {
+      config: {
+        ...featureConfig,
+        regionGuides: {
+          ...regionGuides,
+          alwaysVisible: enabled,
+          enabled: regionGuides.enabled,
+          rects: regionGuideRects,
+        },
       },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
@@ -3604,7 +3645,7 @@ function Setup({
     invoke("set_feature_config", {
       config: {
         ...featureConfig,
-        regionGuides: { enabled: false, rects: [] },
+        regionGuides: { enabled: false, rects: [], alwaysVisible: false },
       },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
@@ -3940,6 +3981,19 @@ function Setup({
                 label="Show screen region guides while recording"
               />
             </div>
+            {regionGuides.enabled && (
+              <div className="setup-toggle-row">
+                <SettingLabel
+                  label="Keep guides on screen even when not recording"
+                  hint="Stays visible at all times so you can frame recordings made with other tools like OBS or QuickTime. Still excluded from every screen recording."
+                />
+                <Switch
+                  on={regionGuidesAlwaysVisible}
+                  onChange={setRegionGuidesAlwaysVisible}
+                  label="Keep region guides on screen even when not recording"
+                />
+              </div>
+            )}
             <div className="setup-button-row">
               <button
                 type="button"

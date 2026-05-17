@@ -27,7 +27,7 @@ use tauri::{Emitter, Manager};
 use clips::{position_popover, toggle_popover};
 use state::{
     DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
-    RecordingActive, TrayAnchor, VoiceWakePopover,
+    RecordingActive, TrayAnchor, TrayMeetings, VoiceWakePopover,
 };
 use util::{is_recording_active, set_capture_included};
 
@@ -145,6 +145,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(shortcuts::build_shortcut_plugin().build())
         .manage(TrayAnchor::default())
+        .manage(TrayMeetings::default())
         .manage(PopoverShownAt::default())
         .manage(RecordingActive::default())
         .manage(MeetingActive::default())
@@ -168,6 +169,10 @@ pub fn run() {
 
             tray::build_tray(app)?;
             config::sync_launch_at_login(app.handle());
+            // Re-show always-on region guides after relaunch/reboot when the
+            // setting is on (no-op if a recording owns the window or the
+            // toggle is off).
+            clips::reconcile_region_guides(app.handle());
             shortcuts::register_shortcuts(app)?;
             shortcuts::install_popover_dismiss_handler(app);
             shortcuts::install_countdown_shortcut_handler(app);

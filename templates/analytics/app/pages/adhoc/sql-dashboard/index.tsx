@@ -924,8 +924,11 @@ export default function SqlDashboardPage() {
     // text fills in. Otherwise the bare h-64 rectangles jump into Card-chromed
     // panels and the page visibly shifts.
     return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="dashboard-grid-container space-y-4">
+        <div
+          className="dashboard-grid"
+          style={{ "--dash-cols": 2 } as React.CSSProperties}
+        >
           {[0, 1].map((i) => (
             <Card key={i} className="flex flex-col overflow-visible">
               <CardHeader className="pb-2 shrink-0">
@@ -1038,7 +1041,7 @@ export default function SqlDashboardPage() {
             items={visiblePanels.map((p) => p.id)}
             strategy={rectSortingStrategy}
           >
-            <div className="flex flex-col gap-4">
+            <div className="dashboard-grid-container flex flex-col gap-4">
               {panelGroups.map((group) => {
                 const renderPanelCell = (panel: SqlPanel) => {
                   const resolved = panel.config?.description
@@ -1058,7 +1061,7 @@ export default function SqlDashboardPage() {
                   return (
                     <div
                       key={panel.id}
-                      className="relative h-full md:[grid-column:span_var(--panel-span)]"
+                      className="dashboard-grid-cell relative h-full"
                       style={
                         {
                           "--panel-span": span,
@@ -1151,7 +1154,7 @@ export default function SqlDashboardPage() {
                     {group.section && renderSection(group.section)}
                     {group.panels.length > 0 && (
                       <div
-                        className="grid auto-rows-auto grid-cols-1 items-stretch gap-4 md:[grid-template-columns:repeat(var(--dash-cols),minmax(0,1fr))]"
+                        className="dashboard-grid"
                         style={
                           {
                             "--dash-cols": group.columns,

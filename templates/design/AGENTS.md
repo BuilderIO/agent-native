@@ -285,12 +285,14 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Reading & Navigation
 
-| Action         | Args                              | Purpose                        |
-| -------------- | --------------------------------- | ------------------------------ |
-| `view-screen`  |                                   | See current UI state + context |
-| `navigate`     | `--view <name>` or `--path <url>` | Navigate the UI                |
-| `list-designs` | `[--compact true]`                | List all design projects       |
-| `get-design`   | `--id <designId>`                 | Get design with all files      |
+| Action                | Args                                    | Purpose                                                                                               |
+| --------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `view-screen`         |                                         | See current UI state + context                                                                        |
+| `navigate`            | `--view <name>` or `--path <url>`       | Navigate the UI                                                                                       |
+| `list-designs`        | `[--compact true]`                      | List all design projects                                                                              |
+| `get-design`          | `--id <designId>`                       | Get design with all files                                                                             |
+| `get-design-snapshot` | `--designId <id>`                       | Current state for an external agent: live (collab) file contents + applied tweaks + resolved CSS vars |
+| `apply-tweaks`        | `--designId <id> --selections '<json>'` | Persist the user's live tweak knob values                                                             |
 
 ### Navigation
 
@@ -352,12 +354,12 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Export
 
-| Action                  | Args                                                               | Purpose                                                                 |
-| ----------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `export-html`           | `--id <designId>`                                                  | Export as standalone HTML with CDN scripts                              |
-| `export-zip`            | `--id <designId>`                                                  | Export as ZIP with all files + README                                   |
-| `export-pdf`            | `--id <designId>`                                                  | Prepare data for client-side PDF rendering                              |
-| `export-coding-handoff` | `--id <designId> [--origin <appOrigin>] [--format markdown\|json]` | Copy-ready prompt plus tokenized raw-code URL for external coding tools |
+| Action                  | Args                                                               | Purpose                                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `export-html`           | `--id <designId>`                                                  | Export as standalone HTML with CDN scripts                                                                                                        |
+| `export-zip`            | `--id <designId>`                                                  | Export as ZIP with all files + README                                                                                                             |
+| `export-pdf`            | `--id <designId>`                                                  | Prepare data for client-side PDF rendering                                                                                                        |
+| `export-coding-handoff` | `--id <designId> [--origin <appOrigin>] [--format markdown\|json]` | **Turn design into code.** Copy-ready prompt + tokenized raw-code URL; bundle reflects live (collab) content and the user's applied visual tweaks |
 
 ### Sharing
 
@@ -1840,6 +1842,39 @@ For multi-page prototypes, establish the visual language on the home page first,
 ---
 
 ## Export and Handoff
+
+### Design Round-Trip (tweak-aware ingest & design→code)
+
+The Design app supports a full visual round-trip: generate a design → the user
+visually tunes it with the editor's live tweak knobs → an external agent
+ingests the **tuned** result → turns it into code. The knob values are
+**persisted**, not just React state, so ingest reflects them:
+
+- **`apply-tweaks --designId <id> --selections '<json>'`** — persists the
+  user's live tweak knob values. It merges `selections` into
+  `designs.data.tweakSelections` additively (every other `data` key — `tweaks`,
+  `lastPrompt`, etc. — is preserved). The editor calls this automatically
+  (debounced) whenever a knob changes, and restores the saved values on reload.
+  You normally don't call it by hand; it exists so the tuned state is durable.
+- **`get-design-snapshot --designId <id>`** (read-only, exposed to external
+  agents) — returns the design's **current** state to continue from: live file
+  contents (the Yjs collab text when a file is being edited live, otherwise the
+  stored `design_files` content), the design's `tweaks` definitions, the user's
+  `appliedTweaks` selections, and the `resolvedCssVars` (the `--var → value`
+  map produced by the shared `shared/resolve-tweaks.ts` resolver — the same
+  code the editor uses, so UI and agents resolve identically). Use this to read
+  the tuned design before doing follow-up work.
+- **`export-coding-handoff --id <id>`** is the canonical **turn design → code**
+  tool (also exposed to external agents). Its raw-code URL bundle and prompt
+  are built from the same snapshot logic: live/collab content plus the user's
+  resolved tweak tokens injected into each HTML file's `:root` and surfaced as
+  an explicit "Applied Design Tokens" block in the handoff prompt — so the
+  generated code matches what the user actually tuned, not the original
+  generated tokens.
+
+All three return an editor deep link ("Open design") so external surfaces
+(MCP/A2A) can bounce the user back into the right design. `import-code`
+(code → tokens) is unrelated to this round-trip and unchanged.
 
 ### HTML Export
 

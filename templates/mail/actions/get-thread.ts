@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { gmailGetThread } from "../server/lib/google-api.js";
 import { gmailToEmailMessage, isConnected } from "../server/lib/google-auth.js";
@@ -17,6 +17,21 @@ export default defineAction({
     compact: cliBoolean.optional().describe("Set to true for compact summary"),
   }),
   http: { method: "GET" },
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  link: ({ args }) => {
+    const threadId = typeof args?.id === "string" ? args.id : undefined;
+    if (!threadId) return null;
+    return {
+      url: buildDeepLink({
+        app: "mail",
+        view: "inbox",
+        params: { threadId },
+      }),
+      label: "Open thread in Mail",
+      view: "inbox",
+    };
+  },
   run: async (args) => {
     if (!args.id) return "Error: --id is required";
     const compact = args.compact === true;

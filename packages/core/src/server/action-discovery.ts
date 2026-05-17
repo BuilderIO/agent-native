@@ -187,6 +187,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.publicAgent = entry.publicAgent;
   }
+  if (typeof entry.link === "function") {
+    out.link = entry.link;
+  }
   return out;
 }
 

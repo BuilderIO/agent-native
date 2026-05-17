@@ -56,6 +56,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "A2A Protocol", to: "/docs/a2a-protocol" as const },
       { label: "MCP Clients", to: "/docs/mcp-clients" as const },
       { label: "MCP Protocol", to: "/docs/mcp-protocol" as const },
+      { label: "External Agents", to: "/docs/external-agents" as const },
       { label: "Notifications", to: "/docs/notifications" as const },
       {
         label: "Workspace Connections",

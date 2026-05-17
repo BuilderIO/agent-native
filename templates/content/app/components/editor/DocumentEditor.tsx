@@ -18,6 +18,7 @@ import {
   emailToName,
   useSession,
   appApiPath,
+  agentNativePath,
   type CollabUser,
 } from "@agent-native/core/client";
 import { CommentsSidebar } from "./CommentsSidebar";
@@ -255,6 +256,65 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     },
     [documentId, updateDocument, autoSync, queryClient],
   );
+
+  // Collab-aware ingest flush: the `pull-document` action writes a one-shot
+  // `flush-request-<id>` app-state key when an external agent wants to ingest
+  // the document while a live collab session is open. The DB column can lag
+  // the in-memory Y.Doc, so the open editor is the only place that can
+  // serialize the live content through its existing serializer. On seeing the
+  // key we force an immediate (non-debounced) save of the current editor
+  // state, then delete the key so `pull-document` knows the flush landed.
+  useEffect(() => {
+    if (!canEdit) return;
+    let active = true;
+    const flushKey = `flush-request-${documentId}`;
+    const flushPath = agentNativePath(
+      `/_agent-native/application-state/${flushKey}`,
+    );
+
+    async function poll() {
+      try {
+        const res = await fetch(flushPath);
+        if (res.ok) {
+          const pending = (await res.json()) as { id?: string } | null;
+          if (pending && active) {
+            const title = localTitleRef.current;
+            const content = localContentRef.current;
+            const updates: Record<string, string> = {};
+            if (title !== lastSavedRef.current.title) updates.title = title;
+            if (content !== lastSavedRef.current.content) {
+              updates.content = content;
+            }
+            try {
+              if (Object.keys(updates).length > 0) {
+                await updateDocument.mutateAsync({
+                  id: documentId,
+                  ...updates,
+                });
+                lastSavedRef.current = { title, content };
+              }
+            } finally {
+              // Acknowledge the flush even if nothing changed — the SQL row is
+              // already current, and pull-document is waiting on this delete.
+              await fetch(flushPath, {
+                method: "DELETE",
+                headers: { "X-Agent-Native-CSRF": "1" },
+              }).catch(() => {});
+            }
+          }
+        }
+      } catch {
+        // Ignore — next tick retries.
+      }
+      if (active) setTimeout(poll, 600);
+    }
+
+    const timer = setTimeout(poll, 600);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [canEdit, documentId, updateDocument]);
 
   const handleTitleChange = useCallback(
     (newTitle: string) => {

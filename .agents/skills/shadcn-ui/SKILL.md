@@ -57,6 +57,19 @@ This skill keeps shadcn/ui work project-aware. Components are source files in th
 - Do not add manual `z-index` to overlay primitives unless you are fixing a verified stacking bug.
 - Add custom colors as CSS variables in the existing Tailwind CSS file reported by shadcn info. For Tailwind v4, register variables with `@theme inline`.
 
+## Transitions And Motion
+
+shadcn's built-in component animations are the right level of polish — keep them. The goal is a snappy, clean UI, not a motionless one. Match shadcn's motion vocabulary; don't strip it and don't pile on decorative custom animation.
+
+- **Never remove or override a shadcn component's default animation.** `data-[state=open]:animate-in`, `data-[state=closed]:animate-out`, `fade-in/out`, `zoom-in/out`, `slide-in-from-*`, accordion height, the `tailwindcss-animate` utilities — these ship for a reason. Leave them as-is.
+- **Custom transitions are fine when they communicate a state change and match shadcn's feel.** Reuse the same vocabulary: short durations (~120–200ms), `ease-out`, opacity/transform only, gated on `data-[state=...]`. Examples that are good and welcome:
+  - A portaled custom popover/tooltip/sheet that fades + scales/slides in on `data-[state=delayed-open]` / `data-[state=closed]`, mirroring Radix's own content animation.
+  - A list row or toast that fades/slides in on mount and out on dismiss.
+  - A chevron/caret `rotate` on expand, a subtle `opacity`/`color` hover on an icon button, skeleton shimmer, a progress/height transition on a collapsible.
+  - Continuous, product-defining motion where it _is_ the experience (e.g. a multi-stage booking flow's stage transitions) — fine, and framer-motion is acceptable there.
+- **Avoid decorative, attention-seeking, or slow motion:** hand-rolled `duration-700` hero fade-ins, parallax, bouncing/spring entrances on ordinary content, animated gradients, staggered cascades on long lists, anything that delays the user seeing or acting on content. If an animation makes the UI feel slower, cut it.
+- Rule of thumb: if the motion clarifies what just changed and is over in well under a quarter-second, it's polish; if it's there to look impressive, it's bloat.
+
 ## Icons
 
 - Agent-native apps use `@tabler/icons-react`. Do not add `lucide-react` because a registry example used it.

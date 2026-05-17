@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { emit } from "@agent-native/core/event-bus";
 import { z } from "zod";
 import type { CalendarEvent } from "../shared/api.js";
@@ -235,5 +235,23 @@ export default defineAction({
     }
 
     return calEvent;
+  },
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const evt = result as { id?: string; start?: string };
+    if (!evt.id) return null;
+    const date =
+      typeof evt.start === "string" && evt.start
+        ? evt.start.slice(0, 10)
+        : undefined;
+    return {
+      url: buildDeepLink({
+        app: "calendar",
+        view: "calendar",
+        params: { eventId: evt.id, date },
+      }),
+      label: "Open event in Calendar",
+      view: "calendar",
+    };
   },
 });

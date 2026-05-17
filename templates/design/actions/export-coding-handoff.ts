@@ -1,22 +1,36 @@
 import { defineAction } from "@agent-native/core";
-import { signShortLivedToken } from "@agent-native/core/server";
+import { signShortLivedToken, buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
 import {
   buildCodingHandoffPrompt,
   buildRawHandoffUrl,
   normalizeHandoffFormat,
 } from "../server/lib/coding-handoff.js";
+import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 const HANDOFF_TTL_SECONDS = 7 * 24 * 60 * 60;
 
+/** Editor deep link so external agents can surface "Open design". */
+function designDeepLink(designId: string): string {
+  return buildDeepLink({
+    app: "design",
+    view: "editor",
+    params: { designId },
+  });
+}
+
 export default defineAction({
   description:
-    "Create a coding-tool handoff for a design project. Returns a tokenized raw-code URL " +
-    "that external agents can fetch, plus a ready-to-copy prompt containing that URL.",
+    "Turn a design into code: create a coding-tool handoff for a design " +
+    "project. Returns a tokenized raw-code URL external agents can fetch, " +
+    "plus a ready-to-copy prompt. The bundle reflects the design's CURRENT " +
+    "state — live editor (collab) content plus the user's applied visual " +
+    "tweaks resolved into the HTML :root — so the generated code matches the " +
+    "tuned design, not the original generated tokens. This is the canonical " +
+    "design->code tool.",
   schema: z.object({
     id: z.string().describe("Design ID to export for coding tools"),
     origin: z
@@ -32,21 +46,16 @@ export default defineAction({
       .describe("Raw bundle response format for the generated URL"),
   }),
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async ({ id, origin, format }) => {
     const access = await assertAccess("design", id, "viewer");
     const design = access.resource as typeof schema.designs.$inferSelect;
-    const db = getDb();
 
-    const files = await db
-      .select({
-        filename: schema.designFiles.filename,
-        fileType: schema.designFiles.fileType,
-        content: schema.designFiles.content,
-      })
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, id));
+    // Build from the same snapshot logic as get-design-snapshot: live collab
+    // content where a file is being edited, plus resolved tweak tokens.
+    const snapshot = await buildDesignSnapshot(id, design.data);
 
-    if (files.length === 0) {
+    if (snapshot.files.length === 0) {
       throw new Error("This design has no files to hand off yet");
     }
 
@@ -64,7 +73,7 @@ export default defineAction({
     const prompt = buildCodingHandoffPrompt({
       rawUrl,
       title: design.title,
-      fileCount: files.length,
+      fileCount: snapshot.files.length,
     });
 
     return {
@@ -73,10 +82,23 @@ export default defineAction({
       prompt,
       clipboardText: prompt,
       format: handoffFormat,
-      fileCount: files.length,
+      fileCount: snapshot.files.length,
+      appliedTweaks: snapshot.appliedTweaks,
+      resolvedCssVars: snapshot.resolvedCssVars,
+      deepLink: designDeepLink(id),
       expiresAt: new Date(
         Date.now() + HANDOFF_TTL_SECONDS * 1000,
       ).toISOString(),
+    };
+  },
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const designId = (result as { designId?: string }).designId;
+    if (!designId) return null;
+    return {
+      url: designDeepLink(designId),
+      label: "Open design",
+      view: "editor",
     };
   },
 });

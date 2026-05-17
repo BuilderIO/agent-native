@@ -27,35 +27,30 @@ function extractBigQueryMessage(message: string): string {
     .trim();
 }
 
-function stopForBigQueryFailure(code: string, message: string): never {
+// Only credentials/not-configured failures stop the turn: retrying a missing
+// service account is pointless, so a clean stop pointing at Settings is the
+// right behavior. Query/SQL errors are NOT stopped here — they are returned as
+// a normal recoverable result so the model can introspect the schema and retry
+// (see the run() catch block below).
+function stopForBigQueryNotConfigured(message: string): never {
   const detail = extractBigQueryMessage(message);
-  throw new AgentActionStopError(
-    [
-      "I couldn't complete the BigQuery query.",
-      "",
-      `BigQuery returned: ${detail}`,
-      "",
-      "I stopped here so we can diagnose the SQL before making another warehouse call. Ask me to revise the query, use another source, or rerun this exact SQL.",
-    ].join("\n"),
-    {
-      errorCode: code,
-      toolResult: JSON.stringify(
-        {
-          error: code,
-          message: detail,
-          retryable: false,
-          stopped: true,
-        },
-        null,
-        2,
-      ),
-    },
-  );
+  throw new AgentActionStopError(detail, {
+    errorCode: "bigquery_not_configured",
+    toolResult: JSON.stringify(
+      {
+        error: "bigquery_not_configured",
+        message: detail,
+        recoverable: false,
+      },
+      null,
+      2,
+    ),
+  });
 }
 
 export default defineAction({
   description:
-    "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If BigQuery returns any error, stop and report it to the user instead of retrying or reformulating more queries in the same turn. If the user then asks you to diagnose, adjust, or try again, use the prior SQL and returned error to form a corrected query; do not rerun the exact same failing SQL unless they explicitly ask for an exact rerun.",
+    "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If a query fails with a schema or SQL error (unknown dataset/table/column, syntax), treat it as a normal debugging signal: inspect the real schema with `search-bigquery-schema` (or query INFORMATION_SCHEMA), correct the query based on the error, and run it again — a few corrective attempts are expected. Surface the error to the user only if it still fails after a few attempts or is non-recoverable (missing credentials, permission, quota). Never rerun identical failing SQL, and never substitute made-up numbers for data you could not query.",
   schema: z.object({
     sql: z.string().describe("SQL query to execute"),
   }),
@@ -72,8 +67,7 @@ export default defineAction({
         /service account/i.test(msg) ||
         /Token exchange failed/i.test(msg)
       ) {
-        stopForBigQueryFailure(
-          "bigquery_not_configured",
+        stopForBigQueryNotConfigured(
           "BigQuery isn't connected for this workspace yet. Open Settings -> Data sources and add BIGQUERY_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON (a service-account JSON key).",
         );
       }
@@ -81,7 +75,14 @@ export default defineAction({
         /BigQuery (API|poll) error/i.test(msg) ||
         /BigQuery query timed out/i.test(msg)
       ) {
-        stopForBigQueryFailure("bigquery_query_failed", msg);
+        // Recoverable: hand the real error back to the model so it can inspect
+        // the schema and self-correct, instead of force-ending the turn.
+        return {
+          error: "bigquery_query_failed",
+          message: extractBigQueryMessage(msg),
+          recoverable: true,
+          hint: "Likely a schema mismatch (wrong dataset, table, or column) or a SQL issue. Use search-bigquery-schema to get the exact datasets/tables/columns (or query INFORMATION_SCHEMA), correct the SQL based on this error, and run it again. Change the query based on the error — do not rerun identical SQL — and never substitute made-up numbers for data you could not query.",
+        };
       }
       throw err;
     }

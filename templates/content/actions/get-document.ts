@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { parseDocumentFavorite } from "../server/lib/documents.js";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import "../server/db/index.js";
 
@@ -18,6 +19,8 @@ export default defineAction({
     id: z.string().optional().describe("Document ID (required)"),
   }),
   http: { method: "GET" },
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {
     if (!args.id) throw new Error("--id is required");
 
@@ -27,6 +30,11 @@ export default defineAction({
 
     return {
       id: doc.id,
+      deepLink: buildDeepLink({
+        app: "content",
+        view: "editor",
+        params: { documentId: doc.id },
+      }),
       parentId: doc.parentId,
       title: doc.title,
       content: doc.content,
@@ -39,6 +47,19 @@ export default defineAction({
       canManage: canManageRole(access.role),
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
+    };
+  },
+  link: ({ result }) => {
+    const id = (result as { id?: string } | null)?.id;
+    if (!id) return null;
+    return {
+      url: buildDeepLink({
+        app: "content",
+        view: "editor",
+        params: { documentId: id },
+      }),
+      label: "Open document",
+      view: "editor",
     };
   },
 });

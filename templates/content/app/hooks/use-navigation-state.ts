@@ -46,7 +46,14 @@ export function useNavigationState() {
     }).catch(() => {});
   }, [location.pathname]);
 
-  // Poll for navigate commands from agent
+  // Poll for navigate commands from agent.
+  //
+  // Two shapes arrive here:
+  //  - `{ path }` — the `navigate` action's explicit path form.
+  //  - `{ view, documentId }` — the deep-link / `/_agent-native/open` form
+  //    (the open route writes the non-reserved params + view, never a `path`).
+  // Resolve either into a router path: `view: "editor"` + `documentId` maps to
+  // `/page/<id>`, `view: "list"` maps to `/`.
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
     queryFn: async () => {
@@ -55,7 +62,7 @@ export function useNavigationState() {
       );
       if (!res.ok) return null;
       const data = await res.json();
-      if (data && data.path) {
+      if (data && (data.path || data.view || data.documentId)) {
         // Return with a timestamp to ensure uniqueness
         return { ...data, _ts: Date.now() };
       }
@@ -73,7 +80,23 @@ export function useNavigationState() {
       headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
 
-    navigate(navCommand.path, { flushSync: true });
+    const target = resolveNavTarget(navCommand);
+    if (target) navigate(target, { flushSync: true });
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
+}
+
+/**
+ * Resolve a navigate command (explicit `path`, or deep-link `view` +
+ * `documentId`) into a client-side router path.
+ */
+function resolveNavTarget(cmd: {
+  path?: string;
+  view?: string;
+  documentId?: string;
+}): string | null {
+  if (cmd.path) return cmd.path;
+  if (cmd.documentId) return `/page/${cmd.documentId}`;
+  if (cmd.view === "list") return "/";
+  return null;
 }

@@ -3,6 +3,7 @@ import {
   getRequestRunContext,
   getRequestUserEmail,
   getRequestOrgId,
+  buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
 import { upsertAnalysis } from "../server/lib/dashboards-store";
@@ -127,7 +128,29 @@ export default defineAction({
       analysisId: args.id,
       name: args.name,
       urlPath: `/analyses/${args.id}`,
+      deepLink: buildDeepLink({
+        app: "analytics",
+        view: "analyses",
+        params: { analysisId: args.id },
+      }),
       message: `Analysis "${args.name}" saved as ${args.id}. Users can view it at /analyses/${args.id} and re-run it anytime for fresh results.`,
+    };
+  },
+  link: ({ result }) => {
+    const id =
+      result && typeof result === "object"
+        ? ((result as { analysisId?: string; id?: string }).analysisId ??
+          (result as { id?: string }).id)
+        : undefined;
+    if (!id) return null;
+    return {
+      url: buildDeepLink({
+        app: "analytics",
+        view: "analyses",
+        params: { analysisId: id },
+      }),
+      label: "Open analysis in Analytics",
+      view: "analyses",
     };
   },
 });
