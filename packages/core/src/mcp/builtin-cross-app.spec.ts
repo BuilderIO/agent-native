@@ -49,10 +49,19 @@ describe("verifyAuth — static-token caller identity", () => {
     expect(res.identity?.userEmail).toBe("env-owner@example.com");
   });
 
-  it("forwarded header wins over env on the static-token path", async () => {
+  it("server env wins over the forwarded header on the static-token path (no impersonation via a leaked token)", async () => {
     process.env.ACCESS_TOKEN = "tok-123";
     process.env.AGENT_NATIVE_OWNER_EMAIL = "env-owner@example.com";
+    const res = await verifyAuth("Bearer tok-123", "attacker@evil.com");
+    expect(res.authed).toBe(true);
+    expect(res.identity?.userEmail).toBe("env-owner@example.com");
+  });
+
+  it("forwarded header is used only as a fallback when the owner env is unset", async () => {
+    process.env.ACCESS_TOKEN = "tok-123";
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     const res = await verifyAuth("Bearer tok-123", "header-owner@example.com");
+    expect(res.authed).toBe(true);
     expect(res.identity?.userEmail).toBe("header-owner@example.com");
   });
 
