@@ -1315,7 +1315,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font: inherit;
   color: var(--fg-muted);
   opacity: 0.6;
-  cursor: help;
+  cursor: pointer;
   transition: opacity 120ms;
 }
 
@@ -1339,7 +1339,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .tooltip-content {
   z-index: 60;
   max-width: 260px;
-  border: 1px solid var(--border-strong);
+  /* No border: shadcn's tooltip is borderless (solid bg + shadow). A border
+     would also detach visually from the Radix arrow, whose flush base can't
+     carry a matching CSS border. Shadow alone gives separation in both
+     themes. */
   border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--fg);

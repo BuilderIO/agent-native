@@ -46,6 +46,8 @@ Build the user-facing interface — a page, component, dialog, or route. Use `us
 
 Create an action in `actions/` using `defineAction`. This serves double duty: the agent calls it as a tool, and the framework auto-exposes it as an HTTP endpoint at `/_agent-native/actions/:name` for the UI to call. Set `http: { method: "GET" }` for read actions, leave default for writes, or set `http: false` for agent-only actions like `navigate` and `view-screen`.
 
+**If the action produces or lists a navigable resource**, add a `link` builder that returns `{ url: buildDeepLink({ app, view, params }), label }`. External coding agents (Claude Code / Cowork / Codex, over MCP/A2A) then surface an "Open in … →" deep link that drops the user back into the running UI focused on the record — for free. The `link` builder must be pure and synchronous (no I/O). Any external-agent read/ingest action must be `http: { method: "GET" }` + `readOnly: true` + `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`. See the `external-agents` skill.
+
 ### 3. Skills / Instructions
 
 Update `AGENTS.md` and/or create a skill in `.agents/skills/` if the feature introduces patterns the agent needs to know. At minimum, add the new actions to the action table in the template's `AGENTS.md`.
@@ -125,6 +127,7 @@ TL;DR: spread `ownableColumns()` into the resource table, pair it with `createSh
 - **sharing** — How to make a new resource ownable (private by default, share with users/orgs/public)
 - **context-awareness** — How to expose UI state to the agent (area 4 in detail)
 - **actions** — How to create actions with `defineAction` and the `http` option (area 2 in detail)
+- **external-agents** — Add a `link` builder so external agents (MCP/A2A) get an "Open in … →" deep link
 - **create-skill** — How to create skills for new patterns (area 3 in detail)
 - **storing-data** — Where to store the feature's data
 - **real-time-sync** — How the UI stays in sync when the agent writes data

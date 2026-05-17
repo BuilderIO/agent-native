@@ -356,8 +356,13 @@ export function RegionGuideEditor() {
         config: {
           ...config,
           regionGuides: {
+            ...config.regionGuides,
             enabled: nextRects.length > 0,
             rects: nextRects,
+            alwaysVisible:
+              nextRects.length > 0
+                ? (config.regionGuides.alwaysVisible ?? false)
+                : false,
           },
         },
       });

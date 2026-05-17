@@ -68,13 +68,11 @@ export function isLocalSqliteUrl(url: string): boolean {
 export async function prepareLocalSqliteUrl(url: string): Promise<string> {
   if (!url.startsWith("file:")) return url;
 
-  // On serverless runtimes (Netlify, AWS Lambda) the working directory is
-  // read-only. Detect this and redirect local SQLite to /tmp which IS writable
-  // (ephemeral per invocation, but the server stays alive for the request).
-  const isServerless =
-    !!process.env.NETLIFY ||
-    !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    !!process.env.LAMBDA_TASK_ROOT;
+  // On serverless runtimes (Netlify / Vercel / AWS Lambda / CF Pages) the
+  // working directory is read-only. Detect this and redirect local SQLite to
+  // /tmp which IS writable (ephemeral per invocation, but the server stays
+  // alive for the request). Shares the canonical isServerlessRuntime() check.
+  const isServerless = isServerlessRuntime();
   try {
     const fs = await import("fs");
     if (isServerless && url === "file:./data/app.db") {
@@ -346,34 +344,38 @@ export async function retryOnConnectionError<T>(
 // ---------------------------------------------------------------------------
 
 /**
- * True on serverless function runtimes (Netlify Functions / AWS Lambda) where
- * every concurrent request can spin up its own frozen process. Connections
- * cannot be shared across instances, so each instance must keep its pool tiny
- * — otherwise dozens of warm Lambdas each holding postgres.js's default
- * 10-connection pool blow past Neon/Postgres' connection cap and every
- * `/_agent-native/*` route 500s with "Max client connections reached".
+ * True on serverless function runtimes (Netlify / Vercel / AWS Lambda /
+ * Cloudflare Pages Functions) where every concurrent request can spin up its
+ * own frozen process. Connections cannot be shared across instances, so each
+ * instance must keep its pool tiny — otherwise dozens of warm instances each
+ * holding postgres.js's default 10-connection pool blow past Neon/Postgres'
+ * connection cap and every `/_agent-native/*` route 500s with "Max client
+ * connections reached".
  */
 export function isServerlessRuntime(): boolean {
   return (
     !!process.env.NETLIFY ||
+    !!process.env.VERCEL ||
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    !!process.env.LAMBDA_TASK_ROOT
+    !!process.env.LAMBDA_TASK_ROOT ||
+    !!process.env.CF_PAGES
   );
 }
 
 /**
  * postgres.js pool options tuned per runtime. A serverless instance handles
- * one request at a time, so a single connection per instance is enough and
- * bounds total connections to ≈ concurrent-instance count instead of 10× that.
- * idle_timeout is shortened on serverless so a thawed-but-idle instance
- * releases its connection quickly. Long-lived Node servers keep the normal
- * pool for throughput.
+ * one request at a time, so a tiny pool is enough — but we cap at 2 (not 1)
+ * so a single slow query or open transaction can't serialize every other
+ * query in the same request. Total connections stay bounded to ≈ 2×
+ * concurrent-instance count instead of 10×. idle_timeout is shortened on
+ * serverless so a thawed-but-idle instance releases its connections quickly.
+ * Long-lived Node servers keep the normal pool for throughput.
  */
 export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
   return {
     onnotice: () => {},
-    max: serverless ? 1 : 10,
+    max: serverless ? 2 : 10,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
@@ -384,12 +386,13 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
 }
 
 /**
- * Connection cap for the @neondatabase/serverless `Pool`. Same Lambda
- * accumulation risk as postgres.js — a single connection per instance is
- * enough on serverless and keeps total connections bounded.
+ * Connection cap for the @neondatabase/serverless `Pool`. Same instance
+ * accumulation risk as postgres.js — a small pool (2) is enough on serverless
+ * and keeps total connections bounded while still letting a second query
+ * proceed when one connection is busy.
  */
 export function neonPoolMax(): number {
-  return isServerlessRuntime() ? 1 : 10;
+  return isServerlessRuntime() ? 2 : 10;
 }
 
 // ---------------------------------------------------------------------------
@@ -509,10 +512,10 @@ async function createDbExecInternal(
       };
     } else {
       // Node.js: reuse connection pool. pgPoolOptions caps the pool to a
-      // single connection on serverless (Netlify/Lambda) so concurrent frozen
-      // instances don't exhaust Neon/Postgres' connection limit; idle_timeout
-      // also closes idle connections before Neon's ~5min server-side timeout,
-      // avoiding ECONNRESET when the server hangs up on us.
+      // small size on serverless (Netlify/Vercel/Lambda/CF) so concurrent
+      // frozen instances don't exhaust Neon/Postgres' connection limit;
+      // idle_timeout also closes idle connections before Neon's ~5min
+      // server-side timeout, avoiding ECONNRESET when the server hangs up.
       const pool = postgres(url, pgPoolOptions(url));
       if (trackSingletonResources) _pgPool = pool;
 

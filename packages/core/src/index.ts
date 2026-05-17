@@ -22,6 +22,8 @@ export {
   type ActionHttpConfig,
   type AgentActionStopOptions,
   type PublicAgentActionConfig,
+  type ActionDeepLink,
+  type ActionLinkBuilder,
 } from "./action.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {

@@ -27,6 +27,8 @@ import {
   getDialect,
   getDatabaseUrl,
   getDatabaseAuthToken,
+  pgPoolOptions,
+  neonPoolMax,
 } from "../db/client.js";
 import {
   pgTable,
@@ -842,7 +844,14 @@ async function buildDatabaseConfig(
     // Netlify Functions / Vercel / CF Workers when Neon's pooler is cold.
     if (isNeonUrl(url)) {
       const { Pool } = await import("@neondatabase/serverless");
-      _neonAuthPool = new Pool({ connectionString: url });
+      // Cap the auth pool the same way as the app pool. Better Auth runs a
+      // session lookup on essentially every authenticated request, so an
+      // un-capped pool here is a primary contributor to "Max client
+      // connections reached" across concurrent serverless instances.
+      _neonAuthPool = new Pool({
+        connectionString: url,
+        max: neonPoolMax(),
+      });
       const { drizzle } = await import("drizzle-orm/neon-serverless");
       const db = drizzle(_neonAuthPool, { schema: pgAuthSchema });
       const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
@@ -852,15 +861,13 @@ async function buildDatabaseConfig(
       });
     }
 
-    // Non-Neon Postgres (Supabase, self-hosted, etc.) → postgres-js
+    // Non-Neon Postgres (Supabase, self-hosted, etc.) → postgres-js.
+    // pgPoolOptions caps this pool to a small size on serverless. Better Auth
+    // runs a session lookup on essentially every authenticated request, so an
+    // un-capped pool here is a primary contributor to "Max client connections
+    // reached" across concurrent serverless instances.
     const { default: postgres } = await import("postgres");
-    const sql = postgres(url, {
-      onnotice: () => {},
-      idle_timeout: 240,
-      max_lifetime: 60 * 30,
-      connect_timeout: 10,
-      ...(url.includes("supabase") ? { prepare: false } : {}),
-    });
+    const sql = postgres(url, pgPoolOptions(url));
     const { drizzle } = await import("drizzle-orm/postgres-js");
     const db = drizzle(sql, { schema: pgAuthSchema });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");

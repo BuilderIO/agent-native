@@ -60,5 +60,9 @@ prefer saving a reviewed dictionary update once the meaning is clear.
   warehouse and it is not a connection-status signal.
 - For metrics or dashboard panels, run at least one real data query before
   presenting numbers.
-- If BigQuery returns an unknown table or column error, stop and use
-  `search-bigquery-schema` to inspect metadata before trying again.
+- An unknown table or column error is a normal, recoverable signal — not a
+  stopping point. Use `search-bigquery-schema` (or `INFORMATION_SCHEMA`) to get
+  the exact datasets, tables, and columns, correct the query based on the
+  error, and run it again. Iterate until it succeeds or you have made a few
+  corrective attempts; only surface to the user if it still fails or the error
+  is non-recoverable (missing credentials, permission, quota).

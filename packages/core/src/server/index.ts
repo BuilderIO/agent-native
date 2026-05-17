@@ -6,6 +6,15 @@ export {
 } from "./create-server.js";
 
 export { readBody, streamFile } from "./h3-helpers.js";
+export {
+  buildDeepLink,
+  toAbsoluteOpenUrl,
+  toDesktopOpenUrl,
+  OPEN_ROUTE_SUBPATH,
+  DESKTOP_OPEN_URL,
+  type DeepLinkInput,
+} from "./deep-link.js";
+export { createOpenRouteHandler, type OpenRouteOptions } from "./open-route.js";
 export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
 export {
   mountAuthMiddleware,

@@ -21,6 +21,7 @@ import type { H3Event } from "h3";
 import path from "node:path";
 import { createPollHandler } from "./poll.js";
 import { createPollEventsHandler } from "./poll-events.js";
+import { createOpenRouteHandler } from "./open-route.js";
 import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import { readBody } from "./h3-helpers.js";
@@ -299,6 +300,11 @@ export interface CoreRoutesPluginOptions {
   disablePing?: boolean;
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
+  /** Disable the /_agent-native/open deep-link route. */
+  disableOpenRoute?: boolean;
+  /** Per-template override mapping deep-link params → client SPA path.
+   *  See `createOpenRouteHandler`. */
+  resolveOpenPath?: import("./open-route.js").OpenRouteOptions["resolveOpenPath"];
   /** Env key configuration. Enables env-status and env-vars routes. */
   envKeys?: EnvKeyConfig[];
   /**
@@ -2496,6 +2502,18 @@ export function createCoreRoutesPlugin(
         return { error: "Method not allowed" };
       }),
     );
+
+    if (!options.disableOpenRoute) {
+      // Stable deep-link route. External agents (MCP/A2A) surface
+      // `/_agent-native/open?app=…&view=…&<recordId>=…` links; this resolves
+      // the browser session, writes the one-shot `navigate` app-state command
+      // the UI already drains, and 302s to the rendered SPA view. The auth
+      // guard bypasses this exact path so it can serve its own login form.
+      getH3App(nitroApp).use(
+        `${P}/open`,
+        createOpenRouteHandler({ resolveOpenPath: options.resolveOpenPath }),
+      );
+    }
 
     if (!options.disableAppState) {
       // Compose draft routes (more specific path, mounted first so the

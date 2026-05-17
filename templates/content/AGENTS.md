@@ -96,12 +96,30 @@ cd templates/content && pnpm action <name> [args]
 | `list-documents`   | `[--format json]`                                  | List document metadata/tree; no full bodies      |
 | `search-documents` | `--query <text> [--format json]`                   | Search by title/content and return snippets      |
 | `get-document`     | `--id <id> [--format json]`                        | Get a single document with content               |
+| `pull-document`    | `--id <id> [--format markdown\|text]`              | Collab-aware "ingest the final" read             |
 | `create-document`  | `--title <text> [--content] [--parentId] [--icon]` | Create a new document                            |
 | `edit-document`    | `--id <id> --find <text> --replace <text>`         | Surgical text edit (preferred for modifications) |
 | `edit-document`    | `--id <id> --edits <json>`                         | Batch surgical text edits                        |
 | `update-document`  | `--id <id> [--title] [--content] [--icon]`         | Full rewrite of document fields                  |
 | `move-document`    | `--id <id> [--parentId] [--position]`              | Move or reorder a document in the page tree      |
 | `delete-document`  | `--id <id>`                                        | Delete with recursive children                   |
+
+**`pull-document` is the collab-aware "ingest the final" read** — prefer it over
+`get-document` for external ingest (another app, an external coding agent over
+MCP/A2A, an A2A peer). `get-document` returns whatever is in the
+`documents.content` SQL column, which can lag behind a live editing session: the
+open editor holds the authoritative Y.Doc in memory and only debounces it back
+to SQL. `pull-document` closes that gap with a flush handshake — if a live Yjs
+collab session exists for the document it writes a one-shot `flush-request-<id>`
+application-state key (scoped to the browser session, just like `navigate`); the
+open editor sees that key, serializes its current document to markdown through
+its own existing serializer, calls `update-document`, and deletes the key;
+`pull-document` waits for the key to clear and then returns the now-fresh row.
+When no editor is open the SQL column is authoritative and the handshake is
+skipped. It is GET + read-only + public-agent exposed (`requiresAuth: true`),
+returns `{ id, title, content, format, deepLink }`, and surfaces an
+"Open document" deep link for external agents. Use `--format text` for a
+plain-text strip of the markdown.
 
 ### Notion Integration
 

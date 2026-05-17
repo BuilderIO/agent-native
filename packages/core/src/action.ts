@@ -57,6 +57,28 @@ export interface PublicAgentActionConfig {
   description?: string;
 }
 
+/** A deep link an external agent (MCP / A2A) can surface to the user so they
+ *  can open the produced/listed resource in the running app UI. */
+export interface ActionDeepLink {
+  /** App-relative path (e.g. `/_agent-native/open?app=mail&view=inbox&...`)
+   *  or an absolute URL. The MCP layer prefixes the request origin when this
+   *  is relative, and may rewrite it to the `agentnative://` desktop scheme. */
+  url: string;
+  /** Human-readable label, e.g. "Open draft in Mail". */
+  label: string;
+  /** Optional view hint (matches the `navigate` command `view`). */
+  view?: string;
+}
+
+/** Builds a deep link from an action's args + result so external agents can
+ *  surface an "Open in <app> →" link. MUST be pure and synchronous — no I/O,
+ *  no awaits. Best-effort: a throw or null is swallowed and never fails the
+ *  tool call. See the `external-agents` skill. */
+export type ActionLinkBuilder = (ctx: {
+  args: Record<string, any>;
+  result: any;
+}) => ActionDeepLink | null | undefined;
+
 /** Schema definition for a single action parameter (legacy JSON schema style). */
 export interface ParameterSchema {
   type: string;
@@ -115,6 +137,11 @@ interface DefineActionWithSchema<
    *  public MCP/A2A/OpenAPI tool exposure. Actions must opt in here and public
    *  protocol mounts must still filter for safe, route-appropriate tools. */
   publicAgent?: PublicAgentActionConfig;
+  /** Optional deep-link builder. When set, MCP/A2A surfaces append an
+   *  "Open in <app> →" link built from the call's args + result so the
+   *  external agent can drop the user into the running app at the right
+   *  view/record. Pure + sync + best-effort. See the `external-agents` skill. */
+  link?: ActionLinkBuilder;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +174,8 @@ interface DefineActionWithParams<
   toolCallable?: boolean;
   /** Explicit public-agent exposure metadata. See schema overload above. */
   publicAgent?: PublicAgentActionConfig;
+  /** Optional deep-link builder. See schema overload above. */
+  link?: ActionLinkBuilder;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +289,8 @@ export function defineAction(options: any) {
     !Array.isArray(options.publicAgent)
       ? options.publicAgent
       : undefined;
+  const link: ActionLinkBuilder | undefined =
+    typeof options.link === "function" ? options.link : undefined;
 
   return {
     tool: {
@@ -273,6 +304,7 @@ export function defineAction(options: any) {
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
     ...(publicAgent ? { publicAgent } : {}),
+    ...(link ? { link } : {}),
   };
 }
 

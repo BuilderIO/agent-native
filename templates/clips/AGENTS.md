@@ -361,7 +361,7 @@ All standard CRUD (list, get, create, update) goes through `/_agent-native/actio
 - **Inter font** for all UI.
 - **Monochrome aesthetic.** Default space/folder/org color is `#18181B` (neutral zinc-900). Brand color is user-customizable via `set-organization-branding` (stored in `organization_settings`).
 - **1.2x** is the default playback speed for every recording (stored in `recordings.default_speed`).
-- **Keep shadcn default transitions** (animate-in/out, fade, zoom, slide). Avoid custom decorative transitions — keep the UI snappy.
+- **Keep shadcn default transitions** (animate-in/out, fade, zoom, slide) — never strip them. Purposeful custom transitions that communicate a state change and match shadcn's motion (short, ease-out, `data-[state]`-gated) are fine; avoid slow or decorative animation. See the `shadcn-ui` skill → Transitions And Motion.
 
 ## Rules
 
@@ -401,8 +401,6 @@ Clips has a **Meetings** tab (`/meetings`) and a **Dictate** tab (`/dictate`):
 **Desktop launch at login is on by default.** The tray app persists this as `launchAtLoginEnabled` in `feature-config.json`, syncs it through Tauri's autostart plugin during native startup, and exposes it in Settings as "Open at login".
 
 **Desktop local recording export is an advanced local-only escape hatch.** The tray app persists `localRecordingMode` in `feature-config.json` and buries it under Settings → Advanced recording. `off` is the normal cloud Clip path. `composed` saves one local video in a per-recording folder under the user's Videos/Movies `Clips` folder and skips upload. `separate` saves only separate desktop and raw rectangular camera files in that folder; it does not create a cloud recording row or upload a composite.
-
-**Desktop screen region guides are private local recording aids.** The tray app persists `regionGuides` in `feature-config.json` and buries the toggle plus preset editor under Settings → Advanced recording. Guides render as capture-excluded Tauri overlay rectangles during screen recordings so the user can orient themselves; they are not stored in SQL, not agent-callable actions, and should not appear in the saved Clip.
 
 See the `meetings` skill for the full pattern (Granola design ref, view-screen shape, agent-callable flows) and the `dictate` skill for the press-and-hold UX (Wispr design ref, Hold-Fn ownership, cleanup pipeline). The shared Gemini Flash-Lite cleanup pipeline (`cleanup-transcript`) leads with **Builder.io Connect (primary)** and falls back to **BYOK Gemini (secondary)**. Cleanup does not route to Groq or OpenAI — those are transcription providers, not cleanup providers.
 

@@ -317,6 +317,27 @@ pub async fn hide_region_guides(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Reconcile the always-on region-guides overlay with the current config.
+/// Called from config saves and on startup so the guides window matches the
+/// `always_visible` toggle without needing a recording-flow round trip. When a
+/// recording is active the recording flow owns the `region-guides` window, so
+/// we leave it alone.
+pub fn reconcile_region_guides(app: &AppHandle) {
+    let g = crate::config::feature_config(app).region_guides;
+    if crate::util::is_recording_active(app) {
+        return;
+    }
+    let should_show = g.always_visible && g.enabled && !g.rects.is_empty();
+    if should_show {
+        let a = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = show_region_guides(a).await;
+        });
+    } else if let Some(w) = app.get_webview_window(REGION_GUIDES_LABEL) {
+        let _ = w.close();
+    }
+}
+
 /// Interactive full-screen editor for the region-guide preset. It is also
 /// capture-excluded so opening it during an active recording won't leak the
 /// preset UI into the video.
@@ -541,7 +562,16 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
     let _ = app.emit("clips:countdown-shortcuts-active", false);
-    for label in [COUNTDOWN_LABEL, TOOLBAR_LABEL, REGION_GUIDES_LABEL] {
+    // The countdown + toolbar always tear down on recording stop. The region
+    // guides only tear down when they aren't pinned on-screen via the always-on
+    // toggle — otherwise we'd flicker close→reopen right after stop.
+    let g = crate::config::feature_config(&app).region_guides;
+    let keep_region_guides = g.always_visible && g.enabled && !g.rects.is_empty();
+    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, TOOLBAR_LABEL];
+    if !keep_region_guides {
+        labels.push(REGION_GUIDES_LABEL);
+    }
+    for label in labels {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
         }

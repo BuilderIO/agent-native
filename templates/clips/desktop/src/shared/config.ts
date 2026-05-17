@@ -15,6 +15,7 @@ export interface RegionGuideRect {
 export interface RegionGuidesConfig {
   enabled: boolean;
   rects: RegionGuideRect[];
+  alwaysVisible?: boolean;
 }
 
 export interface FeatureConfig {
