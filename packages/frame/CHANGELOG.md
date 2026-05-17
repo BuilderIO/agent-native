@@ -1,5 +1,16 @@
 # @agent-native/frame
 
+## 0.1.90
+
+### Patch Changes
+
+- Updated dependencies [b3de2db]
+- Updated dependencies [b3de2db]
+- Updated dependencies [b3de2db]
+- Updated dependencies [b3de2db]
+- Updated dependencies [b3de2db]
+  - @agent-native/core@0.19.0
+
 ## 0.1.89
 
 ### Patch Changes

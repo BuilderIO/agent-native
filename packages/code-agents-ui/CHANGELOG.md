@@ -1,5 +1,16 @@
 # @agent-native/code-agents-ui
 
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [b3de2db]
+- Updated dependencies [b3de2db]
+- Updated dependencies [b3de2db]
+- Updated dependencies [b3de2db]
+- Updated dependencies [b3de2db]
+  - @agent-native/core@0.19.0
+
 ## 0.1.9
 
 ### Patch Changes
