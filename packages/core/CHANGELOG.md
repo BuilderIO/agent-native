@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.19.2
+
+### Patch Changes
+
+- 046a8f2: Improve the external-agent connect screen hierarchy and device-code presentation.
+
 ## 0.19.1
 
 ### Patch Changes
