@@ -17,6 +17,7 @@ import {
   executeCodeAgentRun,
   executePendingCodeAgentApproval,
 } from "./code-agent-executor.js";
+import type { AgentEngine } from "../agent/engine/types.js";
 
 const tmpRoots: string[] = [];
 const providerEnvKeys = [
@@ -166,6 +167,42 @@ describe("executeCodeAgentRun", () => {
     });
   });
 
+  it("exposes the shared minimal coding tools to the Code CLI executor", async () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Inspect tool surface",
+      status: "queued",
+      cwd: process.cwd(),
+      permissionMode: "full-auto",
+    });
+    let toolNames: string[] = [];
+    const engine = createToolCaptureEngine((names) => {
+      toolNames = names;
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect tools",
+      engine,
+    });
+
+    expect(toolNames).toEqual(
+      expect.arrayContaining(["bash", "read", "edit", "write"]),
+    );
+    expect(toolNames).toEqual(expect.arrayContaining(["tool-search"]));
+    expect(toolNames).not.toEqual(
+      expect.arrayContaining([
+        "list_files",
+        "search_files",
+        "read_file",
+        "write_file",
+        "apply_patch",
+        "run_command",
+      ]),
+    );
+  });
+
   it("runs pending follow-ups after the current execution completes", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Turn done.";
@@ -298,6 +335,32 @@ function createStringOutput(): {
   return {
     stream,
     read: () => text,
+  };
+}
+
+function createToolCaptureEngine(
+  onTools: (names: string[]) => void,
+): AgentEngine {
+  return {
+    name: "tool-capture",
+    label: "Tool Capture",
+    defaultModel: "tool-capture",
+    supportedModels: ["tool-capture"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream(opts) {
+      onTools(opts.tools.map((tool) => tool.name));
+      yield {
+        type: "assistant-content",
+        parts: [{ type: "text", text: "done" }],
+      };
+      yield { type: "stop", reason: "end_turn" };
+    },
   };
 }
 
