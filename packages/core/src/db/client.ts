@@ -342,6 +342,57 @@ export async function retryOnConnectionError<T>(
 }
 
 // ---------------------------------------------------------------------------
+// Serverless-aware Postgres pool options
+// ---------------------------------------------------------------------------
+
+/**
+ * True on serverless function runtimes (Netlify Functions / AWS Lambda) where
+ * every concurrent request can spin up its own frozen process. Connections
+ * cannot be shared across instances, so each instance must keep its pool tiny
+ * — otherwise dozens of warm Lambdas each holding postgres.js's default
+ * 10-connection pool blow past Neon/Postgres' connection cap and every
+ * `/_agent-native/*` route 500s with "Max client connections reached".
+ */
+export function isServerlessRuntime(): boolean {
+  return (
+    !!process.env.NETLIFY ||
+    !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    !!process.env.LAMBDA_TASK_ROOT
+  );
+}
+
+/**
+ * postgres.js pool options tuned per runtime. A serverless instance handles
+ * one request at a time, so a single connection per instance is enough and
+ * bounds total connections to ≈ concurrent-instance count instead of 10× that.
+ * idle_timeout is shortened on serverless so a thawed-but-idle instance
+ * releases its connection quickly. Long-lived Node servers keep the normal
+ * pool for throughput.
+ */
+export function pgPoolOptions(url: string): Record<string, unknown> {
+  const serverless = isServerlessRuntime();
+  return {
+    onnotice: () => {},
+    max: serverless ? 1 : 10,
+    idle_timeout: serverless ? 20 : 240,
+    max_lifetime: 60 * 30,
+    connect_timeout: 10,
+    // Supabase's connection pooler (Transaction mode) requires prepare:false.
+    // Only disable for Supabase URLs to avoid degrading other deployments.
+    ...(url.includes("supabase") ? { prepare: false } : {}),
+  };
+}
+
+/**
+ * Connection cap for the @neondatabase/serverless `Pool`. Same Lambda
+ * accumulation risk as postgres.js — a single connection per instance is
+ * enough on serverless and keeps total connections bounded.
+ */
+export function neonPoolMax(): number {
+  return isServerlessRuntime() ? 1 : 10;
+}
+
+// ---------------------------------------------------------------------------
 // Singleton client — lazy-initialized on first execute() call
 // ---------------------------------------------------------------------------
 
@@ -396,7 +447,7 @@ async function createDbExecInternal(
     // and keeps the same `pg`-compatible query(...) interface we need here.
     if (isNeonUrl(url)) {
       const { Pool } = await import("@neondatabase/serverless");
-      const pool = new Pool({ connectionString: url });
+      const pool = new Pool({ connectionString: url, max: neonPoolMax() });
       // Neon's serverless Pool extends EventEmitter and emits 'error'
       // when its WebSocket connection drops (idle timeout, Lambda
       // suspend, network blip). Without a listener, Node 24 surfaces
@@ -457,18 +508,12 @@ async function createDbExecInternal(
         },
       };
     } else {
-      // Node.js: reuse connection pool.
-      // idle_timeout:240 closes idle connections before Neon's ~5min server-side
-      // timeout, avoiding ECONNRESET when the server hangs up on us.
-      const pool = postgres(url, {
-        onnotice: () => {},
-        idle_timeout: 240,
-        max_lifetime: 60 * 30,
-        connect_timeout: 10,
-        // Supabase's connection pooler (Transaction mode) requires prepare: false.
-        // Only disable for Supabase URLs to avoid degrading other Postgres deployments.
-        ...(url.includes("supabase") ? { prepare: false } : {}),
-      });
+      // Node.js: reuse connection pool. pgPoolOptions caps the pool to a
+      // single connection on serverless (Netlify/Lambda) so concurrent frozen
+      // instances don't exhaust Neon/Postgres' connection limit; idle_timeout
+      // also closes idle connections before Neon's ~5min server-side timeout,
+      // avoiding ECONNRESET when the server hangs up on us.
+      const pool = postgres(url, pgPoolOptions(url));
       if (trackSingletonResources) _pgPool = pool;
 
       return {
