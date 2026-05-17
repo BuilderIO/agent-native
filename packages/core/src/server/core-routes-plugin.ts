@@ -22,6 +22,8 @@ import path from "node:path";
 import { createPollHandler } from "./poll.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createOpenRouteHandler } from "./open-route.js";
+import { handleMcpConnect } from "../mcp/connect-route.js";
+import { getAppName } from "./app-name.js";
 import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import { readBody } from "./h3-helpers.js";
@@ -302,6 +304,18 @@ export interface CoreRoutesPluginOptions {
   disableAppState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
   disableOpenRoute?: boolean;
+  /**
+   * Disable the /_agent-native/mcp/connect routes (browser Connect page +
+   * CLI device-code flow that mints per-user, revocable MCP tokens).
+   * Enabled by default — the routes are session-gated where they mint and
+   * back-compat with deployments that have no A2A_SECRET (they return a
+   * clear 503 instead of minting).
+   */
+  disableMcpConnect?: boolean;
+  /** Canonical app id (e.g. `mail`) for the MCP connect server name. */
+  mcpConnectAppId?: string;
+  /** Human app name shown on the MCP connect page. */
+  mcpConnectAppName?: string;
   /** Per-template override mapping deep-link params → client SPA path.
    *  See `createOpenRouteHandler`. */
   resolveOpenPath?: import("./open-route.js").OpenRouteOptions["resolveOpenPath"];
@@ -2502,6 +2516,32 @@ export function createCoreRoutesPlugin(
         return { error: "Method not allowed" };
       }),
     );
+
+    if (!options.disableMcpConnect) {
+      // Frictionless external-agent connection. A logged-in user mints a
+      // per-user, scoped, revocable MCP bearer token here — via the browser
+      // Connect page or the OAuth-style device-code flow a CLI drives — so
+      // they never copy a shared deployment secret. The handler resolves the
+      // browser session itself and serves its own login form (like /open)
+      // for the page + unauth device endpoints; the /token, /device/authorize,
+      // /tokens, /tokens/revoke subpaths require a session and 401 without it.
+      // The auth guard bypasses ONLY the page + device/start + device/poll
+      // (see createAuthGuardFn in auth.ts).
+      const mcpConnectOpts = {
+        appId: options.mcpConnectAppId,
+        appName: options.mcpConnectAppName ?? getAppName(),
+      };
+      getH3App(nitroApp).use(
+        `${P}/mcp/connect`,
+        defineEventHandler(async (event: H3Event) => {
+          // The framework strips the mount prefix from event.url.pathname,
+          // so what remains is the subpath after `/connect` (e.g. `/token`,
+          // `/device/start`, or `` for the page itself).
+          const subpath = event.url?.pathname || "";
+          return handleMcpConnect(event, subpath, mcpConnectOpts);
+        }),
+      );
+    }
 
     if (!options.disableOpenRoute) {
       // Stable deep-link route. External agents (MCP/A2A) surface

@@ -29,7 +29,12 @@ import {
 import { IconX } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
-import { TiptapComposer, type TiptapComposerHandle } from "./TiptapComposer.js";
+import {
+  TiptapComposer,
+  type ComposerSubmitIntent,
+  type TiptapComposerHandle,
+  type TiptapComposerSubmitOptions,
+} from "./TiptapComposer.js";
 import type {
   AgentComposerLayoutVariant,
   Reference,
@@ -56,6 +61,7 @@ const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 export type PromptComposerFile = File;
 
 export interface PromptComposerSubmitOptions {
+  intent?: ComposerSubmitIntent;
   model?: string;
   engine?: string;
   effort?: ReasoningEffort;
@@ -99,6 +105,10 @@ export interface PromptComposerProps {
   modeControl?: ReactNode;
   /** Explicit host-owned toolbar slot rendered directly after the "+" button. */
   toolbarSlot?: ReactNode;
+  /** Custom action button to render instead of the default send button. */
+  actionButton?: ReactNode;
+  /** Extra button rendered alongside the default send button. */
+  extraActionButton?: ReactNode;
   /** Shared sizing/layout variant for host surfaces. Default keeps sidebar behavior. */
   layoutVariant?: AgentComposerLayoutVariant;
   /** Additional slash commands surfaced in the shared / menu. */
@@ -447,6 +457,8 @@ function PromptComposerInner({
   initialTextKey,
   modeControl,
   toolbarSlot,
+  actionButton,
+  extraActionButton,
   layoutVariant,
   slashCommands,
   slashSkills,
@@ -501,6 +513,7 @@ function PromptComposerInner({
       text: string,
       references: Reference[],
       attachments?: ReadonlyArray<unknown>,
+      submitOptions?: TiptapComposerSubmitOptions,
     ) => {
       // PromptComposer hosts (NewWorkspaceAppFlow, create-extension, create-deck,
       // …) submit a single string prompt — they don't run the assistant-ui
@@ -513,6 +526,7 @@ function PromptComposerInner({
         attachments,
       });
       onSubmit(finalText, files, references, {
+        intent: submitOptions?.intent ?? "immediate",
         model: composerModel,
         engine: composerEngine,
         effort: composerEffort,
@@ -543,6 +557,8 @@ function PromptComposerInner({
         }
         modeControl={modeControl}
         toolbarSlot={toolbarSlot}
+        actionButton={actionButton}
+        extraActionButton={extraActionButton}
         layoutVariant={layoutVariant}
         slashCommands={slashCommands}
         slashSkills={slashSkills}

@@ -22,6 +22,7 @@ import {
   IconPinnedOff,
   IconPlus,
   IconPlayerPlay,
+  IconPlayerStop,
   IconQrcode,
   IconRefresh,
   IconRoute,
@@ -31,13 +32,16 @@ import {
 } from "@tabler/icons-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
+  AgentConversation,
   PromptComposer,
+  type AgentConversationMessage,
   type PromptComposerFile,
   type SlashCommand,
   type TiptapComposerHandle,
 } from "@agent-native/core/client";
 import { toast } from "sonner";
 import { readCodeAgentPromptAttachment } from "./composer-primitives.js";
+import { normalizeCodeAgentTranscriptForConversation } from "./transcript-conversation.js";
 import {
   CODE_AGENT_GOALS,
   DEFAULT_CODE_AGENT_PERMISSION_MODE,
@@ -100,6 +104,7 @@ import type {
   CodeAgentTranscriptEvent,
   CodeAgentTranscriptRequest,
   CodeAgentTranscriptResult,
+  CodeAgentTranscriptSubscriptionBatch,
   CodeAgentUpdateRunRequest,
   CodeAgentUpdateRunResult,
   CodeAgentsOpenRequest,
@@ -119,6 +124,10 @@ export interface CodeAgentsHost {
   readTranscript(
     request: CodeAgentTranscriptRequest,
   ): Promise<CodeAgentTranscriptResult>;
+  subscribeTranscript?(
+    request: CodeAgentTranscriptRequest,
+    callback: (batch: CodeAgentTranscriptSubscriptionBatch) => void,
+  ): () => void;
   appendFollowUp(
     request: CodeAgentFollowUpRequest,
   ): Promise<CodeAgentFollowUpResult>;
@@ -318,8 +327,6 @@ export default function CodeAgentsApp({
   const [modelSelection, setModelSelection] = useState<CodeAgentModelSelection>(
     () => readStoredModelSelection(),
   );
-  const [followUpMode, setFollowUpMode] =
-    useState<CodeAgentFollowUpMode>("immediate");
   const [remoteConnectorStatus, setRemoteConnectorStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
   const [remoteConnectorError, setRemoteConnectorError] = useState<
@@ -707,12 +714,34 @@ export default function CodeAgentsApp({
   useEffect(() => {
     void loadTranscript(selectedRunId, true);
     if (!selectedRunId) return;
+    const unsubscribe = host.subscribeTranscript?.(
+      { goalId: selectedGoal.id, runId: selectedRunId },
+      (batch) => {
+        if (batch.runId && batch.runId !== selectedRunId) return;
+        if (batch.error) setTranscriptError(batch.error);
+        if (batch.status === "ok" && batch.events.length > 0) {
+          setTranscriptError(null);
+          setTranscriptEvents((current) =>
+            mergeTranscriptEvents(current, batch.events),
+          );
+        }
+      },
+    );
     const interval = window.setInterval(
       () => void loadTranscript(selectedRunId),
       selectedRunIsActive ? 1_000 : 5_000,
     );
-    return () => window.clearInterval(interval);
-  }, [loadTranscript, selectedRunId, selectedRunIsActive]);
+    return () => {
+      unsubscribe?.();
+      window.clearInterval(interval);
+    };
+  }, [
+    host,
+    loadTranscript,
+    selectedGoal.id,
+    selectedRunId,
+    selectedRunIsActive,
+  ]);
 
   async function selectProjectFolder(pathValue: string) {
     if (!pathValue) return;
@@ -1496,21 +1525,18 @@ export default function CodeAgentsApp({
                     transcriptLoading={transcriptLoading}
                     transcriptError={transcriptError}
                     followUpPrompt={followUpPrompt}
-                    followUpMode={followUpMode}
                     submittingFollowUp={submittingFollowUp}
                     permissionMode={selectedPermissionMode}
                     modelSelection={selectedModelSelection}
                     modelOptions={modelOptions}
                     updatingPermissionMode={updatingPermissionMode}
                     onFollowUpPromptChange={setFollowUpPrompt}
-                    onFollowUpModeChange={setFollowUpMode}
                     onPermissionModeChange={changeSelectedPermissionMode}
                     onModelSelectionChange={setModelSelection}
                     onSubmitFollowUp={submitFollowUp}
                     onOpenWorkbench={() => setWorkbenchOpen(true)}
                     onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
                     onResume={() => controlRun("resume")}
-                    onRefreshStatus={() => controlRun("status")}
                     onStop={() => controlRun("stop")}
                     onApprove={() => controlRun("approve")}
                     onRetry={host.retryRun ? retrySelectedRun : undefined}
@@ -1736,37 +1762,34 @@ function CodeAgentComposer({
   inputRef,
   submitting,
   permissionMode,
-  followUpMode = "immediate",
-  showFollowUpMode = false,
   modelSelection,
   modelOptions,
   slashCommands = [],
   placeholder,
   variant = "compact",
   disabled = false,
+  stopActive = false,
   onPromptChange,
   onPermissionModeChange,
-  onFollowUpModeChange,
   onModelSelectionChange,
   onSlashCommand,
   onSubmit,
+  onStop,
 }: {
   prompt: string;
   promptSeed?: string | number;
   inputRef?: React.RefObject<TiptapComposerHandle | null>;
   submitting: boolean;
   permissionMode: CodeAgentPermissionMode;
-  followUpMode?: CodeAgentFollowUpMode;
-  showFollowUpMode?: boolean;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   slashCommands?: SlashCommand[];
   placeholder: string;
   variant?: "hero" | "compact";
   disabled?: boolean;
+  stopActive?: boolean;
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
-  onFollowUpModeChange?: (value: CodeAgentFollowUpMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
   onSlashCommand?: (command: string) => void;
   onSubmit: (
@@ -1774,6 +1797,7 @@ function CodeAgentComposer({
     attachments: CodeAgentPromptAttachment[],
     followUpMode?: CodeAgentFollowUpMode,
   ) => void;
+  onStop?: () => void;
 }) {
   const composerModelGroups = useMemo(
     () => modelOptionsToComposerGroups(modelOptions),
@@ -1824,14 +1848,21 @@ function CodeAgentComposer({
         onChange={onPermissionModeChange}
         compact
       />
-      {showFollowUpMode && onFollowUpModeChange && (
-        <FollowUpModeSelect
-          value={followUpMode}
-          onChange={onFollowUpModeChange}
-        />
-      )}
     </div>
   );
+
+  const stopButton =
+    stopActive && onStop ? (
+      <button
+        type="button"
+        onClick={onStop}
+        className="code-agents-composer-stop-button"
+        aria-label="Stop session"
+        title="Stop session (Esc)"
+      >
+        <IconPlayerStop size={14} strokeWidth={1.9} />
+      </button>
+    ) : undefined;
 
   return (
     <PromptComposer
@@ -1850,6 +1881,7 @@ function CodeAgentComposer({
       initialText={promptSeed !== undefined ? prompt : undefined}
       initialTextKey={promptSeed}
       toolbarSlot={modeControl}
+      actionButton={stopButton}
       availableModels={composerModelGroups}
       selectedModel={selectedModel}
       selectedEngine={selectedEngine}
@@ -1860,9 +1892,13 @@ function CodeAgentComposer({
       slashCommands={slashCommands}
       includeDefaultSlashSkills={false}
       onSlashCommand={onSlashCommand}
-      onSubmit={async (text, files) => {
+      onSubmit={async (text, files, _references, options) => {
         const attachments = await readPromptFiles(files);
-        onSubmit(text, attachments, followUpMode);
+        onSubmit(
+          text,
+          attachments,
+          options.intent === "queued" ? "queued" : "immediate",
+        );
       }}
       attachmentsEnabled
       voiceEnabled
@@ -2153,47 +2189,6 @@ function RunModeSelect({
   );
 }
 
-function FollowUpModeSelect({
-  value,
-  onChange,
-}: {
-  value: CodeAgentFollowUpMode;
-  onChange: (value: CodeAgentFollowUpMode) => void;
-}) {
-  return (
-    <Select
-      value={value}
-      onValueChange={(nextValue) =>
-        onChange(nextValue === "queued" ? "queued" : "immediate")
-      }
-    >
-      <SelectTrigger
-        className="code-agents-follow-up-mode-select"
-        aria-label="Follow-up delivery"
-        title="Choose how this follow-up reaches the active run"
-      >
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
-          <SelectItem
-            value="immediate"
-            description="Send to the active run at its next safe steering point."
-          >
-            Send now
-          </SelectItem>
-          <SelectItem
-            value="queued"
-            description="Run after the current turn finishes."
-          >
-            Queue
-          </SelectItem>
-        </SelectGroup>
-      </SelectContent>
-    </Select>
-  );
-}
-
 function runModeFromPermissionMode(
   permissionMode: CodeAgentPermissionMode,
 ): CodeAgentRunMode {
@@ -2406,6 +2401,33 @@ function findTranscriptSearchMatch(
   return event ? getSearchMatchSnippet(event.text, tokens) : null;
 }
 
+function mergeTranscriptEvents(
+  current: CodeAgentTranscriptEvent[],
+  incoming: CodeAgentTranscriptEvent[],
+): CodeAgentTranscriptEvent[] {
+  if (incoming.length === 0) return current;
+  const byId = new Map(current.map((event) => [event.id, event]));
+  for (const event of incoming) byId.set(event.id, event);
+  return [...byId.values()].sort(compareTranscriptEvents);
+}
+
+function compareTranscriptEvents(
+  a: CodeAgentTranscriptEvent,
+  b: CodeAgentTranscriptEvent,
+): number {
+  const seqA = getTranscriptSeq(a);
+  const seqB = getTranscriptSeq(b);
+  if (seqA !== null && seqB !== null && seqA !== seqB) return seqA - seqB;
+  const created = a.createdAt.localeCompare(b.createdAt);
+  if (created !== 0) return created;
+  return a.id.localeCompare(b.id);
+}
+
+function getTranscriptSeq(event: CodeAgentTranscriptEvent): number | null {
+  const value = event.metadata?.seq;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function getSearchMatchSnippet(text: string, tokens: string[]): string {
   const compact = text.trim().replace(/\s+/g, " ");
   if (!compact) return "";
@@ -2436,58 +2458,6 @@ function getSearchResultMeta(run: CodeAgentRun): string {
     .join(" · ");
 }
 
-function transcriptEventsForChat(
-  events: CodeAgentTranscriptEvent[],
-  options: { hideCredentialMessages?: boolean } = {},
-): CodeAgentTranscriptEvent[] {
-  const compactEvents: CodeAgentTranscriptEvent[] = [];
-  const seenCredentialMessages = new Set<string>();
-
-  for (const event of events) {
-    if (isLowSignalTranscriptEvent(event)) continue;
-    if (options.hideCredentialMessages && isCredentialTranscriptEvent(event)) {
-      continue;
-    }
-
-    const normalizedText = normalizeTranscriptText(event.text);
-    if (isCredentialTranscriptEvent(event)) {
-      if (seenCredentialMessages.has(normalizedText)) continue;
-      seenCredentialMessages.add(normalizedText);
-    }
-
-    const previous = compactEvents[compactEvents.length - 1];
-    if (
-      previous &&
-      previous.type === event.type &&
-      (previous.title ?? "") === (event.title ?? "") &&
-      normalizeTranscriptText(previous.text) === normalizedText
-    ) {
-      continue;
-    }
-
-    compactEvents.push(event);
-  }
-
-  return compactEvents;
-}
-
-function isLowSignalTranscriptEvent(event: CodeAgentTranscriptEvent): boolean {
-  if (event.type !== "status") return false;
-  const text = normalizeTranscriptText(event.text);
-  return (
-    text === "Agent-Native Code run started." ||
-    text === "Agent-Native Code process exited."
-  );
-}
-
-function isCredentialTranscriptEvent(event: CodeAgentTranscriptEvent): boolean {
-  return /No LLM provider key was found|Missing credentials/i.test(event.text);
-}
-
-function normalizeTranscriptText(value: string): string {
-  return value.trim().replace(/\s+/g, " ");
-}
-
 function getRunStatusText(run: CodeAgentRun): string {
   if (run.status === "completed" || run.phase === "complete") return "Done";
   if (run.phase === "missing-credentials") return "Needs provider";
@@ -2504,38 +2474,14 @@ function getSessionMeta(run: CodeAgentRun, sourceLabel: string | null): string {
     .join(" · ");
 }
 
-function getTranscriptEventAuthor(event: CodeAgentTranscriptEvent): string {
-  if (event.title && event.title !== "Status") return event.title;
-  if (event.type === "user") return "You";
-  if (event.type === "artifact") return "Artifact";
-  if (event.type === "status") return "Update";
-  return "Agent";
-}
-
-function getTranscriptEventTone(event: CodeAgentTranscriptEvent): string {
-  if (event.type === "user") return "user";
-  if (event.type === "artifact") return "artifact";
-  if (isCredentialTranscriptEvent(event)) return "warning";
-  if (event.type === "status") return "status";
-  return "agent";
-}
-
 function runControlButtons({
-  run,
   goal,
-  onResume,
-  onRefreshStatus,
-  onStop,
   onRetry,
   onRerun,
   onOpenWorkbench,
   onOpenTerminal,
 }: {
-  run: CodeAgentRun;
   goal: CodeAgentGoalDefinition;
-  onResume: () => void;
-  onRefreshStatus: () => void;
-  onStop: () => void;
   onRetry?: () => void;
   onRerun?: () => void;
   onOpenWorkbench: () => void;
@@ -2547,28 +2493,6 @@ function runControlButtons({
   onClick: () => void;
 }> {
   return [
-    {
-      key: "resume",
-      label: "Resume",
-      icon: <IconPlayerPlay size={14} strokeWidth={1.8} />,
-      onClick: onResume,
-    },
-    {
-      key: "status",
-      label: "Status",
-      icon: <IconRefresh size={14} strokeWidth={1.8} />,
-      onClick: onRefreshStatus,
-    },
-    ...(run.status !== "completed" && run.phase !== "complete"
-      ? [
-          {
-            key: "stop",
-            label: "Stop",
-            icon: <IconAlertCircle size={14} strokeWidth={1.8} />,
-            onClick: onStop,
-          },
-        ]
-      : []),
     ...(onRetry
       ? [
           {
@@ -3123,21 +3047,18 @@ function RunDetailCard({
   transcriptLoading,
   transcriptError,
   followUpPrompt,
-  followUpMode,
   submittingFollowUp,
   permissionMode,
   modelSelection,
   modelOptions,
   updatingPermissionMode,
   onFollowUpPromptChange,
-  onFollowUpModeChange,
   onPermissionModeChange,
   onModelSelectionChange,
   onSubmitFollowUp,
   onOpenWorkbench,
   onOpenTerminal,
   onResume,
-  onRefreshStatus,
   onStop,
   onApprove,
   onRetry,
@@ -3154,14 +3075,12 @@ function RunDetailCard({
   transcriptLoading: boolean;
   transcriptError: string | null;
   followUpPrompt: string;
-  followUpMode: CodeAgentFollowUpMode;
   submittingFollowUp: boolean;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   updatingPermissionMode: boolean;
   onFollowUpPromptChange: (value: string) => void;
-  onFollowUpModeChange: (value: CodeAgentFollowUpMode) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
   onSubmitFollowUp: (
@@ -3172,7 +3091,6 @@ function RunDetailCard({
   onOpenWorkbench: () => void;
   onOpenTerminal?: () => void;
   onResume: () => void;
-  onRefreshStatus: () => void;
   onStop: () => void;
   onApprove: () => void;
   onRetry?: () => void;
@@ -3182,6 +3100,19 @@ function RunDetailCard({
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
 }) {
+  const runIsActive = run ? isRunActive(run) : false;
+
+  useEffect(() => {
+    if (!runIsActive) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onStop();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onStop, runIsActive]);
+
   if (!run) {
     return (
       <div className="code-agents-detail code-agents-detail--empty">
@@ -3210,11 +3141,7 @@ function RunDetailCard({
   const hasCredentialGap = hasMissingCredentialSignal(run, transcriptEvents);
   const pendingApproval = hasCredentialGap ? null : getPendingApproval(run);
   const controlButtons = runControlButtons({
-    run,
     goal,
-    onResume,
-    onRefreshStatus,
-    onStop,
     onRetry,
     onRerun,
     onOpenWorkbench,
@@ -3309,23 +3236,41 @@ function RunDetailCard({
         </div>
       )}
 
+      {!pendingApproval &&
+        (run.status === "paused" || run.phase === "paused") && (
+          <div className="code-agents-approval-callout">
+            <IconPlayerPlay size={16} strokeWidth={1.8} />
+            <div>
+              <strong>Session paused</strong>
+              <span>Resume when you are ready for Code to continue.</span>
+            </div>
+            <button
+              type="button"
+              className="code-agents-button code-agents-button--primary"
+              onClick={onResume}
+            >
+              <IconPlayerPlay size={14} strokeWidth={1.8} />
+              Resume
+            </button>
+          </div>
+        )}
+
       <TranscriptPanel
         events={transcriptEvents}
         loading={transcriptLoading}
         error={transcriptError}
         followUpPrompt={followUpPrompt}
-        followUpMode={followUpMode}
-        runIsActive={isRunActive(run)}
+        runIsActive={runIsActive}
         submitting={submittingFollowUp}
         permissionMode={permissionMode}
         modelSelection={modelSelection}
         modelOptions={modelOptions}
         hideCredentialMessages={hasCredentialGap}
         onFollowUpPromptChange={onFollowUpPromptChange}
-        onFollowUpModeChange={onFollowUpModeChange}
         onPermissionModeChange={onPermissionModeChange}
         onModelSelectionChange={onModelSelectionChange}
         onSubmitFollowUp={onSubmitFollowUp}
+        onStop={onStop}
       />
     </div>
   );
@@ -3336,7 +3281,6 @@ function TranscriptPanel({
   loading,
   error,
   followUpPrompt,
-  followUpMode,
   runIsActive,
   submitting,
   permissionMode,
@@ -3344,16 +3288,15 @@ function TranscriptPanel({
   modelOptions,
   hideCredentialMessages = false,
   onFollowUpPromptChange,
-  onFollowUpModeChange,
   onPermissionModeChange,
   onModelSelectionChange,
   onSubmitFollowUp,
+  onStop,
 }: {
   events: CodeAgentTranscriptEvent[];
   loading: boolean;
   error: string | null;
   followUpPrompt: string;
-  followUpMode: CodeAgentFollowUpMode;
   runIsActive: boolean;
   submitting: boolean;
   permissionMode: CodeAgentPermissionMode;
@@ -3361,7 +3304,6 @@ function TranscriptPanel({
   modelOptions: CodeAgentModelOption[];
   hideCredentialMessages?: boolean;
   onFollowUpPromptChange: (value: string) => void;
-  onFollowUpModeChange: (value: CodeAgentFollowUpMode) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
   onSubmitFollowUp: (
@@ -3369,149 +3311,43 @@ function TranscriptPanel({
     attachments: CodeAgentPromptAttachment[],
     followUpMode?: CodeAgentFollowUpMode,
   ) => void;
+  onStop: () => void;
 }) {
-  const timelineRef = useRef<HTMLDivElement | null>(null);
-  const visibleEvents = useMemo(
+  const messages = useMemo<AgentConversationMessage[]>(
     () =>
-      transcriptEventsForChat(events, {
+      normalizeCodeAgentTranscriptForConversation(events, {
         hideCredentialMessages,
       }),
     [events, hideCredentialMessages],
   );
 
-  useEffect(() => {
-    const timeline = timelineRef.current;
-    if (!timeline) return;
-    timeline.scrollTo({ top: timeline.scrollHeight, behavior: "smooth" });
-  }, [visibleEvents.length]);
-
   return (
-    <section className="code-agents-transcript" aria-label="Session transcript">
-      {error && (
-        <div className="code-agents-transcript__error">
-          <IconAlertCircle size={14} strokeWidth={1.8} />
-          <span>{error}</span>
-        </div>
-      )}
-
-      <div className="code-agents-transcript__timeline" ref={timelineRef}>
-        {loading && visibleEvents.length === 0 ? (
-          <div className="code-agents-transcript__empty">
-            <IconRefresh
-              size={16}
-              strokeWidth={1.8}
-              className="code-agents-spin"
-            />
-            <p>Loading session...</p>
-          </div>
-        ) : visibleEvents.length === 0 ? (
-          <div className="code-agents-transcript__empty">
-            <IconClock size={18} strokeWidth={1.7} />
-            <p>No messages yet.</p>
-          </div>
-        ) : (
-          visibleEvents.map((event) => (
-            <TranscriptEventItem key={event.id} event={event} />
-          ))
-        )}
-      </div>
-
-      <CodeAgentComposer
-        prompt={followUpPrompt}
-        submitting={submitting}
-        permissionMode={permissionMode}
-        followUpMode={followUpMode}
-        showFollowUpMode={runIsActive}
-        modelSelection={modelSelection}
-        modelOptions={modelOptions}
-        placeholder="Ask for follow-up changes"
-        onPromptChange={onFollowUpPromptChange}
-        onFollowUpModeChange={onFollowUpModeChange}
-        onPermissionModeChange={onPermissionModeChange}
-        onModelSelectionChange={onModelSelectionChange}
-        onSubmit={onSubmitFollowUp}
-      />
-    </section>
+    <AgentConversation
+      className="code-agents-transcript"
+      timelineClassName="code-agents-transcript__timeline"
+      messages={messages}
+      loading={loading}
+      error={error}
+      streaming={runIsActive}
+      emptyTitle="No messages yet."
+      composer={
+        <CodeAgentComposer
+          prompt={followUpPrompt}
+          submitting={submitting}
+          permissionMode={permissionMode}
+          modelSelection={modelSelection}
+          modelOptions={modelOptions}
+          placeholder="Ask for follow-up changes"
+          onPromptChange={onFollowUpPromptChange}
+          onPermissionModeChange={onPermissionModeChange}
+          onModelSelectionChange={onModelSelectionChange}
+          onSubmit={onSubmitFollowUp}
+          stopActive={runIsActive}
+          onStop={onStop}
+        />
+      }
+    />
   );
-}
-
-function TranscriptEventItem({ event }: { event: CodeAgentTranscriptEvent }) {
-  const toolName = getTranscriptToolName(event);
-  const toolInput = getMetadataPreview(event.metadata?.input);
-  const toolResult = getMetadataPreview(event.metadata?.result);
-  const tone = getTranscriptEventTone(event);
-  return (
-    <article
-      className={`code-agents-transcript-event code-agents-transcript-event--${tone}`}
-    >
-      <div className="code-agents-transcript-event__body">
-        <div className="code-agents-transcript-event__meta">
-          <span>{getTranscriptEventAuthor(event)}</span>
-          <time dateTime={event.createdAt}>
-            {formatRelativeTime(event.createdAt)}
-          </time>
-        </div>
-        <p>{event.text}</p>
-        {toolName && (
-          <details className="code-agents-tool-event">
-            <summary>
-              <span>{toolName}</span>
-              <span>{toolEventLabel(event)}</span>
-            </summary>
-            {(toolInput || toolResult) && (
-              <div className="code-agents-tool-event__body">
-                {toolInput && (
-                  <pre>
-                    <strong>input</strong>
-                    {toolInput}
-                  </pre>
-                )}
-                {toolResult && (
-                  <pre>
-                    <strong>result</strong>
-                    {toolResult}
-                  </pre>
-                )}
-              </div>
-            )}
-          </details>
-        )}
-        {(event.artifactPath || event.artifactUrl) && (
-          <div className="code-agents-transcript-event__artifact">
-            {event.artifactPath && <code>{event.artifactPath}</code>}
-            {event.artifactUrl && (
-              <a href={event.artifactUrl} target="_blank" rel="noreferrer">
-                <IconExternalLink size={13} strokeWidth={1.8} />
-                Open artifact
-              </a>
-            )}
-          </div>
-        )}
-      </div>
-    </article>
-  );
-}
-
-function getTranscriptToolName(event: CodeAgentTranscriptEvent): string | null {
-  const value = event.metadata?.tool;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function toolEventLabel(event: CodeAgentTranscriptEvent): string {
-  const value = event.metadata?.type;
-  if (value === "tool_start") return "started";
-  if (value === "tool_done") return "finished";
-  if (value === "activity") return "activity";
-  return "tool event";
-}
-
-function getMetadataPreview(value: unknown): string | null {
-  if (value === undefined || value === null) return null;
-  const text =
-    typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? "");
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  return trimmed.length > 1800 ? `${trimmed.slice(0, 1800)}\n...` : trimmed;
 }
 
 function Field({ label, value }: { label: string; value: string }) {

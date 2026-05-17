@@ -192,6 +192,11 @@ export interface CodeAgentTranscriptResult {
   error?: string;
 }
 
+export interface CodeAgentTranscriptSubscriptionBatch extends CodeAgentTranscriptResult {
+  subscriptionId?: string;
+  reason?: string;
+}
+
 export interface CodeAgentCreateRunRequest {
   goalId?: string;
   prompt: string;

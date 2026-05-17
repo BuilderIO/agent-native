@@ -1288,6 +1288,32 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // MCP connect — frictionless external-agent connection. Like /open
+    // above, the connect *page* resolves the browser session itself and
+    // serves its own login form when unauthenticated (so the post-login
+    // reload returns to the same URL, carrying the device user_code in the
+    // query). The two unauthenticated device endpoints below are the CLI's
+    // OAuth-style polling pair: `device/start` (mint a device+user code) and
+    // `device/poll` (exchange an approved code for the token) — both must be
+    // reachable without a browser session because the CLI has none. They are
+    // protected by short-TTL, single-use, crypto-random codes + a creation
+    // rate-limit, not cookies.
+    //
+    // Everything that MINTS or MUTATES on behalf of the user — `/token`,
+    // `/device/authorize`, `/tokens`, `/tokens/revoke` — is intentionally
+    // NOT bypassed: the guard's default 401-for-/_agent-native/* is the
+    // correct gate for them. Those are POSTed by the in-page fetch, which
+    // carries the session cookie, so the guard (which only 401s when there
+    // is no session) lets the authenticated same-origin request through and
+    // the handler then re-checks the session itself (defense in depth).
+    if (
+      p === "/_agent-native/mcp/connect" ||
+      p === "/_agent-native/mcp/connect/device/start" ||
+      p === "/_agent-native/mcp/connect/device/poll"
+    ) {
+      return;
+    }
+
     // Internal processor endpoint for the A2A async-mode fanout. Mirrors the
     // integration webhook fanout: when `message/send` is called with
     // `async: true`, the JSON-RPC handler enqueues to a2a_tasks and self-

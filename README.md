@@ -141,17 +141,7 @@ Message, manage, and delegate to agents from Slack, Telegram, or the web. Dispat
 Generate forms from a prompt, branch logic with the agent, and own every response in your own database.
 
 </td>
-<td width="33%" align="center" valign="top">
-
-**Brain**
-
-<a href="https://agent-native.com/templates/brain"><strong>Open Brain template</strong></a>
-
-**Company chat with cited memory**
-
-Ask clean company chat questions backed by cited institutional memory from approved Slack, meetings, transcripts, GitHub, and webhooks. For live app-owned data, Brain can delegate to specialized agents instead of owning every connector itself.
-
-</td>
+<td width="33%" align="center" valign="top"></td>
 <td width="33%" align="center" valign="top"></td>
 </tr>
 </table>

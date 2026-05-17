@@ -70,6 +70,12 @@ export interface TiptapComposerHandle {
   focus(): void;
 }
 
+export type ComposerSubmitIntent = "immediate" | "queued";
+
+export interface TiptapComposerSubmitOptions {
+  intent?: ComposerSubmitIntent;
+}
+
 export function canSubmitComposerContent(options: {
   hasEditorContent: boolean;
   attachmentCount: number;
@@ -79,6 +85,20 @@ export function canSubmitComposerContent(options: {
     !options.disabled &&
     (options.hasEditorContent || options.attachmentCount > 0)
   );
+}
+
+export function getComposerSubmitIntentForEnterKey(
+  event: Pick<KeyboardEvent, "key" | "shiftKey" | "metaKey" | "ctrlKey">,
+  isMac: boolean,
+): ComposerSubmitIntent | null {
+  if (event.key !== "Enter" || event.shiftKey) return null;
+
+  const queuedModifierPressed = isMac ? event.metaKey : event.ctrlKey;
+  if (queuedModifierPressed) return "queued";
+
+  if (!event.metaKey && !event.ctrlKey) return "immediate";
+
+  return null;
 }
 
 export function displayableComposerModeMessage(options: {
@@ -259,6 +279,7 @@ interface TiptapComposerProps {
     text: string,
     references: Reference[],
     attachments?: ReadonlyArray<unknown>,
+    options?: TiptapComposerSubmitOptions,
   ) => void;
   /**
    * Clear the editor after an onSubmit handler runs. Standalone workflows that
@@ -1181,15 +1202,12 @@ export function TiptapComposer({
           return true;
         }
 
-        // Submit on Enter (Shift+Enter for newline)
-        if (
-          event.key === "Enter" &&
-          !event.shiftKey &&
-          !event.metaKey &&
-          !event.ctrlKey
-        ) {
+        // Submit on Enter. Shift+Enter falls through to Tiptap for a newline;
+        // Cmd+Enter on macOS / Ctrl+Enter elsewhere marks the submit queued.
+        const submitIntent = getComposerSubmitIntentForEnterKey(event, isMac);
+        if (submitIntent) {
           event.preventDefault();
-          submitComposer();
+          submitComposer(submitIntent);
           return true;
         }
 
@@ -1464,125 +1482,129 @@ export function TiptapComposer({
     return { text, references };
   }, [composerRuntime, extractComposerPayload]);
 
-  const submitComposer = useCallback(() => {
-    const ed = editor;
-    if (!ed) return;
+  const submitComposer = useCallback(
+    (intent: ComposerSubmitIntent = "immediate") => {
+      const ed = editor;
+      if (!ed) return;
 
-    const { text, references } = syncComposerState();
-    const attachments = composerRuntime.getState().attachments;
-    if (!text.trim() && references.length === 0 && attachments.length === 0)
-      return;
-    const cancelActiveVoice = () => {
-      if (
-        voice.state === "recording" ||
-        voice.state === "starting" ||
-        voice.state === "transcribing"
-      ) {
-        voice.cancel();
+      const { text, references } = syncComposerState();
+      const attachments = composerRuntime.getState().attachments;
+      if (!text.trim() && references.length === 0 && attachments.length === 0)
+        return;
+      const cancelActiveVoice = () => {
+        if (
+          voice.state === "recording" ||
+          voice.state === "starting" ||
+          voice.state === "transcribing"
+        ) {
+          voice.cancel();
+        }
+      };
+
+      // Intercept slash commands typed directly (e.g. "/clear" + Enter)
+      const trimmed = text.trim();
+      if (trimmed.startsWith("/") && references.length === 0) {
+        const cmdName = normalizeSlashCommandName(trimmed);
+        const matched = allSlashCommands.find((c) => c.name === cmdName);
+        if (matched) {
+          ed.commands.clearContent();
+          try {
+            localStorage.removeItem(draftKey);
+          } catch {}
+          closePopover();
+          onSlashCommandRef.current?.(matched.name);
+          return;
+        }
       }
-    };
 
-    // Intercept slash commands typed directly (e.g. "/clear" + Enter)
-    const trimmed = text.trim();
-    if (trimmed.startsWith("/") && references.length === 0) {
-      const cmdName = normalizeSlashCommandName(trimmed);
-      const matched = allSlashCommands.find((c) => c.name === cmdName);
-      if (matched) {
+      // Composer mode: send with context via agent chat bridge
+      if (composerMode) {
+        const config = COMPOSER_MODE_CONFIGS[composerMode];
+        config.beforeSend?.();
+        const message = displayableComposerModeMessage({
+          messagePrefix: config.messagePrefix,
+          trimmedText: trimmed,
+          attachmentCount: attachments.length,
+        });
+        const modePrompt =
+          trimmed ||
+          (attachments.length > 0 ? "Use the attached context." : "");
+        if (attachments.length > 0) {
+          composerRuntime.setText(
+            `${message}\n\n<context>\n${config.getContext(modePrompt)}\n</context>`,
+          );
+          composerRuntime.send();
+        } else {
+          sendToAgentChat({
+            message,
+            context: config.getContext(modePrompt),
+            submit: true,
+          });
+        }
+        cancelActiveVoice();
         ed.commands.clearContent();
+        setEditorHasText(false);
+        setComposerMode(null);
+        composerModeRef.current = null;
         try {
           localStorage.removeItem(draftKey);
         } catch {}
         closePopover();
-        onSlashCommandRef.current?.(matched.name);
         return;
       }
-    }
 
-    // Composer mode: send with context via agent chat bridge
-    if (composerMode) {
-      const config = COMPOSER_MODE_CONFIGS[composerMode];
-      config.beforeSend?.();
-      const message = displayableComposerModeMessage({
-        messagePrefix: config.messagePrefix,
-        trimmedText: trimmed,
-        attachmentCount: attachments.length,
-      });
-      const modePrompt =
-        trimmed || (attachments.length > 0 ? "Use the attached context." : "");
-      if (attachments.length > 0) {
-        composerRuntime.setText(
-          `${message}\n\n<context>\n${config.getContext(modePrompt)}\n</context>`,
-        );
-        composerRuntime.send();
-      } else {
-        sendToAgentChat({
-          message,
-          context: config.getContext(modePrompt),
-          submit: true,
-        });
-      }
-      cancelActiveVoice();
-      ed.commands.clearContent();
-      setEditorHasText(false);
-      setComposerMode(null);
-      composerModeRef.current = null;
-      try {
-        localStorage.removeItem(draftKey);
-      } catch {}
-      closePopover();
-      return;
-    }
-
-    // Builder iframe delegation: when this app is mounted inside the
-    // Builder.io webview and the user typed a "build me an app/agent"
-    // prompt, hand it up to the parent Builder chat instead of sending
-    // it to this app's domain agent. Builder is the code-writing agent;
-    // the local agent (dispatch, mail, etc.) cannot scaffold workspace
-    // apps from inside its own iframe.
-    if (
-      interceptBuildRequestsForBuilder &&
-      tryDelegateBuildRequestToBuilder(trimmed)
-    ) {
-      cancelActiveVoice();
-      ed.commands.clearContent();
-      setEditorHasText(false);
-      try {
-        localStorage.removeItem(draftKey);
-      } catch {}
-      closePopover();
-      return;
-    }
-
-    if (onSubmit) {
-      onSubmit(text, references, attachments);
-      // Clear any pending attachments now that the host has them.
-      void composerRuntime.clearAttachments().catch(() => {});
-      if (!clearOnSubmit) {
+      // Builder iframe delegation: when this app is mounted inside the
+      // Builder.io webview and the user typed a "build me an app/agent"
+      // prompt, hand it up to the parent Builder chat instead of sending
+      // it to this app's domain agent. Builder is the code-writing agent;
+      // the local agent (dispatch, mail, etc.) cannot scaffold workspace
+      // apps from inside its own iframe.
+      if (
+        interceptBuildRequestsForBuilder &&
+        tryDelegateBuildRequestToBuilder(trimmed)
+      ) {
+        cancelActiveVoice();
+        ed.commands.clearContent();
+        setEditorHasText(false);
+        try {
+          localStorage.removeItem(draftKey);
+        } catch {}
         closePopover();
         return;
       }
-    } else {
-      composerRuntime.send();
-    }
-    cancelActiveVoice();
-    ed.commands.clearContent();
-    setEditorHasText(false);
-    try {
-      localStorage.removeItem(draftKey);
-    } catch {}
-    closePopover();
-  }, [
-    closePopover,
-    composerMode,
-    composerRuntime,
-    editor,
-    interceptBuildRequestsForBuilder,
-    clearOnSubmit,
-    onSubmit,
-    syncComposerState,
-    voice,
-    allSlashCommands,
-  ]);
+
+      if (onSubmit) {
+        onSubmit(text, references, attachments, { intent });
+        // Clear any pending attachments now that the host has them.
+        void composerRuntime.clearAttachments().catch(() => {});
+        if (!clearOnSubmit) {
+          closePopover();
+          return;
+        }
+      } else {
+        composerRuntime.send();
+      }
+      cancelActiveVoice();
+      ed.commands.clearContent();
+      setEditorHasText(false);
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {}
+      closePopover();
+    },
+    [
+      closePopover,
+      composerMode,
+      composerRuntime,
+      editor,
+      interceptBuildRequestsForBuilder,
+      clearOnSubmit,
+      onSubmit,
+      syncComposerState,
+      voice,
+      allSlashCommands,
+    ],
+  );
 
   // Helper functions that operate on the editor view directly
   // These are called from handleKeyDown which can't use React state
@@ -1855,26 +1877,22 @@ export function TiptapComposer({
           ))}
         {toolbarSlot ?? modeControl}
         <div data-agent-composer-slot="toolbar-spacer" className="flex-1" />
-        {!actionButton && (
-          <>
-            {selectedModel && availableModels && onModelChange && (
-              <ModelSelector
-                model={selectedModel}
-                effort={selectedEffort}
-                engines={availableModels}
-                onChange={onModelChange}
-                onEffortChange={onEffortChange}
-              />
-            )}
-            {execMode && onExecModeChange && (
-              <ModeSelector
-                mode={execMode}
-                onChange={onExecModeChange}
-                planModeDisabled={planModeDisabled}
-                planModeDisabledReason={planModeDisabledReason}
-              />
-            )}
-          </>
+        {selectedModel && availableModels && onModelChange && (
+          <ModelSelector
+            model={selectedModel}
+            effort={selectedEffort}
+            engines={availableModels}
+            onChange={onModelChange}
+            onEffortChange={onEffortChange}
+          />
+        )}
+        {execMode && onExecModeChange && (
+          <ModeSelector
+            mode={execMode}
+            onChange={onExecModeChange}
+            planModeDisabled={planModeDisabled}
+            planModeDisabledReason={planModeDisabledReason}
+          />
         )}
         {actionButton ?? (
           <>
@@ -1886,7 +1904,7 @@ export function TiptapComposer({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={submitComposer}
+                  onClick={() => submitComposer("immediate")}
                   disabled={!canSend}
                   data-agent-composer-slot="send-button"
                   className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
