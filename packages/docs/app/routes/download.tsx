@@ -36,7 +36,7 @@ interface PlatformInfo {
   icon: typeof IconBrandApple;
   primary: DownloadOption;
   secondary?: DownloadOption;
-  note: string;
+  note?: string;
 }
 
 const PLATFORMS: Record<Platform, PlatformInfo> = {
@@ -51,7 +51,6 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
       label: "Intel Mac",
       assetKinds: ["mac-x64"],
     },
-    note: "Signed and notarized macOS installers are available from the latest desktop release.",
   },
   windows: {
     name: "Windows",
@@ -253,7 +252,7 @@ export default function DownloadPage() {
 
         <p className="mt-4 text-xs text-[var(--fg-secondary)]">
           {releaseStatus}
-          <span className="block mt-1">{info.note}</span>
+          {info.note && <span className="block mt-1">{info.note}</span>}
         </p>
       </div>
 
