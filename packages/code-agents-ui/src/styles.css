@@ -463,7 +463,7 @@
   justify-content: center;
   gap: 18px;
   width: 100%;
-  max-width: var(--code-agents-chat-max);
+  max-width: 600px;
   margin: 0 auto;
 }
 
@@ -871,7 +871,8 @@
 
 .code-agents-standard-composer
   [data-agent-composer-slot="editor-input"][data-agent-composer-variant="hero"] {
-  min-height: 92px;
+  min-height: 48px;
+  height: auto;
   font-size: 14px;
   line-height: 1.55;
 }

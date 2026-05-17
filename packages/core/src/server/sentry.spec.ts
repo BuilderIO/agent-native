@@ -224,6 +224,98 @@ describe("server/sentry", () => {
       expect(result).toBeNull();
     });
 
+    it("drops auto.node socket hang up unhandled rejections from node:_http_client", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      initServerSentry();
+
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "socket hang up",
+              mechanism: { type: "auto.node.onunhandledrejection" },
+              stacktrace: {
+                frames: [
+                  { function: "process.processTicksAndRejections" },
+                  {
+                    function: "Socket.socketOnEnd",
+                    filename: "node:_http_client",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      } as never);
+      expect(result).toBeNull();
+    });
+
+    it("drops SDK-only ErrorEvent unhandled rejections", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      initServerSentry();
+
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "[object ErrorEvent]",
+              mechanism: { type: "auto.node.onunhandledrejection" },
+              stacktrace: {
+                frames: [
+                  { filename: "node:internal/process/promises" },
+                  {
+                    filename:
+                      "/var/task/_libs/sentry__browser+sentry__core.mjs",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      } as never);
+      expect(result).toBeNull();
+    });
+
+    it("keeps ErrorEvent unhandled rejections with application frames", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      initServerSentry();
+
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const event = {
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "[object ErrorEvent]",
+              mechanism: { type: "auto.node.onunhandledrejection" },
+              stacktrace: {
+                frames: [
+                  {
+                    filename: "/app/server.js",
+                    function: "handle",
+                    in_app: true,
+                  },
+                  {
+                    filename:
+                      "/var/task/_libs/sentry__browser+sentry__core.mjs",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+      const result = beforeSend(event as never);
+      expect(result).not.toBeNull();
+    });
+
     it("keeps socket hang up errors that aren't unhandled rejections", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
@@ -275,6 +367,25 @@ describe("server/sentry", () => {
       };
       const result = beforeSend(event as never);
       expect(result).not.toBeNull();
+    });
+
+    it("drops bare HTTPError Unauthorized events", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      initServerSentry();
+
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [
+            {
+              type: "HTTPError",
+              value: "Unauthorized",
+            },
+          ],
+        },
+      } as never);
+      expect(result).toBeNull();
     });
 
     it("strips runtime_env from contexts", async () => {

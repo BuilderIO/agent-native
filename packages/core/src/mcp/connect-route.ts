@@ -234,71 +234,145 @@ function renderConnectPage(params: {
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
     color-scheme: dark;
-    --bg: #09090b; --panel: #141417; --border: rgba(255,255,255,0.1);
-    --text: #f4f4f5; --muted: #a1a1aa; --subtle: #71717a;
-    --accent: #f4f4f5; --accent-fg: #09090b;
+    --bg: #08080a; --panel: #131316; --panel-2: #0d0d10;
+    --border: rgba(255,255,255,0.08); --border-strong: rgba(255,255,255,0.14);
+    --text: #fafafa; --muted: #a1a1aa; --subtle: #71717a;
+    --accent: #fafafa; --accent-fg: #09090b;
+    --ring: rgba(250,250,250,0.55);
     --error: #fca5a5; --error-bg: rgba(127,29,29,0.18);
     --ok: #86efac; --ok-bg: rgba(20,83,45,0.2);
   }
+  html, body { -webkit-font-smoothing: antialiased; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: linear-gradient(180deg, #111114 0%, var(--bg) 58%);
+    background:
+      radial-gradient(900px 540px at 50% -14%, rgba(255,255,255,0.05), transparent 60%),
+      linear-gradient(180deg, #121215 0%, var(--bg) 56%);
     color: var(--text); display: flex; align-items: center;
-    justify-content: center; min-height: 100vh; padding: 1rem;
+    justify-content: center; min-height: 100vh; padding: 1.5rem 1rem;
   }
   .card {
-    width: 100%; max-width: 520px; padding: 2rem;
+    width: 100%; max-width: 420px;
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.35);
+    border-radius: 18px; box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset,
+      0 30px 90px rgba(0,0,0,0.5);
+    padding: 2.25rem 2rem 1.75rem;
   }
-  h1 { font-size: 1.35rem; font-weight: 650; margin-bottom: 0.35rem; }
-  .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.25rem; }
-  .row { color: var(--subtle); font-size: 0.8rem; margin-bottom: 1.25rem; }
+  /* App-to-app glyph */
+  .glyph {
+    display: flex; align-items: center; justify-content: center;
+    gap: 0; margin: 0 auto 1.5rem; width: fit-content;
+  }
+  .glyph .tile {
+    width: 52px; height: 52px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel-2); border: 1px solid var(--border-strong);
+    color: var(--text); flex-shrink: 0;
+  }
+  .glyph .tile svg { display: block; }
+  .glyph .conn {
+    width: 38px; height: 2px; flex-shrink: 0;
+    background-image: radial-gradient(circle, var(--subtle) 1px, transparent 1.4px);
+    background-size: 7px 2px; background-repeat: repeat-x;
+    background-position: center;
+  }
+  .eyebrow {
+    text-align: center; font-size: 0.72rem; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--subtle); margin-bottom: 0.5rem;
+  }
+  h1 {
+    text-align: center; font-size: 1.4rem; font-weight: 680;
+    line-height: 1.25; margin-bottom: 0.55rem;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    text-align: center; color: var(--muted); font-size: 0.9rem;
+    line-height: 1.5; margin: 0 auto 0.85rem; max-width: 34ch;
+  }
+  .identity {
+    text-align: center; color: var(--subtle); font-size: 0.78rem;
+    margin-bottom: 1.5rem;
+  }
+  .identity strong { color: var(--muted); font-weight: 600; }
   .code-callout {
-    border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem 1rem;
-    margin-bottom: 1.25rem; background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-strong); border-radius: 12px;
+    padding: 0.85rem 1rem; margin-bottom: 1.25rem;
+    background: var(--panel-2); text-align: center;
   }
-  .code-callout .label { font-size: 0.72rem; color: var(--subtle);
-    text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.35rem; }
-  .code-callout .value { font-size: 1.5rem; font-weight: 700;
+  .code-callout .label { font-size: 0.68rem; color: var(--subtle);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.4rem; }
+  .code-callout .value { font-size: 1.6rem; font-weight: 700;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    letter-spacing: 0.08em; }
+    letter-spacing: 0.14em; color: var(--text); }
   button {
     cursor: pointer; font: inherit; font-weight: 600; border: none;
-    border-radius: 8px; padding: 0.7rem 1.1rem;
+    border-radius: 10px; padding: 0.8rem 1.1rem;
   }
-  .primary { background: var(--accent); color: var(--accent-fg); width: 100%; }
-  .primary:disabled { opacity: 0.6; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .primary {
+    background: var(--accent); color: var(--accent-fg); width: 100%;
+    font-size: 0.95rem;
+  }
+  .primary:hover:not(:disabled) { background: #e4e4e7; }
+  .primary:disabled { opacity: 0.55; cursor: default; }
   .ghost {
     background: transparent; color: var(--muted);
-    border: 1px solid var(--border); padding: 0.35rem 0.7rem;
-    font-size: 0.78rem; font-weight: 500;
+    border: 1px solid var(--border-strong); padding: 0.35rem 0.7rem;
+    font-size: 0.78rem; font-weight: 500; border-radius: 8px;
   }
+  .ghost:hover:not(:disabled) { color: var(--text); border-color: var(--subtle); }
   pre {
-    background: #0c0c0e; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
     padding: 0.9rem; font-size: 0.78rem; line-height: 1.5; overflow-x: auto;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     color: #d4d4d8; margin: 0.5rem 0 1rem;
   }
-  .field { margin-bottom: 1rem; }
-  .field label { display: block; font-size: 0.8rem; color: var(--muted);
+  /* Advanced disclosure */
+  .advanced { margin: 0 0 1rem; }
+  .advanced > summary {
+    list-style: none; cursor: pointer; user-select: none;
+    display: flex; align-items: center; justify-content: center; gap: 0.35rem;
+    color: var(--subtle); font-size: 0.8rem; font-weight: 500;
+    padding: 0.5rem 0; text-align: center;
+  }
+  .advanced > summary::-webkit-details-marker { display: none; }
+  .advanced > summary:hover { color: var(--muted); }
+  .advanced > summary:focus-visible { outline: 2px solid var(--ring);
+    outline-offset: 2px; border-radius: 6px; }
+  .advanced > summary .chev {
+    width: 14px; height: 14px; transition: transform 0.15s ease;
+  }
+  .advanced[open] > summary .chev { transform: rotate(180deg); }
+  .advanced-body {
+    padding: 0.85rem 0.1rem 0.25rem;
+  }
+  .field { margin-bottom: 0.9rem; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { display: block; font-size: 0.78rem; color: var(--muted);
     margin-bottom: 0.35rem; }
   .field input {
-    width: 100%; padding: 0.55rem 0.7rem; font: inherit; color: var(--text);
-    background: #0c0c0e; border: 1px solid var(--border); border-radius: 6px;
+    width: 100%; padding: 0.6rem 0.7rem; font: inherit; color: var(--text);
+    background: var(--panel-2); border: 1px solid var(--border-strong);
+    border-radius: 8px;
+  }
+  .field input:focus-visible {
+    outline: none; border-color: var(--ring);
+    box-shadow: 0 0 0 3px rgba(250,250,250,0.12);
   }
   .inline { display: flex; gap: 0.5rem; }
   .inline input { flex: 1; }
-  .tokens { margin-top: 1.75rem; border-top: 1px solid var(--border);
+  .tokens { margin-top: 1.5rem; border-top: 1px solid var(--border);
     padding-top: 1.25rem; }
-  .tokens h2 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.75rem; }
+  .tokens h2 { font-size: 0.78rem; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.6rem; }
   .tok { display: flex; align-items: center; justify-content: space-between;
-    gap: 0.75rem; padding: 0.55rem 0; border-bottom: 1px solid var(--border);
+    gap: 0.75rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border);
     font-size: 0.83rem; }
   .tok:last-child { border-bottom: none; }
-  .tok .meta { color: var(--subtle); font-size: 0.74rem; }
+  .tok .meta { color: var(--subtle); font-size: 0.74rem; margin-top: 0.1rem; }
   .tok.revoked { opacity: 0.45; }
-  .msg { font-size: 0.83rem; padding: 0.6rem 0.8rem; border-radius: 6px;
+  .msg { font-size: 0.83rem; padding: 0.6rem 0.8rem; border-radius: 8px;
     margin-bottom: 1rem; display: none; }
   .msg.err { display: block; color: var(--error); background: var(--error-bg); }
   .msg.ok { display: block; color: var(--ok); background: var(--ok-bg); }
@@ -307,9 +381,31 @@ function renderConnectPage(params: {
 </head>
 <body>
 <div class="card">
-  <h1>Connect an external agent</h1>
-  <div class="sub">Mint a personal token for <strong>${safeApp}</strong> so a coding agent (Claude Code, Codex, Cowork) can act as you.</div>
-  <div class="row">Signed in as ${safeEmail} &middot; ${safeOrigin}</div>
+  <!-- "Connect an external agent" — kept as an accessible label / consent eyebrow -->
+  <div class="glyph" role="img" aria-label="Connect an external agent to ${safeApp}">
+    <span class="tile" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="3" width="8" height="8" rx="2.2" fill="currentColor"/>
+        <rect x="13" y="3" width="8" height="8" rx="2.2" fill="currentColor" opacity="0.55"/>
+        <rect x="3" y="13" width="8" height="8" rx="2.2" fill="currentColor" opacity="0.55"/>
+        <rect x="13" y="13" width="8" height="8" rx="2.2" fill="currentColor"/>
+      </svg>
+    </span>
+    <span class="conn" aria-hidden="true"></span>
+    <span class="tile" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round"
+        stroke-linejoin="round">
+        <path d="M9 8 L5 12 L9 16"/>
+        <path d="M15 8 L19 12 L15 16"/>
+      </svg>
+    </span>
+  </div>
+
+  <div class="eyebrow">Connect an external agent</div>
+  <h1>Authorize ${safeApp}?</h1>
+  <p class="sub">Mint a personal token so a coding agent (Claude Code, Codex, Cowork) can act as you on ${safeApp}.</p>
+  <p class="identity">Signed in as <strong>${safeEmail}</strong> &middot; ${safeOrigin}</p>
 
   <div id="codeCallout" class="code-callout ${safeUserCode ? "" : "hidden"}">
     <div class="label">Authorizing device code</div>
@@ -319,15 +415,25 @@ function renderConnectPage(params: {
   <div id="msg" class="msg"></div>
 
   <div id="mintForm">
-    <div class="field">
-      <label for="label">Label (optional)</label>
-      <input id="label" type="text" placeholder="e.g. Claude Code on my laptop" maxlength="120" />
-    </div>
-    <div class="field">
-      <label for="ttl">Expires in (days, 1–365)</label>
-      <input id="ttl" type="number" min="1" max="365" value="${DEFAULT_TOKEN_TTL_DAYS}" />
-    </div>
     <button id="authorizeBtn" class="primary">${safeUserCode ? "Authorize device" : "Create connection token"}</button>
+    <details class="advanced">
+      <summary>
+        Advanced options
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+          aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </summary>
+      <div class="advanced-body">
+        <div class="field">
+          <label for="label">Label (optional)</label>
+          <input id="label" type="text" placeholder="e.g. Claude Code on my laptop" maxlength="120" />
+        </div>
+        <div class="field">
+          <label for="ttl">Expires in (days, 1–365)</label>
+          <input id="ttl" type="number" min="1" max="365" value="${DEFAULT_TOKEN_TTL_DAYS}" />
+        </div>
+      </div>
+    </details>
   </div>
 
   <div id="result" class="hidden">

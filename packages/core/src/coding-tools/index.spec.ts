@@ -42,7 +42,7 @@ describe("shared coding tools", () => {
       "hi\nworld\n",
     );
     await expect(
-      registry.bash.run({ command: "rg --files" }),
+      registry.bash.run({ command: "ls -a" }),
     ).resolves.toContain("hello.txt");
   });
 
