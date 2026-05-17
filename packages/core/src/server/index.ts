@@ -31,6 +31,15 @@ export {
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
+export {
+  handleIdentitySso,
+  getIdentityHubUrl,
+  isIdentitySsoEnabled,
+  isIdentitySsoBypassPath,
+  identitySsoLoginButtonHtml,
+  IDENTITY_SSO_PROVIDER_ID,
+  IDENTITY_SSO_SCOPE,
+} from "./identity-sso.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export { verifyCaptcha, type CaptchaVerifyResult } from "./captcha.js";
 export {

@@ -620,6 +620,48 @@ describe("server/auth", () => {
       }
     });
 
+    it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const app = createMockApp();
+      await autoMountAuth(app);
+      logSpy.mockRestore();
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      // Env UNSET → the identity routes are NOT bypassed: the guard must
+      // treat them like any other unauthenticated /_agent-native/* request
+      // (it returns a 401 body, i.e. NOT `undefined`). This is the
+      // regression assertion for the env-unset-no-op invariant.
+      for (const path of [
+        "/_agent-native/identity/login",
+        "/_agent-native/identity/callback",
+      ]) {
+        const result = await guard(createMockEvent({ path }));
+        expect(result).not.toBeUndefined();
+      }
+
+      // Env SET → both routes bypass the blanket guard so the handler can
+      // run its own signature/CSRF verification.
+      vi.stubEnv(
+        "AGENT_NATIVE_IDENTITY_HUB_URL",
+        "https://dispatch.agent-native.com",
+      );
+      for (const path of [
+        "/_agent-native/identity/login",
+        "/_agent-native/identity/callback",
+      ]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
+      }
+    });
+
     it("serves mounted login and signup pages from the framework guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_BASE_PATH", "/dispatch");

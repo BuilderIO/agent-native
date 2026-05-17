@@ -34,12 +34,35 @@ export interface AgentConversationArtifact {
   url?: string;
 }
 
+export type AgentConversationMessagePart =
+  | {
+      id: string;
+      type: "text";
+      text: string;
+    }
+  | {
+      id: string;
+      type: "tool";
+      tool: AgentConversationToolCall;
+    }
+  | {
+      id: string;
+      type: "notice";
+      notice: AgentConversationNotice;
+    }
+  | {
+      id: string;
+      type: "artifact";
+      artifact: AgentConversationArtifact;
+    };
+
 export interface AgentConversationMessage {
   id: string;
   role: AgentConversationMessageRole;
   text?: string;
   createdAt?: string;
   pending?: boolean;
+  parts?: AgentConversationMessagePart[];
   tools?: AgentConversationToolCall[];
   notices?: AgentConversationNotice[];
   artifacts?: AgentConversationArtifact[];

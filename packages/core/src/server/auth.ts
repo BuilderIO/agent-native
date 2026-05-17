@@ -101,6 +101,10 @@ import {
   verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
 } from "./builder-browser.js";
+// Pure env-read feature switch from a leaf module (no dependency back on
+// auth.ts), so the guard and the SSO route handler share one validator and
+// can never disagree about whether federated SSO is enabled.
+import { isIdentitySsoEnabled } from "./identity-sso-store.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -675,7 +679,7 @@ const EXPECTED_AUTH_FAILURE_PATTERNS: RegExp[] = [
   /not\s+verified/i,
 ];
 
-function isExpectedAuthFailure(error: unknown): boolean {
+export function isExpectedAuthFailure(error: unknown): boolean {
   const msg = (error as { message?: unknown })?.message;
   if (typeof msg !== "string") return false;
   return EXPECTED_AUTH_FAILURE_PATTERNS.some((re) => re.test(msg));
@@ -1314,6 +1318,23 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. Both the
+    // `/login` entry point and the `/callback` (hit by a user who is, by
+    // definition, NOT yet signed in to THIS app) must bypass the blanket
+    // 401-for-/_agent-native/*: they resolve / mint the browser session
+    // themselves and verify a signature-bound, single-use, CSRF-stated
+    // hub token — not a cookie. This bypass is GATED on the opt-in env var
+    // so an unset `AGENT_NATIVE_IDENTITY_HUB_URL` is a true no-op (the
+    // guard's behaviour is byte-for-byte unchanged when SSO is off). The
+    // handler itself 404s when disabled as defence in depth.
+    if (
+      isIdentitySsoEnabled() &&
+      (p === "/_agent-native/identity/login" ||
+        p === "/_agent-native/identity/callback")
+    ) {
+      return;
+    }
+
     // Internal processor endpoint for the A2A async-mode fanout. Mirrors the
     // integration webhook fanout: when `message/send` is called with
     // `async: true`, the JSON-RPC handler enqueues to a2a_tasks and self-
@@ -1538,10 +1559,11 @@ async function maybeAutoCreateDevSession(
     setFrameworkSessionCookie(event, result.token);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
 
-    return new Response("", {
-      status: 302,
-      headers: { Location: redirectTo },
-    });
+    // Emit the session cookie ON the 302 itself. Returning a bare
+    // `new Response(...)` here drops the cookie staged on event.node.res
+    // (see redirectWithStagedCookies), so the developer would 302 to the
+    // app and immediately bounce back to the login form.
+    return redirectWithStagedCookies(event, redirectTo);
   } catch (e) {
     // Local-dev only — log to console for debugging, but don't surface
     // through Sentry. Falling back to the regular login form is the
@@ -1704,6 +1726,37 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
     path: "/",
     maxAge: sessionMaxAge,
   });
+}
+
+/**
+ * Build a redirect `Response` that carries whatever `Set-Cookie` headers were
+ * just staged on the event (e.g. by `setFrameworkSessionCookie`).
+ *
+ * h3 v2's `setCookie` appends the cookie onto `event.res.headers`. When a
+ * handler returns a plain object/string, h3's `prepareResponse` merges those
+ * staged headers into the synthesized response, so the cookie survives. But
+ * when a handler returns a web `Response`, `prepareResponse` only merges the
+ * staged headers if the Response is 2xx — its `!val.ok` early-return hands a
+ * non-2xx Response (like a 302) straight back WITHOUT merging. A bare
+ * `new Response("", { status: 302, headers: { Location } })` therefore 302s
+ * the browser with no session cookie, so the zero-setup dev auto-sign-in
+ * bounces straight back to the login form.
+ *
+ * Mirroring the staged cookies onto the redirect Response's own headers makes
+ * them part of the Response that's returned as-is, so the 302 actually
+ * carries the session cookie. (`event.res.headers` is also left intact for
+ * any non-Response continuation path; h3 only skips the merge for the
+ * Response branch, so there's no double-emit.)
+ */
+function redirectWithStagedCookies(
+  event: H3Event,
+  location: string,
+  status = 302,
+): Response {
+  const headers = new Headers({ Location: location });
+  const staged = event.res?.headers?.getSetCookie?.() ?? [];
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response("", { status, headers });
 }
 
 function isHttpsRequest(event: H3Event): boolean {

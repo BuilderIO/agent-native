@@ -1,6 +1,7 @@
 import type {
   AgentConversationArtifact,
   AgentConversationMessage,
+  AgentConversationMessagePart,
   AgentConversationNotice,
   AgentConversationToolCall,
 } from "@agent-native/core/client";
@@ -10,7 +11,7 @@ import {
   type NormalizedCodeAgentStatusEvent,
   type NormalizedCodeAgentToolEvent,
   type NormalizedCodeAgentTranscriptItem,
-} from "@agent-native/core/code-agents";
+} from "@agent-native/core/code-agents/transcript-normalizer";
 import type { CodeAgentTranscriptEvent } from "./types.js";
 
 export interface NormalizeCodeAgentTranscriptOptions {
@@ -35,6 +36,7 @@ export function normalizeCodeAgentTranscriptForConversation(
       role: "assistant",
       createdAt: item.createdAt,
       text: "",
+      parts: [],
       tools: [],
       notices: [],
       artifacts: [],
@@ -58,16 +60,39 @@ export function normalizeCodeAgentTranscriptForConversation(
 
     const assistant = assistantForItem(item);
     if (item.type === "assistant") {
-      assistant.text = appendAssistantText(assistant.text ?? "", item.text);
+      appendPart(assistant, {
+        id: item.id,
+        type: "text",
+        text: item.text,
+      });
+      assistant.text = `${assistant.text ?? ""}${item.text}`;
     } else if (item.type === "tool") {
-      assistant.tools = [...(assistant.tools ?? []), toConversationTool(item)];
+      const tool = toConversationTool(item);
+      appendPart(assistant, {
+        id: item.id,
+        type: "tool",
+        tool,
+      });
+      assistant.tools = [...(assistant.tools ?? []), tool];
     } else if (item.type === "status") {
       const artifact = toConversationArtifact(item);
       if (artifact) {
+        appendPart(assistant, {
+          id: item.id,
+          type: "artifact",
+          artifact,
+        });
         assistant.artifacts = [...(assistant.artifacts ?? []), artifact];
       } else {
         const notice = toConversationNotice(item, options);
-        if (notice) assistant.notices = [...(assistant.notices ?? []), notice];
+        if (notice) {
+          appendPart(assistant, {
+            id: item.id,
+            type: "notice",
+            notice,
+          });
+          assistant.notices = [...(assistant.notices ?? []), notice];
+        }
       }
     }
   }
@@ -75,10 +100,18 @@ export function normalizeCodeAgentTranscriptForConversation(
   return messages.filter(
     (message) =>
       message.text?.trim() ||
+      message.parts?.length ||
       message.tools?.length ||
       message.notices?.length ||
       message.artifacts?.length,
   );
+}
+
+function appendPart(
+  message: AgentConversationMessage,
+  part: AgentConversationMessagePart,
+): void {
+  message.parts = [...(message.parts ?? []), part];
 }
 
 function toCoreTranscriptEvent(
@@ -163,14 +196,6 @@ function toConversationArtifact(
     path: artifactPath,
     url: artifactUrl,
   };
-}
-
-function appendAssistantText(current: string, next: string): string {
-  if (!next.trim()) return current;
-  if (!current.trim()) return next.trim();
-  if (/\s$/.test(current) || /^\s/.test(next)) return `${current}${next}`;
-  if (/^[.,!?;:)\]}'"`]/.test(next)) return `${current}${next}`;
-  return `${current} ${next.trim()}`;
 }
 
 function preview(value: unknown): string | undefined {

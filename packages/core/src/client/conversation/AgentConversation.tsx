@@ -17,6 +17,7 @@ import { useNearBottomAutoscroll } from "./use-near-bottom-autoscroll.js";
 import type {
   AgentConversationArtifact,
   AgentConversationMessage,
+  AgentConversationMessagePart,
   AgentConversationNotice,
   AgentConversationToolCall,
 } from "./types.js";
@@ -120,6 +121,8 @@ export function AgentConversationMessageView({
 }: {
   message: AgentConversationMessage;
 }) {
+  const parts = message.parts ?? legacyPartsForMessage(message);
+
   return (
     <article
       className={cn(
@@ -129,30 +132,67 @@ export function AgentConversationMessageView({
       )}
     >
       <div className="agent-conversation-message__body">
-        {message.text && <ConversationMarkdown text={message.text} />}
-        {message.tools && message.tools.length > 0 && (
-          <div className="agent-conversation-message__tools">
-            {message.tools.map((tool) => (
-              <ConversationToolCall key={tool.id} tool={tool} />
-            ))}
-          </div>
-        )}
-        {message.notices && message.notices.length > 0 && (
-          <div className="agent-conversation-message__notices">
-            {message.notices.map((notice) => (
-              <ConversationNotice key={notice.id} notice={notice} />
-            ))}
-          </div>
-        )}
-        {message.artifacts && message.artifacts.length > 0 && (
-          <div className="agent-conversation-message__artifacts">
-            {message.artifacts.map((artifact) => (
-              <ConversationArtifact key={artifact.id} artifact={artifact} />
-            ))}
-          </div>
-        )}
+        {parts.map((part) => (
+          <ConversationMessagePartView key={part.id} part={part} />
+        ))}
       </div>
     </article>
+  );
+}
+
+function legacyPartsForMessage(
+  message: AgentConversationMessage,
+): AgentConversationMessagePart[] {
+  return [
+    ...(message.text
+      ? [
+          {
+            id: `${message.id}-text`,
+            type: "text" as const,
+            text: message.text,
+          },
+        ]
+      : []),
+    ...(message.tools ?? []).map((tool) => ({
+      id: `${message.id}-tool-${tool.id}`,
+      type: "tool" as const,
+      tool,
+    })),
+    ...(message.notices ?? []).map((notice) => ({
+      id: `${message.id}-notice-${notice.id}`,
+      type: "notice" as const,
+      notice,
+    })),
+    ...(message.artifacts ?? []).map((artifact) => ({
+      id: `${message.id}-artifact-${artifact.id}`,
+      type: "artifact" as const,
+      artifact,
+    })),
+  ];
+}
+
+function ConversationMessagePartView({
+  part,
+}: {
+  part: AgentConversationMessagePart;
+}) {
+  return (
+    <div
+      className={cn(
+        "agent-conversation-message__part",
+        `agent-conversation-message__part--${part.type}`,
+      )}
+    >
+      {part.type === "text" ? (
+        <ConversationMarkdown text={part.text} />
+      ) : part.type === "tool" ? (
+        <ConversationToolCall tool={part.tool} />
+      ) : part.type === "notice" ? (
+        <ConversationNotice notice={part.notice} />
+      ) : (
+        <ConversationArtifact artifact={part.artifact} />
+      )}
+    </div>
   );
 }
 
@@ -168,7 +208,12 @@ function ConversationMarkdown({ text }: { text: string }) {
         components={{
           a({ children, href }) {
             return (
-              <a href={href} target="_blank" rel="noreferrer">
+              <a
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => openMarkdownLink(event, href)}
+              >
                 {children}
               </a>
             );
@@ -179,6 +224,24 @@ function ConversationMarkdown({ text }: { text: string }) {
       </ReactMarkdown>
     </div>
   );
+}
+
+function openMarkdownLink(
+  event: React.MouseEvent<HTMLAnchorElement>,
+  href: string | undefined,
+) {
+  if (!href) return;
+
+  let url: URL;
+  try {
+    url = new URL(href, window.location.href);
+  } catch {
+    return;
+  }
+
+  if (!["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) return;
+  event.preventDefault();
+  window.open(url.href, "_blank", "noopener,noreferrer");
 }
 
 function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {

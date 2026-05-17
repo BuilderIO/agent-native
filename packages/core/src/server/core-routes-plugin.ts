@@ -23,6 +23,8 @@ import { createPollHandler } from "./poll.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
+import { handleIdentitySso } from "./identity-sso.js";
+import { isIdentitySsoEnabled } from "./identity-sso-store.js";
 import { getAppName } from "./app-name.js";
 import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
@@ -2539,6 +2541,26 @@ export function createCoreRoutesPlugin(
           // `/device/start`, or `` for the page itself).
           const subpath = event.url?.pathname || "";
           return handleMcpConnect(event, subpath, mcpConnectOpts);
+        }),
+      );
+    }
+
+    // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. Mounted
+    // ONLY when `AGENT_NATIVE_IDENTITY_HUB_URL` is set, so an unset env var
+    // means the route is never even registered: zero new surface, existing
+    // auth byte-for-byte unchanged. `/login` 302s to the identity hub;
+    // `/callback` verifies the hub-issued A2A-signed identity JWT and JIT-
+    // links the verified email into this app's local Better Auth store. The
+    // handler 404s if disabled (defence in depth). The auth guard bypasses
+    // these two exact paths under the same env gate.
+    if (isIdentitySsoEnabled()) {
+      getH3App(nitroApp).use(
+        `${P}/identity`,
+        defineEventHandler(async (event: H3Event) => {
+          // Framework strips the mount prefix; what remains is the subpath
+          // after `/identity` (e.g. `/login`, `/callback`).
+          const subpath = event.url?.pathname || "";
+          return handleIdentitySso(event, subpath);
         }),
       );
     }

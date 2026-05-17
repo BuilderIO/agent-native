@@ -1,5 +1,7 @@
 import type { CodeAgentTranscriptEvent } from "../cli/code-agent-runs.js";
 
+export type { CodeAgentTranscriptEvent } from "../cli/code-agent-runs.js";
+
 export type NormalizedCodeAgentTranscriptItem =
   | NormalizedCodeAgentUserTurn
   | NormalizedCodeAgentAssistantTurn
@@ -75,16 +77,21 @@ export function normalizeCodeAgentTranscript(
 
     const assistantSource = assistantTextSource(event);
     if (assistantSource) {
+      const text = assistantTextForEvent(event, assistantSource);
+      if (!text) {
+        hiddenEvents.push(event);
+        continue;
+      }
       const previous = items.at(-1);
       if (
         previous?.type === "assistant" &&
         previous.source === assistantSource &&
         previous.turnIndex === currentTurnIndex
       ) {
-        appendAssistantChunk(previous, event);
+        appendAssistantChunk(previous, event, text);
       } else {
         items.push(
-          createAssistantTurn(event, assistantSource, currentTurnIndex),
+          createAssistantTurn(event, assistantSource, currentTurnIndex, text),
         );
       }
       continue;
@@ -136,12 +143,13 @@ function createAssistantTurn(
   event: CodeAgentTranscriptEvent,
   source: NormalizedCodeAgentAssistantTurn["source"],
   turnIndex: number,
+  text: string,
 ): NormalizedCodeAgentAssistantTurn {
   return {
     type: "assistant",
     role: "assistant",
     id: event.id,
-    text: event.message,
+    text,
     source,
     createdAt: event.createdAt,
     updatedAt: event.createdAt,
@@ -154,8 +162,11 @@ function createAssistantTurn(
 function appendAssistantChunk(
   item: NormalizedCodeAgentAssistantTurn,
   event: CodeAgentTranscriptEvent,
+  text: string,
 ): void {
-  item.text = joinAssistantChunks(item.text, event.message);
+  item.text = shouldAppendAssistantChunkExactly(item, event)
+    ? `${item.text}${text}`
+    : joinAssistantChunks(item.text, text);
   item.updatedAt = event.createdAt;
   item.eventIds.push(event.id);
   item.events.push(event);
@@ -190,10 +201,7 @@ function appendToolEvent(
   turnIndex: number,
 ): void {
   const tool = stringMetadata(event.metadata, "tool");
-  const item =
-    toolType === "tool_start"
-      ? null
-      : findOpenToolEvent(items, tool, turnIndex);
+  const item = findOpenToolEvent(items, tool, turnIndex);
 
   if (!item) {
     items.push(createToolEvent(event, toolType, turnIndex));
@@ -207,6 +215,19 @@ function appendToolEvent(
   if (toolType === "activity") {
     item.activities.push(event.message);
     if (item.state === "activity") item.label = event.message;
+    return;
+  }
+
+  if (toolType === "tool_start") {
+    const wasActivity = item.state === "activity";
+    item.state = "running";
+    item.startedAt = item.startedAt ?? event.createdAt;
+    if (hasMetadataKey(event.metadata, "input")) {
+      item.input = event.metadata?.input;
+    }
+    if (wasActivity || item.label === item.activities.at(-1)) {
+      item.label = event.message;
+    }
     return;
   }
 
@@ -285,9 +306,10 @@ function suppressDuplicateFinalAssistantText(
     );
     if (
       stdoutItems.length === 0 ||
-      canonicalText(
+      !isSameAssistantText(
         stdoutItems.map((candidate) => candidate.text).join(" "),
-      ) !== canonicalText(item.text)
+        item.text,
+      )
     ) {
       result.push(item);
       continue;
@@ -348,6 +370,7 @@ function isLowSignalLifecycleEvent(event: CodeAgentTranscriptEvent): boolean {
 const LOW_SIGNAL_STATUS_MESSAGES = [
   /^Agent-Native Code run started\.?$/i,
   /^Agent-Native Code run completed\.?$/i,
+  /^Agent-Native Code process exited\.?$/i,
   /^Starting local Agent-Native Code execution\.?$/i,
   /^Remote Agent-Native Code run queued\.?$/i,
   /^Connected \d+ MCP tools? for this run\.?$/i,
@@ -414,6 +437,39 @@ function assistantTextSource(
   return null;
 }
 
+function shouldAppendAssistantChunkExactly(
+  item: NormalizedCodeAgentAssistantTurn,
+  event: CodeAgentTranscriptEvent,
+): boolean {
+  return (
+    item.source === "runner-stdout" &&
+    (isAssistantDeltaEvent(event) || item.events.some(isAssistantDeltaEvent))
+  );
+}
+
+function isAssistantDeltaEvent(event: CodeAgentTranscriptEvent): boolean {
+  return stringMetadata(event.metadata, "type") === "assistant_delta";
+}
+
+function assistantTextForEvent(
+  event: CodeAgentTranscriptEvent,
+  source: NormalizedCodeAgentAssistantTurn["source"],
+): string {
+  if (source === "runner-stdout") return stripRunnerDiagnostics(event.message);
+  return event.message;
+}
+
+function stripRunnerDiagnostics(value: string): string {
+  return value
+    .replace(RUNNER_DIAGNOSTIC_LINE_PATTERNS.engineDetect, "")
+    .replace(RUNNER_DIAGNOSTIC_LINE_PATTERNS.builderEngine, "");
+}
+
+const RUNNER_DIAGNOSTIC_LINE_PATTERNS = {
+  engineDetect: /^\[engine-detect\][^\r\n]*(?:\r?\n|$)/gm,
+  builderEngine: /^\[builder-engine\]\s*[←→][^\r\n]*(?:\r?\n|$)/gm,
+};
+
 function toolEventType(
   event: CodeAgentTranscriptEvent,
 ): "activity" | "tool_done" | "tool_start" | null {
@@ -436,6 +492,15 @@ function joinAssistantChunks(previous: string, next: string): string {
 
 function canonicalText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function isSameAssistantText(left: string, right: string): boolean {
+  if (canonicalText(left) === canonicalText(right)) return true;
+  return compactText(left) === compactText(right);
+}
+
+function compactText(value: string): string {
+  return canonicalText(value).replace(/\s+/g, "");
 }
 
 function stringMetadata(

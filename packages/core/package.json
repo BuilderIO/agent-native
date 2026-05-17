@@ -78,6 +78,7 @@
     "./usage": "./dist/usage/store.js",
     "./connections": "./dist/connections/index.js",
     "./code-agents": "./dist/code-agents/index.js",
+    "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",
     "./workspace-connections": "./dist/workspace-connections/index.js",
     "./notifications": "./dist/notifications/index.js",
     "./client/notifications": "./dist/client/notifications/index.js",

@@ -51,17 +51,30 @@ describe("normalizeCodeAgentTranscript", () => {
   it("coalesces assistant_delta system chunks and suppresses the final duplicate", () => {
     const events = [
       event("evt-user", "user", "Keep going."),
-      event("evt-delta-1", "system", "Now let", {
+      event(
+        "evt-engine",
+        "system",
+        "[builder-engine] → POST https://example.test\n",
+        {
+          type: "assistant_delta",
+          seq: 0,
+        },
+      ),
+      event("evt-delta-1", "system", "**Agent-", {
         type: "assistant_delta",
         seq: 1,
       }),
-      event("evt-delta-2", "system", "me look.", {
+      event("evt-delta-2", "system", "Native**\n\n- `core`", {
         type: "assistant_delta",
         seq: 2,
       }),
-      event("evt-final", "system", "Now let me look.", {
-        role: "assistant",
+      event("evt-delta-3", "system", " package", {
+        type: "assistant_delta",
         seq: 3,
+      }),
+      event("evt-final", "system", "**Agent-Native**\n\n- `core` package", {
+        role: "assistant",
+        seq: 4,
       }),
     ];
 
@@ -72,10 +85,14 @@ describe("normalizeCodeAgentTranscript", () => {
       expect.objectContaining({
         type: "assistant",
         source: "runner-stdout",
-        text: "Now let me look.",
-        eventIds: ["evt-delta-1", "evt-delta-2", "evt-final"],
+        text: "**Agent-Native**\n\n- `core` package",
+        eventIds: ["evt-delta-1", "evt-delta-2", "evt-delta-3", "evt-final"],
         suppressedDuplicateEventIds: ["evt-final"],
       }),
+    ]);
+    expect(transcript.hiddenEvents.map((item) => item.id)).toEqual([
+      "evt-engine",
+      "evt-final",
     ]);
   });
 
@@ -133,6 +150,36 @@ describe("normalizeCodeAgentTranscript", () => {
         result: "1 passed",
         activities: ["Running tests"],
         eventIds: ["evt-tool-start", "evt-tool-activity", "evt-tool-done"],
+      }),
+    ]);
+  });
+
+  it("merges activity before tool_start so a completed tool does not keep working forever", () => {
+    const events = [
+      event("evt-tool-activity", "status", "Preparing list_files action", {
+        type: "activity",
+        tool: "list_files",
+      }),
+      event("evt-tool-start", "status", "Running list_files.", {
+        type: "tool_start",
+        tool: "list_files",
+      }),
+      event("evt-tool-done", "status", "Finished list_files.", {
+        type: "tool_done",
+        tool: "list_files",
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({
+        type: "tool",
+        tool: "list_files",
+        label: "Running list_files.",
+        state: "completed",
+        activities: ["Preparing list_files action"],
+        eventIds: ["evt-tool-activity", "evt-tool-start", "evt-tool-done"],
       }),
     ]);
   });

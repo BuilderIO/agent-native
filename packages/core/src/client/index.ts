@@ -31,6 +31,7 @@ export {
   useNearBottomAutoscroll,
   type AgentConversationArtifact,
   type AgentConversationMessage,
+  type AgentConversationMessagePart,
   type AgentConversationMessageRole,
   type AgentConversationNotice,
   type AgentConversationNoticeTone,

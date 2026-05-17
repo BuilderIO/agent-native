@@ -6,6 +6,7 @@ export { useNearBottomAutoscroll } from "./use-near-bottom-autoscroll.js";
 export type {
   AgentConversationArtifact,
   AgentConversationMessage,
+  AgentConversationMessagePart,
   AgentConversationMessageRole,
   AgentConversationNotice,
   AgentConversationNoticeTone,

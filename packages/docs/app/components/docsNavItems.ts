@@ -57,6 +57,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "MCP Clients", to: "/docs/mcp-clients" as const },
       { label: "MCP Protocol", to: "/docs/mcp-protocol" as const },
       { label: "External Agents", to: "/docs/external-agents" as const },
+      { label: "Cross-App SSO", to: "/docs/cross-app-sso" as const },
       { label: "Notifications", to: "/docs/notifications" as const },
       {
         label: "Workspace Connections",

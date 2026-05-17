@@ -14,6 +14,40 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="upgrade-note"');
   });
 
+  describe("federated SSO button (AGENT_NATIVE_IDENTITY_HUB_URL)", () => {
+    it("env unset → login HTML is byte-for-byte identical (no SSO button, no residue)", () => {
+      // Capture baseline with the env unequivocally absent.
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+      const baseline = getOnboardingHtml();
+      expect(baseline).not.toContain("identity-sso-btn");
+      expect(baseline).not.toContain("/_agent-native/identity/login");
+      expect(baseline).not.toContain("Sign in with Agent-Native");
+
+      // Re-render with the env still unset → must be the exact same string.
+      const again = getOnboardingHtml();
+      expect(again).toBe(baseline);
+    });
+
+    it("env set → injects exactly one conditional SSO entry pointing at /identity/login", () => {
+      vi.stubEnv(
+        "AGENT_NATIVE_IDENTITY_HUB_URL",
+        "https://dispatch.agent-native.com",
+      );
+      const html = getOnboardingHtml();
+      expect(html).toContain('id="identity-sso-btn"');
+      expect(html).toContain('href="/_agent-native/identity/login"');
+      expect(html).toContain("Sign in with Agent-Native");
+      // Exactly one occurrence — not duplicated across layout branches.
+      expect(html.split("identity-sso-btn").length - 1).toBe(1);
+    });
+
+    it("malformed env value is treated as OFF (no button, no throw)", () => {
+      vi.stubEnv("AGENT_NATIVE_IDENTITY_HUB_URL", "not a url");
+      const html = getOnboardingHtml();
+      expect(html).not.toContain("identity-sso-btn");
+    });
+  });
+
   it("reveals the upgrade note only from explicit upgrade markers", () => {
     const html = getOnboardingHtml();
 

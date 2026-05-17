@@ -206,18 +206,35 @@ function isDeepLinkArg(arg: string): boolean {
   return arg.startsWith(`${DEEP_LINK_PROTOCOL}:`);
 }
 
-const singleInstanceLock = app.requestSingleInstanceLock();
-if (!singleInstanceLock) {
-  app.quit();
+function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
+  const deepLink = argv.find(isDeepLinkArg);
+  if (deepLink) {
+    void handleDeepLink(deepLink);
+  } else {
+    focusMainWindow();
+  }
+}
+
+if (IS_DEV) {
+  // electron-vite kills the main process and relaunches it on every rebuild
+  // (e.g. when the concurrent `@agent-native/core` tsc --watch under
+  // dev:lazy:desktop rewrites bundled output). A single-instance lock would
+  // make the relaunched instance race the still-dying one for the lock, lose,
+  // and app.quit() — leaving the killed instance's dead Dock tile behind.
+  // Skip the lock in dev; keep the deep-link handler for parity.
+  app.on("second-instance", handleSecondInstance);
+  // Quit immediately when electron-vite SIGTERMs us so the old process and its
+  // Dock tile vanish at once, before the relaunched instance paints its window.
+  const exitNow = () => app.exit(0);
+  process.on("SIGTERM", exitNow);
+  process.on("SIGINT", exitNow);
 } else {
-  app.on("second-instance", (_event, argv) => {
-    const deepLink = argv.find(isDeepLinkArg);
-    if (deepLink) {
-      void handleDeepLink(deepLink);
-    } else {
-      focusMainWindow();
-    }
-  });
+  const singleInstanceLock = app.requestSingleInstanceLock();
+  if (!singleInstanceLock) {
+    app.quit();
+  } else {
+    app.on("second-instance", handleSecondInstance);
+  }
 }
 
 interface OAuthInjectionTarget {
@@ -1493,6 +1510,36 @@ function firstTextValue(...values: unknown[]): string | undefined {
   return undefined;
 }
 
+function transcriptTextFromUnknown(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value.trim() ? value : undefined;
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (!isObject(item)) return "";
+        return (
+          firstTranscriptTextValue(item.text, item.content, item.message) ?? ""
+        );
+      })
+      .filter((part) => part.trim());
+    return parts.length > 0 ? parts.join("\n") : undefined;
+  }
+  if (isObject(value)) {
+    return firstTranscriptTextValue(value.text, value.content, value.message);
+  }
+  return undefined;
+}
+
+function firstTranscriptTextValue(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const text = transcriptTextFromUnknown(value);
+    if (text) return text;
+  }
+  return undefined;
+}
+
 function getRecordString(
   record: Record<string, unknown> | null | undefined,
   key: string,
@@ -1692,7 +1739,7 @@ function normalizeCodeAgentTranscriptEvent(
     type === "artifact" ? "Artifact" : undefined,
   );
   const text =
-    firstTextValue(
+    firstTranscriptTextValue(
       row.text,
       row.content,
       row.message,
