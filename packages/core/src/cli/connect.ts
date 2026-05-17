@@ -21,6 +21,7 @@
  *     | { status: "approved", token, mcpUrl, serverName, mcpServerEntry }
  *     | { status: "expired" }
  *     | { status: "consumed" }
+ *     | { status: "error" | "not_found", message? }
  *
  * Node-only CLI module. No new npm deps (Node built-ins + global fetch only).
  */
@@ -195,11 +196,19 @@ interface DeviceStartResponse {
 }
 
 interface DevicePollResponse {
-  status: "pending" | "approved" | "expired" | "consumed";
+  status:
+    | "pending"
+    | "approved"
+    | "expired"
+    | "consumed"
+    | "error"
+    | "not_found";
   token?: string;
   mcpUrl?: string;
   serverName?: string;
   mcpServerEntry?: Record<string, unknown>;
+  message?: string;
+  error?: string;
 }
 
 /** Injectable hooks so the poll state machine is unit-testable. */
@@ -242,6 +251,16 @@ async function postJson(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function responseMessage(json: any, fallback: string): string {
+  const message =
+    typeof json?.message === "string"
+      ? json.message
+      : typeof json?.error === "string"
+        ? json.error
+        : "";
+  return message.trim() || fallback;
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -304,11 +323,19 @@ export async function runDeviceFlow(
   while (now() < deadline) {
     let poll: DevicePollResponse;
     try {
-      const { json } = await postJson(
+      const { status, json } = await postJson(
         fetchImpl,
         `${baseUrl}${DEVICE_POLL_PATH}`,
         { device_code: start.device_code },
       );
+      if (status < 200 || status >= 300) {
+        if (isTTY) process.stdout.write("\r\x1b[K");
+        logErr(
+          `  Connect polling failed (HTTP ${status}): ` +
+            responseMessage(json, "server returned an error."),
+        );
+        return null;
+      }
       poll = (json ?? { status: "pending" }) as DevicePollResponse;
     } catch {
       // Transient network error — keep polling until the deadline.
@@ -336,6 +363,18 @@ export async function runDeviceFlow(
     if (poll.status === "consumed") {
       if (isTTY) process.stdout.write("\r\x1b[K");
       logErr("  This connect code was already used. Run the command again.");
+      return null;
+    }
+    if (poll.status === "error" || poll.status === "not_found") {
+      if (isTTY) process.stdout.write("\r\x1b[K");
+      logErr(
+        `  Connect polling failed: ${responseMessage(
+          poll,
+          poll.status === "not_found"
+            ? "device code was not found."
+            : "server returned an error.",
+        )}`,
+      );
       return null;
     }
 

@@ -245,6 +245,82 @@ describe("runDeviceFlow", () => {
     });
     expect(grant).toBeNull();
   });
+
+  it("returns null immediately when polling gets a server error", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    let pollCount = 0;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/device/start")) {
+        return new Response(
+          JSON.stringify({
+            device_code: "dev-123",
+            user_code: "WXYZ-1234",
+            verification_uri: "https://app.example.com/connect",
+            verification_uri_complete:
+              "https://app.example.com/connect?code=WXYZ-1234",
+            interval: 1,
+            expires_in: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      pollCount++;
+      return new Response(JSON.stringify({ error: "database unavailable" }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl,
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+
+    expect(grant).toBeNull();
+    expect(pollCount).toBe(1);
+    expect(err.mock.calls.flat().join("")).toContain("database unavailable");
+  });
+
+  it("returns null immediately when polling returns a terminal error body", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    let pollCount = 0;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/device/start")) {
+        return new Response(
+          JSON.stringify({
+            device_code: "dev-123",
+            user_code: "WXYZ-1234",
+            verification_uri: "https://app.example.com/connect",
+            verification_uri_complete:
+              "https://app.example.com/connect?code=WXYZ-1234",
+            interval: 1,
+            expires_in: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      pollCount++;
+      return new Response(
+        JSON.stringify({ status: "not_found", message: "unknown code" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl,
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+
+    expect(grant).toBeNull();
+    expect(pollCount).toBe(1);
+    expect(err.mock.calls.flat().join("")).toContain("unknown code");
+  });
 });
 
 // ---------------------------------------------------------------------------
