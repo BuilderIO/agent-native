@@ -287,6 +287,11 @@ type CodeAgentTranscriptResult = {
   error?: string;
 };
 
+type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
+  subscriptionId?: string;
+  reason?: string;
+};
+
 type CodeAgentCreateRunRequest = {
   goalId?: string;
   prompt: string;
@@ -511,6 +516,10 @@ interface ElectronAPI {
     readTranscript(
       request: CodeAgentTranscriptRequest,
     ): Promise<CodeAgentTranscriptResult>;
+    subscribeTranscript(
+      request: CodeAgentTranscriptRequest,
+      cb: (batch: CodeAgentTranscriptSubscriptionBatch) => void,
+    ): () => void;
     appendFollowUp(
       request: CodeAgentFollowUpRequest,
     ): Promise<CodeAgentFollowUpResult>;

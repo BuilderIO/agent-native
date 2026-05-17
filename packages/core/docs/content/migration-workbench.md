@@ -209,7 +209,7 @@ In Agent-Native Code, Desktop, or the internal run surface, connect providers th
 
 ## Agent-Native Code
 
-Agent-Native Desktop includes a **Agent-Native Code** hub for long-running coding-agent sessions. It is the general Code app/surface in Desktop, and it pairs with the `agent-native code` shell as the primary CLI/Desktop coding experience. A bare prompt is the generic coding session, and `/migrate` is one specialized capability there: the hub shows recent and active runs, opens a transcript-first session view, renders tool events and artifacts, sends follow-up prompts, stops tracked runners, opens a terminal in the run workspace, and handles links like:
+Agent-Native Desktop includes a **Agent-Native Code** hub for long-running coding-agent sessions. It is the general Code app/surface in Desktop, and it pairs with the `agent-native code` shell as the primary CLI/Desktop coding experience. A bare prompt is the generic coding session, and `/migrate` is one specialized capability there: the hub shows recent and active runs, opens a transcript-first session view with compact tool summaries and artifacts, sends follow-up prompts, stops tracked runners, opens a terminal in the run workspace, and handles links like:
 
 ```text
 agentnative://open?goal=migrate&run=<runId>

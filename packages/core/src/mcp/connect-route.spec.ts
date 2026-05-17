@@ -1,0 +1,450 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as jose from "jose";
+
+// --- h3 + helper mocks (mirror sibling specs) ---
+vi.mock("h3", () => ({
+  getMethod: (event: any) => event.method ?? "GET",
+  getHeader: (event: any, name: string) =>
+    event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
+}));
+
+vi.mock("../server/h3-helpers.js", () => ({
+  readBody: vi.fn(async (event: any) => event.body ?? {}),
+}));
+
+const getSessionMock = vi.fn();
+const getConfiguredLoginHtmlMock = vi.fn(() => null);
+vi.mock("../server/auth.js", () => ({
+  getSession: (...a: any[]) => getSessionMock(...a),
+  getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
+}));
+
+vi.mock("../org/context.js", () => ({
+  getOrgDomain: vi.fn(async () => "builder.io"),
+}));
+
+// In-memory store mock — exercises mint/revoke + device lifecycle via the
+// route, while letting us reach into raw state for assertions.
+const tokenRows: any[] = [];
+const deviceRows: any[] = [];
+vi.mock("./connect-store.js", () => ({
+  MCP_CONNECT_SCOPE: "mcp-connect",
+  DEFAULT_TOKEN_TTL_DAYS: 90,
+  MIN_TOKEN_TTL_DAYS: 1,
+  MAX_TOKEN_TTL_DAYS: 365,
+  DEVICE_CODE_TTL_MS: 600_000,
+  recordMintedToken: vi.fn(async (p: any) => {
+    const id = "id-" + tokenRows.length;
+    tokenRows.push({ id, ...p, revokedAt: null });
+    return id;
+  }),
+  listTokens: vi.fn(async (email: string) =>
+    tokenRows
+      .filter((t) => t.ownerEmail === email)
+      .map((t) => ({
+        id: t.id,
+        jti: t.jti,
+        ownerEmail: t.ownerEmail,
+        orgId: t.orgId ?? null,
+        label: t.label ?? null,
+        createdAt: 1000,
+        lastUsedAt: null,
+        revokedAt: t.revokedAt,
+      })),
+  ),
+  revokeToken: vi.fn(async (email: string, id: string) => {
+    const t = tokenRows.find(
+      (r) => r.id === id && r.ownerEmail === email && r.revokedAt == null,
+    );
+    if (!t) return false;
+    t.revokedAt = Date.now();
+    return true;
+  }),
+  createDeviceCode: vi.fn(async () => {
+    const row = {
+      deviceCode: "dev-" + deviceRows.length,
+      userCode: "ABCD-2345",
+      ownerEmail: null,
+      orgId: null,
+      status: "pending",
+      tokenJti: null,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 600_000,
+      consumedAt: null,
+    };
+    deviceRows.push(row);
+    return { ...row };
+  }),
+  getDeviceCode: vi.fn(async (dc: string) => {
+    const r = deviceRows.find((d) => d.deviceCode === dc);
+    return r ? { ...r } : null;
+  }),
+  approveDeviceCode: vi.fn(
+    async (uc: string, email: string, orgId: string | null) => {
+      const r = deviceRows.find((d) => d.userCode === uc);
+      if (!r) return "not_found";
+      if (r.status !== "pending") return "already";
+      r.status = "approved";
+      r.ownerEmail = email;
+      r.orgId = orgId;
+      return { ...r };
+    },
+  ),
+  consumeDeviceCode: vi.fn(async (dc: string, jti: string) => {
+    const r = deviceRows.find((d) => d.deviceCode === dc);
+    if (!r || r.status !== "approved") return null;
+    r.status = "consumed";
+    r.tokenJti = jti;
+    return { ...r, status: "approved" };
+  }),
+  claimDeviceCodeForMint: vi.fn(async (dc: string, jti: string) => {
+    const r = deviceRows.find((d) => d.deviceCode === dc);
+    if (!r || r.status !== "approved") return null;
+    r.status = "minting";
+    r.tokenJti = jti;
+    return { ...r, status: "approved" };
+  }),
+  finishDeviceCodeMint: vi.fn(async (dc: string, jti: string) => {
+    const r = deviceRows.find((d) => d.deviceCode === dc);
+    if (!r || r.status !== "minting" || r.tokenJti !== jti) return false;
+    r.status = "consumed";
+    return true;
+  }),
+  releaseDeviceCodeMint: vi.fn(async (dc: string, jti: string) => {
+    const r = deviceRows.find((d) => d.deviceCode === dc);
+    if (!r || r.status !== "minting" || r.tokenJti !== jti) return;
+    r.status = "approved";
+    r.tokenJti = null;
+  }),
+  expireDeviceCode: vi.fn(async () => {}),
+}));
+
+const { handleMcpConnect } = await import("./connect-route.js");
+
+function ev(opts: {
+  method?: string;
+  path?: string;
+  body?: any;
+  host?: string;
+}): any {
+  return {
+    method: opts.method ?? "GET",
+    body: opts.body,
+    headers: { host: opts.host ?? "mail.agent-native.com" },
+    node: { req: { url: opts.path ?? "/" } },
+    path: opts.path ?? "/",
+    url: { pathname: (opts.path ?? "/").split("?")[0] },
+  };
+}
+
+const SECRET = "test-a2a-secret";
+
+describe("handleMcpConnect", () => {
+  beforeEach(() => {
+    tokenRows.length = 0;
+    deviceRows.length = 0;
+    getSessionMock.mockReset();
+    getConfiguredLoginHtmlMock.mockReturnValue(null);
+    process.env.A2A_SECRET = SECRET;
+  });
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+  });
+
+  describe("connect page", () => {
+    it("serves the configured login HTML when unauthenticated", async () => {
+      getSessionMock.mockResolvedValue(null);
+      getConfiguredLoginHtmlMock.mockReturnValue("<html>login</html>");
+      const res = await handleMcpConnect(ev({}), "/");
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("<html>login</html>");
+    });
+
+    it("renders the connect page for a logged-in user", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      expect(res.status).toBe(200);
+      expect(body).toContain("Connect an external agent");
+      expect(body).toContain("u@example.com");
+      // The page never embeds a token.
+      expect(body).not.toContain("Bearer ey");
+    });
+
+    it("shows the device user_code when present and well-formed", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(
+        ev({ path: "/?user_code=ABCD-2345" }),
+        "/",
+      );
+      expect(await res.text()).toContain("ABCD-2345");
+    });
+  });
+
+  describe("POST /token", () => {
+    it("requires a session", async () => {
+      getSessionMock.mockResolvedValue(null);
+      const res = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      expect(res.status).toBe(401);
+    });
+
+    it("mints a connect-scoped JWT with jti and records it", async () => {
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: { label: "laptop", ttlDays: 30 } }),
+        "/token",
+      );
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.mcpUrl).toBe(
+        "https://mail.agent-native.com/_agent-native/mcp",
+      );
+      expect(data.serverName).toBe("agent-native-mail");
+      expect(data.mcpServerEntry).toEqual({
+        type: "http",
+        url: "https://mail.agent-native.com/_agent-native/mcp",
+        headers: { Authorization: `Bearer ${data.token}` },
+      });
+      expect(data.cli).toBe(
+        "agent-native connect https://mail.agent-native.com",
+      );
+
+      const { payload } = await jose.jwtVerify(
+        data.token,
+        new TextEncoder().encode(SECRET),
+      );
+      expect(payload.sub).toBe("u@example.com");
+      expect(payload.scope).toBe("mcp-connect");
+      expect(typeof payload.jti).toBe("string");
+      expect(payload.org_domain).toBe("builder.io");
+
+      expect(tokenRows).toHaveLength(1);
+      expect(tokenRows[0]).toMatchObject({
+        ownerEmail: "u@example.com",
+        orgId: "org-1",
+        label: "laptop",
+        jti: payload.jti,
+      });
+    });
+
+    it("clamps ttlDays into the 1-365 range", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: { ttlDays: 9999 } }),
+        "/token",
+      );
+      const { token } = await res.json();
+      const { payload } = await jose.jwtVerify(
+        token,
+        new TextEncoder().encode(SECRET),
+      );
+      const lifetimeDays =
+        ((payload.exp as number) - (payload.iat as number)) / 86400;
+      expect(Math.round(lifetimeDays)).toBe(365);
+    });
+
+    it("returns 503 when no A2A_SECRET is configured", async () => {
+      delete process.env.A2A_SECRET;
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      expect(res.status).toBe(503);
+    });
+  });
+
+  describe("token list + revoke", () => {
+    it("lists only the caller's tokens and never the token value", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      tokenRows.push(
+        { id: "id-0", jti: "j0", ownerEmail: "u@example.com", revokedAt: null },
+        { id: "id-1", jti: "j1", ownerEmail: "other@x.com", revokedAt: null },
+      );
+      const res = await handleMcpConnect(ev({}), "/tokens");
+      const data = await res.json();
+      expect(data.tokens).toHaveLength(1);
+      expect(data.tokens[0]).not.toHaveProperty("jti");
+      expect(data.tokens[0]).not.toHaveProperty("token");
+      expect(data.tokens[0].id).toBe("id-0");
+    });
+
+    it("revoke only succeeds for a token the caller owns", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      tokenRows.push({
+        id: "id-0",
+        jti: "j0",
+        ownerEmail: "someoneelse@x.com",
+        revokedAt: null,
+      });
+      const denied = await handleMcpConnect(
+        ev({ method: "POST", body: { id: "id-0" } }),
+        "/tokens/revoke",
+      );
+      expect((await denied.json()).ok).toBe(false);
+      expect(tokenRows[0].revokedAt).toBeNull();
+
+      tokenRows.push({
+        id: "id-1",
+        jti: "j1",
+        ownerEmail: "u@example.com",
+        revokedAt: null,
+      });
+      const ok = await handleMcpConnect(
+        ev({ method: "POST", body: { id: "id-1" } }),
+        "/tokens/revoke",
+      );
+      expect((await ok.json()).ok).toBe(true);
+      expect(tokenRows[1].revokedAt).not.toBeNull();
+    });
+
+    it("revoke requires a session", async () => {
+      getSessionMock.mockResolvedValue(null);
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: { id: "x" } }),
+        "/tokens/revoke",
+      );
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe("device-code flow", () => {
+    it("device/start is unauth and returns the verification URIs", async () => {
+      getSessionMock.mockResolvedValue(null);
+      const res = await handleMcpConnect(
+        ev({ method: "POST" }),
+        "/device/start",
+      );
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.device_code).toBeTruthy();
+      expect(data.user_code).toMatch(/^[A-Z2-7]{4}-[A-Z2-7]{4}$/);
+      expect(data.verification_uri).toBe(
+        "https://mail.agent-native.com/_agent-native/mcp/connect",
+      );
+      expect(data.verification_uri_complete).toContain(
+        "?user_code=" + data.user_code,
+      );
+      expect(data.interval).toBe(3);
+      expect(data.expires_in).toBe(600);
+    });
+
+    it("device/start and returned MCP config include APP_BASE_PATH", async () => {
+      process.env.APP_BASE_PATH = "/mail";
+      try {
+        await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+        const dc = deviceRows[0].deviceCode;
+        getSessionMock.mockResolvedValue({ email: "u@example.com" });
+        await handleMcpConnect(
+          ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+          "/device/authorize",
+        );
+        getSessionMock.mockResolvedValue(null);
+        const res = await handleMcpConnect(
+          ev({ method: "POST", body: { device_code: dc } }),
+          "/device/poll",
+        );
+        const data = await res.json();
+        expect(data.mcpUrl).toBe(
+          "https://mail.agent-native.com/mail/_agent-native/mcp",
+        );
+        expect(data.cli).toBe(
+          "agent-native connect https://mail.agent-native.com/mail",
+        );
+      } finally {
+        delete process.env.APP_BASE_PATH;
+      }
+    });
+
+    it("device/authorize requires a session and binds the user", async () => {
+      // start
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+
+      // unauth authorize → 401
+      getSessionMock.mockResolvedValue(null);
+      const unauth = await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      expect(unauth.status).toBe(401);
+
+      // authed authorize → 200 + bound
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-7",
+      });
+      const ok = await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      expect(ok.status).toBe(200);
+      expect(deviceRows[0].ownerEmail).toBe("u@example.com");
+      expect(deviceRows[0].status).toBe("approved");
+    });
+
+    it("rejects a malformed user_code", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "not a code" } }),
+        "/device/authorize",
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("poll: pending → approved (mints once) → consumed", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      const dc = deviceRows[0].deviceCode;
+
+      // pending
+      getSessionMock.mockResolvedValue(null);
+      let res = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      expect((await res.json()).status).toBe("pending");
+
+      // approve via the browser
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+
+      // poll → approved + token (unauth)
+      getSessionMock.mockResolvedValue(null);
+      res = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      const data = await res.json();
+      expect(data.status).toBe("approved");
+      const { payload } = await jose.jwtVerify(
+        data.token,
+        new TextEncoder().encode(SECRET),
+      );
+      expect(payload.sub).toBe("u@example.com");
+      expect(payload.scope).toBe("mcp-connect");
+
+      // poll again → consumed (single-use, no second token)
+      res = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      const again = await res.json();
+      expect(again.status).toBe("consumed");
+      expect(again.token).toBeUndefined();
+    });
+
+    it("poll returns expired for a past-TTL code", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      const dc = deviceRows[0].deviceCode;
+      deviceRows[0].expiresAt = Date.now() - 1;
+      getSessionMock.mockResolvedValue(null);
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      expect((await res.json()).status).toBe("expired");
+    });
+  });
+});

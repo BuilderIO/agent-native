@@ -31,6 +31,8 @@ const host: CodeAgentsHost = {
   listRuns: (goalId) => listRunsSomehow(goalId),
   listCodePacks: () => listCodePacksSomehow(),
   createRun: (request) => createRunSomehow(request),
+  subscribeTranscript: (request, callback) =>
+    subscribeToTranscriptSomehow(request, callback),
   readTranscript: (request) => readTranscriptSomehow(request),
   appendFollowUp: (request) => appendFollowUpSomehow(request),
   updateRun: (request) => updateRunSomehow(request),
@@ -193,7 +195,8 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 | `listRuns(goalId?)`                                   | List sessions for the selected goal                    |
 | `listCodePacks?()`                                    | List `.agents/commands` and `.agents/skills`           |
 | `createRun(request)`                                  | Start a new run                                        |
-| `readTranscript(request)`                             | Read transcript/tool/status events                     |
+| `subscribeTranscript?(request, callback)`             | Push transcript updates to the shared conversation     |
+| `readTranscript(request)`                             | Poll transcript events as a compatibility fallback     |
 | `appendFollowUp(request)`                             | Add a follow-up, either steering active work or queued |
 | `updateRun(request)`                                  | Update mode or run metadata                            |
 | `retryRun?(request)`                                  | Retry the selected run in place                        |
@@ -226,6 +229,12 @@ shared Code UI may add slots for:
 Everything else stays in the shared composer: attachments, references, slash and
 skill insertion, pasted-text handling, voice dictation, drafts, keyboard
 shortcuts, and submission semantics.
+
+The user-facing transcript should stay conversational. Code hosts normalize raw
+transcript/status/tool events into the shared conversation renderer: assistant
+text coalesces into one turn, low-signal lifecycle noise stays out of the main
+surface, and tool activity renders as compact inline summaries with details
+available when needed.
 
 ## Slash Commands
 
@@ -278,8 +287,10 @@ adapter, `run-manager`, or `agent-teams` rather than a bespoke queue/runner.
 
 Follow-ups on active runs support two delivery modes:
 
-- **Send now** records a steering prompt that the active runner applies at the next safe continuation point.
-- **Queue** runs after the current turn finishes.
+- Pressing Enter or clicking send records an immediate steering prompt that the
+  active runner applies at the next safe continuation point.
+- Pressing Cmd+Enter on macOS or Ctrl+Enter elsewhere queues the prompt to run
+  after the current turn finishes.
 
 Inactive runs keep the compatible behavior: the follow-up is appended and the run resumes immediately.
 

@@ -620,6 +620,48 @@ describe("server/auth", () => {
       }
     });
 
+    it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const app = createMockApp();
+      await autoMountAuth(app);
+      logSpy.mockRestore();
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      // Env UNSET → the identity routes are NOT bypassed: the guard must
+      // treat them like any other unauthenticated /_agent-native/* request
+      // (it returns a 401 body, i.e. NOT `undefined`). This is the
+      // regression assertion for the env-unset-no-op invariant.
+      for (const path of [
+        "/_agent-native/identity/login",
+        "/_agent-native/identity/callback",
+      ]) {
+        const result = await guard(createMockEvent({ path }));
+        expect(result).not.toBeUndefined();
+      }
+
+      // Env SET → both routes bypass the blanket guard so the handler can
+      // run its own signature/CSRF verification.
+      vi.stubEnv(
+        "AGENT_NATIVE_IDENTITY_HUB_URL",
+        "https://dispatch.agent-native.com",
+      );
+      for (const path of [
+        "/_agent-native/identity/login",
+        "/_agent-native/identity/callback",
+      ]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
+      }
+    });
+
     it("serves mounted login and signup pages from the framework guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
@@ -2514,6 +2556,40 @@ describe("server/auth", () => {
     it("keeps the new and legacy emails distinct so both are excluded as the dev account", () => {
       expect(AUTO_DEV_ACCOUNT_EMAIL).not.toBe(LEGACY_AUTO_DEV_ACCOUNT_EMAIL);
       expect(AUTO_DEV_ACCOUNT_EMAIL).toMatch(/\.test$/);
+    });
+  });
+
+  describe("isLoopbackAddress", () => {
+    it("accepts loopback peers (IPv4, IPv6, IPv4-mapped, 127/8, zone id)", async () => {
+      const { isLoopbackAddress } = await import("./auth.js");
+      for (const ip of [
+        "127.0.0.1",
+        "127.5.6.7",
+        "::1",
+        "::1%lo0",
+        "::ffff:127.0.0.1",
+      ]) {
+        expect(isLoopbackAddress(ip)).toBe(true);
+      }
+    });
+
+    it("rejects every non-loopback / unknown peer (the dev auto-account + desktop-SSO gate)", async () => {
+      const { isLoopbackAddress } = await import("./auth.js");
+      for (const ip of [
+        "203.0.113.5",
+        "192.168.4.70",
+        "10.0.0.2",
+        "169.254.1.1",
+        "0.0.0.0",
+        "::",
+        "::ffff:192.168.4.70",
+        "1.127.0.0", // must NOT match the 127/8 prefix check
+        "localhost",
+        "",
+        undefined,
+      ]) {
+        expect(isLoopbackAddress(ip)).toBe(false);
+      }
     });
   });
 });

@@ -600,6 +600,19 @@ switch (command) {
     break;
   }
 
+  case "connect": {
+    // Wire your local coding agent to a DEPLOYED agent-native app via a
+    // browser device-code flow (no token copying). `--all` connects every
+    // first-party hosted app; `--token` is the no-browser fallback.
+    import("./connect.js")
+      .then((m) => m.runConnect(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "create-workspace": {
     // Deprecated alias for `create` (since workspace is now the default).
     const parsed = parseScaffoldArgs(args);
@@ -692,6 +705,10 @@ Usage:
                                 cmds: serve | install | uninstall | status |
                                 token (--client claude-code|claude-code-cli|
                                 codex|cowork)
+  agent-native connect <url>    Wire your coding agent to a DEPLOYED app via
+                                a browser device-code flow. --all connects
+                                every first-party app; --token is the
+                                no-browser fallback.
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace

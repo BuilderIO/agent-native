@@ -101,6 +101,10 @@ import {
   verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
 } from "./builder-browser.js";
+// Pure env-read feature switch from a leaf module (no dependency back on
+// auth.ts), so the guard and the SSO route handler share one validator and
+// can never disagree about whether federated SSO is enabled.
+import { isIdentitySsoEnabled } from "./identity-sso-store.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -517,6 +521,42 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
 }
 
 /**
+ * True only when the request originates from the local machine — the raw
+ * socket peer is `127.0.0.0/8`, `::1`, or the IPv4-mapped `::ffff:127.0.0.1`
+ * (an optional IPv6 zone id like `fe80::1%en0` is stripped first).
+ *
+ * `getRequestIP(event)` is called WITHOUT `{ xForwardedFor: true }`, so it
+ * returns the real connection peer and never an attacker-controlled
+ * `X-Forwarded-For` value — a remote client cannot spoof its way past this.
+ * Used to scope local-only conveniences (the desktop SSO broker and the dev
+ * auto-account) so a directly network-reachable dev server never exposes
+ * them to a remote visitor. NOTE: a reverse proxy / tunnel that connects to
+ * the dev server over localhost still appears as loopback, so this is a
+ * necessary but not sufficient gate — callers pair it with NODE_ENV and,
+ * for the dev account, a throwaway per-DB password.
+ */
+export function isLoopbackAddress(ip: string | undefined): boolean {
+  // Strip an optional IPv6 zone id (e.g. "fe80::1%en0") before comparing.
+  const normalised = (ip ?? "").split("%")[0];
+  return (
+    normalised === "127.0.0.1" ||
+    normalised === "::1" ||
+    normalised === "::ffff:127.0.0.1" ||
+    normalised.startsWith("127.")
+  );
+}
+
+function isLoopbackRequest(event: H3Event): boolean {
+  let ip: string | undefined;
+  try {
+    ip = getRequestIP(event) ?? undefined;
+  } catch {
+    ip = undefined;
+  }
+  return isLoopbackAddress(ip);
+}
+
+/**
  * Read the desktop-SSO broker file, but only if the request is plausibly
  * from the Electron desktop app *and* coming from the local machine.
  *
@@ -535,21 +575,7 @@ async function readDesktopSsoSafely(
 ): Promise<Awaited<ReturnType<typeof readDesktopSso>>> {
   if (process.env.NODE_ENV === "production") return null;
   if (!isElectronRequest(event)) return null;
-  // Loopback-only: 127.0.0.1, ::1, and the IPv4-mapped form.
-  let ip: string | undefined;
-  try {
-    ip = getRequestIP(event) ?? undefined;
-  } catch {
-    ip = undefined;
-  }
-  // Strip an optional zone id (e.g. "fe80::1%en0") before comparing.
-  const normalised = (ip ?? "").split("%")[0];
-  const isLoopback =
-    normalised === "127.0.0.1" ||
-    normalised === "::1" ||
-    normalised === "::ffff:127.0.0.1" ||
-    normalised.startsWith("127.");
-  if (!isLoopback) return null;
+  if (!isLoopbackRequest(event)) return null;
   return await readDesktopSso();
 }
 
@@ -675,7 +701,7 @@ const EXPECTED_AUTH_FAILURE_PATTERNS: RegExp[] = [
   /not\s+verified/i,
 ];
 
-function isExpectedAuthFailure(error: unknown): boolean {
+export function isExpectedAuthFailure(error: unknown): boolean {
   const msg = (error as { message?: unknown })?.message;
   if (typeof msg !== "string") return false;
   return EXPECTED_AUTH_FAILURE_PATTERNS.some((re) => re.test(msg));
@@ -1288,6 +1314,49 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // MCP connect — frictionless external-agent connection. Like /open
+    // above, the connect *page* resolves the browser session itself and
+    // serves its own login form when unauthenticated (so the post-login
+    // reload returns to the same URL, carrying the device user_code in the
+    // query). The two unauthenticated device endpoints below are the CLI's
+    // OAuth-style polling pair: `device/start` (mint a device+user code) and
+    // `device/poll` (exchange an approved code for the token) — both must be
+    // reachable without a browser session because the CLI has none. They are
+    // protected by short-TTL, single-use, crypto-random codes + a creation
+    // rate-limit, not cookies.
+    //
+    // Everything that MINTS or MUTATES on behalf of the user — `/token`,
+    // `/device/authorize`, `/tokens`, `/tokens/revoke` — is intentionally
+    // NOT bypassed: the guard's default 401-for-/_agent-native/* is the
+    // correct gate for them. Those are POSTed by the in-page fetch, which
+    // carries the session cookie, so the guard (which only 401s when there
+    // is no session) lets the authenticated same-origin request through and
+    // the handler then re-checks the session itself (defense in depth).
+    if (
+      p === "/_agent-native/mcp/connect" ||
+      p === "/_agent-native/mcp/connect/device/start" ||
+      p === "/_agent-native/mcp/connect/device/poll"
+    ) {
+      return;
+    }
+
+    // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. Both the
+    // `/login` entry point and the `/callback` (hit by a user who is, by
+    // definition, NOT yet signed in to THIS app) must bypass the blanket
+    // 401-for-/_agent-native/*: they resolve / mint the browser session
+    // themselves and verify a signature-bound, single-use, CSRF-stated
+    // hub token — not a cookie. This bypass is GATED on the opt-in env var
+    // so an unset `AGENT_NATIVE_IDENTITY_HUB_URL` is a true no-op (the
+    // guard's behaviour is byte-for-byte unchanged when SSO is off). The
+    // handler itself 404s when disabled as defence in depth.
+    if (
+      isIdentitySsoEnabled() &&
+      (p === "/_agent-native/identity/login" ||
+        p === "/_agent-native/identity/callback")
+    ) {
+      return;
+    }
+
     // Internal processor endpoint for the A2A async-mode fanout. Mirrors the
     // integration webhook fanout: when `message/send` is called with
     // `async: true`, the JSON-RPC handler enqueues to a2a_tasks and self-
@@ -1416,7 +1485,8 @@ function createAuthGuardFn(): (
 // validator (a bare `dev@local` has no TLD and is rejected as INVALID_EMAIL,
 // which silently broke the zero-setup auto-sign-in on every fresh dev DB).
 const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
-const AUTO_DEV_ACCOUNT_PASSWORD = "local-dev-account";
+// No fixed password: maybeAutoCreateDevSession mints a random one per DB
+// and prints it to the console once (see there).
 
 // Pre-fix local dev DBs may already contain a `dev@local` user. Treat that
 // legacy address as the dev account too, so the "any real users?" check
@@ -1441,13 +1511,21 @@ const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
  * leaves the user on the regular sign-in form; without this guard the
  * post-logout reload would silently re-create the session.
  *
- * The fixed password is intentional: it means a developer who signs
- * out can sign back in with `dev@local.test` / `local-dev-account`
- * from the regular login form. To get the auto-flow back, drop the
- * user row or wipe the local DB. Set
- * `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely
- * (useful for tests that exercise the unauthenticated branch). This
- * is local-only — the helper is gated on NODE_ENV.
+ * Hardening (this is a convenience, not an auth bypass — it uses the
+ * real Better Auth sign-up/sign-in, but a known-credential local account
+ * is still worth not shipping):
+ *  - **Loopback only.** Gated on `isLoopbackRequest`, so a tunnelled /
+ *    reverse-proxied / misconfigured-non-prod dev server never auto-signs
+ *    in a directly-remote visitor (mirrors the desktop SSO broker).
+ *  - **Random per-DB password.** The account password is freshly
+ *    generated on creation and printed to the server console exactly
+ *    once — there is no source-code-known credential. After logout the
+ *    auto-flow won't refire (dev row exists), so signing back in uses
+ *    that printed password; lost it ⇒ drop the row or wipe the local DB.
+ *  - **NODE_ENV.** Still gated on development/test.
+ *
+ * Set `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely
+ * (useful for tests that exercise the unauthenticated branch).
  */
 async function maybeAutoCreateDevSession(
   event: H3Event,
@@ -1455,6 +1533,9 @@ async function maybeAutoCreateDevSession(
 ): Promise<Response | null> {
   if (!isDevEnvironment()) return null;
   if (process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT === "1") return null;
+  // Local machine only: never auto-sign-in a remote visitor, even if a
+  // dev server is exposed (tunnel, reverse proxy, misconfigured NODE_ENV).
+  if (!isLoopbackRequest(event)) return null;
 
   try {
     const db = getDbExec();
@@ -1486,14 +1567,22 @@ async function maybeAutoCreateDevSession(
     const auth = await getBetterAuth();
     if (!auth) return null;
 
-    // Idempotent sign-up: succeeds on first run, throws an "already exists"
-    // failure on subsequent runs (which we swallow before falling through
-    // to the sign-in path below).
+    // Random per-DB password — there is no source-code-known credential
+    // for this account. Printed once below so the developer can sign back
+    // in after logout (the auto-flow won't refire while the dev row
+    // exists).
+    const devPassword = crypto.randomBytes(18).toString("base64url");
+
+    // The dev account does not exist at this point (the devUsers check
+    // above returned early otherwise). The "already exists" swallow only
+    // matters under a rare concurrent first-hit race — in that case the
+    // sign-in below fails the password check and we return null, leaving
+    // the racing request that already won to keep the session.
     try {
       await auth.api.signUpEmail({
         body: {
           email: AUTO_DEV_ACCOUNT_EMAIL,
-          password: AUTO_DEV_ACCOUNT_PASSWORD,
+          password: devPassword,
           name: "Dev",
         },
       });
@@ -1504,7 +1593,7 @@ async function maybeAutoCreateDevSession(
     const result = await auth.api.signInEmail({
       body: {
         email: AUTO_DEV_ACCOUNT_EMAIL,
-        password: AUTO_DEV_ACCOUNT_PASSWORD,
+        password: devPassword,
       },
     });
     if (!result?.token) return null;
@@ -1512,10 +1601,22 @@ async function maybeAutoCreateDevSession(
     setFrameworkSessionCookie(event, result.token);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
 
-    return new Response("", {
-      status: 302,
-      headers: { Location: redirectTo },
-    });
+    // Print the throwaway credential exactly once so the developer can
+    // sign back in manually after logout (auto-flow won't refire once the
+    // dev row exists). Local console only — never Sentry.
+    console.log(
+      `\n[agent-native] Local dev auto-login ready.\n` +
+        `  email:    ${AUTO_DEV_ACCOUNT_EMAIL}\n` +
+        `  password: ${devPassword}\n` +
+        `  (random, this DB only — needed to sign back in after logout.\n` +
+        `   Set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 to disable.)\n`,
+    );
+
+    // Emit the session cookie ON the 302 itself. Returning a bare
+    // `new Response(...)` here drops the cookie staged on event.node.res
+    // (see redirectWithStagedCookies), so the developer would 302 to the
+    // app and immediately bounce back to the login form.
+    return redirectWithStagedCookies(event, redirectTo);
   } catch (e) {
     // Local-dev only — log to console for debugging, but don't surface
     // through Sentry. Falling back to the regular login form is the
@@ -1678,6 +1779,37 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
     path: "/",
     maxAge: sessionMaxAge,
   });
+}
+
+/**
+ * Build a redirect `Response` that carries whatever `Set-Cookie` headers were
+ * just staged on the event (e.g. by `setFrameworkSessionCookie`).
+ *
+ * h3 v2's `setCookie` appends the cookie onto `event.res.headers`. When a
+ * handler returns a plain object/string, h3's `prepareResponse` merges those
+ * staged headers into the synthesized response, so the cookie survives. But
+ * when a handler returns a web `Response`, `prepareResponse` only merges the
+ * staged headers if the Response is 2xx — its `!val.ok` early-return hands a
+ * non-2xx Response (like a 302) straight back WITHOUT merging. A bare
+ * `new Response("", { status: 302, headers: { Location } })` therefore 302s
+ * the browser with no session cookie, so the zero-setup dev auto-sign-in
+ * bounces straight back to the login form.
+ *
+ * Mirroring the staged cookies onto the redirect Response's own headers makes
+ * them part of the Response that's returned as-is, so the 302 actually
+ * carries the session cookie. (`event.res.headers` is also left intact for
+ * any non-Response continuation path; h3 only skips the merge for the
+ * Response branch, so there's no double-emit.)
+ */
+function redirectWithStagedCookies(
+  event: H3Event,
+  location: string,
+  status = 302,
+): Response {
+  const headers = new Headers({ Location: location });
+  const staged = event.res?.headers?.getSetCookie?.() ?? [];
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response("", { status, headers });
 }
 
 function isHttpsRequest(event: H3Event): boolean {

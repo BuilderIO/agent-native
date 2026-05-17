@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import {
   CodeAgentsApp,
+  type CodeAgentTranscriptEvent,
+  type CodeAgentTranscriptRequest,
   type CodeAgentsHost,
 } from "@agent-native/code-agents-ui";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
@@ -18,13 +20,30 @@ interface CodeAgentsHubProps {
   onOpenSettings?: () => void;
 }
 
+type CodeAgentTranscriptSubscriptionBatch = {
+  status: "ok" | "unavailable";
+  runId?: string;
+  events: CodeAgentTranscriptEvent[];
+  eventFile?: string;
+  error?: string;
+  subscriptionId?: string;
+  reason?: string;
+};
+
+interface CodeAgentsHostWithTranscriptSubscription extends CodeAgentsHost {
+  subscribeTranscript?(
+    request: CodeAgentTranscriptRequest,
+    cb: (batch: CodeAgentTranscriptSubscriptionBatch) => void,
+  ): () => void;
+}
+
 export default function CodeAgentsHub({
   apps,
   openRequest,
   refreshKey = 0,
   onOpenSettings,
 }: CodeAgentsHubProps) {
-  const host = useMemo<CodeAgentsHost>(
+  const host = useMemo<CodeAgentsHostWithTranscriptSubscription>(
     () => ({
       async listRuns(goalId?: string) {
         const api = window.electronAPI?.codeAgents;
@@ -114,6 +133,11 @@ export default function CodeAgentsHub({
           };
         }
         return api.readTranscript(request);
+      },
+      subscribeTranscript(request, callback) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.subscribeTranscript) return () => {};
+        return api.subscribeTranscript(request, callback);
       },
       async appendFollowUp(request) {
         const api = window.electronAPI?.codeAgents;

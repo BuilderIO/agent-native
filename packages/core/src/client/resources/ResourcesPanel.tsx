@@ -29,7 +29,6 @@ import { serializeFrontmatter } from "../../resources/metadata.js";
 import {
   useResourceTree,
   useResource,
-  useEffectiveResourceContext,
   useCreateResource,
   useUpdateResource,
   useDeleteResource,
@@ -38,7 +37,6 @@ import {
   withAgentScratchFolder,
   type ResourceScope,
   type ResourceMeta,
-  type EffectiveResourceContext,
 } from "./use-resources.js";
 import {
   formatMcpServerError,
@@ -976,80 +974,6 @@ Workspace resources are for files users intentionally add, edit, or manage. Agen
 const WORKSPACE_RESOURCE_OWNER = "__workspace__";
 const SHARED_RESOURCE_OWNER = "__shared__";
 
-function EffectiveContextPanel({
-  context,
-  isLoading,
-}: {
-  context?: EffectiveResourceContext;
-  isLoading: boolean;
-}) {
-  if (isLoading && !context) {
-    return (
-      <div className="border-b border-border bg-muted/20 px-3 py-2">
-        <div className="h-3 w-40 animate-pulse rounded bg-muted-foreground/10" />
-      </div>
-    );
-  }
-
-  if (!context) return null;
-
-  return (
-    <div className="border-b border-border bg-muted/20 px-3 py-2">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
-          Effective context
-        </span>
-        <span className="truncate text-[11px] text-muted-foreground/60">
-          Active: {context.effectiveScope ?? "none"}
-        </span>
-      </div>
-      <div className="grid gap-1 sm:grid-cols-3">
-        {context.layers.map((layer) => {
-          const state = layer.effective
-            ? "Active"
-            : layer.overridden
-              ? "Overridden"
-              : layer.exists
-                ? "Available"
-                : "No file";
-          return (
-            <div
-              key={layer.scope}
-              className={cn(
-                "rounded-md border px-2 py-1.5",
-                layer.effective
-                  ? "border-foreground/20 bg-background"
-                  : "border-border/70 bg-background/50",
-              )}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-[11px] font-medium text-foreground">
-                  {layer.label}
-                </span>
-                <span
-                  className={cn(
-                    "shrink-0 text-[10px]",
-                    layer.effective
-                      ? "text-foreground"
-                      : layer.overridden
-                        ? "text-muted-foreground"
-                        : "text-muted-foreground/60",
-                  )}
-                >
-                  {state}
-                </span>
-              </div>
-              <div className="mt-0.5 truncate text-[10px] text-muted-foreground/60">
-                {layer.resource?.path ?? context.path}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // BuilderBrowserCard moved to settings/BrowserSection.tsx
 
 export function ResourcesPanel() {
@@ -1174,9 +1098,6 @@ export function ResourcesPanel() {
       !parseMcpBuiltinVirtualId(selectedResourceId)
       ? selectedResourceId
       : null,
-  );
-  const effectiveContextQuery = useEffectiveResourceContext(
-    resourceQuery.data?.path ?? null,
   );
   const createResource = useCreateResource();
   const updateResource = useUpdateResource();
@@ -1597,10 +1518,6 @@ export function ResourcesPanel() {
             </div>
           ) : selectedResourceId && resourceQuery.data ? (
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-              <EffectiveContextPanel
-                context={effectiveContextQuery.data}
-                isLoading={effectiveContextQuery.isLoading}
-              />
               <ResourceEditor
                 resource={resourceQuery.data}
                 onSave={handleSave}
@@ -1658,28 +1575,30 @@ export function ResourcesPanel() {
                   </a>
                 </div>
               )}
-            <ResourceTree
-              tree={workspaceTree}
-              isLoading={workspaceTreeQuery.isLoading}
-              deletingId={
-                deleteResource.isPending
-                  ? (deleteResource.variables as string)
-                  : deleteMcpServer.isPending
-                    ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
-                    : null
-              }
-              selectedId={selectedResourceId}
-              onSelect={handleSelect}
-              onCreateFile={() => {}}
-              onCreateFolder={() => {}}
-              onDelete={() => {}}
-              onRename={() => {}}
-              onDrop={() => {}}
-              title="Workspace"
-              titleTooltip="Global resources inherited from Dispatch by every app. Read-only here."
-              readOnly
-              headingHint="Inherited"
-            />
+            {workspaceTree.length > 0 && (
+              <ResourceTree
+                tree={workspaceTree}
+                isLoading={workspaceTreeQuery.isLoading}
+                deletingId={
+                  deleteResource.isPending
+                    ? (deleteResource.variables as string)
+                    : deleteMcpServer.isPending
+                      ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
+                      : null
+                }
+                selectedId={selectedResourceId}
+                onSelect={handleSelect}
+                onCreateFile={() => {}}
+                onCreateFolder={() => {}}
+                onDelete={() => {}}
+                onRename={() => {}}
+                onDrop={() => {}}
+                title="Workspace"
+                titleTooltip="Global resources inherited from Dispatch by every app. Read-only here."
+                readOnly
+                headingHint="Inherited"
+              />
+            )}
             <ResourceTree
               tree={sharedTree}
               isLoading={sharedTreeQuery.isLoading}

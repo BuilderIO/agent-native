@@ -48,6 +48,17 @@ Set `A2A_SECRET` (same value) on all apps that must verify each other's identity
 - Inbound calls are verified cryptographically
 - Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev)
 
+## Cross-App SSO (Dispatch identity hub)
+
+Each hosted `*.agent-native.com` app has its **own user store**, so "sign in once" is identity federation, not a shared cookie. **Dispatch is the identity authority.**
+
+- **Opt-in per app via one env var:** set `AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com` and the app shows a "Sign in with Agent-Native" option. **Unset = zero behavior change** — the whole path is dormant. Reversible at any time.
+- **Flow:** app → `GET <hub>/_agent-native/identity/authorize?app=&redirect_uri=&state=` → user logs in at Dispatch → 302 back with a short-lived (`≤5min`) `A2A_SECRET`-signed identity JWT (`sub`/`email`/`name`/`org_domain`/`scope:"identity"`). Strict `redirect_uri` allowlist (`*.agent-native.com` + localhost). App verifies the token, **JIT-links strictly by verified email** (existing same-email user → reused unchanged; new email → created), then mints a normal local session.
+- **Invariant (do not break):** identity rows are only ever **added** — never modified, renamed, or deleted. Enabling SSO logs users out, but they always log back into the **same email-matched account with data intact**. Email is the only thing that crosses the trust boundary; the app never trusts a user id, role, or org from the wire.
+- **Canary rollout:** deploy with the env unset everywhere (no-op) → set it on **one** app (mail) only → verify (logout → SSO → Dispatch → back to the same pre-existing account, data intact, direct logins still work) → expand app-by-app → rollback = unset the env on that app's deploy (instant, no data change).
+
+Full runbook + flow detail: [Cross-App SSO doc](/docs/cross-app-sso).
+
 ## Builder Browser Access
 
 Apps can connect to Builder via the `cli-auth` flow and persist shared browser credentials in `.env`. Agents then use the built-in `get-browser-connection` tool to provision a real browser session via AI Services.
@@ -86,3 +97,4 @@ Bookmarked private paths already work without any plumbing — the framework's l
 
 - `security` — Data scoping, SQL injection, secrets
 - `actions` — Auto-protected by the auth guard
+- [Cross-App SSO doc](/docs/cross-app-sso) — Dispatch identity hub, federation flow, canary runbook

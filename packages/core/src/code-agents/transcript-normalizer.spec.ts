@@ -1,0 +1,269 @@
+import { describe, expect, it } from "vitest";
+
+import type { CodeAgentTranscriptEvent } from "../cli/code-agent-runs.js";
+import { normalizeCodeAgentTranscript } from "./transcript-normalizer.js";
+
+describe("normalizeCodeAgentTranscript", () => {
+  it("coalesces legacy runner stdout and suppresses duplicate final assistant text", () => {
+    const events = [
+      event("evt-user", "user", "Fix the failing test."),
+      event("evt-start", "status", "Agent-Native Code run started.", {
+        status: "running",
+        phase: "executing",
+      }),
+      event("evt-stdout-1", "status", "I checked", {
+        source: "runner-stdout",
+      }),
+      event("evt-stdout-2", "status", "the specs.", {
+        source: "runner-stdout",
+      }),
+      event("evt-final", "system", "I checked the specs.", {
+        role: "assistant",
+      }),
+      event("evt-complete", "status", "Agent-Native Code run completed.", {
+        status: "completed",
+        phase: "complete",
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toHaveLength(2);
+    expect(transcript.items[0]).toMatchObject({
+      type: "user",
+      text: "Fix the failing test.",
+    });
+    expect(transcript.items[1]).toMatchObject({
+      type: "assistant",
+      source: "runner-stdout",
+      text: "I checked the specs.",
+      eventIds: ["evt-stdout-1", "evt-stdout-2", "evt-final"],
+      suppressedDuplicateEventIds: ["evt-final"],
+    });
+    expect(transcript.hiddenEvents.map((item) => item.id)).toEqual([
+      "evt-start",
+      "evt-final",
+      "evt-complete",
+    ]);
+    expect(transcript.rawEvents).toEqual(events);
+  });
+
+  it("coalesces assistant_delta system chunks and suppresses the final duplicate", () => {
+    const events = [
+      event("evt-user", "user", "Keep going."),
+      event(
+        "evt-engine",
+        "system",
+        "[builder-engine] → POST https://example.test\n",
+        {
+          type: "assistant_delta",
+          seq: 0,
+        },
+      ),
+      event("evt-delta-1", "system", "**Agent-", {
+        type: "assistant_delta",
+        seq: 1,
+      }),
+      event("evt-delta-2", "system", "Native**\n\n- `core`", {
+        type: "assistant_delta",
+        seq: 2,
+      }),
+      event("evt-delta-3", "system", " package", {
+        type: "assistant_delta",
+        seq: 3,
+      }),
+      event("evt-final", "system", "**Agent-Native**\n\n- `core` package", {
+        role: "assistant",
+        seq: 4,
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({ type: "user" }),
+      expect.objectContaining({
+        type: "assistant",
+        source: "runner-stdout",
+        text: "**Agent-Native**\n\n- `core` package",
+        eventIds: ["evt-delta-1", "evt-delta-2", "evt-delta-3", "evt-final"],
+        suppressedDuplicateEventIds: ["evt-final"],
+      }),
+    ]);
+    expect(transcript.hiddenEvents.map((item) => item.id)).toEqual([
+      "evt-engine",
+      "evt-final",
+    ]);
+  });
+
+  it("keeps regular assistant system messages when they are not stdout duplicates", () => {
+    const events = [
+      event("evt-user", "user", "Summarize the changes."),
+      event("evt-final", "system", "I changed the tests only.", {
+        role: "assistant",
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({
+        type: "user",
+        text: "Summarize the changes.",
+      }),
+      expect.objectContaining({
+        type: "assistant",
+        source: "system",
+        text: "I changed the tests only.",
+      }),
+    ]);
+    expect(transcript.hiddenEvents).toEqual([]);
+  });
+
+  it("groups tool start, activity, and done events into one compact tool item", () => {
+    const events = [
+      event("evt-tool-start", "status", "Running exec_command.", {
+        type: "tool_start",
+        tool: "exec_command",
+        input: { cmd: "pnpm test" },
+      }),
+      event("evt-tool-activity", "status", "Running tests", {
+        type: "activity",
+        tool: "exec_command",
+      }),
+      event("evt-tool-done", "status", "Finished exec_command.", {
+        type: "tool_done",
+        tool: "exec_command",
+        result: "1 passed",
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({
+        type: "tool",
+        tool: "exec_command",
+        label: "Running exec_command.",
+        state: "completed",
+        input: { cmd: "pnpm test" },
+        result: "1 passed",
+        activities: ["Running tests"],
+        eventIds: ["evt-tool-start", "evt-tool-activity", "evt-tool-done"],
+      }),
+    ]);
+  });
+
+  it("merges activity before tool_start so a completed tool does not keep working forever", () => {
+    const events = [
+      event("evt-tool-activity", "status", "Preparing list_files action", {
+        type: "activity",
+        tool: "list_files",
+      }),
+      event("evt-tool-start", "status", "Running list_files.", {
+        type: "tool_start",
+        tool: "list_files",
+      }),
+      event("evt-tool-done", "status", "Finished list_files.", {
+        type: "tool_done",
+        tool: "list_files",
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({
+        type: "tool",
+        tool: "list_files",
+        label: "Running list_files.",
+        state: "completed",
+        activities: ["Preparing list_files action"],
+        eventIds: ["evt-tool-activity", "evt-tool-start", "evt-tool-done"],
+      }),
+    ]);
+  });
+
+  it("shows important approval and error statuses while hiding lifecycle noise", () => {
+    const events = [
+      event("evt-queued", "status", "Remote Agent-Native Code run queued.", {
+        status: "queued",
+        phase: "queued",
+      }),
+      event("evt-approval", "status", "Approval required: Run pnpm test.", {
+        status: "needs-approval",
+        phase: "approval-required",
+        pendingApprovalId: "approval-1",
+      }),
+      event("evt-error", "status", "Model call failed.", {
+        type: "error",
+        errorCode: "provider_error",
+      }),
+      event("evt-mcp", "status", "Connected 2 MCP tools for this run.", {
+        type: "mcp-tools-connected",
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({
+        type: "status",
+        level: "approval",
+        text: "Approval required: Run pnpm test.",
+      }),
+      expect.objectContaining({
+        type: "status",
+        level: "error",
+        text: "Model call failed.",
+      }),
+    ]);
+    expect(transcript.hiddenEvents.map((item) => item.id)).toEqual([
+      "evt-queued",
+      "evt-mcp",
+    ]);
+  });
+
+  it("retains note and artifact events in the normal output", () => {
+    const events = [
+      event("evt-artifact", "artifact", "Migration dossier created.", {
+        path: "/tmp/dossier",
+      }),
+      event("evt-note", "note", "Use the dossier with another coding agent.", {
+        source: "migration-dossier",
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({
+        type: "status",
+        statusKind: "artifact",
+        text: "Migration dossier created.",
+      }),
+      expect.objectContaining({
+        type: "status",
+        statusKind: "note",
+        text: "Use the dossier with another coding agent.",
+      }),
+    ]);
+  });
+});
+
+function event(
+  id: string,
+  kind: CodeAgentTranscriptEvent["kind"],
+  message: string,
+  metadata?: Record<string, unknown>,
+): CodeAgentTranscriptEvent {
+  return {
+    schemaVersion: 1,
+    id,
+    runId: "run-1",
+    kind,
+    message,
+    createdAt: `2026-05-17T12:${id.length.toString().padStart(2, "0")}:00.000Z`,
+    metadata,
+  };
+}

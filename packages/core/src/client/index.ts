@@ -26,6 +26,19 @@ export {
   type CodeRequiredDialogProps,
 } from "./components/CodeRequiredDialog.js";
 export {
+  AgentConversation,
+  AgentConversationMessageView,
+  useNearBottomAutoscroll,
+  type AgentConversationArtifact,
+  type AgentConversationMessage,
+  type AgentConversationMessagePart,
+  type AgentConversationMessageRole,
+  type AgentConversationNotice,
+  type AgentConversationNoticeTone,
+  type AgentConversationToolCall,
+  type AgentConversationToolState,
+} from "./conversation/index.js";
+export {
   CodeAgentIndicator,
   type CodeAgentIndicatorProps,
 } from "./components/CodeAgentIndicator.js";

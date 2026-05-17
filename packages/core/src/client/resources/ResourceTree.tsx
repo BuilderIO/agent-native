@@ -16,6 +16,7 @@ import {
   IconBulb,
   IconClockHour3,
   IconLoader2,
+  IconHelpCircle,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import type { TreeNode, ResourceMeta, JobMetadata } from "./use-resources.js";
@@ -544,30 +545,28 @@ export function ResourceTree({
       {/* Section heading */}
       <div className="group/root flex items-center justify-between px-1.5 py-1">
         <TooltipProvider delayDuration={200}>
-          {titleTooltip ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
-                  {title}
-                  {headingHint && (
-                    <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">
-                      {headingHint}
-                    </span>
-                  )}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{titleTooltip}</TooltipContent>
-            </Tooltip>
-          ) : (
-            <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
-              {title}
-              {headingHint && (
-                <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">
-                  {headingHint}
-                </span>
-              )}
-            </span>
-          )}
+          <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+            {title}
+            {headingHint && (
+              <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">
+                {headingHint}
+              </span>
+            )}
+            {titleTooltip && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`About ${title}`}
+                    className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-muted-foreground/40 hover:text-muted-foreground"
+                  >
+                    <IconHelpCircle className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{titleTooltip}</TooltipContent>
+              </Tooltip>
+            )}
+          </span>
           {!readOnly && (
             <Tooltip>
               <TooltipTrigger asChild>

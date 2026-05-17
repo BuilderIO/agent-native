@@ -8,7 +8,7 @@
     "build": "agent-native build",
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
-    "test": "echo 'skipping dispatch tests (no test files)'",
+    "test": "vitest --run --passWithNoTests",
     "action": "agent-native action",
     "script": "agent-native script"
   },

@@ -22,6 +22,7 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { toAbsoluteOpenUrl, toDesktopOpenUrl } from "../server/deep-link.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
+import { MCP_CONNECT_SCOPE } from "./connect-store.js";
 
 export interface MCPConfig {
   /** App name shown in MCP server info */
@@ -416,6 +417,39 @@ export async function verifyAuth(
         token,
         new TextEncoder().encode(process.env.A2A_SECRET!),
       );
+
+      const tokenScope =
+        typeof payload.scope === "string" ? payload.scope : undefined;
+      if (tokenScope && tokenScope !== MCP_CONNECT_SCOPE) {
+        return { authed: false };
+      }
+
+      // Connect-minted tokens (scope === "mcp-connect") carry a random `jti`
+      // and are individually revocable. Only these tokens hit the revoke
+      // store — ordinary A2A delegation JWTs skip the DB lookup entirely so
+      // the hot path is unchanged. The revoke check FAILS OPEN on any
+      // store/DB error: a transient Neon WS drop must never lock every
+      // connected agent out. The signature was already cryptographically
+      // verified above, so failing open here only widens the explicit-revoke
+      // gate, never the trust boundary.
+      if (tokenScope === MCP_CONNECT_SCOPE) {
+        if (typeof payload.jti !== "string" || !payload.jti) {
+          return { authed: false };
+        }
+        const jti = payload.jti;
+        try {
+          const { isJtiRevoked, touchTokenUsed } =
+            await import("./connect-store.js");
+          if (await isJtiRevoked(jti)) {
+            return { authed: false };
+          }
+          // Best-effort usage telemetry — never blocks / throws.
+          void touchTokenUsed(jti);
+        } catch {
+          // Store import / lookup failed — fail open (see comment above).
+        }
+      }
+
       return {
         authed: true,
         identity: {

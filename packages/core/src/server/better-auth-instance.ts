@@ -555,6 +555,64 @@ export function getBetterAuthSync(): BetterAuthInstance | undefined {
   return _auth;
 }
 
+/**
+ * The subset of Better Auth's internal adapter we use for federated-SSO
+ * JIT account linking. Better Auth owns these writes (id + timestamp +
+ * schema handling), so callers never hand-roll SQL against `user`/`account`.
+ * Read-only lookups + strictly-additive `linkAccount`/`createUser` only — no
+ * update/delete of existing identity rows.
+ */
+export interface BetterAuthInternalAdapter {
+  findUserByEmail: (
+    email: string,
+    options?: { includeAccounts: boolean },
+  ) => Promise<{
+    user: { id: string; email: string; name?: string };
+    accounts: Array<{ providerId: string; accountId: string }>;
+  } | null>;
+  linkAccount: (account: {
+    userId: string;
+    providerId: string;
+    accountId: string;
+  }) => Promise<unknown>;
+  createUser: (user: {
+    email: string;
+    name: string;
+    emailVerified?: boolean;
+  }) => Promise<{ id: string }>;
+}
+
+/**
+ * Resolve Better Auth's internal adapter via the live instance's
+ * `$context`. The framework's narrowed `BetterAuthInstance` interface omits
+ * `$context`, but the underlying object created by `betterAuth(...)` always
+ * exposes it (see Better Auth's `Auth` type) — so this is a safe, typed
+ * accessor for the federated-SSO client. Returns `undefined` if the context
+ * shape is unexpected (older/newer Better Auth) so callers can fall back.
+ */
+export async function getBetterAuthInternalAdapter(
+  config?: BetterAuthConfig,
+): Promise<BetterAuthInternalAdapter | undefined> {
+  const auth = (await getBetterAuth(config)) as unknown as {
+    $context?: Promise<{ internalAdapter?: BetterAuthInternalAdapter }>;
+  };
+  try {
+    const ctx = await auth.$context;
+    const ia = ctx?.internalAdapter;
+    if (
+      ia &&
+      typeof ia.findUserByEmail === "function" &&
+      typeof ia.linkAccount === "function" &&
+      typeof ia.createUser === "function"
+    ) {
+      return ia;
+    }
+  } catch {
+    // Context resolution failed — caller falls back to the signup path.
+  }
+  return undefined;
+}
+
 /** Reset for testing */
 export async function resetBetterAuth(): Promise<void> {
   _auth = undefined;

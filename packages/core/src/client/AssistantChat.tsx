@@ -44,6 +44,7 @@ import {
 } from "./sse-event-processor.js";
 import { captureError, trackEvent } from "./analytics.js";
 import { cn } from "./utils.js";
+import { useNearBottomAutoscroll } from "./conversation/index.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
@@ -72,6 +73,7 @@ import {
 import { ThumbsFeedback } from "./observability/ThumbsFeedback.js";
 import {
   TiptapComposer,
+  type ComposerSubmitIntent,
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
 import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
@@ -3314,7 +3316,6 @@ const AssistantChatInner = forwardRef<
   },
   ref,
 ) {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const threadRuntime = useThreadRuntime();
   const composerRuntime = useComposerRuntime();
@@ -4257,6 +4258,7 @@ const AssistantChatInner = forwardRef<
       references?: Reference[],
       attachments?: ReadonlyArray<unknown>,
       requestMode?: AgentRequestMode,
+      intent: ComposerSubmitIntent = "queued",
     ) => {
       setShowContinue(false);
       setLoopLimitInfo(null);
@@ -4273,8 +4275,7 @@ const AssistantChatInner = forwardRef<
       // user had scrolled up to read history. The sticky-bottom override
       // exists to stop streaming from yanking the viewport, not to swallow
       // direct sends.
-      isNearBottomRef.current = true;
-      setShowScrollToBottom(false);
+      markNearBottom();
       const queuedAttachments = await serializeQueuedAttachments(attachments);
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
@@ -4287,7 +4288,7 @@ const AssistantChatInner = forwardRef<
           : execMode === "build"
             ? "act"
             : undefined);
-      if (isRunning) {
+      if (isRunning && intent === "queued") {
         setQueuedMessages((prev) => [
           ...prev,
           {
@@ -4355,41 +4356,17 @@ const AssistantChatInner = forwardRef<
     [addToQueue, messages.length, thread.isRunning, threadRuntime],
   );
 
-  // Track whether user has scrolled away from bottom
-  const isNearBottomRef = useRef(true);
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    function onScroll() {
-      if (!el) return;
-      const threshold = 40;
-      const nearBottom =
-        el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-      isNearBottomRef.current = nearBottom;
-      setShowScrollToBottom(!nearBottom && messages.length > 0);
-    }
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [messages.length]);
-
-  const scrollToBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
-      isNearBottomRef.current = true;
-      setShowScrollToBottom(false);
-    }
-  }, []);
-
-  const scrollToBottomAfterPaint = useCallback(() => {
-    scrollToBottom();
-    requestAnimationFrame(() => {
-      scrollToBottom();
-      requestAnimationFrame(scrollToBottom);
-    });
-    setTimeout(scrollToBottom, 80);
-  }, [scrollToBottom]);
+  const {
+    scrollRef,
+    isNearBottomRef,
+    showScrollToBottom,
+    markNearBottom,
+    scrollToBottom,
+    scrollToBottomAfterPaint,
+  } = useNearBottomAutoscroll<HTMLDivElement>({
+    followKey: [messages, queuedMessages],
+    streaming: isRunning,
+  });
 
   const scrollToBottomWhileLayoutSettles = useCallback(() => {
     scrollToBottomAfterPaint();
@@ -4424,32 +4401,11 @@ const AssistantChatInner = forwardRef<
     }
   }, [isRestoring, scrollToBottomWhileLayoutSettles]);
 
-  // Auto-scroll on new messages or queued messages (only if near bottom)
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el && isNearBottomRef.current) {
-      scrollToBottomAfterPaint();
-    }
-  }, [messages, queuedMessages, scrollToBottomAfterPaint]);
-
   useEffect(() => {
     if (!isRunning && isNearBottomRef.current) {
       scrollToBottomAfterPaint();
     }
   }, [isRunning, scrollToBottomAfterPaint]);
-
-  // Continuous auto-scroll while streaming (only if near bottom)
-  useEffect(() => {
-    if (!isRunning) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const interval = setInterval(() => {
-      if (isNearBottomRef.current) {
-        el.scrollTop = el.scrollHeight;
-      }
-    }, 100);
-    return () => clearInterval(interval);
-  }, [isRunning]);
 
   const { isDevMode: cpDevMode } = useDevMode(apiUrl);
   const checkpointCtx = useMemo(
@@ -4854,18 +4810,20 @@ const AssistantChatInner = forwardRef<
                         "Open Desktop to use this chat.")
                       : isRunning
                         ? queuedMessages.length > 0
-                          ? `${queuedMessages.length} queued — type another...`
-                          : "Queue a message..."
+                          ? `${queuedMessages.length} queued — send a follow-up...`
+                          : "Send a follow-up..."
                         : undefined
                 }
                 onSubmit={
                   isRunning
-                    ? (text, references, attachments) =>
+                    ? (text, references, attachments, options) =>
                         void addToQueue(
                           text,
                           undefined,
                           references.length > 0 ? references : undefined,
                           attachments,
+                          undefined,
+                          options?.intent ?? "immediate",
                         )
                     : undefined
                 }

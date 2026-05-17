@@ -37,6 +37,17 @@ import {
 } from "@shared/ipc-channels";
 import type { CodeAgentPermissionMode } from "@shared/code-agents";
 
+const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
+  "code-agents:subscribe-transcript";
+const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
+  "code-agents:unsubscribe-transcript";
+const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL = "code-agents:transcript-events";
+
+type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
+  subscriptionId?: string;
+  reason?: string;
+};
+
 /** The API surface exposed to the renderer via window.electronAPI */
 const electronAPI = {
   /** Current OS platform — used by renderer to adapt UI (e.g. traffic lights vs custom controls) */
@@ -143,6 +154,35 @@ const electronAPI = {
       request: CodeAgentTranscriptRequest,
     ): Promise<CodeAgentTranscriptResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_READ_TRANSCRIPT, request),
+    subscribeTranscript: (
+      request: CodeAgentTranscriptRequest,
+      cb: (batch: CodeAgentTranscriptSubscriptionBatch) => void,
+    ): (() => void) => {
+      const subscriptionId = `subscription-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`;
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        batch: CodeAgentTranscriptSubscriptionBatch,
+      ) => {
+        if (batch?.subscriptionId !== subscriptionId) return;
+        cb(batch);
+      };
+      ipcRenderer.on(CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL, handler);
+      ipcRenderer.send(CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL, {
+        subscriptionId,
+        request,
+      });
+      return () => {
+        ipcRenderer.removeListener(
+          CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
+          handler,
+        );
+        ipcRenderer.send(CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL, {
+          subscriptionId,
+        });
+      };
+    },
     appendFollowUp: (
       request: CodeAgentFollowUpRequest,
     ): Promise<CodeAgentFollowUpResult> =>

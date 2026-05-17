@@ -135,6 +135,11 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
   "BUILDER_PUBLIC_KEY",
 ];
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
+const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
+  "code-agents:subscribe-transcript";
+const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
+  "code-agents:unsubscribe-transcript";
+const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL = "code-agents:transcript-events";
 
 type DesktopBackgroundAgentControlCommand =
   | "approve"
@@ -177,22 +182,59 @@ interface DesktopBackgroundAgentController {
   ): Promise<DesktopBackgroundAgentControlResult>;
 }
 
+interface CodeAgentTranscriptSubscriptionBatch {
+  subscriptionId: string;
+  status: CodeAgentTranscriptResult["status"];
+  runId: string;
+  events: CodeAgentTranscriptEvent[];
+  eventFile?: string;
+  reason?: string;
+  error?: string;
+}
+
+interface CodeAgentTranscriptSubscription {
+  id: string;
+  runId: string;
+  senderId: number;
+  knownEventKeys: Set<string>;
+  watcher?: fs.FSWatcher;
+  flushTimer?: NodeJS.Timeout;
+  reason?: string;
+}
+
 function isDeepLinkArg(arg: string): boolean {
   return arg.startsWith(`${DEEP_LINK_PROTOCOL}:`);
 }
 
-const singleInstanceLock = app.requestSingleInstanceLock();
-if (!singleInstanceLock) {
-  app.quit();
+function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
+  const deepLink = argv.find(isDeepLinkArg);
+  if (deepLink) {
+    void handleDeepLink(deepLink);
+  } else {
+    focusMainWindow();
+  }
+}
+
+if (IS_DEV) {
+  // electron-vite kills the main process and relaunches it on every rebuild
+  // (e.g. when the concurrent `@agent-native/core` tsc --watch under
+  // dev:lazy:desktop rewrites bundled output). A single-instance lock would
+  // make the relaunched instance race the still-dying one for the lock, lose,
+  // and app.quit() — leaving the killed instance's dead Dock tile behind.
+  // Skip the lock in dev; keep the deep-link handler for parity.
+  app.on("second-instance", handleSecondInstance);
+  // Quit immediately when electron-vite SIGTERMs us so the old process and its
+  // Dock tile vanish at once, before the relaunched instance paints its window.
+  const exitNow = () => app.exit(0);
+  process.on("SIGTERM", exitNow);
+  process.on("SIGINT", exitNow);
 } else {
-  app.on("second-instance", (_event, argv) => {
-    const deepLink = argv.find(isDeepLinkArg);
-    if (deepLink) {
-      void handleDeepLink(deepLink);
-    } else {
-      focusMainWindow();
-    }
-  });
+  const singleInstanceLock = app.requestSingleInstanceLock();
+  if (!singleInstanceLock) {
+    app.quit();
+  } else {
+    app.on("second-instance", handleSecondInstance);
+  }
 }
 
 interface OAuthInjectionTarget {
@@ -1468,6 +1510,36 @@ function firstTextValue(...values: unknown[]): string | undefined {
   return undefined;
 }
 
+function transcriptTextFromUnknown(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value.trim() ? value : undefined;
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (!isObject(item)) return "";
+        return (
+          firstTranscriptTextValue(item.text, item.content, item.message) ?? ""
+        );
+      })
+      .filter((part) => part.trim());
+    return parts.length > 0 ? parts.join("\n") : undefined;
+  }
+  if (isObject(value)) {
+    return firstTranscriptTextValue(value.text, value.content, value.message);
+  }
+  return undefined;
+}
+
+function firstTranscriptTextValue(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const text = transcriptTextFromUnknown(value);
+    if (text) return text;
+  }
+  return undefined;
+}
+
 function getRecordString(
   record: Record<string, unknown> | null | undefined,
   key: string,
@@ -1667,7 +1739,7 @@ function normalizeCodeAgentTranscriptEvent(
     type === "artifact" ? "Artifact" : undefined,
   );
   const text =
-    firstTextValue(
+    firstTranscriptTextValue(
       row.text,
       row.content,
       row.message,
@@ -1828,6 +1900,160 @@ function readCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
   };
 }
 
+const codeAgentTranscriptSubscriptions = new Map<
+  string,
+  CodeAgentTranscriptSubscription
+>();
+const codeAgentAssistantDeltaSeq = new Map<string, number>();
+
+function codeAgentTranscriptEventKey(event: CodeAgentTranscriptEvent): string {
+  return `${event.id}\u0000${event.createdAt}\u0000${event.text}`;
+}
+
+function readCodeAgentTranscriptSeq(event: CodeAgentTranscriptEvent): number {
+  const seq = event.metadata?.seq;
+  return typeof seq === "number" && Number.isFinite(seq) ? seq : 0;
+}
+
+function nextCodeAgentAssistantDeltaSeq(runId: string): number {
+  const current = codeAgentAssistantDeltaSeq.get(runId);
+  if (current !== undefined) {
+    const next = current + 1;
+    codeAgentAssistantDeltaSeq.set(runId, next);
+    return next;
+  }
+  const transcript = readCodeAgentTranscript({ runId });
+  const maxSeq = transcript.events.reduce(
+    (max, event) => Math.max(max, readCodeAgentTranscriptSeq(event)),
+    0,
+  );
+  const next = maxSeq + 1;
+  codeAgentAssistantDeltaSeq.set(runId, next);
+  return next;
+}
+
+function appendCodeAgentAssistantDeltaEvent(runId: string, text: string): void {
+  if (!text.trim()) return;
+  const now = new Date().toISOString();
+  const seq = nextCodeAgentAssistantDeltaSeq(runId);
+  appendCodeAgentTranscriptEvent({
+    id: `event-${timestampSlug(now)}-${randomUUID().slice(0, 8)}`,
+    runId,
+    type: "system",
+    title: "Assistant",
+    text,
+    createdAt: now,
+    metadata: {
+      source: "runner-stdout",
+      type: "assistant_delta",
+      seq,
+      stream: "stdout",
+    },
+  });
+}
+
+function initializeCodeAgentTranscriptSubscriptionKeys(
+  subscription: CodeAgentTranscriptSubscription,
+): CodeAgentTranscriptResult {
+  const result = readCodeAgentTranscript({ runId: subscription.runId });
+  subscription.knownEventKeys = new Set(
+    result.events.map(codeAgentTranscriptEventKey),
+  );
+  return result;
+}
+
+function removeCodeAgentTranscriptSubscription(subscriptionId: string): void {
+  const subscription = codeAgentTranscriptSubscriptions.get(subscriptionId);
+  if (!subscription) return;
+  if (subscription.flushTimer) clearTimeout(subscription.flushTimer);
+  subscription.watcher?.close();
+  codeAgentTranscriptSubscriptions.delete(subscriptionId);
+}
+
+function sendCodeAgentTranscriptSubscriptionBatch(
+  subscription: CodeAgentTranscriptSubscription,
+  batch: Omit<CodeAgentTranscriptSubscriptionBatch, "subscriptionId">,
+): void {
+  const target = webContents.fromId(subscription.senderId);
+  if (!target || target.isDestroyed()) {
+    removeCodeAgentTranscriptSubscription(subscription.id);
+    return;
+  }
+  target.send(CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL, {
+    subscriptionId: subscription.id,
+    ...batch,
+  } satisfies CodeAgentTranscriptSubscriptionBatch);
+}
+
+function flushCodeAgentTranscriptSubscription(
+  subscription: CodeAgentTranscriptSubscription,
+  reason: string,
+): void {
+  subscription.flushTimer = undefined;
+  const result = readCodeAgentTranscript({ runId: subscription.runId });
+  const nextKnownEventKeys = new Set<string>();
+  const events: CodeAgentTranscriptEvent[] = [];
+
+  for (const event of result.events) {
+    const key = codeAgentTranscriptEventKey(event);
+    nextKnownEventKeys.add(key);
+    if (!subscription.knownEventKeys.has(key)) events.push(event);
+  }
+
+  subscription.knownEventKeys = nextKnownEventKeys;
+  if (events.length === 0 && result.status === "ok" && !result.error) return;
+
+  sendCodeAgentTranscriptSubscriptionBatch(subscription, {
+    status: result.status,
+    runId: result.runId ?? subscription.runId,
+    events,
+    eventFile: result.eventFile,
+    reason,
+    error: result.error,
+  });
+}
+
+function scheduleCodeAgentTranscriptSubscriptionFlush(
+  subscription: CodeAgentTranscriptSubscription,
+  reason: string,
+): void {
+  subscription.reason = reason;
+  if (subscription.flushTimer) return;
+  subscription.flushTimer = setTimeout(() => {
+    flushCodeAgentTranscriptSubscription(
+      subscription,
+      subscription.reason ?? reason,
+    );
+  }, 40);
+}
+
+function notifyCodeAgentTranscriptChanged(runId: string, reason: string): void {
+  for (const subscription of codeAgentTranscriptSubscriptions.values()) {
+    if (subscription.runId !== runId) continue;
+    scheduleCodeAgentTranscriptSubscriptionFlush(subscription, reason);
+  }
+}
+
+function watchCodeAgentTranscriptSubscription(
+  subscription: CodeAgentTranscriptSubscription,
+): void {
+  const eventFile = codeAgentEventFilePath(subscription.runId);
+  if (!eventFile) return;
+  const dir = path.dirname(eventFile);
+  const fileName = path.basename(eventFile);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    subscription.watcher = fs.watch(dir, (_eventType, changedFile) => {
+      const changedName = changedFile ? String(changedFile) : "";
+      if (changedName && changedName !== fileName) return;
+      scheduleCodeAgentTranscriptSubscriptionFlush(subscription, "file-watch");
+    });
+  } catch {
+    // readTranscript remains the compatibility fallback when file watching
+    // is unavailable for this filesystem.
+  }
+}
+
 function readLatestCodeAgentUserPrompt(runId: string): string | undefined {
   const transcript = readCodeAgentTranscript({ runId });
   for (let index = transcript.events.length - 1; index >= 0; index -= 1) {
@@ -1879,6 +2105,7 @@ function appendCodeAgentTranscriptEvent(
       message: event.text,
     })}\n`,
   );
+  notifyCodeAgentTranscriptChanged(event.runId, "append");
   return eventFile;
 }
 
@@ -1976,9 +2203,7 @@ function spawnCodeAgentRunner(
       },
     });
     child.stdout?.on("data", (chunk) => {
-      appendCodeAgentStatusEvent(runId, chunk.toString().trim(), {
-        source: "runner-stdout",
-      });
+      appendCodeAgentAssistantDeltaEvent(runId, chunk.toString());
     });
     child.stderr?.on("data", (chunk) => {
       appendCodeAgentStatusEvent(runId, chunk.toString().trim(), {
@@ -1987,6 +2212,7 @@ function spawnCodeAgentRunner(
     });
     child.on("exit", (code, signal) => {
       activeCodeAgentProcesses.delete(runId);
+      codeAgentAssistantDeltaSeq.delete(runId);
       appendCodeAgentStatusEvent(
         runId,
         code === 0
@@ -3777,6 +4003,62 @@ ipcMain.handle(
   IPC.CODE_AGENTS_READ_TRANSCRIPT,
   (_event: IpcMainInvokeEvent, input: unknown): CodeAgentTranscriptResult =>
     readCodeAgentTranscript(input),
+);
+
+ipcMain.on(
+  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
+  (event: IpcMainEvent, input: unknown) => {
+    const payload = isObject(input) ? input : {};
+    const subscriptionId =
+      firstStringValue(payload.subscriptionId) ??
+      `subscription-${timestampSlug(new Date().toISOString())}-${randomUUID().slice(0, 8)}`;
+    const request = isObject(payload.request) ? payload.request : payload;
+    const runId = normalizeCodeAgentRunId(request.runId);
+    if (!runId) {
+      event.sender.send(CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL, {
+        subscriptionId,
+        status: "unavailable",
+        runId: "",
+        events: [],
+        error: "Missing or invalid run id.",
+      } satisfies CodeAgentTranscriptSubscriptionBatch);
+      return;
+    }
+
+    removeCodeAgentTranscriptSubscription(subscriptionId);
+    const subscription: CodeAgentTranscriptSubscription = {
+      id: subscriptionId,
+      runId,
+      senderId: event.sender.id,
+      knownEventKeys: new Set(),
+    };
+    const result = initializeCodeAgentTranscriptSubscriptionKeys(subscription);
+    codeAgentTranscriptSubscriptions.set(subscriptionId, subscription);
+    watchCodeAgentTranscriptSubscription(subscription);
+    event.sender.once("destroyed", () => {
+      removeCodeAgentTranscriptSubscription(subscriptionId);
+    });
+    if (result.status !== "ok" || result.error) {
+      sendCodeAgentTranscriptSubscriptionBatch(subscription, {
+        status: result.status,
+        runId: result.runId ?? runId,
+        events: [],
+        eventFile: result.eventFile,
+        reason: "subscribe",
+        error: result.error,
+      });
+    }
+  },
+);
+
+ipcMain.on(
+  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
+  (_event: IpcMainEvent, input: unknown) => {
+    const subscriptionId = isObject(input)
+      ? firstStringValue(input.subscriptionId)
+      : firstStringValue(input);
+    if (subscriptionId) removeCodeAgentTranscriptSubscription(subscriptionId);
+  },
 );
 
 ipcMain.handle(

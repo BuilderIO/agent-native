@@ -1,4 +1,4 @@
-name: Hide Cloudflare Pages bot comment
+name: Hide preview bot comments
 
 on:
   issue_comment:
@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   minimize:
-    if: github.event.issue.pull_request && github.event.comment.user.login == 'cloudflare-workers-and-pages[bot]'
+    if: >-
+      github.event.issue.pull_request &&
+      (github.event.comment.user.login == 'cloudflare-workers-and-pages[bot]' ||
+       github.event.comment.user.login == 'netlify[bot]')
     runs-on: ubuntu-latest
     steps:
       - name: Minimize comment

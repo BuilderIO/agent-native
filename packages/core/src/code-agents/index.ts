@@ -23,6 +23,16 @@ export {
   type ListBackgroundAgentRunsOptions,
 } from "./background-run.js";
 export {
+  normalizeCodeAgentTranscript,
+  type NormalizedCodeAgentAssistantTurn,
+  type NormalizedCodeAgentStatusEvent,
+  type NormalizedCodeAgentToolEvent,
+  type NormalizedCodeAgentTranscript,
+  type NormalizedCodeAgentTranscriptBase,
+  type NormalizedCodeAgentTranscriptItem,
+  type NormalizedCodeAgentUserTurn,
+} from "./transcript-normalizer.js";
+export {
   CODE_AGENT_PERMISSION_MODES,
   appendCodeAgentTranscriptEvent,
   codeAgentRunArtifactsDir,

@@ -6,6 +6,7 @@ const workspaceRendererPackages = [
   "@agent-native/code-agents-ui",
   "@agent-native/code-agents-ui/code-agents",
   "@agent-native/core",
+  "@agent-native/core/code-agents/transcript-normalizer",
   "@agent-native/core/client",
   "@agent-native/shared-app-config",
 ];

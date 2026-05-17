@@ -13,6 +13,7 @@ import {
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
+import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
 
 function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -810,7 +811,7 @@ ${marketingPanelHtml}
     id="upgrade-note"
     data-upgrade-copy="Continue signing in to attach this app to your account and migrate local data."
   ></p>
-
+${identitySsoLoginButtonHtml()}
 ${
   showGoogle
     ? `

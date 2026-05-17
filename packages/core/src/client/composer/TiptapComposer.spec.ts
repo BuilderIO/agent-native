@@ -6,6 +6,7 @@ import {
   canSubmitComposerContent,
   createTiptapComposerExtensions,
   displayableComposerModeMessage,
+  getComposerSubmitIntentForEnterKey,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
@@ -67,5 +68,35 @@ describe("createTiptapComposerExtensions", () => {
         attachmentCount: 1,
       }),
     ).toBe("Create an extension: Use the attached context.");
+  });
+
+  it("maps Enter keybindings to immediate and queued submit intents", () => {
+    const enter = {
+      key: "Enter",
+      shiftKey: false,
+      metaKey: false,
+      ctrlKey: false,
+    };
+
+    expect(getComposerSubmitIntentForEnterKey(enter, true)).toBe("immediate");
+    expect(getComposerSubmitIntentForEnterKey(enter, false)).toBe("immediate");
+    expect(
+      getComposerSubmitIntentForEnterKey({ ...enter, metaKey: true }, true),
+    ).toBe("queued");
+    expect(
+      getComposerSubmitIntentForEnterKey({ ...enter, ctrlKey: true }, false),
+    ).toBe("queued");
+    expect(
+      getComposerSubmitIntentForEnterKey(
+        { ...enter, shiftKey: true, metaKey: true },
+        true,
+      ),
+    ).toBeNull();
+    expect(
+      getComposerSubmitIntentForEnterKey({ ...enter, ctrlKey: true }, true),
+    ).toBeNull();
+    expect(
+      getComposerSubmitIntentForEnterKey({ ...enter, metaKey: true }, false),
+    ).toBeNull();
   });
 });
