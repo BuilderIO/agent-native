@@ -347,6 +347,18 @@ export function isReadOnlyShellCommand(command: string): boolean {
   if (/[\n\r;&|<>]/.test(normalized)) return false;
   if (/\$\(|`|\${|\\\n/.test(command)) return false;
 
+  // `sed` can WRITE even in `-n` mode via the `w`/`W` commands or `-i`
+  // (e.g. `sed -n '1w out.txt' file`), so the `^sed -n` allowlist entry
+  // below is not safe on its own. Reject any sed that can write.
+  if (/^sed\b/.test(normalized)) {
+    if (/(^|\s)-i(\b|=)|--in-place/.test(normalized)) return false;
+    // `w`/`W` used as a sed command: preceded by an address/separator
+    // (digit, $, /, }, ;, quote, space) and followed by a filename arg or
+    // end. Catches `1w f`, `$w f`, `/re/w f`, `s/x/y/w f`, `2W f`; leaves
+    // prints like `/window/p`, `1,5p`, `s/a/b/` untouched.
+    if (/[\s'"0-9$}/;](w|W)([\s'"]|$)/.test(normalized)) return false;
+  }
+
   const allowedPrefixes = [
     /^pwd\b/,
     /^ls\b/,

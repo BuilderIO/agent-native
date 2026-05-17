@@ -77,6 +77,16 @@ describe("shared coding tools", () => {
     expect(isReadOnlyShellCommand("rg button; node -e '1'")).toBe(false);
     expect(isReadOnlyShellCommand("rg button | tee out.txt")).toBe(false);
     expect(isReadOnlyShellCommand("rg $(node -e '1')")).toBe(false);
+    // sed: prints are read-only; w/W/-i can write and must be rejected.
+    expect(isReadOnlyShellCommand("sed -n '1,10p' README.md")).toBe(true);
+    expect(isReadOnlyShellCommand("sed -n '/window/p' README.md")).toBe(true);
+    expect(isReadOnlyShellCommand("sed -n '1w notes.txt' README.md")).toBe(
+      false,
+    );
+    expect(isReadOnlyShellCommand("sed -n 's/a/b/w out' README.md")).toBe(
+      false,
+    );
+    expect(isReadOnlyShellCommand("sed -i 's/a/b/' README.md")).toBe(false);
   });
 });
 

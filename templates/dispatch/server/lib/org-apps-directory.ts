@@ -210,6 +210,17 @@ export async function verifyA2ABearerToken(input: {
   for (const secret of candidates) {
     const payload = verifyWithSecret(decoded, secret, now);
     if (payload) {
+      // The org directory is a general A2A-peer endpoint. Reject tokens
+      // minted for a different single purpose — SSO identity assertions
+      // (`scope: "identity"`) or MCP-connect personal tokens
+      // (`scope: "mcp-connect"`) — so a leaked or replayed privileged token
+      // cannot enumerate the org's apps. General A2A peer tokens carry no
+      // `scope` claim and are still accepted.
+      const scope =
+        typeof (payload as { scope?: unknown }).scope === "string"
+          ? ((payload as { scope: string }).scope as string)
+          : "";
+      if (scope === "identity" || scope === "mcp-connect") return null;
       const sub = payload.sub;
       const email =
         typeof sub === "string" && sub.trim() ? sub.trim() : undefined;
