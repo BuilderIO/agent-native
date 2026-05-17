@@ -14,9 +14,17 @@ vi.mock("../server/h3-helpers.js", () => ({
 
 const getSessionMock = vi.fn();
 const getConfiguredLoginHtmlMock = vi.fn(() => null);
+// Mirror the real socket-based isLoopbackRequest: dev-open is gated on the
+// actual peer, not the (spoofable) Host header. The test events carry no
+// socket, so derive loopback from the host they simulate connecting as —
+// localhost/127.x ⇒ a loopback peer, anything else ⇒ remote.
+const isLoopbackRequestMock = vi.fn((event: any) =>
+  /^(localhost|127\.|\[?::1\]?)(:|$)/i.test(String(event?.headers?.host ?? "")),
+);
 vi.mock("../server/auth.js", () => ({
   getSession: (...a: any[]) => getSessionMock(...a),
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
+  isLoopbackRequest: (...a: any[]) => isLoopbackRequestMock(...a),
 }));
 
 vi.mock("../org/context.js", () => ({

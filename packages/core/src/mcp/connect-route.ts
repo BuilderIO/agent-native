@@ -30,7 +30,11 @@
 import type { H3Event } from "h3";
 import { getMethod, getHeader } from "h3";
 import { readBody } from "../server/h3-helpers.js";
-import { getSession, getConfiguredLoginHtml } from "../server/auth.js";
+import {
+  getSession,
+  getConfiguredLoginHtml,
+  isLoopbackRequest,
+} from "../server/auth.js";
 import { signA2AToken } from "../a2a/client.js";
 import { getOrgDomain } from "../org/context.js";
 import { randomUUID } from "node:crypto";
@@ -124,23 +128,14 @@ function serverName(origin: string, options: McpConnectRouteOptions): string {
   return `agent-native-${appLabel(origin, options)}`;
 }
 
-function isLoopbackOrigin(origin: string): boolean {
-  try {
-    const host = new URL(origin).hostname.toLowerCase();
-    return (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "::1" ||
-      host.startsWith("127.")
-    );
-  } catch {
-    return false;
-  }
-}
-
-function canUseDevOpenConnect(appUrl: string): boolean {
+function canUseDevOpenConnect(event: H3Event): boolean {
+  // Loopback determined from the real socket peer (isLoopbackRequest →
+  // getRequestIP without xForwardedFor), NOT a parsed `Host` header — the
+  // header is client-controlled, and it also handles IPv6 `::1`. A
+  // misconfigured public deploy with no secret thus can't unlock dev-open
+  // by spoofing `Host: localhost`.
   return (
-    isLoopbackOrigin(appUrl) &&
+    isLoopbackRequest(event) &&
     !process.env.A2A_SECRET?.trim() &&
     !process.env.ACCESS_TOKEN?.trim() &&
     !process.env.ACCESS_TOKENS?.trim()
@@ -711,7 +706,7 @@ export async function handleMcpConnect(
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
     if (!process.env.A2A_SECRET) {
-      if (canUseDevOpenConnect(appUrl)) {
+      if (canUseDevOpenConnect(event)) {
         return json(
           mcpResultPayload(appUrl, options, { ownerEmail: session.email }),
         );
@@ -826,7 +821,7 @@ export async function handleMcpConnect(
     }
     // status === "approved" && ownerEmail bound → mint exactly once.
     if (!process.env.A2A_SECRET) {
-      if (canUseDevOpenConnect(appUrl)) {
+      if (canUseDevOpenConnect(event)) {
         const consumed = await consumeDeviceCode(
           deviceCode,
           `dev-open-${randomUUID()}`,
