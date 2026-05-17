@@ -211,6 +211,19 @@ function mcpResultPayload(
 // Connect page (server-rendered HTML string)
 // ---------------------------------------------------------------------------
 
+function agentNativeMarkSvg(className: string, gradientId: string): string {
+  return `<svg class="${className}" width="114" height="66" viewBox="0 0 114 66" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <path d="M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z" fill="white"/>
+  <path d="M89.446 0H114L76.2921 65.7704H51.7383L89.446 0Z" fill="url(#${gradientId})"/>
+  <defs>
+    <linearGradient id="${gradientId}" x1="101.702" y1="67.4791" x2="113.672" y2="-37.4275" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00B5FF"/>
+      <stop offset="1" stop-color="#48FFE4"/>
+    </linearGradient>
+  </defs>
+</svg>`;
+}
+
 function renderConnectPage(params: {
   origin: string;
   connectBasePath: string;
@@ -222,8 +235,13 @@ function renderConnectPage(params: {
   const safeOrigin = escapeHtml(origin);
   const safeEmail = escapeHtml(email);
   const safeApp = escapeHtml(appName);
-  const safeBrandIconSrc = escapeHtml(
-    joinAppPath(connectBasePath, "/agent-native-icon-dark.svg"),
+  const brandMarkSvg = agentNativeMarkSvg(
+    "brand-mark",
+    "agent-native-connect-brand-gradient",
+  );
+  const flowMarkSvg = agentNativeMarkSvg(
+    "flow-mark",
+    "agent-native-connect-flow-gradient",
   );
   const safeUserCode =
     userCode && USER_CODE_RE.test(userCode) ? escapeHtml(userCode) : "";
@@ -268,7 +286,7 @@ function renderConnectPage(params: {
     display: flex; align-items: center; gap: 0.55rem;
     color: var(--muted); font-size: 0.78rem; font-weight: 600;
   }
-  .brand-lockup img { width: 18px; height: auto; display: block; }
+  .brand-mark { width: 18px; height: auto; display: block; }
   .app-pill {
     max-width: 50%; border: 1px solid var(--border);
     border-radius: 999px; padding: 0.28rem 0.55rem;
@@ -286,7 +304,7 @@ function renderConnectPage(params: {
     background: var(--panel-2); border: 1px solid var(--border-strong);
     color: var(--text); flex-shrink: 0;
   }
-  .flow .tile img { width: 26px; height: auto; display: block; }
+  .flow-mark { width: 26px; height: auto; display: block; }
   .flow .agent-symbol {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.95rem; font-weight: 700; letter-spacing: -0.04em;
@@ -459,7 +477,7 @@ function renderConnectPage(params: {
 <div class="card">
   <div class="topbar">
     <div class="brand-lockup">
-      <img src="${safeBrandIconSrc}" alt="" aria-hidden="true" />
+      ${brandMarkSvg}
       <span>Agent Native</span>
     </div>
     <div class="app-pill" title="${safeApp}">${safeApp}</div>
@@ -469,7 +487,7 @@ function renderConnectPage(params: {
     <!-- "Connect an external agent" is kept as the accessible consent label. -->
     <div class="flow" role="img" aria-label="Connect an external agent to ${safeApp}">
       <span class="tile" aria-hidden="true">
-        <img src="${safeBrandIconSrc}" alt="" />
+        ${flowMarkSvg}
       </span>
       <span class="conn" aria-hidden="true"></span>
       <span class="tile" aria-hidden="true">
