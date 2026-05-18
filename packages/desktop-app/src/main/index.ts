@@ -5,6 +5,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  Notification,
   session,
   shell,
   webContents,
@@ -666,17 +667,72 @@ app.on("open-url", (event, url) => {
 // In dev, autoUpdater is unsupported (no app signature, no dev-app-update.yml),
 // so we report an "unsupported" status and skip all autoUpdater calls.
 
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
+
 let currentUpdateStatus: UpdateStatus = IS_DEV
   ? { state: "unsupported", reason: "Auto-update is disabled in development" }
   : { state: "idle" };
+let updateCheckInFlight: Promise<unknown> | null = null;
+let lastUpdateCheckStartedAt = 0;
+let notifiedUpdateVersion: string | null = null;
 
 function broadcastUpdateStatus(status: UpdateStatus) {
   currentUpdateStatus = status;
+  refreshApplicationMenu();
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send(IPC.UPDATE_STATUS_CHANGED, status);
     }
   }
+}
+
+async function checkForAppUpdates(): Promise<UpdateStatus> {
+  if (IS_DEV) return currentUpdateStatus;
+  if (currentUpdateStatus.state === "downloaded") return currentUpdateStatus;
+
+  if (!updateCheckInFlight) {
+    lastUpdateCheckStartedAt = Date.now();
+    updateCheckInFlight = autoUpdater
+      .checkForUpdates()
+      .catch((err) => {
+        broadcastUpdateStatus({
+          state: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      })
+      .finally(() => {
+        updateCheckInFlight = null;
+      });
+  }
+
+  await updateCheckInFlight;
+  return currentUpdateStatus;
+}
+
+function maybeCheckForAppUpdates() {
+  if (IS_DEV) return;
+  if (currentUpdateStatus.state === "downloaded") return;
+  if (
+    updateCheckInFlight ||
+    Date.now() - lastUpdateCheckStartedAt < UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS
+  ) {
+    return;
+  }
+  void checkForAppUpdates();
+}
+
+function showUpdateReadyNotification(version: string) {
+  if (!Notification.isSupported()) return;
+  if (notifiedUpdateVersion === version) return;
+  notifiedUpdateVersion = version;
+
+  const notification = new Notification({
+    title: "Agent Native update ready",
+    body: `Version ${version} is downloaded. Open Agent Native to relaunch and install it.`,
+  });
+  notification.on("click", focusMainWindow);
+  notification.show();
 }
 
 if (!IS_DEV) {
@@ -720,6 +776,7 @@ if (!IS_DEV) {
       releaseNotes:
         typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
     });
+    showUpdateReadyNotification(info.version);
   });
 
   autoUpdater.on("error", (err) => {
@@ -730,33 +787,18 @@ if (!IS_DEV) {
   });
 
   app.whenReady().then(() => {
-    autoUpdater.checkForUpdates().catch(() => {
-      // Errors are surfaced via the 'error' event above; swallow the
-      // promise rejection so it doesn't become an unhandled rejection.
-    });
-    // Re-check every 4 hours
-    setInterval(
-      () => {
-        autoUpdater.checkForUpdates().catch(() => {});
-      },
-      4 * 60 * 60 * 1000,
-    );
+    void checkForAppUpdates();
+    setInterval(() => void checkForAppUpdates(), UPDATE_CHECK_INTERVAL_MS);
   });
+
+  app.on("browser-window-focus", maybeCheckForAppUpdates);
+  app.on("activate", maybeCheckForAppUpdates);
 }
 
 ipcMain.handle(IPC.UPDATE_GET_STATUS, (): UpdateStatus => currentUpdateStatus);
 
 ipcMain.handle(IPC.UPDATE_CHECK, async (): Promise<UpdateStatus> => {
-  if (IS_DEV) return currentUpdateStatus;
-  try {
-    await autoUpdater.checkForUpdates();
-  } catch (err) {
-    broadcastUpdateStatus({
-      state: "error",
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
-  return currentUpdateStatus;
+  return checkForAppUpdates();
 });
 
 ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {
@@ -4951,8 +4993,9 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 // ---------- OAuth handling ----------
 // OAuth providers we recognize and keep out of app webviews. Depending on the
 // provider and flow, the URL is opened in an Electron BrowserWindow or the
-// system browser. Builder opens in the system browser so users keep their
-// normal logged-in session and browser controls. Each provider specifies:
+// system browser. App-webview Builder connect stays in an Electron popup so the
+// callback shares the app session; the desktop Code provider has its own
+// loopback browser flow. Each provider specifies:
 //   - a `matches` predicate on the initial URL (from window.open)
 //   - a `callbackPathFragment` used to detect when the OAuth callback has
 //     been reached so we can auto-close the popup
@@ -5008,6 +5051,15 @@ function isTrustedGoogleOAuthStarter(
   return getUrlOrigin(context?.sourceUrl) === url.origin;
 }
 
+function isBuilderAppHost(host: string): boolean {
+  return (
+    host === "builder.io" ||
+    host.endsWith(".builder.io") ||
+    host === "builder.my" ||
+    host.endsWith(".builder.my")
+  );
+}
+
 const OAUTH_PROVIDERS: OAuthProvider[] = [
   {
     name: "google",
@@ -5034,9 +5086,7 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
       // webview don't get hijacked into the OAuth popup — they'd load
       // fine but never hit the callback and the popup would just sit
       // open on a docs page.
-      const isBuilderDomain =
-        host === "builder.io" || host.endsWith(".builder.io");
-      return isBuilderDomain && u.pathname.startsWith("/cli-auth");
+      return isBuilderAppHost(host) && u.pathname.startsWith("/cli-auth");
     },
     callbackPathFragments: ["/_agent-native/builder/callback"],
   },
@@ -5275,8 +5325,24 @@ function googleOAuthUsesDesktopExchange(url: URL): boolean {
   return !!extractFlowFromOAuthState(url.searchParams.get("state"));
 }
 
+function builderOAuthUsesDesktopProvider(url: URL): boolean {
+  if (!url.pathname.startsWith("/cli-auth")) return false;
+  if (url.searchParams.get("host") === "agent-native-desktop") return true;
+  const redirectUrl = url.searchParams.get("redirect_url");
+  if (!redirectUrl) return false;
+  try {
+    return new URL(redirectUrl).pathname.endsWith(
+      "/_agent-native/desktop-builder/callback",
+    );
+  } catch {
+    return false;
+  }
+}
+
 function shouldOpenOAuthInSystemBrowser(provider: OAuthProvider, url: URL) {
-  if (provider.name === "builder") return true;
+  if (provider.name === "builder") {
+    return builderOAuthUsesDesktopProvider(url);
+  }
   // Google blocks embedded/Electron OAuth surfaces. Framework pages that pass
   // a flow id poll /desktop-exchange, so the system browser can complete the
   // OAuth callback and the app webview can claim the resulting session token.
@@ -5690,6 +5756,144 @@ app.on("web-contents-created", (_event, contents) => {
 
 // ---------- App lifecycle ----------
 
+function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
+  if (IS_DEV) {
+    return {
+      label: "Check for Updates...",
+      enabled: false,
+    };
+  }
+
+  if (currentUpdateStatus.state === "downloaded") {
+    return {
+      label: currentUpdateStatus.version
+        ? `Relaunch to Install Update ${currentUpdateStatus.version}`
+        : "Relaunch to Install Update",
+      click: () => autoUpdater.quitAndInstall(false, true),
+    };
+  }
+
+  if (currentUpdateStatus.state === "downloading") {
+    return {
+      label: `Downloading Update (${currentUpdateStatus.percent}%)`,
+      enabled: false,
+    };
+  }
+
+  if (currentUpdateStatus.state === "available") {
+    return {
+      label: currentUpdateStatus.version
+        ? `Downloading Update ${currentUpdateStatus.version}`
+        : "Downloading Update",
+      enabled: false,
+    };
+  }
+
+  if (currentUpdateStatus.state === "checking") {
+    return {
+      label: "Checking for Updates...",
+      enabled: false,
+    };
+  }
+
+  return {
+    label:
+      currentUpdateStatus.state === "error"
+        ? "Retry Update Check"
+        : "Check for Updates...",
+    click: () => void checkForAppUpdates(),
+  };
+}
+
+function buildCurrentVersionMenuItem(): Electron.MenuItemConstructorOptions {
+  return {
+    label: `Current Version ${app.getVersion()}`,
+    enabled: false,
+  };
+}
+
+function installApplicationMenu() {
+  const isMac = process.platform === "darwin";
+  const appMenu: Electron.MenuItemConstructorOptions = {
+    label: app.getName(),
+    submenu: [
+      { role: "about" as const },
+      { type: "separator" as const },
+      buildUpdateMenuItem(),
+      buildCurrentVersionMenuItem(),
+      { type: "separator" as const },
+      { role: "services" as const },
+      { type: "separator" as const },
+      { role: "hide" as const },
+      { role: "hideOthers" as const },
+      { role: "unhide" as const },
+      { type: "separator" as const },
+      { role: "quit" as const },
+    ],
+  };
+
+  const helpMenu: Electron.MenuItemConstructorOptions = {
+    role: "help" as const,
+    submenu: isMac
+      ? [buildCurrentVersionMenuItem()]
+      : [
+          buildUpdateMenuItem(),
+          buildCurrentVersionMenuItem(),
+          { type: "separator" as const },
+          {
+            label: "Learn More",
+            click: () => void shell.openExternal("https://agent-native.com"),
+          },
+        ],
+  };
+
+  // Replace the default app menu so Cmd+Option+I doesn't open shell DevTools.
+  // We handle this shortcut ourselves via before-input-event → toggleWebviewDevTools().
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac ? [appMenu] : []),
+    { role: "fileMenu" as const },
+    { role: "editMenu" as const },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" as const },
+        { role: "forceReload" as const },
+        {
+          label: "Toggle Developer Tools",
+          accelerator: "CmdOrCtrl+Option+I",
+          click: () => toggleWebviewDevTools(),
+        },
+        { type: "separator" as const },
+        {
+          label: "Actual Size",
+          accelerator: "CmdOrCtrl+0",
+          click: () => resetActiveWebviewZoom(),
+        },
+        {
+          label: "Zoom In",
+          accelerator: "CmdOrCtrl+Plus",
+          click: () => zoomActiveWebview(ZOOM_STEP),
+        },
+        {
+          label: "Zoom Out",
+          accelerator: "CmdOrCtrl+-",
+          click: () => zoomActiveWebview(-ZOOM_STEP),
+        },
+        { type: "separator" as const },
+        { role: "togglefullscreen" as const },
+      ],
+    },
+    { role: "windowMenu" as const },
+    helpMenu,
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+function refreshApplicationMenu() {
+  if (!app.isReady()) return;
+  installApplicationMenu();
+}
+
 app.whenReady().then(() => {
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
@@ -5789,52 +5993,7 @@ app.whenReady().then(() => {
     configureWebviewSession(wc.session, id);
   });
 
-  // Replace the default app menu so Cmd+Option+I doesn't open shell DevTools.
-  // We handle this shortcut ourselves via before-input-event → toggleWebviewDevTools().
-  const isMac = process.platform === "darwin";
-  const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac
-      ? [
-          {
-            role: "appMenu" as const,
-          },
-        ]
-      : []),
-    { role: "fileMenu" as const },
-    { role: "editMenu" as const },
-    {
-      label: "View",
-      submenu: [
-        { role: "reload" as const },
-        { role: "forceReload" as const },
-        {
-          label: "Toggle Developer Tools",
-          accelerator: "CmdOrCtrl+Option+I",
-          click: () => toggleWebviewDevTools(),
-        },
-        { type: "separator" as const },
-        {
-          label: "Actual Size",
-          accelerator: "CmdOrCtrl+0",
-          click: () => resetActiveWebviewZoom(),
-        },
-        {
-          label: "Zoom In",
-          accelerator: "CmdOrCtrl+Plus",
-          click: () => zoomActiveWebview(ZOOM_STEP),
-        },
-        {
-          label: "Zoom Out",
-          accelerator: "CmdOrCtrl+-",
-          click: () => zoomActiveWebview(-ZOOM_STEP),
-        },
-        { type: "separator" as const },
-        { role: "togglefullscreen" as const },
-      ],
-    },
-    { role: "windowMenu" as const },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  installApplicationMenu();
 
   reconcileInterruptedCodeAgentRuns("startup");
 

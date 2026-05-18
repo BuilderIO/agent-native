@@ -122,6 +122,16 @@ function assertSourceContract(): void {
     /\.code-agents-standard-composer \[data-agent-composer-slot="model-button"\][\s\S]*font-size:\s*11px !important/,
     "Code model picker should match the compact composer font size",
   );
+  assert.match(
+    codeAgentsApp,
+    /showingSelectedRunDetail[\s\S]*code-agents-overview--chat/,
+    "Agent-Native Code should mark selected transcript views with a chat layout class",
+  );
+  assert.match(
+    codeStyles,
+    /\.code-agents-overview--chat\s*\{[\s\S]*overflow:\s*hidden/,
+    "Selected Agent-Native Code transcripts should keep scrolling inside the chat, not the outer overview",
+  );
 }
 
 function fixtureHtml(): string {
@@ -263,6 +273,73 @@ function fixtureHtml(): string {
           </div>
         </div>
       </div>
+    </section>
+    <section
+      data-smoke="code-chat-layout"
+      class="code-agents-surface"
+      style="height: 420px; width: 900px; margin: 32px auto;"
+      aria-label="Agent-Native Code chat layout"
+    >
+      <aside class="code-agents-rail" aria-label="Agent-Native Code goals and sessions"></aside>
+      <main class="code-agents-main">
+        <div data-smoke="code-chat-overview" class="code-agents-overview code-agents-overview--chat">
+          <div class="code-agents-detail code-agents-detail--chat">
+            <div class="code-agents-chat-header">
+              <div>
+                <h3>Review transcript scroll behavior</h3>
+                <p>Updated just now</p>
+              </div>
+            </div>
+            <div class="code-agents-transcript">
+              <div
+                class="code-agents-transcript__assistant"
+                style="display: flex; flex-direction: column; height: 100%; min-height: 0; flex: 1 1 auto;"
+              >
+                <div
+                  data-smoke="code-chat-scroll"
+                  style="flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;"
+                >
+                  <div
+                    class="agent-thread-content"
+                    style="display: flex; flex-direction: column; gap: 16px; padding: 16px;"
+                  >
+                    <p>First transcript block with enough text to establish the scroll container.</p>
+                    <p>Second transcript block with enough text to establish the scroll container.</p>
+                    <p>Third transcript block with enough text to establish the scroll container.</p>
+                    <p>Fourth transcript block with enough text to establish the scroll container.</p>
+                    <p>Fifth transcript block with enough text to establish the scroll container.</p>
+                    <p>Sixth transcript block with enough text to establish the scroll container.</p>
+                    <p>Seventh transcript block with enough text to establish the scroll container.</p>
+                    <p>Eighth transcript block with enough text to establish the scroll container.</p>
+                    <p>Ninth transcript block with enough text to establish the scroll container.</p>
+                    <p data-smoke="code-chat-last">Final transcript line must remain above the composer after scrolling to the bottom.</p>
+                  </div>
+                </div>
+                <div
+                  data-smoke="code-chat-composer"
+                  data-agent-composer-variant="default"
+                  data-agent-composer-slot="area"
+                  class="agent-composer-area shrink-0 px-3 py-2 text-left code-agents-standard-composer code-agents-composer-shell"
+                >
+                  <div data-agent-composer-slot="root" class="agent-composer-root flex flex-col rounded-lg border border-input bg-background">
+                    <div data-agent-composer-slot="editor-wrap" class="agent-composer-editor-wrap px-2 pt-2 pb-1">
+                      <div data-agent-composer-slot="editor" class="agent-composer-editor aui-composer flex-1 min-w-0 px-0.5">
+                        <div data-agent-composer-slot="editor-input" class="ProseMirror agent-composer-prosemirror" contenteditable="true">Send a follow-up...</div>
+                      </div>
+                    </div>
+                    <div data-agent-composer-slot="toolbar" class="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5">
+                      <button class="code-composer-plus" aria-label="Add attachment" type="button">+</button>
+                      <div data-agent-composer-slot="toolbar-spacer" class="flex-1"></div>
+                      <button data-agent-composer-slot="model-button" class="agent-composer-model-button" aria-label="Model" type="button"><span>Auto</span></button>
+                      <button data-agent-composer-slot="send-button" class="agent-composer-send-button shrink-0" aria-label="Send message" type="button">↑</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
     </section>
   </body>
 </html>`;
@@ -476,6 +553,54 @@ async function main(): Promise<void> {
     assertComposerGeometry(sidebarSnapshot, "Shared sidebar composer", {
       hasFolder: false,
     });
+
+    const chatLayout = await page.evaluate(() => {
+      const overview = document.querySelector<HTMLElement>(
+        '[data-smoke="code-chat-overview"]',
+      );
+      const scroll = document.querySelector<HTMLElement>(
+        '[data-smoke="code-chat-scroll"]',
+      );
+      const composer = document.querySelector<HTMLElement>(
+        '[data-smoke="code-chat-composer"]',
+      );
+      const last = document.querySelector<HTMLElement>(
+        '[data-smoke="code-chat-last"]',
+      );
+      if (!overview || !scroll || !composer || !last) {
+        throw new Error("Missing code chat layout smoke element");
+      }
+      scroll.scrollTop = scroll.scrollHeight;
+      const scrollRect = scroll.getBoundingClientRect();
+      const composerRect = composer.getBoundingClientRect();
+      const lastRect = last.getBoundingClientRect();
+
+      return {
+        overviewOverflowY: getComputedStyle(overview).overflowY,
+        innerCanScroll: scroll.scrollHeight > scroll.clientHeight + 1,
+        scrollBottom: scrollRect.bottom,
+        composerTop: composerRect.top,
+        lastBottom: lastRect.bottom,
+      };
+    });
+
+    assert.equal(
+      chatLayout.overviewOverflowY,
+      "hidden",
+      "Agent-Native Code selected chat view should not create an outer scroll layer",
+    );
+    assert.ok(
+      chatLayout.innerCanScroll,
+      "Agent-Native Code selected chat view should keep transcript scrolling inside the chat",
+    );
+    assert.ok(
+      chatLayout.scrollBottom <= chatLayout.composerTop + 1,
+      "Agent-Native Code selected chat scroll area should end before the composer",
+    );
+    assert.ok(
+      chatLayout.lastBottom <= chatLayout.composerTop + 1,
+      "Agent-Native Code selected chat content should not sit under the composer",
+    );
   } finally {
     await browser.close();
   }

@@ -633,8 +633,10 @@ describe("runConnect", () => {
     const root = tmpDir();
     const home = tmpDir();
     const oldHome = process.env.HOME;
+    const oldCi = process.env.CI;
     const preferencesFile = path.join(root, "prefs", "connect.json");
     process.env.HOME = home;
+    process.env.CI = "true";
     process.chdir(root);
 
     const promptClients = vi.fn(async (context) => {
@@ -671,6 +673,11 @@ describe("runConnect", () => {
       expect(codexToml).toContain('[mcp_servers."agent-native-mail"]');
     } finally {
       process.env.HOME = oldHome;
+      if (oldCi === undefined) {
+        delete process.env.CI;
+      } else {
+        process.env.CI = oldCi;
+      }
     }
   });
 
