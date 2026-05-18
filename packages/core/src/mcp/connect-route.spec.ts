@@ -175,6 +175,10 @@ describe("handleMcpConnect", () => {
       expect(res.status).toBe(200);
       expect(body).toContain("Connect an external agent");
       expect(body).toContain("u@example.com");
+      expect(body).not.toContain("Allow Claude Code, Codex, or Cowork");
+      expect(body).not.toContain("https://mail.agent-native.com");
+      expect(body).toContain('<details id="connections" class="connections">');
+      expect(body).not.toContain("connectionsEl.open = true");
       // The page never embeds a token.
       expect(body).not.toContain("Bearer ey");
     });

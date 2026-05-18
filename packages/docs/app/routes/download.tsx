@@ -256,27 +256,6 @@ export default function DownloadPage() {
         </p>
       </div>
 
-      {/* What's included */}
-      <div className="mt-20">
-        <h3 className="mb-6 text-center text-lg font-semibold">
-          What's included
-        </h3>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <FeatureItem
-            title="Built-in apps"
-            description="Calendar, Content, Slides, Analytics, Mail, Clips, Design, Dispatch, and Forms — all ready to use."
-          />
-          <FeatureItem
-            title="Auto-updates"
-            description="New versions download in the background and install on restart."
-          />
-          <FeatureItem
-            title="Dev mode"
-            description="Toggle any app to connect to your local dev server for development."
-          />
-        </div>
-      </div>
-
       {/* Run from source */}
       <div className="mt-16 mx-auto max-w-2xl">
         <div className="rounded-lg border border-[var(--docs-border)] px-6 py-5">
@@ -297,13 +276,6 @@ pnpm install && pnpm dev`}</code>
         </div>
       </div>
 
-      {/* Mobile teaser */}
-      <div className="mt-12 mx-auto max-w-lg rounded-lg border border-dashed border-[var(--docs-border)] px-6 py-5 text-center">
-        <p className="text-sm text-[var(--fg-secondary)]">
-          A mobile app for iOS and Android is in the works.
-        </p>
-      </div>
-
       {/* All releases link */}
       <div className="mt-12 text-center">
         <a
@@ -317,22 +289,5 @@ pnpm install && pnpm dev`}</code>
         </a>
       </div>
     </main>
-  );
-}
-
-function FeatureItem({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="rounded-lg border border-[var(--docs-border)] p-5">
-      <h4 className="mb-1 text-sm font-semibold">{title}</h4>
-      <p className="text-xs leading-relaxed text-[var(--fg-secondary)]">
-        {description}
-      </p>
-    </div>
   );
 }

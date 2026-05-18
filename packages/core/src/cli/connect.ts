@@ -23,9 +23,11 @@
  *     | { status: "consumed" }
  *     | { status: "error" | "not_found", message? }
  *
- * Node-only CLI module. No new npm deps (Node built-ins + global fetch only).
+ * Node-only CLI module. Uses Node built-ins, @clack/prompts, and global fetch.
  */
 
+import fs from "node:fs";
+import os from "node:os";
 import { spawn } from "node:child_process";
 import path from "node:path";
 
@@ -40,6 +42,21 @@ import { visibleTemplates } from "./templates-meta.js";
 const DEVICE_START_PATH = "/_agent-native/mcp/connect/device/start";
 const DEVICE_POLL_PATH = "/_agent-native/mcp/connect/device/poll";
 const SERVER_NAME_PREFIX = "agent-native";
+const CONNECT_PREFERENCES_VERSION = 1;
+
+const CLIENT_LABELS: Record<ClientId, string> = {
+  "claude-code": "Claude Code",
+  "claude-code-cli": "Claude Code CLI",
+  codex: "Codex",
+  cowork: "Claude Cowork",
+};
+
+const CLIENT_HINTS: Record<ClientId, string> = {
+  "claude-code": ".mcp.json or ~/.claude.json",
+  "claude-code-cli": ".mcp.json or ~/.claude.json",
+  codex: "~/.codex/config.toml",
+  cowork: "~/.cowork/mcp.json",
+};
 
 function logOut(msg: string): void {
   process.stdout.write(`${msg}\n`);
@@ -57,6 +74,8 @@ export interface ParsedConnectArgs {
   url?: string;
   /** all | claude-code | claude-code-cli | codex | cowork (default "all"). */
   client: string;
+  /** True when the user passed --client explicitly, so we skip the picker. */
+  clientExplicit: boolean;
   /** user | project (default "user"). */
   scope: string;
   /** Override the minted MCP server name. */
@@ -70,6 +89,7 @@ export interface ParsedConnectArgs {
 export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
   const out: ParsedConnectArgs = {
     client: "all",
+    clientExplicit: false,
     scope: "user",
     all: false,
   };
@@ -82,8 +102,10 @@ export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
     };
     let v: string | undefined;
     if (a === "--all") out.all = true;
-    else if ((v = eat("--client")) !== undefined) out.client = v;
-    else if ((v = eat("--scope")) !== undefined) out.scope = v;
+    else if ((v = eat("--client")) !== undefined) {
+      out.client = v;
+      out.clientExplicit = true;
+    } else if ((v = eat("--scope")) !== undefined) out.scope = v;
     else if ((v = eat("--name")) !== undefined) out.name = v;
     else if ((v = eat("--token")) !== undefined) out.token = v;
     else if (!a.startsWith("-") && !out.url) out.url = a;
@@ -140,6 +162,138 @@ export function resolveClients(client: string): ClientId[] {
   throw new Error(
     `Unknown --client "${client}". Use: all, ${CLIENTS.join(", ")}`,
   );
+}
+
+export function connectPreferencesPath(): string {
+  return path.join(os.homedir(), ".agent-native", "connect.json");
+}
+
+function normalizeClientIds(values: unknown): ClientId[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<ClientId>();
+  const out: ClientId[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const id = value.toLowerCase();
+    if (!(CLIENTS as string[]).includes(id)) continue;
+    const client = id as ClientId;
+    if (seen.has(client)) continue;
+    seen.add(client);
+    out.push(client);
+  }
+  return out;
+}
+
+export function readConnectClientPreferences(
+  file: string = connectPreferencesPath(),
+): ClientId[] | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
+    const clients = normalizeClientIds(
+      parsed?.defaultClients ?? parsed?.clients,
+    );
+    return clients.length > 0 ? clients : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeConnectClientPreferences(
+  clients: ClientId[],
+  file: string = connectPreferencesPath(),
+): void {
+  const normalized = normalizeClientIds(clients);
+  if (normalized.length === 0) return;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify(
+      {
+        version: CONNECT_PREFERENCES_VERSION,
+        defaultClients: normalized,
+        updatedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ) + "\n",
+    "utf-8",
+  );
+}
+
+export interface ConnectClientPromptContext {
+  initialClients: ClientId[];
+  options: { value: ClientId; label: string; hint: string }[];
+  preferencesFile: string;
+}
+
+function clientPromptOptions(): ConnectClientPromptContext["options"] {
+  return CLIENTS.map((client) => ({
+    value: client,
+    label: CLIENT_LABELS[client],
+    hint: CLIENT_HINTS[client],
+  }));
+}
+
+function shouldPromptForClients(deps: ConnectDeps): boolean {
+  if (process.env.AGENT_NATIVE_NO_PROMPT === "1") return false;
+  if (process.env.CI === "true") return false;
+  if (deps.isInteractive) return deps.isInteractive();
+  return !!process.stdin.isTTY && !!process.stdout.isTTY;
+}
+
+async function promptForClients(
+  context: ConnectClientPromptContext,
+): Promise<ClientId[] | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.multiselect({
+    message:
+      "Write MCP config for which local agents?\n" +
+      "  (space toggles, enter confirms; saved for next time)",
+    options: context.options,
+    initialValues: context.initialClients,
+    required: true,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Cancelled.");
+    return null;
+  }
+  return normalizeClientIds(result);
+}
+
+async function resolveConnectClients(
+  parsed: ParsedConnectArgs,
+  deps: ConnectDeps,
+): Promise<ClientId[] | null> {
+  if (parsed.clientExplicit) return resolveClients(parsed.client);
+
+  const defaultClients = resolveClients(parsed.client);
+  if (!shouldPromptForClients(deps)) return defaultClients;
+
+  const preferencesFile = deps.preferencesFile ?? connectPreferencesPath();
+  const initialClients =
+    readConnectClientPreferences(preferencesFile) ?? defaultClients;
+  const prompt = deps.promptClients ?? promptForClients;
+  const selected = normalizeClientIds(
+    await prompt({
+      initialClients,
+      options: clientPromptOptions(),
+      preferencesFile,
+    }),
+  );
+  if (selected.length === 0) return null;
+
+  try {
+    writeConnectClientPreferences(selected, preferencesFile);
+  } catch (err: any) {
+    logErr(
+      `  Could not save connect client preference (${err?.message ?? err}).`,
+    );
+  }
+  return selected;
+}
+
+function clientArgForDeviceFlow(clients: ClientId[]): string {
+  return clients.length === 1 ? clients[0] : "all";
 }
 
 /** Derive an app slug from a deployed origin, e.g. mail.agent-native.com → mail. */
@@ -221,6 +375,14 @@ export interface ConnectDeps {
   openBrowser?: (url: string) => void;
   /** Override "now" for the expiry cap (ms epoch). Defaults to Date.now. */
   now?: () => number;
+  /** Tests/embedders can force or suppress the interactive client picker. */
+  isInteractive?: () => boolean;
+  /** Injectable client picker. Defaults to @clack/prompts multiselect. */
+  promptClients?: (
+    context: ConnectClientPromptContext,
+  ) => Promise<ClientId[] | null>;
+  /** Override the persisted connect preferences file. */
+  preferencesFile?: string;
 }
 
 function realSleep(ms: number): Promise<void> {
@@ -444,11 +606,11 @@ export function writeConfigs(
 async function connectOne(
   rawUrl: string,
   parsed: ParsedConnectArgs,
+  clients: ClientId[],
   deps: ConnectDeps,
 ): Promise<{ ok: boolean; serverName?: string; files?: string[] }> {
   const baseUrl = normalizeUrl(rawUrl);
   const appSlug = appSlugFromUrl(baseUrl);
-  const clients = resolveClients(parsed.client);
   const scope = parsed.scope === "user" ? "user" : "project";
 
   let token: string | undefined;
@@ -464,7 +626,12 @@ async function connectOne(
     logOut("");
     logOut(`  Using supplied --token for ${baseUrl} (skipping browser flow).`);
   } else {
-    const grant = await runDeviceFlow(baseUrl, appSlug, parsed.client, deps);
+    const grant = await runDeviceFlow(
+      baseUrl,
+      appSlug,
+      clientArgForDeviceFlow(clients),
+      deps,
+    );
     if (!grant) return { ok: false };
     token = grant.token;
     mcpUrl = grant.mcpUrl;
@@ -505,6 +672,7 @@ export function hostedApps(): { name: string; url: string }[] {
 
 async function connectAll(
   parsed: ParsedConnectArgs,
+  clients: ClientId[],
   deps: ConnectDeps,
 ): Promise<boolean> {
   const apps = hostedApps();
@@ -520,7 +688,7 @@ async function connectAll(
     logOut("");
     logOut(`  ── ${app.name} (${app.url}) ──`);
     try {
-      const res = await connectOne(app.url, parsed, deps);
+      const res = await connectOne(app.url, parsed, clients, deps);
       results.push({
         name: app.name,
         status: res.ok ? "connected" : "skipped",
@@ -551,7 +719,9 @@ Usage:
   agent-native connect <url> [--client <c>] [--scope user|project] [--name <n>]
       Browser device-code flow. Prints a code, opens the verification URL,
       polls until approved, then writes the HTTP MCP entry into your
-      client config(s). Idempotent — re-running replaces the same entry.
+      selected client config(s). With no --client, opens a brief picker
+      preselected from ~/.agent-native/connect.json, or all clients on first
+      run. Idempotent — re-running replaces the same entry.
 
   agent-native connect <url> --token <token>
       No-browser fallback. Skip the device flow and write the entry with
@@ -561,7 +731,7 @@ Usage:
       Connect every first-party hosted app at once.
 
 Clients:  all (default), claude-code, claude-code-cli, codex, cowork
-Scope:    project (default, .mcp.json) or user (~/.claude.json)`;
+Scope:    user (default, ~/.claude.json) or project (.mcp.json)`;
 
 /**
  * `agent-native connect` entry point. `deps` is injectable for tests; the
@@ -584,7 +754,9 @@ export async function runConnect(
 
   try {
     if (parsed.all) {
-      const ok = await connectAll(parsed, deps);
+      const clients = await resolveConnectClients(parsed, deps);
+      if (!clients) return;
+      const ok = await connectAll(parsed, clients, deps);
       if (!ok) process.exitCode = 1;
       return;
     }
@@ -597,7 +769,9 @@ export async function runConnect(
       return;
     }
 
-    const res = await connectOne(parsed.url, parsed, deps);
+    const clients = await resolveConnectClients(parsed, deps);
+    if (!clients) return;
+    const res = await connectOne(parsed.url, parsed, clients, deps);
     if (!res.ok) process.exitCode = 1;
   } catch (err: any) {
     logErr(`  ${err?.message ?? err}`);

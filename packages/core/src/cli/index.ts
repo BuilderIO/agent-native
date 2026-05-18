@@ -706,9 +706,10 @@ Usage:
                                 token (--client claude-code|claude-code-cli|
                                 codex|cowork)
   agent-native connect <url>    Wire your coding agent to a DEPLOYED app via
-                                a browser device-code flow. --all connects
-                                every first-party app; --token is the
-                                no-browser fallback.
+                                a browser device-code flow, with a saved
+                                client picker. --all connects every
+                                first-party app; --token is the no-browser
+                                fallback.
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace

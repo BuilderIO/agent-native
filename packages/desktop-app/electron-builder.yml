@@ -22,7 +22,7 @@ protocols:
 mac:
   category: public.app-category.developer-tools
   identity: "Builder.io, Inc (W3PMF2T3MW)"
-  icon: build/agent-native.icns
+  icon: build/icon.icns
   notarize: true
   target:
     - target: dmg

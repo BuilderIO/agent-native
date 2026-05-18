@@ -455,7 +455,6 @@ export interface CodeAgentProviderSettings {
   configured: boolean;
   configuredProviders: string[];
   providers: CodeAgentProviderStatus[];
-  encryptionAvailable: boolean;
   storagePath: string;
 }
 

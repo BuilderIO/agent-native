@@ -463,6 +463,26 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
   });
 
+  it("does not trace Builder credential scope resolution by default", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      mockGetRequestUserEmail.mockReturnValue("member@b.com");
+      mockGetRequestOrgId.mockReturnValue("builder_io");
+      mockReadAppSecret.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        value: "org-key",
+        last4: "-key",
+        updatedAt: 1,
+      });
+
+      expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
+        "org-key",
+      );
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("checks solo workspace scope when caller has no active org", async () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
@@ -565,6 +585,48 @@ describe("resolveSecret (generic)", () => {
       "org",
       "workspace",
     ]);
+  });
+
+  it("does not trace Builder secret resolution by default", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      mockGetRequestUserEmail.mockReturnValue("teammate@b.com");
+      mockGetRequestOrgId.mockReturnValue("builder_io");
+      mockReadAppSecret.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        value: "builder-private-key",
+        last4: "-key",
+        updatedAt: 1,
+      });
+
+      expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBe(
+        "builder-private-key",
+      );
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("traces secret resolution when AGENT_NATIVE_DEBUG_CREDENTIAL_RESOLVE is enabled", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      process.env.AGENT_NATIVE_DEBUG_CREDENTIAL_RESOLVE = "1";
+      mockGetRequestUserEmail.mockReturnValue("teammate@b.com");
+      mockGetRequestOrgId.mockReturnValue("builder_io");
+      mockReadAppSecret.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        value: "shared-key",
+        last4: "-key",
+        updatedAt: 1,
+      });
+
+      expect(await resolveSecret("OPENAI_API_KEY")).toBe("shared-key");
+      expect(log).toHaveBeenCalledWith(
+        "[resolve-secret] key=OPENAI_API_KEY email=teammate@b.com orgId=builder_io scope=org hit=true",
+      );
+    } finally {
+      delete process.env.AGENT_NATIVE_DEBUG_CREDENTIAL_RESOLVE;
+      log.mockRestore();
+    }
   });
 
   it("checks solo workspace scope when an authenticated user has no org", async () => {

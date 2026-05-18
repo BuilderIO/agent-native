@@ -110,6 +110,14 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
   return null;
 }
 
+function shouldTraceEngineDetection(): boolean {
+  return /^(1|true)$/i.test(
+    process.env.AGENT_NATIVE_DEBUG_AGENT_ENGINE_DETECT ??
+      process.env.AGENT_NATIVE_DEBUG_CREDENTIAL_RESOLVE ??
+      "",
+  );
+}
+
 /**
  * Detect a usable engine from the current request user's accessible
  * `app_secrets` rows. Mirrors `detectEngineFromEnv` but consults the
@@ -133,6 +141,7 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
  * chat engine picker must not disagree with that card.
  */
 export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | null> {
+  const traceLookup = shouldTraceEngineDetection();
   let email: string | undefined;
   let orgId: string | null | undefined;
   try {
@@ -141,15 +150,19 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
     email = getRequestUserEmail();
     orgId = getRequestOrgId();
   } catch {
-    console.log(
-      `[engine-detect] result=null reason=no-request-context email=(unknown) orgId=(unknown)`,
-    );
+    if (traceLookup) {
+      console.log(
+        `[engine-detect] result=null reason=no-request-context email=(unknown) orgId=(unknown)`,
+      );
+    }
     return null;
   }
   if (!email) {
-    console.log(
-      `[engine-detect] result=null reason=no-email email=(empty) orgId=${orgId ?? "(none)"}`,
-    );
+    if (traceLookup) {
+      console.log(
+        `[engine-detect] result=null reason=no-email email=(empty) orgId=${orgId ?? "(none)"}`,
+      );
+    }
     return null;
   }
 
@@ -173,9 +186,11 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
     for (const entry of _registry.values()) {
       if (entry.name === "builder") continue;
       if (await hasAllKeys(entry)) {
-        console.log(
-          `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"} byo=true`,
-        );
+        if (traceLookup) {
+          console.log(
+            `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"} byo=true`,
+          );
+        }
         return entry;
       }
     }
@@ -184,15 +199,19 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
 
   for (const entry of _registry.values()) {
     if (await hasAllKeys(entry)) {
-      console.log(
-        `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"}`,
-      );
+      if (traceLookup) {
+        console.log(
+          `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"}`,
+        );
+      }
       return entry;
     }
   }
-  console.log(
-    `[engine-detect] result=null reason=no-engine-keys-found email=${email} orgId=${orgId ?? "(none)"}`,
-  );
+  if (traceLookup) {
+    console.log(
+      `[engine-detect] result=null reason=no-engine-keys-found email=${email} orgId=${orgId ?? "(none)"}`,
+    );
+  }
   return null;
 }
 

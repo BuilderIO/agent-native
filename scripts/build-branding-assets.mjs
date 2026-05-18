@@ -35,6 +35,25 @@ function writeSizedSvg(path, size) {
   writeFileSync(path, webIconSvg(size));
 }
 
+function macAppIconSvg(size) {
+  const scale = size / 1024;
+  const logoTransform = `translate(${157.01333333333332 * scale} ${305.49333333333334 * scale}) scale(${6.227836257309941 * scale})`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none">
+  <rect width="${size}" height="${size}" rx="${210 * scale}" fill="#000000"/>
+  <g transform="${logoTransform}">
+    <path d="M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z" fill="white"/>
+    <path d="M89.446 0H114L76.2921 65.7704H51.7383L89.446 0Z" fill="url(#fg_grad)"/>
+    <defs>
+      <linearGradient id="fg_grad" x1="101.702" y1="67.4791" x2="113.672" y2="-37.4275" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#00B5FF"/>
+        <stop offset="1" stop-color="#48FFE4"/>
+      </linearGradient>
+    </defs>
+  </g>
+</svg>
+`;
+}
+
 writeSizedSvg(join(BRANDING, "favicon.svg"), 600);
 writeSizedSvg(join(BRANDING, "mac-app-icon.svg"), 600);
 
@@ -138,8 +157,8 @@ if (existsSync(DOCS_PUBLIC)) {
 }
 
 // 4) Electron desktop app icon — Liquid Glass on macOS Tahoe via .icon → Assets.car,
-// plus a Liquid-Glass-rendered .icns fallback for older macOS via Icon Composer's
-// `ictool` (PNG output already includes shine + shadow, then iconutil packs to .icns).
+// plus a flat .icns fallback for older macOS. Do not export the fallback PNGs
+// through Icon Composer: it bakes a thick white rim/shadow into the .icns.
 const DESKTOP_BUILD = join(ROOT, "packages/desktop-app/build");
 const ICON_BUNDLE = join(BRANDING, "agent-native.icon");
 const ICTOOL =
@@ -154,8 +173,10 @@ if (existsSync(DESKTOP_BUILD)) {
   );
 
   const ICONSET = join(DESKTOP_BUILD, "icon.iconset");
+  const MAC_ICON_SOURCE = join(DESKTOP_BUILD, "_mac-icon-source.svg");
   rmSync(ICONSET, { recursive: true, force: true });
   mkdirSync(ICONSET, { recursive: true });
+  writeFileSync(MAC_ICON_SOURCE, macAppIconSvg(1024));
   const sizes = [
     [16, "icon_16x16.png"],
     [32, "icon_16x16@2x.png"],
@@ -168,19 +189,10 @@ if (existsSync(DESKTOP_BUILD)) {
     [512, "icon_512x512.png"],
     [1024, "icon_512x512@2x.png"],
   ];
-  if (HAS_ICTOOL) {
-    // Render Liquid-Glass-styled PNGs (with specular highlight + shadow baked in).
-    for (const [size, name] of sizes) {
-      execSync(
-        `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(ICONSET, name)}" --platform macOS --rendition Default --width ${size} --height ${size} --scale 1`,
-        { stdio: ["ignore", "ignore", "inherit"] },
-      );
-    }
-  } else {
-    for (const [size, name] of sizes) {
-      rasterize(join(DESKTOP_BUILD, "icon.svg"), join(ICONSET, name), size);
-    }
+  for (const [size, name] of sizes) {
+    rasterize(MAC_ICON_SOURCE, join(ICONSET, name), size);
   }
+  rmSync(MAC_ICON_SOURCE, { force: true });
   execSync(
     `iconutil -c icns -o "${join(DESKTOP_BUILD, "icon.icns")}" "${ICONSET}"`,
     { stdio: "inherit" },

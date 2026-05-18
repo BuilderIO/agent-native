@@ -124,6 +124,14 @@ function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
   return canUseDeployCredentialFallbackForRequest();
 }
 
+function shouldTraceCredentialResolve(): boolean {
+  return /^(1|true)$/i.test(
+    process.env.AGENT_NATIVE_DEBUG_CREDENTIAL_RESOLVE ??
+      process.env.DEBUG_CREDENTIAL_RESOLVE ??
+      "",
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Builder credential resolution:
 //
@@ -147,11 +155,9 @@ async function resolveScopedBuilderCredential(
   const email = getRequestUserEmail();
   if (!email) return null;
 
-  // Always trace Builder lookups — these come up in "I connected Builder but
-  // chat still says Use Builder" support requests, and without scope-by-scope
-  // visibility into where the lookup actually went, the only diagnostic move
-  // is to ask the user to redo the connect flow. Mirrors `resolveSecret`'s
-  // default-on trace gate for BUILDER_* keys.
+  // Trace only when explicitly requested. These diagnostics are useful for
+  // support, but they include account identifiers and run on hot paths.
+  const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
@@ -164,9 +170,11 @@ async function resolveScopedBuilderCredential(
       scopeId: email,
     });
     if (userSecret) {
-      console.log(
-        `[builder-credential] key=${key} email=${email} scope=user hit=true`,
-      );
+      if (traceLookup) {
+        console.log(
+          `[builder-credential] key=${key} email=${email} scope=user hit=true`,
+        );
+      }
       return { value: userSecret.value, source: "user" };
     }
 
@@ -184,9 +192,11 @@ async function resolveScopedBuilderCredential(
         scopeId: orgId,
       });
       if (orgSecret) {
-        console.log(
-          `[builder-credential] key=${key} email=${email} orgId=${orgId} scope=org hit=true`,
-        );
+        if (traceLookup) {
+          console.log(
+            `[builder-credential] key=${key} email=${email} orgId=${orgId} scope=org hit=true`,
+          );
+        }
         return { value: orgSecret.value, source: "org" };
       }
 
@@ -200,14 +210,18 @@ async function resolveScopedBuilderCredential(
         scopeId: orgId,
       });
       if (workspaceSecret) {
-        console.log(
-          `[builder-credential] key=${key} email=${email} orgId=${orgId} scope=workspace hit=true`,
-        );
+        if (traceLookup) {
+          console.log(
+            `[builder-credential] key=${key} email=${email} orgId=${orgId} scope=workspace hit=true`,
+          );
+        }
         return { value: workspaceSecret.value, source: "workspace" };
       }
-      console.log(
-        `[builder-credential] key=${key} email=${email} orgId=${orgId} miss tried=user,org,workspace`,
-      );
+      if (traceLookup) {
+        console.log(
+          `[builder-credential] key=${key} email=${email} orgId=${orgId} miss tried=user,org,workspace`,
+        );
+      }
     } else {
       scopeAttempted = "workspace-solo";
       const soloWorkspaceSecret = await readAppSecret({
@@ -216,19 +230,25 @@ async function resolveScopedBuilderCredential(
         scopeId: `solo:${email}`,
       });
       if (soloWorkspaceSecret) {
-        console.log(
-          `[builder-credential] key=${key} email=${email} scope=workspace-solo hit=true`,
-        );
+        if (traceLookup) {
+          console.log(
+            `[builder-credential] key=${key} email=${email} scope=workspace-solo hit=true`,
+          );
+        }
         return { value: soloWorkspaceSecret.value, source: "workspace" };
       }
-      console.log(
-        `[builder-credential] key=${key} email=${email} orgId=(none) miss tried=user,workspace-solo`,
-      );
+      if (traceLookup) {
+        console.log(
+          `[builder-credential] key=${key} email=${email} orgId=(none) miss tried=user,workspace-solo`,
+        );
+      }
     }
   } catch (err) {
-    console.log(
-      `[builder-credential] key=${key} email=${email} scope=${scopeAttempted} error=${(err as Error)?.message ?? err}`,
-    );
+    if (traceLookup) {
+      console.log(
+        `[builder-credential] key=${key} email=${email} scope=${scopeAttempted} error=${(err as Error)?.message ?? err}`,
+      );
+    }
     // Secrets table not ready — treat as missing.
   }
   return null;
@@ -570,12 +590,7 @@ export async function deleteBuilderCredentials(
  * only when the deploy fallback policy allows it.
  */
 export async function resolveSecret(key: string): Promise<string | null> {
-  // Log Builder-credential lookups by default so "I connected Builder but
-  // chat says no LLM" reports can be diagnosed from server logs without
-  // re-running anything. Keep noise low by gating other keys behind a flag.
-  const traceLookup =
-    key.startsWith("BUILDER_") ||
-    /^(1|true)$/i.test(process.env.DEBUG_CREDENTIAL_RESOLVE ?? "");
+  const traceLookup = shouldTraceCredentialResolve();
   const email = getRequestUserEmail();
   if (email) {
     try {

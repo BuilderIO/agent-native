@@ -476,12 +476,6 @@ export function CodeProviderSettings({
       {providerMessage && (
         <div className="settings-provider-message">{providerMessage}</div>
       )}
-      {!settings.encryptionAvailable && (
-        <div className="settings-provider-message">
-          Secure OS storage is unavailable, so keys are stored in a local file
-          with restricted permissions.
-        </div>
-      )}
     </div>
   );
 }

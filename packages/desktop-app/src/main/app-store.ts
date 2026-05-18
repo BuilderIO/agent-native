@@ -1,4 +1,4 @@
-import { app, safeStorage } from "electron";
+import { app } from "electron";
 import fs from "fs";
 import path from "path";
 import {
@@ -20,6 +20,7 @@ const CODE_AGENT_PROVIDER_STORE_FILE = "code-agent-providers.json";
 const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
 
 type StoredSecret =
+  | { encoding: "local-file-v1"; value: string; updatedAt?: string }
   | { encoding: "safeStorage-v1"; value: string; updatedAt?: string }
   | { encoding: "plain"; value: string; updatedAt?: string };
 
@@ -196,16 +197,12 @@ function saveCodeAgentProviderStore(store: CodeAgentProviderStore): void {
   }
 }
 
-function encryptProviderSecret(value: string): StoredSecret {
-  if (safeStorage.isEncryptionAvailable()) {
-    return {
-      encoding: "safeStorage-v1",
-      value: safeStorage.encryptString(value).toString("base64"),
-      updatedAt: new Date().toISOString(),
-    };
-  }
+function encodeProviderSecret(value: string): StoredSecret {
+  // Electron safeStorage uses macOS Keychain and can show a blocking
+  // permission prompt during settings/status reads. Keep desktop provider keys
+  // in the existing 0600 app data file instead.
   return {
-    encoding: "plain",
+    encoding: "local-file-v1",
     value,
     updatedAt: new Date().toISOString(),
   };
@@ -215,17 +212,14 @@ function decryptProviderSecret(
   secret: StoredSecret | undefined,
 ): string | null {
   if (!secret?.value) return null;
-  if (secret.encoding === "plain") return secret.value;
-  if (!safeStorage.isEncryptionAvailable()) return null;
-  try {
-    return safeStorage.decryptString(Buffer.from(secret.value, "base64"));
-  } catch {
-    return null;
+  if (secret.encoding === "local-file-v1" || secret.encoding === "plain") {
+    return secret.value;
   }
+  return null;
 }
 
 function hasStoredProviderSecret(secret: StoredSecret | undefined): boolean {
-  return Boolean(secret?.value);
+  return Boolean(decryptProviderSecret(secret));
 }
 
 export function loadCodeAgentProviderCredentials(): Partial<
@@ -251,7 +245,7 @@ export function saveCodeAgentProviderCredentials(
     if (!value) {
       delete store.credentials[key];
     } else {
-      store.credentials[key] = encryptProviderSecret(value);
+      store.credentials[key] = encodeProviderSecret(value);
     }
   }
   saveCodeAgentProviderStore(store);
@@ -325,7 +319,6 @@ export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings 
       .filter((provider) => provider.configured)
       .map((provider) => provider.label),
     providers,
-    encryptionAvailable: safeStorage.isEncryptionAvailable(),
     storagePath: getCodeAgentProviderStorePath(),
   };
 }
