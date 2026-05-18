@@ -94,7 +94,13 @@ objc2-avf-audio = { version = "0.3", features = [
   "AVAudioTypes",
   "block2",
   "objc2-core-audio-types",
+  "objc2-audio-toolbox",
 ] }
+objc2-audio-toolbox = { version = "0.3.2", features = [
+  "AUComponent",
+  "AudioComponent",
+] }
+objc2-core-audio = { version = "0.3.2", features = ["AudioHardware"] }
 block2 = "0.6"
 # System-audio capture via Apple's ScreenCaptureKit (macOS 13+) and direct
 # full-screen MP4 recording via SCRecordingOutput (macOS 15+). v2.0.0 is the

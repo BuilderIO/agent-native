@@ -499,7 +499,9 @@ dependencies = [
  "core-foundation",
  "core-graphics",
  "objc2",
+ "objc2-audio-toolbox",
  "objc2-avf-audio",
+ "objc2-core-audio",
  "objc2-core-audio-types",
  "objc2-foundation",
  "objc2-speech",
@@ -2488,7 +2490,12 @@ checksum = "6948501a91121d6399b79abaa33a8aa4ea7857fe019f341b8c23ad6e81b79b08"
 dependencies = [
  "bitflags 2.11.1",
  "block2",
+ "dispatch2",
+ "libc",
  "objc2",
+ "objc2-core-audio",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
  "objc2-foundation",
 ]
 
@@ -2523,10 +2530,13 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1eebcea8b0dbff5f7c8504f3107c68fc061a3eb44932051c8cf8a68d969c3b2"
 dependencies = [
+ "block2",
  "dispatch2",
+ "libc",
  "objc2",
  "objc2-core-audio-types",
  "objc2-core-foundation",
+ "objc2-foundation",
 ]
 
 [[package]]

@@ -935,10 +935,10 @@ export function installDesktopVoiceDictation(
       startSyntheticMeter(next);
       try {
         // Bias the recognizer toward the user's learned vocabulary. Stage
-        // the list via a separate command so the public 2-arg signature of
-        // `native_speech_start` stays compatible with the meeting-capture
-        // call site in system_audio.rs. Best-effort — if the load failed
-        // we just stage an empty list and the recognizer behaves as before.
+        // the list via a separate command so meeting capture can pass mic
+        // metadata to `native_speech_start` without also carrying vocabulary.
+        // Best-effort — if the load failed we just stage an empty list and
+        // the recognizer behaves as before.
         const contextualStrings = await loadVocabulary().catch(() => []);
         await invoke("native_speech_set_vocabulary", {
           strings: contextualStrings,

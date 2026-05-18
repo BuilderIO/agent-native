@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 
 #[cfg(target_os = "macos")]
+use screencapturekit::audio_devices::AudioInputDevice;
+#[cfg(target_os = "macos")]
 use screencapturekit::recording_output::{
     SCRecordingOutput, SCRecordingOutputCodec, SCRecordingOutputConfiguration,
     SCRecordingOutputDelegate, SCRecordingOutputFileType,
@@ -247,19 +249,45 @@ pub async fn native_fullscreen_recording_start(
     state: State<'_, NativeFullscreenRecordingState>,
     recording_id: String,
     include_audio: bool,
+    mic_device_id: Option<String>,
+    mic_device_label: Option<String>,
 ) -> Result<NativeFullscreenStartInfo, String> {
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, state, recording_id, include_audio);
+        let _ = (
+            app,
+            state,
+            recording_id,
+            include_audio,
+            mic_device_id,
+            mic_device_label,
+        );
         return Err("Native full-screen recording is currently macOS-only.".into());
     }
 
     #[cfg(target_os = "macos")]
     {
         let safe_id = sanitize_recording_id(&recording_id);
-        let session = match start_screencapturekit_recording(&app, &safe_id, include_audio) {
+        let has_specific_mic = mic_device_id
+            .as_deref()
+            .is_some_and(|v| !v.trim().is_empty())
+            || mic_device_label
+                .as_deref()
+                .is_some_and(|v| !v.trim().is_empty());
+        let session = match start_screencapturekit_recording(
+            &app,
+            &safe_id,
+            include_audio,
+            mic_device_id.as_deref(),
+            mic_device_label.as_deref(),
+        ) {
             Ok(session) => session,
             Err(sck_err) => {
+                if include_audio && has_specific_mic {
+                    return Err(format!(
+                        "ScreenCaptureKit recording failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
+                    ));
+                }
                 eprintln!(
                     "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
                 );
@@ -568,6 +596,62 @@ fn native_extension_for_mime_type(mime_type: &str) -> &'static str {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn normalize_audio_device_name(value: &str) -> String {
+    value
+        .to_lowercase()
+        .replace("(default)", "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(target_os = "macos")]
+fn names_match(a: &str, b: &str) -> bool {
+    let a = normalize_audio_device_name(a);
+    let b = normalize_audio_device_name(b);
+    !a.is_empty() && !b.is_empty() && (a == b || a.contains(&b) || b.contains(&a))
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_microphone_capture_device(
+    device_id: Option<&str>,
+    device_label: Option<&str>,
+) -> Result<Option<AudioInputDevice>, String> {
+    let device_id = device_id.map(str::trim).filter(|value| !value.is_empty());
+    let device_label = device_label
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    if device_id.is_none() && device_label.is_none() {
+        return Ok(None);
+    }
+
+    let devices = AudioInputDevice::list();
+    let resolved = device_id
+        .and_then(|id| devices.iter().find(|device| device.id == id))
+        .or_else(|| {
+            device_label.and_then(|label| {
+                devices
+                    .iter()
+                    .find(|device| names_match(&device.name, label))
+            })
+        })
+        .cloned();
+
+    resolved.map(Some).ok_or_else(|| {
+        let requested = device_label.or(device_id).unwrap_or("selected microphone");
+        let available = devices
+            .iter()
+            .map(|device| device.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "Selected microphone '{requested}' is not available to ScreenCaptureKit. Available inputs: {available}"
+        )
+    })
+}
+
 fn local_role_file_stem(role: &str) -> &'static str {
     match role {
         "composed" => "clip",
@@ -822,6 +906,8 @@ fn start_screencapturekit_recording(
     app: &AppHandle,
     safe_id: &str,
     include_audio: bool,
+    mic_device_id: Option<&str>,
+    mic_device_label: Option<&str>,
 ) -> Result<NativeFullscreenSession, String> {
     let path = pending_recording_path(app, safe_id, "mp4")?;
     let _ = std::fs::remove_file(&path);
@@ -839,6 +925,12 @@ fn start_screencapturekit_recording(
         .with_display(display)
         .with_excluding_windows(&[])
         .build();
+    let selected_mic = if include_audio {
+        resolve_microphone_capture_device(mic_device_id, mic_device_label)?
+    } else {
+        None
+    };
+
     let mut config = SCStreamConfiguration::new()
         .with_width(width)
         .with_height(height)
@@ -850,6 +942,14 @@ fn start_screencapturekit_recording(
         .with_excludes_current_process_audio(true)
         .with_sample_rate(48000)
         .with_channel_count(2);
+
+    if let Some(device) = selected_mic.as_ref() {
+        config.set_microphone_capture_device_id(&device.id);
+        eprintln!(
+            "[clips-tray] ScreenCaptureKit microphone pinned to {} ({})",
+            device.name, device.id
+        );
+    }
 
     config.set_stream_name(Some("Clips full-screen recording"));
 

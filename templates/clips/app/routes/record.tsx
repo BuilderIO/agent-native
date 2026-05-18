@@ -671,6 +671,7 @@ export default function RecordRoute() {
   );
 
   const liveTranscription = useLiveTranscription();
+  const stopLiveTranscription = liveTranscription.stop;
 
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
@@ -870,7 +871,11 @@ export default function RecordRoute() {
         });
 
         const wantsMic = opts.micDeviceId !== NO_MIC_DEVICE_ID;
-        if (wantsMic && liveTranscription.supported) {
+        // Web Speech does not let us pin a microphone device. If the user
+        // chose a specific mic, do not start a parallel system-default mic
+        // session for instant transcription; the recorded audio still uses
+        // the exact selected device and can be transcribed after upload.
+        if (wantsMic && !opts.micDeviceId && liveTranscription.supported) {
           liveTranscription.start();
         }
 
@@ -1602,6 +1607,34 @@ export default function RecordRoute() {
   // still start from the user's Start click. Calling getDisplayMedia from an
   // effect loses Chrome's transient user activation and looks like a fake
   // permission failure even when Camera and Microphone are already allowed.
+
+  useEffect(() => {
+    let released = false;
+    const releaseCapture = () => {
+      if (released) return;
+      released = true;
+      startSessionRef.current += 1;
+      if (fileUploadAbortRef.current) {
+        fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
+        fileUploadAbortRef.current = null;
+      }
+      stopLiveTranscription();
+      const engine = engineRef.current;
+      engineRef.current = null;
+      pendingRef.current = null;
+      setCameraStream(null);
+      setPreviewStream(null);
+      void engine?.cancel();
+    };
+
+    window.addEventListener("pagehide", releaseCapture);
+    window.addEventListener("beforeunload", releaseCapture);
+    return () => {
+      window.removeEventListener("pagehide", releaseCapture);
+      window.removeEventListener("beforeunload", releaseCapture);
+      releaseCapture();
+    };
+  }, [stopLiveTranscription]);
 
   // -------------------------------------------------------------------------
   // Render.
