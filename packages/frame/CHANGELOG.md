@@ -1,5 +1,12 @@
 # @agent-native/frame
 
+## 0.1.98
+
+### Patch Changes
+
+- Updated dependencies [dab88cd]
+  - @agent-native/core@0.20.4
+
 ## 0.1.97
 
 ### Patch Changes

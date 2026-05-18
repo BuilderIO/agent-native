@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.20.4
+
+### Patch Changes
+
+- dab88cd: Prevent dropped screenshots in the agent composer from attaching twice.
+
 ## 0.20.3
 
 ### Patch Changes
