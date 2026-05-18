@@ -1,5 +1,12 @@
 # @agent-native/frame
 
+## 0.1.100
+
+### Patch Changes
+
+- Updated dependencies [52adc2d]
+  - @agent-native/core@0.20.6
+
 ## 0.1.99
 
 ### Patch Changes
