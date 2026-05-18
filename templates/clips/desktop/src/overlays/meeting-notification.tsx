@@ -71,10 +71,13 @@ export function MeetingNotification() {
     dataRef.current = data;
   }, [data]);
 
-  function showNotification(payload: NotificationData) {
+  function showNotification(
+    payload: NotificationData,
+    options?: { hydrated?: boolean },
+  ) {
     setData(payload);
     setError(null);
-    setPending(!!payload.autoStart);
+    setPending(!!payload.autoStart && !options?.hydrated);
     scheduleDismiss(DEFAULT_DISMISS_MS);
   }
 
@@ -104,7 +107,7 @@ export function MeetingNotification() {
     invoke<NotificationData | null>("take_pending_meeting_notification")
       .then((payload) => {
         if (!stopped && payload) {
-          showNotification(payload);
+          showNotification(payload, { hydrated: true });
         }
       })
       .catch(() => {});

@@ -339,9 +339,10 @@ export default function CalendarView() {
     const hasOtherAttendees =
       ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
     const removeOnly = !isOrganizer && !!hasOtherAttendees;
+    const shouldAskGuests = !removeOnly && shouldPromptGuests(ev);
     const guestNotification =
       notificationOptions ??
-      (shouldPromptGuests(ev)
+      (shouldAskGuests
         ? await promptGuestNotification({
             event: ev,
             action: "cancellation",
@@ -379,7 +380,14 @@ export default function CalendarView() {
     const ev = events.find((e) => e.id === eventId);
     if (!ev) return;
     const isRecurring = !!(ev.recurringEventId || ev.recurrence?.length);
-    if (isRecurring || shouldPromptGuests(ev)) {
+    const isOrganizer =
+      ev.organizer?.self ||
+      ev.attendees?.find((a) => a.self)?.organizer ||
+      !ev.attendees?.length;
+    const hasOtherAttendees =
+      ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
+    const removeOnly = !isOrganizer && !!hasOtherAttendees;
+    if (isRecurring || (!removeOnly && shouldPromptGuests(ev))) {
       setDeleteDialogEvent(ev);
     } else {
       void handleDirectDelete(ev);

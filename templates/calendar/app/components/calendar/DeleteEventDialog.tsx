@@ -44,7 +44,8 @@ export function DeleteEventDialog({
 
   const isRecurring = !!(event?.recurringEventId || event?.recurrence?.length);
   const guestCount = event ? getGuestAttendeeCount(event) : 0;
-  const hasGuests = guestCount > 0;
+  const isRemoveOnly = event ? getIsRemoveOnly(event) : false;
+  const canNotifyGuests = guestCount > 0 && !isRemoveOnly;
 
   const copy = useMemo(() => {
     if (!event) {
@@ -61,26 +62,23 @@ export function DeleteEventDialog({
         : `${action === "remove" ? "Remove" : "Delete"} event?`,
       description: isRecurring
         ? `Choose how much of the series to ${action}.`
-        : hasGuests
+        : canNotifyGuests
           ? `You can notify guests with an optional note.`
           : `This event will be ${action}d.`,
       action,
     };
-  }, [event, hasGuests, isRecurring]);
+  }, [canNotifyGuests, event, isRecurring]);
 
   if (!event || !open) return null;
-
-  const isOrganizer = getIsOrganizer(event);
-  const hasOtherAttendees =
-    event.attendees && event.attendees.filter((a) => !a.self).length > 0;
-  const isRemoveOnly = !isOrganizer && !!hasOtherAttendees;
 
   function handleConfirm(sendUpdates: "all" | "none") {
     onConfirm({
       scope,
       sendUpdates,
       notificationMessage:
-        sendUpdates === "all" ? message.trim() || undefined : undefined,
+        canNotifyGuests && sendUpdates === "all"
+          ? message.trim() || undefined
+          : undefined,
       removeOnly: isRemoveOnly,
     });
   }
@@ -136,7 +134,7 @@ export function DeleteEventDialog({
             </RadioGroup>
           )}
 
-          {hasGuests && (
+          {canNotifyGuests && (
             <div className="space-y-2">
               <Label htmlFor="delete-notification-message">
                 Add a cancellation note
@@ -157,16 +155,16 @@ export function DeleteEventDialog({
 
         <AlertDialogFooter className="gap-2 sm:gap-0">
           <AlertDialogCancel data-cancel>Cancel</AlertDialogCancel>
-          {hasGuests && (
+          {canNotifyGuests && (
             <Button variant="outline" onClick={() => handleConfirm("none")}>
               Don't notify
             </Button>
           )}
           <Button
             variant="destructive"
-            onClick={() => handleConfirm(hasGuests ? "all" : "none")}
+            onClick={() => handleConfirm(canNotifyGuests ? "all" : "none")}
           >
-            {hasGuests
+            {canNotifyGuests
               ? "Send cancellation"
               : isRemoveOnly
                 ? "Remove event"
