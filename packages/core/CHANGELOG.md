@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.20.5
+
+### Patch Changes
+
+- a470349: Clear the chat drop overlay when the composer consumes dropped files.
+
 ## 0.20.4
 
 ### Patch Changes
