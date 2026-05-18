@@ -96,6 +96,11 @@ const AgentTerminal = lazy(() =>
   import("./terminal/index.js").then((m) => ({ default: m.AgentTerminal })),
 );
 
+const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
+const AGENT_PANEL_SET_MODE_EVENT = "agent-panel:set-mode";
+const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
+const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
+
 function parentFrameTargetOrigin(): string {
   return getFrameOrigin() ?? window.location.origin;
 }
@@ -570,8 +575,9 @@ function AgentPanelInner({
       const detail = (e as CustomEvent).detail;
       if (detail?.mode) switchMode(detail.mode);
     }
-    window.addEventListener("agent-panel:set-mode", handler);
-    return () => window.removeEventListener("agent-panel:set-mode", handler);
+    window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
+    return () =>
+      window.removeEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
   }, [switchMode]);
 
   // Open settings tab when requested (replaces the old popover open event)
@@ -585,10 +591,13 @@ function AgentPanelInner({
       }));
       switchMode("settings");
     }
-    window.addEventListener("agent-panel:open-settings", handleOpenSettings);
+    window.addEventListener(
+      AGENT_PANEL_OPEN_SETTINGS_EVENT,
+      handleOpenSettings,
+    );
     return () =>
       window.removeEventListener(
-        "agent-panel:open-settings",
+        AGENT_PANEL_OPEN_SETTINGS_EVENT,
         handleOpenSettings,
       );
   }, [switchMode]);
@@ -2100,6 +2109,19 @@ export function AgentSidebar({
   // flip a moment later when the real state lands, which is the same
   // ownership-vs-open-state confusion the previous fix addressed.
   const [hasFrameSidebarState, setHasFrameSidebarState] = useState(false);
+  const [backgroundPanelActive, setBackgroundPanelActive] = useState(false);
+  const [runningTabIds, setRunningTabIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const shouldMountPanel =
+    !presentationMode &&
+    (!frameCodeMode || !shouldParentFrameOwnAgentPanel()) &&
+    (open || backgroundPanelActive || runningTabIds.size > 0);
+  const shouldMountPanelRef = useRef(shouldMountPanel);
+
+  useEffect(() => {
+    shouldMountPanelRef.current = shouldMountPanel;
+  }, [shouldMountPanel]);
 
   useEffect(() => {
     const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
@@ -2119,6 +2141,80 @@ export function AgentSidebar({
     presentationMode,
     hasFrameSidebarState,
   ]);
+
+  useEffect(() => {
+    const preparePanel = () => setBackgroundPanelActive(true);
+    const handleChatRunning = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const tabId =
+        typeof detail?.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__";
+
+      if (detail?.isRunning === true) {
+        setRunningTabIds((prev) => {
+          const next = new Set(prev);
+          next.add(tabId);
+          return next;
+        });
+        return;
+      }
+
+      if (detail?.isRunning === false) {
+        setRunningTabIds((prev) => {
+          if (!prev.has(tabId)) return prev;
+          const next = new Set(prev);
+          next.delete(tabId);
+          return next;
+        });
+        setBackgroundPanelActive(false);
+      }
+    };
+
+    window.addEventListener(AGENT_PANEL_PREPARE_EVENT, preparePanel);
+    window.addEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
+    return () => {
+      window.removeEventListener(AGENT_PANEL_PREPARE_EVENT, preparePanel);
+      window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
+    };
+  }, []);
+
+  useEffect(() => {
+    const replayAfterMount = (type: string, event: Event) => {
+      if (shouldMountPanelRef.current) return;
+
+      const detail = (event as CustomEvent).detail;
+      shouldMountPanelRef.current = true;
+      setBackgroundPanelActive(true);
+      if (type === AGENT_PANEL_OPEN_SETTINGS_EVENT) {
+        setOpenPersisted(true);
+      }
+
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent(type, { detail }));
+      }, 0);
+    };
+
+    const handleSetMode = (event: Event) => {
+      replayAfterMount(AGENT_PANEL_SET_MODE_EVENT, event);
+    };
+    const handleOpenSettings = (event: Event) => {
+      replayAfterMount(AGENT_PANEL_OPEN_SETTINGS_EVENT, event);
+    };
+
+    window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode);
+    window.addEventListener(
+      AGENT_PANEL_OPEN_SETTINGS_EVENT,
+      handleOpenSettings,
+    );
+    return () => {
+      window.removeEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode);
+      window.removeEventListener(
+        AGENT_PANEL_OPEN_SETTINGS_EVENT,
+        handleOpenSettings,
+      );
+    };
+  }, [setOpenPersisted]);
 
   useEffect(() => {
     const toggleHandler = () => {
@@ -2345,11 +2441,9 @@ export function AgentSidebar({
     };
   }
 
-  // Always render the sidebar panel (even when closed) so MultiTabAssistantChat
-  // stays mounted and can receive messages (e.g. from voice dictation) while
-  // the sidebar is visually hidden. When the user opens the sidebar they'll see
-  // any in-progress or completed conversations.
-  const sidebar = (
+  // Mount the live chat surface only while visible or actively needed. Keeping
+  // it mounted while closed starts app-state polling on every public page view.
+  const sidebar = shouldMountPanel ? (
     <>
       {showResizeHandle && !isLeft && (
         <ResizeHandle position={position} onDrag={handleDrag} />
@@ -2380,7 +2474,7 @@ export function AgentSidebar({
         <ResizeHandle position={position} onDrag={handleDrag} />
       )}
     </>
-  );
+  ) : null;
 
   return (
     <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
@@ -2401,7 +2495,7 @@ export function AgentSidebar({
       {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
-      <URLSync browserTabId={browserTabId} />
+      {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
       {isLeft && !presentationMode ? sidebar : null}
       <div className="flex flex-1 flex-col overflow-auto min-w-0">
         {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this

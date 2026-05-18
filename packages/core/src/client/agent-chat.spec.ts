@@ -91,6 +91,30 @@ describe("sendToAgentChat", () => {
     });
   });
 
+  it("prepares the local sidebar for silent background sends without opening it", () => {
+    sendToAgentChat({
+      message: "refresh quietly",
+      submit: true,
+      openSidebar: false,
+    });
+
+    const eventTypes = dispatchEventSpy.mock.calls.map(([event]) => event.type);
+    expect(eventTypes).toContain("agent-panel:prepare");
+    expect(eventTypes).not.toContain("agent-panel:open");
+  });
+
+  it("prepares the local sidebar for background tabs without opening it", () => {
+    sendToAgentChat({
+      message: "run in the background",
+      submit: true,
+      background: true,
+    });
+
+    const eventTypes = dispatchEventSpy.mock.calls.map(([event]) => event.type);
+    expect(eventTypes).toContain("agent-panel:prepare");
+    expect(eventTypes).not.toContain("agent-panel:open");
+  });
+
   it("generates distinct tabIds across calls", () => {
     const id1 = sendToAgentChat({ message: "a" });
     const id2 = sendToAgentChat({ message: "b" });
