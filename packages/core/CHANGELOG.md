@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.20.3
+
+### Patch Changes
+
+- 76b5268: Stop closed agent sidebars from mounting hidden polling surfaces on page load.
+
 ## 0.20.2
 
 ### Patch Changes
