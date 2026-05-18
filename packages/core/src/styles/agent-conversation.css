@@ -81,20 +81,6 @@
   margin-top: 10px;
 }
 
-.agent-conversation-message__part:not(.agent-conversation-message__part--tool)
-  + .agent-conversation-message__part--tool,
-.agent-conversation-message__part--tool
-  + .agent-conversation-message__part:not(
-    .agent-conversation-message__part--tool
-  ) {
-  margin-top: 16px;
-}
-
-.agent-conversation-message__part--tool
-  + .agent-conversation-message__part--tool {
-  margin-top: 5px;
-}
-
 .agent-conversation-message__part--tool,
 .agent-conversation-message__part--notice,
 .agent-conversation-message__part--artifact {

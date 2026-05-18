@@ -4,15 +4,6 @@
 @source "./**/*.{ts,tsx}";
 @source "../../../code-agents-ui/src/**/*.{ts,tsx}";
 
-/* ─── Reset ─────────────────────────────────────────────────── */
-*,
-*::before,
-*::after {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
 /* ─── Design tokens ──────────────────────────────────────────── */
 :root {
   --sidebar-width: 56px;

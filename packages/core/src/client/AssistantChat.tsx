@@ -426,7 +426,7 @@ const markdownStyles = `
 .agent-tool-code .agent-markdown-shiki pre span { background: transparent; }
 .agent-tool-code pre { margin: 0; min-width: max-content; padding: 0.75rem; background: transparent; color: inherit; }
 .agent-tool-code mark { border-radius: 0.1875rem; background: rgba(245, 158, 11, 0.25); color: inherit; }
-.agent-markdown hr { border: none; border-top: 1px solid hsl(var(--border, 0 0% 20%)); margin: 0.75em 0; }
+.agent-markdown hr { border: none; border-top: 1px solid hsl(var(--border, 0 0% 20%)); margin: 0.75em 0 1em; }
 .agent-markdown a { text-decoration: underline; text-underline-offset: 2px; }
 .agent-markdown a.agent-markdown-cta { text-decoration: none; }
 .agent-markdown blockquote { border-left: 2px solid hsl(var(--border, 0 0% 20%)); padding-left: 0.75em; margin: 0.5em 0; opacity: 0.8; }
@@ -1556,7 +1556,7 @@ function ToolCallDisplay({
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
 
   return (
-    <div className="my-2 overflow-hidden">
+    <div className="my-1 overflow-hidden">
       <button
         onClick={() => canExpand && setExpanded(!isExpanded)}
         aria-expanded={canExpand ? isExpanded : undefined}
