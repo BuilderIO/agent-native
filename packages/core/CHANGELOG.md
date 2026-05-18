@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.20.1
+
+### Patch Changes
+
+- 6f3002f: Prevent integration retry timers from keeping Netlify function invocations open and retry Postgres connection timeouts.
+
 ## 0.20.0
 
 ### Minor Changes
