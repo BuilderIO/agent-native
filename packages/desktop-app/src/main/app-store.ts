@@ -256,7 +256,9 @@ function migrateDecryptableProviderSecrets(
   if (changed) saveCodeAgentProviderStore(store);
 }
 
-function hasStoredProviderSecret(secret: StoredSecret | undefined): boolean {
+function hasStoredProviderSecretBlob(
+  secret: StoredSecret | undefined,
+): boolean {
   return Boolean(secret?.value);
 }
 
@@ -314,7 +316,9 @@ export function applyCodeAgentProviderCredentialsToEnv(): CodeAgentProviderCrede
       if (credentials[key]) appliedKeys.push(key);
     } else {
       delete process.env[key];
-      if (hasStoredProviderSecret(store.credentials[key])) failedKeys.push(key);
+      if (hasStoredProviderSecretBlob(store.credentials[key])) {
+        failedKeys.push(key);
+      }
     }
   }
   return {
