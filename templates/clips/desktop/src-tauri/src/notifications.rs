@@ -5,6 +5,8 @@
 //! frontend owns the "Start notes" click so consent/control stays visible.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder};
 use tauri_plugin_notification::NotificationExt;
 
@@ -18,6 +20,9 @@ const NOTIFICATION_W_LOGICAL: u32 = 380;
 const NOTIFICATION_H_LOGICAL: u32 = 132;
 const NOTIFICATION_TOP_MARGIN_LOGICAL: u32 = 44;
 const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 24;
+
+#[derive(Default)]
+pub struct MeetingNotificationState(pub Mutex<Option<Value>>);
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +86,24 @@ fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+fn store_pending_meeting_notification(app: &AppHandle, payload: &Value) {
+    if let Some(state) = app.try_state::<MeetingNotificationState>() {
+        if let Ok(mut pending) = state.0.lock() {
+            *pending = Some(payload.clone());
+        }
+    }
+}
+
+#[tauri::command]
+pub fn take_pending_meeting_notification(app: AppHandle) -> Result<Option<Value>, String> {
+    let state = app.state::<MeetingNotificationState>();
+    let mut pending = state
+        .0
+        .lock()
+        .map_err(|_| "meeting notification state lock poisoned".to_string())?;
+    Ok(pending.take())
+}
+
 #[tauri::command]
 pub async fn notify_meeting_starting(
     app: AppHandle,
@@ -126,10 +149,8 @@ pub async fn notify_meeting_starting(
         eprintln!("[clips-tray] show meeting notification failed: {err}");
     }
 
-    // Fire the Tauri event regardless. The renderer's banner overlay listens
-    // for `meetings:show-notification` and renders the in-app card. Emit once
-    // immediately and once after the just-created webview has mounted so a
-    // cold notification window cannot miss its first payload.
+    // Keep the latest payload available for cold overlay windows, then emit
+    // for already-mounted listeners.
     let payload = serde_json::json!({
         "type": "calendar",
         "title": title,
@@ -138,12 +159,8 @@ pub async fn notify_meeting_starting(
         "joinUrl": join_url,
         "autoStart": auto_start.unwrap_or(false),
     });
+    store_pending_meeting_notification(&app, &payload);
     let _ = app.emit("meetings:show-notification", payload.clone());
-    let app_clone = app.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        let _ = app_clone.emit("meetings:show-notification", payload);
-    });
 
     Ok(())
 }

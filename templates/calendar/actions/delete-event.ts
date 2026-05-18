@@ -63,12 +63,14 @@ export default defineAction({
     const guestNotificationMessage = normalizeGuestNotificationMessage(
       args.notificationMessage,
     );
+    const shouldNotifyGuests = !!guestNotificationMessage && !args.removeOnly;
     const options = {
       scope: args.scope,
-      sendUpdates:
-        args.sendUpdates ?? (guestNotificationMessage ? "all" : "none"),
+      sendUpdates: args.removeOnly
+        ? "none"
+        : (args.sendUpdates ?? (shouldNotifyGuests ? "all" : "none")),
     };
-    const eventForNotification = guestNotificationMessage
+    const eventForNotification = shouldNotifyGuests
       ? await googleCalendar.getEvent(googleEventId, accountEmail)
       : undefined;
 
@@ -83,7 +85,7 @@ export default defineAction({
     }
 
     const guestNotification =
-      guestNotificationMessage && eventForNotification
+      shouldNotifyGuests && guestNotificationMessage && eventForNotification
         ? await sendEventGuestNotificationNote({
             event: eventForNotification,
             organizerEmail: ownerEmail,

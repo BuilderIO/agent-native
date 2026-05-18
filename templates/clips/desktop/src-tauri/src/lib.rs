@@ -106,6 +106,7 @@ pub fn run() {
             recording_indicator::recording_pill_save_position,
             recording_indicator::recording_pill_set_detached,
             // notifications
+            notifications::take_pending_meeting_notification,
             notifications::notify_meeting_starting,
             // meetings watcher (background poller)
             meetings_watcher::meetings_watcher_set_server_url,
@@ -155,6 +156,7 @@ pub fn run() {
         .manage(LastTranscript::default())
         .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(meetings_watcher::MeetingsWatcherState::default())
+        .manage(notifications::MeetingNotificationState::default())
         .manage(silence_detector::DetectorState::default())
         .setup(|app| {
             // NOTE: we intentionally do NOT call set_activation_policy(Accessory)

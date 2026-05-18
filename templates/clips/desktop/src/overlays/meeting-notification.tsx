@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -70,6 +71,13 @@ export function MeetingNotification() {
     dataRef.current = data;
   }, [data]);
 
+  function showNotification(payload: NotificationData) {
+    setData(payload);
+    setError(null);
+    setPending(!!payload.autoStart);
+    scheduleDismiss(DEFAULT_DISMISS_MS);
+  }
+
   useEffect(() => {
     const unlistens: Array<() => void> = [];
     let stopped = false;
@@ -90,12 +98,16 @@ export function MeetingNotification() {
 
     trackListen(
       listen<NotificationData>("meetings:show-notification", (ev) => {
-        setData(ev.payload);
-        setError(null);
-        setPending(!!ev.payload.autoStart);
-        scheduleDismiss(DEFAULT_DISMISS_MS);
+        showNotification(ev.payload);
       }),
     );
+    invoke<NotificationData | null>("take_pending_meeting_notification")
+      .then((payload) => {
+        if (!stopped && payload) {
+          showNotification(payload);
+        }
+      })
+      .catch(() => {});
 
     // Legacy bridge: older Rust builds emitted `meetings:start-recording`.
     // Re-route to the persistent popover-owned transcription session so this

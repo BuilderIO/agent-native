@@ -379,6 +379,10 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
       Object.assign(updates, zoom.patch);
     }
 
+    const eventForNotification = guestNotificationMessage
+      ? await loadExistingEvent()
+      : undefined;
+
     const updatedKeys = Object.keys(updates).filter(
       (key) => key !== "accountEmail",
     );
@@ -415,20 +419,21 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
       updatedAt: new Date().toISOString(),
     };
 
-    const guestNotification = guestNotificationMessage
-      ? await sendEventGuestNotificationNote({
-          event: {
-            ...(await loadExistingEvent()),
-            ...updated,
-            id,
-            googleEventId,
-            accountEmail: acctEmail,
-          },
-          organizerEmail: email,
-          message: guestNotificationMessage,
-          kind: "update",
-        })
-      : undefined;
+    const guestNotification =
+      guestNotificationMessage && eventForNotification
+        ? await sendEventGuestNotificationNote({
+            event: {
+              ...eventForNotification,
+              ...updated,
+              id,
+              googleEventId,
+              accountEmail: acctEmail,
+            },
+            organizerEmail: email,
+            message: guestNotificationMessage,
+            kind: "update",
+          })
+        : undefined;
 
     try {
       emit(
@@ -496,7 +501,9 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
           : undefined,
     );
     const removeOnly = body?.removeOnly === true;
-    const eventForNotification = guestNotificationMessage
+    const shouldNotifyGuests = !!guestNotificationMessage && !removeOnly;
+    const effectiveSendUpdates = removeOnly ? "none" : sendUpdates;
+    const eventForNotification = shouldNotifyGuests
       ? await googleCalendar.getEvent(googleEventId, accountEmail)
       : undefined;
 
@@ -506,13 +513,13 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
         await googleCalendar.removeEventFromCalendar(
           googleEventId,
           accountEmail,
-          { scope, sendUpdates },
+          { scope, sendUpdates: effectiveSendUpdates },
         );
       } else {
         // Organizer: actually delete the event
         await googleCalendar.deleteEvent(googleEventId, accountEmail, {
           scope,
-          sendUpdates,
+          sendUpdates: effectiveSendUpdates,
         });
       }
     } catch (error: any) {
@@ -521,7 +528,7 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     const guestNotification =
-      guestNotificationMessage && eventForNotification
+      shouldNotifyGuests && guestNotificationMessage && eventForNotification
         ? await sendEventGuestNotificationNote({
             event: eventForNotification,
             organizerEmail: email,

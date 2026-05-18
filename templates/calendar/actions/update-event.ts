@@ -237,6 +237,10 @@ export default defineAction({
       Object.assign(updates, zoom.patch);
     }
 
+    const eventForNotification = guestNotificationMessage
+      ? await loadExistingEvent()
+      : undefined;
+
     const updatedKeys = Object.keys(updates).filter(
       (key) => key !== "accountEmail",
     );
@@ -257,23 +261,24 @@ export default defineAction({
       addGoogleMeet: args.addGoogleMeet,
     });
 
-    const guestNotification = guestNotificationMessage
-      ? await sendEventGuestNotificationNote({
-          event: {
-            ...(await loadExistingEvent()),
-            ...updates,
-            id: `google-${googleEventId}`,
-            googleEventId,
-            accountEmail,
-            htmlLink: result.htmlLink,
-            hangoutLink: result.meetLink,
-            conferenceData: result.conferenceData,
-          },
-          organizerEmail: ownerEmail,
-          message: guestNotificationMessage,
-          kind: "update",
-        })
-      : undefined;
+    const guestNotification =
+      guestNotificationMessage && eventForNotification
+        ? await sendEventGuestNotificationNote({
+            event: {
+              ...eventForNotification,
+              ...updates,
+              id: `google-${googleEventId}`,
+              googleEventId,
+              accountEmail,
+              htmlLink: result.htmlLink,
+              hangoutLink: result.meetLink,
+              conferenceData: result.conferenceData,
+            },
+            organizerEmail: ownerEmail,
+            message: guestNotificationMessage,
+            kind: "update",
+          })
+        : undefined;
 
     return {
       success: true,
