@@ -3426,13 +3426,13 @@ const AssistantChatInner = forwardRef<
   }, []);
   const handleChatDrop = useCallback(
     (e: React.DragEvent) => {
-      if (e.defaultPrevented) return;
       const files = Array.from(e.dataTransfer?.files ?? []);
       if (files.length === 0) return;
-      e.preventDefault();
-      e.stopPropagation();
       dropDepthRef.current = 0;
       setDropActive(false);
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      e.stopPropagation();
       // Mirror TiptapComposer's paste/drop name-uniqueness so consecutive
       // screenshots (all named `image.png`) don't collide on the
       // SimpleImageAttachmentAdapter id.
