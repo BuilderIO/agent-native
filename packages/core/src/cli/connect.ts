@@ -235,9 +235,9 @@ function clientPromptOptions(): ConnectClientPromptContext["options"] {
 }
 
 function shouldPromptForClients(deps: ConnectDeps): boolean {
+  if (deps.isInteractive) return deps.isInteractive();
   if (process.env.AGENT_NATIVE_NO_PROMPT === "1") return false;
   if (process.env.CI === "true") return false;
-  if (deps.isInteractive) return deps.isInteractive();
   return !!process.stdin.isTTY && !!process.stdout.isTTY;
 }
 
