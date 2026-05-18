@@ -36,6 +36,10 @@ import {
   sendBookingConfirmationEmails,
 } from "../lib/booking-emails.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
+import {
+  buildBookingEventAttendees,
+  buildBookingEventTitle,
+} from "../lib/booking-event-details.js";
 
 async function requireRequestContext<T>(
   event: H3Event,
@@ -79,45 +83,8 @@ function stripCrlf(value: unknown): string {
     .trim();
 }
 
-function titleCaseToken(value: string): string {
-  if (!value) return value;
-  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
-}
-
-function displayNameFromEmail(email: string): string {
-  const localPart = email.split("@")[0]?.split("+")[0] ?? "";
-  const parts = localPart
-    .split(/[._-]+/)
-    .map((part) => part.replace(/[^a-zA-Z0-9]/g, ""))
-    .filter(Boolean);
-
-  if (parts.length === 0) return email;
-  return parts.map(titleCaseToken).join(" ");
-}
-
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
-function buildBookingEventTitle({
-  explicitTitle,
-  bookingTitle,
-  hostEmail,
-  attendeeName,
-}: {
-  explicitTitle?: unknown;
-  bookingTitle?: unknown;
-  hostEmail: string;
-  attendeeName: unknown;
-}) {
-  const explicit = stripCrlf(explicitTitle);
-  if (explicit) return explicit;
-  const meetingType = stripCrlf(bookingTitle);
-  if (meetingType) return meetingType;
-
-  const hostName = displayNameFromEmail(hostEmail);
-  const guestName = stripCrlf(attendeeName) || "Guest";
-  return `${hostName} + ${guestName}`;
 }
 
 async function deleteGoogleEventForBooking({
@@ -603,7 +570,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
     const eventTitle = buildBookingEventTitle({
       explicitTitle: body.eventTitle,
-      bookingTitle: bookingLink?.title,
       hostEmail,
       attendeeName,
     });
@@ -827,11 +793,16 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           allDay: false,
           source: "google",
           accountEmail: hostEmail,
+          attendees: buildBookingEventAttendees({
+            attendeeEmail,
+            attendeeName,
+          }),
           createdAt: now,
           updatedAt: now,
         };
         const result = await googleCalendar.createEvent(calEvent, {
           addGoogleMeet: conferencing?.type === "google_meet",
+          sendUpdates: "all",
         });
         // Google Meet link is returned by the API when created
         googleEventId = result.id;
