@@ -446,6 +446,22 @@ describe("AgentEngine registry", () => {
       expect(await detectEngineFromUserSecrets()).toBeNull();
     });
 
+    it("does not trace engine detection by default", async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      try {
+        vi.doMock("../../server/request-context.js", () => ({
+          getRequestUserEmail: () => undefined,
+          getRequestOrgId: () => undefined,
+        }));
+
+        const { detectEngineFromUserSecrets } = await import("./registry.js");
+        expect(await detectEngineFromUserSecrets()).toBeNull();
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    });
+
     it("returns null for the local-dev session", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "local@localhost",

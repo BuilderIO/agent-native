@@ -1080,7 +1080,9 @@ function resolveRemoteConnectorCliInvocation(): {
   command: string;
   args: string[];
   cwd: string;
+  env?: NodeJS.ProcessEnv;
 } {
+  const electronNodeEnv = { ELECTRON_RUN_AS_NODE: "1" };
   const localCoreCli = path.resolve(
     __dirname,
     "../../../core/dist/cli/index.js",
@@ -1090,6 +1092,7 @@ function resolveRemoteConnectorCliInvocation(): {
       command: process.execPath,
       args: [localCoreCli],
       cwd: path.dirname(localCoreCli),
+      env: electronNodeEnv,
     };
   }
   const repoCoreCli = path.resolve("packages/core/dist/cli/index.js");
@@ -1098,6 +1101,7 @@ function resolveRemoteConnectorCliInvocation(): {
       command: process.execPath,
       args: [repoCoreCli],
       cwd: process.cwd(),
+      env: electronNodeEnv,
     };
   }
   return {
@@ -1143,6 +1147,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
+        ...invocation.env,
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
       },
     });
@@ -3999,7 +4004,7 @@ function ensureCodeAgentLlmProvider(): {
     return {
       ok: false,
       error:
-        "Agent Native could not unlock the saved code provider keys. Allow Keychain access when starting a Code run, or reconnect the provider in Settings.",
+        "Agent Native could not read the saved code provider keys. Reconnect the provider in Settings.",
     };
   }
   return {

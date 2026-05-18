@@ -1980,7 +1980,7 @@ function providerLabelForModel(option: CodeAgentModelOption): string {
   if (model.startsWith("claude-")) return "Anthropic";
   if (model.startsWith("gpt-") || model.startsWith("o")) return "OpenAI";
   if (model.startsWith("gemini-")) return "Gemini";
-  return option.engineLabel === "Builder.io" ? "Anthropic" : option.engineLabel;
+  return option.engineLabel === "Builder.io" ? "More" : option.engineLabel;
 }
 
 function buildCodeAgentSlashCommands(

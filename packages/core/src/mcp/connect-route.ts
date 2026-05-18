@@ -249,14 +249,12 @@ function agentNativeMarkSvg(className: string, gradientId: string): string {
 }
 
 function renderConnectPage(params: {
-  origin: string;
   connectBasePath: string;
   email: string;
   appName: string;
   userCode: string | null;
 }): string {
-  const { origin, connectBasePath, email, appName, userCode } = params;
-  const safeOrigin = escapeHtml(origin);
+  const { connectBasePath, email, appName, userCode } = params;
   const safeEmail = escapeHtml(email);
   const safeApp = escapeHtml(appName);
   const brandMarkSvg = agentNativeMarkSvg(
@@ -345,33 +343,28 @@ function renderConnectPage(params: {
   }
   h1 {
     text-align: center; font-size: 1.45rem; font-weight: 680;
-    line-height: 1.25; margin-bottom: 0.55rem;
+    line-height: 1.25; margin-bottom: 0.7rem;
     letter-spacing: -0.01em;
-  }
-  .sub {
-    text-align: center; color: var(--muted); font-size: 0.9rem;
-    line-height: 1.5; margin: 0 auto 0.9rem; max-width: 36ch;
   }
   .identity {
     display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
     gap: 0.25rem 0.45rem; color: var(--subtle); font-size: 0.78rem;
-    line-height: 1.35; margin: 0 auto 1.4rem; max-width: 34ch;
+    line-height: 1.35; margin: 0 auto 1.5rem; max-width: 34ch;
   }
   .identity strong { color: var(--muted); font-weight: 600; }
-  .identity .origin { overflow-wrap: anywhere; }
   .device-strip {
     display: flex; align-items: center; justify-content: space-between;
     gap: 0.75rem; border: 1px solid var(--border);
-    border-radius: 8px; padding: 0.55rem 0.65rem; margin: 0 0 0.9rem;
+    border-radius: 8px; padding: 0.5rem 0.65rem; margin: 0 0 0.9rem;
     background: var(--panel-soft); color: var(--muted);
   }
   .device-strip .label {
     font-size: 0.76rem; font-weight: 560; color: var(--subtle);
   }
   .device-strip .value {
-    font-size: 0.9rem; font-weight: 700;
+    font-size: 0.78rem; font-weight: 650;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    letter-spacing: 0.08em; color: var(--text);
+    letter-spacing: 0.08em; color: var(--muted);
   }
   button {
     cursor: pointer; font: inherit; font-weight: 600; border: none;
@@ -521,11 +514,8 @@ function renderConnectPage(params: {
 
     <div class="eyebrow">Connect an external agent</div>
     <h1>${safeUserCode ? `Authorize ${safeApp} from your terminal?` : `Connect ${safeApp} to an agent`}</h1>
-    <p class="sub">Allow Claude Code, Codex, or Cowork to use ${safeApp} with your account. You can revoke access anytime.</p>
     <p class="identity">
       <span>Signed in as <strong>${safeEmail}</strong></span>
-      <span aria-hidden="true">&middot;</span>
-      <span class="origin">${safeOrigin}</span>
     </p>
   </div>
 
@@ -622,7 +612,6 @@ function renderConnectPage(params: {
       var res = await fetch(BASE + "/tokens", { credentials: "same-origin" });
       if (!res.ok) {
         connectionsStateEl.textContent = "Unavailable";
-        connectionsEl.open = true;
         listEl.innerHTML = '<div class="empty-state">Could not load connections.</div>';
         return;
       }
@@ -636,7 +625,6 @@ function renderConnectPage(params: {
       }
       var activeCount = tokens.filter(function (t) { return !t.revokedAt; }).length;
       connectionsStateEl.textContent = activeCount === 1 ? "1 active" : activeCount + " active";
-      connectionsEl.open = true;
       listEl.innerHTML = "";
       tokens.forEach(function (t) {
         var div = document.createElement("div");
@@ -667,7 +655,6 @@ function renderConnectPage(params: {
       });
     } catch (e) {
       connectionsStateEl.textContent = "Unavailable";
-      connectionsEl.open = true;
       listEl.innerHTML = '<div class="empty-state">Could not load connections.</div>';
     }
   }
@@ -798,7 +785,6 @@ export async function handleMcpConnect(
       // Fully-open app (no auth guard): nothing to scope a mint to.
       return html(
         renderConnectPage({
-          origin: appUrl,
           connectBasePath: basePath,
           email: "(no auth configured)",
           appName: options.appName || appLabel(appUrl, options),
@@ -819,7 +805,6 @@ export async function handleMcpConnect(
     }
     return html(
       renderConnectPage({
-        origin: appUrl,
         connectBasePath: basePath,
         email: session.email,
         appName: options.appName || appLabel(appUrl, options),

@@ -35,7 +35,6 @@ import {
   IconPencil,
   IconPlugConnected,
 } from "@tabler/icons-react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import type {
   MentionItem,
@@ -65,6 +64,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 
 export interface TiptapComposerHandle {
   focus(): void;
@@ -426,8 +430,8 @@ function ModeSelector({
   const [open, setOpen] = useState(false);
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <PopoverPrimitive.Trigger asChild>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
         <button
           type="button"
           aria-label={mode === "build" ? "Act mode" : "Plan mode"}
@@ -437,70 +441,67 @@ function ModeSelector({
           {mode === "build" ? "Act" : "Plan"}
           <IconChevronDown className="h-3 w-3 opacity-60" />
         </button>
-      </PopoverPrimitive.Trigger>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          side="top"
-          align="end"
-          sideOffset={6}
-          data-agent-native-composer-popover="true"
-          className="z-[260] w-60 rounded-lg border border-border bg-popover py-1 shadow-lg animate-in fade-in-0 zoom-in-95"
-          style={{ fontSize: 13 }}
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        sideOffset={6}
+        collisionPadding={8}
+        data-agent-native-composer-popover="true"
+        className="z-[260] w-60 rounded-lg border-border p-0 py-1 shadow-lg"
+        style={{ fontSize: 13 }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            onChange("build");
+            setOpen(false);
+          }}
+          className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left"
         >
-          <button
-            type="button"
-            onClick={() => {
-              onChange("build");
-              setOpen(false);
-            }}
-            className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left"
-          >
-            <IconPencil className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <div className="flex-1 min-w-0">
-              <span className="font-medium text-foreground text-[13px]">
-                Act
-              </span>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                Use tools and make approved changes
-              </p>
-            </div>
-            {mode === "build" && (
-              <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-            )}
-          </button>
-          <button
-            type="button"
-            disabled={planModeDisabled}
-            title={planModeDisabled ? planModeDisabledReason : undefined}
-            onClick={() => {
-              if (planModeDisabled) return;
-              onChange("plan");
-              setOpen(false);
-            }}
-            className={`flex w-full items-center gap-3 px-3 py-2 text-left ${
-              planModeDisabled
-                ? "cursor-not-allowed opacity-60"
-                : "hover:bg-accent/50"
-            }`}
-          >
-            <IconClipboardList className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <div className="flex-1 min-w-0">
-              <span className="font-medium text-foreground text-[13px]">
-                Plan
-              </span>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                {planModeDisabled
-                  ? planModeDisabledReason
-                  : "Read-only research and approval first"}
-              </p>
-            </div>
-            {mode === "plan" && !planModeDisabled && (
-              <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-            )}
-          </button>
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+          <IconPencil className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="flex-1 min-w-0">
+            <span className="font-medium text-foreground text-[13px]">Act</span>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Use tools and make approved changes
+            </p>
+          </div>
+          {mode === "build" && (
+            <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+          )}
+        </button>
+        <button
+          type="button"
+          disabled={planModeDisabled}
+          title={planModeDisabled ? planModeDisabledReason : undefined}
+          onClick={() => {
+            if (planModeDisabled) return;
+            onChange("plan");
+            setOpen(false);
+          }}
+          className={`flex w-full items-center gap-3 px-3 py-2 text-left ${
+            planModeDisabled
+              ? "cursor-not-allowed opacity-60"
+              : "hover:bg-accent/50"
+          }`}
+        >
+          <IconClipboardList className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="flex-1 min-w-0">
+            <span className="font-medium text-foreground text-[13px]">
+              Plan
+            </span>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {planModeDisabled
+                ? planModeDisabledReason
+                : "Read-only research and approval first"}
+            </p>
+          </div>
+          {mode === "plan" && !planModeDisabled && (
+            <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+          )}
+        </button>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -690,8 +691,8 @@ function ModelSelector({
   }, []);
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <PopoverPrimitive.Trigger asChild>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
         <button
           type="button"
           data-agent-composer-slot="model-button"
@@ -705,166 +706,174 @@ function ModelSelector({
           )}
           <IconChevronDown className="h-3 w-3 shrink-0 opacity-60" />
         </button>
-      </PopoverPrimitive.Trigger>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          side="top"
-          align="end"
-          sideOffset={6}
-          data-agent-native-composer-popover="true"
-          className="z-[260] max-h-[500px] w-72 overflow-y-auto rounded-lg border border-border bg-popover py-1 shadow-lg animate-in fade-in-0 zoom-in-95"
-          style={{ fontSize: 13 }}
-        >
-          {showBuilderCta && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  if (onConnectProvider) {
-                    onConnectProvider();
-                  } else {
-                    builderFlow.start();
-                  }
-                }}
-                disabled={!onConnectProvider && builderFlow.connecting}
-                className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-accent/50 disabled:opacity-60"
-              >
-                <IconPlugConnected className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
-                <span className="flex-1 min-w-0">
-                  <span className="block text-[12px] font-medium text-foreground">
-                    {!onConnectProvider && builderFlow.connecting
-                      ? "Connecting Builder.io…"
-                      : "Connect Builder.io"}
-                  </span>
-                  <span className="block text-[11px] text-muted-foreground">
-                    Free credits for Claude, OpenAI &amp; Gemini
-                  </span>
-                </span>
-              </button>
-              <div className="my-1 border-t border-border" />
-            </>
-          )}
-          {autoModelGroup && (
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        sideOffset={6}
+        collisionPadding={8}
+        data-agent-native-composer-popover="true"
+        className="z-[260] box-border w-72 overflow-y-auto rounded-lg border-border p-0 py-1 shadow-lg"
+        style={
+          providerGroups.length > 0
+            ? {
+                fontSize: 13,
+                height:
+                  "min(500px, var(--radix-popover-content-available-height, 500px))",
+              }
+            : {
+                fontSize: 13,
+                maxHeight:
+                  "min(500px, var(--radix-popover-content-available-height, 500px))",
+              }
+        }
+      >
+        {showBuilderCta && (
+          <>
             <button
               type="button"
               onClick={() => {
-                onChange("auto", autoModelGroup.engine);
-                setOpen(false);
+                if (onConnectProvider) {
+                  onConnectProvider();
+                } else {
+                  builderFlow.start();
+                }
               }}
-              className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+              disabled={!onConnectProvider && builderFlow.connecting}
+              className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-accent/50 disabled:opacity-60"
             >
-              <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                Auto
+              <IconPlugConnected className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12px] font-medium text-foreground">
+                  {!onConnectProvider && builderFlow.connecting
+                    ? "Connecting Builder.io…"
+                    : "Connect Builder.io"}
+                </span>
+                <span className="block text-[11px] text-muted-foreground">
+                  Free credits for Claude, OpenAI &amp; Gemini
+                </span>
               </span>
-              {model === "auto" && (
-                <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-              )}
             </button>
-          )}
-          {autoModelGroup && providerGroups.length > 0 && (
             <div className="my-1 border-t border-border" />
-          )}
-          {providerGroups.map((group) => {
-            const models = latestModelsOnly(group.models);
-            const groupKey = `${group.engine}:${group.label}`;
-            const isExpanded = expandedGroups.has(groupKey);
-            return (
-              <div key={groupKey}>
-                <div className="flex items-center hover:bg-accent/30">
-                  <button
-                    type="button"
-                    onClick={() => toggleGroup(groupKey)}
-                    className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-left"
-                  >
-                    <IconChevronRight
-                      className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${
-                        isExpanded ? "rotate-90" : ""
-                      }`}
-                    />
-                    <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                      {group.label}
-                    </span>
-                    {!isExpanded && groupKey === selectedGroupKey && (
-                      <span className="text-[11px] text-muted-foreground/80 truncate">
-                        {friendlyModelName(model)}
-                      </span>
-                    )}
-                  </button>
-                  {!group.configured && (
-                    <button
-                      type="button"
-                      className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pr-3 py-1.5"
-                      onClick={openLlmSettings}
-                    >
-                      needs API key
-                    </button>
-                  )}
-                </div>
-                {isExpanded &&
-                  models.map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => {
-                        if (!group.configured) {
-                          openLlmSettings();
-                          return;
-                        }
-                        onChange(m, group.engine);
-                        const nextOptions =
-                          getReasoningEffortOptionsForModel(m);
-                        if (
-                          effort !== "auto" &&
-                          nextOptions.length > 0 &&
-                          !nextOptions.includes(effort)
-                        ) {
-                          onEffortChange?.("auto");
-                        }
-                        setOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-3 pl-7 pr-3 py-1.5 text-left ${
-                        group.configured
-                          ? "hover:bg-accent/50"
-                          : "opacity-40 cursor-default"
-                      }`}
-                    >
-                      <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                        {friendlyModelName(m)}
-                      </span>
-                      {m === model && group.configured && (
-                        <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                      )}
-                    </button>
-                  ))}
-              </div>
-            );
-          })}
-          {effortOptions.length > 0 && (
-            <>
-              <div className="my-1 border-t border-border" />
-              <div className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-                Reasoning
-              </div>
-              {effortOptions.map((option) => (
+          </>
+        )}
+        {autoModelGroup && (
+          <button
+            type="button"
+            onClick={() => {
+              onChange("auto", autoModelGroup.engine);
+              setOpen(false);
+            }}
+            className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+          >
+            <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+              Auto
+            </span>
+            {model === "auto" && (
+              <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+            )}
+          </button>
+        )}
+        {autoModelGroup && providerGroups.length > 0 && (
+          <div className="my-1 border-t border-border" />
+        )}
+        {providerGroups.map((group) => {
+          const models = latestModelsOnly(group.models);
+          const groupKey = `${group.engine}:${group.label}`;
+          const isExpanded = expandedGroups.has(groupKey);
+          const ChevronIcon = isExpanded ? IconChevronDown : IconChevronRight;
+          return (
+            <div key={groupKey}>
+              <div className="flex items-center hover:bg-accent/30">
                 <button
-                  key={option}
                   type="button"
-                  onClick={() => onEffortChange?.(option)}
-                  className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+                  aria-expanded={isExpanded}
+                  onClick={() => toggleGroup(groupKey)}
+                  className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-left"
                 >
-                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                    {reasoningEffortLabel(option)}
+                  <ChevronIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+                    {group.label}
                   </span>
-                  {option === effort && (
-                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  {!isExpanded && groupKey === selectedGroupKey && (
+                    <span className="text-[11px] text-muted-foreground/80 truncate">
+                      {friendlyModelName(model)}
+                    </span>
                   )}
                 </button>
-              ))}
-            </>
-          )}
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+                {!group.configured && (
+                  <button
+                    type="button"
+                    className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pr-3 py-1.5"
+                    onClick={openLlmSettings}
+                  >
+                    needs API key
+                  </button>
+                )}
+              </div>
+              {isExpanded &&
+                models.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => {
+                      if (!group.configured) {
+                        openLlmSettings();
+                        return;
+                      }
+                      onChange(m, group.engine);
+                      const nextOptions = getReasoningEffortOptionsForModel(m);
+                      if (
+                        effort !== "auto" &&
+                        nextOptions.length > 0 &&
+                        !nextOptions.includes(effort)
+                      ) {
+                        onEffortChange?.("auto");
+                      }
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-3 pl-7 pr-3 py-1.5 text-left ${
+                      group.configured
+                        ? "hover:bg-accent/50"
+                        : "opacity-40 cursor-default"
+                    }`}
+                  >
+                    <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                      {friendlyModelName(m)}
+                    </span>
+                    {m === model && group.configured && (
+                      <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                    )}
+                  </button>
+                ))}
+            </div>
+          );
+        })}
+        {effortOptions.length > 0 && (
+          <>
+            <div className="my-1 border-t border-border" />
+            <div className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+              Reasoning
+            </div>
+            {effortOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => onEffortChange?.(option)}
+                className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+              >
+                <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                  {reasoningEffortLabel(option)}
+                </span>
+                {option === effort && (
+                  <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                )}
+              </button>
+            ))}
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 

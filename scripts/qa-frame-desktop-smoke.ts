@@ -174,6 +174,13 @@ assert.doesNotMatch(
   "desktop shell must not unmount inactive apps when switching sidebar apps",
 );
 
+const desktopMain = read("packages/desktop-app/src/main/index.ts");
+assert.match(
+  desktopMain,
+  /ELECTRON_RUN_AS_NODE/,
+  "desktop remote connector must run CLI helpers in Node mode so macOS does not create a second Electron Dock app",
+);
+
 const frameClient = read("packages/frame/client/App.tsx");
 assert.match(
   frameClient,
