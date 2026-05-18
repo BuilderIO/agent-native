@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.20.0
+
+### Minor Changes
+
+- 3eb86c8: Add shared Code chat transcript replay, prompt attachment helpers, and injectable AssistantChat runtime adapters.
+
+### Patch Changes
+
+- 3eb86c8: Allow extensions to resolve vault-backed keys from the active workspace and mirror Dispatch vault saves into the shared credential store.
+- 3eb86c8: Respect externally supplied Builder-backed model availability in the shared composer model picker.
+- 3eb86c8: Preserve spaces between streamed Agent-Native Code transcript chunks.
+- 3eb86c8: Collapse the agent sidebar by default when opening external-agent deep links.
+- 3eb86c8: Bound agent chat startup/history size and surface stalled or quota-capped runs instead of retrying forever.
+
 ## 0.19.3
 
 ### Patch Changes
