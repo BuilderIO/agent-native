@@ -62,6 +62,8 @@ interface DesktopVoiceDictationOptions {
   shortcut: VoiceShortcutPreference;
   mode: VoiceMode;
   provider: VoiceProvider;
+  micDeviceId?: string | null;
+  micDeviceLabel?: string | null;
   instructions?: string;
 }
 
@@ -451,6 +453,8 @@ export function installDesktopVoiceDictation(
   let shortcut = options.shortcut;
   let mode = options.mode;
   let provider = options.provider;
+  let micDeviceId = options.micDeviceId ?? "";
+  let micDeviceLabel = options.micDeviceLabel ?? "";
   let instructions = options.instructions ?? "";
   let startInFlight = false;
   let stopRequestedBeforeReady = false;
@@ -699,6 +703,31 @@ export function installDesktopVoiceDictation(
     return text;
   };
 
+  const selectedMicConstraints = (): MediaStreamConstraints | null => {
+    return micDeviceId
+      ? {
+          audio: { deviceId: { exact: micDeviceId } },
+          video: false,
+        }
+      : null;
+  };
+
+  const preferredMicConstraints = async (): Promise<MediaStreamConstraints> => {
+    const selected = selectedMicConstraints();
+    if (selected) return selected;
+
+    const builtInId = await pickBuiltInMicId();
+    return builtInId
+      ? { audio: { deviceId: { exact: builtInId } }, video: false }
+      : { audio: true, video: false };
+  };
+
+  const nativeSpeechArgs = () => ({
+    locale: navigator.language || "en-US",
+    micDeviceId: micDeviceId || null,
+    micDeviceLabel: micDeviceLabel || null,
+  });
+
   /**
    * Server-path: capture audio with MediaRecorder, POST it to the
    * transcribe-voice endpoint on Fn-up, paste the response text. The
@@ -725,11 +754,8 @@ export function installDesktopVoiceDictation(
       // through a Bluetooth headset puts macOS in a tighter audio-session
       // mode that pauses/glitches whatever is playing, so AirPods users
       // would otherwise see audio cut out the moment they start dictation.
-      const builtInId = await pickBuiltInMicId();
       const stream = await navigator.mediaDevices.getUserMedia(
-        builtInId
-          ? { audio: { deviceId: { exact: builtInId } } }
-          : { audio: true },
+        await preferredMicConstraints(),
       );
       if (disposed || stopRequestedBeforeReady) {
         stream.getTracks().forEach((track) => track.stop());
@@ -917,9 +943,7 @@ export function installDesktopVoiceDictation(
         await invoke("native_speech_set_vocabulary", {
           strings: contextualStrings,
         }).catch(() => {});
-        await invoke("native_speech_start", {
-          locale: navigator.language || "en-US",
-        });
+        await invoke("native_speech_start", nativeSpeechArgs());
         console.log(
           `[voice-dictation] native_speech_start ok (vocab=${contextualStrings.length})`,
         );
@@ -1020,7 +1044,9 @@ export function installDesktopVoiceDictation(
         // with the recognizer, which silently returns a dead stream.
         console.log("[voice-dictation] requesting parallel mic for live meter");
         navigator.mediaDevices
-          .getUserMedia({ audio: true })
+          .getUserMedia(
+            selectedMicConstraints() ?? { audio: true, video: false },
+          )
           .then((meterStream) => {
             if (next.cancelled || session !== next) {
               meterStream.getTracks().forEach((t) => t.stop());
