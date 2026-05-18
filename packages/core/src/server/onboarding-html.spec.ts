@@ -87,7 +87,7 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).toContain('var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";');
     expect(html).toContain(
-      "__anSetOAuthDebug('Opening Google sign-in redirect')",
+      "__anSetOAuthDebug(reason || 'Opening Google sign-in redirect', flowId)",
     );
     expect(html).toContain(
       "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
@@ -124,7 +124,9 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("__anFinishOAuthExchange(ret, flowId, data.token)");
     expect(html).toContain("__anWaitForOAuthExchange(flowId, ret, btn, err)");
     expect(html).toContain("window.location.reload()");
-    expect(html).toContain("params.set('return', __anOAuthReturnTarget(ret))");
+    expect(html).toContain(
+      "if (oauthReturn) params.set('return', oauthReturn)",
+    );
   });
 
   it("embeds the local workspace gateway return origin when configured", () => {

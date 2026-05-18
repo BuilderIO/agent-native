@@ -71,6 +71,7 @@ export interface AgentChatMessage {
 }
 
 const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
+const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 
 /**
  * Listen for chatRunning messages from the frame (postMessage)
@@ -122,6 +123,11 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     type: AGENT_CHAT_MESSAGE_TYPE,
     data: { ...opts, tabId },
   };
+  const shouldOpenSidebar = opts.openSidebar !== false && !opts.background;
+
+  if (!isCodeRequest && !shouldOpenSidebar) {
+    window.dispatchEvent(new CustomEvent(AGENT_PANEL_PREPARE_EVENT));
+  }
 
   const targetSelf = !isCodeRequest && isInBuilderFrame();
   const target = targetSelf
@@ -138,7 +144,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   // via `openSidebar: false` for background/silent sends. AgentSidebar
   // listens for this event; the parent-frame case is handled by whoever
   // owns that sidebar receiving the postMessage above.
-  if (opts.openSidebar !== false && !opts.background) {
+  if (shouldOpenSidebar) {
     window.dispatchEvent(
       new CustomEvent("agent-panel:set-mode", {
         detail: { mode: "chat" },
