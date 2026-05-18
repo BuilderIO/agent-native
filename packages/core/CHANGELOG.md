@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.20.7
+
+### Patch Changes
+
+- e06d8ab: Keep Builder iframe Google sign-in on the popup path when redirects cannot work.
+
 ## 0.20.6
 
 ### Patch Changes
