@@ -125,7 +125,11 @@ function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
 }
 
 function shouldTraceCredentialResolve(): boolean {
-  return /^(1|true)$/i.test(process.env.DEBUG_CREDENTIAL_RESOLVE ?? "");
+  return /^(1|true)$/i.test(
+    process.env.AGENT_NATIVE_DEBUG_CREDENTIAL_RESOLVE ??
+      process.env.DEBUG_CREDENTIAL_RESOLVE ??
+      "",
+  );
 }
 
 // ---------------------------------------------------------------------------

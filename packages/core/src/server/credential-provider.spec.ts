@@ -607,10 +607,10 @@ describe("resolveSecret (generic)", () => {
     }
   });
 
-  it("traces secret resolution when DEBUG_CREDENTIAL_RESOLVE is enabled", async () => {
+  it("traces secret resolution when AGENT_NATIVE_DEBUG_CREDENTIAL_RESOLVE is enabled", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
-      process.env.DEBUG_CREDENTIAL_RESOLVE = "1";
+      process.env.AGENT_NATIVE_DEBUG_CREDENTIAL_RESOLVE = "1";
       mockGetRequestUserEmail.mockReturnValue("teammate@b.com");
       mockGetRequestOrgId.mockReturnValue("builder_io");
       mockReadAppSecret.mockResolvedValueOnce(null).mockResolvedValueOnce({
@@ -624,7 +624,7 @@ describe("resolveSecret (generic)", () => {
         "[resolve-secret] key=OPENAI_API_KEY email=teammate@b.com orgId=builder_io scope=org hit=true",
       );
     } finally {
-      delete process.env.DEBUG_CREDENTIAL_RESOLVE;
+      delete process.env.AGENT_NATIVE_DEBUG_CREDENTIAL_RESOLVE;
       log.mockRestore();
     }
   });

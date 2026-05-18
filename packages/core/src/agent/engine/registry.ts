@@ -112,8 +112,8 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
 
 function shouldTraceEngineDetection(): boolean {
   return /^(1|true)$/i.test(
-    process.env.DEBUG_AGENT_ENGINE_DETECT ??
-      process.env.DEBUG_CREDENTIAL_RESOLVE ??
+    process.env.AGENT_NATIVE_DEBUG_AGENT_ENGINE_DETECT ??
+      process.env.AGENT_NATIVE_DEBUG_CREDENTIAL_RESOLVE ??
       "",
   );
 }
