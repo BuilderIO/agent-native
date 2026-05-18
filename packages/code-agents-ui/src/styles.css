@@ -2161,9 +2161,11 @@
 }
 
 .code-agents-chat-composer-slot {
-  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
 }
 

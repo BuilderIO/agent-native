@@ -3516,13 +3516,15 @@ function TranscriptPanel({
           adapterReloadKey={controller}
           loadHistoryRepository={loadHistoryRepository}
           historyReloadKey={historyReloadKey}
-          composerSlot={
+          composerAreaClassName="code-agents-standard-composer"
+          composerToolbarSlot={
             <CodeAgentChatComposerSlot
-              runIsActive={runIsActive}
               permissionMode={permissionMode}
               onPermissionModeChange={onPermissionModeChange}
-              onStop={onStop}
             />
+          }
+          composerExtraActionButton={
+            runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
           }
           selectedModel={selectedModel}
           selectedEngine={selectedEngine}
@@ -3549,15 +3551,11 @@ function TranscriptPanel({
 }
 
 function CodeAgentChatComposerSlot({
-  runIsActive,
   permissionMode,
   onPermissionModeChange,
-  onStop,
 }: {
-  runIsActive: boolean;
   permissionMode: CodeAgentPermissionMode;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
-  onStop: () => void;
 }) {
   return (
     <div className="code-agents-chat-composer-slot">
@@ -3566,18 +3564,21 @@ function CodeAgentChatComposerSlot({
         onChange={onPermissionModeChange}
         compact
       />
-      {runIsActive && (
-        <button
-          type="button"
-          onClick={onStop}
-          className="code-agents-composer-stop-button"
-          aria-label="Stop session"
-          title="Stop session (Esc)"
-        >
-          <IconPlayerStop size={14} strokeWidth={1.9} />
-        </button>
-      )}
     </div>
+  );
+}
+
+function CodeAgentStopButton({ onStop }: { onStop: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onStop}
+      className="code-agents-composer-stop-button"
+      aria-label="Stop session"
+      title="Stop session (Esc)"
+    >
+      <IconPlayerStop size={14} strokeWidth={1.9} />
+    </button>
   );
 }
 
