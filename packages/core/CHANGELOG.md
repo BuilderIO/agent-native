@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.20.2
+
+### Patch Changes
+
+- f343737: Use the shared popover primitive for the composer model picker and keep the menu stable while model groups expand.
+- f343737: Fall back to redirect Google sign-in when the popup OAuth window is blocked.
+- f343737: Quiet Builder credential and engine detection diagnostics unless debug tracing is enabled.
+- f343737: Prompt for target agent clients during `agent-native connect` and remember the selection.
+- f343737: Soften the MCP connect authorization UI and collapse existing connections by default.
+
 ## 0.20.1
 
 ### Patch Changes
