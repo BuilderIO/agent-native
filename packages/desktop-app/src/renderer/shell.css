@@ -2,7 +2,6 @@
 @import "@agent-native/core/styles/agent-native.css";
 
 @source "./**/*.{ts,tsx}";
-@source "../../../core/src/client/**/*.{ts,tsx}";
 @source "../../../code-agents-ui/src/**/*.{ts,tsx}";
 
 /* ─── Reset ─────────────────────────────────────────────────── */
