@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -190,7 +196,7 @@ export default function ShareRoute() {
   });
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
-  const { session } = useSession();
+  const { session, isLoading: sessionLoading } = useSession();
   const [signInIntent, setSignInIntent] = useState<"comment" | "react" | null>(
     null,
   );
@@ -465,6 +471,13 @@ export default function ShareRoute() {
                 Sign in to finish
               </a>
             </Button>
+          ) : !session && !sessionLoading && !isFailure ? (
+            <Button asChild variant="ghost" size="sm">
+              <a href={signInHref} className="gap-1.5">
+                <IconLogin2 className="h-4 w-4" />
+                Sign in if this is yours
+              </a>
+            </Button>
           ) : canManageStorage && isFailure ? (
             <Button asChild size="sm">
               <a href={appPath(`/r/${recording.id}`)}>Open dashboard</a>
@@ -707,7 +720,7 @@ function EndState({
 }: {
   title: string;
   message: string;
-  action?: React.ReactNode;
+  action?: ReactNode;
 }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
