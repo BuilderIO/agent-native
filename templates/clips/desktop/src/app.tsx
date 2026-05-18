@@ -835,6 +835,7 @@ export function App() {
         });
       }
       await invoke("recording_pill_hide").catch(() => {});
+      await invoke("set_recording_state", { active: false }).catch(() => {});
       emit("meetings:transcription-stopped", {
         meetingId: session.meetingId,
         reason,
@@ -879,6 +880,7 @@ export function App() {
           audioMode: "mic-system",
         };
         meetingTranscriptionRef.current = session;
+        await invoke("set_recording_state", { active: true }).catch(() => {});
 
         const scheduleFlush = () => {
           if (session.flushTimer) window.clearTimeout(session.flushTimer);
@@ -924,6 +926,11 @@ export function App() {
             const stoppedMeetingId = event.payload?.meetingId;
             if (stoppedMeetingId && stoppedMeetingId !== resolvedMeetingId)
               return;
+            stopMeetingTranscription("manual").catch(() => {});
+          }),
+        );
+        addUnlisten(
+          listen("clips:recorder-stop", () => {
             stopMeetingTranscription("manual").catch(() => {});
           }),
         );
@@ -985,6 +992,7 @@ export function App() {
       } catch (err) {
         meetingTranscriptionRef.current = null;
         await invoke("recording_pill_hide").catch(() => {});
+        await invoke("set_recording_state", { active: false }).catch(() => {});
         const message =
           err instanceof Error ? err.message : "Could not start notes.";
         emit("meetings:transcription-error", {

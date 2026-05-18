@@ -21,7 +21,18 @@ fn build_menu_with_meetings(
 ) -> Result<Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     let meetings_submenu = build_meetings_section(app, meetings)?;
     let show_item = MenuItem::with_id(app, "show", "Show popover", true, None::<&str>)?;
-    let stop_item = MenuItem::with_id(app, "stop", "Stop recording", true, None::<&str>)?;
+    let recording_active = is_recording_active(app);
+    let stop_item = MenuItem::with_id(
+        app,
+        "stop",
+        if recording_active {
+            "Stop recording"
+        } else {
+            "No active recording"
+        },
+        recording_active,
+        None::<&str>,
+    )?;
     let guides = crate::config::feature_config(app).region_guides;
     let region_guides_item = CheckMenuItem::with_id(
         app,
@@ -54,7 +65,7 @@ fn build_menu_with_meetings(
 /// are main-thread-only on macOS, so this hops back via `run_on_main_thread`
 /// before swapping the menu (`set_menu` is atomic — the documented Tauri 2
 /// way to update a tray; there's no partial-update API for items).
-fn rebuild_tray_menu(app: &tauri::AppHandle) {
+pub fn rebuild_tray_menu(app: &tauri::AppHandle) {
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
         let meetings = app

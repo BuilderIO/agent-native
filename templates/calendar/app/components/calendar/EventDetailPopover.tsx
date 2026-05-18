@@ -53,6 +53,7 @@ import { useUpdateEvent } from "@/hooks/use-events";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { sendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
+import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
 import {
   RenderedDescription,
   AutoGrowTextarea,
@@ -358,6 +359,8 @@ export function EventDetailPopover({
   >(null);
 
   const updateEvent = useUpdateEvent();
+  const { promptGuestNotification, guestNotificationDialog } =
+    useGuestNotificationPrompt();
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
   const locationRef = useRef<HTMLInputElement>(null);
@@ -436,13 +439,22 @@ export function EventDetailPopover({
   const saveField = useCallback(
     (updates: Partial<CalendarEvent> & { addGoogleMeet?: boolean }) => {
       if (!event.id) return;
-      updateEvent.mutate({
-        id: event.id,
-        accountEmail: event.accountEmail,
-        ...updates,
-      });
+      void (async () => {
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) return;
+        updateEvent.mutate({
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        });
+      })();
     },
-    [event.id, event.accountEmail, updateEvent],
+    [event, promptGuestNotification, updateEvent],
   );
 
   const handleAvailabilityChange = useCallback(
@@ -521,40 +533,66 @@ Write a short, useful meeting description. If I ask you to apply it, update this
   const handleAddGoogleMeet = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
     setPendingVideoProvider("meet");
-    updateEvent.mutate(
-      {
-        id: event.id,
-        accountEmail: event.accountEmail,
-        addGoogleMeet: true,
-      },
-      {
-        onSuccess: () => toast("Google Meet added"),
-        onError: () => toast.error("Failed to add Google Meet"),
-        onSettled: () => setPendingVideoProvider(null),
-      },
-    );
-  }, [event.id, event.accountEmail, updateEvent]);
+    void (async () => {
+      const updates = { addGoogleMeet: true };
+      const guestNotification = await promptGuestNotification({
+        event,
+        action: "update",
+        updates,
+      });
+      if (!guestNotification) {
+        setPendingVideoProvider(null);
+        return;
+      }
+      updateEvent.mutate(
+        {
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        },
+        {
+          onSuccess: () => toast("Google Meet added"),
+          onError: () => toast.error("Failed to add Google Meet"),
+          onSettled: () => setPendingVideoProvider(null),
+        },
+      );
+    })();
+  }, [event, promptGuestNotification, updateEvent]);
 
   const handleAddZoom = useCallback(() => {
     if (!event.id || updateEvent.isPending || connectZoom.isPending) return;
 
     if (zoomStatus.data?.connected) {
       setPendingVideoProvider("zoom");
-      updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          addZoom: true,
-        },
-        {
-          onSuccess: () => toast("Zoom added"),
-          onError: (error) =>
-            toast.error(
-              error instanceof Error ? error.message : "Failed to add Zoom",
-            ),
-          onSettled: () => setPendingVideoProvider(null),
-        },
-      );
+      void (async () => {
+        const updates = { addZoom: true };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) {
+          setPendingVideoProvider(null);
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast("Zoom added"),
+            onError: (error) =>
+              toast.error(
+                error instanceof Error ? error.message : "Failed to add Zoom",
+              ),
+            onSettled: () => setPendingVideoProvider(null),
+          },
+        );
+      })();
       return;
     }
 
@@ -572,8 +610,8 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     });
   }, [
     connectZoom,
-    event.accountEmail,
-    event.id,
+    event,
+    promptGuestNotification,
     updateEvent,
     zoomStatus.data?.configured,
     zoomStatus.data?.connected,
@@ -1684,6 +1722,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
           )}
         </TooltipProvider>
       </PopoverContent>
+      {guestNotificationDialog}
     </Popover>
   );
 }

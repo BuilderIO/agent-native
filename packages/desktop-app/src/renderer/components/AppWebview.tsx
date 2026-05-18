@@ -81,6 +81,11 @@ function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
     return appConfig.url;
   }
 
+  const template = getTemplate(app.id);
+  if (template?.prodUrl) {
+    return template.prodUrl;
+  }
+
   // Fallback for custom apps with no production URL.
   return getAppUrl(app);
 }
