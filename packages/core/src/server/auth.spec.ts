@@ -1741,9 +1741,15 @@ describe("server/auth", () => {
         "function __anStartRedirectOAuth(ret, btn, err, flowId, reason)",
       );
       expect(html).toContain(
+        "function __anHandlePopupOAuthFailure(ret, btn, err, flowId, redirectReason, builderFrameMessage)",
+      );
+      expect(html).toContain(
         "Google popup was blocked; falling back to redirect",
       );
-      expect(html).not.toContain("Allow popups for this site");
+      expect(html).toContain("Allow popups for this site and try again");
+      expect(html).toContain(
+        "Opening Google sign-in redirect from Builder preview",
+      );
       expect(html).toContain(
         "never reached this app. Check the Google OAuth redirect URI",
       );
@@ -1887,9 +1893,15 @@ describe("server/auth", () => {
         "function __anStartRedirectOAuth(ret, btn, err, flowId, reason)",
       );
       expect(loginHtml).toContain(
+        "function __anHandlePopupOAuthFailure(ret, btn, err, flowId, redirectReason, builderFrameMessage)",
+      );
+      expect(loginHtml).toContain(
         "Google popup was blocked; falling back to redirect",
       );
-      expect(loginHtml).not.toContain("Allow popups for this site");
+      expect(loginHtml).toContain("Allow popups for this site and try again");
+      expect(loginHtml).toContain(
+        "Opening Google sign-in redirect from Builder preview",
+      );
       expect(loginHtml).toContain(
         "never reached this app. Check the Google OAuth redirect URI",
       );

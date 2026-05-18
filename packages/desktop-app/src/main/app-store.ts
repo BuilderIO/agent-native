@@ -1,4 +1,4 @@
-import { app } from "electron";
+import { app, safeStorage } from "electron";
 import fs from "fs";
 import path from "path";
 import {
@@ -197,12 +197,29 @@ function saveCodeAgentProviderStore(store: CodeAgentProviderStore): void {
   }
 }
 
+function canUseSafeStorage(): boolean {
+  try {
+    return safeStorage.isEncryptionAvailable();
+  } catch {
+    return false;
+  }
+}
+
 function encodeProviderSecret(value: string): StoredSecret {
-  // Electron safeStorage uses macOS Keychain and can show a blocking
-  // permission prompt during settings/status reads. Keep desktop provider keys
-  // in the existing 0600 app data file instead.
+  if (canUseSafeStorage()) {
+    try {
+      return {
+        encoding: "safeStorage-v1",
+        value: safeStorage.encryptString(value).toString("base64"),
+        updatedAt: new Date().toISOString(),
+      };
+    } catch {
+      // Fall through to the plain fallback below.
+    }
+  }
+
   return {
-    encoding: "local-file-v1",
+    encoding: "plain",
     value,
     updatedAt: new Date().toISOString(),
   };
@@ -215,11 +232,34 @@ function decryptProviderSecret(
   if (secret.encoding === "local-file-v1" || secret.encoding === "plain") {
     return secret.value;
   }
-  return null;
+  if (!canUseSafeStorage()) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(secret.value, "base64"));
+  } catch {
+    return null;
+  }
+}
+
+function migrateDecryptableProviderSecrets(
+  store: CodeAgentProviderStore,
+  credentials: Partial<Record<CodeAgentProviderCredentialKey, string>>,
+): void {
+  if (!canUseSafeStorage()) return;
+  let changed = false;
+  for (const key of CODE_AGENT_PROVIDER_KEYS) {
+    const secret = store.credentials[key];
+    const value = credentials[key];
+    if (!value || !secret || secret.encoding === "safeStorage-v1") continue;
+    store.credentials[key] = encodeProviderSecret(value);
+    changed = true;
+  }
+  if (changed) saveCodeAgentProviderStore(store);
 }
 
 function hasStoredProviderSecret(secret: StoredSecret | undefined): boolean {
-  return Boolean(decryptProviderSecret(secret));
+  // Status reads should not decrypt safeStorage entries; that can trigger OS
+  // prompts on macOS. Credential application performs the actual decrypt.
+  return Boolean(secret?.value);
 }
 
 export function loadCodeAgentProviderCredentials(): Partial<
@@ -232,6 +272,7 @@ export function loadCodeAgentProviderCredentials(): Partial<
     const value = decryptProviderSecret(store.credentials[key]);
     if (value) credentials[key] = value;
   }
+  migrateDecryptableProviderSecrets(store, credentials);
   return credentials;
 }
 

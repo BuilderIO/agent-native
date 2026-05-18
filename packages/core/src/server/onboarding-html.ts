@@ -1140,6 +1140,13 @@ ${
       err.classList.add('show');
       btn.disabled = false;
     }
+    function __anHandlePopupOAuthFailure(ret, btn, err, flowId, redirectReason, builderFrameMessage) {
+      if (__anIsBuilderPreview() && __anIsInFrame()) {
+        __anShowOAuthError(err, btn, builderFrameMessage + ' Allow popups for this site and try again (flow ' + __anFlowDebugId(flowId) + ').');
+        return;
+      }
+      __anStartRedirectOAuth(ret, btn, err, flowId, redirectReason);
+    }
     function __anStartRedirectOAuth(ret, btn, err, flowId, reason) {
       var params = new URLSearchParams();
       var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
@@ -1202,7 +1209,7 @@ ${
       try {
         var popup = window.open('', '_blank', 'width=640,height=760');
         if (!popup) {
-          __anStartRedirectOAuth(ret, btn, err, flowId, 'Google popup was blocked; falling back to redirect');
+          __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Google popup was blocked; falling back to redirect', 'Google popup was blocked.');
           return;
         }
         try { popup.opener = null; } catch(e) {}
@@ -1210,12 +1217,12 @@ ${
           popup.location.href = url;
         } catch(e) {
           try { popup.close(); } catch(closeErr) {}
-          __anStartRedirectOAuth(ret, btn, err, flowId, 'Could not navigate Google popup; falling back to redirect');
+          __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Could not navigate Google popup; falling back to redirect', 'Could not navigate Google popup.');
           return;
         }
         __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
       } catch(e) {
-        __anStartRedirectOAuth(ret, btn, err, flowId, 'Could not open Google popup; falling back to redirect');
+        __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Could not open Google popup; falling back to redirect', 'Could not open Google popup.');
         return;
       }
       __anWaitForOAuthExchange(flowId, ret, btn, err);
@@ -1719,7 +1726,8 @@ ${
       return;
     }
     if (__anIsBuilderPreview()) {
-      __anStartRedirectOAuth(ret, btn, err);
+      var flowId = __anNewOAuthFlowId();
+      __anStartRedirectOAuth(ret, btn, err, flowId, 'Opening Google sign-in redirect from Builder preview');
       return;
     }
     try {
