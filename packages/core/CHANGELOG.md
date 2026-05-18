@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.20.6
+
+### Patch Changes
+
+- 52adc2d: Keep Builder.io connect popups alive when the click-time status refresh fails by falling back to the recently fetched signed connect URL.
+
 ## 0.20.5
 
 ### Patch Changes
