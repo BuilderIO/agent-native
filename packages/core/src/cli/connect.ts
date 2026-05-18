@@ -293,7 +293,7 @@ async function resolveConnectClients(
 }
 
 function clientArgForDeviceFlow(clients: ClientId[]): string {
-  return clients.length === CLIENTS.length ? "all" : clients.join(",");
+  return clients.length === 1 ? clients[0] : "all";
 }
 
 /** Derive an app slug from a deployed origin, e.g. mail.agent-native.com → mail. */
