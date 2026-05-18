@@ -26,7 +26,7 @@ Or run the same command through npm without installing anything globally:
 npx @agent-native/core connect https://mail.agent-native.com
 ```
 
-This opens your browser at the app. You are already logged in, so you just click **Authorize** once. The command detects every installed agent client and writes the right MCP config for each:
+This opens your browser at the app. You are already logged in, so you just click **Authorize** once. The command then asks which local agent clients should receive MCP config. All clients are preselected the first time; after you choose, the selection is saved to `~/.agent-native/connect.json` so the next run can reuse it with Enter, or you can edit the checked items.
 
 | Local client                  | Config written by `connect`                                 |
 | ----------------------------- | ----------------------------------------------------------- |
@@ -36,11 +36,15 @@ This opens your browser at the app. You are already logged in, so you just click
 
 There is no token to copy and no local server to run. Restart the agent client after connecting so it picks up the new MCP server.
 
+Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
+
 Connect every first-party hosted app at once with:
 
 ```bash
 npx @agent-native/core connect --all
 ```
+
+The client picker appears once and the same selection is used for every hosted app.
 
 The connection is **per-user, scoped, and revocable**. The browser session you authorized with is the identity the agent acts as; nothing exposes the deployment's shared secret.
 
