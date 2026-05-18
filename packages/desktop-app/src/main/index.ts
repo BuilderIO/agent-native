@@ -13,7 +13,12 @@ import {
 } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { createServer, type Server as HttpServer } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server as HttpServer,
+  type ServerResponse,
+} from "node:http";
 import type { AddressInfo } from "node:net";
 import fs from "fs";
 import os from "os";
@@ -1466,13 +1471,27 @@ function reconcileInterruptedCodeAgentRun(
   reason: "startup" | "list" | "read" | "follow-up" | "shutdown",
   record = readCodeAgentRunRecord(runId),
 ): void {
-  if (!record || (reason !== "shutdown" && activeCodeAgentProcesses.has(runId)))
+  let currentRecord = record;
+  if (
+    !currentRecord ||
+    (reason !== "shutdown" && activeCodeAgentProcesses.has(runId))
+  )
     return;
-  if (!isDesktopCodeAgentRunInterruptible(record)) return;
-  if (reason !== "shutdown" && hasLivePersistedCodeAgentRunner(record)) return;
+  if (!isDesktopCodeAgentRunInterruptible(currentRecord)) return;
+  if (reason !== "shutdown" && hasLivePersistedCodeAgentRunner(currentRecord))
+    return;
+
+  currentRecord = readCodeAgentRunRecord(runId) ?? currentRecord;
+  if (
+    reason !== "shutdown" &&
+    (activeCodeAgentProcesses.has(runId) ||
+      hasLivePersistedCodeAgentRunner(currentRecord))
+  )
+    return;
+  if (!isDesktopCodeAgentRunInterruptible(currentRecord)) return;
 
   const now = new Date().toISOString();
-  const approvalInterrupted = isDesktopCodeAgentApprovalRunner(record);
+  const approvalInterrupted = isDesktopCodeAgentApprovalRunner(currentRecord);
   appendCodeAgentStatusEvent(
     runId,
     approvalInterrupted
@@ -1509,7 +1528,7 @@ function reconcileInterruptedCodeAgentRun(
       runnerState: "interrupted",
       runnerInterruptedAt: now,
       runnerInterruptReason: reason,
-      staleRunnerPid: readPersistedCodeAgentRunnerPid(record),
+      staleRunnerPid: readPersistedCodeAgentRunnerPid(currentRecord),
       pendingFollowUps: undefined,
     },
   });
@@ -2679,6 +2698,9 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
             eventId: event.id,
             permissionMode: input.permissionMode,
             source: input.source ?? "desktop-background-agent-controller",
+            ...(Array.isArray(input.metadata?.attachments)
+              ? { attachments: input.metadata.attachments }
+              : {}),
           },
         ],
       },
@@ -2949,53 +2971,56 @@ function titleFromPrompt(prompt: string): string {
   return normalized.length > 72 ? `${normalized.slice(0, 69)}...` : normalized;
 }
 
-/**
- * Fire-and-forget: calls the Anthropic API with a cheap haiku model to
- * generate a short session title, then patches the run record on disk.
- * Falls back silently — the prompt-truncation title is already written.
- */
-function generateAndPatchRunTitle(runId: string, prompt: string): void {
+async function generateAndPatchRunTitle(
+  runId: string,
+  prompt: string,
+): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
-  if (!apiKey) return;
+  if (!apiKey) return null;
 
   const cleanPrompt = prompt.replace(/\s+/g, " ").trim().slice(0, 500);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 6_000);
 
-  fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 20,
-      messages: [
-        {
-          role: "user",
-          content: `Generate a very short title (3-6 words, no quotes, no punctuation at end) for a coding session that starts with this request:\n\n${cleanPrompt}`,
-        },
-      ],
-    }),
-  })
-    .then(async (res) => {
-      if (!res.ok) return;
-      const data = (await res.json()) as {
-        content?: Array<{ type: string; text: string }>;
-      };
-      const text = data?.content?.find((c) => c.type === "text")?.text?.trim();
-      if (!text) return;
-      // Strip surrounding quotes the model sometimes adds
-      const title = text
-        .replace(/^["']|["']$/g, "")
-        .trim()
-        .slice(0, 72);
-      if (title) touchCodeAgentRunRecord(runId, { title });
-    })
-    .catch(() => {
-      // Silently ignore — the truncated prompt title is already in place.
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 20,
+        messages: [
+          {
+            role: "user",
+            content: `Generate a very short title (3-6 words, no quotes, no punctuation at end) for a coding session that starts with this request:\n\n${cleanPrompt}`,
+          },
+        ],
+      }),
     });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      content?: Array<{ type: string; text: string }>;
+    };
+    const text = data?.content?.find((c) => c.type === "text")?.text?.trim();
+    if (!text) return null;
+    const title = text
+      .replace(/^["']|["']$/g, "")
+      .trim()
+      .slice(0, 72);
+    if (!title) return null;
+    touchCodeAgentRunRecord(runId, { title });
+    return title;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function formatCodeAgentModel(model: string, effort?: string): string {
@@ -3009,7 +3034,9 @@ function formatCodeAgentModel(model: string, effort?: string): string {
   return `${label} / ${effort}`;
 }
 
-function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
+async function createCodeAgentRun(
+  input: unknown,
+): Promise<CodeAgentCreateRunResult> {
   const payload = isObject(input) ? input : {};
   const prompt = firstStringValue(payload.prompt) ?? "";
   if (!prompt) {
@@ -3138,11 +3165,10 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
     if (goal.surfaceKind === "native") {
       spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
-    // Async: generate a better title via LLM and patch the run record.
-    generateAndPatchRunTitle(runId, prompt);
+    const generatedTitle = await generateAndPatchRunTitle(runId, prompt);
     return {
       ok: true,
-      run,
+      run: generatedTitle ? { ...run, title: generatedTitle } : run,
       event,
       eventFile,
       message: "Coding session recorded.",
@@ -3156,7 +3182,9 @@ function createCodeAgentRun(input: unknown): CodeAgentCreateRunResult {
   }
 }
 
-function rerunCodeAgentRun(input: unknown): CodeAgentRerunResult {
+async function rerunCodeAgentRun(
+  input: unknown,
+): Promise<CodeAgentRerunResult> {
   const payload = isObject(input) ? input : {};
   const sourceRunId = normalizeCodeAgentRunId(payload.runId);
   if (!sourceRunId) {
@@ -3223,7 +3251,7 @@ function rerunCodeAgentRun(input: unknown): CodeAgentRerunResult {
     sourceMetadata.attachments,
   );
   const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
-  const result = createCodeAgentRun({
+  const result = await createCodeAgentRun({
     goalId: goal.id,
     prompt,
     cwd:
@@ -4437,8 +4465,10 @@ ipcMain.handle(
 
 ipcMain.handle(
   IPC.CODE_AGENTS_CREATE_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentCreateRunResult =>
-    createCodeAgentRun(input),
+  (
+    _event: IpcMainInvokeEvent,
+    input: unknown,
+  ): Promise<CodeAgentCreateRunResult> => createCodeAgentRun(input),
 );
 
 ipcMain.handle(
@@ -4530,7 +4560,7 @@ ipcMain.handle(
 
 ipcMain.handle(
   IPC.CODE_AGENTS_RERUN_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentRerunResult =>
+  (_event: IpcMainInvokeEvent, input: unknown): Promise<CodeAgentRerunResult> =>
     rerunCodeAgentRun(input),
 );
 
@@ -5072,13 +5102,19 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       resolve(result);
     };
 
-    callbackServer = createServer((req, res) => {
+    const handleCallbackRequest = (
+      req: IncomingMessage,
+      res: ServerResponse,
+    ) => {
+      const origin = callbackOrigin;
+      if (!origin) {
+        res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Callback server is not ready");
+        return;
+      }
       let requestUrl: URL;
       try {
-        requestUrl = new URL(
-          req.url ?? "/",
-          callbackOrigin ?? "http://127.0.0.1",
-        );
+        requestUrl = new URL(req.url ?? "/", origin);
       } catch {
         res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
         res.end("Bad request");
@@ -5122,7 +5158,9 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
         settings,
         message: "Builder.io connected for Code.",
       });
-    });
+    };
+
+    callbackServer = createServer();
 
     callbackServer.once("error", (err) => {
       finish({
@@ -5134,7 +5172,17 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
     });
 
     callbackServer.listen(0, "127.0.0.1", () => {
-      const address = callbackServer?.address() as AddressInfo | null;
+      const server = callbackServer;
+      if (!server) {
+        finish({
+          ok: false,
+          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          message: "Could not start Builder.io connect flow.",
+          error: "No callback server was available.",
+        });
+        return;
+      }
+      const address = server.address() as AddressInfo | null;
       if (!address) {
         finish({
           ok: false,
@@ -5146,6 +5194,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       }
 
       callbackOrigin = `http://127.0.0.1:${address.port}`;
+      server.on("request", handleCallbackRequest);
       const callbackUrl = `http://127.0.0.1:${address.port}/_agent-native/desktop-builder/callback`;
       const authUrl = buildDesktopBuilderCliAuthUrl(callbackUrl);
       if (!canOpenExternalUrl(authUrl)) {

@@ -162,7 +162,7 @@ export function createCodeAgentChatAdapter(
           }
         }
 
-        let lastYieldKey = "";
+        let yieldedContent = false;
         let idleTerminalPolls = 0;
         while (!abortSignal.aborted) {
           const [events, run] = await Promise.all([
@@ -178,9 +178,8 @@ export function createCodeAgentChatAdapter(
           }
 
           const content = codeAgentTranscriptEventsToContent(tailedEvents);
-          const nextYieldKey = JSON.stringify(content);
-          if (content.length > 0 && nextYieldKey !== lastYieldKey) {
-            lastYieldKey = nextYieldKey;
+          if (content.length > 0 && nextEvents.length > 0) {
+            yieldedContent = true;
             yield withRunMetadata({ content: [...content] }, runId);
           }
 
@@ -193,7 +192,7 @@ export function createCodeAgentChatAdapter(
           }
 
           if (idleTerminalPolls >= terminalIdlePolls) {
-            if (content.length > 0) {
+            if (content.length > 0 && !yieldedContent) {
               yield withRunMetadata({ content: [...content] }, runId);
             }
             return;

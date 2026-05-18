@@ -38,6 +38,10 @@ import {
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import {
+  formatPromptWithAttachments,
+  type AgentPromptAttachment,
+} from "../code-agents/prompt-attachments.js";
+import {
   appendCodeAgentTranscriptEvent,
   dequeueCodeAgentFollowUp,
   getCodeAgentRunRecord,
@@ -54,6 +58,7 @@ export interface ExecuteCodeAgentRunOptions {
   engine?: AgentEngine;
   model?: string;
   reasoningEffort?: ReasoningEffort;
+  attachments?: AgentPromptAttachment[];
   stdout?: NodeJS.WritableStream;
   signal?: AbortSignal;
 }
@@ -78,6 +83,10 @@ export async function executeCodeAgentRun(
   if (!existing) return null;
 
   const prompt = options.prompt ?? latestUserPrompt(existing.id);
+  const executionPrompt = formatPromptWithAttachments(
+    prompt,
+    options.attachments ?? latestUserPromptAttachments(existing.id, prompt),
+  );
   if (!prompt) {
     appendCodeAgentTranscriptEvent({
       runId: existing.id,
@@ -170,7 +179,7 @@ export async function executeCodeAgentRun(
   }
   actions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => actions);
   const tools = actionsToEngineTools(actions);
-  const messages = buildCodeAgentMessages(existing, prompt);
+  const messages = buildCodeAgentMessages(existing, executionPrompt);
   const controller = new AbortController();
   const abortFromParent = () => controller.abort();
   if (options.signal) {
@@ -309,6 +318,9 @@ export async function executeCodeAgentRun(
         ...options,
         runId: existing.id,
         prompt: pendingFollowUp.prompt,
+        attachments:
+          pendingFollowUp.attachments ??
+          userPromptAttachmentsForEvent(existing.id, pendingFollowUp.eventId),
         appendUserEvent: false,
       });
     }
@@ -477,6 +489,54 @@ function latestUserPrompt(runId: string): string {
     if (event.kind === "user" && event.message.trim()) return event.message;
   }
   return "";
+}
+
+function latestUserPromptAttachments(
+  runId: string,
+  prompt: string,
+): AgentPromptAttachment[] {
+  const events = listCodeAgentTranscriptEvents(runId);
+  const normalizedPrompt = prompt.trim();
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if (event.kind !== "user" || !event.message.trim()) continue;
+    if (
+      !normalizedPrompt ||
+      event.message.trim() === normalizedPrompt ||
+      i === events.length - 1
+    ) {
+      return promptAttachmentsFromMetadata(event.metadata?.attachments);
+    }
+  }
+  return [];
+}
+
+function userPromptAttachmentsForEvent(
+  runId: string,
+  eventId: string | undefined,
+): AgentPromptAttachment[] {
+  if (!eventId) return [];
+  const event = listCodeAgentTranscriptEvents(runId).find(
+    (item) => item.id === eventId && item.kind === "user",
+  );
+  return promptAttachmentsFromMetadata(event?.metadata?.attachments);
+}
+
+function promptAttachmentsFromMetadata(
+  value: unknown,
+): AgentPromptAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === "object" && !Array.isArray(item)),
+    )
+    .map((item) => ({
+      name: typeof item.name === "string" && item.name ? item.name : "file",
+      ...(typeof item.type === "string" ? { type: item.type } : {}),
+      ...(typeof item.size === "number" ? { size: item.size } : {}),
+      ...(typeof item.text === "string" ? { text: item.text } : {}),
+      ...(typeof item.dataUrl === "string" ? { dataUrl: item.dataUrl } : {}),
+    }));
 }
 
 function metadataString(

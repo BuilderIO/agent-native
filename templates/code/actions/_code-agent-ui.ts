@@ -95,6 +95,7 @@ export function runCodeAgentInBackground(input: {
   appendUserEvent?: boolean;
   model?: string;
   reasoningEffort?: CodeAgentReasoningEffort;
+  attachments?: CodeAgentPromptAttachment[];
 }): void {
   setTimeout(() => {
     void executeCodeAgentRun({
@@ -104,6 +105,7 @@ export function runCodeAgentInBackground(input: {
       model: input.model,
       reasoningEffort:
         input.reasoningEffort === "auto" ? undefined : input.reasoningEffort,
+      attachments: input.attachments,
     });
   }, 0);
 }
@@ -140,7 +142,12 @@ export async function appendFollowUpAndRun(input: {
           : {}),
       },
     });
-  } else if (input.engine || input.model || input.effort) {
+  } else if (
+    input.engine ||
+    input.model ||
+    input.effort ||
+    (input.attachments && input.attachments.length > 0)
+  ) {
     updateCodeAgentRunRecord(input.runId, {
       metadata: {
         ...(input.engine ? { engine: input.engine } : {}),

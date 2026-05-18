@@ -41,6 +41,11 @@ export {
   type CodeAgentTranscriptOrderEvent,
 } from "./transcript-order.js";
 export {
+  escapePromptAttachmentAttribute,
+  formatPromptWithAttachments,
+  type AgentPromptAttachment,
+} from "./prompt-attachments.js";
+export {
   CODE_AGENT_PERMISSION_MODES,
   appendCodeAgentTranscriptEvent,
   codeAgentRunArtifactsDir,

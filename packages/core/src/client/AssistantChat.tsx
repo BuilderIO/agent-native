@@ -1556,7 +1556,7 @@ function ToolCallDisplay({
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
 
   return (
-    <div className="my-1 overflow-hidden">
+    <div className="my-2 overflow-hidden">
       <button
         onClick={() => canExpand && setExpanded(!isExpanded)}
         aria-expanded={canExpand ? isExpanded : undefined}

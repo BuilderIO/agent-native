@@ -2,6 +2,7 @@ import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import type { AgentPromptAttachment } from "../code-agents/prompt-attachments.js";
 
 export type CodeAgentRunStatus =
   | "queued"
@@ -45,6 +46,7 @@ export interface CodeAgentPendingFollowUp {
   eventId?: string;
   permissionMode?: CodeAgentPermissionMode;
   source?: string;
+  attachments?: AgentPromptAttachment[];
 }
 
 export interface CodeAgentRunRecord {
@@ -116,6 +118,7 @@ export interface QueueCodeAgentFollowUpInput {
   permissionMode?: CodeAgentPermissionMode;
   source?: string;
   createdAt?: string;
+  attachments?: AgentPromptAttachment[];
 }
 
 const STORE_ENV = "AGENT_NATIVE_CODE_AGENTS_HOME";
@@ -286,6 +289,9 @@ export function queueCodeAgentFollowUp(
     eventId: input.eventId,
     permissionMode: input.permissionMode,
     source: input.source,
+    ...(input.attachments && input.attachments.length > 0
+      ? { attachments: input.attachments }
+      : {}),
   };
   const updated = updateCodeAgentRunRecord(input.runId, (record) => ({
     metadata: {

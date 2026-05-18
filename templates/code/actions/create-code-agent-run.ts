@@ -113,6 +113,7 @@ export default defineAction({
       appendUserEvent: false,
       model: args.model,
       reasoningEffort: effort,
+      attachments,
     });
     return {
       ok: true,
