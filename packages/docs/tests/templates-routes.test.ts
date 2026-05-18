@@ -45,7 +45,7 @@ describe("template routes", () => {
       (item) => item.to,
     );
     const catalogTemplatePaths = featuredTemplates.map(
-      (template) => `/templates/${template.slug}`,
+      (template) => `/docs/template-${template.slug}`,
     );
 
     // Every featured catalog template must be reachable from the sidebar.
@@ -55,13 +55,15 @@ describe("template routes", () => {
       expect(sidebarTemplatePaths).toContain(catalogPath);
     }
 
+    const docsDir = path.resolve(docsRoot, "../core/docs/content");
     for (const sidebarPath of sidebarTemplatePaths) {
-      const slug = sidebarPath.replace("/templates/", "");
-      expect(() =>
-        loader({
-          params: { slug },
-        } as unknown as Parameters<typeof loader>[0]),
-      ).not.toThrow();
+      expect(sidebarPath).toMatch(/^\/docs\/template-[a-z0-9-]+$/);
+      expect(sidebarPath).not.toMatch(/^\/templates\//);
+
+      const slug = sidebarPath.replace("/docs/template-", "");
+      expect(fs.existsSync(path.join(docsDir, `template-${slug}.md`))).toBe(
+        true,
+      );
     }
   });
 
