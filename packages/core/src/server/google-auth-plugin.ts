@@ -318,6 +318,18 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
     err.classList.add('show');
     btn.disabled = false;
   }
+  function __anStartRedirectOAuth(ret, btn, err, flowId, reason) {
+    var params = new URLSearchParams();
+    var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
+    if (oauthReturn) params.set('return', oauthReturn);
+    params.set('redirect', '1');
+    __anSetOAuthDebug(reason || 'Opening Google sign-in redirect', flowId);
+    try {
+      __anOpenOAuthUrl(__anGoogleAuthUrlPath() + '?' + params.toString());
+    } catch(e) {
+      __anShowOAuthError(err, btn, 'Could not start Google sign-in redirect' + (flowId ? ' for flow ' + __anFlowDebugId(flowId) : '') + ': ' + (e && e.message ? e.message : 'unknown error'));
+    }
+  }
   function __anWaitForOAuthExchange(flowId, ret, btn, err) {
     var started = Date.now();
     var timeoutMs = 5 * 60 * 1000;
@@ -368,7 +380,7 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
     try {
       var popup = window.open('', '_blank', 'width=640,height=760');
       if (!popup) {
-        __anShowOAuthError(err, btn, 'Google popup was blocked. Allow popups for this site and try again (flow ' + __anFlowDebugId(flowId) + ').');
+        __anStartRedirectOAuth(ret, btn, err, flowId, 'Google popup was blocked; falling back to redirect');
         return;
       }
       try { popup.opener = null; } catch(e) {}
@@ -376,12 +388,12 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
         popup.location.href = url;
       } catch(e) {
         try { popup.close(); } catch(closeErr) {}
-        __anShowOAuthError(err, btn, 'Could not navigate Google popup for flow ' + __anFlowDebugId(flowId) + ': ' + (e && e.message ? e.message : 'unknown error'));
+        __anStartRedirectOAuth(ret, btn, err, flowId, 'Could not navigate Google popup; falling back to redirect');
         return;
       }
       __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
     } catch(e) {
-      __anShowOAuthError(err, btn, 'Could not open Google popup for flow ' + __anFlowDebugId(flowId) + ': ' + (e && e.message ? e.message : 'unknown error'));
+      __anStartRedirectOAuth(ret, btn, err, flowId, 'Could not open Google popup; falling back to redirect');
       return;
     }
     __anWaitForOAuthExchange(flowId, ret, btn, err);
@@ -417,11 +429,7 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
       return;
     }
     if (__anIsBuilderPreview()) {
-      var params = new URLSearchParams();
-      if (ret) params.set('return', __anOAuthReturnTarget(ret));
-      params.set('redirect', '1');
-      __anSetOAuthDebug('Opening Google sign-in redirect');
-      __anOpenOAuthUrl(__anGoogleAuthUrlPath() + '?' + params.toString());
+      __anStartRedirectOAuth(ret, btn, err);
       return;
     }
     try {
