@@ -1,4 +1,4 @@
-import { app } from "electron";
+import { app, safeStorage } from "electron";
 import fs from "fs";
 import path from "path";
 import {
@@ -197,12 +197,29 @@ function saveCodeAgentProviderStore(store: CodeAgentProviderStore): void {
   }
 }
 
+function canUseSafeStorage(): boolean {
+  try {
+    return safeStorage.isEncryptionAvailable();
+  } catch {
+    return false;
+  }
+}
+
 function encodeProviderSecret(value: string): StoredSecret {
-  // Electron safeStorage uses macOS Keychain and can show a blocking
-  // permission prompt during settings/status reads. Keep desktop provider keys
-  // in the existing 0600 app data file instead.
+  if (canUseSafeStorage()) {
+    try {
+      return {
+        encoding: "safeStorage-v1",
+        value: safeStorage.encryptString(value).toString("base64"),
+        updatedAt: new Date().toISOString(),
+      };
+    } catch {
+      // Fall through to the plain fallback below.
+    }
+  }
+
   return {
-    encoding: "local-file-v1",
+    encoding: "plain",
     value,
     updatedAt: new Date().toISOString(),
   };
@@ -215,10 +232,43 @@ function decryptProviderSecret(
   if (secret.encoding === "local-file-v1" || secret.encoding === "plain") {
     return secret.value;
   }
-  return null;
+  if (!canUseSafeStorage()) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(secret.value, "base64"));
+  } catch {
+    return null;
+  }
 }
 
-function hasStoredProviderSecret(secret: StoredSecret | undefined): boolean {
+function migrateDecryptableProviderSecrets(
+  store: CodeAgentProviderStore,
+  credentials: Partial<Record<CodeAgentProviderCredentialKey, string>>,
+): void {
+  if (!canUseSafeStorage()) return;
+  let changed = false;
+  for (const key of CODE_AGENT_PROVIDER_KEYS) {
+    const secret = store.credentials[key];
+    const value = credentials[key];
+    if (!value || !secret || secret.encoding === "safeStorage-v1") continue;
+    store.credentials[key] = encodeProviderSecret(value);
+    changed = true;
+  }
+  if (changed) saveCodeAgentProviderStore(store);
+}
+
+function hasStoredProviderSecretBlob(
+  secret: StoredSecret | undefined,
+): boolean {
+  return Boolean(secret?.value);
+}
+
+function canReadStoredProviderSecret(
+  secret: StoredSecret | undefined,
+): boolean {
+  if (!secret?.value) return false;
+  if (secret.encoding === "local-file-v1" || secret.encoding === "plain") {
+    return true;
+  }
   return Boolean(decryptProviderSecret(secret));
 }
 
@@ -232,6 +282,7 @@ export function loadCodeAgentProviderCredentials(): Partial<
     const value = decryptProviderSecret(store.credentials[key]);
     if (value) credentials[key] = value;
   }
+  migrateDecryptableProviderSecrets(store, credentials);
   return credentials;
 }
 
@@ -265,7 +316,9 @@ export function applyCodeAgentProviderCredentialsToEnv(): CodeAgentProviderCrede
       if (credentials[key]) appliedKeys.push(key);
     } else {
       delete process.env[key];
-      if (hasStoredProviderSecret(store.credentials[key])) failedKeys.push(key);
+      if (hasStoredProviderSecretBlob(store.credentials[key])) {
+        failedKeys.push(key);
+      }
     }
   }
   return {
@@ -284,7 +337,7 @@ export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings 
   const store = loadCodeAgentProviderStore();
   const providers = CODE_AGENT_PROVIDER_DEFINITIONS.map((provider) => {
     const savedKeys = provider.keys.filter((key) =>
-      hasStoredProviderSecret(store.credentials[key]),
+      canReadStoredProviderSecret(store.credentials[key]),
     );
     const envKeys = provider.keys.filter((key) => Boolean(process.env[key]));
     const configuredKeys = provider.keys.filter(

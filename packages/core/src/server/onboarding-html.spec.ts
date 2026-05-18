@@ -90,6 +90,13 @@ describe("getOnboardingHtml", () => {
       "__anSetOAuthDebug(reason || 'Opening Google sign-in redirect', flowId)",
     );
     expect(html).toContain(
+      "function __anHandlePopupOAuthFailure(ret, btn, err, flowId, redirectReason, builderFrameMessage)",
+    );
+    expect(html).toContain("Allow popups for this site and try again");
+    expect(html).toContain(
+      "Opening Google sign-in redirect from Builder preview",
+    );
+    expect(html).toContain(
       "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
     );
     expect(html).toContain("function __anBuilderPreviewReturnOrigin()");

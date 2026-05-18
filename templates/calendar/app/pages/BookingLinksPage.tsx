@@ -6,6 +6,7 @@ import {
   IconCalendar,
   IconChevronLeft,
   IconChevronRight,
+  IconCircleCheck,
   IconCopy,
   IconExternalLink,
   IconLink,
@@ -41,6 +42,7 @@ import {
   getDay,
 } from "date-fns";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -138,6 +140,15 @@ type DraftLink = {
 };
 
 type DayName = keyof AvailabilityConfig["weeklySchedule"];
+
+type BookingPreviewStep = "duration" | "date" | "time" | "info" | "confirmed";
+
+type BookingPreviewFormValue = {
+  name: string;
+  email: string;
+  notes: string;
+  fieldResponses: Record<string, string | boolean>;
+};
 
 const DAYS: { key: DayName; label: string; short: string }[] = [
   { key: "monday", label: "Monday", short: "Mon" },
@@ -1677,12 +1688,24 @@ function BookingPreview({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [previewConfirmed, setPreviewConfirmed] = useState(false);
+  const [previewForm, setPreviewForm] = useState<BookingPreviewFormValue>({
+    name: "Preview Guest",
+    email: "preview@example.com",
+    notes: "",
+    fieldResponses: {},
+  });
 
   // Reset selections when durations change
   useEffect(() => {
     setSelectedDuration(null);
     setSelectedSlot(null);
+    setPreviewConfirmed(false);
   }, [durations.join(",")]);
+
+  useEffect(() => {
+    setPreviewConfirmed(false);
+  }, [selectedDate, selectedDuration, selectedSlot]);
 
   // Calendar data for viewed month
   const monthStart = startOfMonth(viewMonth);
@@ -1729,20 +1752,48 @@ function BookingPreview({
   }, [selectedDate, selectedDuration, primaryDuration, availability]);
 
   // Determine which step to show
-  type Step = "duration" | "date" | "time" | "info";
-  const [forcedStep, setForcedStep] = useState<Step | null>(null);
+  const [forcedStep, setForcedStep] = useState<BookingPreviewStep | null>(null);
 
-  let naturalStep: Step = "date";
+  let naturalStep: BookingPreviewStep = "date";
   if (hasDurationChoice && selectedDuration === null) naturalStep = "duration";
   else if (!selectedDate) naturalStep = "date";
   else if (!selectedSlot) naturalStep = "time";
   else naturalStep = "info";
 
-  const step = forcedStep ?? naturalStep;
+  const step: BookingPreviewStep = previewConfirmed
+    ? "confirmed"
+    : (forcedStep ?? naturalStep);
 
-  const steps: Step[] = hasDurationChoice
+  const steps: BookingPreviewStep[] = hasDurationChoice
     ? ["duration", "date", "time", "info"]
     : ["date", "time", "info"];
+
+  const confirmedDuration = selectedDuration ?? primaryDuration;
+
+  function updatePreviewForm(patch: Partial<BookingPreviewFormValue>) {
+    setPreviewForm((prev) => ({ ...prev, ...patch }));
+  }
+
+  function setPreviewFieldValue(id: string, value: string | boolean) {
+    setPreviewForm((prev) => ({
+      ...prev,
+      fieldResponses: { ...prev.fieldResponses, [id]: value },
+    }));
+  }
+
+  function handlePreviewSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPreviewConfirmed(true);
+    setForcedStep(null);
+  }
+
+  function resetPreviewFlow() {
+    setSelectedDuration(null);
+    setSelectedDate(null);
+    setSelectedSlot(null);
+    setPreviewConfirmed(false);
+    setForcedStep(null);
+  }
 
   return (
     <div className="rounded-2xl border border-border overflow-hidden bg-card">
@@ -1750,7 +1801,7 @@ function BookingPreview({
       <div className="border-b border-border/60 bg-muted/30 px-4 py-2 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Read-only preview
+            Preview
           </span>
           <div className="flex items-center gap-1">
             {!isActive && (
@@ -1809,14 +1860,8 @@ function BookingPreview({
         )}
       </div>
 
-      {/* Read-only booking page preview */}
-      <div
-        inert={true}
-        className={cn(
-          "pointer-events-none select-none space-y-5 p-6",
-          !isActive && "opacity-50",
-        )}
-      >
+      {/* Booking page preview */}
+      <div className={cn("space-y-5 p-6", !isActive && "opacity-60")}>
         {/* Header */}
         <div className="text-center space-y-2">
           <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
@@ -1838,46 +1883,47 @@ function BookingPreview({
         </div>
 
         {/* Step indicators */}
-        <div className="flex items-center justify-center gap-2">
-          {steps.map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (s === step) return;
-                  // Navigate back: clear state so natural step resets
-                  if (s === "duration") {
-                    setSelectedDuration(null);
-                    setSelectedDate(null);
-                    setSelectedSlot(null);
-                    setForcedStep(null);
-                  } else if (s === "date") {
-                    setSelectedDate(null);
-                    setSelectedSlot(null);
-                    setForcedStep(null);
-                  } else if (s === "time") {
-                    setSelectedSlot(null);
-                    setForcedStep(null);
-                  } else {
-                    // Navigate forward: force the step
-                    setForcedStep(s);
-                  }
-                }}
-                className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-medium cursor-pointer",
-                  step === s
-                    ? "bg-primary text-primary-foreground"
-                    : steps.indexOf(step) > i
-                      ? "bg-primary/20 text-primary hover:bg-primary/30"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80",
-                )}
-              >
-                {i + 1}
-              </button>
-              {i < steps.length - 1 && <div className="h-px w-6 bg-border" />}
-            </div>
-          ))}
-        </div>
+        {step !== "confirmed" && (
+          <div className="flex items-center justify-center gap-2">
+            {steps.map((s, i) => (
+              <div key={s} className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (s === step) return;
+                    if (s === "duration") {
+                      setSelectedDuration(null);
+                      setSelectedDate(null);
+                      setSelectedSlot(null);
+                      setForcedStep(null);
+                    } else if (s === "date") {
+                      setSelectedDate(null);
+                      setSelectedSlot(null);
+                      setForcedStep(null);
+                    } else if (s === "time") {
+                      setSelectedSlot(null);
+                      setForcedStep(null);
+                    } else {
+                      setForcedStep(s);
+                    }
+                  }}
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-medium cursor-pointer transition-colors",
+                    step === s
+                      ? "bg-primary text-primary-foreground"
+                      : steps.indexOf(step) > i
+                        ? "bg-primary/20 text-primary hover:bg-primary/30"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80",
+                  )}
+                  aria-label={`Go to preview step ${i + 1}`}
+                >
+                  {i + 1}
+                </button>
+                {i < steps.length - 1 && <div className="h-px w-6 bg-border" />}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Duration step */}
         {step === "duration" && (
@@ -2036,9 +2082,9 @@ function BookingPreview({
           </div>
         )}
 
-        {/* Info step (preview only — just shows the form shape) */}
+        {/* Info step */}
         {step === "info" && (
-          <div className="space-y-3">
+          <form className="space-y-3" onSubmit={handlePreviewSubmit}>
             {selectedDate && selectedSlot ? (
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium text-muted-foreground">
@@ -2061,43 +2107,214 @@ function BookingPreview({
               </p>
             )}
             <div className="space-y-2">
-              <div className="rounded-md border border-border/60 px-3 py-2 text-[11px] text-muted-foreground/50">
-                Name
+              <div className="space-y-1.5">
+                <Label htmlFor="preview-booking-name" className="text-[11px]">
+                  Name
+                </Label>
+                <Input
+                  id="preview-booking-name"
+                  value={previewForm.name}
+                  onChange={(event) =>
+                    updatePreviewForm({ name: event.target.value })
+                  }
+                  className="h-8 text-xs"
+                  required
+                />
               </div>
-              <div className="rounded-md border border-border/60 px-3 py-2 text-[11px] text-muted-foreground/50">
-                Email
+              <div className="space-y-1.5">
+                <Label htmlFor="preview-booking-email" className="text-[11px]">
+                  Email
+                </Label>
+                <Input
+                  id="preview-booking-email"
+                  type="email"
+                  value={previewForm.email}
+                  onChange={(event) =>
+                    updatePreviewForm({ email: event.target.value })
+                  }
+                  className="h-8 text-xs"
+                  required
+                />
               </div>
               {customFields.map((field) => (
-                <div
+                <PreviewCustomFieldInput
                   key={field.id}
-                  className={cn(
-                    "rounded-md border border-border/60 px-3 py-2 text-[11px] text-muted-foreground/50",
-                    field.type === "textarea" && "h-14",
-                    field.type === "checkbox" && "flex items-center gap-1.5",
-                  )}
-                >
-                  {field.type === "checkbox" && (
-                    <div className="h-3 w-3 rounded-sm border border-border/60 shrink-0" />
-                  )}
-                  <span>
-                    {field.label}
-                    {!field.required && " (optional)"}
-                  </span>
-                  {field.required && (
-                    <span className="text-destructive/50">*</span>
-                  )}
-                </div>
+                  field={field}
+                  value={previewForm.fieldResponses[field.id]}
+                  onChange={(value) => setPreviewFieldValue(field.id, value)}
+                />
               ))}
-              <div className="rounded-md border border-border/60 px-3 py-2 text-[11px] text-muted-foreground/50 h-14">
-                Notes (optional)
+              <div className="space-y-1.5">
+                <Label htmlFor="preview-booking-notes" className="text-[11px]">
+                  Notes (optional)
+                </Label>
+                <Textarea
+                  id="preview-booking-notes"
+                  value={previewForm.notes}
+                  onChange={(event) =>
+                    updatePreviewForm({ notes: event.target.value })
+                  }
+                  className="min-h-16 text-xs"
+                  placeholder="Anything you'd like to share"
+                />
               </div>
             </div>
-            <div className="rounded-md bg-primary/10 border border-primary/20 px-3 py-2 text-center text-[11px] font-medium text-primary">
+            <Button type="submit" className="h-8 w-full text-xs">
               Confirm Booking
+            </Button>
+          </form>
+        )}
+
+        {step === "confirmed" && (
+          <div className="flex flex-col items-center py-3 text-center">
+            <IconCircleCheck className="h-12 w-12 text-emerald-600 dark:text-emerald-400" />
+            <div className="mt-3 space-y-1">
+              <h4 className="text-base font-semibold">Preview Confirmed</h4>
+              <p className="text-xs text-muted-foreground">
+                No booking was created.
+              </p>
             </div>
+            <div className="mt-4 w-full rounded-lg border border-border bg-muted/20 p-3 text-left text-xs">
+              <div>
+                <span className="text-muted-foreground">Event</span>
+                <p className="font-medium text-foreground">{displayTitle}</p>
+              </div>
+              {selectedDate && (
+                <div className="mt-2">
+                  <span className="text-muted-foreground">Date</span>
+                  <p className="font-medium text-foreground">
+                    {format(selectedDate, "EEEE, MMMM d, yyyy")}
+                  </p>
+                </div>
+              )}
+              {selectedSlot && (
+                <div className="mt-2">
+                  <span className="text-muted-foreground">Time</span>
+                  <p className="font-medium text-foreground">
+                    {selectedSlot} · {confirmedDuration} minutes
+                  </p>
+                </div>
+              )}
+              <div className="mt-2">
+                <span className="text-muted-foreground">Name</span>
+                <p className="font-medium text-foreground">
+                  {previewForm.name.trim() || "Preview Guest"}
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-4 h-8 text-xs"
+              onClick={resetPreviewFlow}
+            >
+              Try Again
+            </Button>
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function PreviewCustomFieldInput({
+  field,
+  value,
+  onChange,
+}: {
+  field: CustomField;
+  value: string | boolean | undefined;
+  onChange: (value: string | boolean) => void;
+}) {
+  const id = `preview-custom-field-${field.id}`;
+  const strValue = typeof value === "string" ? value : "";
+  const boolValue = typeof value === "boolean" ? value : false;
+  const optionalLabel = field.required ? "" : " (optional)";
+
+  if (field.type === "checkbox") {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2">
+        <Checkbox
+          id={id}
+          checked={boolValue}
+          onCheckedChange={(checked) => onChange(checked === true)}
+        />
+        <Label htmlFor={id} className="text-[11px] font-normal">
+          {field.label}
+          {optionalLabel}
+        </Label>
+      </div>
+    );
+  }
+
+  if (field.type === "select" && field.options?.length) {
+    return (
+      <div className="space-y-1.5">
+        <Label htmlFor={id} className="text-[11px]">
+          {field.label}
+          {optionalLabel}
+        </Label>
+        <Select value={strValue} onValueChange={onChange}>
+          <SelectTrigger id={id} className="h-8 text-xs">
+            <span
+              className={cn("truncate", !strValue && "text-muted-foreground")}
+            >
+              {strValue || field.placeholder || "Select..."}
+            </span>
+          </SelectTrigger>
+          <SelectContent>
+            {field.options.map((option) => (
+              <SelectItem key={option} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+
+  if (field.type === "textarea") {
+    return (
+      <div className="space-y-1.5">
+        <Label htmlFor={id} className="text-[11px]">
+          {field.label}
+          {optionalLabel}
+        </Label>
+        <Textarea
+          id={id}
+          value={strValue}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={field.placeholder}
+          className="min-h-16 text-xs"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-[11px]">
+        {field.label}
+        {optionalLabel}
+      </Label>
+      <Input
+        id={id}
+        type={
+          field.type === "url"
+            ? "url"
+            : field.type === "tel"
+              ? "tel"
+              : field.type === "email"
+                ? "email"
+                : "text"
+        }
+        value={strValue}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={field.placeholder}
+        className="h-8 text-xs"
+      />
     </div>
   );
 }

@@ -1,8 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { IconExternalLink, IconShare3 } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconExternalLink,
+  IconLogin2,
+  IconShare3,
+} from "@tabler/icons-react";
 import { eq } from "drizzle-orm";
 import {
   agentNativePath,
@@ -59,6 +70,26 @@ function pageTitle(title: string | null | undefined): string {
 
 function displayRecordingTitle(title: string | null | undefined): string {
   return hasGeneratedTitle(title) ? (title ?? "").trim() : "Untitled Clip";
+}
+
+function isStorageSetupFailureReason(
+  reason: string | null | undefined,
+): boolean {
+  return /video storage is not connected|file upload provider|storage provider|connect builder|s3-compatible/i.test(
+    reason ?? "",
+  );
+}
+
+function failureDetail(reason: string | null | undefined): string | null {
+  const trimmed = reason?.trim();
+  if (!trimmed) return null;
+  return trimmed.length > 800 ? `${trimmed.slice(0, 800)}...` : trimmed;
+}
+
+function buildSignInHref(returnTo: string): string {
+  return agentNativePath(
+    `/_agent-native/sign-in?return=${encodeURIComponent(returnTo)}`,
+  );
 }
 
 function shouldShowGeneratedTitleSkeleton(
@@ -165,10 +196,11 @@ export default function ShareRoute() {
   });
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
-  const { session } = useSession();
+  const { session, isLoading: sessionLoading } = useSession();
   const [signInIntent, setSignInIntent] = useState<"comment" | "react" | null>(
     null,
   );
+  const [processingTimeout, setProcessingTimeout] = useState(false);
   const requireSignIn = useCallback(
     (intent: "comment" | "react") => setSignInIntent(intent),
     [],
@@ -216,6 +248,32 @@ export default function ShareRoute() {
     if (!recording) return;
     document.title = pageTitle(recording.title);
   }, [recording?.title]);
+
+  useEffect(() => {
+    if (!recording) {
+      setProcessingTimeout(false);
+      return;
+    }
+    if (recording.status === "ready" && recording.videoUrl) {
+      setProcessingTimeout(false);
+      return;
+    }
+    if (recording.status === "failed") {
+      setProcessingTimeout(false);
+      return;
+    }
+
+    const progress = Number(recording.uploadProgress ?? 0);
+    const timeoutMs =
+      recording.status === "processing" || progress >= 95 ? 12_000 : 30_000;
+    const handle = setTimeout(() => setProcessingTimeout(true), timeoutMs);
+    return () => clearTimeout(handle);
+  }, [
+    recording?.id,
+    recording?.status,
+    recording?.videoUrl,
+    recording?.uploadProgress,
+  ]);
 
   usePlayerShortcuts({ playerRef });
 
@@ -306,7 +364,17 @@ export default function ShareRoute() {
     return (
       <EndState
         title="Clip unavailable"
-        message="This recording isn't public, or the link is invalid."
+        message="This recording isn't public, or the link is invalid. If it's your clip, sign in to check access."
+        action={
+          shareId ? (
+            <Button asChild size="sm">
+              <a href={buildSignInHref(`/r/${shareId}`)} className="gap-1.5">
+                <IconLogin2 className="h-4 w-4" />
+                Sign in
+              </a>
+            </Button>
+          ) : null
+        }
       />
     );
   }
@@ -323,28 +391,59 @@ export default function ShareRoute() {
   if (recording.status !== "ready" || !recording.videoUrl) {
     const progress = Number(recording.uploadProgress ?? 0);
     const explicitFailure = recording.status === "failed";
-    const label = explicitFailure
-      ? "Something went wrong while saving this clip."
-      : "Finishing up this clip...";
-    const message = explicitFailure
-      ? ((recording as any).failureReason ?? "The creator may need to retry.")
-      : "Uploading and assembling the video. This page will update automatically.";
-    const storageSetupFailure =
-      explicitFailure &&
-      /file upload provider|storage provider|connect builder|s3-compatible/i.test(
-        message,
-      );
+    const rawFailureReason =
+      ((recording as any).failureReason as string | null | undefined) ?? null;
+    const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
+    const stuckFailure = !explicitFailure && processingTimeout;
+    const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
+    const canManageStorage = viewerCanEdit;
+    const signInHref = buildSignInHref(`/r/${recording.id}`);
+    const detail = failureDetail(rawFailureReason);
+    const label = storageSetupFailure
+      ? "Connect storage to finish this clip."
+      : stuckFailure
+        ? "This clip needs attention to finish."
+        : explicitFailure
+          ? "Something went wrong while saving this clip."
+          : "Finishing up this clip...";
+    const message = storageSetupFailure
+      ? canManageStorage
+        ? "The video is preserved. Connect Builder.io or S3 storage and Clips will finish uploading it."
+        : session
+          ? "The creator needs to connect Builder.io or S3 storage before this clip can finish."
+          : "If this is your clip, sign in here to connect Builder.io or S3 storage and finish the upload."
+      : stuckFailure
+        ? session
+          ? "The upload has not completed yet. Open the dashboard for this clip or ask the creator to check storage."
+          : "The upload has not completed yet. If this is your clip, sign in to open the owner controls and check storage."
+        : explicitFailure
+          ? (rawFailureReason ?? "The creator may need to retry.")
+          : "Uploading and assembling the video. This page will update automatically.";
 
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
-        {!explicitFailure ? (
+        {!isFailure ? (
           <Spinner className="h-8 w-8 mb-4 text-muted-foreground" />
-        ) : null}
-        <h1 className="text-lg font-semibold mb-1">{label}</h1>
-        <p className="text-sm text-muted-foreground mb-4 max-w-md text-center">
+        ) : (
+          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-destructive/30 bg-destructive/10 text-destructive">
+            <IconAlertTriangle className="h-5 w-5" />
+          </div>
+        )}
+        <h1 className="mb-1 text-center text-lg font-semibold">{label}</h1>
+        <p className="mb-4 max-w-md text-center text-sm text-muted-foreground">
           {message}
         </p>
-        {!explicitFailure && progress > 0 ? (
+        {isFailure && detail && canManageStorage ? (
+          <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-left shadow-sm">
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Details
+            </div>
+            <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
+              {detail}
+            </pre>
+          </div>
+        ) : null}
+        {!isFailure && progress > 0 ? (
           <div className="w-64 h-1.5 rounded-full bg-accent overflow-hidden mb-4">
             <div
               className="h-full bg-foreground"
@@ -352,20 +451,43 @@ export default function ShareRoute() {
             />
           </div>
         ) : null}
-        {storageSetupFailure ? (
+        {storageSetupFailure && canManageStorage ? (
           <div className="mb-4 w-full">
             <StorageSetupCard
               title="Connect storage to finish saving"
-              description="If this is your clip, connect Builder.io here and this page will check again."
+              description="Choose where Clips should store videos. After it connects, this page will check again."
+              connectedDescription="Storage connected. Checking this clip..."
               onConfigured={() => {
                 void dataQ.refetch();
               }}
             />
           </div>
         ) : null}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {!session && isFailure ? (
+            <Button asChild size="sm">
+              <a href={signInHref} className="gap-1.5">
+                <IconLogin2 className="h-4 w-4" />
+                Sign in to finish
+              </a>
+            </Button>
+          ) : !session && !sessionLoading && !isFailure ? (
+            <Button asChild variant="ghost" size="sm">
+              <a href={signInHref} className="gap-1.5">
+                <IconLogin2 className="h-4 w-4" />
+                Sign in if this is yours
+              </a>
+            </Button>
+          ) : canManageStorage && isFailure ? (
+            <Button asChild size="sm">
+              <a href={appPath(`/r/${recording.id}`)}>Open dashboard</a>
+            </Button>
+          ) : null}
           <Button
-            onClick={() => dataQ.refetch()}
+            onClick={() => {
+              setProcessingTimeout(false);
+              void dataQ.refetch();
+            }}
             variant="outline"
             size="sm"
             className="border-foreground/20 bg-muted/50 hover:bg-accent text-foreground"
@@ -591,14 +713,27 @@ function sanitizeFilename(name: string): string {
   );
 }
 
-function EndState({ title, message }: { title: string; message: string }) {
+function EndState({
+  title,
+  message,
+  action,
+}: {
+  title: string;
+  message: string;
+  action?: ReactNode;
+}) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
       <h1 className="text-2xl font-semibold mb-2">{title}</h1>
-      <p className="text-sm text-muted-foreground mb-6">{message}</p>
-      <a href={appPath("/")} className="text-sm text-primary hover:underline">
-        Go home
-      </a>
+      <p className="mb-6 max-w-md text-center text-sm text-muted-foreground">
+        {message}
+      </p>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {action}
+        <Button asChild variant="ghost" size="sm">
+          <a href={appPath("/")}>Go home</a>
+        </Button>
+      </div>
     </div>
   );
 }

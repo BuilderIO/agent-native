@@ -124,7 +124,8 @@ const TEMPLATE_CARD_PATH = "packages/docs/app/components/TemplateCard.tsx";
   }
 }
 
-// ── 3. Docs sidebar (docsNavItems.ts) must only contain allowed slugs.
+// ── 3. Docs sidebar (docsNavItems.ts) must only contain allowed slugs and
+// must point at docs pages, not the public template landing pages.
 const DOCS_NAV_PATH = "packages/docs/app/components/docsNavItems.ts";
 {
   const src = fs.readFileSync(path.join(repoRoot, DOCS_NAV_PATH), "utf-8");
@@ -132,13 +133,22 @@ const DOCS_NAV_PATH = "packages/docs/app/components/docsNavItems.ts";
     .split(/title:\s*"Templates"/)[1]
     ?.split(/title:\s*"/)[0];
   if (inTemplatesSection) {
-    const slugRe = /\/templates\/([a-z][a-z0-9-]*)\b/g;
+    const landingSlugRe = /\/templates\/([a-z][a-z0-9-]*)\b/g;
     let match;
-    while ((match = slugRe.exec(inTemplatesSection)) !== null) {
+    while ((match = landingSlugRe.exec(inTemplatesSection)) !== null) {
+      const slug = match[1];
+      errors.push(
+        `${DOCS_NAV_PATH}: "/templates/${slug}" is a landing page link. ` +
+          `Docs sidebar template entries must link to "/docs/template-${slug}".`,
+      );
+    }
+
+    const docsSlugRe = /\/docs\/template-([a-z][a-z0-9-]*)\b/g;
+    while ((match = docsSlugRe.exec(inTemplatesSection)) !== null) {
       const slug = match[1];
       if (!allowed.has(slug)) {
         errors.push(
-          `${DOCS_NAV_PATH}: "/templates/${slug}" is in the sidebar but not in the public allow-list. ` +
+          `${DOCS_NAV_PATH}: "/docs/template-${slug}" is in the sidebar but not in the public allow-list. ` +
             `Either remove the entry, or flip hidden:false in ${SOURCE_OF_TRUTH} (and ${CLI_DUPLICATE}).`,
         );
       }
