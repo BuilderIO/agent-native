@@ -112,61 +112,62 @@ export function Sidebar() {
         </Tooltip>
       </div>
 
-      <nav
-        className={cn(
-          "flex-1 overflow-y-auto py-2 space-y-1",
-          collapsed ? "px-1.5" : "px-2",
-        )}
-      >
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive =
-            item.href === "/"
-              ? location.pathname === "/"
-              : item.href === "/libraries"
-                ? location.pathname === "/libraries" ||
-                  location.pathname.startsWith("/library/") ||
-                  location.pathname.startsWith("/image/")
-                : location.pathname.startsWith(item.href);
-          const link = (
-            <Link
-              key={item.href}
-              to={item.href}
-              className={cn(
-                "flex items-center rounded-lg text-sm",
-                collapsed ? "h-9 w-9 justify-center" : "gap-3 px-3 py-2",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && item.label}
-            </Link>
-          );
-          if (collapsed) {
-            return (
-              <Tooltip key={item.href} delayDuration={0}>
-                <TooltipTrigger asChild>{link}</TooltipTrigger>
-                <TooltipContent side="right">{item.label}</TooltipContent>
-              </Tooltip>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <nav className={cn("space-y-1 py-2", collapsed ? "px-1.5" : "px-2")}>
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive =
+              item.href === "/"
+                ? location.pathname === "/"
+                : item.href === "/libraries"
+                  ? location.pathname === "/libraries" ||
+                    location.pathname.startsWith("/library/") ||
+                    location.pathname.startsWith("/image/")
+                  : location.pathname.startsWith(item.href);
+            const link = (
+              <Link
+                key={item.href}
+                to={item.href}
+                className={cn(
+                  "flex items-center rounded-lg text-sm",
+                  collapsed ? "h-9 w-9 justify-center" : "gap-3 px-3 py-2",
+                  isActive
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {!collapsed && item.label}
+              </Link>
             );
-          }
-          return link;
-        })}
-      </nav>
+            if (collapsed) {
+              return (
+                <Tooltip key={item.href} delayDuration={0}>
+                  <TooltipTrigger asChild>{link}</TooltipTrigger>
+                  <TooltipContent side="right">{item.label}</TooltipContent>
+                </Tooltip>
+              );
+            }
+            return link;
+          })}
+        </nav>
 
-      {!collapsed && (
-        <>
-          <div className="border-t border-border px-2 py-2">
-            <ExtensionsSidebarSection />
+        {!collapsed && (
+          <div className="mt-auto shrink-0">
+            <div className="border-t border-border px-2 py-1">
+              <ExtensionsSidebarSection />
+            </div>
+
+            <div className="border-t border-border px-3 py-2">
+              <OrgSwitcher />
+            </div>
+
+            <div className="border-t border-border px-3 py-2">
+              <FeedbackButton />
+            </div>
           </div>
-          <div className="border-t border-border px-3 py-2 space-y-2">
-            <FeedbackButton />
-            <OrgSwitcher />
-          </div>
-        </>
-      )}
+        )}
+      </div>
     </aside>
   );
 }
