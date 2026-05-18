@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { IconAlertCircle, IconClock } from "@tabler/icons-react";
+import { IconAlertCircle, IconClock, IconX } from "@tabler/icons-react";
 
 interface NotificationData {
   type: "calendar" | "adhoc";
@@ -70,6 +71,16 @@ export function MeetingNotification() {
     dataRef.current = data;
   }, [data]);
 
+  function showNotification(
+    payload: NotificationData,
+    options?: { hydrated?: boolean },
+  ) {
+    setData(payload);
+    setError(null);
+    setPending(!!payload.autoStart && !options?.hydrated);
+    scheduleDismiss(DEFAULT_DISMISS_MS);
+  }
+
   useEffect(() => {
     const unlistens: Array<() => void> = [];
     let stopped = false;
@@ -90,12 +101,16 @@ export function MeetingNotification() {
 
     trackListen(
       listen<NotificationData>("meetings:show-notification", (ev) => {
-        setData(ev.payload);
-        setError(null);
-        setPending(!!ev.payload.autoStart);
-        scheduleDismiss(DEFAULT_DISMISS_MS);
+        showNotification(ev.payload);
       }),
     );
+    invoke<NotificationData | null>("take_pending_meeting_notification")
+      .then((payload) => {
+        if (!stopped && payload) {
+          showNotification(payload, { hydrated: true });
+        }
+      })
+      .catch(() => {});
 
     // Legacy bridge: older Rust builds emitted `meetings:start-recording`.
     // Re-route to the persistent popover-owned transcription session so this
@@ -267,14 +282,7 @@ export function MeetingNotification() {
             aria-label="Dismiss"
             data-no-drag
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <path
-                d="M1 1L9 9M9 1L1 9"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
+            <IconX size={10} aria-hidden="true" />
           </button>
         ) : null}
       </div>

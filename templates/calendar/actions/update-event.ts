@@ -4,6 +4,10 @@ import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
 import {
+  normalizeGuestNotificationMessage,
+  sendEventGuestNotificationNote,
+} from "../server/lib/event-guest-notifications.js";
+import {
   availabilityInput,
   attachmentsInput,
   buildReminderOverrides,
@@ -108,6 +112,12 @@ export default defineAction({
       .enum(["all", "none"])
       .optional()
       .describe("Whether Google should notify attendees"),
+    notificationMessage: z
+      .string()
+      .optional()
+      .describe(
+        "Optional note to send to guests as a companion email when notifying attendees about the update. Google Calendar API notifications only accept sendUpdates.",
+      ),
   }),
   toolCallable: false,
   run: async (args) => {
@@ -128,6 +138,9 @@ export default defineAction({
       ownerEmail,
     );
     const recurrence = normalizeRecurrence(args.recurrence);
+    const guestNotificationMessage = normalizeGuestNotificationMessage(
+      args.notificationMessage,
+    );
     const reminderFields = buildReminderOverrides({
       reminders: args.reminders,
       reminderMinutes: args.reminderMinutes,
@@ -196,13 +209,19 @@ export default defineAction({
     if (attendees !== undefined) updates.attendees = attendees;
     Object.assign(updates, reminderFields);
 
-    let zoomMeetingLink: string | undefined;
-    let zoomAlreadyPresent = false;
-    if (args.addZoom) {
-      const existingEvent = await googleCalendar.getEvent(
+    let existingEvent: CalendarEvent | undefined;
+    const loadExistingEvent = async () => {
+      existingEvent ??= await googleCalendar.getEvent(
         googleEventId,
         accountEmail,
       );
+      return existingEvent;
+    };
+
+    let zoomMeetingLink: string | undefined;
+    let zoomAlreadyPresent = false;
+    if (args.addZoom) {
+      const existingEvent = await loadExistingEvent();
       const eventForZoom: CalendarEvent = {
         ...existingEvent,
         ...updates,
@@ -217,6 +236,10 @@ export default defineAction({
       zoomAlreadyPresent = zoom.alreadyPresent;
       Object.assign(updates, zoom.patch);
     }
+
+    const eventForNotification = guestNotificationMessage
+      ? await loadExistingEvent()
+      : undefined;
 
     const updatedKeys = Object.keys(updates).filter(
       (key) => key !== "accountEmail",
@@ -233,9 +256,29 @@ export default defineAction({
     }
 
     const result = await googleCalendar.updateEvent(googleEventId, updates, {
-      sendUpdates: args.sendUpdates,
+      sendUpdates:
+        args.sendUpdates ?? (guestNotificationMessage ? "all" : undefined),
       addGoogleMeet: args.addGoogleMeet,
     });
+
+    const guestNotification =
+      guestNotificationMessage && eventForNotification
+        ? await sendEventGuestNotificationNote({
+            event: {
+              ...eventForNotification,
+              ...updates,
+              id: `google-${googleEventId}`,
+              googleEventId,
+              accountEmail,
+              htmlLink: result.htmlLink,
+              hangoutLink: result.meetLink,
+              conferenceData: result.conferenceData,
+            },
+            organizerEmail: ownerEmail,
+            message: guestNotificationMessage,
+            kind: "update",
+          })
+        : undefined;
 
     return {
       success: true,
@@ -246,6 +289,7 @@ export default defineAction({
       hangoutLink: result.meetLink,
       meetingLink: zoomMeetingLink,
       conferenceData: result.conferenceData,
+      ...(guestNotification ? { guestNotification } : {}),
     };
   },
 });

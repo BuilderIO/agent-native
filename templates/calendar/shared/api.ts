@@ -108,6 +108,7 @@ export type DeleteEventScope = "single" | "all" | "thisAndFollowing";
 export interface DeleteEventOptions {
   scope?: DeleteEventScope;
   sendUpdates?: "all" | "none";
+  notificationMessage?: string;
   /** When true and user is not the organizer, decline instead of deleting */
   removeOnly?: boolean;
 }

@@ -24,6 +24,7 @@ type UpdateEventInput = Partial<CalendarEvent> & {
   addGoogleMeet?: boolean;
   addZoom?: boolean;
   sendUpdates?: "all" | "none";
+  notificationMessage?: string;
 };
 
 async function readErrorMessage(res: Response, fallback: string) {
@@ -189,8 +190,13 @@ export function useUpdateEvent() {
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: ["action", "list-events"],
       });
-      const { addGoogleMeet, addZoom, sendUpdates, ...optimisticData } =
-        newData;
+      const {
+        addGoogleMeet,
+        addZoom,
+        sendUpdates,
+        notificationMessage,
+        ...optimisticData
+      } = newData;
       queryClient.setQueriesData<CalendarEvent[]>(
         { queryKey: ["action", "list-events"] },
         (old) =>
@@ -245,16 +251,23 @@ export function useDeleteEvent() {
       scope,
       sendUpdates,
       removeOnly,
+      notificationMessage,
     }: {
       id: string;
       scope?: "single" | "all" | "thisAndFollowing";
       sendUpdates?: "all" | "none";
       removeOnly?: boolean;
+      notificationMessage?: string;
     }) => {
       const res = await fetch(appApiPath(`/api/events/${id}`), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope, sendUpdates, removeOnly }),
+        body: JSON.stringify({
+          scope,
+          sendUpdates,
+          removeOnly,
+          notificationMessage,
+        }),
       });
       if (!res.ok) throw new Error("Failed to delete event");
       return res.json();

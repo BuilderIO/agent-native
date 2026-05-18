@@ -29,6 +29,7 @@ import { shortcutModifierLabel } from "@/lib/utils";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { toast } from "sonner";
 import type { CalendarEvent } from "@shared/api";
+import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
 
 interface EventDialogProps {
   event: CalendarEvent | null;
@@ -52,6 +53,8 @@ export function EventDialog({
 
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
+  const { promptGuestNotification, guestNotificationDialog } =
+    useGuestNotificationPrompt();
   const { prefs } = useViewPreferences();
 
   useEffect(() => {
@@ -113,16 +116,26 @@ export function EventDialog({
   const isGoogle = event.source === "google";
   const color = getEventDisplayColor(event, prefs);
 
-  function handleSave() {
+  async function handleSave() {
     if (!event) return;
+    const updates = {
+      title,
+      description,
+      location,
+      start: new Date(startTime).toISOString(),
+      end: new Date(endTime).toISOString(),
+    };
+    const guestNotification = await promptGuestNotification({
+      event,
+      action: "update",
+      updates,
+    });
+    if (!guestNotification) return;
     updateEvent.mutate(
       {
         id: event.id,
-        title,
-        description,
-        location,
-        start: new Date(startTime).toISOString(),
-        end: new Date(endTime).toISOString(),
+        ...updates,
+        ...guestNotification,
       },
       {
         onSuccess: () => {
@@ -135,14 +148,19 @@ export function EventDialog({
     );
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!event) return;
     if (onDelete) {
       onDelete(event.id);
       onClose();
     } else {
+      const guestNotification = await promptGuestNotification({
+        event,
+        action: "cancellation",
+      });
+      if (!guestNotification) return;
       deleteEvent.mutate(
-        { id: event.id },
+        { id: event.id, ...guestNotification },
         {
           onSuccess: () => {
             toast.success("Event deleted");
@@ -155,189 +173,193 @@ export function EventDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-[500px]">
-        {/* Color accent strip */}
-        {color && (
-          <div
-            className="absolute top-0 left-0 right-0 h-1 rounded-t-lg"
-            style={{ backgroundColor: color }}
-          />
-        )}
+    <>
+      <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+        <DialogContent className="sm:max-w-[500px]">
+          {/* Color accent strip */}
+          {color && (
+            <div
+              className="absolute top-0 left-0 right-0 h-1 rounded-t-lg"
+              style={{ backgroundColor: color }}
+            />
+          )}
 
-        <DialogHeader className="pt-1">
-          <div className="flex items-start justify-between gap-2">
-            {editing ? (
-              <Input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="text-lg font-semibold"
-                autoFocus
-              />
-            ) : (
-              <DialogTitle className="text-lg leading-tight pr-8">
-                {event.title}
-              </DialogTitle>
-            )}
-          </div>
-        </DialogHeader>
-
-        {editing ? (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Add a description…"
-                rows={3}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Start</Label>
+          <DialogHeader className="pt-1">
+            <div className="flex items-start justify-between gap-2">
+              {editing ? (
                 <Input
-                  type="datetime-local"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="text-lg font-semibold"
+                  autoFocus
                 />
-              </div>
-              <div className="space-y-2">
-                <Label>End</Label>
-                <Input
-                  type="datetime-local"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Location</Label>
-              <Input
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="Add a location…"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Press{" "}
-              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                {shortcutModifierLabel()}+↵
-              </kbd>{" "}
-              to save
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {/* Time */}
-            <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
-              <IconClock className="mt-0.5 h-4 w-4 shrink-0" />
-              {event.allDay ? (
-                <span>
-                  All day · {format(parseISO(event.start), "MMMM d, yyyy")}
-                </span>
               ) : (
-                <span>
-                  {format(parseISO(event.start), "EEEE, MMMM d, yyyy")}
-                  <br />
-                  {format(parseISO(event.start), "h:mm a")} –{" "}
-                  {format(parseISO(event.end), "h:mm a")}
-                </span>
+                <DialogTitle className="text-lg leading-tight pr-8">
+                  {event.title}
+                </DialogTitle>
               )}
             </div>
+          </DialogHeader>
 
-            {/* Location */}
-            {event.location && (
-              <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
-                <IconMapPin className="h-4 w-4 shrink-0" />
-                <span>{event.location}</span>
-              </div>
-            )}
-
-            {/* Description */}
-            {event.description &&
-              (() => {
-                if (isHtml(event.description)) {
-                  const cleanedHtml = stripGcalInviteHtml(
-                    sanitizeHtml(event.description),
-                  );
-                  if (!cleanedHtml.replace(/<[^>]*>/g, "").trim()) return null;
-                  return (
-                    <div
-                      className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground prose prose-sm dark:prose-invert prose-p:my-1 prose-a:text-primary"
-                      dangerouslySetInnerHTML={{ __html: cleanedHtml }}
-                    />
-                  );
-                }
-                return (
-                  <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                    {event.description}
-                  </p>
-                );
-              })()}
-
-            {/* Keyboard hint */}
-            <p className="text-xs text-muted-foreground/60">
-              Press{" "}
-              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                E
-              </kbd>{" "}
-              to edit ·{" "}
-              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                Del
-              </kbd>{" "}
-              to delete
-            </p>
-          </div>
-        )}
-
-        <DialogFooter className="gap-2">
           {editing ? (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setEditing(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleSave}
-                disabled={updateEvent.isPending}
-              >
-                {updateEvent.isPending ? "Saving…" : "Save changes"}
-              </Button>
-            </>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Add a description…"
+                  rows={3}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Start</Label>
+                  <Input
+                    type="datetime-local"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>End</Label>
+                  <Input
+                    type="datetime-local"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Location</Label>
+                <Input
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="Add a location…"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Press{" "}
+                <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                  {shortcutModifierLabel()}+↵
+                </kbd>{" "}
+                to save
+              </p>
+            </div>
           ) : (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                onClick={handleDelete}
-                disabled={deleteEvent.isPending}
-              >
-                <IconTrash className="mr-1.5 h-3.5 w-3.5" />
-                Delete
-              </Button>
-              <div className="flex-1" />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setEditing(true)}
-              >
-                <IconEdit className="mr-1.5 h-3.5 w-3.5" />
-                Edit
-              </Button>
-              <Button variant="ghost" size="sm" onClick={onClose}>
-                <IconX className="mr-1.5 h-3.5 w-3.5" />
-                Close
-              </Button>
-            </>
+            <div className="space-y-3">
+              {/* Time */}
+              <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
+                <IconClock className="mt-0.5 h-4 w-4 shrink-0" />
+                {event.allDay ? (
+                  <span>
+                    All day · {format(parseISO(event.start), "MMMM d, yyyy")}
+                  </span>
+                ) : (
+                  <span>
+                    {format(parseISO(event.start), "EEEE, MMMM d, yyyy")}
+                    <br />
+                    {format(parseISO(event.start), "h:mm a")} –{" "}
+                    {format(parseISO(event.end), "h:mm a")}
+                  </span>
+                )}
+              </div>
+
+              {/* Location */}
+              {event.location && (
+                <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                  <IconMapPin className="h-4 w-4 shrink-0" />
+                  <span>{event.location}</span>
+                </div>
+              )}
+
+              {/* Description */}
+              {event.description &&
+                (() => {
+                  if (isHtml(event.description)) {
+                    const cleanedHtml = stripGcalInviteHtml(
+                      sanitizeHtml(event.description),
+                    );
+                    if (!cleanedHtml.replace(/<[^>]*>/g, "").trim())
+                      return null;
+                    return (
+                      <div
+                        className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground prose prose-sm dark:prose-invert prose-p:my-1 prose-a:text-primary"
+                        dangerouslySetInnerHTML={{ __html: cleanedHtml }}
+                      />
+                    );
+                  }
+                  return (
+                    <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                      {event.description}
+                    </p>
+                  );
+                })()}
+
+              {/* Keyboard hint */}
+              <p className="text-xs text-muted-foreground/60">
+                Press{" "}
+                <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                  E
+                </kbd>{" "}
+                to edit ·{" "}
+                <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                  Del
+                </kbd>{" "}
+                to delete
+              </p>
+            </div>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+          <DialogFooter className="gap-2">
+            {editing ? (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditing(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={updateEvent.isPending}
+                >
+                  {updateEvent.isPending ? "Saving…" : "Save changes"}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={handleDelete}
+                  disabled={deleteEvent.isPending}
+                >
+                  <IconTrash className="mr-1.5 h-3.5 w-3.5" />
+                  Delete
+                </Button>
+                <div className="flex-1" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditing(true)}
+                >
+                  <IconEdit className="mr-1.5 h-3.5 w-3.5" />
+                  Edit
+                </Button>
+                <Button variant="ghost" size="sm" onClick={onClose}>
+                  <IconX className="mr-1.5 h-3.5 w-3.5" />
+                  Close
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {guestNotificationDialog}
+    </>
   );
 }

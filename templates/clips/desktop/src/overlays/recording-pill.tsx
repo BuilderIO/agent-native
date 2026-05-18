@@ -19,8 +19,8 @@ interface PillContext {
 }
 
 /**
- * Granola-style recording indicator. A floating pill anchored to the top-
- * right of the primary display:
+ * Granola-style recording indicator. A floating pill anchored by Rust:
+ * center-right for meetings, bottom-center for ordinary recordings.
  *
  *   - Collapsed (default): red dot + elapsed timer + tiny waveform + chevron.
  *   - Expanded: same header + scrolling live transcript + Pause / Stop.

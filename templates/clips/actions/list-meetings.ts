@@ -44,6 +44,14 @@ import {
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
+const booleanParam = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase();
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  return value;
+}, z.boolean());
+
 export default defineAction({
   description:
     "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle.",
@@ -54,6 +62,14 @@ export default defineAction({
       .describe("Which list to show"),
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
+    recordedOnly: booleanParam
+      .default(false)
+      .describe("Only return persisted meetings that have a linked recording."),
+    includeLiveCalendar: booleanParam
+      .default(true)
+      .describe(
+        "Read connected calendars live and merge virtual calendar events into the list.",
+      ),
     upcomingWithinMin: z.coerce
       .number()
       .int()
@@ -107,6 +123,9 @@ export default defineAction({
         )!,
       );
     }
+    if (args.recordedOnly) {
+      whereClauses.push(isNotNull(schema.meetings.recordingId));
+    }
 
     const orderBy =
       args.view === "upcoming"
@@ -139,7 +158,11 @@ export default defineAction({
     const calendarErrors: CalendarFetchError[] = [];
     let readLiveCalendars = false;
 
-    if (args.view !== "trash") {
+    if (
+      args.includeLiveCalendar &&
+      !args.recordedOnly &&
+      args.view !== "trash"
+    ) {
       const accountWhere = [
         accessFilter(schema.calendarAccounts, schema.calendarAccountShares),
         eq(schema.calendarAccounts.status, "connected"),

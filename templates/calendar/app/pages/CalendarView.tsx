@@ -47,6 +47,10 @@ import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
 import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
 import { DeleteEventDialog } from "@/components/calendar/DeleteEventDialog";
+import {
+  shouldPromptGuests,
+  useGuestNotificationPrompt,
+} from "@/components/calendar/GuestNotificationDialog";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import {
   useEvents,
@@ -121,6 +125,8 @@ export default function CalendarView() {
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
+  const { promptGuestNotification, guestNotificationDialog } =
+    useGuestNotificationPrompt();
 
   // Compute date range for query based on view
   const { from, to } = useMemo(() => {
@@ -319,7 +325,13 @@ export default function CalendarView() {
     }
   }
 
-  function handleDirectDelete(ev: CalendarEvent) {
+  async function handleDirectDelete(
+    ev: CalendarEvent,
+    notificationOptions?: {
+      sendUpdates: "all" | "none";
+      notificationMessage?: string;
+    },
+  ) {
     const isOrganizer =
       ev.organizer?.self ||
       ev.attendees?.find((a) => a.self)?.organizer ||
@@ -327,6 +339,16 @@ export default function CalendarView() {
     const hasOtherAttendees =
       ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
     const removeOnly = !isOrganizer && !!hasOtherAttendees;
+    const shouldAskGuests = !removeOnly && shouldPromptGuests(ev);
+    const guestNotification =
+      notificationOptions ??
+      (shouldAskGuests
+        ? await promptGuestNotification({
+            event: ev,
+            action: "cancellation",
+          })
+        : { sendUpdates: "none" as const });
+    if (!guestNotification) return;
 
     // Snapshot for undo — preserve all event fields so undo recreates faithfully
     const { id: _id, source: _source, ...snapshot } = ev;
@@ -338,7 +360,7 @@ export default function CalendarView() {
       {
         id: ev.id,
         scope: "single",
-        sendUpdates: "none",
+        ...guestNotification,
         removeOnly,
       },
       {
@@ -358,15 +380,22 @@ export default function CalendarView() {
     const ev = events.find((e) => e.id === eventId);
     if (!ev) return;
     const isRecurring = !!(ev.recurringEventId || ev.recurrence?.length);
-    if (isRecurring) {
+    const isOrganizer =
+      ev.organizer?.self ||
+      ev.attendees?.find((a) => a.self)?.organizer ||
+      !ev.attendees?.length;
+    const hasOtherAttendees =
+      ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
+    const removeOnly = !isOrganizer && !!hasOtherAttendees;
+    if (isRecurring || (!removeOnly && shouldPromptGuests(ev))) {
       setDeleteDialogEvent(ev);
     } else {
-      handleDirectDelete(ev);
+      void handleDirectDelete(ev);
     }
   }
 
   // Move event to a new date (drag-and-drop from MonthView)
-  function handleEventDrop(eventId: string, newDate: Date) {
+  async function handleEventDrop(eventId: string, newDate: Date) {
     const event = events.find((e) => e.id === eventId);
     if (!event) return;
 
@@ -389,14 +418,29 @@ export default function CalendarView() {
     );
 
     const undo = () => {
-      updateEvent.mutate({ id: eventId, start: oldStartISO, end: oldEndISO });
+      updateEvent.mutate({
+        id: eventId,
+        start: oldStartISO,
+        end: oldEndISO,
+        sendUpdates: "none",
+      });
     };
+    const updates = {
+      start: newStart.toISOString(),
+      end: newEnd.toISOString(),
+    };
+    const guestNotification = await promptGuestNotification({
+      event,
+      action: "update",
+      updates,
+    });
+    if (!guestNotification) return;
 
     updateEvent.mutate(
       {
         id: eventId,
-        start: newStart.toISOString(),
-        end: newEnd.toISOString(),
+        ...updates,
+        ...guestNotification,
       },
       {
         onSuccess: () => {
@@ -411,7 +455,7 @@ export default function CalendarView() {
   }
 
   // Move/resize event to new start/end times (drag from Week/Day views)
-  function handleEventTimeChange(
+  async function handleEventTimeChange(
     eventId: string,
     newStart: Date,
     newEnd: Date,
@@ -428,14 +472,29 @@ export default function CalendarView() {
     const oldStartISO = event.start;
     const oldEndISO = event.end;
     const undo = () => {
-      updateEvent.mutate({ id: eventId, start: oldStartISO, end: oldEndISO });
+      updateEvent.mutate({
+        id: eventId,
+        start: oldStartISO,
+        end: oldEndISO,
+        sendUpdates: "none",
+      });
     };
+    const updates = {
+      start: newStart.toISOString(),
+      end: newEnd.toISOString(),
+    };
+    const guestNotification = await promptGuestNotification({
+      event,
+      action: "update",
+      updates,
+    });
+    if (!guestNotification) return;
 
     updateEvent.mutate(
       {
         id: eventId,
-        start: newStart.toISOString(),
-        end: newEnd.toISOString(),
+        ...updates,
+        ...guestNotification,
       },
       {
         onSuccess: () => {
@@ -460,7 +519,7 @@ export default function CalendarView() {
     setCreateDialogOpen(true);
   }
 
-  function handleQuickEditSave(eventId: string, title: string) {
+  async function handleQuickEditSave(eventId: string, title: string) {
     setQuickEditEventId(null);
     setQuickEditTempIds((current) => {
       if (!current[eventId]) return current;
@@ -468,8 +527,32 @@ export default function CalendarView() {
       return next;
     });
     if (title.trim() && title.trim() !== "(No title)") {
-      updateEvent.mutate({ id: eventId, title: title.trim() });
+      const event = events.find((e) => e.id === eventId);
+      const updates = { title: title.trim() };
+      const guestNotification = event
+        ? await promptGuestNotification({
+            event,
+            action: "update",
+            updates,
+          })
+        : { sendUpdates: "none" as const };
+      if (!guestNotification) return;
+      updateEvent.mutate({ id: eventId, ...updates, ...guestNotification });
     }
+  }
+
+  async function handleTitleSave(eventId: string, title: string) {
+    const event = events.find((e) => e.id === eventId);
+    const updates = { title };
+    const guestNotification = event
+      ? await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        })
+      : { sendUpdates: "none" as const };
+    if (!guestNotification) return;
+    updateEvent.mutate({ id: eventId, ...updates, ...guestNotification });
   }
 
   function handleQuickEditCancel(eventId: string) {
@@ -806,9 +889,7 @@ export default function CalendarView() {
             event={sidebarEvent}
             onClose={() => setSidebarEvent(null)}
             onDelete={handleDeleteEvent}
-            onTitleSave={(eventId, title) =>
-              updateEvent.mutate({ id: eventId, title })
-            }
+            onTitleSave={handleTitleSave}
           />
         )}
 
@@ -898,6 +979,7 @@ export default function CalendarView() {
             );
           }}
         />
+        {guestNotificationDialog}
       </div>
     </TooltipProvider>
   );

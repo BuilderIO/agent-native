@@ -1036,7 +1036,7 @@ function DataSourceCard({
     !locallyConfigured && (!readyViaWorkspace || showLocalCredentials);
 
   return (
-    <Card className="bg-card border-border/50">
+    <Card className="data-source-card bg-card border-border/50">
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
@@ -1073,7 +1073,7 @@ function DataSourceCard({
                 </span>
               )}
               {!isStatusLoading && sharedConnectionStatus && (
-                <span className="hidden sm:inline-flex">
+                <span className="data-source-shared-badge">
                   <SharedConnectionBadge status={sharedConnectionStatus} />
                 </span>
               )}
@@ -1282,7 +1282,7 @@ function AddDataSourceCTA() {
         <Button
           variant="outline"
           size="sm"
-          className="gap-1.5 shrink-0"
+          className="data-source-add-trigger gap-1.5"
           disabled={isGenerating}
         >
           {isGenerating ? (
@@ -1358,7 +1358,7 @@ function FirstPartyAnalyticsCard() {
   };
 
   return (
-    <Card className="bg-card border-border/50">
+    <Card className="data-source-card bg-card border-border/50">
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
@@ -1427,7 +1427,7 @@ function FirstPartyAnalyticsCard() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="data-source-inline-form">
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -1441,7 +1441,7 @@ function FirstPartyAnalyticsCard() {
                   createKey.mutate({ name });
                 }}
                 disabled={createKey.isPending}
-                className="text-xs"
+                className="data-source-inline-form-button text-xs"
               >
                 {createKey.isPending ? (
                   <>
@@ -1571,7 +1571,7 @@ export default function DataSources() {
     : null;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
+    <div className="data-sources-layout mx-auto max-w-5xl space-y-8">
       <p className="text-sm text-muted-foreground">
         Connect your data sources, then ask the agent to create dashboards.{" "}
         {!isStatusLoading &&
@@ -1585,8 +1585,8 @@ export default function DataSources() {
       </p>
 
       {/* Search bar + Add Data Source */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
+      <div className="data-sources-toolbar">
+        <div className="relative min-w-0 flex-1">
           <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <input
             type="text"
@@ -1602,7 +1602,7 @@ export default function DataSources() {
       {/* Filtered results */}
       {filteredSources !== null ? (
         filteredSources.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+          <div className="data-sources-grid">
             {filteredSources.map((source) => (
               <DataSourceCard
                 key={source.id}
@@ -1634,7 +1634,7 @@ export default function DataSources() {
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                 {categoryLabels[category]}
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+              <div className="data-sources-grid">
                 {category === "analytics" && <FirstPartyAnalyticsCard />}
                 {sources.map((source) => (
                   <DataSourceCard

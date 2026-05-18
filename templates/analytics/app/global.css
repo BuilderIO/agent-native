@@ -128,6 +128,81 @@
   }
 }
 
+/* The data source page responds to its pane width instead of the viewport.
+   That keeps the compact/mobile layout when sidebars narrow the content area. */
+.data-sources-layout {
+  container: data-sources / inline-size;
+}
+
+.data-sources-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.data-source-add-trigger {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.data-sources-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0.75rem;
+}
+
+.data-source-card {
+  min-width: 0;
+  container: data-source-card / inline-size;
+}
+
+.data-source-shared-badge {
+  display: none;
+}
+
+.data-source-inline-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.data-source-inline-form-button {
+  width: 100%;
+}
+
+@container data-sources (min-width: 640px) {
+  .data-sources-toolbar {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .data-source-add-trigger {
+    width: auto;
+  }
+}
+
+@container data-sources (min-width: 768px) {
+  .data-sources-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container data-source-card (min-width: 420px) {
+  .data-source-shared-badge {
+    display: inline-flex;
+  }
+
+  .data-source-inline-form {
+    flex-direction: row;
+  }
+
+  .data-source-inline-form-button {
+    width: auto;
+    flex-shrink: 0;
+  }
+}
+
 /* The dashboard grid responds to the available content width — which shrinks
    when the agent sidebar is open — not the viewport. Below the threshold it
    stacks to one column (mobile layout); at/above it expands to the dashboard's
