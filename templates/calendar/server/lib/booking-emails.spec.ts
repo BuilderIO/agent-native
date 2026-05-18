@@ -20,4 +20,10 @@ describe("booking email time formatting", () => {
       ),
     ).toBe("Thursday, May 21, 2026, 12:30 PM PDT - 1:00 PM PDT");
   });
+
+  it("falls back to the default booking timezone when omitted", () => {
+    expect(
+      formatBookingWhen("2026-05-21T19:30:00.000Z", "2026-05-21T20:00:00.000Z"),
+    ).toBe("Thursday, May 21, 2026, 3:30 PM EDT - 4:00 PM EDT");
+  });
 });
