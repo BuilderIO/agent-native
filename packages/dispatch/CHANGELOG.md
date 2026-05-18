@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.2
+
+### Patch Changes
+
+- 3eb86c8: Allow extensions to resolve vault-backed keys from the active workspace and mirror Dispatch vault saves into the shared credential store.
+
 ## 0.8.1
 
 ### Patch Changes
