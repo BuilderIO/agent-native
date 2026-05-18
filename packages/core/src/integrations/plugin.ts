@@ -84,16 +84,22 @@ function startA2AContinuationRetryJob(
   adapters: Map<string, PlatformAdapter>,
 ): void {
   if (a2aContinuationRetryInterval) return;
-  setTimeout(() => {
+  const initialTimer = setTimeout(() => {
     processDueA2AContinuations({ adapters }).catch((err) => {
       console.error("[integrations] A2A continuation retry job failed:", err);
     });
   }, 10_000);
+  unrefTimer(initialTimer);
   a2aContinuationRetryInterval = setInterval(() => {
     processDueA2AContinuations({ adapters }).catch((err) => {
       console.error("[integrations] A2A continuation retry job failed:", err);
     });
   }, 60_000);
+  unrefTimer(a2aContinuationRetryInterval);
+}
+
+function unrefTimer(timer: ReturnType<typeof setInterval>): void {
+  (timer as unknown as { unref?: () => void }).unref?.();
 }
 
 // ─── Google Pub/Sub OIDC verifier (for Drive changes.watch push) ────────────
