@@ -35,6 +35,7 @@ import {
   sendBookingCancellationEmails,
   sendBookingConfirmationEmails,
 } from "../lib/booking-emails.js";
+import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 
 async function requireRequestContext<T>(
   event: H3Event,
@@ -598,6 +599,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 500);
       return { error: "Booking link has no host email" };
     }
+    const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
 
     const eventTitle = buildBookingEventTitle({
       explicitTitle: body.eventTitle,
@@ -772,10 +774,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           title: eventTitle,
           startTime: body.start,
           endTime: body.end,
-          timezone:
-            (body.timezone as string | undefined) ??
-            Intl.DateTimeFormat().resolvedOptions().timeZone ??
-            "UTC",
+          timezone: bookingTimeZone,
         });
         if (zoomResult?.meetingUrl) {
           meetingLink = zoomResult.meetingUrl;
@@ -884,10 +883,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       booking,
       hostEmail,
       manageUrl,
-      timeZone:
-        (body.timezone as string | undefined) ??
-        Intl.DateTimeFormat().resolvedOptions().timeZone ??
-        "UTC",
+      timeZone: bookingTimeZone,
     });
 
     try {
@@ -1050,6 +1046,7 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
       }
 
       const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
+      const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
       const reqUrl = getRequestURL(event);
       const bookAgainUrl = existing.slug
         ? `${reqUrl.origin}/book/${existing.slug}`
@@ -1059,6 +1056,7 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
         booking: rowToBooking(existing),
         hostEmail,
         bookAgainUrl,
+        timeZone: bookingTimeZone,
       });
       await deleteGoogleEventForBooking({ booking: existing, hostEmail });
 
@@ -1144,6 +1142,7 @@ export const cancelBookingByToken = defineEventHandler(
         .where(eq(schema.bookings.id, row.id));
 
       const hostEmail = await getBookingLinkOwnerEmail(row.slug);
+      const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
       const reqUrl = getRequestURL(event);
       const bookAgainUrl = row.slug
         ? `${reqUrl.origin}/book/${row.slug}`
@@ -1152,6 +1151,7 @@ export const cancelBookingByToken = defineEventHandler(
         booking: rowToBooking(row),
         hostEmail,
         bookAgainUrl,
+        timeZone: bookingTimeZone,
       });
       await deleteGoogleEventForBooking({ booking: row, hostEmail });
       recordBookingsChanged(hostEmail);
