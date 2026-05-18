@@ -11,7 +11,10 @@ export function useUpdateStatus(): UpdateStatus | null {
   useEffect(() => {
     const updater = window.electronAPI?.updater;
     if (!updater) return;
-    updater.getStatus().then(setStatus);
+    updater
+      .getStatus()
+      .then(setStatus)
+      .catch(() => {});
     return updater.onStatusChange(setStatus);
   }, []);
 
@@ -89,7 +92,7 @@ export function UpdateIndicator() {
       <span className="icon-wrapper">
         <IconRefresh size={18} strokeWidth={1.75} />
       </span>
-      <span className="item-label">Restart</span>
+      <span className="item-label">Relaunch</span>
     </button>
   );
 }

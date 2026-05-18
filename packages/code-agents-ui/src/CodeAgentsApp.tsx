@@ -1182,7 +1182,6 @@ export default function CodeAgentsApp({
       setSearchPanelOpen(false);
       setMobilePanelOpen(false);
       if (result.event) setTranscriptEvents([result.event]);
-      toast(result.message, { duration: 2200 });
       if (typedGoal.id === selectedGoal.id) {
         await loadRuns(true);
       } else {
@@ -1353,6 +1352,12 @@ export default function CodeAgentsApp({
     }
   }
 
+  const showingSelectedRunDetail =
+    !workbenchOpen &&
+    !mobilePanelOpen &&
+    !searchPanelOpen &&
+    Boolean(selectedRun);
+
   return (
     <section className="code-agents-surface" aria-label="Agent-Native Code">
       <aside
@@ -1494,7 +1499,11 @@ export default function CodeAgentsApp({
             </div>
           </div>
         ) : (
-          <div className="code-agents-overview">
+          <div
+            className={`code-agents-overview${
+              showingSelectedRunDetail ? " code-agents-overview--chat" : ""
+            }`}
+          >
             {mobilePanelOpen ? (
               <MobileConnectorPanel
                 status={remoteConnectorStatus}
@@ -1907,7 +1916,9 @@ function CodeAgentComposer({
           ? "agent-native-code:new-session"
           : "agent-native-code:follow-up"
       }
-      initialText={promptSeed !== undefined ? prompt : undefined}
+      initialText={
+        promptSeed !== undefined && Number(promptSeed) > 0 ? prompt : undefined
+      }
       initialTextKey={promptSeed}
       toolbarSlot={modeControl}
       actionButton={stopButton}

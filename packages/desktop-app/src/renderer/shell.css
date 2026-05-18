@@ -1235,6 +1235,119 @@ body {
   word-break: break-word;
 }
 
+.settings-update-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-update-card--ready {
+  border-color: rgba(34, 197, 94, 0.22);
+  background: rgba(34, 197, 94, 0.055);
+}
+
+.settings-update-card--error {
+  border-color: rgba(239, 68, 68, 0.18);
+}
+
+.settings-update-row,
+.settings-update-title,
+.settings-update-actions {
+  display: flex;
+  align-items: center;
+}
+
+.settings-update-row {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-update-title {
+  min-width: 0;
+  gap: 9px;
+}
+
+.settings-update-title > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-update-actions {
+  flex: 0 0 auto;
+}
+
+.settings-update-btn {
+  width: auto;
+  min-width: 86px;
+  height: 32px;
+  margin-bottom: 0;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.settings-update-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #555;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.035);
+}
+
+.settings-update-dot--ok,
+.settings-update-dot--ready {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.settings-update-dot--pending {
+  background: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.settings-update-dot--offline {
+  background: #6b7280;
+}
+
+.settings-update-dot--error {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+.settings-update-progress {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.settings-update-progress span {
+  display: block;
+  height: 100%;
+  min-width: 8px;
+  border-radius: inherit;
+  background: #60a5fa;
+  transition: width var(--ease);
+}
+
+.settings-update-message {
+  color: #fca5a5;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.settings-update-spin {
+  animation: spin 0.8s linear infinite;
+}
+
 .settings-remote-card {
   display: grid;
   gap: 10px;

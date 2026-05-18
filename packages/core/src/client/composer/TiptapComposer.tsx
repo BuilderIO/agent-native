@@ -116,6 +116,31 @@ export function displayableComposerModeMessage(options: {
   return `${options.messagePrefix}${modePrompt}`;
 }
 
+function uniquifyComposerImageFile(file: File): File {
+  if (!file.type.startsWith("image/")) return file;
+  const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
+  return new File([file], uniqueName, { type: file.type });
+}
+
+export function handleComposerFileDrop(options: {
+  event: Pick<DragEvent, "dataTransfer" | "preventDefault" | "stopPropagation">;
+  addAttachment: (file: File) => Promise<unknown>;
+  onError?: (error: unknown) => void;
+}): boolean {
+  const droppedFiles = Array.from(options.event.dataTransfer?.files ?? []);
+  if (droppedFiles.length === 0) return false;
+
+  options.event.preventDefault();
+  options.event.stopPropagation();
+  const attachments = droppedFiles.map(uniquifyComposerImageFile);
+  void Promise.all(
+    attachments.map((file) => options.addAttachment(file)),
+  ).catch((error) => {
+    options.onError?.(error);
+  });
+  return true;
+}
+
 const BUILT_IN_COMMANDS: SlashCommand[] = [
   { name: "clear", description: "Start a new chat", icon: "clear" },
   { name: "new", description: "Start a new chat", icon: "new" },
@@ -1139,27 +1164,15 @@ export function TiptapComposer({
       },
       handleDrop: (_view, event) => {
         // Drag-and-drop files (decks, images, PDFs, etc.) into the composer.
-        // Without this, the browser navigates to the dropped file, which is
-        // surprising — users expect drop to attach the file like the "+" menu.
-        const dataTransfer = (event as DragEvent).dataTransfer;
-        const droppedFiles = Array.from(dataTransfer?.files ?? []);
-        if (droppedFiles.length === 0) return false;
-
-        event.preventDefault();
-        // Make image filenames unique so consecutive screenshots (all named
-        // `image.png`) don't collide on the attachment id, mirroring the
-        // paste handler's behavior.
-        const attachments = droppedFiles.map((file) => {
-          if (!file.type.startsWith("image/")) return file;
-          const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
-          return new File([file], uniqueName, { type: file.type });
+        // Mark handled drops as consumed so the chat-wide drop target does not
+        // add the same file a second time.
+        return handleComposerFileDrop({
+          event: event as DragEvent,
+          addAttachment: (file) => composerRuntime.addAttachment(file),
+          onError: (error) => {
+            console.error("Error adding dropped attachment:", error);
+          },
         });
-        void Promise.all(
-          attachments.map((file) => composerRuntime.addAttachment(file)),
-        ).catch((error) => {
-          console.error("Error adding dropped attachment:", error);
-        });
-        return true;
       },
       handleKeyDown: (view, event) => {
         const pop = popoverStateRef.current;

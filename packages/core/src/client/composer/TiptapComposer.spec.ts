@@ -7,6 +7,7 @@ import {
   createTiptapComposerExtensions,
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
+  handleComposerFileDrop,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
@@ -98,5 +99,32 @@ describe("createTiptapComposerExtensions", () => {
     expect(
       getComposerSubmitIntentForEnterKey({ ...enter, metaKey: true }, false),
     ).toBeNull();
+  });
+
+  it("consumes composer file drops so parent drop targets do not attach duplicates", () => {
+    const file = new File(["fake"], "image.png", { type: "image/png" });
+    const added: File[] = [];
+    let prevented = false;
+    let stopped = false;
+    const handled = handleComposerFileDrop({
+      event: {
+        dataTransfer: { files: [file] },
+        preventDefault: () => {
+          prevented = true;
+        },
+        stopPropagation: () => {
+          stopped = true;
+        },
+      } as unknown as DragEvent,
+      addAttachment: async (attachment) => {
+        added.push(attachment);
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(prevented).toBe(true);
+    expect(stopped).toBe(true);
+    expect(added).toHaveLength(1);
+    expect(added[0]?.name).toMatch(/^\d+-[a-z0-9]+-image\.png$/);
   });
 });

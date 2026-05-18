@@ -8,12 +8,17 @@ import {
   IconCheck,
   IconChevronRight,
   IconChevronDown,
+  IconDownload,
+  IconLoader2,
+  IconRefresh,
   IconWorld,
   IconTerminal2,
 } from "@tabler/icons-react";
 import type { AppConfig } from "@shared/app-registry";
+import type { UpdateStatus } from "@shared/ipc-channels";
 import { generateAppId } from "@shared/app-registry";
 import { CodeProviderSettings } from "./CodeProviderSettings";
+import { useUpdateStatus } from "./UpdateIndicator.js";
 
 interface FrameSettings {
   enabled: boolean;
@@ -30,6 +35,7 @@ interface AppSettingsProps {
 }
 
 type RemoteStatusTone = "ok" | "pending" | "offline" | "error";
+type UpdateStatusTone = "ok" | "pending" | "ready" | "offline" | "error";
 
 function inferPortFromUrl(url: string): number {
   try {
@@ -122,6 +128,197 @@ function remoteStatusCopy(status: CodeAgentRemoteConnectorStatus | null): {
     description: "Remote control is not currently polling.",
     tone: "offline",
   };
+}
+
+function updateStatusCopy(status: UpdateStatus | null): {
+  label: string;
+  description: string;
+  tone: UpdateStatusTone;
+} {
+  if (!status) {
+    return {
+      label: "Checking",
+      description: "Reading software update status.",
+      tone: "pending",
+    };
+  }
+
+  if (status.state === "unsupported") {
+    return {
+      label: "Unavailable",
+      description: status.reason,
+      tone: "offline",
+    };
+  }
+
+  if (status.state === "checking") {
+    return {
+      label: "Checking",
+      description: "Looking for the newest Agent Native release.",
+      tone: "pending",
+    };
+  }
+
+  if (status.state === "available") {
+    return {
+      label: "Downloading",
+      description: `Version ${status.version} is available and will install after download.`,
+      tone: "pending",
+    };
+  }
+
+  if (status.state === "downloading") {
+    return {
+      label: "Downloading",
+      description: `Update download is ${status.percent}% complete.`,
+      tone: "pending",
+    };
+  }
+
+  if (status.state === "downloaded") {
+    return {
+      label: "Ready",
+      description: `Version ${status.version} is downloaded. Relaunch to install it.`,
+      tone: "ready",
+    };
+  }
+
+  if (status.state === "not-available") {
+    return {
+      label: "Up to date",
+      description: `Agent Native ${status.currentVersion} is the latest available version.`,
+      tone: "ok",
+    };
+  }
+
+  if (status.state === "error") {
+    return {
+      label: "Needs retry",
+      description: status.message,
+      tone: "error",
+    };
+  }
+
+  return {
+    label: "Automatic",
+    description: "Agent Native checks for updates in the background.",
+    tone: "ok",
+  };
+}
+
+function SoftwareUpdateCard() {
+  const status = useUpdateStatus();
+  const copy = updateStatusCopy(status);
+  const [working, setWorking] = useState<"check" | "download" | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const updater = window.electronAPI?.updater;
+  const isBusy =
+    working !== null ||
+    status?.state === "checking" ||
+    status?.state === "downloading" ||
+    status?.state === "available";
+  const canCheck =
+    Boolean(updater) &&
+    !isBusy &&
+    status?.state !== "downloaded" &&
+    status?.state !== "unsupported";
+  const canDownload = Boolean(updater) && status?.state === "available";
+  const canInstall = Boolean(updater) && status?.state === "downloaded";
+
+  const handleCheck = useCallback(async () => {
+    if (!updater || !canCheck) return;
+    setWorking("check");
+    setMessage(null);
+    try {
+      await updater.check();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setWorking(null);
+    }
+  }, [canCheck, updater]);
+
+  const handleDownload = useCallback(async () => {
+    if (!updater || !canDownload) return;
+    setWorking("download");
+    setMessage(null);
+    try {
+      await updater.download();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setWorking(null);
+    }
+  }, [canDownload, updater]);
+
+  const handleInstall = useCallback(() => {
+    if (!updater || !canInstall) return;
+    updater.install();
+  }, [canInstall, updater]);
+
+  return (
+    <div className={`settings-update-card settings-update-card--${copy.tone}`}>
+      <div className="settings-update-row">
+        <div className="settings-update-title">
+          <span
+            className={`settings-update-dot settings-update-dot--${copy.tone}`}
+          />
+          <div>
+            <span className="settings-mode-card-title">Software Updates</span>
+            <span className="settings-mode-card-status">
+              {copy.label} · {copy.description}
+            </span>
+          </div>
+        </div>
+        <div className="settings-update-actions">
+          {canInstall ? (
+            <button
+              type="button"
+              className="settings-btn settings-btn--primary settings-update-btn"
+              onClick={handleInstall}
+            >
+              <IconRefresh size={14} />
+              Relaunch
+            </button>
+          ) : canDownload ? (
+            <button
+              type="button"
+              className="settings-btn settings-btn--primary settings-update-btn"
+              onClick={handleDownload}
+              disabled={working === "download"}
+            >
+              {working === "download" ? (
+                <IconLoader2 size={14} className="settings-update-spin" />
+              ) : (
+                <IconDownload size={14} />
+              )}
+              Download
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="settings-btn settings-btn--ghost settings-update-btn"
+              onClick={handleCheck}
+              disabled={!canCheck}
+            >
+              {working === "check" || status?.state === "checking" ? (
+                <IconLoader2 size={14} className="settings-update-spin" />
+              ) : (
+                <IconRefresh size={14} />
+              )}
+              Check
+            </button>
+          )}
+        </div>
+      </div>
+      {status?.state === "downloading" && (
+        <div className="settings-update-progress" aria-hidden="true">
+          <span style={{ width: `${Math.min(100, status.percent)}%` }} />
+        </div>
+      )}
+      {message && <div className="settings-update-message">{message}</div>}
+    </div>
+  );
 }
 
 export default function AppSettings({
@@ -361,6 +558,8 @@ export default function AppSettings({
               </div>
             </div>
           )}
+
+          <SoftwareUpdateCard />
 
           {providerSettings && (
             <CodeProviderSettings

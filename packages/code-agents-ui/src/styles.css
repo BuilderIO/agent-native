@@ -524,6 +524,17 @@
   padding: 16px 28px;
 }
 
+.code-agents-overview--chat {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.code-agents-overview--chat .code-agents-detail--chat {
+  flex: 1 1 auto;
+  height: auto;
+}
+
 .code-agents-start {
   min-height: calc(100vh - 150px);
   display: flex;

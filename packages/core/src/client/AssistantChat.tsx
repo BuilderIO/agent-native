@@ -3426,6 +3426,7 @@ const AssistantChatInner = forwardRef<
   }, []);
   const handleChatDrop = useCallback(
     (e: React.DragEvent) => {
+      if (e.defaultPrevented) return;
       const files = Array.from(e.dataTransfer?.files ?? []);
       if (files.length === 0) return;
       e.preventDefault();
