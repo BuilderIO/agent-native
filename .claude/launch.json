@@ -4,12 +4,7 @@
     {
       "name": "docs",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "--dir",
-        "packages/docs",
-        "run",
-        "dev"
-      ],
+      "runtimeArgs": ["--dir", "packages/docs", "run", "dev"],
       "port": 3000
     },
     {
