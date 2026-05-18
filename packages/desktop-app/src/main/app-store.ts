@@ -28,6 +28,14 @@ interface CodeAgentProviderStore {
   credentials: Partial<Record<CodeAgentProviderCredentialKey, StoredSecret>>;
 }
 
+export interface CodeAgentProviderCredentialApplyResult {
+  ok: boolean;
+  settings: CodeAgentProviderSettings;
+  appliedKeys: CodeAgentProviderCredentialKey[];
+  failedKeys: CodeAgentProviderCredentialKey[];
+  error?: string;
+}
+
 const CODE_AGENT_PROVIDER_DEFINITIONS: Array<{
   id: CodeAgentProviderStatus["id"];
   label: string;
@@ -216,6 +224,10 @@ function decryptProviderSecret(
   }
 }
 
+function hasStoredProviderSecret(secret: StoredSecret | undefined): boolean {
+  return Boolean(secret?.value);
+}
+
 export function loadCodeAgentProviderCredentials(): Partial<
   Record<CodeAgentProviderCredentialKey, string>
 > {
@@ -247,31 +259,49 @@ export function saveCodeAgentProviderCredentials(
   return getCodeAgentProviderSettingsStatus();
 }
 
-export function applyCodeAgentProviderCredentialsToEnv(): void {
+export function applyCodeAgentProviderCredentialsToEnv(): CodeAgentProviderCredentialApplyResult {
+  const store = loadCodeAgentProviderStore();
   const credentials = loadCodeAgentProviderCredentials();
+  const appliedKeys: CodeAgentProviderCredentialKey[] = [];
+  const failedKeys: CodeAgentProviderCredentialKey[] = [];
   for (const key of CODE_AGENT_PROVIDER_KEYS) {
     const value = credentials[key] ?? INITIAL_CODE_AGENT_PROVIDER_ENV.get(key);
     if (value) {
       process.env[key] = value;
+      if (credentials[key]) appliedKeys.push(key);
     } else {
       delete process.env[key];
+      if (hasStoredProviderSecret(store.credentials[key])) failedKeys.push(key);
     }
   }
+  return {
+    ok: failedKeys.length === 0,
+    settings: getCodeAgentProviderSettingsStatus(),
+    appliedKeys,
+    failedKeys,
+    error:
+      failedKeys.length > 0
+        ? "Could not unlock one or more saved code provider keys."
+        : undefined,
+  };
 }
 
 export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings {
-  const savedCredentials = loadCodeAgentProviderCredentials();
+  const store = loadCodeAgentProviderStore();
   const providers = CODE_AGENT_PROVIDER_DEFINITIONS.map((provider) => {
-    const configuredKeys = provider.keys.filter((key) =>
-      Boolean(process.env[key]),
-    );
     const savedKeys = provider.keys.filter((key) =>
-      Boolean(savedCredentials[key]),
+      hasStoredProviderSecret(store.credentials[key]),
     );
-    const missingKeys = provider.keys.filter((key) => !process.env[key]);
+    const envKeys = provider.keys.filter((key) => Boolean(process.env[key]));
+    const configuredKeys = provider.keys.filter(
+      (key) => Boolean(process.env[key]) || savedKeys.includes(key),
+    );
+    const missingKeys = provider.keys.filter(
+      (key) => !process.env[key] && !savedKeys.includes(key),
+    );
     const configured = missingKeys.length === 0;
     const hasSaved = savedKeys.length > 0;
-    const hasEnv = configuredKeys.some((key) => !savedCredentials[key]);
+    const hasEnv = envKeys.some((key) => !savedKeys.includes(key));
     const source: CodeAgentProviderStatus["source"] | undefined = configured
       ? hasSaved && hasEnv
         ? "mixed"

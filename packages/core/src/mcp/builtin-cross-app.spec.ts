@@ -129,7 +129,7 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
       params: { threadId: "abc" },
     });
     expect(result.url).toBe(
-      "/_agent-native/open?app=mail&view=inbox&threadId=abc",
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed",
     );
     expect(result.url.startsWith("/")).toBe(true);
   });

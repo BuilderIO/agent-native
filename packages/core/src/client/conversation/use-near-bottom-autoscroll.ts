@@ -26,15 +26,6 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
     setShowScrollToBottom(!nearBottom);
   }, [threshold]);
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !enabled) return;
-    const onScroll = () => updateNearBottom();
-    el.addEventListener("scroll", onScroll, { passive: true });
-    updateNearBottom();
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [enabled, updateNearBottom]);
-
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -42,6 +33,31 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
     isNearBottomRef.current = true;
     setShowScrollToBottom(false);
   }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !enabled) return;
+    const onScroll = () => updateNearBottom();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    updateNearBottom();
+
+    // Re-check near-bottom whenever the scroll container's content grows
+    // (e.g. new messages appended, images loaded, tool-call details expanded).
+    // Without this the "near bottom" flag can get stuck as `false` even though
+    // the user never scrolled away — the container just grew taller.
+    const ro = new ResizeObserver(() => {
+      if (isNearBottomRef.current) scrollToBottom();
+      else updateNearBottom();
+    });
+    ro.observe(el);
+    // Also watch direct children so inline content changes are caught.
+    for (const child of Array.from(el.children)) ro.observe(child);
+
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      ro.disconnect();
+    };
+  }, [enabled, updateNearBottom, scrollToBottom]);
 
   const scrollToBottomAfterPaint = useCallback(() => {
     scrollToBottom();

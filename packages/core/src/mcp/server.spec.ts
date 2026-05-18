@@ -256,14 +256,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     // Second block: the appended markdown deep link, absolutized to the
     // request origin derived from the inbound Host header.
     expect(content[1].text).toContain(
-      "[Open in Mail →](https://mail.agent-native.com/_agent-native/open?view=thing&id=thing-42)",
+      "[Open in Mail →](https://mail.agent-native.com/_agent-native/open?view=thing&id=thing-42&agentSidebar=closed)",
     );
     // Structured `_meta` so a desktop client can open it natively.
     expect(out.result._meta["agent-native/openLink"]).toMatchObject({
       label: "Open in Mail",
       view: "thing",
       webUrl:
-        "https://mail.agent-native.com/_agent-native/open?view=thing&id=thing-42",
+        "https://mail.agent-native.com/_agent-native/open?view=thing&id=thing-42&agentSidebar=closed",
     });
     expect(out.result._meta["agent-native/openLink"].desktopUrl).toContain(
       "view=thing&id=thing-42",

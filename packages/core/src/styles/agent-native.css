@@ -22,6 +22,8 @@
  * file maps those to Tailwind utilities like `bg-background`, `text-foreground`.
  */
 
+@import "./agent-conversation.css";
+
 /* Scan @agent-native/core's compiled client output for Tailwind classes.
    Path is resolved relative to THIS file. After build, this CSS lives at
    dist/styles/agent-native.css, so `../client/**` resolves to dist/client/**. */

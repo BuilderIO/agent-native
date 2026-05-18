@@ -1,3 +1,4 @@
+import type { AgentPromptAttachment } from "@agent-native/core/client";
 import type { CodeAgentPermissionMode } from "./code-agents.js";
 
 export type CodeAgentReasoningEffort =
@@ -22,6 +23,7 @@ export interface CodeAgentModelOption {
   model: string;
   label: string;
   description?: string;
+  configured?: boolean;
 }
 
 export interface CodeAgentModelListResult {
@@ -31,12 +33,7 @@ export interface CodeAgentModelListResult {
   error?: string;
 }
 
-export interface CodeAgentPromptAttachment {
-  name: string;
-  type?: string;
-  size?: number;
-  text?: string;
-}
+export type CodeAgentPromptAttachment = AgentPromptAttachment;
 
 export type CodeAgentFollowUpMode = "immediate" | "queued";
 
@@ -240,6 +237,7 @@ export interface CodeAgentFollowUpResult {
 export interface CodeAgentUpdateRunRequest {
   goalId?: string;
   runId: string;
+  title?: string;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;

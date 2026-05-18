@@ -25,9 +25,19 @@ import type { H3Event } from "h3";
 import { defineEventHandler, getMethod } from "h3";
 import { getSession, getConfiguredLoginHtml } from "./auth.js";
 import { appStatePut, appStateGet } from "../application-state/store.js";
+import {
+  AGENT_SIDEBAR_QUERY_PARAM,
+  withCollapsedAgentSidebarParam,
+} from "../shared/agent-sidebar-url.js";
 
 /** Query keys that are route control, not navigation payload. */
-const RESERVED = new Set(["app", "view", "to", "compose"]);
+const RESERVED = new Set([
+  "app",
+  "view",
+  "to",
+  "compose",
+  AGENT_SIDEBAR_QUERY_PARAM,
+]);
 
 // Control-char guard (NUL..US + DEL). Defined via codepoints so the source
 // file stays plain ASCII.
@@ -77,6 +87,17 @@ function redirect(location: string): Response {
   // Native web Response (not h3 v2's reworked sendRedirect) — matches the
   // redirect pattern used elsewhere in auth.ts.
   return new Response("", { status: 302, headers: { Location: location } });
+}
+
+function appendSearchParams(target: string, params: URLSearchParams): string {
+  if (!params.toString()) return target;
+  try {
+    const url = new URL(target, "http://an.invalid");
+    for (const [k, v] of params.entries()) url.searchParams.set(k, v);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return target;
+  }
 }
 
 export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
@@ -195,8 +216,8 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
     for (const [k, v] of search.entries()) {
       if (k.startsWith("f_")) filters.set(k, v);
     }
-    const fq = filters.toString();
-    if (fq) target += (target.includes("?") ? "&" : "?") + fq;
+    target = appendSearchParams(target, filters);
+    target = withCollapsedAgentSidebarParam(target);
 
     return redirect(target);
   });

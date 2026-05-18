@@ -573,6 +573,31 @@ describe("SSE event processor error classification", () => {
     expect(second.done).toBe(true);
   });
 
+  it("surfaces daily gateway caps instead of looping auto-continuation", async () => {
+    const iter = readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error:
+            "Daily gateway request cap reached (cap: 5000). Please try again tomorrow.",
+          errorCode: "rate_limit_exceeded",
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-gateway-cap",
+    )[Symbol.asyncIterator]();
+
+    const first = await iter.next();
+    expect(first.done).toBe(false);
+    expect(first.value?.status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+    const second = await iter.next();
+    expect(second.done).toBe(true);
+  });
+
   it("auto-continues Builder gateway network errors", async () => {
     const err = await readSSEStream(
       eventStream([

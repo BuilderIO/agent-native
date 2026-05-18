@@ -37,6 +37,7 @@
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@tailwindcss/vite": "^4.3.0",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "electron": "^41.2.2",
     "electron-builder": "^26.8.1",
@@ -44,6 +45,7 @@
     "lucide-react": "^1.8.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.9"
   }

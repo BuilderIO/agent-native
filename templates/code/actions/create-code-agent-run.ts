@@ -14,6 +14,14 @@ import {
 } from "./_code-agent-ui.js";
 import type { CodeAgentReasoningEffort } from "@agent-native/code-agents-ui/types";
 
+const promptAttachmentSchema = z.object({
+  name: z.string().min(1),
+  type: z.string().optional(),
+  size: z.number().optional(),
+  text: z.string().optional(),
+  dataUrl: z.string().optional(),
+});
+
 export default defineAction({
   description:
     "Create and start a local Agent-Native Code run. The run store is shared with the CLI and Desktop.",
@@ -25,6 +33,7 @@ export default defineAction({
     model: z.string().optional(),
     effort: z.string().optional(),
     cwd: z.string().optional(),
+    attachments: z.array(promptAttachmentSchema).optional(),
   }),
   run: async (args) => {
     const permissionMode =
@@ -32,6 +41,10 @@ export default defineAction({
     const prompt = args.prompt.trim();
     const goalId = args.goalId || "task";
     const cwd = args.cwd || process.cwd();
+    const attachments =
+      args.attachments && args.attachments.length > 0
+        ? args.attachments
+        : undefined;
     const effort =
       args.effort === "auto"
         ? undefined
@@ -75,6 +88,7 @@ export default defineAction({
         engine: args.engine,
         model: args.model,
         effort: args.effort,
+        attachments,
         cwd,
       },
     });
@@ -82,7 +96,7 @@ export default defineAction({
       runId: run.id,
       kind: "user",
       message: prompt,
-      metadata: { source: "initial-prompt" },
+      metadata: { source: "initial-prompt", attachments },
     });
     appendCodeAgentTranscriptEvent({
       runId: run.id,
@@ -99,6 +113,7 @@ export default defineAction({
       appendUserEvent: false,
       model: args.model,
       reasoningEffort: effort,
+      attachments,
     });
     return {
       ok: true,

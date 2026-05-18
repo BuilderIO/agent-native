@@ -1,11 +1,8 @@
-/* ─── Reset ─────────────────────────────────────────────────── */
-*,
-*::before,
-*::after {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+
+@source "./**/*.{ts,tsx}";
+@source "../../../code-agents-ui/src/**/*.{ts,tsx}";
 
 /* ─── Design tokens ──────────────────────────────────────────── */
 :root {

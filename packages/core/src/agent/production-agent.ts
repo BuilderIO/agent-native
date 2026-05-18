@@ -678,6 +678,11 @@ function isRetryableError(err: unknown): boolean {
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (code === "builder_gateway_timeout") return false;
+  if (
+    code === "rate_limit_exceeded" ||
+    msg.includes("daily gateway request cap")
+  )
+    return false;
   return (
     code === "builder_gateway_error" ||
     code === "builder_gateway_network_error" ||
@@ -2356,6 +2361,8 @@ export function createProductionAgentHandler(
       runId,
       threadId ?? runId,
       async (send, signal) => {
+        send({ type: "activity", label: "Starting agent" });
+
         // Notify listeners that a run has started (used by agent teams)
         if (options.onRunStart) {
           await options.onRunStart(send, threadId ?? runId);
@@ -2645,6 +2652,8 @@ export function createProductionAgentHandler(
           maxIterations: loopSettings.maxIterations,
           finalResponseGuard: options.finalResponseGuard,
         };
+
+        send({ type: "activity", label: "Contacting model" });
 
         let loopUsage: AgentLoopUsage;
         let instrumented = false;

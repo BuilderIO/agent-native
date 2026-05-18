@@ -16,9 +16,11 @@ vi.mock("./auth.js", () => ({
 }));
 
 const appStatePut = vi.hoisted(() => vi.fn());
+const appStateGet = vi.hoisted(() => vi.fn());
 
 vi.mock("../application-state/store.js", () => ({
   appStatePut: (...a: any[]) => appStatePut(...a),
+  appStateGet: (...a: any[]) => appStateGet(...a),
 }));
 
 import { createOpenRouteHandler } from "./open-route.js";
@@ -34,6 +36,8 @@ describe("createOpenRouteHandler", () => {
     getConfiguredLoginHtml.mockReset();
     appStatePut.mockReset();
     appStatePut.mockResolvedValue(undefined);
+    appStateGet.mockReset();
+    appStateGet.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -45,7 +49,9 @@ describe("createOpenRouteHandler", () => {
     const handler = createOpenRouteHandler();
 
     const res: Response = await handler(
-      fakeEvent("/_agent-native/open?app=mail&view=inbox&threadId=abc123"),
+      fakeEvent(
+        "/_agent-native/open?app=mail&view=inbox&threadId=abc123&agentSidebar=closed",
+      ),
     );
 
     expect(appStatePut).toHaveBeenCalledTimes(1);
@@ -56,7 +62,7 @@ describe("createOpenRouteHandler", () => {
     expect(options).toEqual({ requestSource: "deep-link" });
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/inbox");
+    expect(res.headers.get("Location")).toBe("/inbox?agentSidebar=closed");
   });
 
   it("unauthenticated returns the configured login HTML with status 200 and no app-state write", async () => {
@@ -95,7 +101,7 @@ describe("createOpenRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/inbox");
+    expect(res.headers.get("Location")).toBe("/inbox?agentSidebar=closed");
   });
 
   it("open-redirect guard rejects an absolute `to` URL and falls back to /<view>", async () => {
@@ -109,7 +115,7 @@ describe("createOpenRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/dashboard");
+    expect(res.headers.get("Location")).toBe("/dashboard?agentSidebar=closed");
   });
 
   it("open-redirect guard rejects a control-char `to` and, with no view, falls back to /", async () => {
@@ -122,7 +128,7 @@ describe("createOpenRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/");
+    expect(res.headers.get("Location")).toBe("/?agentSidebar=closed");
   });
 
   it("forwards f_* filter params onto the redirect Location", async () => {
@@ -141,6 +147,7 @@ describe("createOpenRouteHandler", () => {
     const sp = new URL(loc, "http://x.invalid").searchParams;
     expect(sp.get("f_range")).toBe("30d");
     expect(sp.get("f_team")).toBe("growth");
+    expect(sp.get("agentSidebar")).toBe("closed");
     // Non-filter record ids are NOT forwarded onto the URL (they ride the
     // navigate app-state command instead).
     expect(sp.has("dashboardId")).toBe(false);
@@ -164,7 +171,9 @@ describe("createOpenRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/inbox/abc123");
+    expect(res.headers.get("Location")).toBe(
+      "/inbox/abc123?agentSidebar=closed",
+    );
   });
 
   it("uses resolveOpenPath when provided and `to` is absent", async () => {
@@ -179,6 +188,6 @@ describe("createOpenRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/email/t9");
+    expect(res.headers.get("Location")).toBe("/email/t9?agentSidebar=closed");
   });
 });

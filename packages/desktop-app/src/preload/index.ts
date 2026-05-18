@@ -8,6 +8,7 @@ import {
   type CodeAgentFollowUpRequest,
   type CodeAgentFollowUpResult,
   type CodeAgentHostMetadata,
+  type CodeAgentModelListResult,
   type CodeAgentProjectListResult,
   type CodeAgentProjectSelectResult,
   type CodeAgentRetryRunRequest,
@@ -146,6 +147,8 @@ const electronAPI = {
   codeAgents: {
     listRuns: (goalId?: string): Promise<CodeAgentRunListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_RUNS, goalId),
+    listModels: (): Promise<CodeAgentModelListResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MODELS),
     createRun: (
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult> =>

@@ -349,9 +349,20 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     };
     return;
   }
+  if (code === "rate_limit_exceeded") {
+    yield {
+      type: "stop",
+      reason: "error",
+      error: message,
+      errorCode: code,
+    };
+    return;
+  }
   if (status === 429 || code === "too_many_concurrent_requests") {
     // Include "too many requests" in the message so production-agent's
-    // isRetryableError picks it up and retries the turn.
+    // isRetryableError picks up transient concurrency throttles and retries
+    // the turn. Daily gateway caps use `rate_limit_exceeded` above and must
+    // not loop.
     yield {
       type: "stop",
       reason: "error",

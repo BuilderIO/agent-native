@@ -12,6 +12,7 @@ export default defineAction({
   schema: z.object({
     goalId: z.string().optional(),
     runId: z.string().min(1),
+    title: z.string().optional(),
     permissionMode: z.string().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   }),
@@ -27,14 +28,16 @@ export default defineAction({
       };
     }
     const metadata = args.metadata ?? {};
-    if (!permissionMode && Object.keys(metadata).length === 0) {
+    const title = args.title?.trim();
+    if (!permissionMode && !title && Object.keys(metadata).length === 0) {
       return {
         ok: false,
         message: "Nothing to update",
-        error: "Provide permissionMode or metadata.",
+        error: "Provide title, permissionMode, or metadata.",
       };
     }
     const run = updateCodeAgentRunRecord(args.runId, {
+      ...(title ? { title } : {}),
       ...(permissionMode ? { permissionMode } : {}),
       metadata: {
         ...metadata,

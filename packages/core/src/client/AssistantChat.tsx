@@ -21,7 +21,9 @@ import {
 } from "@assistant-ui/react";
 import type {
   AttachmentAdapter,
+  ChatModelAdapter,
   CompleteAttachment,
+  ExportedMessageRepository,
   PendingAttachment,
   ToolCallMessagePartProps,
   Attachment,
@@ -424,7 +426,7 @@ const markdownStyles = `
 .agent-tool-code .agent-markdown-shiki pre span { background: transparent; }
 .agent-tool-code pre { margin: 0; min-width: max-content; padding: 0.75rem; background: transparent; color: inherit; }
 .agent-tool-code mark { border-radius: 0.1875rem; background: rgba(245, 158, 11, 0.25); color: inherit; }
-.agent-markdown hr { border: none; border-top: 1px solid hsl(var(--border, 0 0% 20%)); margin: 0.75em 0; }
+.agent-markdown hr { border: none; border-top: 1px solid hsl(var(--border, 0 0% 20%)); margin: 0.75em 0 1em; }
 .agent-markdown a { text-decoration: underline; text-underline-offset: 2px; }
 .agent-markdown a.agent-markdown-cta { text-decoration: none; }
 .agent-markdown blockquote { border-left: 2px solid hsl(var(--border, 0 0% 20%)); padding-left: 0.75em; margin: 0.5em 0; opacity: 0.8; }
@@ -3153,6 +3155,18 @@ export interface AssistantChatHandle {
   exportThreadSnapshot(): ChatThreadSnapshot | null;
 }
 
+export interface AssistantChatAdapterContext {
+  apiUrl: string;
+  tabId?: string;
+  threadId?: string;
+  modelRef: { current: string | undefined };
+  engineRef: { current: string | undefined };
+  effortRef: { current: ReasoningEffort | undefined };
+  execModeRef: { current: "build" | "plan" | undefined };
+  browserTabId?: string;
+  scopeRef: { current: ChatThreadScope | null | undefined };
+}
+
 export interface AssistantChatProps {
   /** API endpoint URL. Default: "/_agent-native/agent-chat" */
   apiUrl?: string;
@@ -3196,6 +3210,12 @@ export interface AssistantChatProps {
   onGenerateTitle?: (threadId: string, message: string) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  /** Class applied to the shared composer area for host-specific sizing/skin. */
+  composerAreaClassName?: string;
+  /** Optional content rendered inside the composer toolbar after the attach button. */
+  composerToolbarSlot?: React.ReactNode;
+  /** Optional action rendered beside the voice/send controls. */
+  composerExtraActionButton?: React.ReactNode;
   /** Disable the composer for capability-gated surfaces while still showing history. */
   composerDisabled?: boolean;
   /** Placeholder to show while the composer is disabled by the host surface. */
@@ -3233,6 +3253,36 @@ export interface AssistantChatProps {
   onEffortChange?: (effort: ReasoningEffort) => void;
   /** Callback when user clicks "Fork Chat" in the message actions menu */
   onForkChat?: () => void | boolean | Promise<void | boolean>;
+  /** Override Builder/provider connect routing for embedded hosts. */
+  onConnectProvider?: () => void;
+  /**
+   * Controls the shared composer + menu. Sidebar keeps the full menu by default;
+   * hosts without the sidebar provider stack can use upload-only.
+   */
+  plusMenuMode?: "full" | "upload-only" | "hidden";
+  /**
+   * Enable framework provider/env status checks. Embedded hosts that provide
+   * model/provider state through another transport can disable these probes.
+   */
+  providerStatusChecksEnabled?: boolean;
+  /**
+   * Advanced host override for non-HTTP transports. Defaults to the production
+   * sidebar SSE adapter when omitted.
+   */
+  createAdapter?: (context: AssistantChatAdapterContext) => ChatModelAdapter;
+  /**
+   * Explicitly recreate an injected adapter when the host transport identity
+   * changes. Omit for the production sidebar so parent rerenders do not reset
+   * active chats.
+   */
+  adapterReloadKey?: unknown;
+  /**
+   * Advanced host override for thread replay. Defaults to SQL thread fetch when
+   * `threadId` is set, or sessionStorage for legacy tab chats.
+   */
+  loadHistoryRepository?: () => Promise<ExportedMessageRepository | null>;
+  /** Re-run `loadHistoryRepository` when the host's external transcript changes. */
+  historyReloadKey?: string | number | null;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -3306,6 +3356,9 @@ const AssistantChatInner = forwardRef<
     onSaveThread,
     onGenerateTitle,
     composerSlot,
+    composerAreaClassName,
+    composerToolbarSlot,
+    composerExtraActionButton,
     composerDisabled = false,
     composerDisabledPlaceholder,
     isNewThread,
@@ -3322,6 +3375,11 @@ const AssistantChatInner = forwardRef<
     onModelChange,
     onEffortChange,
     onForkChat,
+    onConnectProvider,
+    plusMenuMode = "full",
+    providerStatusChecksEnabled = true,
+    loadHistoryRepository,
+    historyReloadKey,
   },
   ref,
 ) {
@@ -3499,7 +3557,9 @@ const AssistantChatInner = forwardRef<
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
-  const [isRestoring, setIsRestoring] = useState(!!threadId && !isNewThread);
+  const [isRestoring, setIsRestoring] = useState(
+    !!(threadId || loadHistoryRepository) && !isNewThread,
+  );
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
   const onGenerateTitleRef = useRef(onGenerateTitle);
@@ -3538,6 +3598,15 @@ const AssistantChatInner = forwardRef<
   );
 
   const refreshThreadFromServer = useCallback(async (): Promise<any | null> => {
+    if (loadHistoryRepository) {
+      try {
+        const repo = await loadHistoryRepository();
+        if (!repo) return null;
+        return importThreadData(repo);
+      } catch {
+        return null;
+      }
+    }
     if (!threadId) return null;
     try {
       const refreshRes = await fetch(
@@ -3550,7 +3619,7 @@ const AssistantChatInner = forwardRef<
     } catch {
       return null;
     }
-  }, [apiUrl, importThreadData, threadId]);
+  }, [apiUrl, importThreadData, loadHistoryRepository, threadId]);
 
   const wasRecentlyStoppedRun = useCallback((runId?: string): boolean => {
     const stopped = userStoppedRunRef.current;
@@ -3772,7 +3841,21 @@ const AssistantChatInner = forwardRef<
     if (hasRestoredRef.current) return;
     hasRestoredRef.current = true;
 
-    if (threadId) {
+    if (loadHistoryRepository) {
+      (async () => {
+        try {
+          const repo = await loadHistoryRepository();
+          if (repo) {
+            importThreadData(repo, { markTitleGenerated: true });
+          }
+          titleGeneratedRef.current = true;
+        } catch {
+          // Start fresh
+        } finally {
+          setIsRestoring(false);
+        }
+      })();
+    } else if (threadId) {
       (async () => {
         try {
           const res = await fetch(
@@ -3818,6 +3901,34 @@ const AssistantChatInner = forwardRef<
     threadRuntime,
     importThreadData,
     reconnectActiveRunForThread,
+    loadHistoryRepository,
+  ]);
+
+  useEffect(() => {
+    if (
+      !loadHistoryRepository ||
+      !hasRestoredRef.current ||
+      isRestoring ||
+      isRunning
+    ) {
+      return;
+    }
+    let cancelled = false;
+    void loadHistoryRepository()
+      .then((repo) => {
+        if (cancelled || !repo) return;
+        importThreadData(repo, { markTitleGenerated: true });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    historyReloadKey,
+    importThreadData,
+    isRestoring,
+    isRunning,
+    loadHistoryRepository,
   ]);
 
   // If assistant-ui stops the local runtime while the background server run is
@@ -3990,6 +4101,10 @@ const AssistantChatInner = forwardRef<
   // Check on mount and whenever SettingsPanel dispatches
   // `agent-engine:configured-changed` so the gate flips live without reload.
   useEffect(() => {
+    if (!providerStatusChecksEnabled) {
+      setMissingApiKey(false);
+      return;
+    }
     let cancelled = false;
     const check = async () => {
       const [envKeys, builderStatus, engineStatus] = await Promise.all([
@@ -4026,7 +4141,7 @@ const AssistantChatInner = forwardRef<
       cancelled = true;
       window.removeEventListener("agent-engine:configured-changed", check);
     };
-  }, []);
+  }, [providerStatusChecksEnabled]);
 
   // Listen for auth error events from the adapter
   const checkAuthSession = useCallback(async () => {
@@ -4805,6 +4920,7 @@ const AssistantChatInner = forwardRef<
             {/* Input area */}
             <AgentComposerFrame
               className={cn(
+                composerAreaClassName,
                 missingApiKey && "cursor-pointer",
                 isComposerDisabled && "opacity-70",
               )}
@@ -4853,61 +4969,74 @@ const AssistantChatInner = forwardRef<
                 availableModels={availableModels}
                 onModelChange={onModelChange}
                 onEffortChange={onEffortChange}
+                onConnectProvider={onConnectProvider}
+                toolbarSlot={composerToolbarSlot}
+                plusMenuMode={plusMenuMode}
+                providerConnectStatusEnabled={providerStatusChecksEnabled}
                 draftScope={threadId || tabId}
                 interceptBuildRequestsForBuilder
                 extraActionButton={
-                  showRunningInUI ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            // Nuclear stop: flip forceStopped so isRunning is false
-                            // immediately. This unblocks submission even if the
-                            // runtime or reconnect state is stuck.
-                            setForceStopped(true);
-                            const activeRun = getActiveRun();
-                            const runIdToAbort =
-                              reconnectRunIdRef.current ?? activeRun?.runId;
-                            userStoppedRunRef.current = {
-                              at: Date.now(),
-                              ...(runIdToAbort ? { runId: runIdToAbort } : {}),
-                            };
-                            setRunErrorInfo(null);
-                            setDismissedRunErrorKey(null);
-                            if (runIdToAbort) {
-                              fetch(
-                                `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
-                                { method: "POST" },
-                              ).catch(() => {});
-                            }
+                  composerExtraActionButton || showRunningInUI ? (
+                    <>
+                      {composerExtraActionButton}
+                      {showRunningInUI && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Nuclear stop: flip forceStopped so isRunning is false
+                                // immediately. This unblocks submission even if the
+                                // runtime or reconnect state is stuck.
+                                setForceStopped(true);
+                                const activeRun = getActiveRun();
+                                const runIdToAbort =
+                                  reconnectRunIdRef.current ?? activeRun?.runId;
+                                userStoppedRunRef.current = {
+                                  at: Date.now(),
+                                  ...(runIdToAbort
+                                    ? { runId: runIdToAbort }
+                                    : {}),
+                                };
+                                setRunErrorInfo(null);
+                                setDismissedRunErrorKey(null);
+                                if (runIdToAbort) {
+                                  fetch(
+                                    `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
+                                    { method: "POST" },
+                                  ).catch(() => {});
+                                }
 
-                            if (isReconnecting) {
-                              reconnectAbortRef.current?.abort();
-                              reconnectAbortRef.current = null;
-                              reconnectRunIdRef.current = null;
-                              setIsReconnecting(false);
-                              setReconnectFrozen(reconnectContent.length > 0);
-                            }
+                                if (isReconnecting) {
+                                  reconnectAbortRef.current?.abort();
+                                  reconnectAbortRef.current = null;
+                                  reconnectRunIdRef.current = null;
+                                  setIsReconnecting(false);
+                                  setReconnectFrozen(
+                                    reconnectContent.length > 0,
+                                  );
+                                }
 
-                            threadRuntime.cancelRun();
+                                threadRuntime.cancelRun();
 
-                            window.dispatchEvent(
-                              new CustomEvent("agentNative.chatRunning", {
-                                detail: {
-                                  isRunning: false,
-                                  tabId: tabId || threadId,
-                                },
-                              }),
-                            );
-                          }}
-                          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
-                        >
-                          <IconPlayerStop className="h-3.5 w-3.5" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>Stop generating</TooltipContent>
-                    </Tooltip>
+                                window.dispatchEvent(
+                                  new CustomEvent("agentNative.chatRunning", {
+                                    detail: {
+                                      isRunning: false,
+                                      tabId: tabId || threadId,
+                                    },
+                                  }),
+                                );
+                              }}
+                              className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                            >
+                              <IconPlayerStop className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Stop generating</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </>
                   ) : undefined
                 }
               />
@@ -4943,10 +5072,12 @@ export const AssistantChat = forwardRef<
   execModeRef.current = props.execMode;
   const scopeRef = useRef<ChatThreadScope | null | undefined>(contextScope);
   scopeRef.current = contextScope;
+  const createAdapterRef = useRef(props.createAdapter);
+  createAdapterRef.current = props.createAdapter;
 
   const adapter = useMemo(
-    () =>
-      createAgentChatAdapter({
+    () => {
+      const context: AssistantChatAdapterContext = {
         apiUrl,
         tabId,
         threadId,
@@ -4956,8 +5087,16 @@ export const AssistantChat = forwardRef<
         execModeRef,
         browserTabId,
         scopeRef,
-      }),
-    [apiUrl, tabId, threadId, browserTabId],
+      };
+      const createAdapter = createAdapterRef.current;
+      return createAdapter
+        ? createAdapter(context)
+        : createAgentChatAdapter(context);
+    },
+    // Adapter factories must be memoized and use refs for changing values.
+    // `adapterReloadKey` is an explicit opt-in for embedded hosts whose
+    // transport identity can change without changing tab/thread ids.
+    [apiUrl, tabId, threadId, browserTabId, props.adapterReloadKey],
   );
   const attachmentAdapter = useMemo(
     () =>
@@ -4974,22 +5113,24 @@ export const AssistantChat = forwardRef<
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
-        <AssistantUiStaleIndexErrorBoundary
-          resetKey={`${tabId ?? ""}:${threadId ?? ""}`}
-          componentName="AssistantChat"
-        >
-          <AssistantChatInner
-            ref={ref}
-            {...props}
-            browserTabId={browserTabId}
-            contextScope={contextScope}
-            apiUrl={apiUrl}
-            tabId={tabId}
-            threadId={threadId}
-          />
-        </AssistantUiStaleIndexErrorBoundary>
-      </ThreadPrimitive.Root>
+      <TooltipProvider delayDuration={200}>
+        <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
+          <AssistantUiStaleIndexErrorBoundary
+            resetKey={`${tabId ?? ""}:${threadId ?? ""}`}
+            componentName="AssistantChat"
+          >
+            <AssistantChatInner
+              ref={ref}
+              {...props}
+              browserTabId={browserTabId}
+              contextScope={contextScope}
+              apiUrl={apiUrl}
+              tabId={tabId}
+              threadId={threadId}
+            />
+          </AssistantUiStaleIndexErrorBoundary>
+        </ThreadPrimitive.Root>
+      </TooltipProvider>
     </AssistantRuntimeProvider>
   );
 });

@@ -335,6 +335,17 @@ interface TiptapComposerProps {
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks a reasoning effort */
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /**
+   * Disable Builder/provider status polling for hosts that supply provider
+   * state through another channel, such as Electron IPC.
+   */
+  providerConnectStatusEnabled?: boolean;
+  /**
+   * Override the Builder.io connect action in the model picker. When provided,
+   * clicking "Connect Builder.io" calls this instead of opening a browser popup.
+   * Used by the Electron desktop app to route through the native IPC handler.
+   */
+  onConnectProvider?: () => void;
   /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
   /**
@@ -585,6 +596,8 @@ function ModelSelector({
   engines,
   onChange,
   onEffortChange,
+  providerConnectStatusEnabled = true,
+  onConnectProvider,
 }: {
   model: string;
   effort?: ReasoningEffort;
@@ -596,6 +609,8 @@ function ModelSelector({
   }>;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
+  providerConnectStatusEnabled?: boolean;
+  onConnectProvider?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const autoModelGroup = engines.find((group) => group.models.includes("auto"));
@@ -654,12 +669,18 @@ function ModelSelector({
   // it unlocks every model family (Claude, OpenAI, Gemini) without the
   // user having to paste individual API keys.
   const builderFlow = useBuilderConnectFlow({
+    enabled: providerConnectStatusEnabled,
     trackingSource: "composer_builder_cta",
   });
+  const hasConfiguredBuilderModels = providerGroups.some(
+    (group) => group.engine === "builder" && group.configured,
+  );
   const showBuilderCta =
-    builderFlow.hasFetchedStatus &&
+    (builderFlow.hasFetchedStatus ||
+      (!providerConnectStatusEnabled && !!onConnectProvider)) &&
     !builderFlow.configured &&
-    !builderFlow.envManaged;
+    !builderFlow.envManaged &&
+    !hasConfiguredBuilderModels;
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -699,15 +720,19 @@ function ModelSelector({
               <button
                 type="button"
                 onClick={() => {
-                  builderFlow.start();
+                  if (onConnectProvider) {
+                    onConnectProvider();
+                  } else {
+                    builderFlow.start();
+                  }
                 }}
-                disabled={builderFlow.connecting}
+                disabled={!onConnectProvider && builderFlow.connecting}
                 className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-accent/50 disabled:opacity-60"
               >
                 <IconPlugConnected className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
                 <span className="flex-1 min-w-0">
                   <span className="block text-[12px] font-medium text-foreground">
-                    {builderFlow.connecting
+                    {!onConnectProvider && builderFlow.connecting
                       ? "Connecting Builder.io…"
                       : "Connect Builder.io"}
                   </span>
@@ -880,6 +905,8 @@ export function TiptapComposer({
   availableModels,
   onModelChange,
   onEffortChange,
+  providerConnectStatusEnabled,
+  onConnectProvider,
   draftScope,
   plusMenuMode = "full",
   interceptBuildRequestsForBuilder = false,
@@ -1884,6 +1911,8 @@ export function TiptapComposer({
             engines={availableModels}
             onChange={onModelChange}
             onEffortChange={onEffortChange}
+            providerConnectStatusEnabled={providerConnectStatusEnabled}
+            onConnectProvider={onConnectProvider}
           />
         )}
         {execMode && onExecModeChange && (

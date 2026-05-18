@@ -2,6 +2,7 @@ import {
   executeExistingCodeAgentRun,
   executePendingCodeAgentApproval,
 } from "../cli/code-agent-executor.js";
+import type { AgentPromptAttachment } from "./prompt-attachments.js";
 import {
   appendCodeAgentTranscriptEvent,
   getCodeAgentRunRecord,
@@ -174,6 +175,9 @@ async function sendLocalCodeBackgroundAgentFollowUp(
       delivery: shouldQueue ? mode : "run-now",
     },
   });
+  const attachments = promptAttachmentsFromMetadata(
+    input.metadata?.attachments,
+  );
 
   if (shouldQueue) {
     queueCodeAgentFollowUp({
@@ -184,6 +188,7 @@ async function sendLocalCodeBackgroundAgentFollowUp(
       permissionMode: input.permissionMode,
       source: input.source ?? "background-agent-controller",
       createdAt: event.createdAt,
+      attachments,
     });
     return {
       ok: true,
@@ -199,6 +204,7 @@ async function sendLocalCodeBackgroundAgentFollowUp(
     appendUserEvent: false,
     model: input.model,
     reasoningEffort: input.reasoningEffort,
+    attachments,
     stdout: input.stdout,
   });
   return {
@@ -340,6 +346,23 @@ function stopLocalCodeBackgroundAgentRun(
       : undefined,
     error: updated ? undefined : `Run not found: ${runId}`,
   };
+}
+
+function promptAttachmentsFromMetadata(
+  value: unknown,
+): AgentPromptAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === "object" && !Array.isArray(item)),
+    )
+    .map((item) => ({
+      name: typeof item.name === "string" && item.name ? item.name : "file",
+      ...(typeof item.type === "string" ? { type: item.type } : {}),
+      ...(typeof item.size === "number" ? { size: item.size } : {}),
+      ...(typeof item.text === "string" ? { text: item.text } : {}),
+      ...(typeof item.dataUrl === "string" ? { dataUrl: item.dataUrl } : {}),
+    }));
 }
 
 function currentBackgroundRun(runId: string): BackgroundAgentRun | null {

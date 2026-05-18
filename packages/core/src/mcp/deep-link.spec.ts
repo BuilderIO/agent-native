@@ -11,10 +11,10 @@ describe("buildDeepLink", () => {
   it("always starts with the open-route path and emits view", () => {
     const url = buildDeepLink({ view: "inbox" });
     expect(url.startsWith(`/_agent-native${OPEN_ROUTE_SUBPATH}?`)).toBe(true);
-    expect(url).toBe("/_agent-native/open?view=inbox");
+    expect(url).toBe("/_agent-native/open?view=inbox&agentSidebar=closed");
   });
 
-  it("orders app, view, to, compose before params", () => {
+  it("orders app, view, to, compose before params and the sidebar hint", () => {
     const url = buildDeepLink({
       app: "mail",
       view: "inbox",
@@ -23,7 +23,7 @@ describe("buildDeepLink", () => {
       params: { threadId: "abc123" },
     });
     expect(url).toBe(
-      "/_agent-native/open?app=mail&view=inbox&to=%2Finbox%2Fabc&compose=Zm9v&threadId=abc123",
+      "/_agent-native/open?app=mail&view=inbox&to=%2Finbox%2Fabc&compose=Zm9v&threadId=abc123&agentSidebar=closed",
     );
   });
 
@@ -50,7 +50,9 @@ describe("buildDeepLink", () => {
 
   it("omits optional app/to/compose when not provided", () => {
     const url = buildDeepLink({ view: "calendar", params: { eventId: "e1" } });
-    expect(url).toBe("/_agent-native/open?view=calendar&eventId=e1");
+    expect(url).toBe(
+      "/_agent-native/open?view=calendar&eventId=e1&agentSidebar=closed",
+    );
   });
 
   it("url-encodes param values", () => {

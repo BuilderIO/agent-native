@@ -1,6 +1,7 @@
 import { resolve } from "path";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import react from "@vitejs/plugin-react-swc";
+import tailwindcss from "@tailwindcss/vite";
 
 const workspaceRendererPackages = [
   "@agent-native/code-agents-ui",
@@ -62,6 +63,6 @@ export default defineConfig({
       },
       dedupe: ["react", "react-dom"],
     },
-    plugins: [react()],
+    plugins: [react(), tailwindcss({ optimize: false })],
   },
 });

@@ -96,6 +96,51 @@ describe("normalizeCodeAgentTranscript", () => {
     ]);
   });
 
+  it("preserves streaming assistant_delta spaces before a final duplicate arrives", () => {
+    const events = [
+      event("evt-user", "user", "Check the diff."),
+      event("evt-delta-1", "system", "Now let", {
+        type: "assistant_delta",
+        seq: 1,
+      }),
+      event("evt-delta-2", "system", " me check", {
+        type: "assistant_delta",
+        seq: 2,
+      }),
+      event("evt-delta-3", "system", " the remaining", {
+        type: "assistant_delta",
+        seq: 3,
+      }),
+      event("evt-delta-4", "system", " diffs to", {
+        type: "assistant_delta",
+        seq: 4,
+      }),
+      event("evt-delta-5", "system", " ", {
+        type: "assistant_delta",
+        seq: 5,
+      }),
+      event("evt-delta-6", "system", "make", {
+        type: "assistant_delta",
+        seq: 6,
+      }),
+      event("evt-delta-7", "system", " sure everything is clean.", {
+        type: "assistant_delta",
+        seq: 7,
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({ type: "user" }),
+      expect.objectContaining({
+        type: "assistant",
+        source: "runner-stdout",
+        text: "Now let me check the remaining diffs to make sure everything is clean.",
+      }),
+    ]);
+  });
+
   it("keeps regular assistant system messages when they are not stdout duplicates", () => {
     const events = [
       event("evt-user", "user", "Summarize the changes."),

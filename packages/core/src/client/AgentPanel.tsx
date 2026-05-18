@@ -85,6 +85,7 @@ import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js
 import { getFrameOrigin, isInFrame, isTrustedFrameMessage } from "./frame.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
+  consumeAgentSidebarUrlOpenOverride,
   dispatchAgentSidebarStateChange,
   getInitialAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
@@ -491,6 +492,7 @@ function AgentPanelInner({
   browserTabId,
   chatNotice,
   codeAccess,
+  ...assistantChatProps
 }: AgentPanelProps) {
   const mounted = useClientOnly();
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -1345,6 +1347,7 @@ function AgentPanelInner({
       >
         {mounted && (
           <MultiTabAssistantChat
+            {...assistantChatProps}
             apiUrl={apiUrl}
             showHeader={false}
             renderHeader={showHeader ? renderChatHeader : undefined}
@@ -2060,6 +2063,11 @@ export function AgentSidebar({
     },
     [],
   );
+
+  useEffect(() => {
+    const override = consumeAgentSidebarUrlOpenOverride();
+    if (override !== null) setOpenPersisted(override);
+  }, [setOpenPersisted]);
 
   const toggleFullscreen = useCallback(() => {
     setFullscreen((prev) => {

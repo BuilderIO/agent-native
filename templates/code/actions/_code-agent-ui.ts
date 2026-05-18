@@ -14,6 +14,7 @@ import {
   type CodeAgentTranscriptEvent as StoredTranscriptEvent,
 } from "@agent-native/core/code-agents";
 import type {
+  CodeAgentPromptAttachment,
   CodeAgentReasoningEffort,
   CodeAgentRun,
   CodeAgentTranscriptEvent,
@@ -94,6 +95,7 @@ export function runCodeAgentInBackground(input: {
   appendUserEvent?: boolean;
   model?: string;
   reasoningEffort?: CodeAgentReasoningEffort;
+  attachments?: CodeAgentPromptAttachment[];
 }): void {
   setTimeout(() => {
     void executeCodeAgentRun({
@@ -103,6 +105,7 @@ export function runCodeAgentInBackground(input: {
       model: input.model,
       reasoningEffort:
         input.reasoningEffort === "auto" ? undefined : input.reasoningEffort,
+      attachments: input.attachments,
     });
   }, 0);
 }
@@ -121,6 +124,7 @@ export async function appendFollowUpAndRun(input: {
   model?: string;
   effort?: CodeAgentReasoningEffort;
   followUpMode?: CodeAgentFollowUpMode;
+  attachments?: CodeAgentPromptAttachment[];
 }): Promise<CodeAgentTranscriptEvent> {
   const record = getCodeAgentRunRecord(input.runId);
   if (!record)
@@ -133,14 +137,25 @@ export async function appendFollowUpAndRun(input: {
         ...(input.engine ? { engine: input.engine } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.effort ? { effort: input.effort } : {}),
+        ...(input.attachments && input.attachments.length > 0
+          ? { attachments: input.attachments }
+          : {}),
       },
     });
-  } else if (input.engine || input.model || input.effort) {
+  } else if (
+    input.engine ||
+    input.model ||
+    input.effort ||
+    (input.attachments && input.attachments.length > 0)
+  ) {
     updateCodeAgentRunRecord(input.runId, {
       metadata: {
         ...(input.engine ? { engine: input.engine } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.effort ? { effort: input.effort } : {}),
+        ...(input.attachments && input.attachments.length > 0
+          ? { attachments: input.attachments }
+          : {}),
       },
     });
   }
@@ -156,6 +171,7 @@ export async function appendFollowUpAndRun(input: {
       engine: input.engine,
       model: input.model,
       effort: input.effort,
+      attachments: input.attachments,
     },
   });
   if (!result.ok) throw new Error(result.error ?? "Follow-up failed.");

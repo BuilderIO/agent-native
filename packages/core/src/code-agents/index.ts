@@ -33,6 +33,19 @@ export {
   type NormalizedCodeAgentUserTurn,
 } from "./transcript-normalizer.js";
 export {
+  compareCodeAgentTranscriptEvents,
+  getCodeAgentTranscriptSeq,
+  isCodeAgentRunActive,
+  mergeCodeAgentTranscriptEvents,
+  type CodeAgentRunStateLike,
+  type CodeAgentTranscriptOrderEvent,
+} from "./transcript-order.js";
+export {
+  escapePromptAttachmentAttribute,
+  formatPromptWithAttachments,
+  type AgentPromptAttachment,
+} from "./prompt-attachments.js";
+export {
   CODE_AGENT_PERMISSION_MODES,
   appendCodeAgentTranscriptEvent,
   codeAgentRunArtifactsDir,

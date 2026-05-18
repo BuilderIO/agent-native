@@ -498,6 +498,29 @@ describe("createBuilderEngine", () => {
     expect(stop?.error?.toLowerCase()).toContain("too many requests");
   });
 
+  it("maps daily gateway caps to a non-retryable error message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(429, {
+          code: "rate_limit_exceeded",
+          message:
+            "Daily gateway request cap reached (cap: 5000). Please try again tomorrow.",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("rate_limit_exceeded");
+    expect(stop?.error).toBe(
+      "Daily gateway request cap reached (cap: 5000). Please try again tomorrow.",
+    );
+  });
+
   it("aborts hung gateway requests before the host function timeout", async () => {
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "1");
     const fetchSpy = vi.fn(

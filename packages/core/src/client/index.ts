@@ -15,6 +15,28 @@ export {
   appBasePath,
   appPath,
 } from "./api-path.js";
+export {
+  codeAgentTranscriptEventsToContent,
+  createCodeAgentChatAdapter,
+  type CodeAgentChatController,
+  type CodeAgentChatControlResult,
+  type CodeAgentChatFollowUpMode,
+  type CodeAgentChatTranscriptEvent,
+  type CreateCodeAgentChatAdapterOptions,
+} from "./code-agent-chat-adapter.js";
+export {
+  buildRepositoryFromCodeAgentTranscript,
+  type BuildRepositoryFromCodeAgentTranscriptOptions,
+  type CodeAgentThreadTranscriptEvent,
+} from "../agent/thread-data-builder.js";
+export {
+  compareCodeAgentTranscriptEvents,
+  getCodeAgentTranscriptSeq,
+  isCodeAgentRunActive,
+  mergeCodeAgentTranscriptEvents,
+  type CodeAgentRunStateLike,
+  type CodeAgentTranscriptOrderEvent,
+} from "../code-agents/transcript-order.js";
 export { useSendToAgentChat } from "./use-send-to-agent-chat.js";
 export {
   useChatModels,
@@ -28,8 +50,13 @@ export {
 export {
   AgentConversation,
   AgentConversationMessageView,
+  normalizeCodeAgentTranscriptForConversation,
   useNearBottomAutoscroll,
+  type CodeAgentConversationTranscriptEvent,
+  type CodeAgentConversationTranscriptEventType,
+  type NormalizeCodeAgentTranscriptOptions,
   type AgentConversationArtifact,
+  type AgentConversationAttachment,
   type AgentConversationMessage,
   type AgentConversationMessagePart,
   type AgentConversationMessageRole,
@@ -234,9 +261,17 @@ export {
   AgentComposerFrame,
   type AgentComposerFrameProps,
   PromptComposer,
+  AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
+  AGENT_PROMPT_MAX_INLINE_TEXT_CHARS,
+  escapePromptAttachmentAttribute,
+  formatPromptWithAttachments,
+  isInlineableAgentPromptFile,
+  readAgentPromptAttachment,
   type PromptComposerProps,
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
+  type AgentPromptAttachment,
+  type ReadAgentPromptAttachmentOptions,
   type AgentComposerLayoutVariant,
   type SlashCommand,
   type SkillResult,
