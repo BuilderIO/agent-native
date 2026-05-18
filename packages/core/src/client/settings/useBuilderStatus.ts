@@ -658,7 +658,11 @@ export function useBuilderConnectFlow(
             setOrgName(s.orgName ?? null);
           }
 
-          const freshUrl = s?.cliAuthUrl ?? s?.connectUrl ?? null;
+          // Prefer the click-time status response, but keep a recent signed
+          // URL from this hook as a fallback. This avoids closing the popup
+          // when the refresh hits a transient 401/HTML/error response.
+          const freshUrl =
+            s?.cliAuthUrl ?? s?.connectUrl ?? cachedFreshUrl ?? null;
           if (!freshUrl) {
             try {
               opened.close();

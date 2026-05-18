@@ -118,6 +118,7 @@ export interface StartParams {
   source?: CaptureSource;
   cameraId?: string;
   micId?: string;
+  micLabel?: string;
   authToken?: string;
   cookie?: string;
   micOn: boolean;
@@ -631,7 +632,10 @@ interface NativeFullscreenSaveResult {
   file: LocalExportedFile;
 }
 
-async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture | null> {
+async function startNativeTranscriptCapture(mic?: {
+  deviceId?: string | null;
+  label?: string | null;
+}): Promise<NativeTranscriptCapture | null> {
   const maxRestarts = 60;
   let committedText = "";
   let activeText = "";
@@ -693,6 +697,8 @@ async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture |
     if (disposed || stopping) return;
     await invoke("native_speech_start", {
       locale: navigator.language || "en-US",
+      micDeviceId: mic?.deviceId || null,
+      micDeviceLabel: mic?.label || null,
     });
     console.log(
       `[clips-recorder] native_speech_start ok (vocab=${contextualStrings.length})`,
@@ -1341,13 +1347,18 @@ async function startNativeFullscreenRecording(
     await invoke("native_fullscreen_recording_start", {
       recordingId: id,
       includeAudio: wantsAudio,
+      micDeviceId: params.micId || null,
+      micDeviceLabel: params.micLabel || null,
     });
     localCameraExport?.start(2_000);
 
     if (!localOnly) {
       await showRegionGuidesForRecording(true);
       nativeTranscriptCapture = wantsAudio
-        ? await startNativeTranscriptCapture()
+        ? await startNativeTranscriptCapture({
+            deviceId: params.micId,
+            label: params.micLabel,
+          })
         : null;
       if (wantsAudio && !nativeTranscriptCapture) {
         void saveTranscriptFailure(
@@ -2442,7 +2453,10 @@ async function startNativeRecordingInner(
   stateUnlistens = toolbarUnlistens;
 
   nativeTranscriptCapture = wantsAudio
-    ? await startNativeTranscriptCapture()
+    ? await startNativeTranscriptCapture({
+        deviceId: params.micId,
+        label: params.micLabel,
+      })
     : null;
   if (wantsAudio && !nativeTranscriptCapture) {
     void saveTranscriptFailure(

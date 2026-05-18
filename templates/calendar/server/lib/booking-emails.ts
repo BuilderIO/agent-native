@@ -6,15 +6,23 @@ import {
   sendEmail,
 } from "@agent-native/core/server";
 import type { Booking } from "../../shared/api.js";
+import {
+  DEFAULT_BOOKING_TIMEZONE,
+  safeBookingTimeZone,
+} from "./booking-timezone.js";
 
 function stripCrlf(value: string | undefined): string {
   return (value ?? "").replace(/[\r\n]+/g, " ").trim();
 }
 
-function formatWhen(startIso: string, endIso: string, timeZone?: string) {
+export function formatBookingWhen(
+  startIso: string,
+  endIso: string,
+  timeZone?: string,
+) {
   const start = new Date(startIso);
   const end = new Date(endIso);
-  const zone = timeZone || "UTC";
+  const zone = safeBookingTimeZone(timeZone) || DEFAULT_BOOKING_TIMEZONE;
   const dateFormatter = new Intl.DateTimeFormat("en", {
     weekday: "long",
     month: "long",
@@ -60,7 +68,7 @@ export async function sendBookingConfirmationEmails({
   timeZone?: string;
 }) {
   const title = bookingTitle(booking);
-  const when = formatWhen(booking.start, booking.end, timeZone);
+  const when = formatBookingWhen(booking.start, booking.end, timeZone);
   const host = stripCrlf(hostEmail);
   const attendee = stripCrlf(booking.email);
   const attendeeName = stripCrlf(booking.name) || "there";
@@ -128,7 +136,7 @@ export async function sendBookingCancellationEmails({
   timeZone?: string;
 }) {
   const title = bookingTitle(booking);
-  const when = formatWhen(booking.start, booking.end, timeZone);
+  const when = formatBookingWhen(booking.start, booking.end, timeZone);
   const host = stripCrlf(hostEmail);
   const attendee = stripCrlf(booking.email);
   const attendeeName = stripCrlf(booking.name) || "The guest";
