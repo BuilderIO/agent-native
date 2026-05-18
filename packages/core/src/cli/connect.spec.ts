@@ -660,9 +660,9 @@ describe("runConnect", () => {
       );
 
       expect(promptClients).toHaveBeenCalledTimes(1);
-      expect(JSON.parse(fs.readFileSync(preferencesFile, "utf-8"))).toMatchObject(
-        { defaultClients: ["codex"] },
-      );
+      expect(
+        JSON.parse(fs.readFileSync(preferencesFile, "utf-8")),
+      ).toMatchObject({ defaultClients: ["codex"] });
       expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
       const codexToml = fs.readFileSync(
         path.join(home, ".codex", "config.toml"),
@@ -708,9 +708,9 @@ describe("runConnect", () => {
         },
       );
 
-      expect(JSON.parse(fs.readFileSync(preferencesFile, "utf-8"))).toMatchObject(
-        { defaultClients: ["cowork"] },
-      );
+      expect(
+        JSON.parse(fs.readFileSync(preferencesFile, "utf-8")),
+      ).toMatchObject({ defaultClients: ["cowork"] });
       const coworkJson = JSON.parse(
         fs.readFileSync(path.join(home, ".cowork", "mcp.json"), "utf-8"),
       );
