@@ -40,6 +40,7 @@ const MAX_ATTEMPTS = 3;
 const PROCESSOR_PATH = `${FRAMEWORK_ROUTE_PREFIX}/integrations/process-task`;
 
 let retryInterval: ReturnType<typeof setInterval> | null = null;
+let initialTimer: ReturnType<typeof setTimeout> | null = null;
 let activeWebhookBaseUrl: string | undefined;
 /**
  * Whether the table exists. Cached after first probe so we don't log every
@@ -239,17 +240,19 @@ export function startPendingTasksRetryJob(options?: {
   activeWebhookBaseUrl = options?.webhookBaseUrl;
 
   // Stagger the first run a bit so we don't hammer the DB immediately on boot.
-  setTimeout(() => {
+  initialTimer = setTimeout(() => {
     void retryStuckPendingTasks().catch((err) => {
       console.error("[integrations] Pending-tasks retry job error:", err);
     });
   }, 10_000);
+  unrefTimer(initialTimer);
 
   retryInterval = setInterval(() => {
     void retryStuckPendingTasks().catch((err) => {
       console.error("[integrations] Pending-tasks retry job error:", err);
     });
   }, RETRY_INTERVAL_MS);
+  unrefTimer(retryInterval);
 
   if (process.env.DEBUG) {
     console.log(
@@ -262,9 +265,17 @@ export function startPendingTasksRetryJob(options?: {
 
 /** Stop the retry loop. */
 export function stopPendingTasksRetryJob(): void {
+  if (initialTimer) {
+    clearTimeout(initialTimer);
+    initialTimer = null;
+  }
   if (retryInterval) {
     clearInterval(retryInterval);
     retryInterval = null;
   }
   activeWebhookBaseUrl = undefined;
+}
+
+function unrefTimer(timer: ReturnType<typeof setInterval>): void {
+  (timer as unknown as { unref?: () => void }).unref?.();
 }
