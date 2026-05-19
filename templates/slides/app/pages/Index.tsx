@@ -167,7 +167,6 @@ export default function Index() {
   const openNewDeck = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
-      setNewDeckInitialPrompt(null);
       setSelectedDesignSystemId(defaultSystem?.id ?? "");
       setShowNewDeckPrompt(true);
     },
