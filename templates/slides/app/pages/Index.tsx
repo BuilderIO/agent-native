@@ -8,6 +8,7 @@ import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -39,6 +40,13 @@ import { toast } from "@/hooks/use-toast";
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
+
+function savePendingPromptForRetry(prompt: string) {
+  try {
+    sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
+  } catch {}
+  savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, prompt);
+}
 
 function summarizePromptForChat(prompt: string): string {
   const singleLine = prompt.trim().replace(/\s+/g, " ");
@@ -178,19 +186,8 @@ export default function Index() {
       saved = sessionStorage.getItem(PENDING_PROMPT_KEY);
     } catch {}
     if (!saved) return;
+    savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved);
     try {
-      const escaped = saved
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-      const paragraphs = escaped
-        .split(/\n+/)
-        .map((line) => `<p>${line || "<br/>"}</p>`)
-        .join("");
-      localStorage.setItem(
-        `an-composer-draft:${encodeURIComponent(NEW_DECK_DRAFT_SCOPE)}`,
-        paragraphs,
-      );
       sessionStorage.removeItem(PENDING_PROMPT_KEY);
     } catch {}
     setSelectedDesignSystemId(defaultSystem?.id ?? "none");
@@ -222,9 +219,7 @@ export default function Index() {
     // sidebar. Catch it here so the user sees a clear sign-in prompt
     // and the typed prompt isn't lost when they come back.
     if (!session) {
-      try {
-        sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
-      } catch {}
+      savePendingPromptForRetry(prompt);
       setNewDeckPromptOpen(false);
       setShowSignInDialog(true);
       return;
@@ -302,9 +297,7 @@ export default function Index() {
 
     const persisted = await ensureDeckPersisted(deck.id);
     if (!persisted) {
-      try {
-        sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
-      } catch {}
+      savePendingPromptForRetry(prompt);
       deleteDeck(deck.id);
       toast({
         title: "Couldn't start deck generation",
