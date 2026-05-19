@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/code-agents-ui",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "private": true,
   "type": "module",
   "repository": {
