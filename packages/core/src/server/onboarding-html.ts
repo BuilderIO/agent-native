@@ -533,7 +533,7 @@ ${
     border-radius: 6px;
   }
   .tab.active {
-    background: #1e1e1e;
+    background: #3a3a3a;
     color: #fff;
     box-shadow: 0 1px 2px rgba(0,0,0,0.3);
   }

@@ -165,6 +165,8 @@ function CreateMenu({
     message: string;
   } | null>(null);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const skillFileInputRef = useRef<HTMLInputElement>(null);
+  const uploadResource = useUploadResource();
 
   useEffect(() => {
     if (open) {
@@ -283,6 +285,24 @@ Keep the skill concise (under 500 lines) and actionable.`,
       submit: true,
     });
 
+    setOpen(false);
+    onCreated?.();
+  };
+
+  const handleUploadSkillFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const baseName = file.name.replace(/\.[^./]+$/, "");
+      const slug = slugifyName(
+        baseName.toLowerCase() === "skill" ? "uploaded-skill" : baseName,
+      );
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("path", `skills/${slug}/SKILL.md`);
+      formData.append("shared", scope === "shared" ? "true" : "false");
+      uploadResource.mutate(formData);
+    }
     setOpen(false);
     onCreated?.();
   };
@@ -479,6 +499,12 @@ The result should be a reusable agent profile, not a one-off task response.`,
       action: () => setView("skill"),
     },
     {
+      icon: <IconUpload className="h-3.5 w-3.5" />,
+      label: "Upload Skill",
+      desc: "Import an existing SKILL.md file",
+      action: () => skillFileInputRef.current?.click(),
+    },
+    {
       icon: <IconClock className="h-3.5 w-3.5" />,
       label: "Schedule Task",
       desc: "Run something on a schedule",
@@ -521,6 +547,17 @@ The result should be a reusable agent profile, not a one-off task response.`,
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
+      <input
+        ref={skillFileInputRef}
+        type="file"
+        accept=".md,text/markdown"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          handleUploadSkillFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
