@@ -12,11 +12,7 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
-import {
-  agentNativePath,
-  appBasePath,
-  useSession,
-} from "@agent-native/core/client";
+import { agentNativePath, useSession } from "@agent-native/core/client";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   AlertDialog,
@@ -89,23 +85,15 @@ function describeUploadedFilesForAgent(
   ].join("\n");
 }
 
-async function waitForDeckServerRow(deckId: string): Promise<boolean> {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${appBasePath()}/api/decks/${deckId}`);
-      if (res.ok) return true;
-      if (res.status !== 404) return false;
-    } catch {
-      // keep polling until the optimistic create either lands or times out
-    }
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  }
-  return false;
-}
-
 export default function Index() {
-  const { decks, createDeck, deleteDeck, updateDeck, loading } = useDecks();
+  const {
+    decks,
+    createDeck,
+    ensureDeckPersisted,
+    deleteDeck,
+    updateDeck,
+    loading,
+  } = useDecks();
   const { designSystems, defaultSystem } = useDesignSystems();
   const { session } = useSession();
   const navigate = useNavigate();
@@ -312,7 +300,7 @@ export default function Index() {
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, resource-read, or search-files.",
     ].join("\n");
 
-    const persisted = await waitForDeckServerRow(deck.id);
+    const persisted = await ensureDeckPersisted(deck.id);
     if (!persisted) {
       try {
         sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
@@ -327,11 +315,11 @@ export default function Index() {
       return;
     }
 
-    navigate(`/deck/${deck.id}?generating=1`);
     agentSubmit(
       `Create deck: ${summarizePromptForChat(trimmedPrompt)}`,
       context,
     );
+    navigate(`/deck/${deck.id}?generating=1`);
   };
 
   const handleConfirmDelete = () => {
