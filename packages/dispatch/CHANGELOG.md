@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.8.3
+
+### Patch Changes
+
+- 482e9db: Add SEO-friendly extension URLs with generated name slugs and extension page titles.
+- 482e9db: Add Dispatch Vault UI controls for editing existing secrets.
+
 ## 0.8.2
 
 ### Patch Changes
