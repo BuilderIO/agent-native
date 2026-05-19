@@ -79,6 +79,10 @@ function ctxForRow(row: {
   return { ownerEmail: row.ownerEmail, orgId: row.orgId };
 }
 
+function ctxForSecretRow(row: VaultSecretRow, fallback: VaultCtx): VaultCtx {
+  return row.ownerEmail ? ctxForRow(row) : fallback;
+}
+
 function id() {
   return crypto.randomUUID();
 }
@@ -264,7 +268,12 @@ export async function createSecret(
     });
 
     const updated = await getSecret(existing[0].id, ctx);
-    if (updated) await syncSecretsToCredentialStore([updated], ctx);
+    if (updated) {
+      await syncSecretsToCredentialStore(
+        [updated],
+        ctxForSecretRow(updated, ctx),
+      );
+    }
     return updated;
   }
 
@@ -300,7 +309,12 @@ export async function createSecret(
   });
 
   const created = await getSecret(secretId, ctx);
-  if (created) await syncSecretsToCredentialStore([created], ctx);
+  if (created) {
+    await syncSecretsToCredentialStore(
+      [created],
+      ctxForSecretRow(created, ctx),
+    );
+  }
   return created;
 }
 
@@ -403,11 +417,18 @@ export async function updateSecret(
   });
 
   const updated = await getSecret(secretId, ctx);
-  if (updated) await syncSecretsToCredentialStore([updated], ctx);
+  if (updated) {
+    await syncSecretsToCredentialStore(
+      [updated],
+      ctxForSecretRow(updated, ctx),
+    );
+  }
   if (updated && credentialKey !== existing.credentialKey) {
-    await cleanupSyncedCredentialKeysIfUnused(ctx, [existing.credentialKey]);
-  } else if (patch.credentialKey !== undefined) {
-    await cleanupSyncedCredentialKeysIfUnused(ctx);
+    await cleanupSyncedCredentialKeysIfUnused(ctxForRow(existing), [
+      existing.credentialKey,
+    ]);
+  } else if (updated && patch.credentialKey !== undefined) {
+    await cleanupSyncedCredentialKeysIfUnused(ctxForSecretRow(updated, ctx));
   }
   return updated;
 }
@@ -436,7 +457,9 @@ export async function deleteSecret(
         ctxScope(schema.vaultSecrets, ctx),
       ),
     );
-  await cleanupSyncedCredentialKeysIfUnused(ctx, [existing.credentialKey]);
+  await cleanupSyncedCredentialKeysIfUnused(ctxForRow(existing), [
+    existing.credentialKey,
+  ]);
 
   await recordVaultAudit({
     action: "secret.deleted",

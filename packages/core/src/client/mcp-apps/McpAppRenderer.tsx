@@ -29,7 +29,7 @@ type ResourceUiMeta = {
 
 export function McpAppRenderer({ app, className }: McpAppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const [loadCount, setLoadCount] = useState(0);
+  const [loadedSrcDoc, setLoadedSrcDoc] = useState<string | null>(null);
   const [height, setHeight] = useState(DEFAULT_IFRAME_HEIGHT);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -46,8 +46,14 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
   );
 
   useEffect(() => {
+    setLoadedSrcDoc(null);
+    setReady(false);
+    setError(null);
+  }, [srcDoc]);
+
+  useEffect(() => {
     const iframe = iframeRef.current;
-    if (!iframe?.contentWindow || !srcDoc || loadCount === 0) return;
+    if (!iframe?.contentWindow || !srcDoc || loadedSrcDoc !== srcDoc) return;
 
     let closed = false;
     const bridge = new AppBridge(
@@ -142,7 +148,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
           void (bridge as any).close?.().catch?.(() => undefined);
         });
     };
-  }, [app, loadCount, srcDoc, supportedPermissions, uiMeta.csp]);
+  }, [app, loadedSrcDoc, srcDoc, supportedPermissions, uiMeta.csp]);
 
   if (!resourceHtml) {
     return (
@@ -180,7 +186,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
         sandbox={SANDBOX_FLAGS}
         allow={buildAllowAttribute(supportedPermissions)}
         style={{ height }}
-        onLoad={() => setLoadCount((value) => value + 1)}
+        onLoad={() => setLoadedSrcDoc(srcDoc)}
       />
     </div>
   );

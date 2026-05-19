@@ -657,13 +657,18 @@ async function createDbExecInternal(
       // idle_timeout also closes idle connections before Neon's ~5min
       // server-side timeout, avoiding ECONNRESET when the server hangs up.
       const createPool = () => postgres(url, pgPoolOptions(url));
+      type PostgresPool = ReturnType<typeof createPool>;
       let pool = createPool();
       if (trackSingletonResources) _pgPool = pool;
-      const recyclePool = async () => {
-        const oldPool = pool;
-        pool = createPool();
-        if (trackSingletonResources) _pgPool = pool;
-        await oldPool.end({ timeout: 1 });
+      const recyclingPools = new WeakSet<object>();
+      const recyclePool = async (timedOutPool: PostgresPool) => {
+        if (pool === timedOutPool) {
+          pool = createPool();
+          if (trackSingletonResources) _pgPool = pool;
+        }
+        if (recyclingPools.has(timedOutPool)) return;
+        recyclingPools.add(timedOutPool);
+        await timedOutPool.end({ timeout: 1 });
       };
 
       return {
@@ -674,12 +679,13 @@ async function createDbExecInternal(
           const result = await retryOnConnectionError<
             ArrayLike<unknown> & { count?: number }
           >(() => {
-            const query = pool.unsafe(pgSql, args as any[]);
+            const queryPool = pool;
+            const query = queryPool.unsafe(pgSql, args as any[]);
             return withDbTimeout(
               "query",
               () => query,
               dbOpTimeoutMs(),
-              recyclePool,
+              () => recyclePool(queryPool),
             );
           });
           return {

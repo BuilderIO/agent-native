@@ -109,6 +109,21 @@ describe("cleanupSyncedCredentialKeysIfUnused", () => {
     });
   });
 
+  it("uses the secret row scope for personal vault cleanup", async () => {
+    mockVaultSecretLookup([]);
+
+    await cleanupSyncedCredentialKeysIfUnused(
+      { ownerEmail: "owner@example.test", orgId: null },
+      ["PERSONAL_API_KEY"],
+    );
+
+    expect(mocks.deleteAppSecret).toHaveBeenCalledWith({
+      key: "PERSONAL_API_KEY",
+      scope: "workspace",
+      scopeId: "solo:owner@example.test",
+    });
+  });
+
   it("keeps a candidate synced credential when another vault secret still uses it", async () => {
     mockVaultSecretLookup([{ id: "secret_1" }]);
 
