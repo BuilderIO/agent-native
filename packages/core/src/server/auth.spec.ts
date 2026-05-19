@@ -1455,6 +1455,54 @@ describe("server/auth", () => {
       expect(selectedTokens).toEqual(["stale-token", "fresh-token"]);
     });
 
+    it("migrates a legacy shared framework cookie into the isolated cookie name", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("COOKIE_DOMAIN", ".agent-native.com");
+      vi.stubEnv("APP_NAME", "slides");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockImplementation((query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        const args = typeof query === "string" ? undefined : query.args;
+        if (
+          typeof sql === "string" &&
+          sql.includes("SELECT") &&
+          args?.[0] === "legacy-token"
+        ) {
+          return {
+            rows: [{ email: "user@gmail.com", created_at: Date.now() }],
+          };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          cookie: "an_session=legacy-token",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(await getSession(event)).toEqual({
+        email: "user@gmail.com",
+        token: "legacy-token",
+      });
+      const setCookie = event.res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("an_session=");
+      expect(setCookie).toContain("Max-Age=0");
+      expect(setCookie).toContain("Domain=.agent-native.com");
+      expect(setCookie).toContain("an_session_slides=legacy-token");
+    });
+
     it("marks promoted cross-site session cookies secure on forwarded HTTPS requests", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.APP_URL;

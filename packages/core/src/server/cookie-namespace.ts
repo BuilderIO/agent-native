@@ -110,7 +110,14 @@ function readPackageJsonName(cwd: string): string {
 function readFirstPartyAppSlugFromUrl(
   env: Record<string, string | undefined>,
 ): string {
-  for (const key of ["APP_URL", "URL", "DEPLOY_PRIME_URL", "DEPLOY_URL"]) {
+  for (const key of [
+    "APP_URL",
+    "BETTER_AUTH_URL",
+    "VITE_BETTER_AUTH_URL",
+    "URL",
+    "DEPLOY_PRIME_URL",
+    "DEPLOY_URL",
+  ]) {
     const raw = env[key];
     if (!raw) continue;
     try {

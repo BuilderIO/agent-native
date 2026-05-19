@@ -339,7 +339,24 @@ function getCookieValues(event: H3Event, name: string): string[] {
 }
 
 export function getFrameworkSessionCookieValues(event: H3Event): string[] {
-  return getCookieValues(event, COOKIE_NAME);
+  return getFrameworkSessionCookieEntries(event).map((entry) => entry.value);
+}
+
+function getFrameworkSessionCookieEntries(
+  event: H3Event,
+): Array<{ name: string; value: string }> {
+  const entries: Array<{ name: string; value: string }> = [];
+  const seenValues = new Set<string>();
+
+  for (const name of frameworkSessionCookieNamesToClear()) {
+    for (const value of getCookieValues(event, name)) {
+      if (seenValues.has(value)) continue;
+      seenValues.add(value);
+      entries.push({ name, value });
+    }
+  }
+
+  return entries;
 }
 
 function frameworkSessionCookieNamesToClear(): string[] {
@@ -364,9 +381,12 @@ export function clearFrameworkSessionCookies(event: H3Event): void {
 async function getLegacyCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
-  for (const cookie of getFrameworkSessionCookieValues(event)) {
-    const email = await getSessionEmail(cookie);
-    if (email) return { email, token: cookie };
+  for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
+    const email = await getSessionEmail(value);
+    if (email) {
+      if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
+      return { email, token: value };
+    }
   }
   return null;
 }
@@ -1200,7 +1220,7 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
     // session-lost popup case) — when a session IS present, the normal
     // guard runs and the callback handler cross-checks the state owner
     // against the session.
-    const hasSession = Boolean(getCookie(event, COOKIE_NAME));
+    const hasSession = getFrameworkSessionCookieValues(event).length > 0;
     if (hasSession) return false;
     return Boolean(
       verifyBuilderCallbackStateAndGetOwner(state) ||

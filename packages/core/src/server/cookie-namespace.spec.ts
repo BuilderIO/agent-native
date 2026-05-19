@@ -107,6 +107,22 @@ describe("resolveAuthCookieNamespace", () => {
     });
   });
 
+  it.each(["BETTER_AUTH_URL", "VITE_BETTER_AUTH_URL"])(
+    "can derive the first-party slug from %s when APP_NAME is missing",
+    (key) => {
+      expect(
+        resolveAuthCookieNamespace({
+          NODE_ENV: "production",
+          COOKIE_DOMAIN: ".agent-native.com",
+          [key]: "https://mail.agent-native.com",
+        }),
+      ).toMatchObject({
+        frameworkCookieName: "an_session_mail",
+        betterAuthCookiePrefix: "an_mail",
+      });
+    },
+  );
+
   it("fails closed when a first-party isolated app has no identifier", () => {
     expect(() =>
       resolveAuthCookieNamespace({
