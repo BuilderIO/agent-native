@@ -420,7 +420,10 @@ async function seedVersionFromDb(): Promise<void> {
     _lastExtensionsTs = extensionsTs;
     _lastExtensionsUpdatedAt = sqlWatermarkValue(extensionsMaxUpdatedAt);
     _lastExtensionMarkerTs = extensionMarkerTs;
-    _lastActionMarkerTs = actionMarkerTs;
+    // Action markers are durable specifically so a web server can observe work
+    // performed by a separate action process. Do not baseline past an existing
+    // marker on cold start, or the first poll after the action will miss it.
+    _lastActionMarkerTs = 0;
     _lastScreenRefreshTs = refreshTs;
     _screenRefreshInitialized = true;
   } catch {
@@ -488,13 +491,11 @@ async function checkExternalDbChanges(): Promise<void> {
       const changedActionMarkers = actionMarkerResult.rows.filter(
         (row) => timestampValue(row.updated_at) > _lastActionMarkerTs,
       );
-      if (_lastActionMarkerTs > 0) {
-        recordActionChanges(
-          changedActionMarkers
-            .map((row) => parseActionChangeMarker(row.session_id, row.value))
-            .filter((target): target is ActionChangeTarget => !!target),
-        );
-      }
+      recordActionChanges(
+        changedActionMarkers
+          .map((row) => parseActionChangeMarker(row.session_id, row.value))
+          .filter((target): target is ActionChangeTarget => !!target),
+      );
       _lastActionMarkerTs = actionMarkerTs;
     }
 

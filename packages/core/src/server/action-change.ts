@@ -21,7 +21,7 @@ function actionChangeTarget(
   return {
     actionName: options.actionName,
     owner,
-    orgId: options.orgId ?? (owner ? undefined : getRequestOrgId()),
+    orgId: owner ? undefined : (options.orgId ?? getRequestOrgId()),
   };
 }
 

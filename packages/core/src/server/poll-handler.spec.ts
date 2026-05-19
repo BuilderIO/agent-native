@@ -384,6 +384,106 @@ describe("poll handler", () => {
     );
   });
 
+  it("emits existing action markers on cold start instead of baselining past them", async () => {
+    const appStateTs = 1_000;
+    const settingsTs = 900;
+    const extensionsTs = 800;
+    const extensionMarkerTs = 0;
+    const actionMarkerTs = 1_000;
+    const actionMarkerRows: Array<Record<string, unknown>> = [
+      {
+        session_id: "test@example.com",
+        value: JSON.stringify({
+          source: "action",
+          actionName: "create-project",
+          owner: "test@example.com",
+        }),
+        updated_at: 1_000,
+      },
+    ];
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        const key = query.args?.[0];
+        return {
+          rows: [
+            {
+              max_ts:
+                key === "__action_change__"
+                  ? actionMarkerTs
+                  : extensionMarkerTs,
+            },
+          ],
+        };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [{ max_ts: appStateTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
+        return { rows: [{ max_ts: settingsTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
+        return { rows: [{ max_ts: extensionsTs }] };
+      }
+      if (
+        sql.includes("FROM application_state") &&
+        sql.includes("key = ?") &&
+        sql.includes("SELECT session_id, value, updated_at")
+      ) {
+        if (query.args?.[0] === "__action_change__") {
+          return { rows: actionMarkerRows };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT session_id, key, updated_at") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [] };
+      }
+      if (sql.includes("WHERE key = ?")) {
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT id, owner_email") &&
+        sql.includes("FROM tools")
+      ) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const baseline = await handler({ query: { since: "0" } });
+
+    expect(baseline.events).toEqual([
+      expect.objectContaining({
+        source: "action",
+        type: "change",
+        key: "create-project",
+        owner: "test@example.com",
+      }),
+    ]);
+    expect(baseline.events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "app-state",
+          key: "__action_change__",
+        }),
+      ]),
+    );
+  });
+
   it("emits extension changes from durable markers for delete and hide fallback", async () => {
     let appStateTs = 1_000;
     let settingsTs = 900;

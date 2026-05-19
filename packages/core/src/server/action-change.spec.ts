@@ -67,4 +67,33 @@ describe("notifyActionChange", () => {
     });
     expect(mockAppStatePut.mock.calls[0][2]).not.toHaveProperty("orgId");
   });
+
+  it("keeps explicit owner-scoped action changes out of explicit org scope", async () => {
+    const { notifyActionChange } = await import("./action-change.js");
+
+    await notifyActionChange({
+      actionName: "publish-project",
+      owner: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    expect(mockRecordChange).toHaveBeenCalledWith({
+      source: "action",
+      type: "change",
+      key: "publish-project",
+      owner: "owner@example.com",
+    });
+    expect(mockRecordChange.mock.calls[0][0]).not.toHaveProperty("orgId");
+    expect(mockAppStatePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      "__action_change__",
+      expect.objectContaining({
+        source: "action",
+        actionName: "publish-project",
+        owner: "owner@example.com",
+      }),
+      { requestSource: "agent" },
+    );
+    expect(mockAppStatePut.mock.calls[0][2]).not.toHaveProperty("orgId");
+  });
 });
