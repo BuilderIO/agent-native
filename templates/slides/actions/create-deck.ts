@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -13,6 +14,7 @@ import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { getDeckUrl } from "./_app-url.js";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { slidesDeckMcpAppHtml, slidesMcpAppResourceMeta } from "./_mcp-apps.js";
 
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
@@ -38,6 +40,14 @@ const SlidesSchema = z.preprocess(
   (v) => (typeof v === "string" ? JSON.parse(v) : v),
   z.array(SlideSchema),
 );
+
+function deckDeepLink(deckId: string): string {
+  return buildDeepLink({
+    app: "slides",
+    view: "editor",
+    params: { deckId },
+  });
+}
 
 export default defineAction({
   description:
@@ -68,6 +78,14 @@ export default defineAction({
       .optional()
       .describe("Optional design system ID to link to the deck"),
   }),
+  mcpApp: {
+    resource: {
+      title: "Deck preview",
+      description: "Preview a generated slide deck inline.",
+      html: slidesDeckMcpAppHtml,
+      ...slidesMcpAppResourceMeta,
+    },
+  },
   http: false,
   run: async ({
     title,
@@ -133,6 +151,8 @@ export default defineAction({
         title,
         slideCount: slides.length,
         url: getDeckUrl(deckId),
+        deepLink: deckDeepLink(deckId),
+        slides,
       };
     }
 
@@ -183,6 +203,20 @@ export default defineAction({
       title,
       slideCount: slides.length,
       url: getDeckUrl(id),
+      deepLink: deckDeepLink(id),
+      slides,
+    };
+  },
+  link: ({ result }) => {
+    const id =
+      result && typeof result === "object"
+        ? (result as { id?: string }).id
+        : undefined;
+    if (!id) return null;
+    return {
+      url: deckDeepLink(id),
+      label: "Open deck in Slides",
+      view: "editor",
     };
   },
 });

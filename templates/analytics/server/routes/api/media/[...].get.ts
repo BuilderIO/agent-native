@@ -3,14 +3,12 @@ import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import { defineEventHandler, setResponseStatus } from "h3";
 import { streamFile } from "@agent-native/core/server";
+import { getAnalyticsMediaDir } from "../../../lib/media-dir.js";
 
 export default defineEventHandler(async (event) => {
   let mediaDir: string;
   try {
-    mediaDir = path.resolve(
-      import.meta.dirname ?? process.cwd(),
-      import.meta.dirname ? "../../../../media" : "media",
-    );
+    mediaDir = getAnalyticsMediaDir();
   } catch {
     setResponseStatus(event, 501);
     return { error: "Media serving not available in this environment" };

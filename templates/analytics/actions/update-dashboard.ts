@@ -14,6 +14,10 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
+import {
+  analyticsDashboardMcpAppHtml,
+  analyticsMcpAppResourceMeta,
+} from "./_mcp-apps.js";
 
 /**
  * Same shape as the server-side validator in `server/handlers/sql-dashboards.ts`.
@@ -431,6 +435,14 @@ export default defineAction({
       .describe("Replace the whole dashboard config (or a JSON string)."),
   }),
   http: false,
+  mcpApp: {
+    resource: {
+      title: "Dashboard preview",
+      description: "Preview the updated Analytics dashboard inline.",
+      html: analyticsDashboardMcpAppHtml,
+      ...analyticsMcpAppResourceMeta,
+    },
+  },
   run: async (args) => {
     if (!args.ops && !args.config) {
       return "Error: provide either `ops` (for surgical edits) or `config` (for full replace).";
@@ -456,6 +468,7 @@ export default defineAction({
           typeof args.config.name === "string"
             ? args.config.name
             : args.dashboardId,
+        config: args.config,
         urlPath: `/adhoc/${args.dashboardId}`,
         deepLink: buildDeepLink({
           app: "analytics",
@@ -496,6 +509,7 @@ export default defineAction({
       id: args.dashboardId,
       dashboardId: args.dashboardId,
       name: typeof root.name === "string" ? root.name : args.dashboardId,
+      config: root,
       urlPath: `/adhoc/${args.dashboardId}`,
       deepLink: buildDeepLink({
         app: "analytics",

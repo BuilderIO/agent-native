@@ -5,6 +5,10 @@ import { z } from "zod";
 import { schema } from "../server/db/index.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  designMcpAppResourceMeta,
+  designPreviewMcpAppHtml,
+} from "./_mcp-apps.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -29,6 +33,14 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpApp: {
+    resource: {
+      title: "Design snapshot",
+      description: "Preview the current Design snapshot inline.",
+      html: designPreviewMcpAppHtml,
+      ...designMcpAppResourceMeta,
+    },
+  },
   run: async ({ designId }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {

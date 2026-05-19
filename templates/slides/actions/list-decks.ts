@@ -1,10 +1,15 @@
 import { defineAction } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { getDeckUrl } from "./_app-url.js";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+
+function slidesDeepLink(): string {
+  return buildDeepLink({ app: "slides", view: "list" });
+}
 
 export default defineAction({
   description: "List all decks from the database with metadata.",
@@ -19,6 +24,11 @@ export default defineAction({
       .describe("Set to 'me' to list only decks created by the current user"),
   }),
   http: { method: "GET" },
+  link: () => ({
+    url: slidesDeepLink(),
+    label: "Open decks in Slides",
+    view: "list",
+  }),
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getRequestUserEmail();
