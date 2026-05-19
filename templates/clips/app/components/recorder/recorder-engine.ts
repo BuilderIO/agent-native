@@ -402,6 +402,11 @@ export class RecorderEngine {
         systemAudio: wantsMic ? "include" : "exclude",
       };
 
+      if (wantsMic || wantsDisplay) {
+        this.audioMixCtx?.close().catch(() => {});
+        this.audioMixCtx = new AudioContext();
+      }
+
       if (wantsDisplay) {
         try {
           this.displayStream =
@@ -460,11 +465,6 @@ export class RecorderEngine {
 
       this.previewStream =
         this.opts.mode === "camera" ? this.cameraStream! : this.displayStream!;
-
-      if (wantsMic || wantsDisplay) {
-        this.audioMixCtx?.close().catch(() => {});
-        this.audioMixCtx = new AudioContext();
-      }
 
       return {
         previewStream: this.previewStream,
@@ -1066,6 +1066,9 @@ export class RecorderEngine {
 
     const ctx = this.audioMixCtx ?? new AudioContext();
     this.audioMixCtx = ctx;
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
     this.audioMixSources = [];
     const dest = ctx.createMediaStreamDestination();
     for (const track of audioTracks) {
