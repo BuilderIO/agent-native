@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderStaticChartSvg } from "./generate-chart.js";
 import {
+  mediaFilenameFromPath,
   readSignedSvgMediaPayload,
   signedSvgMediaUrl,
 } from "../server/lib/signed-media.js";
@@ -65,6 +66,14 @@ describe("renderStaticChartSvg", () => {
 });
 
 describe("signed SVG media URLs", () => {
+  it("extracts the signed media filename without query params", () => {
+    expect(
+      mediaFilenameFromPath(
+        "/api/media/signed-chart.svg?svg=payload&sig=signature",
+      ),
+    ).toBe("signed-chart.svg");
+  });
+
   it("round-trips generated SVG through a signed same-origin media URL", () => {
     vi.stubEnv("A2A_SECRET", "test-secret");
     const svg = renderStaticChartSvg({

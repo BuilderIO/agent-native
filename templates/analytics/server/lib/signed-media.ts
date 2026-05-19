@@ -51,6 +51,20 @@ export function signedSvgMediaUrl(
   return `/api/media/${encodeURIComponent(filename)}?${params.toString()}`;
 }
 
+export function mediaFilenameFromPath(pathOrUrl: string): string {
+  const pathname = pathOrUrl.split("?")[0] || "";
+  const marker = "/api/media/";
+  const markerIndex = pathname.indexOf(marker);
+  const encoded =
+    markerIndex >= 0 ? pathname.slice(markerIndex + marker.length) : pathname;
+
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
 export function readSignedSvgMediaPayload(
   filename: string,
   payload: unknown,
