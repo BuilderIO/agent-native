@@ -1081,7 +1081,7 @@ export class RecorderEngine {
       return combined;
     }
 
-    // Camera-only: camera video + mic (no display stream to mix).
+    // Camera-only: camera video + mic.
     if (this.opts.mode === "camera") {
       const combined = new MediaStream();
       for (const t of this.cameraStream!.getVideoTracks()) combined.addTrack(t);
