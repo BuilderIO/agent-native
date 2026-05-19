@@ -1,4 +1,5 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 
 export type ContentPart =
@@ -10,6 +11,7 @@ export type ContentPart =
       argsText: string;
       args: Record<string, string>;
       result?: string;
+      mcpApp?: AgentMcpAppPayload;
     };
 
 export interface SSEEvent {
@@ -19,6 +21,7 @@ export interface SSEEvent {
   label?: string;
   input?: Record<string, string>;
   result?: string;
+  mcpApp?: AgentMcpAppPayload;
   error?: string;
   seq?: number;
   agent?: string;
@@ -327,6 +330,7 @@ export function processEvent(
         part.result === undefined
       ) {
         part.result = ev.result ?? "";
+        if (ev.mcpApp) part.mcpApp = ev.mcpApp;
         break;
       }
     }

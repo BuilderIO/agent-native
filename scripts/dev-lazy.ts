@@ -581,6 +581,7 @@ function startApp(app: TemplateApp): void {
     {
       cwd: ROOT,
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
       env: devWatcherEnv({
         ...process.env,
         // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors
@@ -836,6 +837,27 @@ function openBrowser(url: string): void {
   child.unref();
 }
 
+function killChildProcessTree(
+  child: ChildProcess | undefined,
+  signal: NodeJS.Signals,
+): void {
+  if (!child?.pid) return;
+  try {
+    if (process.platform === "win32") {
+      execSync(
+        `taskkill /pid ${child.pid} /T ${signal === "SIGKILL" ? "/F" : ""}`,
+        { stdio: "ignore" },
+      );
+      return;
+    }
+    process.kill(-child.pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {}
+  }
+}
+
 function ensureElectronBinary() {
   try {
     execSync(
@@ -890,6 +912,7 @@ function startBackgroundProcess(
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
     env: devWatcherEnv({ ...env, FORCE_COLOR: "1" }),
+    detached: process.platform !== "win32",
     shell: process.platform === "win32",
   });
   backgroundProcesses.push(child);
@@ -913,22 +936,18 @@ function shutdown(code = 0): void {
   shuttingDown = true;
   gatewayServer?.close();
   for (const app of apps) {
-    app.process?.kill("SIGTERM");
+    killChildProcessTree(app.process, "SIGTERM");
     if (app.restartTimer) clearTimeout(app.restartTimer);
   }
   for (const child of backgroundProcesses) {
-    child.kill("SIGTERM");
+    killChildProcessTree(child, "SIGTERM");
   }
   setTimeout(() => {
     for (const app of apps) {
-      try {
-        app.process?.kill("SIGKILL");
-      } catch {}
+      killChildProcessTree(app.process, "SIGKILL");
     }
     for (const child of backgroundProcesses) {
-      try {
-        child.kill("SIGKILL");
-      } catch {}
+      killChildProcessTree(child, "SIGKILL");
     }
     process.exit(code);
   }, 1_000).unref();

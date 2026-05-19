@@ -1,4 +1,5 @@
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 
 export interface ActionTool {
   description: string;
@@ -130,7 +131,12 @@ export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "activity"; label: string; tool?: string }
   | { type: "tool_start"; tool: string; input: Record<string, string> }
-  | { type: "tool_done"; tool: string; result: string }
+  | {
+      type: "tool_done";
+      tool: string;
+      result: string;
+      mcpApp?: AgentMcpAppPayload;
+    }
   | {
       type: "agent_call";
       agent: string;

@@ -8,8 +8,8 @@
  *   - **proxy (default)** — connect an MCP `Client` over
  *     `StreamableHTTPClientTransport` to the *already-running* local app's
  *     `http://127.0.0.1:<port>/_agent-native/mcp`, and run a stdio `Server`
- *     that forwards `tools/list` + `tools/call` to it. The live app is the
- *     single source of truth: HMR'd actions, the real registry, correct
+ *     that forwards tools and optional MCP App resources to it. The live app
+ *     is the single source of truth: HMR'd actions, the real registry, correct
  *     per-request deep links, and tenant scoping all come for free. If the
  *     app isn't running, we wait briefly for it (the workspace gateway boots
  *     it lazily on first request).
@@ -24,6 +24,7 @@
  */
 
 import { resolveLocalAppOrigin } from "./workspace-resolve.js";
+import type { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
 
 export interface RunMCPStdioOptions {
   /** App id to bridge to (workspace). Optional in a single-app project. */
@@ -79,10 +80,10 @@ async function probeOrigin(origin: string, timeoutMs = 800): Promise<boolean> {
 /**
  * Proxy mode: stdio Server ⇄ HTTP Client to the running app.
  *
- * We register the standard `tools/list` and `tools/call` handlers on the
- * stdio server and forward them verbatim to the upstream HTTP MCP server via
- * the SDK `Client`. The upstream owns tool definitions, results, and the
- * appended deep-link block / `_meta`, so nothing is duplicated here.
+ * We register the standard handlers on the stdio server and forward them
+ * verbatim to the upstream HTTP MCP server via the SDK `Client`. The upstream
+ * owns tool definitions, results, MCP App resources, and the appended
+ * deep-link block / `_meta`, so nothing is duplicated here.
  */
 async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
   const { origin, appId } = await resolveLocalAppOrigin({
@@ -120,8 +121,13 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
   const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
   const { StdioServerTransport } =
     await import("@modelcontextprotocol/sdk/server/stdio.js");
-  const { ListToolsRequestSchema, CallToolRequestSchema } =
-    await import("@modelcontextprotocol/sdk/types.js");
+  const {
+    ListToolsRequestSchema,
+    CallToolRequestSchema,
+    ListResourcesRequestSchema,
+    ReadResourceRequestSchema,
+    ListResourceTemplatesRequestSchema,
+  } = await import("@modelcontextprotocol/sdk/types.js");
 
   // --- Upstream HTTP client -------------------------------------------------
   const clientTransport = new StreamableHTTPClientTransport(new URL(target), {
@@ -135,9 +141,16 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
   log(`Proxying stdio ⇄ ${target} (app: ${appId})`);
 
   // --- Downstream stdio server ---------------------------------------------
+  const upstreamCapabilities = client.getServerCapabilities();
+  const capabilities: ServerCapabilities = { tools: {} };
+  if (upstreamCapabilities?.resources) capabilities.resources = {};
+  if (upstreamCapabilities?.extensions) {
+    capabilities.extensions = upstreamCapabilities.extensions;
+  }
+
   const server = new Server(
     { name: `agent-native-${appId}`, version: "1.0.0" },
-    { capabilities: { tools: {} } },
+    { capabilities },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async (request: any) => {
@@ -148,6 +161,29 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
     // Forward the call verbatim; the upstream appends the deep-link block.
     return client.callTool(request.params);
   });
+
+  if (upstreamCapabilities?.resources) {
+    server.setRequestHandler(
+      ListResourcesRequestSchema,
+      async (request: any) => {
+        return client.listResources(request.params);
+      },
+    );
+
+    server.setRequestHandler(
+      ListResourceTemplatesRequestSchema,
+      async (request: any) => {
+        return client.listResourceTemplates(request.params);
+      },
+    );
+
+    server.setRequestHandler(
+      ReadResourceRequestSchema,
+      async (request: any) => {
+        return client.readResource(request.params);
+      },
+    );
+  }
 
   const stdioTransport = new StdioServerTransport();
   await server.connect(stdioTransport);

@@ -10,7 +10,7 @@ Actions are the single source of truth for anything your app does. Define an act
 - **An agent tool** — the agent sees it with a zod-derived JSON Schema and can call it in chat.
 - **A typesafe React mutation** — `useActionMutation("name")` on the frontend, types inferred from the schema.
 - **An HTTP endpoint** — `POST /_agent-native/actions/<name>` (auto-mounted by the framework).
-- **An MCP tool** — exposed to Claude Desktop, ChatGPT remote-MCP, and any other MCP client.
+- **An MCP tool** — exposed to Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, and any other MCP client.
 - **An A2A tool** — called by other agent-native apps over A2A.
 - **A CLI command** — `pnpm action <name>` for scripting and dev loops.
 
@@ -152,7 +152,30 @@ If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discov
 
 ## Exposing it over MCP {#mcp}
 
-With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Any MCP client — Claude Desktop, ChatGPT remote MCP, etc. — can connect and see them as tools. See [MCP Protocol](/docs/mcp-protocol).
+With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Any MCP client — Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, etc. — can connect and see them as tools. See [MCP Protocol](/docs/mcp-protocol).
+
+For UI-capable MCP hosts, actions can also attach an optional MCP Apps resource:
+
+```ts
+export default defineAction({
+  description: "Create an email draft for review.",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => ({ body }),
+  link: ({ result }) => ({
+    label: "Open draft in Mail",
+    url: "/_agent-native/open?app=mail&view=inbox",
+  }),
+  mcpApp: {
+    resource: {
+      title: "Review draft",
+      html: '<!doctype html><html><body><main id="app"></main></body></html>',
+      csp: { connectDomains: ["https://mail.agent-native.com"] },
+    },
+  },
+});
+```
+
+This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes the HTML via MCP resources, and includes both current and legacy UI resource metadata for compatible hosts. Keep `link` as the fallback for CLI and non-UI MCP clients; see [External Agents](/docs/external-agents#mcp-apps).
 
 ## Standard actions {#standard-actions}
 

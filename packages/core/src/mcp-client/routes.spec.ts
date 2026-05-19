@@ -150,6 +150,126 @@ describe("MCP server routes", () => {
     expect(response.body).toEqual({ error: "Authentication required" });
     expect(manager.reconfigure).not.toHaveBeenCalled();
   });
+
+  it("mediates MCP App tool calls through the same server only", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockRejectedValue(new Error("no org"));
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      hasServer: (serverId: string) => serverId === "apps",
+      getToolsForServer: (serverId: string) =>
+        serverId === "apps"
+          ? [
+              {
+                source: "apps",
+                name: "mcp__apps__render",
+                originalName: "render",
+                description: "Render",
+                inputSchema: { type: "object" },
+                raw: { name: "render" },
+              },
+            ]
+          : [],
+      callTool: vi.fn(async () => ({
+        content: [{ type: "text", text: "ok" }],
+      })),
+      readResource: vi.fn(),
+      getStatus: () => ({
+        connectedServers: ["apps"],
+        configuredServers: ["apps"],
+        errors: {},
+        tools: [{ source: "apps", name: "mcp__apps__render" }],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const ok = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/apps/call-tool",
+      "POST",
+      { serverId: "apps", toolName: "render", arguments: { id: "1" } },
+    );
+
+    expect(ok.status).toBe(200);
+    expect(manager.callTool).toHaveBeenCalledWith("mcp__apps__render", {
+      id: "1",
+    });
+    expect(ok.body).toEqual({ content: [{ type: "text", text: "ok" }] });
+
+    const blocked = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/apps/call-tool",
+      "POST",
+      { serverId: "apps", toolName: "mcp__other__render", arguments: {} },
+    );
+    expect(blocked.status).toBe(400);
+    expect(blocked.body).toEqual({
+      error: "serverId and same-server toolName are required",
+    });
+  });
+
+  it("allows MCP Apps to read only ui:// resources from visible servers", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockRejectedValue(new Error("no org"));
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      hasServer: () => true,
+      getToolsForServer: () => [
+        {
+          source: "apps",
+          name: "mcp__apps__render",
+          originalName: "render",
+          description: "Render",
+          inputSchema: { type: "object" },
+          raw: { name: "render" },
+        },
+      ],
+      callTool: vi.fn(),
+      readResource: vi.fn(async () => ({
+        contents: [
+          {
+            uri: "ui://apps/render",
+            mimeType: "text/html;profile=mcp-app",
+            text: "<button>Run</button>",
+          },
+        ],
+      })),
+      getStatus: () => ({
+        connectedServers: ["apps"],
+        configuredServers: ["apps"],
+        errors: {},
+        tools: [{ source: "apps", name: "mcp__apps__render" }],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const ok = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/apps/read-resource",
+      "POST",
+      { serverId: "apps", uri: "ui://apps/render" },
+    );
+    expect(ok.status).toBe(200);
+    expect(manager.readResource).toHaveBeenCalledWith(
+      "apps",
+      "ui://apps/render",
+    );
+
+    const blocked = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/apps/read-resource",
+      "POST",
+      { serverId: "apps", uri: "https://example.com/render.html" },
+    );
+    expect(blocked.status).toBe(400);
+    expect(blocked.body).toEqual({
+      error: "serverId and ui:// uri are required",
+    });
+  });
 });
 
 function createNitroApp() {

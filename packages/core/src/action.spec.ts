@@ -3,7 +3,7 @@ import { defineAction } from "./action.js";
 
 // Uses the legacy `parameters` mode so we don't need to pull in zod as a test
 // dep — the readOnly inference logic is independent of the schema path.
-describe("defineAction — readOnly inference", () => {
+describe("defineAction", () => {
   it("infers readOnly=true for GET actions", () => {
     const action = defineAction({
       description: "read things",
@@ -75,5 +75,35 @@ describe("defineAction — readOnly inference", () => {
       run: async () => "ok",
     });
     expect(action.parallelSafe).toBe(true);
+  });
+
+  it("preserves valid MCP Apps resource metadata", () => {
+    const action = defineAction({
+      description: "review draft",
+      parameters: { body: { type: "string" } },
+      mcpApp: {
+        visibility: ["model", "app"],
+        resource: {
+          title: "Review draft",
+          html: "<!doctype html><html><body>Review</body></html>",
+          csp: { connectDomains: ["https://mail.agent-native.com"] },
+        },
+      },
+      run: async () => "ok",
+    });
+    expect(action.mcpApp?.resource.title).toBe("Review draft");
+    expect(action.mcpApp?.resource.csp).toEqual({
+      connectDomains: ["https://mail.agent-native.com"],
+    });
+  });
+
+  it("drops malformed MCP Apps config", () => {
+    const action = defineAction({
+      description: "bad ui",
+      parameters: {},
+      mcpApp: { resource: { title: "Missing html" } },
+      run: async () => "ok",
+    } as any);
+    expect(action.mcpApp).toBeUndefined();
   });
 });

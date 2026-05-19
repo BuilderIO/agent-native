@@ -8,7 +8,11 @@ import {
   CALENDAR_VIEW_PREFERENCES_KEY,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
-import type { CalendarEvent } from "../shared/api.js";
+import type { CalendarEvent, CalendarEventDraft } from "../shared/api.js";
+
+function safeDraftId(id: unknown): string | null {
+  return typeof id === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
+}
 
 async function fetchEventsForRange(
   from: string,
@@ -115,6 +119,14 @@ export default defineAction({
       if (nav?.eventId) {
         const match = events.find((e: any) => e.id === nav.eventId);
         if (match) screen.selectedEvent = match;
+      }
+
+      const eventDraftId = safeDraftId(nav?.eventDraftId);
+      if (eventDraftId) {
+        const draft = (await readAppState(
+          `calendar-draft-${eventDraftId}`,
+        )) as unknown as CalendarEventDraft | null;
+        screen.eventDraft = draft ?? { id: eventDraftId, missing: true };
       }
     } else if (nav?.view === "availability") {
       screen.page = "availability";

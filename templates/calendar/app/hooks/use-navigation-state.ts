@@ -6,15 +6,71 @@ import {
   type ViewMode,
 } from "@/components/layout/AppLayout";
 import { agentNativePath } from "@agent-native/core/client";
-import type { CalendarEvent } from "@shared/api";
+import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 
 interface NavigationState {
   view: string;
   calendarViewMode?: ViewMode;
   date?: string;
   eventId?: string;
+  eventDraftId?: string;
+  calendarDraft?: string;
   bookingLinkId?: string;
   extensionId?: string;
+}
+
+const EVENT_DRAFT_ID = /^[a-zA-Z0-9_-]{1,64}$/;
+
+function safeEventDraftId(id: unknown): string | null {
+  return typeof id === "string" && EVENT_DRAFT_ID.test(id) ? id : null;
+}
+
+function decodeBase64UrlJson(value: string): unknown {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  const binary = window.atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+async function loadEventDraft(
+  cmd: NavigationState,
+): Promise<CalendarEventDraft | null> {
+  let decoded: CalendarEventDraft | null = null;
+  if (cmd.calendarDraft) {
+    try {
+      const value = decodeBase64UrlJson(cmd.calendarDraft);
+      if (value && typeof value === "object") {
+        decoded = value as CalendarEventDraft;
+      }
+    } catch {
+      decoded = null;
+    }
+  }
+
+  const draftId =
+    safeEventDraftId(cmd.eventDraftId) ?? safeEventDraftId(decoded?.id);
+  if (draftId) {
+    try {
+      const res = await fetch(
+        agentNativePath(
+          `/_agent-native/application-state/calendar-draft-${draftId}`,
+        ),
+      );
+      if (res.ok) {
+        const saved = (await res.json()) as CalendarEventDraft | null;
+        if (saved && safeEventDraftId(saved.id)) return saved;
+      }
+    } catch {
+      // Fall back to the compact draft payload in the deep link.
+    }
+  }
+
+  if (decoded) {
+    const decodedId = safeEventDraftId(decoded.id) ?? draftId;
+    if (decodedId) return { ...decoded, id: decodedId };
+  }
+  return null;
 }
 
 export function useNavigationState() {
@@ -28,6 +84,8 @@ export function useNavigationState() {
     setSelectedDate,
     setSidebarEvent,
     sidebarEvent,
+    eventDraft,
+    setEventDraft,
   } = useCalendarContext();
 
   // Sync current route to application state
@@ -66,13 +124,17 @@ export function useNavigationState() {
       state.eventId = sidebarEvent.id;
     }
 
+    if (eventDraft?.id) {
+      state.eventDraftId = eventDraft.id;
+    }
+
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       keepalive: true,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [location.pathname, selectedDate, viewMode, sidebarEvent]);
+  }, [location.pathname, selectedDate, viewMode, sidebarEvent, eventDraft]);
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
@@ -166,5 +228,30 @@ export function useNavigationState() {
         }
       })();
     }
-  }, [navCommand, navigate, qc, setViewMode, setSelectedDate, setSidebarEvent]);
+
+    // A deep link can also carry an unsent event draft. The draft lives in
+    // app-state and opens in the same New Event popover the user would fill out
+    // by hand; nothing is written to Google Calendar until they submit.
+    if (cmd.eventDraftId || cmd.calendarDraft) {
+      (async () => {
+        const draft = await loadEventDraft(cmd);
+        if (!draft) return;
+        if (draft.start) {
+          const startDate = new Date(draft.start);
+          if (!Number.isNaN(startDate.getTime())) {
+            setSelectedDate(startDate);
+          }
+        }
+        setEventDraft(draft);
+      })();
+    }
+  }, [
+    navCommand,
+    navigate,
+    qc,
+    setViewMode,
+    setSelectedDate,
+    setSidebarEvent,
+    setEventDraft,
+  ]);
 }

@@ -177,6 +177,7 @@ function toConversationTool(
           : "running",
     input: preview(item.input),
     result: preview(item.result),
+    ...(item.mcpApp ? { mcpApp: item.mcpApp } : {}),
     summary:
       item.state === "completed"
         ? "finished"

@@ -12,6 +12,9 @@
  *   POST   /_agent-native/mcp/servers/test      dry-run a URL before persisting
  *   GET    /_agent-native/mcp/builtin           list built-in capability toggles
  *   POST   /_agent-native/mcp/builtin           update built-in capability toggles
+ *   POST   /_agent-native/mcp/apps/call-tool    mediated same-server app tool call
+ *   POST   /_agent-native/mcp/apps/list-tools   list tools visible to an app iframe
+ *   POST   /_agent-native/mcp/apps/read-resource read a ui:// app resource
  */
 
 import {
@@ -26,8 +29,14 @@ import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { getAllSettings } from "../settings/store.js";
-import type { McpClientManager } from "./manager.js";
+import {
+  buildMcpToolName,
+  parseMcpToolName,
+  type McpClientManager,
+  type McpTool,
+} from "./manager.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { loadMcpConfig, autoDetectMcpConfig } from "./config.js";
 import { formatMcpConnectError } from "./errors.js";
@@ -57,6 +66,8 @@ import {
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
 import { fetchHubServers } from "./hub-client.js";
+import { isMcpToolAllowedForRequest } from "./visibility.js";
+import { isToolVisibilityModelOnly } from "@modelcontextprotocol/ext-apps/app-bridge";
 
 export { formatMcpConnectError } from "./errors.js";
 
@@ -351,11 +362,193 @@ export function mountMcpServersRoutes(
         return { error: "Not found" };
       }),
     );
+    getH3App(nitroApp).use(
+      "/_agent-native/mcp/apps",
+      defineEventHandler(async (event: H3Event) => {
+        const method = getMethod(event);
+        const pathname = (event.url?.pathname || "")
+          .replace(/^\/+/, "")
+          .replace(/\/+$/, "");
+        const parts = pathname ? pathname.split("/") : [];
+
+        setResponseHeader(event, "Content-Type", "application/json");
+        if (method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        if (parts.length === 1 && parts[0] === "call-tool") {
+          return handleMcpAppCallTool(event, manager);
+        }
+        if (parts.length === 1 && parts[0] === "list-tools") {
+          return handleMcpAppListTools(event, manager);
+        }
+        if (parts.length === 1 && parts[0] === "read-resource") {
+          return handleMcpAppReadResource(event, manager);
+        }
+
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }),
+    );
   } catch (err: any) {
     console.warn(
       `[mcp-client] Failed to mount MCP routes: ${err?.message ?? err}`,
     );
   }
+}
+
+async function withMcpAppRequestContext<T>(
+  event: H3Event,
+  fn: () => Promise<T>,
+): Promise<T | { error: string }> {
+  const { email, orgId } = await resolveContextForRequest(event);
+  if (!email && process.env.NODE_ENV === "production") {
+    setResponseStatus(event, 401);
+    return { error: "Authentication required" };
+  }
+  return runWithRequestContext(
+    {
+      userEmail: email ?? undefined,
+      orgId: orgId ?? undefined,
+    },
+    fn,
+  ) as Promise<T>;
+}
+
+function serverHasVisibleTools(
+  manager: McpClientManager,
+  serverId: string,
+): boolean {
+  return manager
+    .getToolsForServer(serverId)
+    .some((tool) => isMcpToolAllowedForRequest(tool.name));
+}
+
+function normalizeSameServerToolName(
+  serverId: string,
+  rawName: unknown,
+): string | null {
+  if (typeof rawName !== "string" || !rawName.trim()) return null;
+  const name = rawName.trim();
+  const parsed = parseMcpToolName(name);
+  if (!parsed) return name;
+  if (parsed.serverId !== serverId) return null;
+  return parsed.toolName;
+}
+
+function isVisibleToMcpApp(tool: McpTool): boolean {
+  try {
+    return !isToolVisibilityModelOnly(tool.raw as any);
+  } catch {
+    return true;
+  }
+}
+
+function mcpToolForClient(tool: McpTool) {
+  return {
+    name: tool.originalName,
+    ...(tool.title ? { title: tool.title } : {}),
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+    ...(tool.annotations ? { annotations: tool.annotations } : {}),
+    ...(tool._meta ? { _meta: tool._meta } : {}),
+  };
+}
+
+async function handleMcpAppCallTool(event: H3Event, manager: McpClientManager) {
+  const body = (await readBody(event).catch(() => ({}))) as {
+    serverId?: unknown;
+    toolName?: unknown;
+    arguments?: unknown;
+  };
+  const serverId = typeof body.serverId === "string" ? body.serverId : "";
+  const originalToolName = normalizeSameServerToolName(serverId, body.toolName);
+  if (!serverId || !originalToolName) {
+    setResponseStatus(event, 400);
+    return { error: "serverId and same-server toolName are required" };
+  }
+  const prefixedName = buildMcpToolName(serverId, originalToolName);
+
+  return withMcpAppRequestContext(event, async () => {
+    if (!isMcpToolAllowedForRequest(prefixedName)) {
+      setResponseStatus(event, 403);
+      return { error: "MCP tool is not available in this request scope" };
+    }
+    try {
+      return await manager.callTool(
+        prefixedName,
+        body.arguments && typeof body.arguments === "object"
+          ? (body.arguments as Record<string, unknown>)
+          : {},
+      );
+    } catch (err: any) {
+      setResponseStatus(event, 400);
+      return { error: err?.message ?? "MCP tool call failed" };
+    }
+  });
+}
+
+async function handleMcpAppListTools(
+  event: H3Event,
+  manager: McpClientManager,
+) {
+  const body = (await readBody(event).catch(() => ({}))) as {
+    serverId?: unknown;
+  };
+  const serverId = typeof body.serverId === "string" ? body.serverId : "";
+  if (!serverId) {
+    setResponseStatus(event, 400);
+    return { error: "serverId is required" };
+  }
+  return withMcpAppRequestContext(event, async () => {
+    if (
+      !manager.hasServer(serverId) ||
+      !serverHasVisibleTools(manager, serverId)
+    ) {
+      setResponseStatus(event, 403);
+      return { error: "MCP server is not available in this request scope" };
+    }
+    return {
+      tools: manager
+        .getToolsForServer(serverId)
+        .filter((tool) => isMcpToolAllowedForRequest(tool.name))
+        .filter(isVisibleToMcpApp)
+        .map(mcpToolForClient),
+    };
+  });
+}
+
+async function handleMcpAppReadResource(
+  event: H3Event,
+  manager: McpClientManager,
+) {
+  const body = (await readBody(event).catch(() => ({}))) as {
+    serverId?: unknown;
+    uri?: unknown;
+  };
+  const serverId = typeof body.serverId === "string" ? body.serverId : "";
+  const uri = typeof body.uri === "string" ? body.uri : "";
+  if (!serverId || !uri.startsWith("ui://")) {
+    setResponseStatus(event, 400);
+    return { error: "serverId and ui:// uri are required" };
+  }
+  return withMcpAppRequestContext(event, async () => {
+    if (
+      !manager.hasServer(serverId) ||
+      !serverHasVisibleTools(manager, serverId)
+    ) {
+      setResponseStatus(event, 403);
+      return { error: "MCP server is not available in this request scope" };
+    }
+    try {
+      return await manager.readResource(serverId, uri);
+    } catch (err: any) {
+      setResponseStatus(event, 400);
+      return { error: err?.message ?? "MCP resource read failed" };
+    }
+  });
 }
 
 async function handleBuiltinList(

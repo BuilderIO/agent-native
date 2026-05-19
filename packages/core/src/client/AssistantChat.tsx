@@ -38,6 +38,7 @@ import {
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type {
   ChatThreadScope,
   ChatThreadSnapshot,
@@ -54,6 +55,7 @@ import { useNearBottomAutoscroll } from "./conversation/index.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
+import { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import {
   Tooltip,
@@ -1451,12 +1453,14 @@ function ToolCallDisplay({
   argsText,
   args,
   result,
+  mcpApp,
   isRunning,
 }: {
   toolName: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
+  mcpApp?: AgentMcpAppPayload;
   isRunning: boolean;
 }) {
   const streamRef = useRef<HTMLDivElement>(null);
@@ -1557,6 +1561,7 @@ function ToolCallDisplay({
 
   return (
     <div className="my-1 overflow-hidden">
+      {mcpApp && <McpAppRenderer app={mcpApp} className="mb-1.5" />}
       <button
         onClick={() => canExpand && setExpanded(!isExpanded)}
         aria-expanded={canExpand ? isExpanded : undefined}
@@ -1620,7 +1625,8 @@ function ToolCallFallback({
   args,
   argsText,
   result,
-}: ToolCallMessagePartProps) {
+  ...rest
+}: ToolCallMessagePartProps & { mcpApp?: AgentMcpAppPayload }) {
   const chatRunning = React.useContext(ChatRunningContext);
   const isRunning = result === undefined && chatRunning;
   return (
@@ -1635,6 +1641,7 @@ function ToolCallFallback({
             ? JSON.stringify(result)
             : undefined
       }
+      mcpApp={rest.mcpApp}
       isRunning={isRunning}
     />
   );
@@ -1680,6 +1687,7 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
                 argsText={part.argsText}
                 args={part.args}
                 result={part.result}
+                mcpApp={part.mcpApp}
                 isRunning={part.result === undefined && chatRunning}
               />
             );

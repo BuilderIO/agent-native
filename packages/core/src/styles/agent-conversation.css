@@ -286,6 +286,59 @@
   font-size: 10px;
 }
 
+.agent-mcp-app {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid hsl(var(--border) / 0.9);
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  box-sizing: border-box;
+}
+
+.agent-mcp-app--flush {
+  border-color: transparent;
+  background: transparent;
+}
+
+.agent-mcp-app iframe {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  border: 0;
+  background: transparent;
+}
+
+.agent-mcp-app__loading,
+.agent-mcp-app__error {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px;
+  background: hsl(var(--background) / 0.92);
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+}
+
+.agent-mcp-app__error,
+.agent-mcp-app--error {
+  color: hsl(var(--destructive));
+}
+
+.agent-mcp-app--error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 64px;
+  padding: 12px;
+}
+
 .agent-conversation-notice,
 .agent-conversation-artifact {
   display: flex;

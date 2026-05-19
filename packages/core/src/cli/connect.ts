@@ -36,14 +36,19 @@ import { findWorkspaceRoot } from "../mcp/workspace-resolve.js";
 import {
   CLIENTS,
   ClientId,
+  configPathFor,
+  writeCodexBlock,
   writeHttpEntryForClient,
+  writeJsonMcpEntry,
 } from "./mcp-config-writers.js";
-import { visibleTemplates } from "./templates-meta.js";
+import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
 const DEVICE_START_PATH = "/_agent-native/mcp/connect/device/start";
 const DEVICE_POLL_PATH = "/_agent-native/mcp/connect/device/poll";
 const SERVER_NAME_PREFIX = "agent-native";
 const CONNECT_PREFERENCES_VERSION = 1;
+const CONNECT_PROFILES_VERSION = 1;
+const DEFAULT_DEV_GATEWAY = "http://127.0.0.1:8080";
 
 const CLIENT_LABELS: Record<ClientId, string> = {
   "claude-code": "Claude Code",
@@ -71,6 +76,8 @@ function logErr(msg: string): void {
 // ---------------------------------------------------------------------------
 
 export interface ParsedConnectArgs {
+  /** Developer profile switch: local dev gateway or saved production config. */
+  mode?: "dev" | "prod";
   /** Positional URL (the deployed app origin). Undefined for `--all`. */
   url?: string;
   /** all | claude-code | claude-code-cli | codex | cowork (default "all"). */
@@ -85,6 +92,14 @@ export interface ParsedConnectArgs {
   token?: string;
   /** Connect every first-party hosted app. */
   all: boolean;
+  /** Comma-separated app names for profile switching. */
+  apps?: string;
+  /** Local dev-lazy gateway URL for `connect dev`. */
+  gateway?: string;
+  /** Shorthand for a local dev-lazy gateway port. */
+  port?: number;
+  /** Local owner email override for dev entries. */
+  ownerEmail?: string;
 }
 
 export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
@@ -103,13 +118,21 @@ export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
     };
     let v: string | undefined;
     if (a === "--all") out.all = true;
+    else if ((v = eat("--apps")) !== undefined) out.apps = v;
+    else if ((v = eat("--gateway")) !== undefined) out.gateway = v;
+    else if ((v = eat("--gateway-url")) !== undefined) out.gateway = v;
+    else if ((v = eat("--port")) !== undefined) out.port = Number(v);
+    else if ((v = eat("--owner-email")) !== undefined) out.ownerEmail = v;
     else if ((v = eat("--client")) !== undefined) {
       out.client = v;
       out.clientExplicit = true;
     } else if ((v = eat("--scope")) !== undefined) out.scope = v;
     else if ((v = eat("--name")) !== undefined) out.name = v;
     else if ((v = eat("--token")) !== undefined) out.token = v;
-    else if (!a.startsWith("-") && !out.url) out.url = a;
+    else if (!a.startsWith("-") && !out.url) {
+      if (!out.mode && (a === "dev" || a === "prod")) out.mode = a;
+      else out.url = a;
+    }
   }
   return out;
 }
@@ -465,6 +488,8 @@ export interface ConnectDeps {
   ) => Promise<string[] | null>;
   /** Override the persisted connect preferences file. */
   preferencesFile?: string;
+  /** Override the saved dev/prod profile file. */
+  profilesFile?: string;
 }
 
 function realSleep(ms: number): Promise<void> {
@@ -682,6 +707,615 @@ export function writeConfigs(
 }
 
 // ---------------------------------------------------------------------------
+// Developer profile switcher (`connect dev` / `connect prod`)
+// ---------------------------------------------------------------------------
+
+type SavedMcpEntry =
+  | {
+      kind: "json";
+      entry: Record<string, unknown>;
+      savedAt: string;
+    }
+  | {
+      kind: "codex";
+      block: string;
+      savedAt: string;
+    };
+
+interface ConnectProfiles {
+  version: number;
+  updatedAt?: string;
+  prodEntries?: Record<string, Record<string, Record<string, SavedMcpEntry>>>;
+}
+
+interface CurrentMcpEntry {
+  file: string;
+  saved?: SavedMcpEntry;
+}
+
+interface ConnectableApp extends HostedApp {
+  core: boolean;
+}
+
+export function connectProfilesPath(): string {
+  return path.join(os.homedir(), ".agent-native", "connect-profiles.json");
+}
+
+function readConnectProfiles(file: string): ConnectProfiles {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
+    if (parsed && typeof parsed === "object") {
+      return {
+        version: Number(parsed.version) || CONNECT_PROFILES_VERSION,
+        updatedAt:
+          typeof parsed.updatedAt === "string" ? parsed.updatedAt : undefined,
+        prodEntries:
+          parsed.prodEntries && typeof parsed.prodEntries === "object"
+            ? parsed.prodEntries
+            : {},
+      };
+    }
+  } catch {
+    // no saved profiles yet
+  }
+  return { version: CONNECT_PROFILES_VERSION, prodEntries: {} };
+}
+
+function writeConnectProfiles(file: string, profiles: ConnectProfiles): void {
+  profiles.version = CONNECT_PROFILES_VERSION;
+  profiles.updatedAt = new Date().toISOString();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(profiles, null, 2) + "\n", "utf-8");
+}
+
+function savedProfileEntry(
+  profiles: ConnectProfiles,
+  serverName: string,
+  client: ClientId,
+  file: string,
+): SavedMcpEntry | undefined {
+  return profiles.prodEntries?.[serverName]?.[client]?.[file];
+}
+
+function setSavedProfileEntry(
+  profiles: ConnectProfiles,
+  serverName: string,
+  client: ClientId,
+  file: string,
+  entry: SavedMcpEntry,
+): void {
+  profiles.prodEntries ??= {};
+  profiles.prodEntries[serverName] ??= {};
+  profiles.prodEntries[serverName][client] ??= {};
+  profiles.prodEntries[serverName][client][file] = entry;
+}
+
+function readJsonMcpServerEntry(
+  file: string,
+  serverName: string,
+): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
+    const entry = parsed?.mcpServers?.[serverName];
+    return entry && typeof entry === "object" ? entry : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function tomlQuoteForRead(s: string): string {
+  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function codexHeadersForRead(name: string): string[] {
+  const headers = [`[mcp_servers.${tomlQuoteForRead(name)}]`];
+  if (/^[A-Za-z0-9_-]+$/.test(name)) headers.push(`[mcp_servers.${name}]`);
+  return headers;
+}
+
+function readCodexMcpBlock(
+  file: string,
+  serverName: string,
+): string | undefined {
+  let content = "";
+  try {
+    content = fs.readFileSync(file, "utf-8");
+  } catch {
+    return undefined;
+  }
+  const headers = new Set(codexHeadersForRead(serverName));
+  const lines = content.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    if (!headers.has(lines[i].trim())) continue;
+    const block: string[] = [lines[i]];
+    i++;
+    while (i < lines.length && !/^\s*\[/.test(lines[i])) {
+      block.push(lines[i]);
+      i++;
+    }
+    return block.join("\n").replace(/\n*$/, "") + "\n";
+  }
+  return undefined;
+}
+
+function readCurrentMcpEntry(
+  client: ClientId,
+  serverName: string,
+  baseDir: string,
+  scope: string,
+): CurrentMcpEntry {
+  const file = configPathFor(client, baseDir, scope);
+  if (client === "codex") {
+    const block = readCodexMcpBlock(file, serverName);
+    return {
+      file,
+      saved: block
+        ? { kind: "codex", block, savedAt: new Date().toISOString() }
+        : undefined,
+    };
+  }
+  const entry = readJsonMcpServerEntry(file, serverName);
+  return {
+    file,
+    saved: entry
+      ? { kind: "json", entry, savedAt: new Date().toISOString() }
+      : undefined,
+  };
+}
+
+function writeSavedMcpEntry(
+  client: ClientId,
+  file: string,
+  serverName: string,
+  saved: SavedMcpEntry,
+): void {
+  if (client === "codex") {
+    if (saved.kind !== "codex") return;
+    writeCodexBlock(file, serverName, saved.block);
+    return;
+  }
+  if (saved.kind !== "json") return;
+  writeJsonMcpEntry(file, serverName, saved.entry);
+}
+
+function unescapeTomlString(value: string): string {
+  return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
+function parseCodexHeaders(block: string): Record<string, string> {
+  const line = block
+    .split(/\r?\n/)
+    .find((candidate) => /^\s*http_headers\s*=/.test(candidate));
+  if (!line) return {};
+  const match = line.match(/\{(.*)\}/);
+  if (!match) return {};
+  const headers: Record<string, string> = {};
+  const pairRe = /"((?:\\.|[^"])*)"\s*=\s*"((?:\\.|[^"])*)"/g;
+  let pair: RegExpExecArray | null;
+  while ((pair = pairRe.exec(match[1]))) {
+    headers[unescapeTomlString(pair[1])] = unescapeTomlString(pair[2]);
+  }
+  return headers;
+}
+
+function savedEntryUrl(saved: SavedMcpEntry | undefined): string | undefined {
+  if (!saved) return undefined;
+  if (saved.kind === "json") {
+    return typeof saved.entry.url === "string" ? saved.entry.url : undefined;
+  }
+  const match = saved.block.match(/^\s*url\s*=\s*"((?:\\.|[^"])*)"/m);
+  return match ? unescapeTomlString(match[1]) : undefined;
+}
+
+function savedEntryHeaders(
+  saved: SavedMcpEntry | undefined,
+): Record<string, string> {
+  if (!saved) return {};
+  if (saved.kind === "json") {
+    const headers = saved.entry.headers;
+    return headers && typeof headers === "object"
+      ? Object.fromEntries(
+          Object.entries(headers as Record<string, unknown>)
+            .filter((entry): entry is [string, string] => {
+              return typeof entry[1] === "string";
+            })
+            .map(([key, value]) => [key, value]),
+        )
+      : {};
+  }
+  return parseCodexHeaders(saved.block);
+}
+
+function isLoopbackMcpUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return (
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "::1" ||
+      url.hostname.startsWith("127.")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function decodeJwtSub(authHeader: string | undefined): string | undefined {
+  if (!authHeader?.startsWith("Bearer ")) return undefined;
+  const token = authHeader.slice("Bearer ".length);
+  const [, payload] = token.split(".");
+  if (!payload) return undefined;
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      "=",
+    );
+    const parsed = JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
+    return typeof parsed.sub === "string" && parsed.sub.includes("@")
+      ? parsed.sub
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function ownerEmailFromEntry(
+  saved: SavedMcpEntry | undefined,
+): string | undefined {
+  const headers = savedEntryHeaders(saved);
+  return (
+    headers["X-Agent-Native-Owner-Email"] || decodeJwtSub(headers.Authorization)
+  );
+}
+
+function readEnvFile(file: string): string {
+  try {
+    return fs.readFileSync(file, "utf-8");
+  } catch {
+    return "";
+  }
+}
+
+function readEnvValue(content: string, key: string): string | undefined {
+  let found: string | undefined;
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
+    if (match?.[1] === key) {
+      found = match[2].replace(/^["']|["']$/g, "");
+    }
+  }
+  return found;
+}
+
+function workspaceEnvContent(baseDir: string): string {
+  return (
+    readEnvFile(path.join(baseDir, ".env.local")) +
+    "\n" +
+    readEnvFile(path.join(baseDir, ".env"))
+  );
+}
+
+function localAccessToken(baseDir: string): string | undefined {
+  const content = workspaceEnvContent(baseDir);
+  const single = readEnvValue(content, "ACCESS_TOKEN");
+  if (single) return single;
+  const multi = readEnvValue(content, "ACCESS_TOKENS");
+  return multi
+    ?.split(",")
+    .map((token) => token.trim())
+    .find(Boolean);
+}
+
+function localA2ASecret(baseDir: string): string | undefined {
+  return (
+    process.env.A2A_SECRET ||
+    readEnvValue(workspaceEnvContent(baseDir), "A2A_SECRET")
+  );
+}
+
+async function mintLocalA2AToken(
+  ownerEmail: string | undefined,
+  baseDir: string,
+): Promise<string | undefined> {
+  const secret = ownerEmail ? localA2ASecret(baseDir) : undefined;
+  if (!secret) return undefined;
+  const jose = await import("jose");
+  return new jose.SignJWT({ sub: ownerEmail })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuer("agent-native-connect-dev")
+    .setIssuedAt()
+    .setExpirationTime("30d")
+    .sign(new TextEncoder().encode(secret));
+}
+
+async function devHeadersForApp(params: {
+  ownerEmail?: string;
+  sourceEntry?: SavedMcpEntry;
+  baseDir: string;
+}): Promise<Record<string, string> | undefined> {
+  const ownerEmail =
+    params.ownerEmail ||
+    process.env.AGENT_NATIVE_OWNER_EMAIL ||
+    ownerEmailFromEntry(params.sourceEntry);
+  const headers: Record<string, string> = {};
+  const accessToken = localAccessToken(params.baseDir);
+  const a2aToken = accessToken
+    ? undefined
+    : await mintLocalA2AToken(ownerEmail, params.baseDir);
+  if (accessToken || a2aToken) {
+    headers.Authorization = `Bearer ${accessToken || a2aToken}`;
+  }
+  if (ownerEmail) {
+    headers["X-Agent-Native-Owner-Email"] = ownerEmail;
+  }
+  return Object.keys(headers).length ? headers : undefined;
+}
+
+function connectableApps(includeHidden = false): ConnectableApp[] {
+  const source = includeHidden ? TEMPLATES : visibleTemplates();
+  return source
+    .filter((template) => typeof template.prodUrl === "string")
+    .map((template) => ({
+      name: template.name,
+      label: template.label,
+      url: template.prodUrl as string,
+      core: !!template.core,
+    }));
+}
+
+function profileDefaultApps(): ConnectableApp[] {
+  const core = connectableApps(false).filter((app) => app.core);
+  return core.length ? core : connectableApps(false);
+}
+
+function parseAppsList(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((app) => app.trim())
+    .filter(Boolean);
+}
+
+async function resolveProfileApps(
+  parsed: ParsedConnectArgs,
+  deps: ConnectDeps,
+): Promise<ConnectableApp[] | null> {
+  const allVisible = connectableApps(false);
+  const allIncludingHidden = connectableApps(true);
+
+  if (parsed.apps) {
+    const requested = parseAppsList(parsed.apps);
+    if (requested.includes("all")) return allVisible;
+    const byName = new Map(allIncludingHidden.map((app) => [app.name, app]));
+    const unknown = requested.filter((name) => !byName.has(name));
+    if (unknown.length) {
+      throw new Error(
+        `Unknown app(s): ${unknown.join(", ")}. Known apps: ${allIncludingHidden
+          .map((app) => app.name)
+          .join(", ")}`,
+      );
+    }
+    return requested.map((name) => byName.get(name)!);
+  }
+
+  if (parsed.all) return allVisible;
+
+  if (shouldPrompt(deps)) {
+    const prompt = deps.promptHostedApps ?? promptForHostedApps;
+    const initialApps = profileDefaultApps().map((app) => app.name);
+    const selectedNames = normalizeHostedAppNames(
+      await prompt({ apps: allVisible, initialApps }),
+      allVisible,
+    );
+    if (selectedNames.length === 0) return [];
+    const selected = new Set(selectedNames);
+    return allVisible.filter((app) => selected.has(app.name));
+  }
+
+  return profileDefaultApps();
+}
+
+function defaultDevGateway(): string {
+  if (process.env.WORKSPACE_GATEWAY_URL)
+    return process.env.WORKSPACE_GATEWAY_URL;
+  const port = process.env.WORKSPACE_PORT || process.env.PORT;
+  return port ? `http://127.0.0.1:${port}` : DEFAULT_DEV_GATEWAY;
+}
+
+function normalizeDevGateway(parsed: ParsedConnectArgs): string {
+  const raw =
+    parsed.gateway ||
+    (Number.isFinite(parsed.port) && parsed.port
+      ? `http://127.0.0.1:${parsed.port}`
+      : defaultDevGateway());
+  const normalized = normalizeUrl(raw);
+  return normalized.replace(/\/+$/, "");
+}
+
+async function gatewayAppUrls(
+  gatewayUrl: string,
+  deps: ConnectDeps,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  try {
+    const response = await fetchImpl(`${gatewayUrl}/_workspace/apps`, {
+      signal: AbortSignal.timeout(1200),
+    });
+    if (!response.ok) return out;
+    const apps = (await response.json()) as unknown;
+    if (!Array.isArray(apps)) return out;
+    for (const app of apps) {
+      if (!app || typeof app !== "object") continue;
+      const id = (app as { id?: unknown }).id;
+      const url = (app as { url?: unknown }).url;
+      if (typeof id === "string" && typeof url === "string") {
+        out.set(id, normalizeUrl(url));
+      }
+    }
+  } catch {
+    // The gateway may not be running yet; still write deterministic dev URLs.
+  }
+  return out;
+}
+
+function devMcpUrl(
+  app: ConnectableApp,
+  gatewayUrl: string,
+  gatewayUrls: Map<string, string>,
+): string {
+  const base = gatewayUrls.get(app.name) ?? `${gatewayUrl}/${app.name}`;
+  return `${base.replace(/\/+$/, "")}/_agent-native/mcp`;
+}
+
+function serverNameForApp(app: ConnectableApp): string {
+  return `${SERVER_NAME_PREFIX}-${app.name}`;
+}
+
+async function connectDevProfile(
+  parsed: ParsedConnectArgs,
+  clients: ClientId[],
+  deps: ConnectDeps,
+): Promise<boolean> {
+  const apps = await resolveProfileApps(parsed, deps);
+  if (!apps || apps.length === 0) return true;
+
+  const baseDir = projectBaseDir();
+  const scope = parsed.scope === "project" ? "project" : "user";
+  const gatewayUrl = normalizeDevGateway(parsed);
+  const gatewayUrls = await gatewayAppUrls(gatewayUrl, deps);
+  const profilesFile = deps.profilesFile ?? connectProfilesPath();
+  const profiles = readConnectProfiles(profilesFile);
+  const rows: { app: string; client: string; status: string; file: string }[] =
+    [];
+  const ownerWarnings = new Set<string>();
+
+  for (const app of apps) {
+    const serverName = serverNameForApp(app);
+    const mcpUrl = devMcpUrl(app, gatewayUrl, gatewayUrls);
+
+    for (const client of clients) {
+      const current = readCurrentMcpEntry(client, serverName, baseDir, scope);
+      const backup = savedProfileEntry(
+        profiles,
+        serverName,
+        client,
+        current.file,
+      );
+      if (current.saved && !isLoopbackMcpUrl(savedEntryUrl(current.saved))) {
+        setSavedProfileEntry(
+          profiles,
+          serverName,
+          client,
+          current.file,
+          current.saved,
+        );
+      }
+      const sourceEntry =
+        current.saved && !isLoopbackMcpUrl(savedEntryUrl(current.saved))
+          ? current.saved
+          : backup;
+      const headers = await devHeadersForApp({
+        ownerEmail: parsed.ownerEmail,
+        sourceEntry,
+        baseDir,
+      });
+      if (!headers?.["X-Agent-Native-Owner-Email"]) {
+        ownerWarnings.add(app.name);
+      }
+      const file = writeHttpEntryForClient(
+        client,
+        serverName,
+        mcpUrl,
+        undefined,
+        baseDir,
+        scope,
+        headers,
+      );
+      rows.push({
+        app: app.name,
+        client,
+        status: "dev",
+        file,
+      });
+    }
+  }
+
+  writeConnectProfiles(profilesFile, profiles);
+
+  logOut("");
+  logOut(`  Switched ${apps.length} app(s) to dev via ${gatewayUrl}`);
+  for (const row of rows) {
+    logOut(`    ${row.app.padEnd(12)} ${row.client.padEnd(18)} ${row.file}`);
+  }
+  if (ownerWarnings.size) {
+    logOut("");
+    logOut(
+      `  Tip: pass --owner-email <you@example.com> if local tools look sparse ` +
+        `for ${Array.from(ownerWarnings).join(", ")}.`,
+    );
+  }
+  logOut("");
+  logOut("  Restart your coding agent to pick up the dev MCP servers.");
+  return true;
+}
+
+async function connectProdProfile(
+  parsed: ParsedConnectArgs,
+  clients: ClientId[],
+  deps: ConnectDeps,
+): Promise<boolean> {
+  const apps = await resolveProfileApps(parsed, deps);
+  if (!apps || apps.length === 0) return true;
+
+  const baseDir = projectBaseDir();
+  const scope = parsed.scope === "project" ? "project" : "user";
+  const profilesFile = deps.profilesFile ?? connectProfilesPath();
+  const profiles = readConnectProfiles(profilesFile);
+  const restored: { app: string; client: string; file: string }[] = [];
+  const missing: { app: string; client: string }[] = [];
+
+  for (const app of apps) {
+    const serverName = serverNameForApp(app);
+    for (const client of clients) {
+      const file = configPathFor(client, baseDir, scope);
+      const saved = savedProfileEntry(profiles, serverName, client, file);
+      if (!saved) {
+        missing.push({ app: app.name, client });
+        continue;
+      }
+      writeSavedMcpEntry(client, file, serverName, saved);
+      restored.push({ app: app.name, client, file });
+    }
+  }
+
+  logOut("");
+  if (restored.length) {
+    logOut(
+      `  Restored ${restored.length} production MCP entr${restored.length === 1 ? "y" : "ies"}.`,
+    );
+    for (const row of restored) {
+      logOut(`    ${row.app.padEnd(12)} ${row.client.padEnd(18)} ${row.file}`);
+    }
+  }
+  if (missing.length) {
+    logOut("");
+    logOut("  No saved production entry for:");
+    for (const row of missing) {
+      const app = apps.find((candidate) => candidate.name === row.app);
+      logOut(
+        `    ${row.app.padEnd(12)} ${row.client.padEnd(18)} ` +
+          `run: agent-native connect ${app?.url ?? "<url>"} --client ${row.client}`,
+      );
+    }
+  }
+  logOut("");
+  logOut("  Restart your coding agent to pick up the production MCP servers.");
+  return missing.length === 0;
+}
+
+// ---------------------------------------------------------------------------
 // Single-app connect
 // ---------------------------------------------------------------------------
 
@@ -828,6 +1462,14 @@ Usage:
   agent-native connect --all [--client <c>] [--scope user|project]
       Connect every first-party hosted app at once.
 
+Developer:
+  agent-native connect dev [--apps mail,calendar] [--client <c>]
+      Switch selected first-party MCP entries to a local dev-lazy gateway.
+      Defaults to ${DEFAULT_DEV_GATEWAY}; override with --gateway or --port.
+
+  agent-native connect prod [--apps mail,calendar] [--client <c>]
+      Restore production MCP entries saved before the dev switch.
+
 Clients:  all (default), claude-code, claude-code-cli, codex, cowork
 Scope:    user (default, ~/.claude.json) or project (.mcp.json)`;
 
@@ -851,6 +1493,17 @@ export async function runConnect(
   const parsed = parseConnectArgs(args);
 
   try {
+    if (parsed.mode) {
+      const clients = await resolveConnectClients(parsed, deps);
+      if (!clients) return;
+      const ok =
+        parsed.mode === "dev"
+          ? await connectDevProfile(parsed, clients, deps)
+          : await connectProdProfile(parsed, clients, deps);
+      if (!ok) process.exitCode = 1;
+      return;
+    }
+
     if (parsed.all) {
       const clients = await resolveConnectClients(parsed, deps);
       if (!clients) return;

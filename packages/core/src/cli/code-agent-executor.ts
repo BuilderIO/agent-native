@@ -222,6 +222,7 @@ export async function executeCodeAgentRun(
           type: "tool_done",
           tool: event.tool,
           result: truncateCodingOutput(event.result, 4000),
+          ...(event.mcpApp ? { mcpApp: event.mcpApp } : {}),
         },
       });
       return;

@@ -4,20 +4,30 @@ import {
   parseMcpToolName,
   MCP_TOOL_PREFIX,
 } from "./manager.js";
+import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
 
 // Fake MCP Client + StdioClientTransport. These stand in for the real
 // @modelcontextprotocol/sdk exports via vi.mock below.
 
 type FakeTool = {
   name: string;
+  title?: string;
   description?: string;
   inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  annotations?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
 };
 
 const serverFixtures: Record<
   string,
-  { tools: FakeTool[]; callImpl: (name: string, args: any) => any }
+  {
+    tools: FakeTool[];
+    callImpl: (name: string, args: any) => any;
+    readResourceImpl?: (uri: string) => any;
+  }
 > = {};
+const fakeClients: FakeClient[] = [];
 
 class FakeClient {
   onerror?: (error: unknown) => void;
@@ -25,7 +35,9 @@ class FakeClient {
   constructor(
     public info: any,
     public capabilities: any,
-  ) {}
+  ) {
+    fakeClients.push(this);
+  }
   async connect(transport: FakeTransport) {
     this.transport = transport;
   }
@@ -37,6 +49,11 @@ class FakeClient {
     const spec = serverFixtures[this.transport!.key];
     if (!spec) throw new Error(`No fixture for ${this.transport!.key}`);
     return spec.callImpl(name, args);
+  }
+  async readResource({ uri }: { uri: string }) {
+    const spec = serverFixtures[this.transport!.key];
+    if (!spec?.readResourceImpl) throw new Error("resources/read unsupported");
+    return spec.readResourceImpl(uri);
   }
   async close() {
     this.transport?.close();
@@ -100,6 +117,7 @@ describe("parseMcpToolName", () => {
 describe("McpClientManager", () => {
   beforeEach(() => {
     for (const k of Object.keys(serverFixtures)) delete serverFixtures[k];
+    fakeClients.length = 0;
   });
 
   it("is disabled when config is null", async () => {
@@ -150,6 +168,82 @@ describe("McpClientManager", () => {
       "mcp__chrome__navigate",
       "mcp__fs__read",
     ]);
+    expect(fakeClients[0]?.capabilities.capabilities.extensions).toEqual({
+      [MCP_APP_EXTENSION_ID]: {
+        mimeTypes: [MCP_APP_MIME_TYPE],
+      },
+    });
+  });
+
+  it("preserves full MCP tool metadata from listTools", async () => {
+    serverFixtures["apps-bin"] = {
+      tools: [
+        {
+          name: "show_chart",
+          title: "Show chart",
+          description: "Render a chart",
+          inputSchema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+          },
+          outputSchema: {
+            type: "object",
+            properties: { ok: { type: "boolean" } },
+          },
+          annotations: { readOnlyHint: true },
+          _meta: { ui: { resourceUri: "ui://apps/chart" } },
+        },
+      ],
+      callImpl: () => ({ content: [] }),
+    };
+    const mgr = new McpClientManager({
+      servers: { apps: { command: "apps-bin" } },
+    });
+    await mgr.start();
+
+    const [tool] = mgr.getTools();
+    expect(tool).toMatchObject({
+      name: "mcp__apps__show_chart",
+      originalName: "show_chart",
+      title: "Show chart",
+      outputSchema: { type: "object", properties: { ok: { type: "boolean" } } },
+      annotations: { readOnlyHint: true },
+      _meta: { ui: { resourceUri: "ui://apps/chart" } },
+    });
+    expect(tool.raw).toMatchObject({
+      _meta: { ui: { resourceUri: "ui://apps/chart" } },
+    });
+  });
+
+  it("reads ui:// resources from the owning MCP server", async () => {
+    serverFixtures["apps-bin"] = {
+      tools: [{ name: "show" }],
+      callImpl: () => ({ content: [] }),
+      readResourceImpl: (uri) => ({
+        contents: [
+          { uri, mimeType: "text/html;profile=mcp-app", text: "<p>hi</p>" },
+        ],
+      }),
+    };
+    const mgr = new McpClientManager({
+      servers: { apps: { command: "apps-bin" } },
+    });
+    await mgr.start();
+
+    await expect(
+      mgr.readResource("apps", "file:///etc/passwd"),
+    ).rejects.toThrow(/Only ui:\/\//);
+    await expect(
+      mgr.readResourceForTool("mcp__apps__show", "ui://apps/show"),
+    ).resolves.toEqual({
+      contents: [
+        {
+          uri: "ui://apps/show",
+          mimeType: "text/html;profile=mcp-app",
+          text: "<p>hi</p>",
+        },
+      ],
+    });
   });
 
   it("routes callTool to the correct server and returns its raw result", async () => {

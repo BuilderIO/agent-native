@@ -14,6 +14,7 @@ export {
 
 export {
   McpClientManager,
+  buildMcpToolName,
   parseMcpToolName,
   MCP_TOOL_PREFIX,
   type McpTool,
@@ -75,6 +76,26 @@ export { fetchHubServers } from "./hub-client.js";
 
 export { isMcpToolAllowedForRequest } from "./visibility.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
+export {
+  MCP_ACTION_RESULT_MARKER,
+  isMcpActionResult,
+  type AgentMcpAppPayload,
+  type AgentMcpAppResourceContent,
+  type McpActionResult,
+} from "./app-result.js";
+import {
+  MCP_ACTION_RESULT_MARKER,
+  toolForMcpAppPayload,
+  type AgentMcpAppPayload,
+  type AgentMcpAppResourceContent,
+  type McpActionResult,
+} from "./app-result.js";
+import {
+  getToolUiResourceUri,
+  isToolVisibilityAppOnly,
+  isToolVisibilityModelOnly,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
+import { MCP_APP_MIME_TYPE } from "../action.js";
 
 /**
  * Convert MCP tools into `ActionEntry` values suitable for registration in
@@ -88,7 +109,7 @@ export function mcpToolsToActionEntries(
   manager: McpClientManager,
 ): Record<string, ActionEntry> {
   const entries: Record<string, ActionEntry> = {};
-  for (const tool of manager.getTools()) {
+  for (const tool of manager.getTools().filter(isVisibleToModel)) {
     entries[tool.name] = mcpToolToActionEntry(manager, tool);
   }
   return entries;
@@ -108,7 +129,7 @@ export function syncMcpActionEntries(
   target: Record<string, ActionEntry>,
 ): void {
   const current = new Set<string>();
-  for (const tool of manager.getTools()) {
+  for (const tool of manager.getTools().filter(isVisibleToModel)) {
     current.add(tool.name);
     if (!target[tool.name]) {
       target[tool.name] = mcpToolToActionEntry(manager, tool);
@@ -140,30 +161,221 @@ function mcpToolToActionEntry(
       }
       try {
         const result = await manager.callTool(tool.name, args);
-        // MCP tool results are typically `{ content: [{ type: "text", text: ... }], isError? }`.
-        // Flatten text content for the agent's string-based tool result slot.
-        if (
-          result &&
-          typeof result === "object" &&
-          Array.isArray((result as any).content)
-        ) {
-          const parts = (result as any).content as Array<Record<string, any>>;
-          const text = parts
-            .map((p) => {
-              if (p?.type === "text" && typeof p.text === "string")
-                return p.text;
-              if (p?.type === "image")
-                return `[image: ${p?.mimeType ?? "unknown"}]`;
-              return JSON.stringify(p);
-            })
-            .join("\n");
-          if ((result as any).isError) return `Error: ${text}`;
-          return text || "(no output)";
-        }
-        return typeof result === "string" ? result : JSON.stringify(result);
+        return await buildMcpActionResult(manager, tool, args, result);
       } catch (err: any) {
         return `Error calling MCP tool ${tool.name}: ${err?.message ?? err}`;
       }
     },
   };
+}
+
+function isVisibleToModel(tool: McpTool): boolean {
+  try {
+    return !isToolVisibilityAppOnly(tool.raw as any);
+  } catch {
+    return true;
+  }
+}
+
+export function isVisibleToMcpApp(tool: McpTool): boolean {
+  try {
+    return !isToolVisibilityModelOnly(tool.raw as any);
+  } catch {
+    return true;
+  }
+}
+
+export function flattenMcpToolResult(result: unknown): string {
+  if (
+    result &&
+    typeof result === "object" &&
+    Array.isArray((result as any).content)
+  ) {
+    const parts = (result as any).content as Array<Record<string, any>>;
+    const text = parts.map(formatMcpContentPart).join("\n");
+    const fallback =
+      text ||
+      (hasStructuredContent(result)
+        ? JSON.stringify((result as any).structuredContent, null, 2)
+        : "(no output)");
+    if ((result as any).isError) return `Error: ${fallback}`;
+    return fallback;
+  }
+  return typeof result === "string" ? result : JSON.stringify(result);
+}
+
+function formatMcpContentPart(part: Record<string, any>): string {
+  if (part?.type === "text" && typeof part.text === "string") {
+    return part.text;
+  }
+  if (part?.type === "image") {
+    return `[image: ${part?.mimeType ?? "unknown"}]`;
+  }
+  if (part?.type === "resource") {
+    const resource = part.resource ?? {};
+    const uri = typeof resource.uri === "string" ? ` ${resource.uri}` : "";
+    return `[resource: ${resource.mimeType ?? "unknown"}${uri}]`;
+  }
+  if (part?.type === "resource_link") {
+    const uri = typeof part.uri === "string" ? ` ${part.uri}` : "";
+    return `[resource: ${part.mimeType ?? "unknown"}${uri}]`;
+  }
+  return JSON.stringify(part);
+}
+
+function hasStructuredContent(result: unknown): boolean {
+  return (
+    !!result &&
+    typeof result === "object" &&
+    Object.prototype.hasOwnProperty.call(result, "structuredContent")
+  );
+}
+
+async function buildMcpActionResult(
+  manager: McpClientManager,
+  tool: McpTool,
+  input: Record<string, unknown>,
+  raw: unknown,
+): Promise<McpActionResult> {
+  const text = flattenMcpToolResult(raw);
+  const mcpApp = await extractMcpAppPayload(manager, tool, input, raw);
+  return {
+    [MCP_ACTION_RESULT_MARKER]: true,
+    text,
+    raw,
+    serverId: tool.source,
+    toolName: tool.name,
+    originalToolName: tool.originalName,
+    input,
+    ...(mcpApp ? { mcpApp } : {}),
+  };
+}
+
+async function extractMcpAppPayload(
+  manager: McpClientManager,
+  tool: McpTool,
+  input: Record<string, unknown>,
+  raw: unknown,
+): Promise<AgentMcpAppPayload | undefined> {
+  const inlineResource = findInlineMcpAppResource(raw);
+  const resourceUri =
+    inlineResource?.uri ??
+    resourceUriFromTool(tool) ??
+    resourceUriFromResult(raw);
+  if (!resourceUri) return undefined;
+
+  const resource =
+    inlineResource ?? (await readMcpAppResource(manager, tool, resourceUri));
+
+  return {
+    serverId: tool.source,
+    toolName: tool.name,
+    originalToolName: tool.originalName,
+    resourceUri,
+    toolInput: input,
+    toolResult:
+      raw && typeof raw === "object"
+        ? ({ ...(raw as Record<string, unknown>) } as Record<string, unknown>)
+        : { content: [{ type: "text", text: String(raw ?? "") }] },
+    tool: toolForMcpAppPayload(tool),
+    ...(resource ? { resource } : {}),
+  };
+}
+
+function resourceUriFromTool(tool: McpTool): string | undefined {
+  try {
+    return getToolUiResourceUri(tool.raw as any);
+  } catch {
+    return undefined;
+  }
+}
+
+function resourceUriFromResult(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const meta = (raw as any)._meta;
+  const nested = meta?.ui?.resourceUri;
+  if (typeof nested === "string" && nested.startsWith("ui://")) return nested;
+  const flat = meta?.["ui/resourceUri"] ?? meta?.["ui.resourceUri"];
+  if (typeof flat === "string" && flat.startsWith("ui://")) return flat;
+  return findInlineMcpAppResource(raw)?.uri;
+}
+
+function findInlineMcpAppResource(
+  raw: unknown,
+): AgentMcpAppResourceContent | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const content = Array.isArray((raw as any).content)
+    ? ((raw as any).content as unknown[])
+    : [];
+  for (const part of content) {
+    const resource = normalizeMcpAppResourceContent(part);
+    if (resource) return resource;
+  }
+  return undefined;
+}
+
+function normalizeMcpAppResourceContent(
+  part: unknown,
+): AgentMcpAppResourceContent | undefined {
+  if (!part || typeof part !== "object") return undefined;
+  const candidate =
+    (part as any).type === "resource"
+      ? (part as any).resource
+      : ((part as any).resource ?? part);
+  if (!candidate || typeof candidate !== "object") return undefined;
+  const uri = (candidate as any).uri;
+  if (typeof uri !== "string" || !uri.startsWith("ui://")) return undefined;
+  const mimeType =
+    typeof (candidate as any).mimeType === "string"
+      ? (candidate as any).mimeType
+      : undefined;
+  if (mimeType && !mimeType.includes(MCP_APP_MIME_TYPE)) return undefined;
+  const text =
+    typeof (candidate as any).text === "string"
+      ? (candidate as any).text
+      : undefined;
+  const blob =
+    typeof (candidate as any).blob === "string"
+      ? (candidate as any).blob
+      : undefined;
+  const meta =
+    (candidate as any)._meta && typeof (candidate as any)._meta === "object"
+      ? ((candidate as any)._meta as Record<string, unknown>)
+      : (part as any)._meta && typeof (part as any)._meta === "object"
+        ? ((part as any)._meta as Record<string, unknown>)
+        : undefined;
+  return {
+    uri,
+    ...(mimeType ? { mimeType } : {}),
+    ...(text ? { text } : {}),
+    ...(blob ? { blob } : {}),
+    ...(meta ? { _meta: meta } : {}),
+  };
+}
+
+async function readMcpAppResource(
+  manager: McpClientManager,
+  tool: McpTool,
+  resourceUri: string,
+): Promise<AgentMcpAppResourceContent | undefined> {
+  try {
+    const result = await manager.readResourceForTool(tool.name, resourceUri);
+    const contents = Array.isArray((result as any)?.contents)
+      ? ((result as any).contents as unknown[])
+      : [];
+    for (const content of contents) {
+      const resource = normalizeMcpAppResourceContent(content);
+      if (
+        resource?.uri === resourceUri ||
+        (resource && contents.length === 1)
+      ) {
+        return resource;
+      }
+    }
+  } catch (err: any) {
+    console.warn(
+      `[mcp-client] Failed to read MCP App resource ${resourceUri}: ${err?.message ?? err}`,
+    );
+  }
+  return undefined;
 }

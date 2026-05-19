@@ -201,7 +201,7 @@ See [Context Awareness](/docs/context-awareness) for the full pattern: navigatio
 Every action you define automatically becomes available over multiple protocols — you don't pick one. The framework runs both an MCP server and an A2A peer for your app, with actions feeding both.
 
 - **Actions first.** Write the logic once as an action. Use `fetch()` and any SDK you want inside — no wrapper layer.
-- **MCP for the outside world.** Your actions show up as MCP tools to Claude Desktop, ChatGPT's remote-MCP support, and any other MCP client. Your app also _consumes_ MCP servers — local, remote, or from a workspace hub. See [MCP Clients](/docs/mcp-clients) and [MCP Protocol](/docs/mcp-protocol).
+- **MCP for the outside world.** Your actions show up as MCP tools to Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, and any other MCP client. Actions can also expose MCP Apps UI resources so compatible hosts render inline review/edit surfaces, with deep links back to the full app as the universal fallback. Your app also _consumes_ MCP servers — local, remote, or from a workspace hub. See [External Agents](/docs/external-agents), [MCP Clients](/docs/mcp-clients), and [MCP Protocol](/docs/mcp-protocol).
 - **A2A for other agents.** Other agent-native apps discover and call your actions over [A2A](/docs/a2a-protocol) — same-origin deploys skip JWT entirely.
 - **CLIs still work.** `pnpm action <name>` and direct shell tools (`ffmpeg`, `gh`, `aws`) remain available whenever they're the simplest path.
 

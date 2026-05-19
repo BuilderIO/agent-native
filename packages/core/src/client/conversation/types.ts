@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 
 export interface AgentConversationAttachment {
   name: string;
@@ -22,6 +23,7 @@ export interface AgentConversationToolCall {
   state: AgentConversationToolState;
   input?: string;
   result?: string;
+  mcpApp?: AgentMcpAppPayload;
   summary?: string;
 }
 

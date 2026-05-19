@@ -26,8 +26,9 @@ import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useSettings } from "@/hooks/use-settings";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { setUndoAction } from "@/hooks/use-undo";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { agentNativePath, sendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
+import type { CalendarEventDraft } from "@shared/api";
 import {
   AttendeeAutocomplete,
   type AttendeeAutocompleteHandle,
@@ -54,12 +55,14 @@ import {
   ReminderControls,
 } from "@/components/calendar/EventOptionControls";
 import {
+  attachmentsToDrafts,
   buildReminderPayload,
   createAttachmentDraft,
   createReminderDraft,
   dateTimeInTimezoneToIso,
   getEventEndValidationMessage,
   getLocalTimezone,
+  remindersToDraftState,
   type AttachmentDraft,
   type ReminderDraft,
   type ReminderMode,
@@ -107,12 +110,74 @@ function uniqueAttendees(attendees: AttendeeRecipient[]) {
   return Array.from(byEmail.values());
 }
 
+function dateTimePartsInTimezone(value: string, timezone: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).formatToParts(parsed);
+    const values = new Map(parts.map((part) => [part.type, part.value]));
+    const year = values.get("year");
+    const month = values.get("month");
+    const day = values.get("day");
+    const hour = values.get("hour");
+    const minute = values.get("minute");
+    if (!year || !month || !day || !hour || !minute) return null;
+    return {
+      date: `${year}-${month}-${day}`,
+      time: `${hour}:${minute}`,
+    };
+  } catch {
+    return {
+      date: format(parsed, "yyyy-MM-dd"),
+      time: format(parsed, "HH:mm"),
+    };
+  }
+}
+
+function allDayEndDate(end: string | undefined, fallback: string) {
+  if (!end) return fallback;
+  const parsed = new Date(end);
+  if (Number.isNaN(parsed.getTime())) return fallback;
+  parsed.setDate(parsed.getDate() - 1);
+  const value = format(parsed, "yyyy-MM-dd");
+  return value < fallback ? fallback : value;
+}
+
+function safeDraftId(id: string | undefined): string | null {
+  return id && /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
+}
+
+function deletePersistedDraft(id: string) {
+  const safeId = safeDraftId(id);
+  if (!safeId) return;
+  fetch(
+    agentNativePath(
+      `/_agent-native/application-state/calendar-draft-${safeId}`,
+    ),
+    {
+      method: "DELETE",
+      headers: { "X-Agent-Native-CSRF": "1" },
+    },
+  ).catch(() => {});
+}
+
 interface CreateEventPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultDate?: Date;
   defaultStartTime?: string;
   defaultEndTime?: string;
+  draft?: CalendarEventDraft | null;
+  onDraftChange?: (draft: CalendarEventDraft) => void;
+  onDraftCreated?: (draftId: string) => void;
 }
 
 export function CreateEventPopover({
@@ -121,6 +186,9 @@ export function CreateEventPopover({
   defaultDate,
   defaultStartTime: defaultStart,
   defaultEndTime: defaultEnd,
+  draft,
+  onDraftChange,
+  onDraftCreated,
 }: CreateEventPopoverProps) {
   const today = defaultDate || new Date();
   const defaultDateStr = format(today, "yyyy-MM-dd");
@@ -165,32 +233,200 @@ export function CreateEventPopover({
   const connectZoom = useConnectZoom();
   const formRef = useRef<HTMLFormElement>(null);
   const attendeeAutocompleteRef = useRef<AttendeeAutocompleteHandle>(null);
+  const initializedKeyRef = useRef<string | null>(null);
 
-  // Reset form when popover opens
   useEffect(() => {
-    if (open) {
-      setTitle("");
-      setDescription("");
-      const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
-      setDate(nextDate);
-      setEndDate(nextDate);
-      setStartTime(defaultStart || fallbackStart);
-      setEndTime(defaultEnd || fallbackEnd);
-      setLocation("");
-      setAllDay(false);
-      setEventType("default");
-      setAvailability("opaque");
-      setVisibility("default");
-      setTimezone(getLocalTimezone());
-      setColorId(undefined);
-      setReminderMode("default");
-      setReminders([createReminderDraft()]);
-      setAttachments([createAttachmentDraft()]);
-      setWorkingLocationType("customLocation");
-      setVideoProvider("none");
-      setAttendees([]);
+    if (!open) {
+      initializedKeyRef.current = null;
+      return;
     }
-  }, [open, defaultDate, defaultStart, defaultEnd, fallbackStart, fallbackEnd]);
+
+    const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
+    const initKey = draft?.id
+      ? `draft:${draft.id}`
+      : `new:${nextDate}:${defaultStart || fallbackStart}:${defaultEnd || fallbackEnd}`;
+    if (initializedKeyRef.current === initKey) return;
+    initializedKeyRef.current = initKey;
+
+    if (draft) {
+      const draftTimezone =
+        draft.startTimeZone || draft.endTimeZone || getLocalTimezone();
+      const startParts = draft.start
+        ? dateTimePartsInTimezone(draft.start, draftTimezone)
+        : null;
+      const endParts = draft.end
+        ? dateTimePartsInTimezone(draft.end, draft.endTimeZone || draftTimezone)
+        : null;
+      const reminderState = remindersToDraftState({
+        reminders: draft.reminders,
+        remindersUseDefault: draft.remindersUseDefault,
+      });
+
+      setTitle(draft.title || "");
+      setDescription(draft.description || "");
+      setDate(startParts?.date || nextDate);
+      setEndDate(
+        draft.allDay
+          ? allDayEndDate(draft.end, startParts?.date || nextDate)
+          : endParts?.date || startParts?.date || nextDate,
+      );
+      setStartTime(startParts?.time || defaultStart || fallbackStart);
+      setEndTime(endParts?.time || defaultEnd || fallbackEnd);
+      setLocation(draft.location || "");
+      setAllDay(draft.allDay ?? false);
+      setEventType(draft.eventType ?? "default");
+      setAvailability(draft.transparency ?? "opaque");
+      setVisibility(draft.visibility ?? "default");
+      setTimezone(draftTimezone);
+      setColorId(draft.colorId);
+      setReminderMode(reminderState.mode);
+      setReminders(reminderState.reminders);
+      setAttachments(attachmentsToDrafts(draft.attachments));
+      setWorkingLocationType(draft.workingLocationType ?? "customLocation");
+      setVideoProvider(
+        draft.addGoogleMeet ? "google_meet" : draft.addZoom ? "zoom" : "none",
+      );
+      setAttendees(
+        uniqueAttendees(
+          (draft.attendees ?? []).map((attendee) => ({
+            email: attendee.email,
+            displayName: attendee.displayName,
+            photoUrl: attendee.photoUrl,
+          })),
+        ),
+      );
+      return;
+    }
+
+    setTitle("");
+    setDescription("");
+    setDate(nextDate);
+    setEndDate(nextDate);
+    setStartTime(defaultStart || fallbackStart);
+    setEndTime(defaultEnd || fallbackEnd);
+    setLocation("");
+    setAllDay(false);
+    setEventType("default");
+    setAvailability("opaque");
+    setVisibility("default");
+    setTimezone(getLocalTimezone());
+    setColorId(undefined);
+    setReminderMode("default");
+    setReminders([createReminderDraft()]);
+    setAttachments([createAttachmentDraft()]);
+    setWorkingLocationType("customLocation");
+    setVideoProvider("none");
+    setAttendees([]);
+  }, [
+    open,
+    draft,
+    defaultDate,
+    defaultStart,
+    defaultEnd,
+    fallbackStart,
+    fallbackEnd,
+  ]);
+
+  useEffect(() => {
+    const draftId = safeDraftId(draft?.id);
+    if (!open || !draftId) return;
+
+    const effectiveAllDay = allDay && !timedOnlyStatus;
+    if (!date || !endDate || (!effectiveAllDay && (!startTime || !endTime))) {
+      return;
+    }
+    const allDayEnd = new Date(`${endDate}T00:00:00`);
+    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const startISO = effectiveAllDay
+      ? new Date(`${date}T00:00:00`).toISOString()
+      : dateTimeInTimezoneToIso(date, startTime, timezone);
+    const endISO = effectiveAllDay
+      ? allDayEnd.toISOString()
+      : dateTimeInTimezoneToIso(endDate, endTime, timezone);
+    const attachmentResult = validateAttachmentDrafts(attachments);
+    const reminderPatch = buildReminderPayload(reminderMode, reminders);
+    const nextDraft: CalendarEventDraft = {
+      id: draftId,
+      createdAt: draft?.createdAt,
+      title,
+      description,
+      start: startISO,
+      end: endISO,
+      startTimeZone: effectiveAllDay ? undefined : timezone,
+      endTimeZone: effectiveAllDay ? undefined : timezone,
+      location,
+      allDay: effectiveAllDay,
+      eventType,
+      transparency:
+        eventType === "workingLocation"
+          ? "transparent"
+          : eventType === "default"
+            ? availability
+            : "opaque",
+      visibility: eventType === "workingLocation" ? "public" : visibility,
+      ...reminderPatch,
+      colorId,
+      attachments:
+        attachmentResult.error || attachmentResult.attachments.length === 0
+          ? undefined
+          : attachmentResult.attachments,
+      attendees:
+        attendees.length > 0
+          ? attendees.map((attendee) => ({
+              email: attendee.email,
+              displayName: attendee.displayName,
+            }))
+          : undefined,
+      addGoogleMeet: videoProvider === "google_meet",
+      addZoom: videoProvider === "zoom",
+      accountEmail: draft?.accountEmail,
+      workingLocationType,
+      workingLocationLabel:
+        workingLocationType === "customLocation" ? location : undefined,
+      updatedAt: new Date().toISOString(),
+    };
+
+    onDraftChange?.(nextDraft);
+    const timeout = window.setTimeout(() => {
+      fetch(
+        agentNativePath(
+          `/_agent-native/application-state/calendar-draft-${draftId}`,
+        ),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(nextDraft),
+        },
+      ).catch(() => {});
+    }, 400);
+    return () => window.clearTimeout(timeout);
+  }, [
+    open,
+    draft?.id,
+    draft?.createdAt,
+    draft?.accountEmail,
+    title,
+    description,
+    date,
+    endDate,
+    startTime,
+    endTime,
+    location,
+    allDay,
+    eventType,
+    availability,
+    visibility,
+    timezone,
+    colorId,
+    reminderMode,
+    reminders,
+    attachments,
+    attendees,
+    videoProvider,
+    workingLocationType,
+    timedOnlyStatus,
+    onDraftChange,
+  ]);
 
   function handleDateChange(nextDate: string) {
     setDate(nextDate);
@@ -249,6 +485,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const activeDraftId = safeDraftId(draft?.id);
     if (!title.trim()) {
       toast.error("Title is required");
       return;
@@ -309,6 +546,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
         startTimeZone: effectiveAllDay ? undefined : timezone,
         endTimeZone: effectiveAllDay ? undefined : timezone,
         location,
+        accountEmail: draft?.accountEmail,
         allDay: effectiveAllDay,
         transparency:
           eventType === "workingLocation"
@@ -337,6 +575,10 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
       },
       {
         onSuccess: (result) => {
+          if (activeDraftId) {
+            deletePersistedDraft(activeDraftId);
+            onDraftCreated?.(activeDraftId);
+          }
           onOpenChange(false);
           const eventId = result?.id;
           const undo = eventId
@@ -381,7 +623,9 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
           }
         }}
       >
-        <div className="mb-3 text-sm font-semibold">New Event</div>
+        <div className="mb-3 text-sm font-semibold">
+          {draft ? "Review Invite" : "New Event"}
+        </div>
         <form ref={formRef} onSubmit={handleSubmit} className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="event-title" className="text-xs">
