@@ -140,12 +140,11 @@ import { TAB_ID } from "@/lib/tab-id";
 
 useDbSync({
   queryClient,
-  queryKeys: ["app-state", "settings"],
   ignoreSource: TAB_ID,  // ignore events from this tab's own writes
 });
 ```
 
-The UI sends its tab ID via `X-Request-Source` header on PUT/DELETE requests. The server stores this as the event's `requestSource`. When polling, the UI filters out events matching its own `ignoreSource` value. This prevents the UI from refetching data it just wrote.
+The UI sends its tab ID via `X-Request-Source` header on PUT/DELETE requests. The server stores this as the event's `requestSource`. When processing sync events, the UI filters out events matching its own `ignoreSource` value. This prevents the UI from refetching data it just wrote.
 
 ## Gold-Standard Example: Mail Template
 
@@ -185,6 +184,6 @@ The mail template demonstrates all three patterns working together:
 ## Related Skills
 
 - **adding-a-feature** — Context awareness is area 4 of the four-area checklist
-- **real-time-sync** — How polling and `useDbSync` deliver app-state changes to the UI
+- **real-time-sync** — How `useDbSync` delivers app-state changes to the UI
 - **scripts** — How to create the `view-screen` and `navigate` scripts
 - **storing-data** — Application-state is one of the core SQL stores

@@ -13,11 +13,7 @@ class QueryClientProbe {
   }
 }
 
-function SyncProbe({
-  queryClient,
-}: {
-  queryClient: QueryClientProbe;
-}) {
+function SyncProbe({ queryClient }: { queryClient: QueryClientProbe }) {
   useDbSync({
     queryClient,
     sseUrl: false,
@@ -31,7 +27,9 @@ async function renderWithEvent(event: Record<string, unknown>) {
   const queryClient = new QueryClientProbe();
   const fetchMock = vi.fn(
     async () =>
-      new Response(JSON.stringify({ version: event.version ?? 1, events: [event] })),
+      new Response(
+        JSON.stringify({ version: event.version ?? 1, events: [event] }),
+      ),
   );
   vi.stubGlobal("fetch", fetchMock);
 

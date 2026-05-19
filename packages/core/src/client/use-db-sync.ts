@@ -197,9 +197,7 @@ export function useDbSync(
       }
 
       if (relevant.length > 0 && queryClient) {
-        const hasActionEvent = relevant.some(
-          (evt) => evt.source === "action",
-        );
+        const hasActionEvent = relevant.some((evt) => evt.source === "action");
         if (hasActionEvent) {
           // Custom apps frequently start with raw `useQuery` calls before
           // graduating to `useActionQuery` or source-versioned query keys.
