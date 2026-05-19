@@ -4,12 +4,16 @@ import { stat } from "fs/promises";
 import {
   defineEventHandler,
   getQuery,
+  getRequestURL,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
 import { streamFile } from "@agent-native/core/server";
 import { getAnalyticsMediaDir } from "../../../lib/media-dir.js";
-import { readSignedSvgMediaPayload } from "../../../lib/signed-media.js";
+import {
+  mediaFilenameFromPath,
+  readSignedSvgMediaPayload,
+} from "../../../lib/signed-media.js";
 
 export default defineEventHandler(async (event) => {
   let mediaDir: string;
@@ -19,7 +23,7 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 501);
     return { error: "Media serving not available in this environment" };
   }
-  const filename = event.path.replace("/api/media/", "");
+  const filename = mediaFilenameFromPath(getRequestURL(event).pathname);
   const filepath = path.resolve(mediaDir, filename);
   if (!filepath.startsWith(mediaDir + path.sep)) {
     setResponseStatus(event, 403);
