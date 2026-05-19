@@ -133,6 +133,7 @@ export default function AnswerPage({ id }: Props) {
           "Use dbt MCP as your PRIMARY source. Run ONE targeted lookup for the model/metric in the question. Then call store-answer with a factual markdown answer. Cite sources as [1][2].",
       }),
       submit: true,
+      background: true,
     });
   }, [session?.status, send]);
 
