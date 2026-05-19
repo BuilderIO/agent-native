@@ -37,7 +37,7 @@ Six rules govern the architecture:
 1. **Data lives in SQL** — all app state lives in the database via Drizzle ORM
 2. **All AI goes through the agent** — no inline LLM calls
 3. **Actions for agent operations** — complex work runs as actions
-4. **Polling keeps the UI in sync** — database changes sync via lightweight polling
+4. **Live sync keeps the UI in sync** — database changes stream over SSE with polling as the universal fallback
 5. **The agent can modify code** — the app evolves as you use it
 6. **Application state in SQL** — ephemeral UI state lives in the database, readable by both agent and UI
 
@@ -48,7 +48,7 @@ Adopting the framework is valuable mostly because of what you stop having to bui
 - **One action = every surface.** Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend mutation (`useActionMutation("name")`), an HTTP endpoint at `/_agent-native/actions/:name`, a CLI command, an MCP tool for external clients, and an A2A tool for other agent-native apps. Optional `link` and `mcpApp` metadata add deep links and MCP Apps UI without a second implementation.
 - **A full workspace per user.** Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, no dev-box required. See [Workspace](/docs/workspace).
 - **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + workspace anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
-- **Live sync between agent and UI.** A 2-second poll invalidates React Query caches whenever the agent writes to the DB. No WebSockets, no serverless-unfriendly long-lived connections. See [Polling Sync](#polling-sync) below.
+- **Live sync between agent and UI.** Same-process writes stream immediately over `/_agent-native/events`; a lightweight poll keeps serverless, cron, and cross-process writes convergent. Mutating actions invalidate action-backed queries automatically, so agent-created records appear without a manual refresh. See [Live Sync](#polling-sync) below.
 - **Auth, orgs, RBAC.** Better Auth with orgs/members/roles is wired in for every template. See [Authentication](/docs/authentication).
 - **Context awareness.** The agent always knows what the user is looking at through the `navigation` app-state key. See [Context Awareness](/docs/context-awareness).
 - **MCP client + server, both directions.** The app ingests MCP servers (local, remote, hub-shared) _and_ exposes its own actions as an MCP server. See [MCP Clients](/docs/mcp-clients) and [MCP Protocol](/docs/mcp-protocol).
@@ -158,27 +158,24 @@ One `defineAction()` call gives you:
 
 Same logic, one definition, wired to every consumer automatically. See [Actions](/docs/actions) for the full reference.
 
-## Polling sync {#polling-sync}
+## Live sync {#polling-sync}
 
-Database changes are synced to the UI via lightweight polling. When the agent writes to the database (application state, settings, or domain data), a version counter increments. The client `useDbSync()` hook (formerly `useFileWatcher`) polls `/_agent-native/poll` every 2 seconds and invalidates React Query caches when changes are detected.
+Database changes are synced to the UI through `useDbSync()`. Same-process writes stream over `/_agent-native/events`; `/_agent-native/poll` remains the cross-process and serverless fallback. When the agent writes to the database (application state, settings, or domain data), a version counter increments and the client invalidates the relevant React Query caches.
 
 ```ts
-// Client: invalidate caches on database changes
+// Client: subscribe to agent/UI data changes once near the app shell
 import { useDbSync } from "@agent-native/core";
 
-useDbSync({
-  queryClient,
-  queryKeys: ["app-state", "settings", "forms"],
-});
+useDbSync({ queryClient });
 ```
 
 The flow is:
 
 1. Agent runs an action that writes to the database
-2. Version counter increments
-3. `useDbSync` detects the new version on next poll
-4. React Query caches are invalidated
-5. Components re-fetch and render the new data
+2. The server emits a change event with a source such as `"action"` or `"settings"`
+3. `useDbSync` receives it over SSE or the polling fallback
+4. `useActionQuery` hooks and source-versioned `useQuery` hooks refetch
+5. Components render the new data without a page reload
 
 This works in all deployment environments — including serverless and edge — because it uses the database, not in-memory state or file system watchers.
 

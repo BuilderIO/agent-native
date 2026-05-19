@@ -122,7 +122,7 @@ const { mutate, isPending } = useActionMutation("replyToEmail");
 </Button>;
 ```
 
-On success, the framework emits a poll event so every `useActionQuery`/`useDbSync` consumer refetches automatically. See [Real-Time Sync](/docs/key-concepts#polling-sync).
+On success, the framework emits a change event with `source: "action"` so `useActionQuery` consumers and active query observers refetch automatically. See [Live Sync](/docs/key-concepts#polling-sync).
 
 ### `useActionQuery` {#use-action-query}
 
