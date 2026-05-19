@@ -1,8 +1,9 @@
 /**
  * `agent-native connect <url>` — wire your local Claude Code / Codex / Cowork
- * to a DEPLOYED agent-native app using a browser device-code flow. No token
- * copying: open the verification URL, approve in the browser, and the minted
- * HTTP MCP server entry is written into your client config(s) idempotently.
+ * to a DEPLOYED agent-native app. OAuth-capable clients receive a standard
+ * remote MCP URL entry and authenticate in the host. Fallback clients use the
+ * browser device-code flow: open the verification URL, approve in the browser,
+ * and the minted HTTP MCP server entry is written idempotently.
  *
  *   agent-native connect <url> [--client all|claude-code|claude-code-cli|
  *                               codex|cowork] [--scope user|project]
@@ -45,6 +46,7 @@ import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
 const DEVICE_START_PATH = "/_agent-native/mcp/connect/device/start";
 const DEVICE_POLL_PATH = "/_agent-native/mcp/connect/device/poll";
+const MCP_PATH = "/_agent-native/mcp";
 const SERVER_NAME_PREFIX = "agent-native";
 const CONNECT_PREFERENCES_VERSION = 1;
 const CONNECT_PROFILES_VERSION = 1;
@@ -63,6 +65,11 @@ const CLIENT_HINTS: Record<ClientId, string> = {
   codex: "~/.codex/config.toml",
   cowork: "~/.cowork/mcp.json",
 };
+
+const REMOTE_MCP_OAUTH_CLIENTS = new Set<ClientId>([
+  "claude-code",
+  "claude-code-cli",
+]);
 
 function logOut(msg: string): void {
   process.stdout.write(`${msg}\n`);
@@ -397,6 +404,14 @@ function clientArgForDeviceFlow(clients: ClientId[]): string {
   return clients.length === 1 ? clients[0] : "all";
 }
 
+export function supportsRemoteMcpOAuth(client: ClientId): boolean {
+  return REMOTE_MCP_OAUTH_CLIENTS.has(client);
+}
+
+function clientLabelList(clients: ClientId[]): string {
+  return clients.map((client) => CLIENT_LABELS[client]).join(", ");
+}
+
 /** Derive an app slug from a deployed origin, e.g. mail.agent-native.com → mail. */
 function appSlugFromUrl(url: string): string {
   try {
@@ -530,6 +545,74 @@ function responseMessage(json: any, fallback: string): string {
         ? json.error
         : "";
   return message.trim() || fallback;
+}
+
+function stripMcpPath(baseUrl: string): string {
+  const parsed = new URL(baseUrl);
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  if (pathname === MCP_PATH || pathname.endsWith(MCP_PATH)) {
+    parsed.pathname = pathname.slice(0, -MCP_PATH.length) || "/";
+    parsed.search = "";
+    parsed.hash = "";
+    return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+  }
+  return baseUrl;
+}
+
+function mcpUrlForBaseUrl(baseUrl: string): string {
+  const parsed = new URL(baseUrl);
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  if (pathname === MCP_PATH || pathname.endsWith(MCP_PATH)) {
+    parsed.pathname = pathname;
+    parsed.search = "";
+    parsed.hash = "";
+    return `${parsed.origin}${parsed.pathname}`;
+  }
+  return `${baseUrl.replace(/\/+$/, "")}${MCP_PATH}`;
+}
+
+async function validateOAuthMcpServer(
+  baseUrl: string,
+  mcpUrl: string,
+  deps: ConnectDeps,
+): Promise<boolean> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const metadataUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetchImpl(metadataUrl, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      logErr(
+        `  Could not validate OAuth MCP support at ${metadataUrl} ` +
+          `(HTTP ${response.status}).`,
+      );
+      return false;
+    }
+    const metadata = (await response.json().catch(() => null)) as {
+      resource?: unknown;
+    } | null;
+    if (metadata?.resource !== mcpUrl) {
+      logErr(
+        `  ${metadataUrl} did not advertise the expected MCP resource ` +
+          `${mcpUrl}.`,
+      );
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    logErr(
+      `  Could not reach ${metadataUrl} (${err?.message ?? err}). ` +
+        `Check the URL and your network.`,
+    );
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -1325,9 +1408,20 @@ async function connectOne(
   clients: ClientId[],
   deps: ConnectDeps,
 ): Promise<{ ok: boolean; serverName?: string; files?: string[] }> {
-  const baseUrl = normalizeUrl(rawUrl);
+  const normalizedUrl = normalizeUrl(rawUrl);
+  const baseUrl = stripMcpPath(normalizedUrl);
+  const normalizedMcpUrl = mcpUrlForBaseUrl(normalizedUrl);
   const appSlug = appSlugFromUrl(baseUrl);
   const scope = parsed.scope === "user" ? "user" : "project";
+  const baseDir = projectBaseDir();
+  const allWritten: { client: ClientId; file: string }[] = [];
+  const oauthClients = parsed.token
+    ? []
+    : clients.filter((client) => supportsRemoteMcpOAuth(client));
+  const deviceFlowClients = parsed.token
+    ? clients
+    : clients.filter((client) => !supportsRemoteMcpOAuth(client));
+  const oauthMigrations: ClientId[] = [];
 
   let token: string | undefined;
   let mcpUrl: string;
@@ -1337,15 +1431,19 @@ async function connectOne(
   if (parsed.token) {
     // No-browser fallback: skip the device flow entirely.
     token = parsed.token;
-    mcpUrl = `${baseUrl}/_agent-native/mcp`;
+    mcpUrl = normalizedMcpUrl;
     serverName = parsed.name ?? defaultServerName(baseUrl);
     logOut("");
     logOut(`  Using supplied --token for ${baseUrl} (skipping browser flow).`);
+  } else if (deviceFlowClients.length === 0) {
+    token = undefined;
+    mcpUrl = normalizedMcpUrl;
+    serverName = parsed.name ?? defaultServerName(baseUrl);
   } else {
     const grant = await runDeviceFlow(
       baseUrl,
       appSlug,
-      clientArgForDeviceFlow(clients),
+      clientArgForDeviceFlow(deviceFlowClients),
       deps,
     );
     if (!grant) return { ok: false };
@@ -1355,24 +1453,71 @@ async function connectOne(
     headers = grant.headers;
   }
 
-  const written = writeConfigs(
-    clients,
-    serverName,
-    mcpUrl,
-    token,
-    scope,
-    undefined,
-    headers,
-  );
+  if (oauthClients.length > 0 && !parsed.token) {
+    if (!(await validateOAuthMcpServer(baseUrl, mcpUrl, deps))) {
+      return { ok: false };
+    }
+  }
+
+  if (deviceFlowClients.length > 0) {
+    allWritten.push(
+      ...writeConfigs(
+        deviceFlowClients,
+        serverName,
+        mcpUrl,
+        token,
+        scope,
+        baseDir,
+        headers,
+      ),
+    );
+  }
+
+  if (oauthClients.length > 0) {
+    for (const client of oauthClients) {
+      const current = readCurrentMcpEntry(client, serverName, baseDir, scope);
+      const currentHeaders = savedEntryHeaders(current.saved);
+      if (typeof currentHeaders.Authorization === "string") {
+        oauthMigrations.push(client);
+      }
+    }
+    allWritten.push(
+      ...writeConfigs(
+        oauthClients,
+        serverName,
+        mcpUrl,
+        undefined,
+        scope,
+        baseDir,
+        undefined,
+      ),
+    );
+  }
 
   logOut("");
-  logOut(`  Connected "${serverName}" → ${mcpUrl}`);
-  for (const w of written) {
+  logOut(`  Configured "${serverName}" → ${mcpUrl}`);
+  for (const w of allWritten) {
     logOut(`    ${w.client.padEnd(18)} ${w.file}`);
+  }
+  if (oauthClients.length > 0 && !parsed.token) {
+    logOut("");
+    if (oauthMigrations.length > 0) {
+      logOut(
+        `  Replaced legacy bearer headers for ${clientLabelList(
+          oauthMigrations,
+        )}; it will reconnect with standard MCP OAuth.`,
+      );
+    }
+    logOut(
+      `  ${clientLabelList(
+        oauthClients,
+      )}: wrote URL-only MCP config (no bearer headers).`,
+    );
+    logOut("  Next: restart Claude Code, run /mcp, and choose Authenticate.");
   }
   logOut("");
   logOut("  Restart your coding agent to pick up the new MCP server.");
-  return { ok: true, serverName, files: written.map((w) => w.file) };
+  return { ok: true, serverName, files: allWritten.map((w) => w.file) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1449,11 +1594,15 @@ Usage:
       (mail.agent-native.com, calendar.agent-native.com, and friends).
 
   agent-native connect <url> [--client <c>] [--scope user|project] [--name <n>]
-      Browser device-code flow. Prints a code, opens the verification URL,
-      polls until approved, then writes the HTTP MCP entry into your
-      selected client config(s). With no --client, opens a brief picker
-      preselected from ~/.agent-native/connect.json, or all clients on first
-      run. Idempotent — re-running replaces the same entry.
+      Writes the HTTP MCP entry into your selected client config(s). Claude
+      Code / Claude Code CLI use standard remote MCP OAuth: restart Claude,
+      run /mcp, and choose Authenticate. Codex / Cowork use the browser
+      device-code fallback: the command prints a code, opens the verification
+      URL, polls until approved, then writes bearer headers. With no --client,
+      opens a brief picker preselected from ~/.agent-native/connect.json, or
+      all clients on first run. Idempotent — re-running replaces the same entry.
+      Re-running over an older Claude bearer entry upgrades it to URL-only
+      OAuth config and prompts you to authenticate with /mcp.
 
   agent-native connect <url> --token <token>
       No-browser fallback. Skip the device flow and write the entry with

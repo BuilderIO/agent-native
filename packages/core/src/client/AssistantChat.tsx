@@ -983,7 +983,9 @@ function MarkdownText() {
   }, []);
   return (
     <MarkdownTextPrimitive
-      smooth
+      // assistant-ui's smooth renderer can briefly read past its token tap
+      // cache while React is reconciling streamed messages.
+      smooth={false}
       className="agent-markdown break-words"
       remarkPlugins={[remarkGfm]}
       components={markdownComponents}

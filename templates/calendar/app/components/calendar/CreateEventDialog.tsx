@@ -272,7 +272,7 @@ export function CreateEventPopover({
       );
       setStartTime(startParts?.time || defaultStart || fallbackStart);
       setEndTime(endParts?.time || defaultEnd || fallbackEnd);
-      setLocation(draft.location || "");
+      setLocation(draft.location || draft.workingLocationLabel || "");
       setAllDay(draft.allDay ?? false);
       setEventType(draft.eventType ?? "default");
       setAvailability(draft.transparency ?? "opaque");

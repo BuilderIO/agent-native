@@ -49,9 +49,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
+import {
+  computeCanvasFitZoom,
+  MAX_CANVAS_ZOOM,
+  MIN_CANVAS_ZOOM,
+} from "@/lib/canvas-zoom";
 
 let builderIdCounter = 0;
-const CANVAS_ZOOM_PRESETS = [50, 75, 100, 125, 150, 200] as const;
+const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
 
 /** Stamp all elements inside a container with unique data-builder-id attributes */
 function stampBuilderIds(container: HTMLElement) {
@@ -471,25 +476,83 @@ export default function SlideEditor({
   );
   const [isAskingAgentToFix, setIsAskingAgentToFix] = useState(false);
   const dims = getAspectRatioDims(aspectRatio);
+  const [fitCanvasZoom, setFitCanvasZoom] = useState(100);
+  const userSetCanvasZoomRef = useRef(false);
   const canvasWidth = Math.round(dims.width * (canvasZoom / 100));
+  const canvasTrackRef = useRef<HTMLDivElement>(null);
+  const setManualCanvasZoom = useCallback((next: number) => {
+    userSetCanvasZoomRef.current = true;
+    setCanvasZoom(Math.round(next));
+  }, []);
   const canvasZoomIn = useCallback(() => {
     const next = CANVAS_ZOOM_PRESETS.find((preset) => preset > canvasZoom);
-    setCanvasZoom(next ?? CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1]);
-  }, [canvasZoom]);
+    setManualCanvasZoom(
+      next ?? CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1],
+    );
+  }, [canvasZoom, setManualCanvasZoom]);
   const canvasZoomOut = useCallback(() => {
     const previous = [...CANVAS_ZOOM_PRESETS]
       .reverse()
       .find((preset) => preset < canvasZoom);
-    setCanvasZoom(previous ?? CANVAS_ZOOM_PRESETS[0]);
-  }, [canvasZoom]);
+    setManualCanvasZoom(previous ?? CANVAS_ZOOM_PRESETS[0]);
+  }, [canvasZoom, setManualCanvasZoom]);
+  const fitCanvasToScreen = useCallback(() => {
+    userSetCanvasZoomRef.current = false;
+    setCanvasZoom(fitCanvasZoom);
+  }, [fitCanvasZoom]);
 
   usePinchZoom({
     containerRef: scrollContainerRef,
     zoom: canvasZoom,
-    setZoom: setCanvasZoom,
-    min: 25,
-    max: 400,
+    setZoom: setManualCanvasZoom,
+    min: MIN_CANVAS_ZOOM,
+    max: MAX_CANVAS_ZOOM,
   });
+
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    let raf = 0;
+
+    const updateFitZoom = () => {
+      const track = canvasTrackRef.current;
+      const trackStyle = track ? window.getComputedStyle(track) : null;
+      const horizontalPadding =
+        (parseFloat(trackStyle?.paddingLeft ?? "0") || 0) +
+        (parseFloat(trackStyle?.paddingRight ?? "0") || 0);
+      const nextFitZoom = computeCanvasFitZoom({
+        viewportWidth: scrollContainer.clientWidth,
+        canvasWidth: dims.width,
+        horizontalPadding,
+      });
+
+      setFitCanvasZoom(nextFitZoom);
+      if (!userSetCanvasZoomRef.current) {
+        setCanvasZoom(nextFitZoom);
+      }
+    };
+
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(updateFitZoom);
+    };
+
+    updateFitZoom();
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleUpdate);
+    observer?.observe(scrollContainer);
+    if (canvasTrackRef.current) observer?.observe(canvasTrackRef.current);
+    window.addEventListener("resize", scheduleUpdate);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      observer?.disconnect();
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, [dims.width]);
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits).
@@ -1221,7 +1284,7 @@ export default function SlideEditor({
                       size="icon"
                       className="h-6 w-6 cursor-pointer"
                       onClick={canvasZoomOut}
-                      disabled={canvasZoom <= CANVAS_ZOOM_PRESETS[0]}
+                      disabled={canvasZoom <= MIN_CANVAS_ZOOM}
                       aria-label="Zoom out"
                     >
                       <IconZoomOut className="h-3.5 w-3.5" />
@@ -1257,13 +1320,13 @@ export default function SlideEditor({
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 cursor-pointer"
-                      onClick={() => setCanvasZoom(100)}
-                      aria-label="Reset zoom"
+                      onClick={fitCanvasToScreen}
+                      aria-label="Fit slide to screen"
                     >
                       <IconMaximize className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Reset to 100%</TooltipContent>
+                  <TooltipContent>Fit to screen</TooltipContent>
                 </Tooltip>
               </div>
               <div
@@ -1272,7 +1335,10 @@ export default function SlideEditor({
                   drawMode ? "pb-24 sm:pb-28" : ""
                 }`}
               >
-                <div className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16">
+                <div
+                  ref={canvasTrackRef}
+                  className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
+                >
                   <div
                     ref={containerRef}
                     data-main-slide-canvas="true"

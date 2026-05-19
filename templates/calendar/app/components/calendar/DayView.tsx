@@ -28,6 +28,24 @@ interface DayViewProps {
   quickEditEventId?: string | null;
   onQuickEditSave?: (eventId: string, title: string) => void;
   onQuickEditCancel?: (eventId: string) => void;
+  draftEventIds?: string[];
+  onDraftUpdate?: (
+    eventId: string,
+    updates: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+      workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+      workingLocationLabel?: string;
+    },
+  ) => void;
+  onDraftCreate?: (
+    eventId: string,
+    updates?: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+    },
+  ) => void;
+  onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
 }
 
@@ -100,6 +118,10 @@ export function DayView({
   quickEditEventId,
   onQuickEditSave,
   onQuickEditCancel,
+  draftEventIds = [],
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
   isLoading = false,
 }: DayViewProps) {
   const { setFocusedEvent } = useCalendarContext();
@@ -221,6 +243,13 @@ export function DayView({
                   key={event.id}
                   event={event}
                   onDelete={onDeleteEvent}
+                  isDraft={draftEventIds.includes(event.id)}
+                  defaultOpen={quickEditEventId === event.id}
+                  onTitleSave={onQuickEditSave}
+                  onDismissNew={onQuickEditCancel}
+                  onDraftUpdate={onDraftUpdate}
+                  onDraftCreate={onDraftCreate}
+                  onDraftDiscard={onDraftDiscard}
                 >
                   <button
                     className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110"
@@ -547,9 +576,13 @@ export function DayView({
                   key={event._tempId ?? event.id}
                   event={event}
                   onDelete={onDeleteEvent}
+                  isDraft={draftEventIds.includes(event.id)}
                   defaultOpen={quickEditEventId === event.id}
                   onTitleSave={onQuickEditSave}
                   onDismissNew={onQuickEditCancel}
+                  onDraftUpdate={onDraftUpdate}
+                  onDraftCreate={onDraftCreate}
+                  onDraftDiscard={onDraftDiscard}
                 >
                   {eventButton}
                 </EventDetailPopover>

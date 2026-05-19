@@ -53,6 +53,10 @@ nsis:
 linux:
   icon: build/icon.png
   target:
+    - target: tar.xz
+      arch:
+        - x64
+        - arm64
     - target: AppImage
       arch:
         - x64

@@ -237,7 +237,10 @@ async function dispatch(
   if (method === "PUT" && parts.length === 1) {
     const body = await readBody(event);
     const hasContentUpdate =
-      body.content !== undefined || body.patches !== undefined;
+      body.content !== undefined ||
+      body.patches !== undefined ||
+      body.edits !== undefined ||
+      body.format !== undefined;
     const hasMetaUpdate =
       body.name !== undefined ||
       body.description !== undefined ||
@@ -249,6 +252,8 @@ async function dispatch(
       result = await updateExtensionContent(parts[0], {
         content: body.content,
         patches: body.patches,
+        edits: body.edits,
+        format: body.format === true || body.format === "true",
       });
     }
     if (hasMetaUpdate) {

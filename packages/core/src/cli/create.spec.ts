@@ -90,6 +90,36 @@ describe("createApp", { timeout: 30000 }, () => {
     );
   });
 
+  it("scaffolds blank apps with action-backed UI guidance", async () => {
+    await createApp("my-app", { template: "blank" });
+    const root = path.join(tmpDir, "my-app");
+
+    const hello = fs.readFileSync(
+      path.join(root, "actions", "hello.ts"),
+      "utf-8",
+    );
+    expect(hello).toContain("defineAction");
+    expect(hello).toContain('http: { method: "GET" }');
+
+    const index = fs.readFileSync(
+      path.join(root, "app", "routes", "_index.tsx"),
+      "utf-8",
+    );
+    expect(index).toContain("useActionQuery");
+    expect(index).not.toContain("/api/hello");
+
+    const actionsSkill = fs.readFileSync(
+      path.join(root, ".agents", "skills", "actions", "SKILL.md"),
+      "utf-8",
+    );
+    expect(actionsSkill).toContain("useActionQuery");
+    expect(actionsSkill).toContain("No duplicate `/api/` routes needed");
+
+    expect(
+      fs.existsSync(path.join(root, "server", "routes", "api", "hello.get.ts")),
+    ).toBe(false);
+  });
+
   it("exits with error for invalid app name", async () => {
     let exited = false;
     const origExit = process.exit.bind(process);

@@ -66,6 +66,14 @@ shadcn/ui components and `@tabler/icons-react`. Do not add `lucide-react` or
 another icon library. Read `.agents/skills/shadcn-ui/SKILL.md` before adding,
 updating, or debugging shadcn components.
 
+Normal app data must flow through actions. For CRUD that the agent can perform,
+create `defineAction` files in `actions/`, mark reads with
+`http: { method: "GET" }`, and call them from React with `useActionQuery` /
+`useActionMutation`. Do not add duplicate JSON CRUD routes under `/api/*` for
+the same data unless the route is for uploads, streaming, webhooks, OAuth, or
+another route-only concern. Action-backed UI is what makes agent-created or
+agent-edited records appear without a manual refresh.
+
 In local development, run
 `pnpm exec agent-native create <app-name> --template=<template>` from the
 workspace root. In production, Dispatch posts new-app requests to Builder

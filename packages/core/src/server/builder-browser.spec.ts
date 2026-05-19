@@ -12,9 +12,11 @@ import {
   getBuilderBranchProjectId,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
+  getBuilderBrowserConnectUrlForOwner,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   isBuilderBranchingEnabled,
+  resolveBuilderCallbackReturnUrl,
   runBuilderAgent,
   signBuilderConnectToken,
   signBuilderCallbackState,
@@ -268,6 +270,21 @@ describe("Builder callback CSRF state", () => {
 
       expect(verifyBuilderConnectTokenAndGetOwner(parts.join("."))).toBeNull();
     });
+
+    it("builds an owner-signed connect URL for server-rendered cards", () => {
+      const connectUrl = getBuilderBrowserConnectUrlForOwner(
+        "https://alice.agent-native.com",
+        "alice@example.com",
+      );
+      const parsed = new URL(connectUrl);
+      const token = parsed.searchParams.get(BUILDER_CONNECT_PARAM);
+
+      expect(parsed.pathname).toBe("/_agent-native/builder/connect");
+      expect(token).toBeTruthy();
+      expect(verifyBuilderConnectTokenAndGetOwner(token)).toBe(
+        "alice@example.com",
+      );
+    });
   });
 
   describe("buildBuilderCliAuthUrl", () => {
@@ -473,6 +490,30 @@ describe("Builder callback CSRF state", () => {
       );
       expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
         "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz/dispatch/_agent-native/builder/connect",
+      );
+    });
+
+    it("returns users to the preview opener after a gateway callback", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.APP_URL = "https://agent-workspace.builder.io";
+      process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
+      process.env.APP_BASE_PATH = "/dispatch";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "agent-workspace.builder.io",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(
+        resolveBuilderCallbackReturnUrl({
+          event,
+          openerOrigin:
+            "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
+          previewUrl: "https://agent-workspace.builder.io/dispatch",
+        }),
+      ).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz/dispatch",
       );
     });
 

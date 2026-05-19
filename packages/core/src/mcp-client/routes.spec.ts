@@ -210,6 +210,84 @@ describe("MCP server routes", () => {
     });
   });
 
+  it("requires authentication for MCP App routes outside production too", async () => {
+    getSessionMock.mockResolvedValue(null);
+    getOrgContextMock.mockRejectedValue(new Error("no org"));
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      hasServer: () => true,
+      getToolsForServer: () => [],
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/apps/list-tools",
+      "POST",
+      { serverId: "apps" },
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({ error: "Authentication required" });
+  });
+
+  it("blocks MCP App calls to model-only tools", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockRejectedValue(new Error("no org"));
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      hasServer: (serverId: string) => serverId === "apps",
+      getToolsForServer: (serverId: string) =>
+        serverId === "apps"
+          ? [
+              {
+                source: "apps",
+                name: "mcp__apps__hidden",
+                originalName: "hidden",
+                description: "Hidden",
+                inputSchema: { type: "object" },
+                raw: {
+                  name: "hidden",
+                  _meta: { ui: { visibility: ["model"] } },
+                },
+              },
+            ]
+          : [],
+      callTool: vi.fn(),
+      readResource: vi.fn(),
+      getStatus: () => ({
+        connectedServers: ["apps"],
+        configuredServers: ["apps"],
+        errors: {},
+        tools: [{ source: "apps", name: "mcp__apps__hidden" }],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/apps/call-tool",
+      "POST",
+      { serverId: "apps", toolName: "hidden", arguments: {} },
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({
+      error: "MCP tool is not available in this request scope",
+    });
+    expect(manager.callTool).not.toHaveBeenCalled();
+  });
+
   it("allows MCP Apps to read only ui:// resources from visible servers", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
     getOrgContextMock.mockRejectedValue(new Error("no org"));
@@ -269,6 +347,52 @@ describe("MCP server routes", () => {
     expect(blocked.body).toEqual({
       error: "serverId and ui:// uri are required",
     });
+  });
+
+  it("blocks MCP App resource reads when the server has no app-visible tools", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockRejectedValue(new Error("no org"));
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      hasServer: () => true,
+      getToolsForServer: () => [
+        {
+          source: "apps",
+          name: "mcp__apps__hidden",
+          originalName: "hidden",
+          description: "Hidden",
+          inputSchema: { type: "object" },
+          raw: {
+            name: "hidden",
+            _meta: { ui: { visibility: ["model"] } },
+          },
+        },
+      ],
+      callTool: vi.fn(),
+      readResource: vi.fn(),
+      getStatus: () => ({
+        connectedServers: ["apps"],
+        configuredServers: ["apps"],
+        errors: {},
+        tools: [{ source: "apps", name: "mcp__apps__hidden" }],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/apps/read-resource",
+      "POST",
+      { serverId: "apps", uri: "ui://apps/render" },
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({
+      error: "MCP server is not available in this request scope",
+    });
+    expect(manager.readResource).not.toHaveBeenCalled();
   });
 });
 

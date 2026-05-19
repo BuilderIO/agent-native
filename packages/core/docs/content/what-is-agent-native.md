@@ -45,9 +45,11 @@ Three things change when you reach rung 3:
 
 - **You stopped adding buttons to a chatbot. You added an agent to an app.** That's a much higher-quality product on both sides.
 - **The agent has real context.** It sees what you're looking at, what you've selected, what you just did. It writes to the same database the UI reads from, so its work shows up immediately.
-- **External agents can use it too.** Other agent-native apps can call this one's actions over the [A2A protocol](/docs/a2a-protocol). Tools like Claude Desktop can drive it as an [MCP server](/docs/mcp-protocol). One app, many entry points.
+- **External agents can use it too.** Other agent-native apps can call this one's actions over the [A2A protocol](/docs/a2a-protocol). Claude Code, Codex, ChatGPT custom MCP apps, Cursor, and other MCP hosts can drive it as an [MCP server](/docs/mcp-protocol). One app, many entry points.
 
 That's rung 3. That's agent-native.
+
+It also explains why agent-native can support so many protocols without making every app author become a protocol expert. MCP tools, MCP Apps, remote MCP OAuth, A2A, typed React mutations, HTTP action endpoints, CLI actions, deep links, instructions, skills, memory, jobs, and connected MCP servers all hang off the same action and workspace model. Build the domain operation once as an action; the framework projects it into the surfaces each host understands.
 
 ## Why every agent needs a UI {#why-every-agent-needs-a-ui}
 
@@ -170,7 +172,7 @@ import { AgentSidebar } from "@agent-native/core/client";
 <AgentSidebar />;
 ```
 
-One action, four surfaces: the agent calls it as a tool, the UI calls it as a typesafe mutation, external agents reach it over [A2A](/docs/a2a-protocol), and tools like Claude Desktop talk to it as an [MCP server](/docs/mcp-protocol). See [Actions](/docs/actions) for the full reference.
+One action, many surfaces: the agent calls it as a tool, the UI calls it as a typesafe mutation, external agents reach it over [A2A](/docs/a2a-protocol), and MCP hosts call it through the app's [MCP server](/docs/mcp-protocol), optionally with MCP Apps UI resources and standard remote MCP OAuth handled by the framework. See [Actions](/docs/actions) for the full reference.
 
 ## What's next {#whats-next}
 

@@ -26,6 +26,7 @@ export const IPC = {
   APPS_REMOVE: "apps:remove",
   APPS_UPDATE: "apps:update",
   APPS_RESET: "apps:reset",
+  APPS_CHOOSE_LOCAL_FOLDER: "apps:choose-local-folder",
 
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
@@ -103,6 +104,22 @@ export interface InterAppMessage {
   targetAppId: string;
   event: string;
   data: unknown;
+}
+
+export interface LocalAppFolderInfo {
+  path: string;
+  name: string;
+  devUrl: string;
+  devPort: number;
+  devCommand: string;
+  packageManager?: string;
+  warning?: string;
+}
+
+export interface LocalAppFolderSelectResult {
+  ok: boolean;
+  folder?: LocalAppFolderInfo;
+  error?: string;
 }
 
 export type CodeAgentRunStatus =

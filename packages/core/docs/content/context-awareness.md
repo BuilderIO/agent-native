@@ -146,7 +146,7 @@ The `deriveNavigationState()` function is template-specific — it parses the UR
 
 ## Jitter prevention {#jitter-prevention}
 
-When the agent writes to application-state, the polling system might cause the UI to refetch data it just wrote. This creates jitter. The solution is source tagging:
+When the agent writes to application-state, the sync system might cause the UI to refetch data it just wrote. This creates jitter. The solution is source tagging:
 
 ```ts
 // app/root.tsx
@@ -154,7 +154,6 @@ import { TAB_ID } from "@/lib/tab-id";
 
 useDbSync({
   queryClient,
-  queryKeys: ["app-state", "settings"],
   ignoreSource: TAB_ID, // ignore events from this tab's own writes
 });
 ```
@@ -164,5 +163,5 @@ How it works:
 - Agent writes are tagged with `requestSource: "agent"` (the action helpers do this automatically)
 - UI writes include the tab's unique ID via `X-Request-Source` header
 - The server stores the source on each event
-- When polling, the UI filters out events matching its own `ignoreSource` value — so it doesn't refetch data it just wrote
+- When processing sync events, the UI filters out events matching its own `ignoreSource` value — so it doesn't refetch data it just wrote
 - Events from agents, other tabs, and actions still come through normally

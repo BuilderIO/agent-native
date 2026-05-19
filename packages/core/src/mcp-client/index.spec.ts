@@ -197,7 +197,7 @@ describe("mcpToolsToActionEntries", () => {
     });
   });
 
-  it("does not throw when the underlying call errors — returns a string", async () => {
+  it("does not throw when the underlying call errors — returns an MCP result", async () => {
     serverFixtures["x-bin"] = {
       tools: [{ name: "fail" }],
       callImpl: () => {
@@ -209,8 +209,19 @@ describe("mcpToolsToActionEntries", () => {
     });
     await mgr.start();
     const entries = mcpToolsToActionEntries(mgr);
-    const result = (await entries["mcp__x__fail"].run({})) as string;
-    expect(result).toContain("Error calling MCP tool mcp__x__fail");
-    expect(result).toContain("spawned process crashed");
+    const result = await entries["mcp__x__fail"].run({});
+    expect(isMcpActionResult(result)).toBe(true);
+    if (!isMcpActionResult(result)) throw new Error("Expected MCP result");
+    expect(result.text).toContain("Error calling MCP tool mcp__x__fail");
+    expect(result.text).toContain("spawned process crashed");
+    expect(result.raw).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining("spawned process crashed"),
+        },
+      ],
+    });
   });
 });

@@ -27,7 +27,7 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
    useDbSync({ queryClient });
    ```
 
-   For each non-own event, `useDbSync` bumps a per-source counter (e.g. `dashboards`, `analyses`, `settings`, `action`) and invalidates a small fixed list of framework-internal prefixes (`["action"]`, `["app-state"]`, `["__set_url__"]`, etc.). It does **not** blanket-invalidate templates' own data queries — that caused a request storm in production.
+   For each non-own event, `useDbSync` bumps a per-source counter (e.g. `dashboards`, `analyses`, `settings`, `action`) and invalidates a small fixed list of framework-internal prefixes (`["action"]`, `["app-state"]`, `["__set_url__"]`, etc.). It does **not** blanket-invalidate templates' own data queries for ordinary domain events — that caused a request storm in production. The exception is `source: "action"`: a successful mutating action is the framework-wide "agent changed app data" signal, so `useDbSync` also refreshes active React Query observers as a compatibility safety net for custom apps that have not yet moved every read to `useActionQuery` or source-versioned query keys.
 
 3. **Templates fold per-source counters into their query keys.** This is the pattern that makes "agent writes show up without a manual refresh" reliable:
 
@@ -135,6 +135,14 @@ Without jitter prevention, a cycle occurs: the UI writes state, sync detects the
 ## Action Routes and Polling
 
 Action routes (`/_agent-native/actions/:name`) work with the same sync system. When a POST/PUT/DELETE action writes to the database, the version counter increments and `useDbSync` picks up the change. Frontend mutations via `useActionMutation` automatically invalidate `["action"]` query keys on success, triggering refetches of `useActionQuery` hooks.
+
+For custom apps, the best out-of-the-box path is:
+
+1. Put read actions in `actions/` with `defineAction({ http: { method: "GET" } })`.
+2. Put write actions in `actions/` with the default POST/PUT/DELETE behavior.
+3. Call reads from React with `useActionQuery` and writes with `useActionMutation`.
+
+This avoids duplicate `/api/*` JSON CRUD routes and makes agent-created records show up automatically. Raw `useQuery` can still work, but it should include `useChangeVersions(["action", "<domain-source>"])` in the query key for targeted refreshes.
 
 ### Auto-emit on mutating actions
 

@@ -167,6 +167,8 @@ describe("extensions/actions", () => {
     expect(updateExtensionContent).toHaveBeenCalledWith("ext-zoom", {
       content: "<div>Lots of HTML</div>",
       patches: undefined,
+      edits: undefined,
+      format: false,
     });
     expect(result).toMatchObject({
       ok: true,
@@ -178,6 +180,63 @@ describe("extensions/actions", () => {
       },
     });
     expect(result.extension).not.toHaveProperty("content");
+  });
+
+  it("passes granular extension edits and formatting through to the store", async () => {
+    const updateExtensionContent = vi.fn(async () => ({
+      ...extensionRow,
+      updatedAt: "2026-05-06T01:00:00.000Z",
+    }));
+
+    vi.doMock("./store.js", () => ({
+      createExtension: vi.fn(),
+      deleteExtension: vi.fn(),
+      getExtension: vi.fn(),
+      getHiddenExtensionIdsForCurrentUser: vi.fn(async () => new Set<string>()),
+      hideExtension: vi.fn(),
+      listExtensions: vi.fn(),
+      unhideExtension: vi.fn(),
+      updateExtension: vi.fn(),
+      updateExtensionContent,
+    }));
+    vi.doMock("./slots/store.js", () => ({
+      addExtensionSlotTarget: vi.fn(),
+      installExtensionSlot: vi.fn(),
+      uninstallExtensionSlot: vi.fn(),
+      listExtensionsForSlot: vi.fn(),
+      listSlotsForExtension: vi.fn(),
+    }));
+    vi.doMock("../application-state/script-helpers.js", () => ({
+      writeAppState: vi.fn(),
+    }));
+    vi.doMock("../sharing/access.js", () => ({
+      resolveAccess: vi.fn(async () => ({
+        role: "editor",
+        resource: extensionRow,
+      })),
+    }));
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const edits = [
+      {
+        op: "replace-section",
+        section: "metrics",
+        content: "<div>New metrics</div>",
+      },
+    ];
+    await actions["update-extension"].run({
+      id: "ext-zoom",
+      edits: JSON.stringify(edits),
+      format: true,
+    });
+
+    expect(updateExtensionContent).toHaveBeenCalledWith("ext-zoom", {
+      content: undefined,
+      patches: undefined,
+      edits,
+      format: true,
+    });
   });
 
   it("points the agent to hide-extension when permanent delete is forbidden", async () => {

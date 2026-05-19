@@ -113,10 +113,16 @@ function makeWebEvent(opts: MakeEventOpts): any {
 vi.mock("h3", () => ({
   defineEventHandler: (fn: any) => fn,
   getMethod: (event: any) => event.method ?? "GET",
+  getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   getRequestHeader: (event: any, name: string) =>
     event._headers?.[name.toLowerCase()],
+  getQuery: (event: any) => event._query ?? {},
   setResponseStatus: (event: any, code: number) => {
     event._status = code;
+  },
+  setResponseHeader: (event: any, name: string, value: string) => {
+    event._responseHeaders ??= {};
+    event._responseHeaders[name.toLowerCase()] = value;
   },
 }));
 
@@ -366,6 +372,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
     const res = await handleMcpRequest(event, config as any);
     expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource"',
+    );
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'scope="mcp:read mcp:write mcp:apps"',
+    );
     expect(res).toEqual({ error: "Unauthorized" });
   });
 

@@ -403,7 +403,7 @@ async function withMcpAppRequestContext<T>(
   fn: () => Promise<T>,
 ): Promise<T | { error: string }> {
   const { email, orgId } = await resolveContextForRequest(event);
-  if (!email && process.env.NODE_ENV === "production") {
+  if (!email) {
     setResponseStatus(event, 401);
     return { error: "Authentication required" };
   }
@@ -422,7 +422,10 @@ function serverHasVisibleTools(
 ): boolean {
   return manager
     .getToolsForServer(serverId)
-    .some((tool) => isMcpToolAllowedForRequest(tool.name));
+    .some(
+      (tool) =>
+        isMcpToolAllowedForRequest(tool.name) && isVisibleToMcpApp(tool),
+    );
 }
 
 function normalizeSameServerToolName(
@@ -457,6 +460,27 @@ function mcpToolForClient(tool: McpTool) {
   };
 }
 
+function mcpAppCallableTool(
+  manager: McpClientManager,
+  serverId: string,
+  originalToolName: string,
+): McpTool | null {
+  const prefixedName = buildMcpToolName(serverId, originalToolName);
+  const tool =
+    manager
+      .getToolsForServer(serverId)
+      .find(
+        (candidate) =>
+          candidate.name === prefixedName ||
+          candidate.originalName === originalToolName,
+      ) ?? null;
+  if (!tool) return null;
+  if (!isMcpToolAllowedForRequest(tool.name) || !isVisibleToMcpApp(tool)) {
+    return null;
+  }
+  return tool;
+}
+
 async function handleMcpAppCallTool(event: H3Event, manager: McpClientManager) {
   const body = (await readBody(event).catch(() => ({}))) as {
     serverId?: unknown;
@@ -469,16 +493,16 @@ async function handleMcpAppCallTool(event: H3Event, manager: McpClientManager) {
     setResponseStatus(event, 400);
     return { error: "serverId and same-server toolName are required" };
   }
-  const prefixedName = buildMcpToolName(serverId, originalToolName);
 
   return withMcpAppRequestContext(event, async () => {
-    if (!isMcpToolAllowedForRequest(prefixedName)) {
+    const tool = mcpAppCallableTool(manager, serverId, originalToolName);
+    if (!tool) {
       setResponseStatus(event, 403);
       return { error: "MCP tool is not available in this request scope" };
     }
     try {
       return await manager.callTool(
-        prefixedName,
+        tool.name,
         body.arguments && typeof body.arguments === "object"
           ? (body.arguments as Record<string, unknown>)
           : {},

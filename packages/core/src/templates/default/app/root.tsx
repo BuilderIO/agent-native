@@ -25,6 +25,7 @@ import {
 import { Toaster } from "sonner";
 import { configureTracking } from "@agent-native/core/client";
 import { useNavigationState } from "./hooks/use-navigation-state";
+import { TAB_ID } from "./lib/tab-id";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -86,7 +87,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function DbSyncSetup() {
   const qc = useQueryClient();
   useNavigationState();
-  useDbSync({ queryClient: qc, queryKeys: ["files", "data"] });
+  useDbSync({ queryClient: qc, ignoreSource: TAB_ID });
   return null;
 }
 

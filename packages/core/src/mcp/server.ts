@@ -3,6 +3,7 @@ import { getH3App } from "../server/framework-request-handler.js";
 import {
   defineEventHandler,
   setResponseStatus,
+  setResponseHeader,
   getMethod,
   getRequestHeader,
 } from "h3";
@@ -18,6 +19,7 @@ import {
   type MCPCallerIdentity,
   type MCPRequestMeta,
 } from "./build-server.js";
+import { buildMcpOAuthChallenge, getMcpOAuthResource } from "./oauth-route.js";
 
 // Re-export the shared MCP server builder + types so the stdio transport and
 // any (future) external importer of `@agent-native/core/mcp` keep resolving
@@ -194,11 +196,14 @@ export async function handleMcpRequest(
   // `Host: localhost`). A deployed app missing A2A_SECRET / ACCESS_TOKEN
   // must fail closed rather than trust a spoofable owner-email header that
   // `fullSurface` would otherwise escalate to the full mutating surface.
+  const requestMeta = deriveRequestMeta(event);
   const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
     allowDevOpen: isLoopbackRequest(event),
+    resourceUrl: getMcpOAuthResource(event),
   });
   if (!authResult.authed) {
     setResponseStatus(event, 401);
+    setResponseHeader(event, "WWW-Authenticate", buildMcpOAuthChallenge(event));
     return { error: "Unauthorized" };
   }
 
@@ -224,7 +229,6 @@ export async function handleMcpRequest(
   // connected real caller (connect-minted token / `mcp install` /
   // ACCESS_TOKEN / production) gets the full action surface even in local
   // dev; unauthenticated dev probes stay sparse. See `external-agents` skill.
-  const requestMeta = deriveRequestMeta(event);
   const server = await createMCPServerForRequest(config, authResult.identity, {
     ...requestMeta,
     fullSurface: authResult.fullSurface === true,

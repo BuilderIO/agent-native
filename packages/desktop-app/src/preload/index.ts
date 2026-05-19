@@ -34,6 +34,7 @@ import {
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
   type InterAppMessage,
+  type LocalAppFolderSelectResult,
   type UpdateStatus,
 } from "@shared/ipc-channels";
 import type { CodeAgentPermissionMode } from "@shared/code-agents";
@@ -102,6 +103,8 @@ const electronAPI = {
     update: (id: string, updates: any): Promise<any[]> =>
       ipcRenderer.invoke(IPC.APPS_UPDATE, id, updates),
     reset: (): Promise<any[]> => ipcRenderer.invoke(IPC.APPS_RESET),
+    chooseLocalFolder: (): Promise<LocalAppFolderSelectResult> =>
+      ipcRenderer.invoke(IPC.APPS_CHOOSE_LOCAL_FOLDER),
   },
 
   /** Tell main process which app webview is currently active (for DevTools targeting) */

@@ -157,13 +157,21 @@ function mcpToolToActionEntry(
       // into the LLM's visible tool list, reject invocation here so we never
       // execute a user's credentials on behalf of another user.
       if (!isMcpToolAllowedForRequest(tool.name)) {
-        return `Error: MCP tool ${tool.name} is not available in the current request scope.`;
+        return buildMcpErrorActionResult(
+          tool,
+          args,
+          `Error: MCP tool ${tool.name} is not available in the current request scope.`,
+        );
       }
       try {
         const result = await manager.callTool(tool.name, args);
         return await buildMcpActionResult(manager, tool, args, result);
       } catch (err: any) {
-        return `Error calling MCP tool ${tool.name}: ${err?.message ?? err}`;
+        return buildMcpErrorActionResult(
+          tool,
+          args,
+          `Error calling MCP tool ${tool.name}: ${err?.message ?? err}`,
+        );
       }
     },
   };
@@ -248,6 +256,25 @@ async function buildMcpActionResult(
     originalToolName: tool.originalName,
     input,
     ...(mcpApp ? { mcpApp } : {}),
+  };
+}
+
+function buildMcpErrorActionResult(
+  tool: McpTool,
+  input: Record<string, unknown>,
+  text: string,
+): McpActionResult {
+  return {
+    [MCP_ACTION_RESULT_MARKER]: true,
+    text,
+    raw: {
+      isError: true,
+      content: [{ type: "text", text }],
+    },
+    serverId: tool.source,
+    toolName: tool.name,
+    originalToolName: tool.originalName,
+    input,
   };
 }
 

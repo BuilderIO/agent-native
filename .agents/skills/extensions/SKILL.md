@@ -134,8 +134,46 @@ The action accepts:
 
 ## Editing an extension
 
-Use the `update-extension` action. Prefer `patches` for surgical edits
-instead of regenerating the full HTML:
+Use the `update-extension` action. Prefer granular `edits` for surgical
+changes instead of regenerating the full HTML. For medium/large extensions,
+add stable section comments around major blocks so future agents can target
+them without touching unrelated indentation:
+
+```html
+<!-- agent-native:section npm-daily-chart -->
+<section>...</section>
+<!-- /agent-native:section npm-daily-chart -->
+```
+
+Then update just that section:
+
+```json
+{
+  "id": "EXTENSION_ID",
+  "edits": "[{\"op\":\"replace-section\",\"section\":\"npm-daily-chart\",\"content\":\"<section>...</section>\"}]",
+  "format": true
+}
+```
+
+Supported `edits` operations:
+
+| Operation         | Use for                                      |
+| ----------------- | -------------------------------------------- |
+| `replace`         | Literal find/replace; defaults to one match  |
+| `insert-before`   | Insert content before an exact marker        |
+| `insert-after`    | Insert content after an exact marker         |
+| `replace-between` | Replace content between two exact markers    |
+| `replace-section` | Replace a named comment section              |
+| `wrap-section`    | Add a wrapper around a named section         |
+| `remove-section`  | Remove a named section                       |
+| `regex-replace`   | Carefully scoped regex replacement           |
+
+Use `expectedMatches` when ambiguity would be dangerous. Missing required
+targets fail instead of silently doing nothing. Pass `format: true` to run
+Prettier on the final HTML after the patch. Full `content` replacement is
+still available for broad rewrites.
+
+Legacy `patches` still work for simple literal replacements:
 
 ```
 PUT /_agent-native/extensions/:id

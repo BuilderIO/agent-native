@@ -31,6 +31,7 @@ export default defineAction({
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;
     if (args.path) nav.path = args.path;
+    nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await writeAppState("navigate", nav);
     return `Navigating to ${args.view || args.path}`;
   },
