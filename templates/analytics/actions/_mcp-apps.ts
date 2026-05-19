@@ -184,7 +184,11 @@ function analyticsAppHtml({
     }
 
     function renderChart() {
-      const image = toolResult.url ? '<img src="' + esc(absolutize(toolResult.url)) + '" alt="Generated chart">' : chartSvg();
+      const image = typeof toolResult.svg === "string" && toolResult.svg.trim().startsWith("<svg")
+        ? toolResult.svg
+        : toolResult.url
+          ? '<img src="' + esc(absolutize(toolResult.url)) + '" alt="Generated chart">'
+          : chartSvg();
       renderShell(toolInput.title || toolResult.filename || "Chart", toolInput.subtitle || "", '<section class="card chart">' + image + '</section>');
     }
 

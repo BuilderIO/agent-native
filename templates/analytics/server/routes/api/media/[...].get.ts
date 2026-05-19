@@ -1,7 +1,7 @@
 import path from "path";
 import { createReadStream } from "fs";
 import { stat } from "fs/promises";
-import { defineEventHandler, setResponseStatus } from "h3";
+import { defineEventHandler, setResponseHeader, setResponseStatus } from "h3";
 import { streamFile } from "@agent-native/core/server";
 import { getAnalyticsMediaDir } from "../../../lib/media-dir.js";
 
@@ -21,6 +21,12 @@ export default defineEventHandler(async (event) => {
   }
   try {
     await stat(filepath);
+    const ext = path.extname(filepath).toLowerCase();
+    if (ext === ".svg") {
+      setResponseHeader(event, "content-type", "image/svg+xml; charset=utf-8");
+    } else if (ext === ".png") {
+      setResponseHeader(event, "content-type", "image/png");
+    }
     return streamFile(createReadStream(filepath));
   } catch {
     setResponseStatus(event, 404);
