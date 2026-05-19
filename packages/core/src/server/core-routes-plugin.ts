@@ -48,6 +48,7 @@ import {
   getBuilderConnectTrackingParams,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserOriginForEvent,
+  resolveBuilderCallbackReturnUrl,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
   resolveSafePreviewUrl,
@@ -1490,10 +1491,11 @@ export function createCoreRoutesPlugin(
           // No prior error row — fine
         }
 
-        const previewUrl = resolveSafePreviewUrl(
-          requestUrl.searchParams.get("preview-url"),
+        const previewUrl = resolveBuilderCallbackReturnUrl({
           event,
-        );
+          openerOrigin: openerOriginFromQuery,
+          previewUrl: requestUrl.searchParams.get("preview-url"),
+        });
         await trackBuilderLifecycle(
           event,
           "builder connect succeeded",
