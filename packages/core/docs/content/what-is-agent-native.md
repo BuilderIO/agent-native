@@ -53,7 +53,7 @@ It also explains why agent-native can support so many protocols without making e
 
 ## Why every agent needs a UI {#why-every-agent-needs-a-ui}
 
-The hot take in 2026 is "apps are dead, agents will replace UIs, everyone will just text an agent in Telegram." That's wrong.
+The hot take in 2026 is "apps are dead, agents will replace UIs, everyone will just text an agent in Telegram." Eh.
 
 Even when the agent does all the heavy lifting, humans still need to:
 
