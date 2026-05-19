@@ -20,7 +20,7 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 
 1. **Server** increments a version counter on every database write. In-process events stream through the authenticated `/_agent-native/events` endpoint.
 
-2. **Client** listens for SSE/poll events and updates per-source change counters:
+2. **Client** listens for sync events and updates per-source change counters:
 
    ```ts
    import { useDbSync } from "@agent-native/core";

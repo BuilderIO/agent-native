@@ -68,7 +68,7 @@ Controls how the action is exposed as an HTTP endpoint:
 
 ### Screen Refresh (automatic)
 
-The framework auto-refreshes the UI after any successful mutating action. On completion of a non-`GET` action, the server emits a poll event that the client's `useDbSync` picks up and uses to invalidate `["action"]` React Query keys — so `list-*` / `get-*` hooks refetch without a full page reload.
+The framework auto-refreshes the UI after any successful mutating action. On completion of a non-`GET` action, the server emits a change event that the client's `useDbSync` picks up and uses to invalidate `["action"]` React Query keys — so `list-*` / `get-*` hooks refetch without a full page reload.
 
 Rules:
 
@@ -260,5 +260,5 @@ export default defineAction({
 
 - **storing-data** — Actions read/write data in SQL
 - **delegate-to-agent** — The agent invokes actions via `pnpm action <name>`
-- **real-time-sync** — Database writes from actions trigger poll events to update the UI
+- **real-time-sync** — Database writes from actions trigger change events to update the UI
 - **adding-a-feature** — Actions are area 2 of the four-area checklist
