@@ -11,6 +11,7 @@ import {
   IconClock,
   IconMessageCircle,
   IconArrowRight,
+  IconLoader2,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Link } from "react-router";
@@ -55,17 +56,12 @@ export default function KnowledgeHome() {
     const trimmed = q.trim();
     if (!trimmed || isPending) return;
 
-    // Optimistically navigate — answer page will pick up the session
-    const tempId = crypto.randomUUID();
-    navigate(`/knowledge/answer/${tempId}?q=${encodeURIComponent(trimmed)}`);
-
     try {
       const result = await askQuestion({ question: trimmed });
-      // Replace temp URL with real session ID
-      navigate(`/knowledge/answer/${result.sessionId}`, { replace: true });
       queryClient.invalidateQueries({ queryKey: ["action"] });
-    } catch {
-      navigate("/knowledge", { replace: true });
+      navigate(`/knowledge/answer/${result.sessionId}`);
+    } catch (err) {
+      console.error("Failed to create knowledge session", err);
     }
   }
 
@@ -119,7 +115,11 @@ export default function KnowledgeHome() {
             disabled={!question.trim() || isPending}
             onClick={() => handleSubmit(question)}
           >
-            <IconArrowRight className="h-4 w-4" />
+            {isPending ? (
+              <IconLoader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <IconArrowRight className="h-4 w-4" />
+            )}
           </Button>
         </div>
 

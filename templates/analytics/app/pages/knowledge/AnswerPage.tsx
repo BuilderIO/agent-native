@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link } from "react-router";
 import { useActionQuery, useSendToAgentChat } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -98,15 +98,13 @@ interface Props {
 
 export default function AnswerPage({ id }: Props) {
   const queryClient = useQueryClient();
-  const [searchParams] = useSearchParams();
-  const pendingQuestion = searchParams.get("q");
   const agentTriggeredRef = useRef(false);
   const { send } = useSendToAgentChat();
 
   const { data: session, isLoading } = useActionQuery(
     "get-session",
     { id },
-    { staleTime: 0, enabled: !!id && !id.startsWith("temp-") },
+    { staleTime: 0, enabled: !!id },
   );
 
   const isDone = session?.status === "done" || session?.status === "error";
@@ -138,7 +136,7 @@ export default function AnswerPage({ id }: Props) {
     });
   }, [session?.status, send]);
 
-  const question = session?.question ?? pendingQuestion ?? "";
+  const question = session?.question ?? "";
   const sources: Source[] = session?.sources ?? [];
 
   return (
@@ -180,7 +178,7 @@ export default function AnswerPage({ id }: Props) {
               session?.status === "error" && "border-destructive/50",
             )}
           >
-            {isLoading || (!session && !pendingQuestion) ? (
+            {isLoading || !session ? (
               <div className="flex flex-col gap-3">
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-5/6" />
