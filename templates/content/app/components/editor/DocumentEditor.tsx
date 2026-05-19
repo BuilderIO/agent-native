@@ -425,6 +425,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               aria-label="Document title"
               placeholder="Title"
               readOnly={!canEdit}
+              style={{ fieldSizing: "content" } as any}
               className="block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 text-3xl font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40 md:text-4xl"
             />
           </div>

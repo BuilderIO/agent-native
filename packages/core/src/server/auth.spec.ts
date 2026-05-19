@@ -1380,9 +1380,14 @@ describe("server/auth", () => {
         token: "fresh-token",
       });
       const selectedTokens = mockExecute.mock.calls
-        .map(([query]) =>
-          typeof query === "string" ? undefined : query.args?.[0],
-        )
+        .map(([query]) => {
+          if (typeof query === "string") return undefined;
+          const sql = String(query?.sql ?? "");
+          // Only count the legacy `sessions` token lookups; the org-backfill
+          // queries (`org_members`, `settings`) are noise for this assertion.
+          if (!/FROM\s+sessions\b/i.test(sql)) return undefined;
+          return query.args?.[0];
+        })
         .filter(Boolean);
       expect(selectedTokens).toEqual(["stale-token", "fresh-token"]);
     });
@@ -1494,6 +1499,88 @@ describe("server/auth", () => {
       const session = await authModule.getSession(event);
 
       expect(session).toEqual({ email: "custom@auth.com" });
+    });
+
+    it("backfills orgId from org_members for a single-membership user", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockImplementation((query: any) => {
+        const sql = String(query?.sql ?? "");
+        const args = query?.args ?? [];
+        if (/FROM\s+sessions\b/i.test(sql) && args[0] === "token-abc") {
+          return {
+            rows: [{ email: "user@gmail.com", created_at: Date.now() }],
+          };
+        }
+        if (/FROM\s+org_members\b/i.test(sql) && args[0] === "user@gmail.com") {
+          return { rows: [{ org_id: "org-solo" }] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: { authorization: "Bearer token-abc" },
+      });
+
+      expect(await getSession(event)).toEqual({
+        email: "user@gmail.com",
+        token: "token-abc",
+        orgId: "org-solo",
+      });
+    });
+
+    it("honors active-org-id user setting for a multi-membership user", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockImplementation((query: any) => {
+        const sql = String(query?.sql ?? "");
+        const args = query?.args ?? [];
+        if (/FROM\s+sessions\b/i.test(sql) && args[0] === "token-multi") {
+          return {
+            rows: [{ email: "user@gmail.com", created_at: Date.now() }],
+          };
+        }
+        if (/FROM\s+org_members\b/i.test(sql) && args[0] === "user@gmail.com") {
+          return { rows: [{ org_id: "org-a" }, { org_id: "org-b" }] };
+        }
+        if (
+          /FROM\s+settings\b/i.test(sql) &&
+          args[0] === "u:user@gmail.com:active-org-id"
+        ) {
+          return { rows: [{ value: JSON.stringify({ orgId: "org-b" }) }] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: { authorization: "Bearer token-multi" },
+      });
+
+      expect(await getSession(event)).toEqual({
+        email: "user@gmail.com",
+        token: "token-multi",
+        orgId: "org-b",
+      });
     });
   });
 
