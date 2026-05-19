@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getH3App,
   markDefaultPluginProvided,
+  trackPluginInit,
 } from "./framework-request-handler.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 
@@ -158,6 +159,57 @@ describe("framework request handler", () => {
     await expect(
       dispatch(nitroApp, "/.well-known/agent-card.json"),
     ).resolves.toEqual({ fellThrough: true });
+  });
+
+  it("does not block unrelated framework routes on route-scoped plugin init", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    getH3App(nitroApp).use("/_agent-native/auth/session", () => ({
+      ok: true,
+    }));
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/auth/session"),
+    ).resolves.toEqual({ ok: true });
+
+    release();
+  });
+
+  it("waits for matching route-scoped plugin init", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let settled = false;
+
+    getH3App(nitroApp).use("/_agent-native/agent-chat", () => ({
+      ok: true,
+    }));
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const pending = dispatch(nitroApp, "/_agent-native/agent-chat").then(
+      (result) => {
+        settled = true;
+        return result;
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
   });
 
   it("does not treat similar non-prefixed paths as framework routes", async () => {

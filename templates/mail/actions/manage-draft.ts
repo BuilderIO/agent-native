@@ -21,6 +21,7 @@ import { appendSignatureToBody } from "../shared/signature.js";
  * headroom for the rest of the query string and host prefix).
  */
 const MAX_COMPOSE_PAYLOAD_BYTES = 1536;
+const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
 
 /** Base64url-encode a compose draft so `/_agent-native/open?compose=…`
  *  decodes it back into a `compose-{id}` app-state entry the compose panel
@@ -54,7 +55,9 @@ function composeDeepLink(draft: Record<string, string>): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
+    to: `/inbox?${COMPOSE_FULLSCREEN_PARAM}=1`,
     compose: encodeComposePayload(draft),
+    params: { composeDraftId: draft.id },
   });
 }
 

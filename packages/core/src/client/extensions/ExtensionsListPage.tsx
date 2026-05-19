@@ -28,6 +28,7 @@ import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
+import { extensionPath } from "../../extensions/path.js";
 
 interface Extension {
   id: string;
@@ -228,7 +229,7 @@ export function ExtensionsListPage() {
                 )}
               >
                 <Link
-                  to={`/extensions/${extension.id}`}
+                  to={extensionPath(extension.id, extension.name)}
                   className="block p-5 pr-12"
                 >
                   <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">

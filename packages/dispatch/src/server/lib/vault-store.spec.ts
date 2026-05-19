@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  deleteAppSecret: vi.fn(),
   writeAppSecret: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/secrets", () => ({
+  deleteAppSecret: mocks.deleteAppSecret,
   writeAppSecret: mocks.writeAppSecret,
 }));
 

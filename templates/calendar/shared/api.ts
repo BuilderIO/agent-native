@@ -103,6 +103,33 @@ export interface CalendarEvent {
   _tempId?: string;
 }
 
+export interface CalendarEventDraft {
+  id: string;
+  title?: string;
+  description?: string;
+  start?: string;
+  end?: string;
+  startTimeZone?: string;
+  endTimeZone?: string;
+  location?: string;
+  allDay?: boolean;
+  eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
+  transparency?: "opaque" | "transparent";
+  visibility?: "default" | "public" | "private" | "confidential";
+  colorId?: string;
+  reminders?: CalendarEvent["reminders"];
+  remindersUseDefault?: boolean;
+  attachments?: CalendarEvent["attachments"];
+  attendees?: CalendarEvent["attendees"];
+  addGoogleMeet?: boolean;
+  addZoom?: boolean;
+  accountEmail?: string;
+  workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+  workingLocationLabel?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export type DeleteEventScope = "single" | "all" | "thisAndFollowing";
 
 export interface DeleteEventOptions {

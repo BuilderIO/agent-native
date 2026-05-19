@@ -25,6 +25,7 @@ import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
+import { extensionPath } from "../../extensions/path.js";
 
 interface SlotDeclaration {
   id: string;
@@ -111,7 +112,7 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
         if (!res.ok) throw new Error("Update failed");
         queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
         queryClient.invalidateQueries({ queryKey: ["extensions"] });
-        navigate(`/extensions/${extensionId}`);
+        navigate(extensionPath(extensionId, name.trim()));
       } else {
         const res = await fetch(agentNativePath("/_agent-native/extensions"), {
           method: "POST",
@@ -121,7 +122,7 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
         if (!res.ok) throw new Error("Create failed");
         const created = await res.json();
         queryClient.invalidateQueries({ queryKey: ["extensions"] });
-        navigate(`/extensions/${created.id}`);
+        navigate(extensionPath(created.id, created.name ?? name.trim()));
       }
     } finally {
       setSaving(false);
@@ -177,7 +178,11 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
         <header className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-3">
             <Link
-              to={isEdit ? `/extensions/${extensionId}` : "/extensions"}
+              to={
+                extensionId
+                  ? extensionPath(extensionId, existingTool?.name ?? name)
+                  : "/extensions"
+              }
               className="inline-flex cursor-pointer items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               aria-label="Back"
             >

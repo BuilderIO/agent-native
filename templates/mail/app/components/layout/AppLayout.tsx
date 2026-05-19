@@ -77,6 +77,7 @@ import {
 } from "@/lib/inbox-tabs";
 
 const BARE_ROUTES = new Set(["/email"]);
+const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
 
 /**
  * Routes that render the slim "standard layout" chrome instead of the full
@@ -174,6 +175,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
   const activeLabel = searchParams.get("label");
+  const composeInitialExpanded =
+    searchParams.get(COMPOSE_FULLSCREEN_PARAM) === "1";
+  const clearComposeInitialExpanded = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    if (!next.has(COMPOSE_FULLSCREEN_PARAM)) return;
+    next.delete(COMPOSE_FULLSCREEN_PARAM);
+    const search = next.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: search ? `?${search}` : "",
+      },
+      { replace: true },
+    );
+  }, [location.pathname, navigate, searchParams]);
   // Remember which view (and label tab) the user was in before searching —
   // SearchBar always routes searches through /inbox?q=..., so on clear we'd
   // otherwise drop a user searching from Starred/Sent/Archive or from a
@@ -1531,6 +1547,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             drafts={popoutDrafts}
             activeId={popoutActiveId}
             activeDraft={popoutActiveDraft}
+            initialExpanded={composeInitialExpanded}
             onSetActiveId={compose.setActiveId}
             onUpdate={compose.update}
             onClose={(id) => {
@@ -1607,6 +1624,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             onNewDraft={handleCompose}
             onFlush={compose.flush}
             onReopen={compose.open}
+            onInitialExpandedConsumed={clearComposeInitialExpanded}
           />
         );
       })()}

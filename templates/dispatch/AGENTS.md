@@ -111,7 +111,7 @@ manual mode, create grants before syncing.
 - `list-vault-secrets`: list all secrets in the vault (values are masked)
 - `list-vault-secret-options`: list vault secrets for app-creation key pickers without exposing values
 - `create-vault-secret`: store a new secret (admin only)
-- `update-vault-secret`: update a secret's value (admin only)
+- `update-vault-secret`: update a secret's label, credential key, value, provider, or description (admin only)
 - `delete-vault-secret`: remove a secret and all its grants (admin only)
 - `list-vault-grants`: list which apps have access to which secrets
 - `create-vault-grant`: grant an app access to a secret (admin only)

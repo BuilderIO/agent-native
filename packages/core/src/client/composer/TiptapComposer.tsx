@@ -257,7 +257,7 @@ Use manage-automations with action=define to create it. Ask clarifying questions
 
 Use the create-extension action with Alpine.js HTML content. The extension runs as a sandboxed iframe with Tailwind CSS and modest default canvas padding. For edge-to-edge layouts, put data-extension-layout="full-bleed" on the outermost element.
 
-After creating the extension, navigate the user to it with set-url-path using pathname "/extensions/<id>".
+After creating the extension, navigate the user to it with the path returned by create-extension; extension URLs may include a friendly "/extensions/<id>/<slug>" suffix.
 
 Make the extension functional and visually polished. Extensions can use extensionFetch() for external API calls, appAction()/appFetch() for app operations, extensionData for per-extension persistence, and dbQuery()/dbExec() only for existing app tables.
 

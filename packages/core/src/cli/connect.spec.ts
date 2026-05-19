@@ -763,6 +763,60 @@ describe("runConnect", () => {
     expect(Object.keys(cfg.mcpServers)).toEqual(["agent-native-mail"]);
   });
 
+  it("prompts for hosted apps when no URL is provided", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const promptHostedApps = vi.fn(async (context) => {
+      const names = context.apps.map((app) => app.name);
+      expect(names).toContain("calendar");
+      expect(names).toContain("mail");
+      expect(names).not.toContain("voice");
+      expect(context.initialApps).toEqual(names);
+      return ["mail", "calendar"];
+    });
+
+    await runConnect(
+      ["--client", "claude-code", "--scope", "project", "--token", "tok"],
+      {
+        isInteractive: () => true,
+        promptHostedApps,
+      },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    expect(promptHostedApps).toHaveBeenCalledTimes(1);
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-calendar"]).toEqual({
+      type: "http",
+      url: "https://calendar.agent-native.com/_agent-native/mcp",
+      headers: { Authorization: "Bearer tok" },
+    });
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/_agent-native/mcp",
+      headers: { Authorization: "Bearer tok" },
+    });
+  });
+
+  it("exits cleanly when the hosted app picker is cancelled", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await runConnect([], {
+      isInteractive: () => true,
+      promptHostedApps: vi.fn(async () => null),
+    });
+
+    expect(process.exitCode).toBeFalsy();
+    expect(err.mock.calls.flat().join("")).not.toContain("Missing app URL");
+    expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+  });
+
   it("sets a non-zero exit code when no url and not --all", async () => {
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);

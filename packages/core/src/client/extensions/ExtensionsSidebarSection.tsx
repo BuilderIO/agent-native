@@ -56,6 +56,7 @@ import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
+import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
 
 interface Extension {
   id: string;
@@ -267,10 +268,7 @@ export function ExtensionsSidebarSection() {
           if (next.length !== prev.length) setToolsOrder(next);
           return next;
         });
-        if (
-          location.pathname === `/extensions/${extensionId}` ||
-          location.pathname === `/extensions/${extensionId}/edit`
-        ) {
+        if (isExtensionPathname(location.pathname, extensionId)) {
           navigate("/extensions");
         }
       } catch {
@@ -342,10 +340,8 @@ export function ExtensionsSidebarSection() {
 
   const activeExtensionId = useMemo(
     () =>
-      sortedTools.find(
-        (extension) =>
-          location.pathname === `/extensions/${extension.id}` ||
-          location.pathname === `/extensions/${extension.id}/edit`,
+      sortedTools.find((extension) =>
+        isExtensionPathname(location.pathname, extension.id),
       )?.id ?? null,
     [location.pathname, sortedTools],
   );
@@ -536,9 +532,10 @@ export function ExtensionsSidebarSection() {
           ) : sortedTools.length === 0 ? null : (
             <div className="min-w-0 space-y-0.5 px-0.5">
               {visibleTools.map((extension) => {
-                const isActive =
-                  location.pathname === `/extensions/${extension.id}` ||
-                  location.pathname === `/extensions/${extension.id}/edit`;
+                const isActive = isExtensionPathname(
+                  location.pathname,
+                  extension.id,
+                );
                 const isFav = favoriteIds.has(extension.id);
                 const isRenamingThis = renamingId === extension.id;
                 const actionsVisible =
@@ -598,7 +595,7 @@ export function ExtensionsSidebarSection() {
                       <TooltipContent>Drag to reorder</TooltipContent>
                     </Tooltip>
                     <Link
-                      to={`/extensions/${extension.id}`}
+                      to={extensionPath(extension.id, extension.name)}
                       className={cn(
                         "flex min-w-0 flex-1 items-center rounded-md px-2 py-1.5 pr-12 text-xs transition-[padding,color,background-color] md:pr-2 md:group-hover/extension:pr-12 md:group-focus-within/extension:pr-12",
                         actionsVisible && "md:pr-12",

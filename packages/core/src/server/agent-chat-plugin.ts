@@ -6261,7 +6261,14 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
         }),
       );
     });
-    trackPluginInit(nitroApp, initPromise);
+    trackPluginInit(nitroApp, initPromise, {
+      paths: [
+        options?.path ?? "/_agent-native/agent-chat",
+        "/_agent-native/actions",
+        "/_agent-native/agent-model-defaults",
+        "/_agent-native/mcp",
+      ],
+    });
   };
 }
 

@@ -24,6 +24,11 @@ const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
 const PROVIDED_PLUGIN_STEMS_KEY = "_agentNativeProvidedPluginStems";
 
+interface PluginReadyEntry {
+  promise: Promise<void>;
+  paths?: string[];
+}
+
 function normalizeAppBasePath(value: string | undefined): string {
   if (!value || value === "/") return "";
   const trimmed = value.trim();
@@ -141,7 +146,11 @@ export function getH3App(nitroApp: any): H3AppShim {
     // request arrives. These middleware entries hold framework routes
     // until default-plugin bootstrap and tracked plugin inits complete.
     const readinessGate = (async (event: H3Event) => {
-      await awaitFrameworkRoutesReady(nitroApp);
+      const eventAny = event as any;
+      await awaitFrameworkRoutesReadyForRequest(
+        nitroApp,
+        eventAny.context?._mountedPathname ?? event.url?.pathname ?? "",
+      );
       // Fall through — the actual route handler runs next.
       return undefined;
     }) as EventHandler;
@@ -179,11 +188,14 @@ export async function awaitBootstrap(nitroApp: any): Promise<void> {
  *   1. default-plugin bootstrap, which discovers and starts missing plugins
  *   2. async plugin init promises, which register routes such as A2A cards
  */
-async function awaitFrameworkRoutesReady(nitroApp: any): Promise<void> {
+async function awaitFrameworkRoutesReadyForRequest(
+  nitroApp: any,
+  reqPath: string,
+): Promise<void> {
   if (!nitroApp) return;
   const bootstrapPromise = nitroApp[BOOTSTRAP_PROMISE_KEY];
   if (bootstrapPromise) await bootstrapPromise;
-  await awaitPluginsReady(nitroApp);
+  await awaitPluginsReady(nitroApp, reqPath);
 }
 
 /**
@@ -195,7 +207,11 @@ async function awaitFrameworkRoutesReady(nitroApp: any): Promise<void> {
  * (installed by getH3App) can hold /_agent-native requests until the plugin
  * finishes mounting its routes.
  */
-export function trackPluginInit(nitroApp: any, promise: Promise<void>): void {
+export function trackPluginInit(
+  nitroApp: any,
+  promise: Promise<void>,
+  options: { paths?: string[] } = {},
+): void {
   if (!nitroApp) return;
   // Attach a no-op catch so the promise doesn't surface as an unhandled
   // rejection when Nitro v3 drops the async return value. The actual error
@@ -206,11 +222,15 @@ export function trackPluginInit(nitroApp: any, promise: Promise<void>): void {
       (err as Error).message || err,
     );
   });
-  const existing = nitroApp[PLUGIN_READY_KEY] as Promise<void>[] | undefined;
+  const entry: PluginReadyEntry = {
+    promise: safe,
+    paths: options.paths?.filter(Boolean),
+  };
+  const existing = nitroApp[PLUGIN_READY_KEY] as PluginReadyEntry[] | undefined;
   if (existing) {
-    existing.push(safe);
+    existing.push(entry);
   } else {
-    nitroApp[PLUGIN_READY_KEY] = [safe];
+    nitroApp[PLUGIN_READY_KEY] = [entry];
   }
 }
 
@@ -218,11 +238,29 @@ export function trackPluginInit(nitroApp: any, promise: Promise<void>): void {
  * Await all tracked plugin initializations. Called by the readiness gate
  * middleware before dispatching framework routes.
  */
-export async function awaitPluginsReady(nitroApp: any): Promise<void> {
-  const promises = nitroApp[PLUGIN_READY_KEY] as Promise<void>[] | undefined;
-  if (promises?.length) {
-    await Promise.all(promises);
-    nitroApp[PLUGIN_READY_KEY] = [];
+export async function awaitPluginsReady(
+  nitroApp: any,
+  reqPath?: string,
+): Promise<void> {
+  const entries = nitroApp[PLUGIN_READY_KEY] as PluginReadyEntry[] | undefined;
+  if (!entries?.length) return;
+
+  const relevant = reqPath
+    ? entries.filter((entry) =>
+        entry.paths?.length
+          ? entry.paths.some((path) => resolveMountMatch(reqPath, path))
+          : true,
+      )
+    : entries;
+
+  if (relevant.length) {
+    await Promise.all(relevant.map((entry) => entry.promise));
+    const completed = new Set(relevant);
+    const latest =
+      (nitroApp[PLUGIN_READY_KEY] as PluginReadyEntry[] | undefined) ?? [];
+    nitroApp[PLUGIN_READY_KEY] = latest.filter(
+      (entry) => !completed.has(entry),
+    );
   }
 }
 

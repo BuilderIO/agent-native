@@ -1,7 +1,7 @@
-import { agentNativePath } from "../api-path.js";
+import { agentNativePath, appPath } from "../api-path.js";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import {
   IconArrowLeft,
   IconChevronRight,
@@ -38,6 +38,7 @@ import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
+import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -91,6 +92,54 @@ interface Extension {
 
 export interface ExtensionViewerProps {
   extensionId: string;
+}
+
+function readExtensionTitleSuffix(): string | null {
+  const current = typeof document !== "undefined" ? document.title.trim() : "";
+  const match = current.match(/^(?:Extension|Tool)s?\s+(?:\u2014|-)\s+(.+)$/);
+  return match?.[1]?.trim() || null;
+}
+
+function extensionDocumentTitle(name: string, suffix: string | null): string {
+  return suffix ? `${name} \u2014 ${suffix}` : `${name} \u2014 Extensions`;
+}
+
+function applyCanonicalLink(path: string): () => void {
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return () => {};
+  }
+
+  let link = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  const created = !link;
+  const previousHref = link?.getAttribute("href") ?? null;
+  const previousMarker = link?.dataset.agentNativeExtensionCanonical;
+
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "canonical";
+    document.head.appendChild(link);
+  }
+
+  link.dataset.agentNativeExtensionCanonical = "true";
+  link.href = new URL(appPath(path), window.location.origin).toString();
+
+  return () => {
+    if (!link) return;
+    if (created) {
+      link.remove();
+      return;
+    }
+    if (previousHref === null) {
+      link.removeAttribute("href");
+    } else {
+      link.href = previousHref;
+    }
+    if (previousMarker === undefined) {
+      delete link.dataset.agentNativeExtensionCanonical;
+    } else {
+      link.dataset.agentNativeExtensionCanonical = previousMarker;
+    }
+  };
 }
 
 function EditToolPopover({
@@ -172,6 +221,8 @@ function EditToolPopover({
 }
 
 export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [isDark, setIsDark] = useState(false);
   const [iframeReady, setIframeReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -180,6 +231,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   const [renameValue, setRenameValue] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const titleSuffixRef = useRef<string | null | undefined>(undefined);
   // Tracks how many toolbar popovers are open. Iframes capture pointer events
   // from areas they visually overlap, so when a popover opens above the iframe,
   // hover and click on the popover items get swallowed by the iframe. Disabling
@@ -467,6 +519,29 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   });
 
   toolRef.current = extension ?? null;
+
+  useEffect(() => {
+    if (!extension) return;
+    const canonicalPath = extensionPath(extension.id, extension.name);
+    if (titleSuffixRef.current === undefined) {
+      titleSuffixRef.current = readExtensionTitleSuffix();
+    }
+    document.title = extensionDocumentTitle(
+      extension.name,
+      titleSuffixRef.current,
+    );
+
+    if (
+      isExtensionPathname(location.pathname, extension.id) &&
+      location.pathname !== canonicalPath
+    ) {
+      navigate(`${canonicalPath}${location.search}${location.hash}`, {
+        replace: true,
+      });
+    }
+
+    return applyCanonicalLink(canonicalPath);
+  }, [extension, location.hash, location.pathname, location.search, navigate]);
 
   const iframeSrc = useMemo(
     () =>
