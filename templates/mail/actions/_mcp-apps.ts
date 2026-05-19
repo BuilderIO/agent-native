@@ -14,7 +14,8 @@ function attr(value: string | undefined): string {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;");
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export function mailDraftMcpAppHtml({

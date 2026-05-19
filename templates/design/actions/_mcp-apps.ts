@@ -14,7 +14,8 @@ function attr(value: string | undefined): string {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;");
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export function designPreviewMcpAppHtml({
@@ -102,18 +103,156 @@ export function designPreviewMcpAppHtml({
       if (selected >= files.length) selected = 0;
     }
 
-    function safePreviewHtml(raw) {
+    const ALLOWED_TAGS = new Set([
+      "a", "article", "aside", "b", "blockquote", "br", "caption", "code", "col", "colgroup",
+      "dd", "div", "dl", "dt", "em", "figcaption", "figure", "footer", "h1", "h2", "h3", "h4",
+      "h5", "h6", "header", "hr", "i", "img", "li", "main", "ol", "p", "pre", "section", "small",
+      "span", "strong", "style", "sub", "sup", "table", "tbody", "td", "tfoot", "th", "thead",
+      "tr", "u", "ul",
+    ]);
+    const DROP_TAGS = new Set([
+      "base", "button", "embed", "form", "iframe", "input", "link", "math", "meta", "object",
+      "script", "select", "svg", "textarea",
+    ]);
+    const ALLOWED_ATTRS = new Set([
+      "align", "alt", "aria-label", "aria-hidden", "border", "cellpadding", "cellspacing", "class",
+      "colspan", "height", "href", "id", "role", "rowspan", "src", "style", "target", "title",
+      "valign", "width",
+    ]);
+    const URL_ATTRS = new Set(["href", "src", "poster", "xlink:href"]);
+
+    function decodeEntities(value) {
+      const textarea = document.createElement("textarea");
+      let decoded = String(value || "");
+      for (let i = 0; i < 3; i++) {
+        textarea.innerHTML = decoded;
+        const next = textarea.value;
+        if (next === decoded) break;
+        decoded = next;
+      }
+      return decoded;
+    }
+
+    function sanitizeUrl(rawUrl, kind = "link") {
+      const value = String(rawUrl || "").trim();
+      if (!value) return "";
+      const decoded = decodeEntities(value);
+      const lower = decoded.replace(/[\\s\\u0000-\\u001f\\u007f]+/g, "").toLowerCase();
+      if (lower.startsWith("javascript:") || lower.startsWith("vbscript:") || lower.startsWith("file:") || lower.startsWith("//")) return "";
+      if (lower.startsWith("data:")) {
+        return kind === "image" && /^data:image\\/(?:gif|png|jpe?g|webp|avif);base64,/i.test(decoded) ? value : "";
+      }
+      if (value.startsWith("/") || value.startsWith("#") || value.startsWith("./") || value.startsWith("../")) return value;
+      try {
+        const url = new URL(decoded, origin);
+        return kind === "image"
+          ? (url.protocol === "http:" || url.protocol === "https:" ? value : "")
+          : (["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? value : "");
+      } catch {
+        return /^[a-z][a-z\\d+.-]*:/i.test(lower) ? "" : value;
+      }
+    }
+
+    function sanitizeCssValue(value) {
+      const decoded = decodeEntities(value);
+      if (/(?:^|[^\\w-])expression\\s*\\(/i.test(decoded) || /(?:java|vb)script\\s*:/i.test(decoded) || /(?:^|[^\\w-])url\\s*\\(/i.test(decoded) || /@import/i.test(decoded) || /-moz-binding/i.test(decoded) || /behavior\\s*:/i.test(decoded)) return "";
+      return String(value || "").trim();
+    }
+
+    function sanitizeStyle(style) {
+      return String(style || "")
+        .split(";")
+        .map((declaration) => {
+          const index = declaration.indexOf(":");
+          if (index <= 0) return "";
+          const property = declaration.slice(0, index).trim();
+          const value = declaration.slice(index + 1).trim();
+          if (!/^(?:--)?[a-zA-Z][\\w-]*$/.test(property) || !value) return "";
+          const safeValue = sanitizeCssValue(value);
+          return safeValue ? property + ": " + safeValue : "";
+        })
+        .filter(Boolean)
+        .join("; ");
+    }
+
+    function sanitizeStyleSheet(css) {
+      return String(css || "")
+        .replace(/@import[^;]+;?/gi, "")
+        .replace(/([^{}]+)\\{([^{}]*)\\}/g, (_match, selector, body) => {
+          const safeBody = sanitizeStyle(String(body));
+          return safeBody ? String(selector).trim() + " { " + safeBody + "; }" : "";
+        });
+    }
+
+    function cleanNode(node, doc) {
+      if (node.nodeType === Node.TEXT_NODE) return doc.createTextNode(node.textContent || "");
+      if (node.nodeType !== Node.ELEMENT_NODE) return null;
+      const tag = node.tagName.toLowerCase();
+      if (DROP_TAGS.has(tag)) return null;
+      if (tag === "style") {
+        const safeCss = sanitizeStyleSheet(node.textContent || "");
+        if (!safeCss.trim()) return null;
+        const out = doc.createElement("style");
+        out.textContent = safeCss;
+        return out;
+      }
+      if (!ALLOWED_TAGS.has(tag)) {
+        const fragment = doc.createDocumentFragment();
+        node.childNodes.forEach((child) => {
+          const cleaned = cleanNode(child, doc);
+          if (cleaned) fragment.appendChild(cleaned);
+        });
+        return fragment;
+      }
+      const out = doc.createElement(tag);
+      [...node.attributes].forEach((attribute) => {
+        const name = attribute.name.toLowerCase();
+        const value = attribute.value;
+        if (name.startsWith("on") || name === "srcdoc" || name === "srcset") return;
+        if (!ALLOWED_ATTRS.has(name) && !name.startsWith("data-") && !name.startsWith("aria-")) return;
+        if (URL_ATTRS.has(name)) {
+          const safeUrl = sanitizeUrl(value, tag === "img" ? "image" : "link");
+          if (safeUrl) out.setAttribute(name, safeUrl);
+          return;
+        }
+        if (name === "style") {
+          const safeStyle = sanitizeStyle(value);
+          if (safeStyle) out.setAttribute("style", safeStyle);
+          return;
+        }
+        if (name === "target" && value !== "_blank") return;
+        out.setAttribute(name, value);
+      });
+      if (tag === "a") {
+        out.setAttribute("target", "_blank");
+        out.setAttribute("rel", "noopener noreferrer");
+      }
+      node.childNodes.forEach((child) => {
+        const cleaned = cleanNode(child, doc);
+        if (cleaned) out.appendChild(cleaned);
+      });
+      return out;
+    }
+
+    function sanitizeHtml(raw) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(String(raw || ""), "text/html");
-      doc.querySelectorAll("script").forEach((node) => node.remove());
-      doc.querySelectorAll("*").forEach((node) => {
-        for (const attr of [...node.attributes]) {
-          if (/^on/i.test(attr.name)) node.removeAttribute(attr.name);
-        }
+      const fragment = doc.createDocumentFragment();
+      doc.head.querySelectorAll("style").forEach((style) => {
+        const cleaned = cleanNode(style, doc);
+        if (cleaned) fragment.appendChild(cleaned);
       });
-      const styles = [...doc.querySelectorAll("style")].map((style) => style.textContent || "").join("\\n");
-      const body = doc.body ? doc.body.innerHTML : doc.documentElement.innerHTML;
-      return '<style>:host{display:block;min-height:280px;background:white;color:#111827;font-family:ui-sans-serif,system-ui;}*,*:before,*:after{box-sizing:border-box;} ' + styles + '</style>' + body;
+      doc.body.childNodes.forEach((child) => {
+        const cleaned = cleanNode(child, doc);
+        if (cleaned) fragment.appendChild(cleaned);
+      });
+      const wrapper = doc.createElement("div");
+      wrapper.appendChild(fragment);
+      return wrapper.innerHTML;
+    }
+
+    function safePreviewHtml(raw) {
+      return '<style>:host{display:block;min-height:280px;background:white;color:#111827;font-family:ui-sans-serif,system-ui;}*,*:before,*:after{box-sizing:border-box;}</style>' + sanitizeHtml(raw);
     }
 
     function mountPreview() {
