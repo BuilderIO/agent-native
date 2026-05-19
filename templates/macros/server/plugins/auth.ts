@@ -7,12 +7,20 @@
 import {
   createAuthPlugin,
   addSession,
+  clearFrameworkSessionCookies,
   getSessionEmail,
+  getFrameworkSessionCookieValues,
   getH3App,
   readBody,
+  setFrameworkSessionCookie,
 } from "@agent-native/core/server";
-import { defineEventHandler, getCookie } from "h3";
+import { defineEventHandler, getMethod } from "h3";
 import { createClient } from "@supabase/supabase-js";
+
+// Above a normal Neon serverless cold-wake (~1-2s) but well under both the
+// core DB op timeout and Netlify's function limit, so a slow-but-fine lookup
+// still resolves instead of false-timing-out on every cold start.
+const SESSION_LOOKUP_TIMEOUT_MS = 4_000;
 
 let _supabase: ReturnType<typeof createClient> | null = null;
 function getSupabase() {
@@ -72,13 +80,64 @@ function jsonResponse(body: object, status = 200) {
   });
 }
 
-export default (nitroApp: any) => {
-  const app = getH3App(nitroApp);
+async function getSessionEmailWithTimeout(
+  token: string,
+): Promise<string | null | "timeout"> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      getSessionEmail(token),
+      new Promise<"timeout">((resolve) => {
+        timeout = setTimeout(
+          () => resolve("timeout"),
+          SESSION_LOOKUP_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
 
+export default (nitroApp: any) => {
+  const authInit = createAuthPlugin({
+    loginHtml: LOGIN_HTML,
+    // Resolve sessions from the framework's legacy session table, where
+    // supabase-login stores them via addSession(). Providing a custom
+    // getSession marks this template as BYOA — the framework will not
+    // silently bypass auth in dev mode.
+    getSession: async (event) => {
+      const cookies = getFrameworkSessionCookieValues(event);
+      if (cookies.length === 0) return null;
+
+      for (const cookie of cookies) {
+        const email = await getSessionEmailWithTimeout(cookie);
+        if (email === "timeout") {
+          // Transient slow/cold DB — do NOT destroy a possibly-valid
+          // session. Treat this request as unauthenticated (the framework
+          // serves the login page instead of hanging), but keep the cookie
+          // so the next request succeeds once the DB warms.
+          return null;
+        }
+        if (email) return { email, token: cookie };
+      }
+
+      // Every cookie resolved to a definitive "no such / expired session" —
+      // safe to clear so the user isn't stuck presenting a dead cookie.
+      clearFrameworkSessionCookies(event);
+      return null;
+    },
+  })(nitroApp);
+
+  const app = getH3App(nitroApp);
   app.use(
     "/_agent-native/auth/supabase-login",
     defineEventHandler(async (event) => {
       try {
+        if (getMethod(event) !== "POST") {
+          return jsonResponse({ error: "Method not allowed" }, 405);
+        }
+
         const { email, password } = await readBody<{
           email?: string;
           password?: string;
@@ -103,38 +162,14 @@ export default (nitroApp: any) => {
 
         const token = globalThis.crypto.randomUUID();
         await addSession(token, data.user.email ?? email);
+        setFrameworkSessionCookie(event, token);
 
-        const maxAge = 60 * 60 * 24 * 30;
-        const secure = process.env.NODE_ENV === "production";
-        const cookie = `an_session=${token}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
-
-        return new Response(
-          JSON.stringify({ ok: true, email: data.user.email }),
-          {
-            headers: {
-              "Content-Type": "application/json",
-              "Set-Cookie": cookie,
-            },
-          },
-        );
+        return { ok: true, email: data.user.email };
       } catch {
         return jsonResponse({ error: "Login failed" }, 500);
       }
     }),
   );
 
-  return createAuthPlugin({
-    loginHtml: LOGIN_HTML,
-    // Resolve sessions from the framework's legacy session table, where
-    // supabase-login stores them via addSession(). Providing a custom
-    // getSession marks this template as BYOA — the framework will not
-    // silently bypass auth in dev mode.
-    getSession: async (event) => {
-      const cookie = getCookie(event, "an_session");
-      if (!cookie) return null;
-      const email = await getSessionEmail(cookie);
-      if (!email) return null;
-      return { email, token: cookie };
-    },
-  })(nitroApp);
+  return authInit;
 };

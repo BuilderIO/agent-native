@@ -341,6 +341,65 @@ export async function retryOnConnectionError<T>(
 }
 
 // ---------------------------------------------------------------------------
+// Per-op timeout — converts a silent serverless hang into a retryable error
+// ---------------------------------------------------------------------------
+
+/**
+ * Max wall time for a single DB op (init or query) before we treat it as a
+ * dead connection. A frozen→thawed serverless instance can leave the Neon
+ * WebSocket (or a postgres.js socket) hung mid-flight: the promise neither
+ * settles nor errors, so retryOnConnectionError() — which only retries thrown
+ * errors — can't help and the request hangs until the platform kills the
+ * function (~30s on Netlify). For authenticated requests that run a session
+ * lookup on every navigation this surfaces as "the site won't load". Bounding
+ * each op well under the platform function limit turns the silent hang into a
+ * CONNECT_TIMEOUT that the existing retry and reject-reset paths already
+ * handle. Override with DB_OP_TIMEOUT_MS.
+ */
+export function dbOpTimeoutMs(): number {
+  const raw = Number(process.env.DB_OP_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return isServerlessRuntime() ? 8_000 : 30_000;
+}
+
+/**
+ * Timeout error tagged with a recognized connection-error code so
+ * isConnectionError() / retryOnConnectionError() treat a hung op as a
+ * retryable dead connection, and upstream reject-reset guards (e.g. the
+ * cached session-table init promise) clear their poisoned state.
+ */
+class DbTimeoutError extends Error {
+  code = "CONNECT_TIMEOUT";
+  constructor(op: string, ms: number) {
+    super(`DB ${op} timed out after ${ms}ms (connection terminated)`);
+    this.name = "DbTimeoutError";
+  }
+}
+
+/**
+ * Race a DB op against {@link dbOpTimeoutMs}. The losing (hung) promise is
+ * abandoned — acceptable on serverless, where the instance is short-lived and
+ * the Neon pool has its own 'error' handler — but the request no longer hangs.
+ */
+export async function withDbTimeout<T>(
+  op: string,
+  run: () => Promise<T>,
+  ms = dbOpTimeoutMs(),
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      run(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new DbTimeoutError(op, ms)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Serverless-aware Postgres pool options
 // ---------------------------------------------------------------------------
 
@@ -470,10 +529,12 @@ async function createDbExecInternal(
           const rawSql = typeof sql === "string" ? sql : sql.sql;
           const args = typeof sql === "string" ? [] : sql.args || [];
           const pgSql = sqliteToPostgresParams(rawSql);
-          const result = await retryOnConnectionError<{
-            rows: unknown[];
-            rowCount?: number;
-          }>(() => pool.query(pgSql, args as any[]));
+          const result = await withDbTimeout("query", () =>
+            retryOnConnectionError<{
+              rows: unknown[];
+              rowCount?: number;
+            }>(() => pool.query(pgSql, args as any[])),
+          );
           return {
             rows: result.rows,
             rowsAffected: result.rowCount ?? 0,
@@ -501,7 +562,9 @@ async function createDbExecInternal(
             const rawSql = typeof sql === "string" ? sql : sql.sql;
             const args = typeof sql === "string" ? [] : sql.args || [];
             const pgSql = sqliteToPostgresParams(rawSql);
-            const result = await conn.unsafe(pgSql, args as any[]);
+            const result = await withDbTimeout("query", () =>
+              conn.unsafe(pgSql, args as any[]),
+            );
             return {
               rows: Array.from(result),
               rowsAffected: result.count ?? 0,
@@ -525,9 +588,11 @@ async function createDbExecInternal(
           const rawSql = typeof sql === "string" ? sql : sql.sql;
           const args = typeof sql === "string" ? [] : sql.args || [];
           const pgSql = sqliteToPostgresParams(rawSql);
-          const result = await retryOnConnectionError<
-            ArrayLike<unknown> & { count?: number }
-          >(() => pool.unsafe(pgSql, args as any[]));
+          const result = await withDbTimeout("query", () =>
+            retryOnConnectionError<ArrayLike<unknown> & { count?: number }>(
+              () => pool.unsafe(pgSql, args as any[]),
+            ),
+          );
           return {
             rows: Array.from(result),
             rowsAffected: result.count ?? 0,
@@ -636,7 +701,16 @@ export function getDbExec(): DbExec {
   const proxy: DbExec = {
     async execute(sql) {
       if (!_initPromise) _initPromise = initClient();
-      await _initPromise;
+      try {
+        await _initPromise;
+      } catch (err) {
+        // A failed/hung init must not poison the singleton for the life of
+        // the process — drop it so the next call retries a fresh connection
+        // instead of re-awaiting a permanently rejected/pending promise.
+        _initPromise = undefined;
+        _exec = undefined;
+        throw err;
+      }
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
         execute: (s) => _exec!.execute(sanitize(s)),

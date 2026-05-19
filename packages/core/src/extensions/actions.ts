@@ -20,6 +20,7 @@ import {
   listExtensionsForSlot,
   listSlotsForExtension,
 } from "./slots/store.js";
+import { extensionPath } from "./path.js";
 
 type ExtensionPatch = { find: string; replace: string };
 
@@ -127,6 +128,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           content,
           icon: args?.icon ? String(args.icon) : undefined,
         });
+        const path = extensionPath(extension.id, extension.name);
 
         // Auto-navigate so the user lands on the new extension instead of
         // having to read the JSON response and click a link. Writes a
@@ -135,7 +137,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           await writeAppState("navigate", {
             view: "extensions",
             extensionId: extension.id,
-            path: `/extensions/${extension.id}`,
+            path,
             // Unique-per-write token so the UI's `use-navigation-state` hook
             // can dedup race-driven re-reads of the same command.
             _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -146,7 +148,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
 
         return {
           ok: true,
-          extension,
+          extension: { ...extension, path },
+          path,
           next: `Created. The user is being navigated to the new extension automatically — no further navigation tool calls needed.`,
         };
       },
@@ -477,6 +480,7 @@ async function summarizeExtension(
   return {
     id: row.id,
     name: row.name,
+    path: extensionPath(row.id, row.name),
     description: row.description,
     icon: row.icon,
     ownerEmail: row.ownerEmail,

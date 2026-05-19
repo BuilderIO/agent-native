@@ -350,7 +350,7 @@ function getCookieValues(event: H3Event, name: string): string[] {
   return values;
 }
 
-function getFrameworkSessionCookieValues(event: H3Event): string[] {
+export function getFrameworkSessionCookieValues(event: H3Event): string[] {
   return getCookieValues(event, COOKIE_NAME);
 }
 
@@ -371,7 +371,7 @@ function deleteCookieFromEveryScope(event: H3Event, name: string): void {
   }
 }
 
-function clearFrameworkSessionCookies(event: H3Event): void {
+export function clearFrameworkSessionCookies(event: H3Event): void {
   for (const name of frameworkSessionCookieNamesToClear()) {
     deleteCookieFromEveryScope(event, name);
   }

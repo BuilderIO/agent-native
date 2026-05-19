@@ -37,7 +37,7 @@ const tokenRows: any[] = [];
 const deviceRows: any[] = [];
 vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_SCOPE: "mcp-connect",
-  DEFAULT_TOKEN_TTL_DAYS: 90,
+  DEFAULT_TOKEN_TTL_DAYS: 365,
   MIN_TOKEN_TTL_DAYS: 1,
   MAX_TOKEN_TTL_DAYS: 365,
   DEVICE_CODE_TTL_MS: 600_000,
@@ -240,6 +240,19 @@ describe("handleMcpConnect", () => {
         label: "laptop",
         jti: payload.jti,
       });
+    });
+
+    it("defaults token lifetime to 365 days", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      const { token } = await res.json();
+      const { payload } = await jose.jwtVerify(
+        token,
+        new TextEncoder().encode(SECRET),
+      );
+      const lifetimeDays =
+        ((payload.exp as number) - (payload.iat as number)) / 86400;
+      expect(Math.round(lifetimeDays)).toBe(365);
     });
 
     it("clamps ttlDays into the 1-365 range", async () => {
@@ -455,6 +468,9 @@ describe("handleMcpConnect", () => {
       );
       expect(payload.sub).toBe("u@example.com");
       expect(payload.scope).toBe("mcp-connect");
+      const lifetimeDays =
+        ((payload.exp as number) - (payload.iat as number)) / 86400;
+      expect(Math.round(lifetimeDays)).toBe(365);
 
       // poll again → consumed (single-use, no second token)
       res = await handleMcpConnect(
