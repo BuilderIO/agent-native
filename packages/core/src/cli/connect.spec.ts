@@ -18,6 +18,7 @@ import {
 const tmpRoots: string[] = [];
 
 beforeEach(() => {
+  process.exitCode = undefined;
   // Keep CLI output out of the test log; individual tests that assert on
   // output re-spy with their own captured implementation.
   vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -663,11 +664,20 @@ describe("runConnect", () => {
     });
   });
 
-  it("writes OAuth-native Claude Code entries without starting the device flow", async () => {
+  it("writes OAuth-native Claude Code entries after validating metadata", async () => {
     const root = tmpDir();
     process.chdir(root);
-    const fetchImpl = vi.fn(async () => {
-      throw new Error("device flow should not run");
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(String(url)).toBe(
+        "https://mail.agent-native.com/.well-known/oauth-protected-resource",
+      );
+      expect(init?.method).toBe("GET");
+      return new Response(
+        JSON.stringify({
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
     }) as unknown as typeof fetch;
     const openBrowser = vi.fn();
 
@@ -683,7 +693,7 @@ describe("runConnect", () => {
     );
 
     expect(process.exitCode).toBeFalsy();
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(openBrowser).not.toHaveBeenCalled();
     const cfg = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
@@ -692,6 +702,64 @@ describe("runConnect", () => {
       type: "http",
       url: "https://mail.agent-native.com/_agent-native/mcp",
     });
+  });
+
+  it("normalizes full MCP URLs for OAuth-native Claude Code entries", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = vi.fn(async (url: string) => {
+      expect(String(url)).toBe(
+        "https://mail.agent-native.com/.well-known/oauth-protected-resource",
+      );
+      return new Response(
+        JSON.stringify({
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com/_agent-native/mcp",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/_agent-native/mcp",
+    });
+  });
+
+  it("rejects OAuth-native config when MCP metadata is unavailable", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = vi.fn(
+      async () => new Response("not found", { status: 404 }),
+    );
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
   });
 
   it("upgrades existing Claude bearer entries to OAuth-native config", async () => {
@@ -719,14 +787,25 @@ describe("runConnect", () => {
       output.push(String(chunk));
       return true;
     });
+    const fetchImpl = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
 
-    await runConnect([
-      "https://mail.agent-native.com",
-      "--client",
-      "claude-code",
-      "--scope",
-      "project",
-    ]);
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
 
     expect(process.exitCode).toBeFalsy();
     const cfg = JSON.parse(

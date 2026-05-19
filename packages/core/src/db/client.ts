@@ -10,6 +10,8 @@
  */
 import path from "path";
 
+const recyclingPostgresPools = new WeakSet<object>();
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -660,14 +662,13 @@ async function createDbExecInternal(
       type PostgresPool = ReturnType<typeof createPool>;
       let pool = createPool();
       if (trackSingletonResources) _pgPool = pool;
-      const recyclingPools = new WeakSet<object>();
       const recyclePool = async (timedOutPool: PostgresPool) => {
+        if (recyclingPostgresPools.has(timedOutPool)) return;
+        recyclingPostgresPools.add(timedOutPool);
         if (pool === timedOutPool) {
           pool = createPool();
           if (trackSingletonResources) _pgPool = pool;
         }
-        if (recyclingPools.has(timedOutPool)) return;
-        recyclingPools.add(timedOutPool);
         await timedOutPool.end({ timeout: 1 });
       };
 

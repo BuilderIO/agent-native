@@ -46,6 +46,7 @@ import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
 const DEVICE_START_PATH = "/_agent-native/mcp/connect/device/start";
 const DEVICE_POLL_PATH = "/_agent-native/mcp/connect/device/poll";
+const MCP_PATH = "/_agent-native/mcp";
 const SERVER_NAME_PREFIX = "agent-native";
 const CONNECT_PREFERENCES_VERSION = 1;
 const CONNECT_PROFILES_VERSION = 1;
@@ -544,6 +545,74 @@ function responseMessage(json: any, fallback: string): string {
         ? json.error
         : "";
   return message.trim() || fallback;
+}
+
+function stripMcpPath(baseUrl: string): string {
+  const parsed = new URL(baseUrl);
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  if (pathname === MCP_PATH || pathname.endsWith(MCP_PATH)) {
+    parsed.pathname = pathname.slice(0, -MCP_PATH.length) || "/";
+    parsed.search = "";
+    parsed.hash = "";
+    return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+  }
+  return baseUrl;
+}
+
+function mcpUrlForBaseUrl(baseUrl: string): string {
+  const parsed = new URL(baseUrl);
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  if (pathname === MCP_PATH || pathname.endsWith(MCP_PATH)) {
+    parsed.pathname = pathname;
+    parsed.search = "";
+    parsed.hash = "";
+    return `${parsed.origin}${parsed.pathname}`;
+  }
+  return `${baseUrl.replace(/\/+$/, "")}${MCP_PATH}`;
+}
+
+async function validateOAuthMcpServer(
+  baseUrl: string,
+  mcpUrl: string,
+  deps: ConnectDeps,
+): Promise<boolean> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const metadataUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetchImpl(metadataUrl, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      logErr(
+        `  Could not validate OAuth MCP support at ${metadataUrl} ` +
+          `(HTTP ${response.status}).`,
+      );
+      return false;
+    }
+    const metadata = (await response.json().catch(() => null)) as {
+      resource?: unknown;
+    } | null;
+    if (metadata?.resource !== mcpUrl) {
+      logErr(
+        `  ${metadataUrl} did not advertise the expected MCP resource ` +
+          `${mcpUrl}.`,
+      );
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    logErr(
+      `  Could not reach ${metadataUrl} (${err?.message ?? err}). ` +
+        `Check the URL and your network.`,
+    );
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -1339,7 +1408,9 @@ async function connectOne(
   clients: ClientId[],
   deps: ConnectDeps,
 ): Promise<{ ok: boolean; serverName?: string; files?: string[] }> {
-  const baseUrl = normalizeUrl(rawUrl);
+  const normalizedUrl = normalizeUrl(rawUrl);
+  const baseUrl = stripMcpPath(normalizedUrl);
+  const normalizedMcpUrl = mcpUrlForBaseUrl(normalizedUrl);
   const appSlug = appSlugFromUrl(baseUrl);
   const scope = parsed.scope === "user" ? "user" : "project";
   const baseDir = projectBaseDir();
@@ -1360,14 +1431,17 @@ async function connectOne(
   if (parsed.token) {
     // No-browser fallback: skip the device flow entirely.
     token = parsed.token;
-    mcpUrl = `${baseUrl}/_agent-native/mcp`;
+    mcpUrl = normalizedMcpUrl;
     serverName = parsed.name ?? defaultServerName(baseUrl);
     logOut("");
     logOut(`  Using supplied --token for ${baseUrl} (skipping browser flow).`);
   } else if (deviceFlowClients.length === 0) {
     token = undefined;
-    mcpUrl = `${baseUrl}/_agent-native/mcp`;
+    mcpUrl = normalizedMcpUrl;
     serverName = parsed.name ?? defaultServerName(baseUrl);
+    if (!(await validateOAuthMcpServer(baseUrl, mcpUrl, deps))) {
+      return { ok: false };
+    }
   } else {
     const grant = await runDeviceFlow(
       baseUrl,

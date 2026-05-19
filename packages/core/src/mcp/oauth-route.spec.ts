@@ -181,6 +181,24 @@ describe("MCP OAuth route", () => {
     });
   });
 
+  it("allows IPv6 loopback redirect URIs during registration", async () => {
+    const res = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          client_name: "IPv6 local client",
+          redirect_uris: ["http://[::1]:54545/callback"],
+          token_endpoint_auth_method: "none",
+        } as any,
+      }),
+      "/register",
+    );
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({
+      redirect_uris: ["http://[::1]:54545/callback"],
+    });
+  });
+
   it("serves login HTML when authorize is opened without a browser session", async () => {
     const client = await (
       await handleMcpOAuth(
