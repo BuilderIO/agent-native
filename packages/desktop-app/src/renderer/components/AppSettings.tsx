@@ -815,12 +815,46 @@ export function AddAppDialog({
   const [prodUrl, setProdUrl] = useState("");
   const [devUrl, setDevUrl] = useState("");
   const [devCommand, setDevCommand] = useState("");
+  const [localPath, setLocalPath] = useState("");
+  const [folderWarning, setFolderWarning] = useState("");
+  const [folderError, setFolderError] = useState("");
+  const [choosingFolder, setChoosingFolder] = useState(false);
 
   const trimmedName = name.trim();
   const trimmedProdUrl = prodUrl.trim();
   const trimmedDevUrl = devUrl.trim();
   const requiredUrl = mode === "prod" ? trimmedProdUrl : trimmedDevUrl;
   const canSave = Boolean(trimmedName && requiredUrl);
+
+  async function chooseLocalFolder() {
+    setChoosingFolder(true);
+    setFolderError("");
+    setFolderWarning("");
+    try {
+      const picker = window.electronAPI?.appConfig?.chooseLocalFolder;
+      if (!picker) {
+        setFolderError("Folder picker is only available in Desktop.");
+        return;
+      }
+      const result = await picker();
+      if (!result?.ok || !result.folder) {
+        if (result?.error && result.error !== "No folder selected.") {
+          setFolderError(result.error);
+        }
+        return;
+      }
+      const folder = result.folder;
+      setLocalPath(folder.path);
+      setName((current) => current || folder.name);
+      setDevUrl(folder.devUrl);
+      setDevCommand(folder.devCommand);
+      if (folder.warning) setFolderWarning(folder.warning);
+    } catch (err) {
+      setFolderError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setChoosingFolder(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -833,11 +867,14 @@ export function AddAppDialog({
       description:
         mode === "prod"
           ? `Production app at ${trimmedProdUrl}`
-          : `Local dev app at ${trimmedDevUrl}`,
+          : localPath
+            ? `Local dev app in ${localPath}`
+            : `Local dev app at ${trimmedDevUrl}`,
       url: trimmedProdUrl,
       devPort: inferPortFromUrl(trimmedDevUrl),
       devUrl: trimmedDevUrl || undefined,
       devCommand: devCommand.trim() || undefined,
+      localPath: mode === "dev" ? localPath || undefined : undefined,
       isBuiltIn: false,
       enabled: true,
       mode,
@@ -876,40 +913,101 @@ export function AddAppDialog({
             className={`settings-choice-btn${mode === "dev" ? " settings-choice-btn--active" : ""}`}
             onClick={() => setMode("dev")}
             aria-pressed={mode === "dev"}
-            title="Use this for localhost apps you run with pnpm dev; Desktop loads the dev URL with code tools available."
+            title="Use this for a cloned local app folder; Desktop opens the inferred localhost URL."
           >
             <IconTerminal2 size={17} />
             <span>
               <strong>Local dev</strong>
-              <small>localhost URL</small>
+              <small>Choose folder</small>
             </span>
           </button>
         </div>
 
-        <label>
-          Name *
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={mode === "prod" ? "Dispatch" : "My local app"}
-            required
-          />
-        </label>
-
         {mode === "prod" ? (
-          <label>
-            Production URL *
-            <input
-              type="url"
-              value={prodUrl}
-              onChange={(e) => setProdUrl(e.target.value)}
-              placeholder="https://dispatch.agent-native.com"
-              required
-            />
-          </label>
+          <>
+            <label>
+              Name *
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Dispatch"
+                required
+              />
+            </label>
+
+            <label>
+              Production URL *
+              <input
+                type="url"
+                value={prodUrl}
+                onChange={(e) => setProdUrl(e.target.value)}
+                placeholder="https://dispatch.agent-native.com"
+                required
+              />
+            </label>
+          </>
         ) : (
           <>
+            <div className="settings-folder-picker">
+              <div className="settings-folder-picker__label">
+                <span>Local Folder</span>
+                {localPath && <small>Selected</small>}
+              </div>
+              <button
+                type="button"
+                className={`settings-folder-btn${localPath ? " settings-folder-btn--selected" : ""}`}
+                onClick={chooseLocalFolder}
+                disabled={choosingFolder}
+              >
+                {localPath ? (
+                  <IconFolder size={16} strokeWidth={1.8} />
+                ) : (
+                  <IconFolderPlus size={16} strokeWidth={1.8} />
+                )}
+                <span>
+                  <strong>
+                    {localPath
+                      ? localPath.split(/[\\/]/).filter(Boolean).at(-1)
+                      : "Choose app folder"}
+                  </strong>
+                  <small>
+                    {localPath || "Select the folder you cloned or created."}
+                  </small>
+                </span>
+                {choosingFolder && (
+                  <IconLoader2
+                    size={14}
+                    strokeWidth={1.8}
+                    className="settings-spinner"
+                  />
+                )}
+              </button>
+              {folderError && (
+                <p className="settings-folder-message settings-folder-message--error">
+                  <IconAlertCircle size={13} strokeWidth={1.8} />
+                  {folderError}
+                </p>
+              )}
+              {folderWarning && (
+                <p className="settings-folder-message">
+                  <IconAlertCircle size={13} strokeWidth={1.8} />
+                  {folderWarning}
+                </p>
+              )}
+            </div>
+
+            <label>
+              Name *
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="My local app"
+                required
+              />
+            </label>
+
             <label>
               Dev URL *
               <input
@@ -920,7 +1018,8 @@ export function AddAppDialog({
                 required
               />
               <span className="settings-field-hint">
-                Use the URL from your local dev server.
+                Auto-filled from the folder when possible. You can still edit
+                it manually.
               </span>
             </label>
 
@@ -949,7 +1048,7 @@ export function AddAppDialog({
             className="settings-btn settings-btn--primary"
             disabled={!canSave}
           >
-            <IconCheck size={14} /> Add App
+            <IconCheck size={14} /> {mode === "dev" ? "Open App" : "Add App"}
           </button>
         </div>
       </form>
