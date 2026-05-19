@@ -47,7 +47,7 @@
     "prep": "concurrently -n fmt,types,test,guard -c blue,cyan,green,yellow \"pnpm fmt\" \"pnpm typecheck\" \"pnpm test\" \"pnpm guards\"",
     "dev:all": "node scripts/dev-all.ts",
     "dev:all:desktop": "node scripts/dev-all.ts --desktop",
-    "dev:lazy": "node scripts/dev-lazy.ts",
+    "dev:lazy": "DEV_DEFAULT_APP=analytics node scripts/dev-lazy.ts",
     "dev:lazy:desktop": "node scripts/dev-lazy.ts --desktop --electron",
     "dev:docs": "pnpm --filter @agent-native/docs dev",
     "dev:electron": "node scripts/dev-electron.ts",

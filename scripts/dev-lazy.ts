@@ -173,7 +173,13 @@ const proxyReadyTimeoutMs = Number(
   process.env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
 );
 let gatewayUrl = `http://${gatewayHost}:${requestedGatewayPort}`;
-const defaultApp = selectedById.has("dispatch") ? "dispatch" : apps[0].id;
+const envDefaultApp = process.env.DEV_DEFAULT_APP;
+const defaultApp =
+  envDefaultApp && selectedById.has(envDefaultApp)
+    ? envDefaultApp
+    : selectedById.has("dispatch")
+      ? "dispatch"
+      : apps[0].id;
 const backgroundProcesses: ChildProcess[] = [];
 let shuttingDown = false;
 let gatewayServer: http.Server | undefined;
