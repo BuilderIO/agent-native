@@ -2,6 +2,13 @@ import { execSync } from "node:child_process";
 import path from "node:path";
 import type { ActionTool } from "../../agent/types.js";
 import { parseArgs } from "../utils.js";
+import {
+  getRequestOrgId,
+  getRequestTimezone,
+  getRequestUserEmail,
+  getRequestUserName,
+  hasRequestContext,
+} from "../../server/request-context.js";
 
 const MAX_OUTPUT = 50_000;
 const TIMEOUT_MS = 30_000;
@@ -31,6 +38,7 @@ export async function run(args: Record<string, string>): Promise<string> {
   if (!command) return "Error: command is required";
 
   const cwd = args.cwd ? path.resolve(process.cwd(), args.cwd) : process.cwd();
+  const env = childProcessEnvForRequest();
 
   try {
     const output = execSync(command, {
@@ -39,7 +47,7 @@ export async function run(args: Record<string, string>): Promise<string> {
       encoding: "utf-8",
       maxBuffer: 1024 * 1024,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, FORCE_COLOR: "0" },
+      env,
     });
 
     let result = output;
@@ -60,6 +68,35 @@ export async function run(args: Record<string, string>): Promise<string> {
     // Throw so the agent framework marks this as isError:true, preventing the
     // agent from synthesizing a success narrative when the command failed.
     throw new Error(`Command failed (exit ${err?.status ?? "?"})\n${output}`);
+  }
+}
+
+function childProcessEnvForRequest(): NodeJS.ProcessEnv {
+  const env = { ...process.env, FORCE_COLOR: "0" };
+  const requestScoped = hasRequestContext();
+  const userEmail = getRequestUserEmail();
+  const userName = getRequestUserName();
+  const orgId = getRequestOrgId();
+  const timezone = getRequestTimezone();
+
+  setOrClearRequestEnv(env, "AGENT_USER_EMAIL", userEmail, requestScoped);
+  setOrClearRequestEnv(env, "AGENT_USER_NAME", userName, requestScoped);
+  setOrClearRequestEnv(env, "AGENT_ORG_ID", orgId, requestScoped);
+  setOrClearRequestEnv(env, "AGENT_USER_TIMEZONE", timezone, requestScoped);
+
+  return env;
+}
+
+function setOrClearRequestEnv(
+  env: NodeJS.ProcessEnv,
+  key: string,
+  value: string | undefined,
+  requestScoped: boolean,
+) {
+  if (value) {
+    env[key] = value;
+  } else if (requestScoped) {
+    delete env[key];
   }
 }
 

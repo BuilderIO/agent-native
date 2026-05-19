@@ -24,6 +24,22 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 | **`AUTH_DISABLED=true`**  | Skip auth entirely (for apps behind infrastructure-level auth like Cloudflare Access).                                                   |
 | **Custom**                | Pass your own `getSession` to `autoMountAuth(app, { getSession })`.                                                                     |
 
+## Remote MCP OAuth
+
+Every app's `/_agent-native/mcp` endpoint is also a standard protected MCP
+resource. OAuth-capable hosts connect with the remote MCP URL only, receive a
+`WWW-Authenticate` challenge, discover `/.well-known/oauth-protected-resource`
+and `/.well-known/oauth-authorization-server`, dynamically register a public
+client, and complete authorization-code + PKCE at
+`/_agent-native/mcp/oauth/authorize` / `/_agent-native/mcp/oauth/token`.
+Access tokens are audience-bound to the exact MCP URL and carry user/org
+identity plus `mcp:read`, `mcp:write`, and/or `mcp:apps`; refresh tokens are
+stored hashed and rotate. Keep `ACCESS_TOKEN` and `agent-native connect` for
+local stdio proxying, fallback clients, and simple private deployments. The CLI
+uses the OAuth-native URL-only entry for Claude Code/Claude Code CLI by
+default; use the Connect page or `agent-native connect --token <token>` when a
+client needs explicit bearer headers.
+
 ## Local → Real Account Migration
 
 Upgrading from `local@localhost` to a real account preserves SQL-backed workspace data. The built-in migration moves `application_state`, user-scoped `settings`, `oauth_tokens`, and any template table that uses `owner_email`.

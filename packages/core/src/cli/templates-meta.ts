@@ -317,6 +317,7 @@ export const TEMPLATES: TemplateMeta[] = [
     color: "#71717A",
     colorRgb: "113 113 122",
     devPort: 8093,
+    prodUrl: "https://macros.agent-native.com",
     hidden: true,
     defaultMode: "dev",
   },

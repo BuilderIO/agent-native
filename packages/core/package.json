@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.20.7",
+  "version": "0.22.0",
   "type": "module",
   "description": "Framework for agent-native application development — where AI agents and UI share state via files",
   "license": "MIT",
@@ -114,6 +114,7 @@
     "@assistant-ui/react-markdown": "^0.12.6",
     "@clack/prompts": "^1.4.0",
     "@libsql/client": "^0.15.0",
+    "@modelcontextprotocol/ext-apps": "1.7.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@neondatabase/serverless": "^1.1.0",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
@@ -149,6 +150,7 @@
     "nanoid": "^5.1.9",
     "nitro": "3.0.260415-beta",
     "p-limit": "^7.3.0",
+    "prettier": "^3.8.3",
     "react-markdown": "^10.1.0",
     "react-router": "^7.13.1",
     "remark-gfm": "^4.0.1",

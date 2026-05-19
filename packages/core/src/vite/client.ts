@@ -792,7 +792,9 @@ function silenceConnectionResets(): Plugin {
       code === "ECONNRESET" ||
       code === "ECONNABORTED" ||
       code === "EPIPE" ||
-      /^(read ECONNRESET|socket hang up|aborted|write EPIPE)$/i.test(message)
+      /^(read ECONNRESET|write ECONNRESET|socket hang up|aborted|write EPIPE)$/i.test(
+        message,
+      )
     );
   };
   const isBenignErrorPayload = (payload: unknown) => {
@@ -815,7 +817,7 @@ function silenceConnectionResets(): Plugin {
         const text = typeof msg === "string" ? msg : String(msg ?? "");
         if (
           (opts?.error && isBenign(opts.error)) ||
-          /Internal server error:\s*(read ECONNRESET|socket hang up|aborted|EPIPE)/i.test(
+          /Internal server error:\s*(read ECONNRESET|write ECONNRESET|socket hang up|aborted|EPIPE)/i.test(
             text,
           )
         ) {

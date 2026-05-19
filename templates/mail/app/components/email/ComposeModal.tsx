@@ -129,6 +129,7 @@ interface ComposeModalProps {
   drafts: ComposeState[];
   activeId: string | null;
   activeDraft: ComposeState | null;
+  initialExpanded?: boolean;
   onSetActiveId: (id: string) => void;
   onUpdate: (id: string, partial: Partial<ComposeState>) => void;
   onClose: (id: string) => void;
@@ -137,12 +138,14 @@ interface ComposeModalProps {
   onNewDraft: () => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
   onReopen: (state: Omit<ComposeState, "id">) => void;
+  onInitialExpandedConsumed?: () => void;
 }
 
 export function ComposeModal({
   drafts,
   activeId,
   activeDraft,
+  initialExpanded = false,
   onSetActiveId,
   onUpdate,
   onClose,
@@ -151,6 +154,7 @@ export function ComposeModal({
   onNewDraft,
   onFlush,
   onReopen,
+  onInitialExpandedConsumed,
 }: ComposeModalProps) {
   const isMobile = useIsMobile();
   const [minimized, setMinimized] = useState(false);
@@ -209,6 +213,13 @@ export function ComposeModal({
       setTimeout(() => editorRef.current?.getEditor()?.commands.focus(), 100);
     }
   }, [activeDraft?.mode, activeId]);
+
+  useEffect(() => {
+    if (!initialExpanded || !activeDraft) return;
+    setMinimized(false);
+    setIsExpanded(true);
+    onInitialExpandedConsumed?.();
+  }, [activeDraft?.id, initialExpanded, onInitialExpandedConsumed]);
 
   const handleSend = async () => {
     if (!activeDraft || !activeId) return;
@@ -478,8 +489,8 @@ export function ComposeModal({
         "compose-window fixed z-50 flex w-full flex-col bg-card transition-[width,height,top,bottom] duration-150 sm:rounded-t-xl",
         minimized
           ? "bottom-0 h-11 rounded-t-xl sm:w-[540px]"
-          : isExpanded && !isMobile
-            ? "top-4 bottom-4 h-auto sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
+          : isExpanded
+            ? "top-0 bottom-0 h-auto rounded-none sm:top-4 sm:bottom-4 sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
             : "bottom-0 h-[100dvh] sm:h-[520px] sm:w-[540px]",
       )}
       style={composeStyle}
@@ -574,7 +585,7 @@ export function ComposeModal({
               {minimized ? "Restore" : "Minimize"}
             </TooltipContent>
           </Tooltip>
-          {!minimized && !isMobile && (
+          {!minimized && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -582,7 +593,7 @@ export function ComposeModal({
                   size="icon"
                   className="h-7 w-7"
                   aria-label={
-                    isExpanded ? "Restore compose size" : "Expand compose"
+                    isExpanded ? "Restore compose size" : "Full screen compose"
                   }
                   aria-pressed={isExpanded}
                   onClick={() => {
@@ -598,7 +609,7 @@ export function ComposeModal({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {isExpanded ? "Restore size" : "Expand"}
+                {isExpanded ? "Restore size" : "Full screen"}
               </TooltipContent>
             </Tooltip>
           )}

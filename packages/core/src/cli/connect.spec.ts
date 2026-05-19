@@ -11,12 +11,14 @@ import {
   resolveClients,
   runConnect,
   runDeviceFlow,
+  supportsRemoteMcpOAuth,
   writeConfigs,
 } from "./connect.js";
 
 const tmpRoots: string[] = [];
 
 beforeEach(() => {
+  process.exitCode = undefined;
   // Keep CLI output out of the test log; individual tests that assert on
   // output re-spy with their own captured implementation.
   vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -37,6 +39,12 @@ function tmpDir(): string {
 }
 
 const noopSleep = () => Promise.resolve();
+
+function fakeJwt(sub: string): string {
+  const encode = (value: unknown) =>
+    Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "HS256" })}.${encode({ sub })}.sig`;
+}
 
 // ---------------------------------------------------------------------------
 // Arg parsing
@@ -75,6 +83,24 @@ describe("parseConnectArgs", () => {
     expect(p.all).toBe(true);
     expect(p.url).toBeUndefined();
     expect(p.client).toBe("claude-code");
+  });
+
+  it("parses developer profile switches", () => {
+    const p = parseConnectArgs([
+      "dev",
+      "--apps",
+      "mail,calendar",
+      "--client",
+      "codex",
+      "--gateway=http://127.0.0.1:8088",
+      "--owner-email",
+      "u@example.com",
+    ]);
+    expect(p.mode).toBe("dev");
+    expect(p.apps).toBe("mail,calendar");
+    expect(p.client).toBe("codex");
+    expect(p.gateway).toBe("http://127.0.0.1:8088");
+    expect(p.ownerEmail).toBe("u@example.com");
   });
 });
 
@@ -140,6 +166,15 @@ describe("resolveClients", () => {
   });
 });
 
+describe("supportsRemoteMcpOAuth", () => {
+  it("treats Claude Code clients as native remote MCP OAuth clients", () => {
+    expect(supportsRemoteMcpOAuth("claude-code")).toBe(true);
+    expect(supportsRemoteMcpOAuth("claude-code-cli")).toBe(true);
+    expect(supportsRemoteMcpOAuth("codex")).toBe(false);
+    expect(supportsRemoteMcpOAuth("cowork")).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Device-flow poll state machine
 // ---------------------------------------------------------------------------
@@ -150,6 +185,14 @@ function makeFetch(
 ): typeof fetch {
   let pollIdx = 0;
   return vi.fn(async (url: string) => {
+    if (String(url).endsWith("/.well-known/oauth-protected-resource")) {
+      return new Response(
+        JSON.stringify({
+          resource: `${new URL(String(url)).origin}/_agent-native/mcp`,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
     if (String(url).endsWith("/device/start")) {
       return new Response(
         JSON.stringify({
@@ -629,6 +672,270 @@ describe("runConnect", () => {
     });
   });
 
+  it("writes OAuth-native Claude Code entries after validating metadata", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(String(url)).toBe(
+        "https://mail.agent-native.com/.well-known/oauth-protected-resource",
+      );
+      expect(init?.method).toBe("GET");
+      return new Response(
+        JSON.stringify({
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    const openBrowser = vi.fn();
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl, openBrowser },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(openBrowser).not.toHaveBeenCalled();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/_agent-native/mcp",
+    });
+  });
+
+  it("normalizes full MCP URLs for OAuth-native Claude Code entries", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = vi.fn(async (url: string) => {
+      expect(String(url)).toBe(
+        "https://mail.agent-native.com/.well-known/oauth-protected-resource",
+      );
+      return new Response(
+        JSON.stringify({
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com/_agent-native/mcp",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/_agent-native/mcp",
+    });
+  });
+
+  it("rejects OAuth-native config when MCP metadata is unavailable", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = vi.fn(
+      async () => new Response("not found", { status: 404 }),
+    );
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+  });
+
+  it("upgrades existing Claude bearer entries to OAuth-native config", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    fs.writeFileSync(
+      path.join(root, ".mcp.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            "agent-native-mail": {
+              type: "http",
+              url: "https://mail.agent-native.com/_agent-native/mcp",
+              headers: { Authorization: "Bearer old-connect-token" },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf-8",
+    );
+    const output: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    const fetchImpl = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/_agent-native/mcp",
+    });
+    const joinedOutput = output.join("");
+    expect(joinedOutput).toContain("Replaced legacy bearer headers");
+    expect(joinedOutput).toContain("run /mcp");
+  });
+
+  it("uses OAuth for Claude clients and bearer fallback for legacy clients", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const fetchImpl = makeFetch([
+      {
+        status: "approved",
+        token: "tok-device",
+        mcpUrl: "https://mail.agent-native.com/_agent-native/mcp",
+        serverName: "agent-native-mail",
+      },
+    ]);
+
+    try {
+      await runConnect(
+        [
+          "https://mail.agent-native.com",
+          "--client",
+          "all",
+          "--scope",
+          "project",
+        ],
+        { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      const claudeCfg = JSON.parse(
+        fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+      );
+      expect(claudeCfg.mcpServers["agent-native-mail"]).toEqual({
+        type: "http",
+        url: "https://mail.agent-native.com/_agent-native/mcp",
+      });
+      const codexToml = fs.readFileSync(
+        path.join(home, ".codex", "config.toml"),
+        "utf-8",
+      );
+      expect(codexToml).toContain('"Authorization" = "Bearer tok-device"');
+      const coworkCfg = JSON.parse(
+        fs.readFileSync(path.join(home, ".cowork", "mcp.json"), "utf-8"),
+      );
+      expect(coworkCfg.mcpServers["agent-native-mail"].headers).toEqual({
+        Authorization: "Bearer tok-device",
+      });
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("rejects mixed-client config when OAuth metadata is unavailable", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/device/start")) {
+        return new Response(
+          JSON.stringify({
+            device_code: "dev-123",
+            user_code: "WXYZ-1234",
+            verification_uri: "https://mail.agent-native.com/connect",
+            verification_uri_complete:
+              "https://mail.agent-native.com/connect?code=WXYZ-1234",
+            interval: 1,
+            expires_in: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (String(url).endsWith("/device/poll")) {
+        return new Response(
+          JSON.stringify({
+            status: "approved",
+            token: "tok-device",
+            mcpUrl: "https://mail.agent-native.com/_agent-native/mcp",
+            serverName: "agent-native-mail",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    try {
+      await runConnect(
+        [
+          "https://mail.agent-native.com",
+          "--client",
+          "all",
+          "--scope",
+          "project",
+        ],
+        { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+      );
+
+      expect(process.exitCode).toBe(1);
+      expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+      expect(fs.existsSync(path.join(home, ".codex", "config.toml"))).toBe(
+        false,
+      );
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
   it("prompts for target clients when --client is omitted and saves the choice", async () => {
     const root = tmpDir();
     const home = tmpDir();
@@ -763,6 +1070,205 @@ describe("runConnect", () => {
     expect(Object.keys(cfg.mcpServers)).toEqual(["agent-native-mail"]);
   });
 
+  it("prompts for hosted apps when no URL is provided", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const promptHostedApps = vi.fn(async (context) => {
+      const names = context.apps.map((app) => app.name);
+      expect(names).toContain("calendar");
+      expect(names).toContain("mail");
+      expect(names).not.toContain("voice");
+      expect(context.initialApps).toEqual(names);
+      return ["mail", "calendar"];
+    });
+
+    await runConnect(
+      ["--client", "claude-code", "--scope", "project", "--token", "tok"],
+      {
+        isInteractive: () => true,
+        promptHostedApps,
+      },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    expect(promptHostedApps).toHaveBeenCalledTimes(1);
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-calendar"]).toEqual({
+      type: "http",
+      url: "https://calendar.agent-native.com/_agent-native/mcp",
+      headers: { Authorization: "Bearer tok" },
+    });
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/_agent-native/mcp",
+      headers: { Authorization: "Bearer tok" },
+    });
+  });
+
+  it("exits cleanly when the hosted app picker is cancelled", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await runConnect([], {
+      isInteractive: () => true,
+      promptHostedApps: vi.fn(async () => null),
+    });
+
+    expect(process.exitCode).toBeFalsy();
+    expect(err.mock.calls.flat().join("")).not.toContain("Missing app URL");
+    expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+  });
+
+  it("switches a JSON client entry to dev and restores the saved prod entry", async () => {
+    const root = tmpDir();
+    const profilesFile = path.join(root, "profiles.json");
+    process.chdir(root);
+    fs.writeFileSync(
+      path.join(root, ".mcp.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            "agent-native-mail": {
+              type: "http",
+              url: "https://mail.agent-native.com/_agent-native/mcp",
+              headers: {
+                Authorization: `Bearer ${fakeJwt("u@example.com")}`,
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("gateway not running");
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "dev",
+        "--apps",
+        "mail",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+        "--gateway",
+        "http://127.0.0.1:8080",
+      ],
+      { fetchImpl, profilesFile },
+    );
+
+    let cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "http://127.0.0.1:8080/mail/_agent-native/mcp",
+      headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
+    });
+    const savedProfiles = JSON.parse(fs.readFileSync(profilesFile, "utf-8"));
+    const savedJsonEntries =
+      savedProfiles.prodEntries["agent-native-mail"]["claude-code"];
+    expect(Object.values(savedJsonEntries)).toEqual([
+      expect.objectContaining({
+        kind: "json",
+        entry: expect.objectContaining({
+          url: "https://mail.agent-native.com/_agent-native/mcp",
+        }),
+      }),
+    ]);
+
+    await runConnect(
+      [
+        "prod",
+        "--apps",
+        "mail",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { profilesFile },
+    );
+
+    cfg = JSON.parse(fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"));
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/_agent-native/mcp",
+      headers: {
+        Authorization: `Bearer ${fakeJwt("u@example.com")}`,
+      },
+    });
+  });
+
+  it("switches a Codex entry to dev and restores the raw production block", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    const profilesFile = path.join(root, "profiles.json");
+    const codexFile = path.join(home, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    fs.writeFileSync(
+      codexFile,
+      [
+        '[mcp_servers."agent-native-mail"]',
+        'url = "https://mail.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer prod-token" }',
+        "",
+      ].join("\n"),
+    );
+    process.env.HOME = home;
+    process.chdir(root);
+
+    try {
+      await runConnect(
+        [
+          "dev",
+          "--apps",
+          "mail",
+          "--client",
+          "codex",
+          "--gateway",
+          "http://127.0.0.1:8080",
+          "--owner-email",
+          "u@example.com",
+        ],
+        {
+          profilesFile,
+          fetchImpl: vi.fn(async () => {
+            throw new Error("gateway not running");
+          }) as unknown as typeof fetch,
+        },
+      );
+
+      let toml = fs.readFileSync(codexFile, "utf-8");
+      expect(toml).toContain(
+        'url = "http://127.0.0.1:8080/mail/_agent-native/mcp"',
+      );
+      expect(toml).toContain('"X-Agent-Native-Owner-Email" = "u@example.com"');
+
+      await runConnect(["prod", "--apps", "mail", "--client", "codex"], {
+        profilesFile,
+      });
+
+      toml = fs.readFileSync(codexFile, "utf-8");
+      expect(toml).toContain(
+        'url = "https://mail.agent-native.com/_agent-native/mcp"',
+      );
+      expect(toml).toContain('"Authorization" = "Bearer prod-token"');
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
   it("sets a non-zero exit code when no url and not --all", async () => {
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
@@ -770,13 +1276,13 @@ describe("runConnect", () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it("sets a non-zero exit code when the device flow fails", async () => {
+  it("sets a non-zero exit code when the legacy device flow fails", async () => {
     const root = tmpDir();
     process.chdir(root);
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-    await runConnect(["https://app.example.com", "--client", "claude-code"], {
+    await runConnect(["https://app.example.com", "--client", "codex"], {
       fetchImpl: makeFetch([{ status: "expired" }]),
       sleep: noopSleep,
       openBrowser: vi.fn(),

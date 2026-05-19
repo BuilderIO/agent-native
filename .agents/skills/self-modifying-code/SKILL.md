@@ -76,4 +76,4 @@ el.dataset.selectedId = selectedItem?.id || "";
 - **storing-data** — Tier 1 modifications (data files) are the safest and most common
 - **scripts** — The agent can create or modify scripts to add new capabilities
 - **delegate-to-agent** — Self-modification requests come through the agent chat
-- **real-time-sync** — Database writes trigger poll events to update the UI
+- **real-time-sync** — Database writes trigger change events to update the UI

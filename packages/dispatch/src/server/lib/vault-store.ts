@@ -1,7 +1,12 @@
 import crypto from "node:crypto";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
-import { writeAppSecret, type SecretScope } from "@agent-native/core/secrets";
+import {
+  deleteAppSecret,
+  listAppSecretsForScope,
+  writeAppSecret,
+  type SecretScope,
+} from "@agent-native/core/secrets";
 import {
   getOrgSetting,
   getUserSetting,
@@ -16,6 +21,7 @@ import {
 } from "./dispatch-store.js";
 
 const VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
+const VAULT_SYNC_DESCRIPTION_PREFIX = "Synced from Dispatch vault:";
 
 export type VaultAccessMode = "all-apps" | "manual";
 
@@ -71,6 +77,10 @@ function ctxForRow(row: {
   orgId: string | null;
 }): VaultCtx {
   return { ownerEmail: row.ownerEmail, orgId: row.orgId };
+}
+
+function ctxForSecretRow(row: VaultSecretRow, fallback: VaultCtx): VaultCtx {
+  return row.ownerEmail ? ctxForRow(row) : fallback;
 }
 
 function id() {
@@ -258,7 +268,12 @@ export async function createSecret(
     });
 
     const updated = await getSecret(existing[0].id, ctx);
-    if (updated) await syncSecretsToCredentialStore([updated], ctx);
+    if (updated) {
+      await syncSecretsToCredentialStore(
+        [updated],
+        ctxForSecretRow(updated, ctx),
+      );
+    }
     return updated;
   }
 
@@ -294,22 +309,74 @@ export async function createSecret(
   });
 
   const created = await getSecret(secretId, ctx);
-  if (created) await syncSecretsToCredentialStore([created], ctx);
+  if (created) {
+    await syncSecretsToCredentialStore(
+      [created],
+      ctxForSecretRow(created, ctx),
+    );
+  }
   return created;
 }
 
 export async function updateSecret(
   secretId: string,
-  value: string,
+  input:
+    | string
+    | {
+        credentialKey?: string;
+        value?: string;
+        name?: string;
+        provider?: string | null;
+        description?: string | null;
+      },
   ctx: VaultCtx = requireVaultCtx(),
 ) {
   const db = getDb();
   const existing = await getSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
+  const patch = typeof input === "string" ? { value: input } : input;
+  const credentialKey =
+    patch.credentialKey !== undefined
+      ? normalizeCredentialKey(patch.credentialKey)
+      : existing.credentialKey;
+  if (!credentialKey) throw new Error("Credential key is required");
+  const name = patch.name !== undefined ? patch.name.trim() : existing.name;
+  if (!name) throw new Error("Secret name is required");
+  const value = patch.value !== undefined ? patch.value : existing.value;
+  if (!value) throw new Error("Secret value is required");
+  const provider =
+    patch.provider !== undefined ? patch.provider || null : existing.provider;
+  const description =
+    patch.description !== undefined
+      ? patch.description || null
+      : existing.description;
+
+  if (credentialKey !== existing.credentialKey) {
+    const conflict = await db
+      .select({ id: schema.vaultSecrets.id })
+      .from(schema.vaultSecrets)
+      .where(
+        and(
+          eq(schema.vaultSecrets.credentialKey, credentialKey),
+          ctxScope(schema.vaultSecrets, ctx),
+        ),
+      )
+      .limit(1);
+    if (conflict[0] && conflict[0].id !== secretId) {
+      throw new Error(`Credential key "${credentialKey}" is already in use`);
+    }
+  }
 
   await db
     .update(schema.vaultSecrets)
-    .set({ value, updatedAt: now() })
+    .set({
+      name,
+      credentialKey,
+      value,
+      provider,
+      description,
+      updatedAt: now(),
+    })
     .where(
       and(
         eq(schema.vaultSecrets.id, secretId),
@@ -317,14 +384,52 @@ export async function updateSecret(
       ),
     );
 
+  const auditMetadata = {
+    name,
+    previousName: name !== existing.name ? existing.name : undefined,
+    credentialKey,
+    previousCredentialKey:
+      credentialKey !== existing.credentialKey
+        ? existing.credentialKey
+        : undefined,
+    provider,
+    previousProvider:
+      provider !== existing.provider ? existing.provider : undefined,
+    description,
+    previousDescription:
+      description !== existing.description ? existing.description : undefined,
+    valueChanged: value !== existing.value ? true : undefined,
+  };
+
   await recordVaultAudit({
     action: "secret.updated",
     secretId,
-    summary: `Updated value for secret "${existing.name}" (${existing.credentialKey})`,
+    summary: `Updated secret "${name}" (${credentialKey})`,
+    metadata: auditMetadata,
+  });
+
+  await recordAudit({
+    action: "vault.secret.updated",
+    targetType: "vault-secret",
+    targetId: secretId,
+    summary: `Updated vault secret "${name}" (${credentialKey})`,
+    metadata: auditMetadata,
   });
 
   const updated = await getSecret(secretId, ctx);
-  if (updated) await syncSecretsToCredentialStore([updated], ctx);
+  if (updated) {
+    await syncSecretsToCredentialStore(
+      [updated],
+      ctxForSecretRow(updated, ctx),
+    );
+  }
+  if (updated && credentialKey !== existing.credentialKey) {
+    await cleanupSyncedCredentialKeysIfUnused(ctxForRow(existing), [
+      existing.credentialKey,
+    ]);
+  } else if (updated && patch.credentialKey !== undefined) {
+    await cleanupSyncedCredentialKeysIfUnused(ctxForSecretRow(updated, ctx));
+  }
   return updated;
 }
 
@@ -352,6 +457,9 @@ export async function deleteSecret(
         ctxScope(schema.vaultSecrets, ctx),
       ),
     );
+  await cleanupSyncedCredentialKeysIfUnused(ctxForRow(existing), [
+    existing.credentialKey,
+  ]);
 
   await recordVaultAudit({
     action: "secret.deleted",
@@ -555,12 +663,47 @@ export async function syncSecretsToCredentialStore(
       value: secret.value,
       scope: target.scope,
       scopeId: target.scopeId,
-      description: `Synced from Dispatch vault: ${secret.name}`,
+      description: `${VAULT_SYNC_DESCRIPTION_PREFIX} ${secret.name}`,
     });
     syncedKeys.push(secret.credentialKey);
   }
 
   return { ...target, keys: syncedKeys };
+}
+
+export async function cleanupSyncedCredentialKeysIfUnused(
+  ctx: VaultCtx,
+  candidateKeys?: string[],
+) {
+  const db = getDb();
+  const target = credentialStoreScopeForVaultCtx(ctx);
+  const keys = candidateKeys
+    ? candidateKeys
+    : (await listAppSecretsForScope(target.scope, target.scopeId))
+        .filter((secret) =>
+          secret.description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX),
+        )
+        .map((secret) => secret.key);
+
+  for (const key of new Set(keys.filter(Boolean))) {
+    const stillUsesKey = await db
+      .select({ id: schema.vaultSecrets.id })
+      .from(schema.vaultSecrets)
+      .where(
+        and(
+          eq(schema.vaultSecrets.credentialKey, key),
+          ctxScope(schema.vaultSecrets, ctx),
+        ),
+      )
+      .limit(1);
+    if (!stillUsesKey[0]) {
+      await deleteAppSecret({
+        key,
+        scope: target.scope,
+        scopeId: target.scopeId,
+      });
+    }
+  }
 }
 
 // ─── Sync ──────────────────────────────────────────────────────

@@ -1,14 +1,14 @@
 ---
-title: "External Agents: Claude Code, Codex, Cursor, Cowork"
-description: "Connect your own Claude Code, Codex, Cursor, or Claude Cowork to a hosted agent-native app — then round-trip artifacts back into the running UI with deep links."
-search: "Claude Code Codex Cursor Claude Cowork agent-native connect MCP local agent tools external agents"
+title: "External Agents: Claude, ChatGPT, Codex, Cursor, Cowork"
+description: "Connect Claude, ChatGPT, Codex, Cursor, Claude Cowork, or any MCP-compatible host to a hosted agent-native app — then round-trip artifacts back into the running UI with MCP Apps and deep links."
+search: "Claude ChatGPT Claude Code Codex Cursor Claude Cowork MCP Apps agent-native connect local agent tools external agents"
 ---
 
 # External Agents
 
-An agent-native app is reachable by any external coding agent — Claude Code (desktop & CLI), Codex, Cursor, Claude Cowork — over [MCP](/docs/mcp-protocol). External agents are great at producing artifacts (a draft, an event, a dashboard) but they live in a terminal or another app. Without a bridge, the user gets a wall of JSON and has to go find the thing.
+An agent-native app is reachable by any MCP-compatible host — Claude, Claude Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Claude Cowork, VS Code GitHub Copilot, Goose, Postman, MCPJam, and future clients that implement the standard. External agents are great at producing artifacts (a draft, an event, a dashboard) but they often live in a terminal or another app. Without a bridge, the user gets a wall of JSON and has to go find the thing.
 
-The external-agent bridge closes the loop. First you connect your own agent to a **hosted** app — one command, no token copying. Then the agent does the work over MCP and hands the user a single **"Open in &lt;app&gt; →"** link that opens the real app focused on exactly what was produced. It reuses the existing `navigate` / `application_state` contract the UI already drains every 2s (see [Context Awareness](/docs/context-awareness)) — there is no second navigation mechanism.
+The external-agent bridge closes the loop. First you connect your own agent to a **hosted** app — one command writes the local client config, using standard remote MCP OAuth for clients that support it and a browser-authorized bearer fallback for older clients. Then the agent does the work over MCP and hands the user either an inline **MCP App** UI in compatible hosts or a single **"Open in &lt;app&gt; →"** link that opens the real app focused on exactly what was produced. It reuses the existing `navigate` / `application_state` contract the UI already drains every 2s (see [Context Awareness](/docs/context-awareness)) — there is no second navigation mechanism.
 
 ## Connect Claude Code, Codex, Cursor, and Cowork {#connect}
 
@@ -26,15 +26,19 @@ Or run the same command through npm without installing anything globally:
 npx @agent-native/core connect https://mail.agent-native.com
 ```
 
-This opens your browser at the app. You are already logged in, so you just click **Authorize** once. The command then asks which local agent clients should receive MCP config. All clients are preselected the first time; after you choose, the selection is saved to `~/.agent-native/connect.json` so the next run can reuse it with Enter, or you can edit the checked items.
+The command asks which local agent clients should receive MCP config. All clients are preselected the first time; after you choose, the selection is saved to `~/.agent-native/connect.json` so the next run can reuse it with Enter, or you can edit the checked items.
 
-| Local client                  | Config written by `connect`                                 |
-| ----------------------------- | ----------------------------------------------------------- |
-| Claude Code / Claude Code CLI | `.mcp.json` or `~/.claude.json`, depending on `--scope`     |
-| Codex                         | `~/.codex/config.toml` under `[mcp_servers.<app>]`          |
-| Claude Cowork                 | `~/.cowork/mcp.json` using the Claude Code MCP server shape |
+For Claude Code and Claude Code CLI, `connect` writes a standard remote HTTP MCP entry with no static headers. Restart Claude Code, run `/mcp`, and choose **Authenticate**; Claude completes the OAuth flow and stores its own tokens. For Codex and Claude Cowork, `connect` uses the compatibility device-code flow: it opens your browser at the app, you click **Authorize** once, and the command writes a scoped bearer-token entry. If you choose a mix of clients, it does both.
 
-There is no token to copy and no local server to run. Restart the agent client after connecting so it picks up the new MCP server.
+If you previously connected Claude Code through the old bearer-token flow, just run the same `agent-native connect ... --client claude-code` command again. The CLI replaces the legacy `Authorization` headers with the URL-only OAuth entry and tells you to re-authenticate from `/mcp`.
+
+| Local client                  | Config written by `connect`                             | Auth flow                                       |
+| ----------------------------- | ------------------------------------------------------- | ----------------------------------------------- |
+| Claude Code / Claude Code CLI | `.mcp.json` or `~/.claude.json`, depending on `--scope` | Standard remote MCP OAuth in Claude's `/mcp` UI |
+| Codex                         | `~/.codex/config.toml` under `[mcp_servers.<app>]`      | Browser-authorized bearer fallback              |
+| Claude Cowork                 | `~/.cowork/mcp.json` using the Claude Code MCP shape    | Browser-authorized bearer fallback              |
+
+There is no token to copy and no local server to run. Restart the agent client after connecting so it picks up the new MCP server; OAuth-native clients may then prompt you to authenticate from their MCP UI.
 
 Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
 
@@ -46,7 +50,7 @@ npx @agent-native/core connect --all
 
 The client picker appears once and the same selection is used for every hosted app.
 
-The connection is **per-user, scoped, and revocable**. The browser session you authorized with is the identity the agent acts as; nothing exposes the deployment's shared secret.
+The connection is **per-user, scoped, and revocable**. In the OAuth path, the host stores the tokens after `/mcp` authentication; in the fallback path, the browser session you authorized with is the identity the agent acts as. Nothing exposes the deployment's shared secret.
 
 ### No-CLI alternative {#no-cli}
 
@@ -57,7 +61,7 @@ If you'd rather not run a command, open the app in your browser and use its **Co
 {
   "mcpServers": {
     "mail": {
-      "type": "url",
+      "type": "http",
       "url": "https://mail.agent-native.com/_agent-native/mcp",
       "headers": { "Authorization": "Bearer <minted-token>" },
     },
@@ -67,7 +71,34 @@ If you'd rather not run a command, open the app in your browser and use its **Co
 
 Restart the agent client after connecting so it picks up the new MCP server.
 
-Use this manual block for MCP clients that are not yet written by `agent-native connect`, including Cursor.
+Use this manual bearer block for MCP clients that cannot complete the standard remote MCP OAuth flow, or for one-off debugging when you explicitly want to paste a token.
+
+### Standard remote MCP OAuth {#standard-oauth}
+
+Hosted agent-native apps also support the standard remote MCP OAuth flow. For clients that implement MCP OAuth, add the remote HTTP server URL with no static headers:
+
+```bash
+claude mcp add --transport http agent-native-mail \
+  https://mail.agent-native.com/_agent-native/mcp
+```
+
+This is the same URL-only entry that `agent-native connect https://mail.agent-native.com --client claude-code` writes for you. Then run `/mcp` in Claude Code and choose **Authenticate**. The client discovers auth from the MCP server's `401 WWW-Authenticate` challenge, fetches `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, dynamically registers a public OAuth client, opens the app's authorization page, and stores the resulting token securely. ChatGPT developer-mode connectors use the same server URL:
+
+```text
+https://mail.agent-native.com/_agent-native/mcp
+```
+
+The OAuth flow is authorization-code + PKCE with refresh-token rotation. Access tokens are audience-bound to the exact MCP resource URL and carry the signed user/org identity, so tool calls, `resources/read`, and MCP App iframe-initiated `tools/call` all run through the same `runWithRequestContext` tenant scoping as the existing connect-minted JWT path. The iframe never receives raw OAuth tokens; the host mediates calls through the authenticated MCP connection.
+
+Current scopes are:
+
+| Scope       | Allows                                                                    |
+| ----------- | ------------------------------------------------------------------------- |
+| `mcp:read`  | read-only MCP actions and ordinary tool/resource discovery                |
+| `mcp:write` | mutating actions and the `ask-agent` meta-tool                            |
+| `mcp:apps`  | MCP Apps resource listing/reading and inline UI rendering where supported |
+
+When the client requests no explicit scope, the app grants all three so the connector behaves like the browser-authorized Connect flow. Keep the bearer-token Connect page and `agent-native connect --token <token>` fallback around for local dev, fallback hosts, and clients where you need a ready-to-paste config block.
 
 ## What you can do once connected {#what-you-can-do}
 
@@ -81,6 +112,14 @@ Claude Code calls: manage-draft(to: "john@example.com", subject: "Q3 Report", bo
 ```
 
 Click that link and Mail opens with the draft restored — focused exactly where you, the logged-in user, are. The agent never had to know your session; it just produced the artifact.
+
+### MCP Apps compatibility {#mcp-apps-compatibility}
+
+Agent-native apps also speak the official MCP Apps extension. When any action declares `mcpApp`, the server advertises `extensions["io.modelcontextprotocol/ui"]`, includes both `_meta.ui.resourceUri` and the legacy-compatible `_meta["ui/resourceUri"]` in `tools/list`, and serves the HTML UI through `resources/list` + `resources/read` as `text/html;profile=mcp-app`.
+
+That makes the same app surface available to every compatible host rather than building per-client shims. The current official MCP Apps client list includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support still varies by plan, release channel, and client version, so check the [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix). ChatGPT custom MCP apps are available through developer mode for Business and Enterprise/Edu workspaces on ChatGPT web; see OpenAI's [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) notes.
+
+Claude Code and other CLI-first clients still receive the same resources and metadata when they support MCP Apps, but the deep link remains the reliable fallback when a host chooses not to render an iframe. In practice, every agent-native app should be authored with both: MCP Apps for inline review/edit in capable hosts, and `link` for universal round-tripping back to the full app.
 
 ### Generic cross-app verbs {#cross-app}
 
@@ -101,7 +140,7 @@ On top of the per-action tools the MCP server exposes a stable verb set, so an e
 Every allow-listed template that produces or lists a navigable resource ships a `link` builder, and the ingest-heavy ones ship a GET + `publicAgent` action so a connected agent can pull live state:
 
 - **Mail** — `manage-draft` returns a `compose`-encoded deep link; clicking it opens the inbox with the draft restored into a `compose-<id>`. `list-emails` / `search-emails` point at a filtered inbox view.
-- **Calendar** — `create-event` returns `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })`; the click lands on the calendar with that event focused on its date.
+- **Calendar** — `manage-event-draft` returns a `calendarDraft` + `eventDraftId` deep link; clicking it opens a visible draft placeholder on the calendar with the native event editor for review/send. `create-event` still returns `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })`; the click lands on the calendar with that event focused on its date.
 - **Analytics** — `update-dashboard` / `save-analysis` return `buildDeepLink({ app: "analytics", view: "adhoc", params: { dashboardId } })`; the agent builds a dashboard over MCP and hands back "Open dashboard in Analytics".
 - **Design** — `get-design-snapshot` is the GET + `publicAgent` ingest action: it returns the **live** Yjs file contents plus the resolved tweak values so the agent continues from the tuned design, not the original tokens. `apply-tweaks` round-trips back with an "Open design" editor link.
 - **Content** — `pull-document` is the GET + `publicAgent` ingest action: it flushes any open live collaborative session to SQL first so the external agent ingests exactly what the user sees, then surfaces a deep link to the document.
@@ -142,7 +181,33 @@ export default defineAction({
 });
 ```
 
-List/search actions point at a record-focused view the same way — e.g. calendar's `create-event` returns `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })` with label `"Open event in Calendar"`.
+List/search actions point at a record-focused view the same way — e.g. calendar's `create-event` returns `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })` with label `"Open event in Calendar"`. Calendar draft actions use the same pattern: `manage-event-draft` returns `buildDeepLink({ app: "calendar", view: "calendar", to: "/", params: { eventDraftId, calendarDraft, date } })` with label `"Review invite in Calendar"`, so external agents can hand back a direct draft-review link without creating the event first.
+
+## Authoring: optional MCP Apps UI {#mcp-apps}
+
+For hosts that support the MCP Apps extension, an action can also advertise an inline HTML UI resource with `mcpApp`. This is a progressive enhancement for flows where the external agent should hand the user an interactive surface instead of only text — for example reviewing an email draft, editing a calendar invite, or choosing between generated dashboard variants.
+
+```ts
+export default defineAction({
+  // ...description, schema, run, link...
+  mcpApp: {
+    resource: {
+      title: "Review draft",
+      description: "Review and send the generated email draft.",
+      html: ({ actionName, requestOrigin }) => `<!doctype html>
+        <html><body data-action="${actionName}" data-origin="${requestOrigin}">
+          <main id="app"></main>
+        </body></html>`,
+      csp: { connectDomains: ["https://mail.agent-native.com"] },
+      prefersBorder: true,
+    },
+  },
+});
+```
+
+The MCP server advertises extension `io.modelcontextprotocol/ui`, adds `_meta.ui.resourceUri` plus `_meta["ui/resourceUri"]` to `tools/list`, and exposes the HTML through `resources/list` + `resources/read` using MIME `text/html;profile=mcp-app`. The stdio proxy forwards those resource handlers from the live app, so desktop and CLI clients see the same resources as HTTP clients.
+
+Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. Treat `mcpApp.resource.html` like `link`: synchronous, deterministic, and self-contained; declare external origins in `csp`. Use the full app deep link for heavyweight authenticated workflows that do not fit cleanly in an embedded iframe.
 
 ### The `link` contract {#link-contract}
 
@@ -226,7 +291,7 @@ You can also write the MCP client config by hand against any deployed endpoint w
 {
   "mcpServers": {
     "analytics": {
-      "type": "url",
+      "type": "http",
       "url": "https://analytics.agent-native.com/_agent-native/mcp",
       "headers": { "Authorization": "Bearer <ACCESS_TOKEN-or-JWT>" },
     },
@@ -240,9 +305,31 @@ This is the unmanaged equivalent of what `connect` writes for you. See [MCP Prot
 
 In plain local dev (`NODE_ENV=development` and `AGENT_MODE !== "production"`) the MCP `tools/list` deliberately exposes only the generic builtins plus actions with `publicAgent.requiresAuth === false` — the per-app ingest actions (`requiresAuth: true`) and mutating actions (no `publicAgent`) are filtered out (`filterPublicAgentActions`). The full per-app surface appears when the request is authenticated as a real caller: a deployed / `AGENT_MODE=production` app, or a local app reached through `connect` / `agent-native mcp install` (which provisions a token so the caller has an identity). So if `tools/list` looks sparse, you are hitting an unauthenticated dev endpoint — connect (or present a token) rather than assuming the action is missing.
 
+### Switching first-party apps between prod and dev {#dev-switch}
+
+When you already have first-party hosted apps connected and want to test local framework changes through `pnpm dev:lazy`, use the developer switcher:
+
+```bash
+pnpm dev:lazy -- --apps mail,calendar,analytics
+
+agent-native connect dev --apps mail,calendar,analytics --client codex
+```
+
+`connect dev` rewrites the same stable MCP server names (`agent-native-mail`, `agent-native-calendar`, etc.) to the local dev-lazy gateway, so tool names do not change. It backs up the current production entries in `~/.agent-native/connect-profiles.json` before writing dev entries. The default gateway is `http://127.0.0.1:8080`; use `--gateway <url>` or `--port <n>` if your gateway moved.
+
+Switch back with:
+
+```bash
+agent-native connect prod --apps mail,calendar,analytics --client codex
+```
+
+If `connect dev` cannot infer your local owner identity from an existing connected JWT, pass `--owner-email you@example.com`; this keeps local dev tools on the full authenticated MCP surface instead of the sparse unauthenticated dev surface.
+
 ## How it works & security {#how-it-works}
 
-The hosted `connect` flow never copies the deployment's shared secret. Instead:
+The standard OAuth path never exposes tokens to MCP Apps: the host stores OAuth access/refresh tokens and mediates tool calls and `resources/read` over the authenticated MCP connection. Embedded iframes receive app data and tool results, not bearer secrets.
+
+The fallback hosted `connect` flow never copies the deployment's shared secret. Instead:
 
 - A logged-in browser session mints a **per-user, scoped, revocable** token — an `A2A_SECRET`-signed JWT carrying the caller's `sub` + `org_domain` and a unique `jti`, so every tool run stays tenant-scoped via `runWithRequestContext`.
 - The existing `/_agent-native/mcp` endpoint accepts that token like any other bearer (see [MCP Protocol](/docs/mcp-protocol)) — no new endpoint, no new transport.

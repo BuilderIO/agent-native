@@ -252,6 +252,8 @@ export class RecorderEngine {
   private combinedStream: MediaStream | null = null;
   private previewStream: MediaStream | null = null;
   private cameraComposite: CameraCompositeHandle | null = null;
+  private audioMixCtx: AudioContext | null = null;
+  private audioMixSources: MediaStreamAudioSourceNode[] = [];
   private recorder: MediaRecorder | null = null;
   private mimeType: string = "video/webm";
 
@@ -399,6 +401,11 @@ export class RecorderEngine {
         surfaceSwitching: "include",
         systemAudio: wantsMic ? "include" : "exclude",
       };
+
+      if (wantsMic || wantsDisplay) {
+        this.audioMixCtx?.close().catch(() => {});
+        this.audioMixCtx = new AudioContext();
+      }
 
       if (wantsDisplay) {
         try {
@@ -1039,17 +1046,49 @@ export class RecorderEngine {
   // Internals
   // -------------------------------------------------------------------------
 
+  /**
+   * Mix audio tracks from multiple streams into a single track via Web Audio
+   * API. A single mixed track avoids the Chromium behaviour where only the
+   * first audio track in a MediaStream is reliably encoded by MediaRecorder,
+   * while still capturing both mic and system audio when both are present.
+   *
+   * Returns null when no audio tracks exist. Returns the single raw track
+   * directly when only one exists (avoids unnecessary AudioContext overhead).
+   */
+  private buildMixedAudioTrack(
+    streams: (MediaStream | null | undefined)[],
+  ): MediaStreamTrack | null {
+    const audioTracks = streams
+      .filter((s): s is MediaStream => s != null)
+      .flatMap((s) => s.getAudioTracks());
+    if (audioTracks.length === 0) return null;
+    if (audioTracks.length === 1) return audioTracks[0];
+
+    const ctx = this.audioMixCtx ?? new AudioContext();
+    this.audioMixCtx = ctx;
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+    this.audioMixSources = [];
+    const dest = ctx.createMediaStreamDestination();
+    for (const track of audioTracks) {
+      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+      source.connect(dest);
+      this.audioMixSources.push(source);
+    }
+    return dest.stream.getAudioTracks()[0];
+  }
+
   private buildCombinedStream(): MediaStream {
-    // Screen-only: just add mic audio if we have it.
     if (this.opts.mode === "screen") {
       const combined = new MediaStream();
       for (const t of this.displayStream!.getVideoTracks())
         combined.addTrack(t);
-      for (const t of this.displayStream!.getAudioTracks())
-        combined.addTrack(t);
-      if (this.micStream) {
-        for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
-      }
+      const audio = this.buildMixedAudioTrack([
+        this.micStream,
+        this.displayStream,
+      ]);
+      if (audio) combined.addTrack(audio);
       return combined;
     }
 
@@ -1057,9 +1096,8 @@ export class RecorderEngine {
     if (this.opts.mode === "camera") {
       const combined = new MediaStream();
       for (const t of this.cameraStream!.getVideoTracks()) combined.addTrack(t);
-      if (this.micStream) {
-        for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
-      }
+      const audio = this.buildMixedAudioTrack([this.micStream]);
+      if (audio) combined.addTrack(audio);
       return combined;
     }
 
@@ -1075,10 +1113,11 @@ export class RecorderEngine {
     const combined = new MediaStream();
     for (const t of this.cameraComposite.stream.getVideoTracks())
       combined.addTrack(t);
-    for (const t of this.displayStream!.getAudioTracks()) combined.addTrack(t);
-    if (this.micStream) {
-      for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
-    }
+    const audio = this.buildMixedAudioTrack([
+      this.micStream,
+      this.displayStream,
+    ]);
+    if (audio) combined.addTrack(audio);
     return combined;
   }
 
@@ -1312,6 +1351,9 @@ export class RecorderEngine {
   }
 
   private cleanupTracks(): void {
+    this.audioMixSources = [];
+    this.audioMixCtx?.close().catch(() => {});
+    this.audioMixCtx = null;
     this.cameraComposite?.cleanup();
     this.cameraComposite = null;
     for (const s of [

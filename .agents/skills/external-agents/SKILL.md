@@ -1,47 +1,84 @@
 ---
 name: external-agents
 description: >-
-  Connect external coding agents (Claude Code desktop & CLI, Codex, Cursor,
-  Claude Cowork) to an agent-native app over MCP, and round-trip artifacts back
-  into the UI with deep links. Use when adding an action's `link` builder,
-  wiring the `/_agent-native/open` route, exposing an "ingest" action to
-  MCP/A2A, or scaffolding apps from an external agent.
+  Connect external agents and MCP hosts (Claude, Claude Desktop, Claude Code,
+  ChatGPT custom MCP apps, Codex, Cursor, Claude Cowork, VS Code GitHub
+  Copilot, Goose, Postman, MCPJam) to an agent-native app over MCP, and
+  round-trip artifacts back into the UI with MCP Apps and deep links. Use when
+  adding an action's `link` builder or `mcpApp`, wiring the
+  `/_agent-native/open` route, exposing an "ingest" action to MCP/A2A, or
+  scaffolding apps from an external agent.
 ---
 
 # External Agents (MCP bridge + deep links)
 
 ## Rule
 
-An agent-native app is reachable by any external coding agent (Claude Code,
-Codex, Cursor, Cowork) over MCP. The **recommended** way to connect to a
-deployed app is the one-command hosted flow — `npx @agent-native/core connect
-<url>` — which mints a per-user, scoped, revocable token from a logged-in
-browser session; no shared secret is copied. Once connected, every action that
-produces or lists a navigable resource SHOULD return a deep link from a `link`
-builder, so the external agent can surface an **"Open in <app> →"** link that
-drops the user back into the running UI at the right view and record. The link
-is a pure pointer — the record-focusing write is always scoped to the
-**browser session**, never the agent's token.
+An agent-native app is reachable by any MCP-compatible host (Claude, Claude
+Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Cowork, VS Code
+GitHub Copilot, Goose, Postman, MCPJam, and future standard clients). The
+**recommended** way to connect OAuth-capable remote MCP hosts is the standard
+remote MCP OAuth flow: point the host at `https://<app>/_agent-native/mcp`,
+let it discover `/.well-known/oauth-protected-resource`, dynamically register a
+public client, and complete authorization-code + PKCE in the browser. For
+local stdio proxying and fallback clients, keep using the one-command hosted
+flow — `npx @agent-native/core connect <url>` — which mints a per-user,
+scoped, revocable token from a logged-in browser session; no shared secret is
+copied. Once connected, every action that produces or lists a navigable
+resource SHOULD return a deep link from a `link` builder, so the external agent
+can surface an **"Open in <app> →"** link that drops the user back into the
+running UI at the right view and record. Actions can also declare `mcpApp` so
+hosts that support MCP Apps render an inline interactive UI. The link is a pure
+pointer — the record-focusing write is always scoped to the **browser
+session**, never the agent's token.
 
 ## Why
 
 External agents are great at producing artifacts (a draft, an event, a
-dashboard) but they live in a terminal or another app. Without a bridge, the
-user gets a wall of JSON and has to go find the thing. The deep-link bridge
-closes the loop: the agent does the work over MCP, then hands the user a single
-link that opens the real app focused on exactly what was produced. It reuses
-the existing `navigate` / `application_state` contract the UI already drains
-every 2s (see **context-awareness**) — we never invent a second navigation
-mechanism.
+dashboard) but they live in a terminal, chat host, or another app. Without a
+bridge, the user gets a wall of JSON and has to go find the thing. MCP Apps
+give compatible hosts an inline review/edit surface; the deep-link bridge
+closes the loop everywhere else by handing the user a single link that opens
+the real app focused on exactly what was produced. It reuses the existing
+`navigate` / `application_state` contract the UI already drains every 2s (see
+**context-awareness**) — we never invent a second navigation mechanism.
 
 ## How
 
-### 1. Connect to a hosted app (recommended)
+### 1. Connect to a hosted app
 
 The first-party hosted apps live at `mail.agent-native.com`,
-`calendar.agent-native.com`, etc. One command wires every detected supported
-agent client (Claude Code, Codex, Cowork) to one of them. Cursor can use the
-same MCP endpoint via the no-CLI/manual config path:
+`calendar.agent-native.com`, etc. For clients with standard remote MCP OAuth,
+configure the remote HTTP endpoint directly:
+
+```bash
+claude mcp add --transport http agent-native-mail https://mail.agent-native.com/_agent-native/mcp
+```
+
+Then use the host's MCP auth UI (for Claude Code, `/mcp` → Authenticate). The
+server responds to unauthenticated MCP requests with `WWW-Authenticate:
+Bearer resource_metadata="https://<app>/.well-known/oauth-protected-resource"`
+and supports:
+
+- `/.well-known/oauth-protected-resource`
+- `/.well-known/oauth-authorization-server`
+- `/.well-known/openid-configuration`
+- `/_agent-native/mcp/oauth/register`
+- `/_agent-native/mcp/oauth/authorize`
+- `/_agent-native/mcp/oauth/token`
+
+The issued access token is audience-bound to the exact MCP URL and carries
+`mcp:read`, `mcp:write`, and/or `mcp:apps`. Tool calls, `resources/read`, and
+MCP App iframe-initiated tool calls all run through the same
+`runWithRequestContext` identity scoping. The iframe never receives OAuth
+tokens; the host mediates calls through the authenticated MCP connection.
+
+The CLI can write supported local client configs for you. For Claude Code and
+Claude Code CLI it writes the same URL-only remote HTTP entry and the user then
+authenticates in `/mcp`; for Codex, Cowork, local stdio proxying, and hosts
+that do not support MCP OAuth yet, it uses the browser-authorized bearer-token
+fallback. Cursor and other hosts can also use the same MCP endpoint via the
+no-CLI/manual config path:
 
 ```bash
 npx @agent-native/core connect https://mail.agent-native.com
@@ -49,11 +86,18 @@ npx @agent-native/core connect https://mail.agent-native.com
 npx @agent-native/core connect --all
 ```
 
-It opens the browser at the app; the user is already logged in and clicks
-**Authorize** once. No token to copy, no local server. The connection is
-**per-user, scoped, and revocable**. The no-CLI equivalent is the in-app
-**Connect** affordance served at `https://<app>/_agent-native/mcp/connect`,
-which hands back a one-click deep link or a ready-to-paste `.mcp.json` block.
+For OAuth-native Claude clients, restart Claude Code after the config write,
+run `/mcp`, and choose Authenticate. For fallback clients, the command opens
+the browser at the app; the user is already logged in and clicks **Authorize**
+once. No token to copy, no local server. The fallback connection is **per-user,
+scoped, and revocable**. The no-CLI equivalent is the in-app **Connect**
+affordance served at `https://<app>/_agent-native/mcp/connect`, which hands
+back a one-click deep link or a ready-to-paste `.mcp.json` block.
+
+Re-running `agent-native connect <url> --client claude-code` over an older
+Claude bearer-token entry is the migration path: the CLI replaces
+`Authorization` headers with URL-only OAuth config and tells the user to
+authenticate from `/mcp`.
 
 Under the hood: a logged-in browser session mints an `A2A_SECRET`-signed JWT
 carrying the caller's `sub` + `org_domain` and a unique `jti`, so tool runs
@@ -123,6 +167,52 @@ List/search actions point at a record-focused view the same way — mail's
 best-effort — a throw, `null`, or `undefined` is swallowed and **never** fails
 the tool call. It only reads the call's `args` and `result`; it must not query
 the DB, read app-state, or call other actions.
+
+### 2a. Optional MCP Apps UI
+
+For hosts that support the MCP Apps extension, an action can also advertise an
+inline HTML UI resource with `mcpApp`. This is a progressive enhancement for
+flows where the external agent should hand the user an interactive surface
+instead of only text — for example reviewing an email draft, editing a calendar
+invite, or choosing between generated dashboard variants.
+
+```ts
+export default defineAction({
+  // ...schema, run, link...
+  mcpApp: {
+    resource: {
+      title: "Review draft",
+      description: "Review and send the generated email draft.",
+      html: ({ actionName, requestOrigin }) => `<!doctype html>
+        <html><body data-action="${actionName}" data-origin="${requestOrigin}">
+          <main id="app"></main>
+        </body></html>`,
+      csp: { connectDomains: ["https://mail.agent-native.com"] },
+      prefersBorder: true,
+    },
+  },
+});
+```
+
+The MCP server advertises extension `io.modelcontextprotocol/ui`, adds
+`_meta.ui.resourceUri` plus the legacy-compatible `_meta["ui/resourceUri"]` to
+`tools/list`, and exposes the HTML through `resources/list` + `resources/read`
+using MIME `text/html;profile=mcp-app`. The stdio proxy forwards those
+resource handlers from the live app, so local desktop/CLI clients see the same
+resources as HTTP clients.
+
+Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients,
+older hosts, and any host that does not render MCP Apps will ignore the UI
+metadata and still need the "Open in … →" link. Treat `mcpApp.resource.html`
+like `link`: synchronous, deterministic, and self-contained; declare external
+origins in `csp`. Use the full app deep link for heavyweight authenticated
+workflows that do not fit cleanly in an embedded iframe.
+
+Compatibility target: build to the standard once, not per-client shims. MCP
+Apps-capable hosts should include Claude/Claude Desktop/Claude Code, ChatGPT
+custom MCP apps, VS Code GitHub Copilot, Goose, Postman, MCPJam, Cursor, and
+any future host that follows the extension negotiation. Host support varies by
+plan, release channel, and client version, so keep the deep link fallback.
 
 ### 3. The `/_agent-native/open` route
 
@@ -205,10 +295,14 @@ connect or present a token rather than assuming the action is missing.
   `--all`) — it mints a per-user, revocable token; no shared secret copied.
 - Do add a `link` builder to any action that produces or lists a navigable
   resource (draft, event, dashboard, document).
+- Do add `mcpApp` when a UI-capable MCP host should render an inline review or
+  edit surface, while keeping the `link` fallback.
 - Do build the URL with `buildDeepLink(...)` — it is the single source of truth
   for the open-route format.
 - Do keep `link` pure and synchronous; return `null` when there's nothing to
   open.
+- Do keep MCP App HTML synchronous/self-contained and declare external origins
+  in `csp`.
 - Do make external-agent read/ingest actions GET + `readOnly` + `publicAgent`,
   and read live (Yjs) state, not the stale DB column.
 - Do let the open route resolve the browser session; pass record ids as deep-
@@ -221,6 +315,7 @@ connect or present a token rather than assuming the action is missing.
 - Don't hand-format the `/_agent-native/open` URL — always go through
   `buildDeepLink`.
 - Don't do I/O, awaits, DB reads, or app-state reads inside a `link` builder.
+- Don't replace deep links with MCP Apps; non-UI clients still need the link.
 - Don't scope the `navigate` write to the agent token, or pass privileged
   state through the deep link — it's a pure pointer.
 - Don't invent a new navigation mechanism; bridge to the existing

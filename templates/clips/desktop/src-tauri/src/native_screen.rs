@@ -97,18 +97,19 @@ impl RecordingFinish {
     }
 
     /// Block until the recording output reports finished/failed, or `timeout`
-    /// elapses. Returns `true` if a terminal signal was observed.
-    fn wait(&self, timeout: Duration) -> bool {
+    /// elapses. Returns the terminal outcome when one was observed.
+    fn wait(&self, timeout: Duration) -> Option<Result<(), String>> {
         let Ok(guard) = self.state.lock() else {
-            return false;
+            return None;
         };
         let (guard, result) = self
             .cv
             .wait_timeout_while(guard, timeout, |state| state.is_none())
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let observed = guard.is_some();
-        drop(guard);
-        observed && !result.timed_out()
+        if result.timed_out() && guard.is_none() {
+            return None;
+        }
+        (*guard).clone()
     }
 }
 
@@ -1117,15 +1118,44 @@ fn stop_native_recording(
             // buffered fragment (a consistent multi-second tail truncation).
             // Skip the wait only when both teardown calls hard-failed (the
             // delegate won't fire, so don't burn the timeout for nothing).
-            if wait_for_finalize && (stop_result.is_ok() || remove_result.is_ok()) {
-                if !finish.wait(SCK_FINALIZE_TIMEOUT) {
+            let waited_for_finalize =
+                wait_for_finalize && (stop_result.is_ok() || remove_result.is_ok());
+            let finalize_outcome = if waited_for_finalize {
+                let outcome = finish.wait(SCK_FINALIZE_TIMEOUT);
+                if outcome.is_none() {
                     eprintln!(
-                        "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s; saving file as-is",
-                        SCK_FINALIZE_TIMEOUT.as_secs()
-                    );
+                            "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s; saving file as-is",
+                            SCK_FINALIZE_TIMEOUT.as_secs()
+                        );
+                }
+                outcome
+            } else {
+                None
+            };
+
+            if let Err(err) = stop_result {
+                return Err(err);
+            }
+
+            if let Some(Err(err)) = &finalize_outcome {
+                return Err(format!("ScreenCaptureKit recording finalize failed: {err}"));
+            }
+
+            match remove_result {
+                Ok(()) => Ok(()),
+                Err(remove_err) => {
+                    if matches!(finalize_outcome.as_ref(), Some(Ok(())))
+                        || (waited_for_finalize && finalize_outcome.is_none())
+                    {
+                        eprintln!(
+                            "[clips-tray] ScreenCaptureKit recording output removal reported an error after finalize completed or timed out; continuing upload: {remove_err}"
+                        );
+                        Ok(())
+                    } else {
+                        Err(remove_err)
+                    }
                 }
             }
-            stop_result.and(remove_result)
         }
     }
 }

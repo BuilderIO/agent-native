@@ -9,6 +9,9 @@ describe("classifyDesktopAsset", () => {
     expect(classifyDesktopAsset("Agent-Native-arm64.exe")).toBe(
       "windows-arm64",
     );
+    expect(classifyDesktopAsset("Agent-Native-x64.tar.xz")).toBe(
+      "linux-tar-x64",
+    );
     expect(classifyDesktopAsset("Agent-Native-x86_64.AppImage")).toBe(
       "linux-appimage-x64",
     );

@@ -1,5 +1,49 @@
 # @agent-native/core
 
+## 0.22.0
+
+### Minor Changes
+
+- 819cf59: Add standard remote MCP OAuth discovery, authorization-code + PKCE, refresh-token rotation, scoped MCP access tokens, and OAuth-native `agent-native connect` config for Claude Code clients.
+
+### Patch Changes
+
+- 819cf59: Improve custom app action sync defaults and starter guidance.
+- 819cf59: Honor collapsed agent-sidebar deep links when an already-mounted app receives the URL hint.
+- 819cf59: Mount the local agent sidebar before delivering programmatic chat submissions so prompts are not dropped when the sidebar starts closed.
+- 819cf59: Address MCP app route hardening and Dispatch vault cleanup edge cases from review.
+- 819cf59: Fix dev-mode agent feedback issues around connection-reset overlays, request-scoped shell identity, and assistant markdown rendering.
+- 819cf59: Sign Builder connect URLs rendered in chat cards and return gateway callbacks to the preview opener.
+- 819cf59: Add granular extension content edits with marker/section operations and optional Prettier formatting.
+
+## 0.21.0
+
+### Minor Changes
+
+- 65d43fd: Add host-side MCP Apps rendering support for connected MCP tools.
+
+### Patch Changes
+
+- 65d43fd: Add `agent-native connect dev` and `agent-native connect prod` for switching first-party MCP entries between hosted apps and local dev-lazy gateways.
+- 65d43fd: Add optional MCP Apps UI resources for action tools while preserving deep-link fallbacks.
+- 15d9967: Clean up synced Dispatch vault secrets on delete and make DB timeout cleanup awaitable.
+
+## 0.20.9
+
+### Patch Changes
+
+- 482e9db: Make agent chat recovery continue after useful tool progress instead of prematurely surfacing connection failures.
+- 482e9db: Add an interactive hosted-app picker when `agent-native connect` is run without a URL, and default connect-minted MCP tokens to a 365-day lifetime.
+- 482e9db: Bound every DB init/query op with a timeout (`withDbTimeout`, `DB_OP_TIMEOUT_MS`, default 8s on serverless). A frozen→thawed serverless instance could leave the Neon WebSocket hung mid-query so the promise never settled and never errored — `retryOnConnectionError` only retries thrown errors, so authenticated requests (which run a session lookup on every navigation) hung until the platform killed the function (~30s on Netlify), surfacing as "the site won't load". The timeout reports as a retryable `CONNECT_TIMEOUT`, so the existing retry and reject-reset paths recover and the cached session-table init promise no longer stays poisoned. Also drop a failed/hung `getDbExec` init promise so the next call retries a fresh connection instead of re-awaiting a permanently rejected/pending one.
+- 482e9db: Add SEO-friendly extension URLs with generated name slugs and extension page titles.
+- 482e9db: Keep auth endpoints responsive when agent chat startup stalls, and expose framework session cookie helpers for custom auth plugins.
+
+## 0.20.8
+
+### Patch Changes
+
+- a07d19c: Fix session.orgId always being undefined
+
 ## 0.20.7
 
 ### Patch Changes

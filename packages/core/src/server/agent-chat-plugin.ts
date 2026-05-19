@@ -119,7 +119,7 @@ import {
 import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import {
-  getBuilderBrowserConnectUrl,
+  getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "./builder-browser.js";
 import { captureCliOutput } from "./cli-capture.js";
@@ -1404,11 +1404,12 @@ function createBuilderBrowserTool(deps: {
         const branchProjectId = await resolveBuilderBranchProjectId();
         const prompt = typeof args?.prompt === "string" ? args.prompt : "";
         const origin = deps.getOrigin();
+        const ownerEmail = deps.getOwner?.() ?? getRequestUserEmail();
         return JSON.stringify({
           kind: "connect-builder-card",
           configured,
           builderEnabled: !!branchProjectId,
-          connectUrl: getBuilderBrowserConnectUrl(origin),
+          connectUrl: getBuilderBrowserConnectUrlForOwner(origin, ownerEmail),
           orgName: creds.orgName || null,
           prompt,
         });
@@ -6261,7 +6262,14 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
         }),
       );
     });
-    trackPluginInit(nitroApp, initPromise);
+    trackPluginInit(nitroApp, initPromise, {
+      paths: [
+        options?.path ?? "/_agent-native/agent-chat",
+        "/_agent-native/actions",
+        "/_agent-native/agent-model-defaults",
+        "/_agent-native/mcp",
+      ],
+    });
   };
 }
 

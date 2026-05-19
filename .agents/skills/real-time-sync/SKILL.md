@@ -20,14 +20,14 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 
 1. **Server** increments a version counter on every database write. In-process events stream through the authenticated `/_agent-native/events` endpoint.
 
-2. **Client** listens for SSE/poll events and updates per-source change counters:
+2. **Client** listens for sync events and updates per-source change counters:
 
    ```ts
    import { useDbSync } from "@agent-native/core";
    useDbSync({ queryClient });
    ```
 
-   For each non-own event, `useDbSync` bumps a per-source counter (e.g. `dashboards`, `analyses`, `settings`, `action`) and invalidates a small fixed list of framework-internal prefixes (`["action"]`, `["app-state"]`, `["__set_url__"]`, etc.). It does **not** blanket-invalidate templates' own data queries — that caused a request storm in production.
+   For each non-own event, `useDbSync` bumps a per-source counter (e.g. `dashboards`, `analyses`, `settings`, `action`) and invalidates a small fixed list of framework-internal prefixes (`["action"]`, `["app-state"]`, `["__set_url__"]`, etc.). It does **not** blanket-invalidate templates' own data queries for ordinary domain events — that caused a request storm in production. The exception is `source: "action"`: a successful mutating action is the framework-wide "agent changed app data" signal, so `useDbSync` also refreshes active React Query observers as a compatibility safety net for custom apps that have not yet moved every read to `useActionQuery` or source-versioned query keys.
 
 3. **Templates fold per-source counters into their query keys.** This is the pattern that makes "agent writes show up without a manual refresh" reliable:
 
@@ -132,20 +132,27 @@ The `use-navigation-state.ts` hook sends the same `TAB_ID` in the `X-Request-Sou
 
 Without jitter prevention, a cycle occurs: the UI writes state, sync detects the change, the UI refetches and re-renders, potentially overwriting what the user is actively editing. With `ignoreSource`, the UI only reacts to changes from other sources (agent scripts, other browser tabs, other users).
 
-## Action Routes and Polling
+## Action Routes and Live Sync
 
 Action routes (`/_agent-native/actions/:name`) work with the same sync system. When a POST/PUT/DELETE action writes to the database, the version counter increments and `useDbSync` picks up the change. Frontend mutations via `useActionMutation` automatically invalidate `["action"]` query keys on success, triggering refetches of `useActionQuery` hooks.
 
+For custom apps, the best out-of-the-box path is:
+
+1. Put read actions in `actions/` with `defineAction({ http: { method: "GET" } })`.
+2. Put write actions in `actions/` with the default POST/PUT/DELETE behavior.
+3. Call reads from React with `useActionQuery` and writes with `useActionMutation`.
+
+This avoids duplicate `/api/*` JSON CRUD routes and makes agent-created records show up automatically. Raw `useQuery` can still work, but it should include `useChangeVersions(["action", "<domain-source>"])` in the query key for targeted refreshes.
+
 ### Auto-emit on mutating actions
 
-The framework emits a poll event with `source: "action"` whenever any non-read-only action runs to completion — whether called via HTTP (`/_agent-native/actions/:name`) or as an agent tool call. Read-only actions (`http: { method: "GET" }` or explicit `readOnly: true`) are skipped.
+The framework emits a change event with `source: "action"` whenever any non-read-only action runs to completion — whether called via HTTP (`/_agent-native/actions/:name`) or as an agent tool call. Read-only actions (`http: { method: "GET" }` or explicit `readOnly: true`) are skipped.
 
 This means UIs don't need the agent to remember to call `refresh-screen` after every mutation. A listener like this (used in the `macros` template) will refresh after any mutating agent call:
 
 ```ts
 useDbSync({
   queryClient,
-  queryKeys: [],
   ignoreSource: TAB_ID,
   onEvent: (data) => {
     if (data.requestSource === TAB_ID) return;
@@ -159,7 +166,7 @@ useDbSync({
 
 ## Related Skills
 
-- **storing-data** — Application-state and settings are the data stores that sync via polling
+- **storing-data** — Application-state and settings are data stores that sync through change events
 - **context-awareness** — Navigation state writes use jitter prevention to avoid overwriting active edits
-- **actions** — Action routes auto-expose actions as HTTP endpoints; database writes trigger poll events
-- **self-modifying-code** — Agent code edits trigger poll events; rapid edits can cause event storms
+- **actions** — Action routes auto-expose actions as HTTP endpoints; database writes trigger change events
+- **self-modifying-code** — Agent code edits trigger change events; rapid edits can cause event storms

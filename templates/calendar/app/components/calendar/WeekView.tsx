@@ -40,6 +40,24 @@ interface WeekViewProps {
   quickEditEventId?: string | null;
   onQuickEditSave?: (eventId: string, title: string) => void;
   onQuickEditCancel?: (eventId: string) => void;
+  draftEventIds?: string[];
+  onDraftUpdate?: (
+    eventId: string,
+    updates: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+      workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+      workingLocationLabel?: string;
+    },
+  ) => void;
+  onDraftCreate?: (
+    eventId: string,
+    updates?: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+    },
+  ) => void;
+  onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
 }
 
@@ -182,6 +200,10 @@ export function WeekView({
   quickEditEventId,
   onQuickEditSave,
   onQuickEditCancel,
+  draftEventIds = [],
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
   isLoading = false,
 }: WeekViewProps) {
   const { setFocusedEvent } = useCalendarContext();
@@ -547,6 +569,13 @@ export function WeekView({
                     key={event.id}
                     event={event}
                     onDelete={onDeleteEvent}
+                    isDraft={draftEventIds.includes(event.id)}
+                    defaultOpen={quickEditEventId === event.id}
+                    onTitleSave={onQuickEditSave}
+                    onDismissNew={onQuickEditCancel}
+                    onDraftUpdate={onDraftUpdate}
+                    onDraftCreate={onDraftCreate}
+                    onDraftDiscard={onDraftDiscard}
                   >
                     <button
                       className="absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80"
@@ -928,9 +957,13 @@ export function WeekView({
                         key={event._tempId ?? event.id}
                         event={event}
                         onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
                         defaultOpen={quickEditEventId === event.id}
                         onTitleSave={onQuickEditSave}
                         onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
                       >
                         {eventButton}
                       </EventDetailPopover>

@@ -1,4 +1,5 @@
 import type { CodeAgentTranscriptEvent } from "../cli/code-agent-runs.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 
 export type { CodeAgentTranscriptEvent } from "../cli/code-agent-runs.js";
 
@@ -44,6 +45,7 @@ export interface NormalizedCodeAgentToolEvent extends NormalizedCodeAgentTranscr
   state: "activity" | "running" | "completed";
   input?: unknown;
   result?: unknown;
+  mcpApp?: AgentMcpAppPayload;
   activities: string[];
   startedAt?: string;
   completedAt?: string;
@@ -236,6 +238,8 @@ function appendToolEvent(
   if (hasMetadataKey(event.metadata, "result")) {
     item.result = event.metadata?.result;
   }
+  const mcpApp = mcpAppMetadata(event.metadata);
+  if (mcpApp) item.mcpApp = mcpApp;
 }
 
 function createToolEvent(
@@ -258,6 +262,7 @@ function createToolEvent(
     state,
     input: hasMetadataKey(metadata, "input") ? metadata?.input : undefined,
     result: hasMetadataKey(metadata, "result") ? metadata?.result : undefined,
+    mcpApp: mcpAppMetadata(metadata),
     activities: toolType === "activity" ? [event.message] : [],
     startedAt: toolType === "tool_start" ? event.createdAt : undefined,
     completedAt: toolType === "tool_done" ? event.createdAt : undefined,
@@ -532,4 +537,21 @@ function hasMetadataKey(
   return (
     Boolean(metadata) && Object.prototype.hasOwnProperty.call(metadata, key)
   );
+}
+
+function mcpAppMetadata(
+  metadata: Record<string, unknown> | undefined,
+): AgentMcpAppPayload | undefined {
+  const value = metadata?.mcpApp;
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<AgentMcpAppPayload>;
+  if (
+    typeof candidate.serverId !== "string" ||
+    typeof candidate.originalToolName !== "string" ||
+    typeof candidate.resourceUri !== "string" ||
+    !candidate.resourceUri.startsWith("ui://")
+  ) {
+    return undefined;
+  }
+  return candidate as AgentMcpAppPayload;
 }

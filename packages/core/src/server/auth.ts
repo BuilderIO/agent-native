@@ -350,7 +350,7 @@ function getCookieValues(event: H3Event, name: string): string[] {
   return values;
 }
 
-function getFrameworkSessionCookieValues(event: H3Event): string[] {
+export function getFrameworkSessionCookieValues(event: H3Event): string[] {
   return getCookieValues(event, COOKIE_NAME);
 }
 
@@ -371,7 +371,7 @@ function deleteCookieFromEveryScope(event: H3Event, name: string): void {
   }
 }
 
-function clearFrameworkSessionCookies(event: H3Event): void {
+export function clearFrameworkSessionCookies(event: H3Event): void {
   for (const name of frameworkSessionCookieNamesToClear()) {
     deleteCookieFromEveryScope(event, name);
   }
@@ -1332,17 +1332,23 @@ function createAuthGuardFn(): (
     // protected by short-TTL, single-use, crypto-random codes + a creation
     // rate-limit, not cookies.
     //
-    // Everything that MINTS or MUTATES on behalf of the user — `/token`,
-    // `/device/authorize`, `/tokens`, `/tokens/revoke` — is intentionally
-    // NOT bypassed: the guard's default 401-for-/_agent-native/* is the
-    // correct gate for them. Those are POSTed by the in-page fetch, which
-    // carries the session cookie, so the guard (which only 401s when there
-    // is no session) lets the authenticated same-origin request through and
-    // the handler then re-checks the session itself (defense in depth).
+    // The standard remote-MCP OAuth endpoints also bypass here: metadata and
+    // dynamic client registration are public by design; `/oauth/token` is
+    // protected by single-use auth codes / refresh tokens; and
+    // `/oauth/authorize` resolves the browser session itself so it can serve
+    // the login form at the original authorization URL.
+    //
+    // The legacy Connect endpoints that MINT or MUTATE on behalf of the user
+    // (`/connect/token`, `/device/authorize`, `/tokens`, `/tokens/revoke`) are
+    // intentionally NOT bypassed: they are POSTed by the in-page fetch with a
+    // session cookie and the handler re-checks the session itself.
     if (
       p === "/_agent-native/mcp/connect" ||
       p === "/_agent-native/mcp/connect/device/start" ||
-      p === "/_agent-native/mcp/connect/device/poll"
+      p === "/_agent-native/mcp/connect/device/poll" ||
+      p === "/_agent-native/mcp/oauth/authorize" ||
+      p === "/_agent-native/mcp/oauth/token" ||
+      p === "/_agent-native/mcp/oauth/register"
     ) {
       return;
     }
@@ -1638,15 +1644,28 @@ async function maybeAutoCreateDevSession(
  */
 function mapBetterAuthSession(baSession: {
   user: { id: string; email: string; name?: string };
-  session: { token: string; activeOrganizationId?: string };
+  session: { token: string };
 }): AuthSession {
   return {
     email: baSession.user.email,
     userId: baSession.user.id,
     name: baSession.user.name,
     token: baSession.session?.token,
-    orgId: baSession.session?.activeOrganizationId ?? undefined,
   };
+}
+
+/**
+ * Backfill `orgId` onto a resolved session using the canonical
+ * `resolveOrgIdForEmail` (org_members + active-org-id user setting), so
+ * every consumer of `session.orgId` agrees with `getOrgContext` on which
+ * org is active.
+ *
+ */
+async function backfillSessionOrg(session: AuthSession): Promise<AuthSession> {
+  if (session.orgId) return session;
+  const { resolveOrgIdForEmail } = await import("../org/context.js");
+  const orgId = await resolveOrgIdForEmail(session.email).catch(() => null);
+  return orgId ? { ...session, orgId } : session;
 }
 
 /**
@@ -1667,6 +1686,22 @@ function mapBetterAuthSession(baSession: {
  * page load.
  */
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
+  // Per-request memoization. The wider codebase calls `getSession` many
+  // times per request (auth guard, action wrapper, route handler, plus the
+  // org-backfill query inside `backfillSessionOrg`). Cache the resolved
+  // session on `event.context` so the chain runs once per request.
+  const ctx = event.context as {
+    __anSessionCache?: Promise<AuthSession | null>;
+  };
+  return (ctx.__anSessionCache ??= (async () => {
+    const session = await resolveSessionUncached(event);
+    return session?.email ? backfillSessionOrg(session) : session;
+  })());
+}
+
+async function resolveSessionUncached(
+  event: H3Event,
+): Promise<AuthSession | null> {
   // 1. ACCESS_TOKEN check (programmatic/agent access)
   const accessTokens = getAccessTokens();
   if (accessTokens.length > 0) {

@@ -116,6 +116,12 @@ describe("Vite connection reset noise", () => {
     });
     expect(hotSend).not.toHaveBeenCalled();
 
+    server.environments.client.hot.send({
+      type: "error",
+      err: { message: "write ECONNRESET", stack: "at writeGeneric" },
+    });
+    expect(hotSend).not.toHaveBeenCalled();
+
     server.ws.send({
       type: "error",
       err: { message: "socket hang up", stack: "at Socket.socketOnEnd" },

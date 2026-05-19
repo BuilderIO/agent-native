@@ -146,7 +146,7 @@ function GenerateButton() {
 
 ## useDbSync(options?) {#usedbsync}
 
-React hook (formerly `useFileWatcher`) that polls for database changes and invalidates react-query caches:
+React hook (formerly `useFileWatcher`) that listens for database changes over SSE, falls back to polling, and invalidates the framework query caches that keep the UI aligned with agent writes:
 
 ```ts
 import { useDbSync } from "@agent-native/core";
@@ -157,7 +157,6 @@ function App() {
 
   useDbSync({
     queryClient,
-    queryKeys: ["files", "projects", "versionHistory"],
     pollUrl: "/_agent-native/poll",
     onEvent: (data) => console.log("Data changed:", data),
   });
@@ -168,12 +167,16 @@ function App() {
 
 ### Options {#usedbsync-options}
 
-| Option        | Type             | Description                                                       |
-| ------------- | ---------------- | ----------------------------------------------------------------- |
-| `queryClient` | `QueryClient?`   | React-query client for cache invalidation                         |
-| `queryKeys`   | `string[]?`      | Query key prefixes to invalidate. Default: `["file", "fileTree"]` |
-| `pollUrl`     | `string?`        | Poll endpoint URL. Default: `"/_agent-native/poll"`               |
-| `onEvent`     | `(data) => void` | Optional callback when a poll detects a newer sync version        |
+| Option         | Type               | Description                                                                            |
+| -------------- | ------------------ | -------------------------------------------------------------------------------------- |
+| `queryClient`  | `QueryClient?`     | React-query client for cache invalidation                                              |
+| `queryKeys`    | `string[]?`        | Deprecated and ignored; kept for old call sites                                        |
+| `pollUrl`      | `string?`          | Poll endpoint URL. Default: `"/_agent-native/poll"`                                    |
+| `sseUrl`       | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only |
+| `ignoreSource` | `string?`          | Per-tab request source to ignore so a tab does not refetch from its own writes         |
+| `onEvent`      | `(data) => void`   | Optional callback when SSE/polling receives a change event                             |
+
+For normal CRUD, prefer `useActionQuery` and `useActionMutation`; mutating actions emit `source: "action"` and those hooks refetch automatically. Raw `useQuery` should include `useChangeVersions(["action", "<domain-source>"])` in the query key when it displays data the agent can mutate.
 
 ## cn(...inputs) {#cn}
 

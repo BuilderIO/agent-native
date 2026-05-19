@@ -13,6 +13,7 @@ Auth is configured automatically via `autoMountAuth(app)` in the auth server plu
 
 - **Default:** Better Auth with email/password + social providers. Onboarding page shown on first visit.
 - **`ACCESS_TOKEN`:** Simple shared token for production.
+- **Remote MCP OAuth:** Standard OAuth 2.1 for MCP hosts such as Claude Code and ChatGPT connectors.
 - **Custom:** Bring your own auth via `getSession` callback.
 
 Local development uses the same Better Auth flow as production — there is no dev-mode shim. The first time you load a template, you'll be sent to the onboarding page to create an account. Email verification is skipped by default in development (and when no email provider is configured), so signup is just an email + password.
@@ -104,6 +105,20 @@ ACCESS_TOKENS=token1,token2,token3
 ```
 
 When access tokens are configured, users see a token login page. Sessions are cookie-based with 30-day expiry.
+
+## Remote MCP OAuth {#remote-mcp-oauth}
+
+Every app's MCP endpoint can act as a standard protected MCP resource. OAuth-capable clients can be configured with only the remote MCP URL:
+
+```text
+https://mail.agent-native.com/_agent-native/mcp
+```
+
+Unauthenticated MCP requests return a `WWW-Authenticate` challenge pointing at `/.well-known/oauth-protected-resource`. The client then discovers the app's OAuth metadata, dynamically registers a public client, opens the app's authorization page, and exchanges an authorization code with PKCE for access and refresh tokens.
+
+Access tokens are signed with `A2A_SECRET` when set, otherwise `BETTER_AUTH_SECRET`. They carry the signed user/org identity and the `mcp:read`, `mcp:write`, and/or `mcp:apps` scopes, and are audience-bound to the exact MCP resource URL. Refresh tokens are stored only as hashes and rotate on every refresh. Tool calls and MCP Apps resource reads run inside the same request context as the signed-in user; the embedded MCP App iframe never receives raw OAuth tokens.
+
+`agent-native connect <url> --client claude-code` writes the URL-only MCP entry for this standard flow. For clients that cannot perform remote MCP OAuth, use the Connect page or `agent-native connect --token <token>` fallback to write an explicit bearer-token entry.
 
 ## Bring Your Own Auth {#byoa}
 
@@ -250,5 +265,5 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | `GITHUB_CLIENT_SECRET`         | GitHub OAuth secret                                                                                                               |
 | `ACCESS_TOKEN`                 | Simple shared token auth                                                                                                          |
 | `ACCESS_TOKENS`                | Comma-separated shared tokens                                                                                                     |
+| `A2A_SECRET`                   | Shared secret for JWT-signed A2A cross-app identity verification and, when present, MCP OAuth access-token signing                |
 | `AUTH_DISABLED`                | Set to `true` to skip auth (infrastructure-level auth)                                                                            |
-| `A2A_SECRET`                   | Shared secret for JWT-signed A2A cross-app identity verification                                                                  |

@@ -368,6 +368,13 @@ function contentToStructuredMessages(
               )
             : toolResultContent(part.result),
         });
+      } else {
+        pendingToolResults.push({
+          type: "tool-result",
+          toolCallId,
+          toolName: part.toolName,
+          content: "Interrupted before this tool returned a result.",
+        });
       }
     }
   }
@@ -874,6 +881,7 @@ export function createAgentChatAdapter(options?: {
       let startupRecoveryAttempts = 0;
       let staleRunContinuationAttempts = 0;
       let stalledTransientContinuationAttempts = 0;
+      let emptyTransientContinuationAttempts = 0;
       let totalTransientContinuationAttempts = 0;
       const continuationHistoryFragments: string[] = [];
       const structuredContinuationFragments: AgentChatStructuredMessage[] = [];
@@ -892,6 +900,7 @@ export function createAgentChatAdapter(options?: {
             : "",
           `stale_run_continuations: ${staleRunContinuationAttempts}`,
           `stalled_transient_continuations: ${stalledTransientContinuationAttempts}`,
+          `empty_transient_continuations: ${emptyTransientContinuationAttempts}`,
           `total_transient_continuations: ${totalTransientContinuationAttempts}`,
           attemptedRunIds.length > 0
             ? `attempted_runs: ${attemptedRunIds.join(", ")}`
@@ -974,6 +983,7 @@ export function createAgentChatAdapter(options?: {
             startupRecoveryAttempts,
             staleRunContinuationAttempts,
             stalledTransientContinuationAttempts,
+            emptyTransientContinuationAttempts,
             totalTransientContinuationAttempts,
             ...extra,
           },
@@ -987,6 +997,7 @@ export function createAgentChatAdapter(options?: {
               startupRecoveryAttempts,
               staleRunContinuationAttempts,
               stalledTransientContinuationAttempts,
+              emptyTransientContinuationAttempts,
               totalTransientContinuationAttempts,
             },
           },
@@ -1194,23 +1205,33 @@ export function createAgentChatAdapter(options?: {
             contentToContinuationHistory(visibleContent);
           const madeProgress = hasContinuationProgress(visibleContent);
           const madeVisibleProgress = visibleContent.length > 0;
+          const madeDurableToolProgress = visibleContent.some(
+            (part) => part.type === "tool-call" && part.result !== undefined,
+          );
 
           if (signal.reason === "loop_limit") {
             stalledTransientContinuationAttempts = 0;
+            emptyTransientContinuationAttempts = 0;
           } else {
             totalTransientContinuationAttempts += 1;
             if (!madeVisibleProgress && signal.reason === "run_timeout") {
               return { ok: false, resetVisibleContent: false };
             }
-            if (
-              !madeVisibleProgress &&
-              totalTransientContinuationAttempts >
+            if (!madeVisibleProgress) {
+              emptyTransientContinuationAttempts += 1;
+              if (
+                emptyTransientContinuationAttempts >
                 MAX_EMPTY_TRANSIENT_CONTINUATIONS
-            ) {
-              return { ok: false, resetVisibleContent: false };
+              ) {
+                return { ok: false, resetVisibleContent: false };
+              }
+            } else {
+              emptyTransientContinuationAttempts = 0;
             }
             if (signal.reason === "stale_run") {
-              staleRunContinuationAttempts += 1;
+              staleRunContinuationAttempts = madeDurableToolProgress
+                ? 0
+                : staleRunContinuationAttempts + 1;
               if (staleRunContinuationAttempts > MAX_STALE_RUN_CONTINUATIONS) {
                 return { ok: false, resetVisibleContent: false };
               }

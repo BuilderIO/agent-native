@@ -113,10 +113,16 @@ function makeWebEvent(opts: MakeEventOpts): any {
 vi.mock("h3", () => ({
   defineEventHandler: (fn: any) => fn,
   getMethod: (event: any) => event.method ?? "GET",
+  getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   getRequestHeader: (event: any, name: string) =>
     event._headers?.[name.toLowerCase()],
+  getQuery: (event: any) => event._query ?? {},
   setResponseStatus: (event: any, code: number) => {
     event._status = code;
+  },
+  setResponseHeader: (event: any, name: string, value: string) => {
+    event._responseHeaders ??= {};
+    event._responseHeaders[name.toLowerCase()] = value;
   },
 }));
 
@@ -157,6 +163,16 @@ const config = {
         view: "thing",
         url: `/_agent-native/open?view=thing&id=${result.id}`,
       }),
+      mcpApp: {
+        resource: {
+          title: "Mail Review",
+          description: "Review the echoed thing in an inline MCP App.",
+          html: ({ actionName, requestOrigin }: any) =>
+            `<!doctype html><html><body><main data-action="${actionName}" data-origin="${requestOrigin}">Mail review</main></body></html>`,
+          csp: { connectDomains: ["https://mail.agent-native.com"] },
+          prefersBorder: true,
+        },
+      },
     },
   },
 };
@@ -219,9 +235,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.serverInfo.name).toBe("agent-native-mail");
     expect(out.result.capabilities).toBeDefined();
+    expect(out.result.capabilities.resources).toEqual({});
+    expect(
+      out.result.capabilities.extensions?.["io.modelcontextprotocol/ui"],
+    ).toMatchObject({
+      mimeTypes: ["text/html;profile=mcp-app"],
+    });
   });
 
-  it("handles `tools/list` and returns the registered action", async () => {
+  it("handles `tools/list` and returns the registered action with MCP App metadata", async () => {
     const out = await callWeb({
       jsonrpc: "2.0",
       id: 2,
@@ -236,6 +258,77 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     // and a description nudge — identical on both runtimes.
     expect(echo.annotations?.["agent-native/producesOpenLink"]).toBe(true);
     expect(echo.description).toContain("Open in");
+    expect(echo._meta?.["ui/resourceUri"]).toBe("ui://mail/echo-thing");
+    expect(echo._meta?.ui).toEqual({
+      resourceUri: "ui://mail/echo-thing",
+      visibility: ["model", "app"],
+    });
+  });
+
+  it("handles `resources/list` and advertises MCP App resources", async () => {
+    const out = await callWeb({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "resources/list",
+      params: {},
+    });
+    expect(out.error).toBeUndefined();
+    expect(out.result.resources).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/echo-thing",
+        name: "echo-thing",
+        title: "Mail Review",
+        description: "Review the echoed thing in an inline MCP App.",
+        mimeType: "text/html;profile=mcp-app",
+        _meta: {
+          ui: {
+            csp: {
+              connectDomains: ["https://mail.agent-native.com"],
+            },
+            prefersBorder: true,
+          },
+        },
+      }),
+    ]);
+  });
+
+  it("handles `resources/templates/list` with an empty template list", async () => {
+    const out = await callWeb({
+      jsonrpc: "2.0",
+      id: 5,
+      method: "resources/templates/list",
+      params: {},
+    });
+    expect(out.error).toBeUndefined();
+    expect(out.result.resourceTemplates).toEqual([]);
+  });
+
+  it("handles `resources/read` and returns MCP App HTML", async () => {
+    const out = await callWeb({
+      jsonrpc: "2.0",
+      id: 6,
+      method: "resources/read",
+      params: { uri: "ui://mail/echo-thing" },
+    });
+    expect(out.error).toBeUndefined();
+    expect(out.result.contents).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/echo-thing",
+        mimeType: "text/html;profile=mcp-app",
+        text: expect.stringContaining('data-action="echo-thing"'),
+        _meta: {
+          ui: {
+            csp: {
+              connectDomains: ["https://mail.agent-native.com"],
+            },
+            prefersBorder: true,
+          },
+        },
+      }),
+    ]);
+    expect(out.result.contents[0].text).toContain(
+      'data-origin="https://mail.agent-native.com"',
+    );
   });
 
   it("handles `tools/call` and appends the deep-link block + `_meta`", async () => {
@@ -279,6 +372,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
     const res = await handleMcpRequest(event, config as any);
     expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource"',
+    );
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'scope="mcp:read mcp:write mcp:apps"',
+    );
     expect(res).toEqual({ error: "Unauthorized" });
   });
 

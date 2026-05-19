@@ -30,4 +30,13 @@ export {
   isAgentActionStopError,
   type ActionHttpConfig,
   type AgentActionStopOptions,
+  MCP_APP_EXTENSION_ID,
+  MCP_APP_MIME_TYPE,
+  MCP_APP_RESOURCE_URI_META_KEY,
+  type ActionMcpAppConfig,
+  type ActionMcpAppCsp,
+  type ActionMcpAppHtmlBuilder,
+  type ActionMcpAppPermissions,
+  type ActionMcpAppResourceConfig,
+  type ActionMcpAppResourceMeta,
 } from "./action.js";
