@@ -708,6 +708,26 @@ export async function verifyAuth(
   // owner hint there so the local install/connect flow stays tenant-scoped.
   const accessTokens = getAccessTokens();
   const hasA2ASecret = !!process.env.A2A_SECRET;
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : undefined;
+  if (token) {
+    const oauthIdentity = await verifyMcpOAuthAccessToken(
+      token,
+      options.resourceUrl,
+    );
+    if (oauthIdentity) {
+      return {
+        authed: true,
+        identity: {
+          userEmail: oauthIdentity.userEmail,
+          orgDomain: oauthIdentity.orgDomain,
+          oauthScopes: oauthIdentity.scopes,
+        },
+        fullSurface: true,
+      };
+    }
+  }
   if (accessTokens.length === 0 && !hasA2ASecret) {
     if (options.allowDevOpen === false) {
       return { authed: false };
@@ -723,24 +743,7 @@ export async function verifyAuth(
     };
   }
 
-  if (!authHeader?.startsWith("Bearer ")) return { authed: false };
-  const token = authHeader.slice(7);
-
-  const oauthIdentity = await verifyMcpOAuthAccessToken(
-    token,
-    options.resourceUrl,
-  );
-  if (oauthIdentity) {
-    return {
-      authed: true,
-      identity: {
-        userEmail: oauthIdentity.userEmail,
-        orgDomain: oauthIdentity.orgDomain,
-        oauthScopes: oauthIdentity.scopes,
-      },
-      fullSurface: true,
-    };
-  }
+  if (!token) return { authed: false };
 
   // Try JWT via A2A_SECRET
   if (hasA2ASecret) {

@@ -21,6 +21,7 @@ import {
   consumeOAuthCode,
   generateOpaqueToken,
   getOAuthClient,
+  getOAuthCode,
   getOAuthRefreshToken,
   registerOAuthClient,
   rotateOAuthRefreshToken,
@@ -686,7 +687,7 @@ async function handleAuthorizationCodeGrant(
   if (!code || !clientId || !redirectUri || !isValidCodeVerifier(verifier)) {
     return oauthError("invalid_request", "Missing authorization-code fields");
   }
-  const row = await consumeOAuthCode(code);
+  const row = await getOAuthCode(code);
   if (!row) return oauthError("invalid_grant", "Invalid or expired code");
   if (row.clientId !== clientId || row.redirectUri !== redirectUri) {
     return oauthError("invalid_grant", "Code was issued to another client");
@@ -695,6 +696,8 @@ async function handleAuthorizationCodeGrant(
   if (!safeEqual(expectedChallenge, row.codeChallenge)) {
     return oauthError("invalid_grant", "PKCE verification failed");
   }
+  const consumed = await consumeOAuthCode(code);
+  if (!consumed) return oauthError("invalid_grant", "Invalid or expired code");
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
@@ -720,9 +723,12 @@ async function handleRefreshTokenGrant(
   if (!refreshToken) {
     return oauthError("invalid_request", "refresh_token is required");
   }
+  if (!clientId) {
+    return oauthError("invalid_request", "client_id is required");
+  }
   const existing = await getOAuthRefreshToken(refreshToken);
   if (!existing) return oauthError("invalid_grant", "Invalid refresh token");
-  if (clientId && existing.clientId !== clientId) {
+  if (existing.clientId !== clientId) {
     return oauthError(
       "invalid_grant",
       "Refresh token belongs to another client",

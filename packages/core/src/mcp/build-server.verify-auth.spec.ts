@@ -31,11 +31,13 @@ describe("verifyAuth — connect-token revoke check", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.A2A_SECRET = SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
   });
   afterEach(() => {
     delete process.env.A2A_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
   });
 
   it("does NOT query the revoke store for an ordinary A2A JWT (hot path untouched)", async () => {
@@ -189,11 +191,13 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.A2A_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
   });
   afterEach(() => {
     delete process.env.A2A_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
   });
@@ -244,5 +248,27 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
       allowDevOpen: false,
     });
     expect(res.authed).toBe(false);
+  });
+
+  it("standard MCP OAuth token without A2A_SECRET → authed even when dev-open is disabled", async () => {
+    process.env.BETTER_AUTH_SECRET = SECRET;
+    const resource = "https://mail.agent-native.com/_agent-native/mcp";
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource,
+      issuer: "https://mail.agent-native.com",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      allowDevOpen: false,
+      resourceUrl: resource,
+    });
+    expect(res.authed).toBe(true);
+    expect(res.fullSurface).toBe(true);
+    expect(res.identity).toMatchObject({
+      userEmail: "oauth@example.com",
+      oauthScopes: ["mcp:read"],
+    });
   });
 });

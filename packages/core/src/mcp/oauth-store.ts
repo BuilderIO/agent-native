@@ -323,6 +323,21 @@ export async function createOAuthCode(params: {
   };
 }
 
+export async function getOAuthCode(code: string): Promise<OAuthCodeRow | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM mcp_oauth_codes WHERE code = ?`,
+    args: [code],
+  });
+  if (rows.length === 0) return null;
+  const row = mapCodeRow(rows[0]);
+  if (row.consumedAt != null || (row.expiresAt ?? 0) < Date.now()) {
+    return null;
+  }
+  return row;
+}
+
 export async function consumeOAuthCode(
   code: string,
 ): Promise<OAuthCodeRow | null> {
