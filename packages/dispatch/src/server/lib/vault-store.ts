@@ -400,6 +400,7 @@ export async function updateSecret(
   });
 
   const updated = await getSecret(secretId, ctx);
+  if (updated) await syncSecretsToCredentialStore([updated], ctx);
   if (updated && credentialKey !== existing.credentialKey) {
     const stillUsesOldKey = await db
       .select({ id: schema.vaultSecrets.id })
@@ -420,7 +421,6 @@ export async function updateSecret(
       });
     }
   }
-  if (updated) await syncSecretsToCredentialStore([updated], ctx);
   return updated;
 }
 

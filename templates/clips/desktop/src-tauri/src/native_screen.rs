@@ -1118,9 +1118,9 @@ fn stop_native_recording(
             // buffered fragment (a consistent multi-second tail truncation).
             // Skip the wait only when both teardown calls hard-failed (the
             // delegate won't fire, so don't burn the timeout for nothing).
-            let finalize_outcome = if wait_for_finalize
-                && (stop_result.is_ok() || remove_result.is_ok())
-            {
+            let waited_for_finalize =
+                wait_for_finalize && (stop_result.is_ok() || remove_result.is_ok());
+            let finalize_outcome = if waited_for_finalize {
                 let outcome = finish.wait(SCK_FINALIZE_TIMEOUT);
                 if outcome.is_none() {
                     eprintln!(
@@ -1144,9 +1144,11 @@ fn stop_native_recording(
             match remove_result {
                 Ok(()) => Ok(()),
                 Err(remove_err) => {
-                    if matches!(finalize_outcome.as_ref(), Some(Ok(()))) {
+                    if matches!(finalize_outcome.as_ref(), Some(Ok(())))
+                        || (waited_for_finalize && finalize_outcome.is_none())
+                    {
                         eprintln!(
-                            "[clips-tray] ScreenCaptureKit recording output removal reported an error after the recording finished; continuing upload: {remove_err}"
+                            "[clips-tray] ScreenCaptureKit recording output removal reported an error after finalize completed or timed out; continuing upload: {remove_err}"
                         );
                         Ok(())
                     } else {
