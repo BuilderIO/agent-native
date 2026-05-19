@@ -94,6 +94,7 @@ import {
   workspaceAppRouteAccessFromEnv,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
   BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_CONNECT_PARAM,
@@ -260,7 +261,8 @@ export interface AuthOptions {
  * deploys on a shared domain), they would otherwise stomp on each other's
  * `an_session` cookie and ping-pong each other into a logged-out state.
  *
- * When `APP_NAME` is set, suffix the cookie so each app gets its own slot.
+ * When an isolated app slug is resolved, suffix the cookie so each app gets
+ * its own slot.
  *
  * Workspace exception: in workspace mode (`AGENT_NATIVE_WORKSPACE=1`),
  * every app shares the same origin AND the same DB, and cross-app SSO is
@@ -271,41 +273,27 @@ export interface AuthOptions {
  * exchange relies on — see `desktop-exchange` and `oauthCallbackResponse`)
  * is recognised by every app in the workspace.
  *
- * Cross-subdomain exception: when `COOKIE_DOMAIN` is set (e.g.
- * `.agent-native.com` for first-party deploys where each app is its own
- * subdomain — mail.agent-native.com, calendar.agent-native.com, …),
- * use the unsuffixed `an_session` and emit `Domain=<COOKIE_DOMAIN>` so
- * the cookie is shared across every subdomain. Signing into one app
- * signs the user into all of them. Per-app suffixes would defeat the
- * shared cookie since each subdomain reads a different name.
+ * Cross-subdomain exception: when `COOKIE_DOMAIN` is set for a custom domain,
+ * use the unsuffixed `an_session` and emit `Domain=<COOKIE_DOMAIN>` so the
+ * cookie is shared across every subdomain. First-party `*.agent-native.com`
+ * apps are deliberately excluded from that behavior by default because each
+ * hosted app has its own auth database; they use Dispatch identity federation
+ * instead of a shared browser cookie.
  */
-const APP_NAME_SLUG = (process.env.APP_NAME || "")
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, "_")
-  .replace(/^_+|_+$/g, "");
-const IS_WORKSPACE_MODE = process.env.AGENT_NATIVE_WORKSPACE === "1";
+const AUTH_COOKIE_NAMESPACE = resolveAuthCookieNamespace();
 
 /**
  * When set, the framework session cookie is shared across every subdomain
- * matching this domain (e.g. `.agent-native.com`). Reads `COOKIE_DOMAIN`.
- * Returns undefined when unset so cookies stay scoped to the origin host.
+ * matching this domain. Returns undefined when unset or deliberately ignored
+ * for first-party hosted apps, so cookies stay scoped to the origin host.
  */
 export function getCookieDomain(): string | undefined {
-  const raw = process.env.COOKIE_DOMAIN;
-  if (!raw) return undefined;
-  const trimmed = raw.trim();
-  return trimmed || undefined;
+  return AUTH_COOKIE_NAMESPACE.frameworkCookieDomain;
 }
 
-const HAS_COOKIE_DOMAIN = !!getCookieDomain();
-
-export const COOKIE_NAME = HAS_COOKIE_DOMAIN
-  ? "an_session"
-  : IS_WORKSPACE_MODE
-    ? "an_session_workspace"
-    : APP_NAME_SLUG
-      ? `an_session_${APP_NAME_SLUG}`
-      : "an_session";
+export const COOKIE_NAME = AUTH_COOKIE_NAMESPACE.frameworkCookieName;
+export const BETTER_AUTH_COOKIE_PREFIX =
+  AUTH_COOKIE_NAMESPACE.betterAuthCookiePrefix;
 
 /**
  * Cookie domain attribute spread into every `setCookie`/`deleteCookie`.
@@ -351,23 +339,36 @@ function getCookieValues(event: H3Event, name: string): string[] {
 }
 
 export function getFrameworkSessionCookieValues(event: H3Event): string[] {
-  return getCookieValues(event, COOKIE_NAME);
+  return getFrameworkSessionCookieEntries(event).map((entry) => entry.value);
+}
+
+function getFrameworkSessionCookieEntries(
+  event: H3Event,
+): Array<{ name: string; value: string }> {
+  const entries: Array<{ name: string; value: string }> = [];
+  const seenValues = new Set<string>();
+
+  for (const name of frameworkSessionCookieNamesToClear()) {
+    for (const value of getCookieValues(event, name)) {
+      if (seenValues.has(value)) continue;
+      seenValues.add(value);
+      entries.push({ name, value });
+    }
+  }
+
+  return entries;
 }
 
 function frameworkSessionCookieNamesToClear(): string[] {
-  const names = new Set([COOKIE_NAME]);
-  if (APP_NAME_SLUG) names.add(`an_session_${APP_NAME_SLUG}`);
-  return [...names];
+  return AUTH_COOKIE_NAMESPACE.frameworkCookieNamesToClear;
 }
 
 function deleteCookieFromEveryScope(event: H3Event, name: string): void {
-  // Clear host-only cookies first. When COOKIE_DOMAIN was introduced, stale
-  // host-only `an_session` cookies could shadow the new domain cookie because
-  // browsers send older same-path duplicates first.
+  // Clear host-only cookies first. Then clear any configured domain scope so
+  // stale shared cookies stop shadowing isolated app sessions.
   deleteCookie(event, name, { path: "/" });
-  const domainAttrs = cookieDomainAttrs();
-  if (domainAttrs.domain) {
-    deleteCookie(event, name, { path: "/", ...domainAttrs });
+  for (const domain of AUTH_COOKIE_NAMESPACE.frameworkCookieDomainsToClear) {
+    deleteCookie(event, name, { path: "/", domain });
   }
 }
 
@@ -380,9 +381,12 @@ export function clearFrameworkSessionCookies(event: H3Event): void {
 async function getLegacyCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
-  for (const cookie of getFrameworkSessionCookieValues(event)) {
-    const email = await getSessionEmail(cookie);
-    if (email) return { email, token: cookie };
+  for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
+    const email = await getSessionEmail(value);
+    if (email) {
+      if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
+      return { email, token: value };
+    }
   }
   return null;
 }
@@ -1216,7 +1220,7 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
     // session-lost popup case) — when a session IS present, the normal
     // guard runs and the callback handler cross-checks the state owner
     // against the session.
-    const hasSession = Boolean(getCookie(event, COOKIE_NAME));
+    const hasSession = getFrameworkSessionCookieValues(event).length > 0;
     if (hasSession) return false;
     return Boolean(
       verifyBuilderCallbackStateAndGetOwner(state) ||

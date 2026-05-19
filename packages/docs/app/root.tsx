@@ -103,6 +103,7 @@ export const meta = () => [
 const CANONICAL_ALIASES: Record<string, string> = {
   "/docs/getting-started": "/docs",
 };
+const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
 
 function CanonicalLink() {
   const location = useLocation();
@@ -149,14 +150,43 @@ function scrollElementIntoContainerView(target: HTMLElement) {
   });
 }
 
+function getManagedScrollTop(): number | null {
+  if (typeof document === "undefined") return null;
+  const marker = document.querySelector<HTMLElement>(
+    `[data-${SCROLL_MANAGER_MARKER}]`,
+  );
+  if (!marker) return null;
+  const scrollContainer = findScrollContainerFrom(marker);
+  if (scrollContainer === window) return window.scrollY;
+  return (scrollContainer as HTMLElement).scrollTop;
+}
+
+function setManagedScrollTop(top: number) {
+  if (typeof document === "undefined") return;
+  const marker = document.querySelector<HTMLElement>(
+    `[data-${SCROLL_MANAGER_MARKER}]`,
+  );
+  if (!marker) return;
+  const scrollContainer = findScrollContainerFrom(marker);
+  if (scrollContainer === window) {
+    window.scrollTo(0, top);
+  } else {
+    (scrollContainer as HTMLElement).scrollTop = top;
+  }
+}
+
 // AgentSidebar wraps content in an overflow-auto div, so the window usually
 // does not scroll. Keep both normal route changes and hash links pointed at
 // that real scroll container.
-function ScrollManager({ mounted }: { mounted: boolean }) {
+function ScrollManager() {
   const { pathname, hash } = useLocation();
   const ref = useRef<HTMLSpanElement>(null);
+  const isInitialEffectRef = useRef(true);
 
   useEffect(() => {
+    const isInitialEffect = isInitialEffectRef.current;
+    isInitialEffectRef.current = false;
+
     if (hash) {
       const id = decodeURIComponent(hash.slice(1));
       let raf = 0;
@@ -177,6 +207,8 @@ function ScrollManager({ mounted }: { mounted: boolean }) {
       };
     }
 
+    if (isInitialEffect) return;
+
     let parent: HTMLElement | null = ref.current?.parentElement ?? null;
     while (parent) {
       const overflowY = getComputedStyle(parent).overflowY;
@@ -187,8 +219,15 @@ function ScrollManager({ mounted }: { mounted: boolean }) {
       parent = parent.parentElement;
     }
     window.scrollTo(0, 0);
-  }, [pathname, hash, mounted]);
-  return <span ref={ref} aria-hidden style={{ display: "none" }} />;
+  }, [pathname, hash]);
+  return (
+    <span
+      ref={ref}
+      data-docs-scroll-manager-marker
+      aria-hidden
+      style={{ display: "none" }}
+    />
+  );
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -228,11 +267,39 @@ export default function Root() {
       }),
   );
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const pendingHydrationScrollTopRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    pendingHydrationScrollTopRef.current = window.location.hash
+      ? null
+      : getManagedScrollTop();
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const top = pendingHydrationScrollTopRef.current;
+    pendingHydrationScrollTopRef.current = null;
+    if (!top || top <= 0) return;
+
+    let raf = 0;
+    let secondRaf = 0;
+    const timer = window.setTimeout(() => setManagedScrollTop(top), 100);
+    raf = window.requestAnimationFrame(() => {
+      setManagedScrollTop(top);
+      secondRaf = window.requestAnimationFrame(() => setManagedScrollTop(top));
+    });
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.cancelAnimationFrame(secondRaf);
+      window.clearTimeout(timer);
+    };
+  }, [mounted]);
 
   const content = (
     <>
-      <ScrollManager mounted={mounted} />
+      <ScrollManager />
       <Header />
       <Outlet />
       <Footer />

@@ -5,18 +5,21 @@ import {
 } from "./short-lived-token.js";
 
 describe("short-lived-token", () => {
-  const ORIGINAL_ENV = process.env.OAUTH_STATE_SECRET;
+  const originalEnv = { ...process.env };
 
   beforeEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
     process.env.OAUTH_STATE_SECRET = "test-secret-do-not-use-in-prod";
   });
 
   afterEach(() => {
-    if (ORIGINAL_ENV === undefined) {
-      delete process.env.OAUTH_STATE_SECRET;
-    } else {
-      process.env.OAUTH_STATE_SECRET = ORIGINAL_ENV;
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
     }
+    Object.assign(process.env, originalEnv);
     vi.useRealTimers();
   });
 
@@ -83,5 +86,22 @@ describe("short-lived-token", () => {
     expect(verifyShortLivedToken("nodot", "rec_abc").ok).toBe(false);
     expect(verifyShortLivedToken("a.", "rec_abc").ok).toBe(false);
     expect(verifyShortLivedToken(".b", "rec_abc").ok).toBe(false);
+  });
+
+  it("uses derived A2A signing in production workspace deploys", () => {
+    delete process.env.OAUTH_STATE_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    const token = signShortLivedToken({ resourceId: "rec_abc" });
+    expect(verifyShortLivedToken(token, "rec_abc").ok).toBe(true);
+
+    process.env.A2A_SECRET = "different-root-secret";
+    expect(verifyShortLivedToken(token, "rec_abc")).toEqual({
+      ok: false,
+      reason: "bad_signature",
+    });
   });
 });

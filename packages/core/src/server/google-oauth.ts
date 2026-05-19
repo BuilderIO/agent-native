@@ -22,6 +22,7 @@ import {
   setFrameworkSessionCookie,
 } from "./auth.js";
 import { getAppName } from "./app-name.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
 
@@ -479,20 +480,23 @@ let _devStateSigningKey: string | undefined;
  * Resolution order:
  *   1. OAUTH_STATE_SECRET (preferred — dedicated to this purpose)
  *   2. BETTER_AUTH_SECRET (already used by Better Auth as a server secret)
- *   3. In dev only, an ephemeral random key (per-process)
+ *   3. Hosted workspace deploys derive a per-purpose key from A2A_SECRET
+ *   4. In dev only, an ephemeral random key (per-process)
  *
- * In production, throws if neither secret is set.
+ * In production, throws if no usable server secret is set.
  */
 function getStateSigningKey(): string {
   const secret =
-    process.env.OAUTH_STATE_SECRET || process.env.BETTER_AUTH_SECRET;
+    process.env.OAUTH_STATE_SECRET ||
+    process.env.BETTER_AUTH_SECRET ||
+    getWorkspaceA2ADerivedSecret("oauth-state");
   if (secret) return secret;
 
   const isProd = process.env.NODE_ENV === "production";
   if (isProd) {
     throw new Error(
       "OAuth state signing requires a server secret. " +
-        "Set OAUTH_STATE_SECRET or BETTER_AUTH_SECRET in production.",
+        "Set OAUTH_STATE_SECRET, BETTER_AUTH_SECRET, or A2A_SECRET in production workspace deploys.",
     );
   }
 
