@@ -45,12 +45,15 @@ function savePromptForRetry(
   prompt: string,
   options: { persistAcrossSignIn?: boolean } = {},
 ) {
+  let signInHandoffSaved = !options.persistAcrossSignIn;
   if (options.persistAcrossSignIn) {
     try {
       sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
+      signInHandoffSaved = true;
     } catch {}
   }
-  return savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, prompt);
+  const draftSaved = savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, prompt);
+  return signInHandoffSaved && draftSaved;
 }
 
 function clearPendingPromptForRetry() {
@@ -214,6 +217,7 @@ export default function Index() {
       clearPendingPromptForRetry();
       setNewDeckInitialPrompt(null);
     } else {
+      clearPendingPromptForRetry();
       setNewDeckInitialPrompt({ text: saved, key: Date.now() });
     }
     setSelectedDesignSystemId(defaultSystem?.id ?? "none");
