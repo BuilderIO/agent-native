@@ -114,6 +114,7 @@
     "@assistant-ui/react-markdown": "^0.12.6",
     "@clack/prompts": "^1.4.0",
     "@libsql/client": "^0.15.0",
+    "@modelcontextprotocol/ext-apps": "1.7.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@neondatabase/serverless": "^1.1.0",
     "@radix-ui/react-dropdown-menu": "^2.1.16",

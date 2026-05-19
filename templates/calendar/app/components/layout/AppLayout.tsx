@@ -23,7 +23,7 @@ import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useHiddenCalendars } from "@/hooks/use-hidden-calendars";
 import { useIsMobile } from "@/hooks/use-mobile";
-import type { CalendarEvent } from "@shared/api";
+import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
 
@@ -67,6 +67,9 @@ interface CalendarContextValue {
   /** The last-clicked/focused event (for keyboard shortcuts like Delete) */
   focusedEvent: CalendarEvent | null;
   setFocusedEvent: (event: CalendarEvent | null) => void;
+  /** The currently open unsent event draft, if any */
+  eventDraft: CalendarEventDraft | null;
+  setEventDraft: (draft: CalendarEventDraft | null) => void;
 }
 
 const CalendarContext = createContext<CalendarContextValue>({
@@ -89,6 +92,8 @@ const CalendarContext = createContext<CalendarContextValue>({
   setSidebarEvent: () => {},
   focusedEvent: null,
   setFocusedEvent: () => {},
+  eventDraft: null,
+  setEventDraft: () => {},
 });
 
 export function useCalendarContext() {
@@ -145,6 +150,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [eventDetailSidebar, setEventDetailSidebarState] = useState(false);
   const [sidebarEvent, setSidebarEvent] = useState<CalendarEvent | null>(null);
   const [focusedEvent, setFocusedEvent] = useState<CalendarEvent | null>(null);
+  const [eventDraft, setEventDraft] = useState<CalendarEventDraft | null>(null);
   const [headerControls, setHeaderControls] = useState<HeaderControls | null>(
     null,
   );
@@ -223,6 +229,8 @@ export function AppLayout({ children }: AppLayoutProps) {
         setSidebarEvent,
         focusedEvent,
         setFocusedEvent,
+        eventDraft,
+        setEventDraft,
       }}
     >
       <NavigationSync />

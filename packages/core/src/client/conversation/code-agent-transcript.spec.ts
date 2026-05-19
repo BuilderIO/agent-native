@@ -98,6 +98,50 @@ describe("normalizeCodeAgentTranscriptForConversation", () => {
     });
   });
 
+  it("preserves MCP App payloads on completed Code tool calls", () => {
+    const events: CodeAgentConversationTranscriptEvent[] = [
+      {
+        id: "tool-start",
+        runId: "run-1",
+        type: "status",
+        text: "Running render",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        metadata: {
+          type: "tool_start",
+          tool: "mcp__apps__render",
+          input: { id: "1" },
+        },
+      },
+      {
+        id: "tool-done",
+        runId: "run-1",
+        type: "status",
+        text: "Finished render",
+        createdAt: "2026-01-01T00:00:01.000Z",
+        metadata: {
+          type: "tool_done",
+          tool: "mcp__apps__render",
+          result: "Rendered",
+          mcpApp: {
+            serverId: "apps",
+            toolName: "mcp__apps__render",
+            originalToolName: "render",
+            resourceUri: "ui://apps/render",
+            toolInput: { id: "1" },
+            toolResult: { content: [{ type: "text", text: "Rendered" }] },
+          },
+        },
+      },
+    ];
+
+    const messages = normalizeCodeAgentTranscriptForConversation(events);
+    expect(messages[0]?.tools?.[0]?.mcpApp).toMatchObject({
+      serverId: "apps",
+      resourceUri: "ui://apps/render",
+      originalToolName: "render",
+    });
+  });
+
   it("marks pending user turns and can hide credential notices", () => {
     const events: CodeAgentConversationTranscriptEvent[] = [
       {

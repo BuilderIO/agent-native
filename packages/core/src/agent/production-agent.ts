@@ -52,6 +52,7 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import { isMcpActionResult } from "../mcp-client/app-result.js";
 import {
   createToolSearchEntry,
   TOOL_SEARCH_ACTION_NAME,
@@ -280,6 +281,10 @@ export interface ActionEntry {
    *  "Open in <app> →" link built from the call's args + result. Pure, sync,
    *  best-effort. See `defineAction` and the `external-agents` skill. */
   link?: import("../action.js").ActionLinkBuilder;
+  /** Optional MCP Apps UI resource for hosts that support inline interactive
+   *  app iframes. CLI/non-UI hosts still receive the normal tool result and
+   *  any deep link from `link`. */
+  mcpApp?: import("../action.js").ActionMcpAppConfig;
 }
 
 /** @deprecated Use `ActionEntry` instead */
@@ -1685,6 +1690,9 @@ export async function runAgentLoop(opts: {
       const TOOL_TIMEOUT_MS = 60_000;
       let result: string;
       let isError = false;
+      let mcpApp:
+        | import("../mcp-client/app-result.js").AgentMcpAppPayload
+        | undefined;
       try {
         const timeoutSignal = AbortSignal.timeout(TOOL_TIMEOUT_MS);
         const raw = await Promise.race([
@@ -1695,25 +1703,30 @@ export async function runAgentLoop(opts: {
             );
           }),
         ]);
+        const mcpResult = isMcpActionResult(raw) ? raw : null;
+        const rawForAgent = mcpResult ? mcpResult.text : raw;
+        mcpApp = mcpResult?.mcpApp;
         // Demo mode: the agent must see the same fake data the UI shows, so
         // it can't read out a real name/email on a live screen share. Redact
         // the structured result (not the JSON string) so IDs/dates/URLs stay
         // intact and follow-up tool calls still work. Gated — the expensive
         // walk only runs when demo mode is on.
-        let redacted: unknown = raw;
-        if (await isDemoModeEnabled()) {
-          if (typeof raw === "string") {
+        let redacted: unknown = rawForAgent;
+        const demoMode = await isDemoModeEnabled();
+        if (demoMode) {
+          mcpApp = undefined;
+          if (typeof rawForAgent === "string") {
             try {
               redacted = JSON.stringify(
-                redactDemoData(JSON.parse(raw)),
+                redactDemoData(JSON.parse(rawForAgent)),
                 null,
                 2,
               );
             } catch {
-              redacted = redactDemoString(raw);
+              redacted = redactDemoString(rawForAgent);
             }
           } else {
-            redacted = redactDemoData(raw);
+            redacted = redactDemoData(rawForAgent);
           }
         }
         let resultStr =
@@ -1763,7 +1776,12 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      send({ type: "tool_done", tool: toolCall.name, result });
+      send({
+        type: "tool_done",
+        tool: toolCall.name,
+        result,
+        ...(mcpApp ? { mcpApp } : {}),
+      });
       recordToolResult(result, isError);
       if (!isError) {
         if (cacheKey) {

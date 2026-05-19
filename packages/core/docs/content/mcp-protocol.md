@@ -1,13 +1,13 @@
 ---
 title: "MCP Protocol"
-description: "Expose your agent-native app as a remote MCP server so Claude Code, Cursor, and other AI tools can call your app's actions directly."
+description: "Expose your agent-native app as a remote MCP server so Claude, ChatGPT, Claude Code, Cursor, and other AI tools can call your app's actions directly."
 ---
 
 # MCP Protocol
 
-Every agent-native app automatically exposes a remote MCP (Model Context Protocol) server. This lets external AI tools like Claude Code, Cursor, and Windsurf discover and call your app's actions directly — no extra code needed.
+Every agent-native app automatically exposes a remote MCP (Model Context Protocol) server. This lets external AI tools like Claude, ChatGPT custom MCP apps, Claude Code, Cursor, Codex, VS Code GitHub Copilot, and Windsurf discover and call your app's actions directly — no extra code needed.
 
-If your goal is to connect Claude Code, Codex, Cursor, or Claude Cowork to a hosted agent-native app, start with [External Agents](/docs/external-agents). It documents the one-command `agent-native connect https://mail.agent-native.com` flow, token minting, local client config writes, manual MCP config for clients like Cursor, and deep links back into the UI. This page is the lower-level MCP server reference.
+If your goal is to connect Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to a hosted agent-native app, start with [External Agents](/docs/external-agents). It documents the one-command `agent-native connect https://mail.agent-native.com` flow, token minting, local client config writes, manual remote MCP setup for hosts we do not write directly, MCP Apps inline UIs, and deep links back into the UI. This page is the lower-level MCP server reference.
 
 ## Overview {#overview}
 
@@ -19,20 +19,21 @@ Key concepts:
 - **Streamable HTTP** — uses the modern MCP transport over standard HTTP (POST + SSE)
 - **Same actions** — the exact same action registry that powers agent chat and A2A
 - **`ask-agent` tool** — a meta-tool that delegates to the full agent loop for complex tasks
+- **MCP Apps** — actions can advertise inline HTML UIs through the official `io.modelcontextprotocol/ui` extension
 - **Bearer auth** — uses `ACCESS_TOKEN` or `A2A_SECRET` for authentication
 
 ## MCP vs A2A {#mcp-vs-a2a}
 
 Both protocols are auto-mounted. Use whichever fits your use case:
 
-|                    | MCP                                   | A2A                                          |
-| ------------------ | ------------------------------------- | -------------------------------------------- |
-| **Best for**       | External tools calling your app       | Agent-to-agent communication                 |
-| **Protocol**       | MCP Streamable HTTP                   | JSON-RPC 2.0                                 |
-| **Tool discovery** | `tools/list`                          | Agent card at `/.well-known/agent-card.json` |
-| **Endpoint**       | `/_agent-native/mcp`                  | `/_agent-native/a2a`                         |
-| **Supported by**   | Claude Code, Cursor, Windsurf, Cowork | Other agent-native apps                      |
-| **Execution**      | Direct tool calls (no extra LLM)      | Full agent loop (LLM reasoning)              |
+|                    | MCP                                                                      | A2A                                          |
+| ------------------ | ------------------------------------------------------------------------ | -------------------------------------------- |
+| **Best for**       | External tools calling your app                                          | Agent-to-agent communication                 |
+| **Protocol**       | MCP Streamable HTTP                                                      | JSON-RPC 2.0                                 |
+| **Tool discovery** | `tools/list`                                                             | Agent card at `/.well-known/agent-card.json` |
+| **Endpoint**       | `/_agent-native/mcp`                                                     | `/_agent-native/a2a`                         |
+| **Supported by**   | Claude, ChatGPT, Claude Code, Cursor, Codex, Cowork, and other MCP hosts | Other agent-native apps                      |
+| **Execution**      | Direct tool calls (no extra LLM)                                         | Full agent loop (LLM reasoning)              |
 
 You can also use the `ask-agent` MCP tool to get the best of both worlds — call it from Claude Code and let your app's agent reason through complex tasks.
 
@@ -71,6 +72,8 @@ POST https://your-app.example.com/_agent-native/mcp
 
 The server supports the standard MCP handshake: `initialize` → `initialized` → `tools/list` → `tools/call`.
 
+If an action declares `mcpApp`, the server also advertises the official MCP Apps extension (`io.modelcontextprotocol/ui`) and supports `resources/list`, `resources/templates/list`, and `resources/read` for the app HTML. Hosts that render MCP Apps can show the UI inline; hosts that do not can still call the tool and use the deep-link fallback. The current official extension matrix includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support varies by version and plan, so use the [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) for the user-facing guidance.
+
 ## Tools {#tools}
 
 All actions registered in your app are exposed as MCP tools. The mapping is direct:
@@ -80,6 +83,8 @@ All actions registered in your app are exposed as MCP tools. The mapping is dire
 | `tool.description` | `description`     |
 | `tool.parameters`  | `inputSchema`     |
 | Action name        | Tool name         |
+
+When `mcpApp` is present, the tool entry also includes `_meta.ui.resourceUri` and `_meta["ui/resourceUri"]`, and the corresponding `ui://` resource is returned as `text/html;profile=mcp-app`.
 
 ### The `ask-agent` tool {#ask-agent}
 

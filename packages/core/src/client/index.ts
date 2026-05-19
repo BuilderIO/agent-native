@@ -65,6 +65,7 @@ export {
   type AgentConversationToolCall,
   type AgentConversationToolState,
 } from "./conversation/index.js";
+export { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
 export {
   CodeAgentIndicator,
   type CodeAgentIndicatorProps,

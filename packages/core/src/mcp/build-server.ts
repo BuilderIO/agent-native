@@ -19,6 +19,13 @@
  */
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isMcpActionResult } from "../mcp-client/app-result.js";
+import {
+  MCP_APP_EXTENSION_ID,
+  MCP_APP_MIME_TYPE,
+  MCP_APP_RESOURCE_URI_META_KEY,
+  type ActionMcpAppResourceConfig,
+} from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { toAbsoluteOpenUrl, toDesktopOpenUrl } from "../server/deep-link.js";
 import {
@@ -104,6 +111,16 @@ export interface MCPRequestMeta {
   fullSurface?: boolean;
 }
 
+interface ResolvedMcpAppResource {
+  uri: string;
+  name: string;
+  title?: string;
+  description?: string;
+  html: ActionMcpAppResourceConfig["html"];
+  mimeType: typeof MCP_APP_MIME_TYPE;
+  _meta?: Record<string, unknown>;
+}
+
 /**
  * Build the deep-link content block + structured `_meta` for a tool result.
  * Best-effort: any throw / nullish link is swallowed so a bad `link` builder
@@ -169,6 +186,92 @@ function mergeBuiltinTools(
   return merged;
 }
 
+function safeUiSegment(value: string | undefined, fallback: string): string {
+  const normalized = (value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || fallback;
+}
+
+function defaultMcpAppUri(config: MCPConfig, actionName: string): string {
+  const app = safeUiSegment(config.appId ?? config.name, "agent-native");
+  const action = safeUiSegment(actionName, "tool");
+  return `ui://${app}/${action}`;
+}
+
+function mcpAppUiMeta(
+  resource: ActionMcpAppResourceConfig,
+): Record<string, unknown> | undefined {
+  const base =
+    resource._meta && typeof resource._meta === "object"
+      ? { ...resource._meta }
+      : {};
+  const existingUi =
+    base.ui && typeof base.ui === "object" && !Array.isArray(base.ui)
+      ? (base.ui as Record<string, unknown>)
+      : {};
+  const ui: Record<string, unknown> = { ...existingUi };
+  if (resource.csp) ui.csp = resource.csp;
+  if (resource.permissions) ui.permissions = resource.permissions;
+  if (resource.domain) ui.domain = resource.domain;
+  if (typeof resource.prefersBorder === "boolean") {
+    ui.prefersBorder = resource.prefersBorder;
+  }
+  if (Object.keys(ui).length > 0) base.ui = ui;
+  return Object.keys(base).length > 0 ? base : undefined;
+}
+
+function resolveMcpAppResource(
+  config: MCPConfig,
+  actionName: string,
+  entry: ActionEntry,
+): ResolvedMcpAppResource | null {
+  const resource = entry.mcpApp?.resource;
+  if (!resource) return null;
+  const uri = resource.uri?.trim() || defaultMcpAppUri(config, actionName);
+  if (!uri.startsWith("ui://")) return null;
+  const resourceMeta = mcpAppUiMeta(resource);
+  return {
+    uri,
+    name: resource.name?.trim() || actionName,
+    ...(resource.title ? { title: resource.title } : {}),
+    ...((resource.description ?? entry.tool.description)
+      ? { description: resource.description ?? entry.tool.description }
+      : {}),
+    html: resource.html,
+    mimeType: resource.mimeType ?? MCP_APP_MIME_TYPE,
+    ...(resourceMeta ? { _meta: resourceMeta } : {}),
+  };
+}
+
+function getMcpAppResources(
+  config: MCPConfig,
+  actions: Record<string, ActionEntry>,
+): ResolvedMcpAppResource[] {
+  return Object.entries(actions).flatMap(([name, entry]) => {
+    const resource = resolveMcpAppResource(config, name, entry);
+    return resource ? [resource] : [];
+  });
+}
+
+function renderMcpAppHtml(
+  resource: ResolvedMcpAppResource,
+  actionName: string,
+  config: MCPConfig,
+  requestMeta?: MCPRequestMeta,
+): string {
+  if (typeof resource.html === "function") {
+    return resource.html({
+      actionName,
+      appId: config.appId,
+      requestOrigin: requestMeta?.origin,
+    });
+  }
+  return resource.html;
+}
+
 // ---------------------------------------------------------------------------
 // MCP Server creation — converts ActionEntry registry to MCP tools
 // ---------------------------------------------------------------------------
@@ -187,13 +290,13 @@ export async function createMCPServerForRequest(
   requestMeta?: MCPRequestMeta,
 ) {
   const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
-  const { ListToolsRequestSchema, CallToolRequestSchema } =
-    await import("@modelcontextprotocol/sdk/types.js");
-
-  const server = new Server(
-    { name: config.name, version: config.version ?? "1.0.0" },
-    { capabilities: { tools: {} } },
-  );
+  const {
+    ListToolsRequestSchema,
+    CallToolRequestSchema,
+    ListResourcesRequestSchema,
+    ReadResourceRequestSchema,
+    ListResourceTemplatesRequestSchema,
+  } = await import("@modelcontextprotocol/sdk/types.js");
 
   // Resolve the effective caller identity. JWT / header-derived identity
   // (passed by `mountMCP` via `verifyAuth`) wins. When the caller passed no
@@ -224,6 +327,26 @@ export async function createMCPServerForRequest(
       ? config.productionActions
       : config.actions;
   const actions = mergeBuiltinTools(config, baseActions, requestMeta);
+  const mcpAppResources = getMcpAppResources(config, actions);
+  const supportsMcpApps = mcpAppResources.length > 0;
+  const server = new Server(
+    { name: config.name, version: config.version ?? "1.0.0" },
+    {
+      capabilities: {
+        tools: {},
+        ...(supportsMcpApps
+          ? {
+              resources: {},
+              extensions: {
+                [MCP_APP_EXTENSION_ID]: {
+                  mimeTypes: [MCP_APP_MIME_TYPE],
+                },
+              },
+            }
+          : {}),
+      },
+    },
+  );
 
   // Resolve orgId once per request (DB lookup) so subsequent wraps are
   // synchronous. The caller identity may be undefined for true dev-open —
@@ -262,6 +385,7 @@ export async function createMCPServerForRequest(
     return withCallerContext(async () => {
       const tools = Object.entries(actions).map(([name, entry]) => {
         const hasLink = typeof entry.link === "function";
+        const mcpAppResource = resolveMcpAppResource(config, name, entry);
         const baseDescription = entry.tool.description ?? name;
         return {
           name,
@@ -272,6 +396,17 @@ export async function createMCPServerForRequest(
             type: "object" as const,
             properties: {},
           },
+          ...(mcpAppResource
+            ? {
+                _meta: {
+                  [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
+                  ui: {
+                    resourceUri: mcpAppResource.uri,
+                    visibility: entry.mcpApp?.visibility ?? ["model", "app"],
+                  },
+                },
+              }
+            : {}),
           ...(hasLink
             ? { annotations: { "agent-native/producesOpenLink": true } }
             : {}),
@@ -332,13 +467,18 @@ export async function createMCPServerForRequest(
 
       try {
         const result = await entry.run((args as Record<string, string>) ?? {});
+        const resultForClient = isMcpActionResult(result)
+          ? result.text
+          : result;
         const text =
-          typeof result === "string" ? result : JSON.stringify(result);
+          typeof resultForClient === "string"
+            ? resultForClient
+            : JSON.stringify(resultForClient);
         const content: any[] = [{ type: "text", text }];
         const { block, _meta } = buildLinkArtifacts(
           entry,
           (args as Record<string, any>) ?? {},
-          result,
+          isMcpActionResult(result) ? result.raw : result,
           requestMeta,
         );
         if (block) content.push(block);
@@ -351,6 +491,62 @@ export async function createMCPServerForRequest(
       }
     });
   });
+
+  if (supportsMcpApps) {
+    server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      return withCallerContext(async () => ({
+        resources: mcpAppResources.map((resource) => ({
+          uri: resource.uri,
+          name: resource.name,
+          ...(resource.title ? { title: resource.title } : {}),
+          ...(resource.description
+            ? { description: resource.description }
+            : {}),
+          mimeType: resource.mimeType,
+          ...(resource._meta ? { _meta: resource._meta } : {}),
+        })),
+      }));
+    });
+
+    server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+      return { resourceTemplates: [] };
+    });
+
+    server.setRequestHandler(
+      ReadResourceRequestSchema,
+      async (request: any) => {
+        return withCallerContext(async () => {
+          const uri = request.params?.uri;
+          const found = Object.entries(actions)
+            .map(([name, entry]) => ({
+              actionName: name,
+              resource: resolveMcpAppResource(config, name, entry),
+            }))
+            .find((candidate) => candidate.resource?.uri === uri);
+          if (!found?.resource) {
+            throw new Error(`MCP App resource not found: ${uri}`);
+          }
+          return {
+            contents: [
+              {
+                uri: found.resource.uri,
+                mimeType: found.resource.mimeType,
+                text: renderMcpAppHtml(
+                  found.resource,
+                  found.actionName,
+                  config,
+                  requestMeta,
+                ),
+                ...(found.resource._meta
+                  ? { _meta: found.resource._meta }
+                  : {}),
+              },
+            ],
+          };
+        });
+      },
+    );
+  }
 
   return server;
 }

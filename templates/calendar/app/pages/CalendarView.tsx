@@ -100,6 +100,8 @@ export default function CalendarView() {
     focusedEvent,
     setFocusedEvent,
     hiddenCalendars,
+    eventDraft,
+    setEventDraft,
   } = useCalendarContext();
   const { prefs: viewPrefs, update: setViewPrefs } = useViewPreferences();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -262,6 +264,13 @@ export default function CalendarView() {
     [setFocusedEvent, setSelectedDate, setSidebarEvent, setViewMode],
   );
   useMeetingStartNotifications(events, openNotificationEvent);
+
+  useEffect(() => {
+    if (!eventDraft) return;
+    setCreateDefaultStart(undefined);
+    setCreateDefaultEnd(undefined);
+    setCreateDialogOpen(true);
+  }, [eventDraft]);
 
   const selectedEvent = useMemo(() => {
     const candidate = sidebarEvent ?? focusedEvent;
@@ -514,6 +523,7 @@ export default function CalendarView() {
     endTime: string,
   ) {
     setSelectedDate(clickedDate);
+    setEventDraft(null);
     setCreateDefaultStart(startTime);
     setCreateDefaultEnd(endTime);
     setCreateDialogOpen(true);
@@ -638,6 +648,7 @@ export default function CalendarView() {
           break;
         case "c":
           e.preventDefault();
+          setEventDraft(null);
           setCreateDefaultStart(undefined);
           setCreateDefaultEnd(undefined);
           setCreateDialogOpen(true);
@@ -830,11 +841,15 @@ export default function CalendarView() {
                   if (!open) {
                     setCreateDefaultStart(undefined);
                     setCreateDefaultEnd(undefined);
+                    setEventDraft(null);
                   }
                 }}
                 defaultDate={selectedDate}
                 defaultStartTime={createDefaultStart}
                 defaultEndTime={createDefaultEnd}
+                draft={eventDraft}
+                onDraftChange={setEventDraft}
+                onDraftCreated={() => setEventDraft(null)}
               />
               <AccountAvatars />
               <AgentToggleButton />
@@ -905,6 +920,7 @@ export default function CalendarView() {
           }}
           onCreateEvent={() => {
             setCommandPaletteOpen(false);
+            setEventDraft(null);
             setCreateDialogOpen(true);
           }}
           onViewChange={setViewMode}

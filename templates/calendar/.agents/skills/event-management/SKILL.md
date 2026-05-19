@@ -2,8 +2,9 @@
 name: event-management
 description: >-
   How to create, search, list, update, and delete calendar events via Google
-  Calendar. Covers the list-events, search-events, create-event, update-event,
-  and delete-event scripts, date format patterns, and recurrence updates.
+  Calendar. Covers the list-events, search-events, create-event,
+  manage-event-draft, update-event, and delete-event scripts, date format
+  patterns, and recurrence updates.
 ---
 
 # Event Management
@@ -134,6 +135,31 @@ Use `--attachments '[{"fileUrl":"https://drive.google.com/...","title":"Agenda"}
 
 The event is created directly on Google Calendar. Google Calendar must be connected first.
 
+### manage-event-draft
+
+Prepare an unsent calendar invite draft for user review. Use this when the user
+asks to draft, prepare, or review an invite before sending it, especially from
+an external agent flow.
+
+```bash
+pnpm action manage-event-draft \
+  --action create \
+  --title "Q2 planning" \
+  --start 2026-04-03T14:00:00 \
+  --end 2026-04-03T15:00:00 \
+  --attendees "alice@example.com,bob@example.com" \
+  --addGoogleMeet=true
+```
+
+`manage-event-draft` stores `calendar-draft-{id}` in application state and
+returns a "Review invite in Calendar" deep link. Opening the link shows the
+regular New Event form prefilled. Nothing is written to Google Calendar, and no
+guest is notified, until the user presses Create in the UI.
+
+Use `--action update --id <draft-id>` to revise a draft and `--action delete`
+to remove one. Draft fields match `create-event` for title, time, description,
+location, attendees, reminders, attachments, color, and video provider.
+
 ### update-event
 
 Update an existing Google Calendar event. Use the event `id` from `list-events`, `search-events`, or `get-event`. If the event includes `accountEmail`, pass it through so multi-account calendars update the right connected account.
@@ -195,6 +221,7 @@ When the user says:
 | "next Tuesday"                                 | `list-events --from <tuesday> --to <wednesday>`                              |
 | "meetings with Alice"                          | `search-events --query "Alice"`                                              |
 | "schedule a meeting"                           | `create-event --title ... --start ... --end ...`                             |
+| "draft an invite"                              | `manage-event-draft --action create --title ... --start ... --end ...`       |
 | "schedule a Zoom meeting"                      | `create-event --title ... --start ... --end ... --addZoom=true`              |
 | "move/rename/update a meeting"                 | `update-event --id ...`                                                      |
 | "add Zoom to this meeting"                     | `update-event --id ... --addZoom=true`                                       |

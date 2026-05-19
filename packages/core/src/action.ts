@@ -79,6 +79,68 @@ export type ActionLinkBuilder = (ctx: {
   result: any;
 }) => ActionDeepLink | null | undefined;
 
+export const MCP_APP_EXTENSION_ID = "io.modelcontextprotocol/ui" as const;
+export const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app" as const;
+export const MCP_APP_RESOURCE_URI_META_KEY = "ui/resourceUri" as const;
+
+export interface ActionMcpAppCsp {
+  connectDomains?: string[];
+  resourceDomains?: string[];
+  frameDomains?: string[];
+  baseUriDomains?: string[];
+}
+
+export interface ActionMcpAppPermissions {
+  camera?: Record<string, never>;
+  microphone?: Record<string, never>;
+  geolocation?: Record<string, never>;
+  clipboardWrite?: Record<string, never>;
+}
+
+export interface ActionMcpAppResourceMeta {
+  csp?: ActionMcpAppCsp;
+  permissions?: ActionMcpAppPermissions;
+  domain?: string;
+  prefersBorder?: boolean;
+}
+
+export type ActionMcpAppHtmlBuilder = (ctx: {
+  actionName: string;
+  appId?: string;
+  requestOrigin?: string;
+}) => string;
+
+export interface ActionMcpAppResourceConfig {
+  /** `ui://` URI. Defaults to `ui://<app>/<action-name>`. */
+  uri?: string;
+  /** MCP resource name. Defaults to the action name. */
+  name?: string;
+  title?: string;
+  description?: string;
+  /**
+   * HTML5 document content for the MCP App resource. Keep this self-contained
+   * or declare any external origins in `csp`.
+   */
+  html: string | ActionMcpAppHtmlBuilder;
+  /** Defaults to the MCP Apps HTML MIME type. */
+  mimeType?: typeof MCP_APP_MIME_TYPE;
+  /** Extra resource/content metadata. `ui` is merged with the fields below. */
+  _meta?: Record<string, unknown>;
+  csp?: ActionMcpAppCsp;
+  permissions?: ActionMcpAppPermissions;
+  domain?: string;
+  prefersBorder?: boolean;
+}
+
+export interface ActionMcpAppConfig {
+  resource: ActionMcpAppResourceConfig;
+  /**
+   * MCP Apps tool visibility. Defaults to model + app so the LLM can call the
+   * action and the app iframe can call it back through the host bridge.
+   */
+  visibility?: Array<"model" | "app">;
+}
+
 /** Schema definition for a single action parameter (legacy JSON schema style). */
 export interface ParameterSchema {
   type: string;
@@ -142,6 +204,10 @@ interface DefineActionWithSchema<
    *  external agent can drop the user into the running app at the right
    *  view/record. Pure + sync + best-effort. See the `external-agents` skill. */
   link?: ActionLinkBuilder;
+  /** Optional MCP Apps UI resource for hosts that can render inline
+   *  interactive app iframes. Text/deep-link tool results remain the fallback
+   *  for CLI and non-UI hosts. */
+  mcpApp?: ActionMcpAppConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +242,8 @@ interface DefineActionWithParams<
   publicAgent?: PublicAgentActionConfig;
   /** Optional deep-link builder. See schema overload above. */
   link?: ActionLinkBuilder;
+  /** Optional MCP Apps UI resource. See schema overload above. */
+  mcpApp?: ActionMcpAppConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +359,17 @@ export function defineAction(options: any) {
       : undefined;
   const link: ActionLinkBuilder | undefined =
     typeof options.link === "function" ? options.link : undefined;
+  const mcpApp: ActionMcpAppConfig | undefined =
+    options.mcpApp &&
+    typeof options.mcpApp === "object" &&
+    !Array.isArray(options.mcpApp) &&
+    options.mcpApp.resource &&
+    typeof options.mcpApp.resource === "object" &&
+    !Array.isArray(options.mcpApp.resource) &&
+    (typeof options.mcpApp.resource.html === "string" ||
+      typeof options.mcpApp.resource.html === "function")
+      ? options.mcpApp
+      : undefined;
 
   return {
     tool: {
@@ -305,6 +384,7 @@ export function defineAction(options: any) {
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
     ...(publicAgent ? { publicAgent } : {}),
     ...(link ? { link } : {}),
+    ...(mcpApp ? { mcpApp } : {}),
   };
 }
 

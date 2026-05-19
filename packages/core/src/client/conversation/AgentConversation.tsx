@@ -13,6 +13,7 @@ import {
   IconTool,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
+import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { useNearBottomAutoscroll } from "./use-near-bottom-autoscroll.js";
 import type {
   AgentConversationAttachment,
@@ -399,7 +400,7 @@ function openMarkdownLink(
 }
 
 function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
-  const hasDetails = Boolean(tool.input || tool.result);
+  const hasDetails = Boolean(tool.input || tool.result || tool.mcpApp);
   const icon =
     tool.state === "running" || tool.state === "activity" ? (
       <IconLoader2 size={14} className="agent-conversation-spin" />
@@ -424,7 +425,10 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
   }
 
   return (
-    <details className="agent-conversation-tool">
+    <details
+      className="agent-conversation-tool"
+      open={tool.mcpApp ? true : undefined}
+    >
       <summary>
         {content}
         <IconChevronDown
@@ -433,6 +437,7 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
         />
       </summary>
       <div className="agent-conversation-tool__details">
+        {tool.mcpApp && <McpAppRenderer app={tool.mcpApp} />}
         {tool.input && (
           <pre>
             <strong>input</strong>

@@ -112,10 +112,10 @@ cd templates/calendar && pnpm action <name> [args]
 
 ### Context & Navigation
 
-| Action        | Args                                              | Purpose                    |
-| ------------- | ------------------------------------------------- | -------------------------- |
-| `view-screen` |                                                   | See what the user sees now |
-| `navigate`    | `--view <name> [--date <YYYY-MM-DD>] [--eventId]` | Navigate the UI            |
+| Action        | Args                                                               | Purpose                    |
+| ------------- | ------------------------------------------------------------------ | -------------------------- |
+| `view-screen` |                                                                    | See what the user sees now |
+| `navigate`    | `--view <name> [--date <YYYY-MM-DD>] [--eventId] [--eventDraftId]` | Navigate the UI            |
 
 ### Events
 
@@ -125,6 +125,7 @@ cd templates/calendar && pnpm action <name> [args]
 | `search-events`                      | `--query` (required), `--from`, `--to`                                                                                                                                                                                                                                                                                                                                                                           | Search events broadly, including recurring meetings                    |
 | `get-event`                          | `--id` (required), `--calendarId` (default: primary)                                                                                                                                                                                                                                                                                                                                                             | Fetch a single event by id                                             |
 | `create-event`                       | `--title`, `--start`, `--end`, `--startTimeZone`, `--endTimeZone`, `--description`, `--location`, `--attendees`, `--eventType default\|outOfOffice\|focusTime\|workingLocation`, `--transparency opaque\|transparent`, `--visibility default\|public\|private`, `--colorId 1..11`, `--reminderMinutes`, `--reminders`, `--remindersUseDefault`, `--attachments`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates` | Create event/status block on Google Calendar                           |
+| `manage-event-draft`                 | `--action create\|update\|delete\|delete-all`, optional event fields matching `create-event` (`--title`, `--start`, `--end`, `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, etc.)                                                                                                                                                                                                 | Create/update an unsent invite draft for user review                   |
 | `update-event`                       | `--id`, optional `--title`, `--start`, `--end`, `--startTimeZone`, `--endTimeZone`, `--recurrence`, `--attendees`, `--transparency opaque\|transparent`, `--visibility default\|public\|private`, `--colorId 1..11`, `--reminderMinutes`, `--reminders`, `--remindersUseDefault`, `--attachments`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--notificationMessage`, `--accountEmail`                    | Update an event or recurrence                                          |
 | `search-people`                      | `--q`, optional `--scope all\|directory`                                                                                                                                                                                                                                                                                                                                                                         | Resolve attendee names from Google Contacts and Workspace Directory    |
 | `get-zoom-status`                    | none                                                                                                                                                                                                                                                                                                                                                                                                             | Check Zoom OAuth configuration and connection                          |
@@ -142,6 +143,8 @@ The app can color-code meetings locally without changing Google Calendar. Use `u
 - "Hide weekends"
 
 For a single event's actual Google Calendar color, use `create-event` or `update-event` with `--colorId 1..11`. For broader local display rules, use `update-calendar-visual-preferences`; those app-layer preferences do not mutate Google Calendar.
+
+When the user asks to draft, prepare, or review a calendar invite without sending it yet, use `manage-event-draft --action=create` instead of `create-event`. Drafts are stored in `application_state` as `calendar-draft-{id}` and open the New Event form prefilled; Google Calendar is not mutated until the user presses Create in the UI. `manage-event-draft` returns a deep link labeled "Review invite in Calendar" for external agents.
 
 For guest updates or cancellations, pass `--sendUpdates all` to let Google send the calendar notification. If the user wants to include a note, pass `--notificationMessage`; Google Calendar's API does not expose the native web UI message field, so Calendar sends the note as a companion email via the configured transactional email provider.
 
@@ -196,27 +199,28 @@ When scheduling with a named person and the email is not obvious from context, r
 
 ## Common Tasks
 
-| User request                        | What to do                                                                                                           |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| "What's on my calendar today?"      | `view-screen`, then `list-events --from <today> --to <tomorrow>`                                                     |
-| "What am I looking at?"             | `view-screen`                                                                                                        |
-| "Am I free Tuesday at 2pm?"         | `check-availability --date <tuesday>`                                                                                |
-| "Find a 1-hour slot this week"      | `check-availability` for each day with `--duration 60`                                                               |
-| "How often do I meet with X?"       | `search-events --query <X>`, then group by recurring series/title and dates                                          |
-| "Schedule a meeting with Alice"     | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com`                      |
-| "Schedule a Google Meet with Alice" | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com --addGoogleMeet=true` |
-| "Schedule a Zoom with Alice"        | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com --addZoom=true`       |
-| "Block OOO/focus time"              | `create-event --eventType outOfOffice\|focusTime --title ... --start ... --end ...`                                  |
-| "Mark an event free/private"        | `update-event --id=<event-id> --transparency transparent --visibility private`                                       |
-| "Invite Bob to the 3pm meeting"     | `update-event --id=<event-id>` (use the action's attendees support — see event-management)                           |
-| "Add a Meet link to this meeting"   | `update-event --id=<event-id> --addGoogleMeet=true`                                                                  |
-| "Add Zoom to this meeting"          | `update-event --id=<event-id> --addZoom=true`                                                                        |
-| "RSVP yes/maybe/no to this meeting" | `rsvp-event --id=<event-id> --status=accepted\|tentative\|declined`                                                  |
-| "Find meetings about X"             | `search-events --query "X"`                                                                                          |
-| "Show my availability settings"     | `navigate --view=availability`                                                                                       |
-| "Show my bookings"                  | `navigate --view=bookings`                                                                                           |
-| "Switch to day/week/month view"     | `navigate --view=calendar --calendarViewMode=day`                                                                    |
-| "Go to next week"                   | `navigate --view=calendar --date=<next-monday>`                                                                      |
+| User request                        | What to do                                                                                                            |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| "What's on my calendar today?"      | `view-screen`, then `list-events --from <today> --to <tomorrow>`                                                      |
+| "What am I looking at?"             | `view-screen`                                                                                                         |
+| "Am I free Tuesday at 2pm?"         | `check-availability --date <tuesday>`                                                                                 |
+| "Find a 1-hour slot this week"      | `check-availability` for each day with `--duration 60`                                                                |
+| "How often do I meet with X?"       | `search-events --query <X>`, then group by recurring series/title and dates                                           |
+| "Schedule a meeting with Alice"     | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com`                       |
+| "Draft an invite with Alice"        | `manage-event-draft --action=create --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com` |
+| "Schedule a Google Meet with Alice" | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com --addGoogleMeet=true`  |
+| "Schedule a Zoom with Alice"        | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com --addZoom=true`        |
+| "Block OOO/focus time"              | `create-event --eventType outOfOffice\|focusTime --title ... --start ... --end ...`                                   |
+| "Mark an event free/private"        | `update-event --id=<event-id> --transparency transparent --visibility private`                                        |
+| "Invite Bob to the 3pm meeting"     | `update-event --id=<event-id>` (use the action's attendees support — see event-management)                            |
+| "Add a Meet link to this meeting"   | `update-event --id=<event-id> --addGoogleMeet=true`                                                                   |
+| "Add Zoom to this meeting"          | `update-event --id=<event-id> --addZoom=true`                                                                         |
+| "RSVP yes/maybe/no to this meeting" | `rsvp-event --id=<event-id> --status=accepted\|tentative\|declined`                                                   |
+| "Find meetings about X"             | `search-events --query "X"`                                                                                           |
+| "Show my availability settings"     | `navigate --view=availability`                                                                                        |
+| "Show my bookings"                  | `navigate --view=bookings`                                                                                            |
+| "Switch to day/week/month view"     | `navigate --view=calendar --calendarViewMode=day`                                                                     |
+| "Go to next week"                   | `navigate --view=calendar --date=<next-monday>`                                                                       |
 
 ## Google Calendar OAuth Flow
 
@@ -283,4 +287,4 @@ Prefer editing the package component (`packages/scheduling/src/react/components/
 
 ## Deep Links
 
-`create-event` and `get-event` return their existing event object unchanged and additionally expose a `link` builder so an external agent (MCP / A2A) can surface an "Open event in Calendar →" link. The link is built with `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })` where `date` is the `YYYY-MM-DD` of the event start. `get-event` is now GET + `readOnly` + `publicAgent` (exposed to external agents). When the deep link is opened, the open route writes the one-shot `navigate` command with `eventId` (+ `date`); **`navigate --eventId` now focuses the event** — the calendar's `use-navigation-state` consumer fetches the event via `get-event`, opens it in the sidebar (`setSidebarEvent`), and moves the calendar to its start date, instead of dropping the id.
+`create-event` and `get-event` return their existing event object unchanged and additionally expose a `link` builder so an external agent (MCP / A2A) can surface an "Open event in Calendar →" link. The link is built with `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })` where `date` is the `YYYY-MM-DD` of the event start. `manage-event-draft` returns `buildDeepLink({ app: "calendar", view: "calendar", to: "/", params: { eventDraftId, calendarDraft, date } })`; the `calendarDraft` param is a compact base64url draft payload, and the full draft is persisted at `calendar-draft-{id}` for the creator. `get-event` is now GET + `readOnly` + `publicAgent` (exposed to external agents). When the deep link is opened, the open route writes the one-shot `navigate` command with `eventId` (+ `date`) or `eventDraftId` (+ `calendarDraft`); **`navigate --eventId` now focuses the event** and **event draft links open the New Event form prefilled**.
