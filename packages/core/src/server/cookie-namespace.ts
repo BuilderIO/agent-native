@@ -30,9 +30,13 @@ export function resolveAuthCookieNamespace(
   const shareFirstPartyCookieDomain = isTruthy(
     env.AGENT_NATIVE_SHARE_COOKIE_DOMAIN,
   );
+  const firstPartyIsolatedRealm =
+    isFirstPartyCookieDomain &&
+    !shareFirstPartyCookieDomain &&
+    !isWorkspaceMode;
   const frameworkCookieDomain =
     configuredCookieDomain && !isWorkspaceMode
-      ? isFirstPartyCookieDomain && !shareFirstPartyCookieDomain
+      ? firstPartyIsolatedRealm
         ? undefined
         : configuredCookieDomain
       : undefined;
@@ -43,11 +47,19 @@ export function resolveAuthCookieNamespace(
   const localAppSlug = localIsolatedRealm
     ? slugifyAppName(env.npm_package_name || readPackageJsonName(cwd))
     : "";
-  const firstPartyAppSlug =
-    isFirstPartyCookieDomain && !frameworkCookieDomain
-      ? explicitAppSlug || readFirstPartyAppSlugFromUrl(env)
-      : "";
-  const appSlug = explicitAppSlug || firstPartyAppSlug || localAppSlug;
+  const firstPartyUrlAppSlug = firstPartyIsolatedRealm
+    ? readFirstPartyAppSlugFromUrl(env)
+    : "";
+  const appSlug = explicitAppSlug || firstPartyUrlAppSlug || localAppSlug;
+
+  if (firstPartyIsolatedRealm && !appSlug) {
+    throw new Error(
+      "[agent-native] COOKIE_DOMAIN=.agent-native.com requires an app identifier " +
+        "so first-party auth cookies stay isolated. Set APP_NAME, APP_URL, URL, " +
+        "DEPLOY_PRIME_URL, or DEPLOY_URL; only set AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1 " +
+        "when every subdomain intentionally shares one auth database.",
+    );
+  }
 
   const frameworkCookieName = frameworkCookieDomain
     ? "an_session"
@@ -58,9 +70,7 @@ export function resolveAuthCookieNamespace(
         : "an_session";
 
   const isolatedBetterAuthPrefix =
-    !!appSlug &&
-    (localIsolatedRealm ||
-      (isFirstPartyCookieDomain && !frameworkCookieDomain && !isWorkspaceMode));
+    !!appSlug && (localIsolatedRealm || firstPartyIsolatedRealm);
 
   const frameworkCookieNamesToClear = new Set<string>([
     frameworkCookieName,

@@ -49,9 +49,12 @@ subdomain deployments can opt into shared cookies with `COOKIE_DOMAIN`.
 First-party hosted apps at `*.agent-native.com` are different: each app has its
 own auth database, so `COOKIE_DOMAIN=.agent-native.com` is ignored by default
 and the app uses an isolated cookie namespace instead. Cross-app sign-in for
-those apps should go through [Cross-App SSO](/docs/cross-app-sso). If a
-first-party deployment intentionally shares one auth database across subdomains,
-set `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside `COOKIE_DOMAIN`.
+those apps should go through [Cross-App SSO](/docs/cross-app-sso). First-party
+deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`, `URL`,
+`DEPLOY_PRIME_URL`, or `DEPLOY_URL`); otherwise startup fails instead of
+falling back to the shared `an_session` name. If a first-party deployment
+intentionally shares one auth database across subdomains, set
+`AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside `COOKIE_DOMAIN`.
 
 ## QA Accounts {#qa-accounts}
 

@@ -107,11 +107,19 @@ describe("resolveAuthCookieNamespace", () => {
     });
   });
 
+  it("fails closed when a first-party isolated app has no identifier", () => {
+    expect(() =>
+      resolveAuthCookieNamespace({
+        NODE_ENV: "production",
+        COOKIE_DOMAIN: ".agent-native.com",
+      }),
+    ).toThrow(/requires an app identifier/);
+  });
+
   it("allows first-party shared cookies only with an explicit opt-in", () => {
     expect(
       resolveAuthCookieNamespace({
         NODE_ENV: "production",
-        APP_NAME: "dispatch",
         COOKIE_DOMAIN: ".agent-native.com",
         AGENT_NATIVE_SHARE_COOKIE_DOMAIN: "1",
       }),
