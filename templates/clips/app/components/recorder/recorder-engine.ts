@@ -253,6 +253,7 @@ export class RecorderEngine {
   private previewStream: MediaStream | null = null;
   private cameraComposite: CameraCompositeHandle | null = null;
   private audioMixCtx: AudioContext | null = null;
+  private audioMixSources: MediaStreamAudioSourceNode[] = [];
   private recorder: MediaRecorder | null = null;
   private mimeType: string = "video/webm";
 
@@ -459,6 +460,11 @@ export class RecorderEngine {
 
       this.previewStream =
         this.opts.mode === "camera" ? this.cameraStream! : this.displayStream!;
+
+      if (wantsMic || wantsDisplay) {
+        this.audioMixCtx?.close().catch(() => {});
+        this.audioMixCtx = new AudioContext();
+      }
 
       return {
         previewStream: this.previewStream,
@@ -1058,16 +1064,15 @@ export class RecorderEngine {
     if (audioTracks.length === 0) return null;
     if (audioTracks.length === 1) return audioTracks[0];
 
-    this.audioMixCtx?.close().catch(() => {});
-    const ctx = new AudioContext();
-    if (ctx.state === "suspended") {
-      ctx.resume().catch(() => {});
-    }
+    const ctx = this.audioMixCtx ?? new AudioContext();
+    this.audioMixCtx = ctx;
+    this.audioMixSources = [];
     const dest = ctx.createMediaStreamDestination();
     for (const track of audioTracks) {
-      ctx.createMediaStreamSource(new MediaStream([track])).connect(dest);
+      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+      source.connect(dest);
+      this.audioMixSources.push(source);
     }
-    this.audioMixCtx = ctx;
     return dest.stream.getAudioTracks()[0];
   }
 
@@ -1343,6 +1348,7 @@ export class RecorderEngine {
   }
 
   private cleanupTracks(): void {
+    this.audioMixSources = [];
     this.audioMixCtx?.close().catch(() => {});
     this.audioMixCtx = null;
     this.cameraComposite?.cleanup();
