@@ -102,7 +102,9 @@ export default defineAction({
     const db = getDb();
     const id = crypto.randomUUID();
 
-    await db.insert(schema.askSessions).values({ id, question, status: "searching" });
+    await db
+      .insert(schema.askSessions)
+      .values({ id, question, status: "searching" });
 
     const ghSources = await searchGitHub(question, process.env.GITHUB_TOKEN);
 
