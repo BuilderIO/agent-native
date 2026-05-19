@@ -1553,7 +1553,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           { queryKey: archivedKey },
           (old) => [
             ...(old ?? []),
-            { id: d.id, name: d.name, archivedAt: new Date().toISOString(), keptAt: d.keptAt ?? null },
+            {
+              id: d.id,
+              name: d.name,
+              archivedAt: new Date().toISOString(),
+              keptAt: d.keptAt ?? null,
+            },
           ],
         );
       } else {
@@ -1565,7 +1570,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           { queryKey: activeKey },
           (old) => [
             ...(old ?? []),
-            { id: d.id, name: d.name, archivedAt: null, keptAt: d.keptAt ?? null },
+            {
+              id: d.id,
+              name: d.name,
+              archivedAt: null,
+              keptAt: d.keptAt ?? null,
+            },
           ],
         );
       }
@@ -1944,6 +1954,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           >
             <IconBook2 className="h-4 w-4" />
             Data Dictionary
+          </Link>
+
+          {/* Knowledge Assistant link */}
+          <Link
+            to="/knowledge"
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+              location.pathname.startsWith("/knowledge")
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
+            )}
+          >
+            <IconSearch className="h-4 w-4" />
+            Knowledge
           </Link>
 
           {/* Dashboards section */}

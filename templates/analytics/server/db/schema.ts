@@ -108,6 +108,20 @@ export const analyticsPublicKeys = table("analytics_public_keys", {
 });
 
 /**
+ * Knowledge Q&A sessions — each row is one user question with its answer,
+ * sources, and lifecycle status tracked as the agent processes it.
+ */
+export const askSessions = table("ask_sessions", {
+  id: text("id").primaryKey(),
+  question: text("question").notNull(),
+  answer: text("answer"),
+  sourcesJson: text("sources_json").notNull().default("[]"),
+  // "searching" | "generating" | "done" | "error"
+  status: text("status").notNull().default("searching"),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
+/**
  * First-party product analytics events recorded via /track.
  * Common dimensions are mirrored as columns so dashboards can group/filter
  * without dialect-specific JSON operators.

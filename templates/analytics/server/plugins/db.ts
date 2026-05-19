@@ -191,6 +191,17 @@ export default runMigrations(
       version: 24,
       sql: `UPDATE analyses SET visibility = 'org' WHERE visibility = 'private'`,
     },
+    {
+      version: 25,
+      sql: `CREATE TABLE IF NOT EXISTS ask_sessions (
+        id TEXT PRIMARY KEY,
+        question TEXT NOT NULL,
+        answer TEXT,
+        sources_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'searching',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+    },
   ],
   { table: "analytics_migrations" },
 );
