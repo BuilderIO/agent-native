@@ -23,6 +23,11 @@ import { createPollHandler } from "./poll.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
+import {
+  handleMcpOAuth,
+  handleMcpOAuthAuthorizationServerMetadata,
+  handleMcpOAuthProtectedResourceMetadata,
+} from "../mcp/oauth-route.js";
 import { handleIdentitySso } from "./identity-sso.js";
 import { isIdentitySsoEnabled } from "./identity-sso-store.js";
 import { getAppName } from "./app-name.js";
@@ -308,10 +313,11 @@ export interface CoreRoutesPluginOptions {
   disableOpenRoute?: boolean;
   /**
    * Disable the /_agent-native/mcp/connect routes (browser Connect page +
-   * CLI device-code flow that mints per-user, revocable MCP tokens).
-   * Enabled by default — the routes are session-gated where they mint and
-   * back-compat with deployments that have no A2A_SECRET (they return a
-   * clear 503 instead of minting).
+   * CLI device-code flow that mints per-user, revocable MCP tokens) and the
+   * standard remote-MCP OAuth endpoints under /_agent-native/mcp/oauth.
+   * Enabled by default — the routes are session-gated where they approve user
+   * access; token endpoints are protected by single-use codes / refresh
+   * tokens.
    */
   disableMcpConnect?: boolean;
   /** Canonical app id (e.g. `mail`) for the MCP connect server name. */
@@ -2520,6 +2526,35 @@ export function createCoreRoutesPlugin(
     );
 
     if (!options.disableMcpConnect) {
+      getH3App(nitroApp).use(
+        "/.well-known/oauth-protected-resource",
+        defineEventHandler((event: H3Event) =>
+          handleMcpOAuthProtectedResourceMetadata(event),
+        ),
+      );
+      getH3App(nitroApp).use(
+        "/.well-known/oauth-authorization-server",
+        defineEventHandler((event: H3Event) =>
+          handleMcpOAuthAuthorizationServerMetadata(event),
+        ),
+      );
+      getH3App(nitroApp).use(
+        "/.well-known/openid-configuration",
+        defineEventHandler((event: H3Event) =>
+          handleMcpOAuthAuthorizationServerMetadata(event),
+        ),
+      );
+      getH3App(nitroApp).use(
+        `${P}/mcp/oauth`,
+        defineEventHandler(async (event: H3Event) => {
+          const subpath = event.url?.pathname || "";
+          return handleMcpOAuth(event, subpath, {
+            appId: options.mcpConnectAppId,
+            appName: options.mcpConnectAppName ?? getAppName(),
+          });
+        }),
+      );
+
       // Frictionless external-agent connection. A logged-in user mints a
       // per-user, scoped, revocable MCP bearer token here — via the browser
       // Connect page or the OAuth-style device-code flow a CLI drives — so

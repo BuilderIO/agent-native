@@ -34,6 +34,11 @@ import {
 } from "../shared/agent-sidebar-url.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import { MCP_CONNECT_SCOPE } from "./connect-store.js";
+import {
+  MCP_OAUTH_SCOPES,
+  hasMcpOAuthScope,
+  verifyMcpOAuthAccessToken,
+} from "./oauth-token.js";
 
 export interface MCPConfig {
   /** App name shown in MCP server info */
@@ -89,6 +94,8 @@ export interface MCPConfig {
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
   orgDomain: string | undefined;
+  /** Present only for standard remote MCP OAuth access tokens. */
+  oauthScopes?: string[];
 }
 
 /** Per-request context used to turn an action's relative deep link into the
@@ -109,6 +116,18 @@ export interface MCPRequestMeta {
    * `config.actions`. Set by `mountMCP` from `verifyAuth`.
    */
   fullSurface?: boolean;
+}
+
+type McpOAuthScope = (typeof MCP_OAUTH_SCOPES)[number];
+
+function isActionVisibleForOAuthScope(
+  entry: ActionEntry,
+  scopes: string[] | undefined,
+): boolean {
+  if (!scopes) return true;
+  const required: McpOAuthScope =
+    entry.readOnly === true ? "mcp:read" : "mcp:write";
+  return hasMcpOAuthScope(scopes, required);
 }
 
 interface ResolvedMcpAppResource {
@@ -327,7 +346,17 @@ export async function createMCPServerForRequest(
       ? config.productionActions
       : config.actions;
   const actions = mergeBuiltinTools(config, baseActions, requestMeta);
-  const mcpAppResources = getMcpAppResources(config, actions);
+  const visibleActions = Object.fromEntries(
+    Object.entries(actions).filter(([, entry]) =>
+      isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
+    ),
+  );
+  const mcpAppResources = hasMcpOAuthScope(
+    effectiveIdentity?.oauthScopes,
+    "mcp:apps",
+  )
+    ? getMcpAppResources(config, visibleActions)
+    : [];
   const supportsMcpApps = mcpAppResources.length > 0;
   const server = new Server(
     { name: config.name, version: config.version ?? "1.0.0" },
@@ -383,7 +412,7 @@ export async function createMCPServerForRequest(
   // applies to the listing too.
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return withCallerContext(async () => {
-      const tools = Object.entries(actions).map(([name, entry]) => {
+      const tools = Object.entries(visibleActions).map(([name, entry]) => {
         const hasLink = typeof entry.link === "function";
         const mcpAppResource = resolveMcpAppResource(config, name, entry);
         const baseDescription = entry.tool.description ?? name;
@@ -413,7 +442,10 @@ export async function createMCPServerForRequest(
         };
       });
 
-      if (config.askAgent) {
+      if (
+        config.askAgent &&
+        hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")
+      ) {
         tools.push({
           name: "ask-agent",
           description:
@@ -445,6 +477,17 @@ export async function createMCPServerForRequest(
       const { name, arguments: args } = request.params;
 
       if (name === "ask-agent" && config.askAgent) {
+        if (!hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "Forbidden: OAuth scope does not allow ask-agent",
+              },
+            ],
+            isError: true,
+          };
+        }
         const message = args?.message ?? "";
         try {
           const result = await config.askAgent(message);
@@ -461,6 +504,19 @@ export async function createMCPServerForRequest(
       if (!entry) {
         return {
           content: [{ type: "text", text: `Unknown tool: ${name}` }],
+          isError: true,
+        };
+      }
+      if (
+        !isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes)
+      ) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Forbidden: OAuth scope does not allow tool ${name}`,
+            },
+          ],
           isError: true,
         };
       }
@@ -517,7 +573,7 @@ export async function createMCPServerForRequest(
       async (request: any) => {
         return withCallerContext(async () => {
           const uri = request.params?.uri;
-          const found = Object.entries(actions)
+          const found = Object.entries(visibleActions)
             .map(([name, entry]) => ({
               actionName: name,
               resource: resolveMcpAppResource(config, name, entry),
@@ -634,7 +690,7 @@ function deriveStaticTokenIdentity(
 export async function verifyAuth(
   authHeader: string | undefined,
   ownerEmailHeader?: string | undefined,
-  options: { allowDevOpen?: boolean } = {},
+  options: { allowDevOpen?: boolean; resourceUrl?: string } = {},
 ): Promise<{
   authed: boolean;
   identity?: MCPCallerIdentity;
@@ -669,6 +725,22 @@ export async function verifyAuth(
 
   if (!authHeader?.startsWith("Bearer ")) return { authed: false };
   const token = authHeader.slice(7);
+
+  const oauthIdentity = await verifyMcpOAuthAccessToken(
+    token,
+    options.resourceUrl,
+  );
+  if (oauthIdentity) {
+    return {
+      authed: true,
+      identity: {
+        userEmail: oauthIdentity.userEmail,
+        orgDomain: oauthIdentity.orgDomain,
+        oauthScopes: oauthIdentity.scopes,
+      },
+      fullSurface: true,
+    };
+  }
 
   // Try JWT via A2A_SECRET
   if (hasA2ASecret) {

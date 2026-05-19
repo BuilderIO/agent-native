@@ -153,8 +153,9 @@ pnpm action manage-event-draft \
 
 `manage-event-draft` stores `calendar-draft-{id}` in application state and
 returns a "Review invite in Calendar" deep link. Opening the link shows the
-regular New Event form prefilled. Nothing is written to Google Calendar, and no
-guest is notified, until the user presses Create in the UI.
+draft as a visible placeholder on the calendar with the native event detail
+editor open. Nothing is written to Google Calendar, and no guest is notified,
+until the user presses Create in the UI.
 
 Use `--action update --id <draft-id>` to revise a draft and `--action delete`
 to remove one. Draft fields match `create-event` for title, time, description,

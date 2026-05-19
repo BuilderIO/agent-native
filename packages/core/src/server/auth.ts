@@ -1332,17 +1332,23 @@ function createAuthGuardFn(): (
     // protected by short-TTL, single-use, crypto-random codes + a creation
     // rate-limit, not cookies.
     //
-    // Everything that MINTS or MUTATES on behalf of the user — `/token`,
-    // `/device/authorize`, `/tokens`, `/tokens/revoke` — is intentionally
-    // NOT bypassed: the guard's default 401-for-/_agent-native/* is the
-    // correct gate for them. Those are POSTed by the in-page fetch, which
-    // carries the session cookie, so the guard (which only 401s when there
-    // is no session) lets the authenticated same-origin request through and
-    // the handler then re-checks the session itself (defense in depth).
+    // The standard remote-MCP OAuth endpoints also bypass here: metadata and
+    // dynamic client registration are public by design; `/oauth/token` is
+    // protected by single-use auth codes / refresh tokens; and
+    // `/oauth/authorize` resolves the browser session itself so it can serve
+    // the login form at the original authorization URL.
+    //
+    // The legacy Connect endpoints that MINT or MUTATE on behalf of the user
+    // (`/connect/token`, `/device/authorize`, `/tokens`, `/tokens/revoke`) are
+    // intentionally NOT bypassed: they are POSTed by the in-page fetch with a
+    // session cookie and the handler re-checks the session itself.
     if (
       p === "/_agent-native/mcp/connect" ||
       p === "/_agent-native/mcp/connect/device/start" ||
-      p === "/_agent-native/mcp/connect/device/poll"
+      p === "/_agent-native/mcp/connect/device/poll" ||
+      p === "/_agent-native/mcp/oauth/authorize" ||
+      p === "/_agent-native/mcp/oauth/token" ||
+      p === "/_agent-native/mcp/oauth/register"
     ) {
       return;
     }

@@ -17,17 +17,19 @@ description: >-
 An agent-native app is reachable by any MCP-compatible host (Claude, Claude
 Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Cowork, VS Code
 GitHub Copilot, Goose, Postman, MCPJam, and future standard clients). The
-**recommended** way to connect to a deployed app from local agent clients is
-the one-command hosted flow — `npx @agent-native/core connect <url>` — which
-mints a per-user, scoped, revocable token from a logged-in browser session; no
-shared secret is copied. Hosts that are not written by the CLI use the same
-remote Streamable HTTP endpoint and bearer token through their own MCP
-connector UI. Once connected, every action that produces or lists a navigable
+**recommended** way to connect OAuth-capable remote MCP hosts is the standard
+remote MCP OAuth flow: point the host at `https://<app>/_agent-native/mcp`,
+let it discover `/.well-known/oauth-protected-resource`, dynamically register a
+public client, and complete authorization-code + PKCE in the browser. For
+local stdio proxying and fallback clients, keep using the one-command hosted
+flow — `npx @agent-native/core connect <url>` — which mints a per-user,
+scoped, revocable token from a logged-in browser session; no shared secret is
+copied. Once connected, every action that produces or lists a navigable
 resource SHOULD return a deep link from a `link` builder, so the external agent
 can surface an **"Open in <app> →"** link that drops the user back into the
 running UI at the right view and record. Actions can also declare `mcpApp` so
-hosts that support MCP Apps render an inline interactive UI. The link is a
-pure pointer — the record-focusing write is always scoped to the **browser
+hosts that support MCP Apps render an inline interactive UI. The link is a pure
+pointer — the record-focusing write is always scoped to the **browser
 session**, never the agent's token.
 
 ## Why
@@ -43,12 +45,40 @@ the real app focused on exactly what was produced. It reuses the existing
 
 ## How
 
-### 1. Connect to a hosted app (recommended)
+### 1. Connect to a hosted app
 
 The first-party hosted apps live at `mail.agent-native.com`,
-`calendar.agent-native.com`, etc. One command wires every detected supported
-agent client (Claude Code, Codex, Cowork) to one of them. Cursor can use the
-same MCP endpoint via the no-CLI/manual config path:
+`calendar.agent-native.com`, etc. For clients with standard remote MCP OAuth,
+configure the remote HTTP endpoint directly:
+
+```bash
+claude mcp add --transport http agent-native-mail https://mail.agent-native.com/_agent-native/mcp
+```
+
+Then use the host's MCP auth UI (for Claude Code, `/mcp` → Authenticate). The
+server responds to unauthenticated MCP requests with `WWW-Authenticate:
+Bearer resource_metadata="https://<app>/.well-known/oauth-protected-resource"`
+and supports:
+
+- `/.well-known/oauth-protected-resource`
+- `/.well-known/oauth-authorization-server`
+- `/.well-known/openid-configuration`
+- `/_agent-native/mcp/oauth/register`
+- `/_agent-native/mcp/oauth/authorize`
+- `/_agent-native/mcp/oauth/token`
+
+The issued access token is audience-bound to the exact MCP URL and carries
+`mcp:read`, `mcp:write`, and/or `mcp:apps`. Tool calls, `resources/read`, and
+MCP App iframe-initiated tool calls all run through the same
+`runWithRequestContext` identity scoping. The iframe never receives OAuth
+tokens; the host mediates calls through the authenticated MCP connection.
+
+The CLI can write supported local client configs for you. For Claude Code and
+Claude Code CLI it writes the same URL-only remote HTTP entry and the user then
+authenticates in `/mcp`; for Codex, Cowork, local stdio proxying, and hosts
+that do not support MCP OAuth yet, it uses the browser-authorized bearer-token
+fallback. Cursor and other hosts can also use the same MCP endpoint via the
+no-CLI/manual config path:
 
 ```bash
 npx @agent-native/core connect https://mail.agent-native.com
@@ -56,11 +86,18 @@ npx @agent-native/core connect https://mail.agent-native.com
 npx @agent-native/core connect --all
 ```
 
-It opens the browser at the app; the user is already logged in and clicks
-**Authorize** once. No token to copy, no local server. The connection is
-**per-user, scoped, and revocable**. The no-CLI equivalent is the in-app
-**Connect** affordance served at `https://<app>/_agent-native/mcp/connect`,
-which hands back a one-click deep link or a ready-to-paste `.mcp.json` block.
+For OAuth-native Claude clients, restart Claude Code after the config write,
+run `/mcp`, and choose Authenticate. For fallback clients, the command opens
+the browser at the app; the user is already logged in and clicks **Authorize**
+once. No token to copy, no local server. The fallback connection is **per-user,
+scoped, and revocable**. The no-CLI equivalent is the in-app **Connect**
+affordance served at `https://<app>/_agent-native/mcp/connect`, which hands
+back a one-click deep link or a ready-to-paste `.mcp.json` block.
+
+Re-running `agent-native connect <url> --client claude-code` over an older
+Claude bearer-token entry is the migration path: the CLI replaces
+`Authorization` headers with URL-only OAuth config and tells the user to
+authenticate from `/mcp`.
 
 Under the hood: a logged-in browser session mints an `A2A_SECRET`-signed JWT
 carrying the caller's `sub` + `org_domain` and a unique `jti`, so tool runs

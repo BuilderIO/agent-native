@@ -11,6 +11,7 @@ import {
   resolveClients,
   runConnect,
   runDeviceFlow,
+  supportsRemoteMcpOAuth,
   writeConfigs,
 } from "./connect.js";
 
@@ -161,6 +162,15 @@ describe("resolveClients", () => {
 
   it("throws on an unknown client", () => {
     expect(() => resolveClients("vim")).toThrow(/Unknown --client/);
+  });
+});
+
+describe("supportsRemoteMcpOAuth", () => {
+  it("treats Claude Code clients as native remote MCP OAuth clients", () => {
+    expect(supportsRemoteMcpOAuth("claude-code")).toBe(true);
+    expect(supportsRemoteMcpOAuth("claude-code-cli")).toBe(true);
+    expect(supportsRemoteMcpOAuth("codex")).toBe(false);
+    expect(supportsRemoteMcpOAuth("cowork")).toBe(false);
   });
 });
 
@@ -653,6 +663,135 @@ describe("runConnect", () => {
     });
   });
 
+  it("writes OAuth-native Claude Code entries without starting the device flow", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("device flow should not run");
+    }) as unknown as typeof fetch;
+    const openBrowser = vi.fn();
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl, openBrowser },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(openBrowser).not.toHaveBeenCalled();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/_agent-native/mcp",
+    });
+  });
+
+  it("upgrades existing Claude bearer entries to OAuth-native config", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    fs.writeFileSync(
+      path.join(root, ".mcp.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            "agent-native-mail": {
+              type: "http",
+              url: "https://mail.agent-native.com/_agent-native/mcp",
+              headers: { Authorization: "Bearer old-connect-token" },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf-8",
+    );
+    const output: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+
+    await runConnect([
+      "https://mail.agent-native.com",
+      "--client",
+      "claude-code",
+      "--scope",
+      "project",
+    ]);
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/_agent-native/mcp",
+    });
+    const joinedOutput = output.join("");
+    expect(joinedOutput).toContain("Replaced legacy bearer headers");
+    expect(joinedOutput).toContain("run /mcp");
+  });
+
+  it("uses OAuth for Claude clients and bearer fallback for legacy clients", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const fetchImpl = makeFetch([
+      {
+        status: "approved",
+        token: "tok-device",
+        mcpUrl: "https://mail.agent-native.com/_agent-native/mcp",
+        serverName: "agent-native-mail",
+      },
+    ]);
+
+    try {
+      await runConnect(
+        [
+          "https://mail.agent-native.com",
+          "--client",
+          "all",
+          "--scope",
+          "project",
+        ],
+        { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      const claudeCfg = JSON.parse(
+        fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+      );
+      expect(claudeCfg.mcpServers["agent-native-mail"]).toEqual({
+        type: "http",
+        url: "https://mail.agent-native.com/_agent-native/mcp",
+      });
+      const codexToml = fs.readFileSync(
+        path.join(home, ".codex", "config.toml"),
+        "utf-8",
+      );
+      expect(codexToml).toContain('"Authorization" = "Bearer tok-device"');
+      const coworkCfg = JSON.parse(
+        fs.readFileSync(path.join(home, ".cowork", "mcp.json"), "utf-8"),
+      );
+      expect(coworkCfg.mcpServers["agent-native-mail"].headers).toEqual({
+        Authorization: "Bearer tok-device",
+      });
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
   it("prompts for target clients when --client is omitted and saves the choice", async () => {
     const root = tmpDir();
     const home = tmpDir();
@@ -993,13 +1132,13 @@ describe("runConnect", () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it("sets a non-zero exit code when the device flow fails", async () => {
+  it("sets a non-zero exit code when the legacy device flow fails", async () => {
     const root = tmpDir();
     process.chdir(root);
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-    await runConnect(["https://app.example.com", "--client", "claude-code"], {
+    await runConnect(["https://app.example.com", "--client", "codex"], {
       fetchImpl: makeFetch([{ status: "expired" }]),
       sleep: noopSleep,
       openBrowser: vi.fn(),

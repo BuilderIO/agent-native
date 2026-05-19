@@ -7,7 +7,7 @@ description: "Expose your agent-native app as a remote MCP server so Claude, Cha
 
 Every agent-native app automatically exposes a remote MCP (Model Context Protocol) server. This lets external AI tools like Claude, ChatGPT custom MCP apps, Claude Code, Cursor, Codex, VS Code GitHub Copilot, and Windsurf discover and call your app's actions directly — no extra code needed.
 
-If your goal is to connect Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to a hosted agent-native app, start with [External Agents](/docs/external-agents). It documents the one-command `agent-native connect https://mail.agent-native.com` flow, token minting, local client config writes, manual remote MCP setup for hosts we do not write directly, MCP Apps inline UIs, and deep links back into the UI. This page is the lower-level MCP server reference.
+If your goal is to connect Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to a hosted agent-native app, start with [External Agents](/docs/external-agents). It documents the one-command `agent-native connect https://mail.agent-native.com` flow, standard remote MCP OAuth for Claude Code, bearer fallback config for older clients, manual remote MCP setup for hosts we do not write directly, MCP Apps inline UIs, and deep links back into the UI. This page is the lower-level MCP server reference.
 
 ## Overview {#overview}
 
@@ -20,7 +20,8 @@ Key concepts:
 - **Same actions** — the exact same action registry that powers agent chat and A2A
 - **`ask-agent` tool** — a meta-tool that delegates to the full agent loop for complex tasks
 - **MCP Apps** — actions can advertise inline HTML UIs through the official `io.modelcontextprotocol/ui` extension
-- **Bearer auth** — uses `ACCESS_TOKEN` or `A2A_SECRET` for authentication
+- **Standard remote MCP OAuth** — OAuth 2.1 discovery, dynamic client registration, authorization-code + PKCE, refresh-token rotation
+- **Bearer auth fallback** — uses `ACCESS_TOKEN`, `ACCESS_TOKENS`, or connect-minted JWTs for clients that cannot run OAuth
 
 ## MCP vs A2A {#mcp-vs-a2a}
 
@@ -39,20 +40,19 @@ You can also use the `ask-agent` MCP tool to get the best of both worlds — cal
 
 ## Manual MCP client config {#claude-code}
 
-For the recommended one-command setup, use [External Agents](/docs/external-agents). If you are hand-writing MCP config, add your app as a remote MCP server in Claude Code's config:
+For the recommended one-command setup, use [External Agents](/docs/external-agents). If you are hand-writing MCP config for an OAuth-capable client, add your app as a remote MCP server with no static headers:
 
 ```jsonc
 // ~/.claude/mcp_servers.json
 {
   "mail": {
-    "type": "url",
+    "type": "http",
     "url": "https://mail.example.com/_agent-native/mcp",
-    "headers": {
-      "Authorization": "Bearer YOUR_ACCESS_TOKEN",
-    },
   },
 }
 ```
+
+Then run `/mcp` in Claude Code and choose **Authenticate**. For clients that cannot perform remote MCP OAuth, use the Connect page or a static bearer-token entry with `headers.Authorization`.
 
 Then in Claude Code, you can use your app's tools naturally:
 
@@ -105,16 +105,50 @@ The agent runs the same loop as the interactive chat — it can call multiple to
 
 ## Authentication {#authentication}
 
-The MCP endpoint uses the same auth as the rest of the app:
+The MCP endpoint supports standard remote MCP OAuth plus the existing bearer-token fallback:
 
-| Env var         | How it works                                                |
-| --------------- | ----------------------------------------------------------- |
-| `ACCESS_TOKEN`  | Bearer token — client sends `Authorization: Bearer <token>` |
-| `ACCESS_TOKENS` | Comma-separated list of valid tokens                        |
-| `A2A_SECRET`    | JWT-based auth — tokens are verified cryptographically      |
-| _(none set)_    | No auth required (dev mode)                                 |
+| Mode                        | How it works                                                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Standard MCP OAuth          | Client discovers auth from `WWW-Authenticate`, registers, runs PKCE, and sends `Authorization: Bearer <access-token>` |
+| Connect-minted JWT          | `agent-native connect` / the Connect page mints a per-user, revocable JWT                                             |
+| `ACCESS_TOKEN`              | Static bearer token — client sends `Authorization: Bearer <token>`                                                    |
+| `ACCESS_TOKENS`             | Comma-separated list of valid static bearer tokens                                                                    |
+| `A2A_SECRET`                | JWT-based auth — tokens are verified cryptographically                                                                |
+| _(none set, loopback only)_ | No auth required for local dev probes                                                                                 |
 
-In production, set `ACCESS_TOKEN` or `A2A_SECRET` to secure the endpoint. In development (no auth env vars configured), all requests are allowed.
+For OAuth-capable MCP hosts, configure the remote server URL with no static headers:
+
+```bash
+claude mcp add --transport http agent-native-mail https://mail.agent-native.com/_agent-native/mcp
+```
+
+The first unauthenticated MCP request receives:
+
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
+```
+
+Discovery endpoints:
+
+| Endpoint                                  | Purpose                                     |
+| ----------------------------------------- | ------------------------------------------- |
+| `/.well-known/oauth-protected-resource`   | RFC 9728 protected-resource metadata        |
+| `/.well-known/oauth-authorization-server` | OAuth authorization server metadata         |
+| `/.well-known/openid-configuration`       | OIDC-compatible metadata alias              |
+| `/_agent-native/mcp/oauth/register`       | Dynamic public-client registration          |
+| `/_agent-native/mcp/oauth/authorize`      | Browser authorization + consent             |
+| `/_agent-native/mcp/oauth/token`          | Authorization-code and refresh-token grants |
+
+Access tokens are signed JWTs whose audience is the exact MCP resource URL. The server accepts only tokens issued for itself and applies scopes before listing/calling tools:
+
+| Scope       | Allows                                      |
+| ----------- | ------------------------------------------- |
+| `mcp:read`  | read-only actions                           |
+| `mcp:write` | mutating actions and `ask-agent`            |
+| `mcp:apps`  | MCP Apps resources (`ui://` HTML resources) |
+
+Refresh tokens are stored only as hashes and are rotated on every refresh. `agent-native connect` writes this URL-only OAuth entry for Claude Code clients by default; keep the Connect page, `agent-native connect --token <token>`, and static bearer config for local stdio proxying, older clients, and emergency/debug flows.
 
 ## Custom MCP setup {#custom-setup}
 
@@ -149,9 +183,8 @@ You have a deployed analytics app at `analytics.example.com`. From Claude Code:
 // ~/.claude/mcp_servers.json
 {
   "analytics": {
-    "type": "url",
+    "type": "http",
     "url": "https://analytics.example.com/_agent-native/mcp",
-    "headers": { "Authorization": "Bearer sk-analytics-token" },
   },
 }
 ```

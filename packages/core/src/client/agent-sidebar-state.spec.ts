@@ -13,6 +13,7 @@ const {
   getInitialAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
   SIDEBAR_STATE_CHANGE_EVENT,
+  subscribeAgentSidebarUrlChanges,
 } = await import("./agent-sidebar-state.js");
 
 function stubMatchMedia(matches: boolean) {
@@ -90,6 +91,26 @@ describe("getInitialAgentSidebarOpen", () => {
     expect(window.location.pathname).toBe("/inbox");
     expect(window.location.search).toBe("?threadId=t1");
     expect(window.location.hash).toBe("#message");
+  });
+
+  it("reacts when an already-mounted app shell receives the closed hint", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
+    const seen: Array<boolean | null> = [];
+    const unsubscribe = subscribeAgentSidebarUrlChanges(() => {
+      seen.push(consumeAgentSidebarUrlOpenOverride());
+    });
+
+    window.history.pushState(
+      null,
+      "",
+      "/inbox?threadId=t1&agentSidebar=closed",
+    );
+
+    unsubscribe();
+    expect(seen).toContain(false);
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("false");
+    expect(window.location.pathname).toBe("/inbox");
+    expect(window.location.search).toBe("?threadId=t1");
   });
 });
 

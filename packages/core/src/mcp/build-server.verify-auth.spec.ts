@@ -14,6 +14,7 @@ vi.mock("./connect-store.js", () => ({
 }));
 
 const { verifyAuth } = await import("./build-server.js");
+const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
 
 const SECRET = "verify-auth-secret";
 const enc = new TextEncoder().encode(SECRET);
@@ -86,6 +87,44 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-active");
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-active");
+  });
+
+  it("accepts an audience-bound standard MCP OAuth access token", async () => {
+    const resource = "https://mail.agent-native.com/_agent-native/mcp";
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgDomain: "builder.io",
+      clientId: "client-123",
+      scope: "mcp:read mcp:apps",
+      resource,
+      issuer: "https://mail.agent-native.com",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res.authed).toBe(true);
+    expect(res.fullSurface).toBe(true);
+    expect(res.identity).toEqual({
+      userEmail: "oauth@example.com",
+      orgDomain: "builder.io",
+      oauthScopes: ["mcp:read", "mcp:apps"],
+    });
+    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a standard MCP OAuth access token for another resource", async () => {
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/_agent-native/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: "https://calendar.agent-native.com/_agent-native/mcp",
+    });
+    expect(res.authed).toBe(false);
+    expect(res.identity).toBeUndefined();
   });
 
   it("rejects a connect-scoped token without a jti", async () => {

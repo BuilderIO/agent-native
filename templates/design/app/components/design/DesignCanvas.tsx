@@ -4,6 +4,7 @@ import { usePinchZoom } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { DeviceFrame } from "./DeviceFrame";
 import type { ElementInfo, DeviceFrameType } from "./types";
+import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 // NOTE: This wires up the NEW shared visual-editor DrawOverlay + comment-pin
 // components from `@/components/visual-editor`. The legacy iframe-only
 // DrawOverlay at `./DrawOverlay.tsx` is intentionally NOT used here — both
@@ -23,7 +24,7 @@ const TWEAK_BRIDGE_SCRIPT = `
 <script data-agent-native-tweak-bridge>
 (function() {
   window.addEventListener('message', function(e) {
-    if (e.origin !== window.location.origin) return;
+    if (e.source !== window.parent) return;
     if (!e.data || e.data.type !== 'tweak-values') return;
     var root = document.documentElement;
     var vals = e.data.values || {};
@@ -57,7 +58,7 @@ const ZOOM_BRIDGE_SCRIPT = `
         deltaY: e.deltaY,
         clientX: e.clientX,
         clientY: e.clientY,
-      }, window.location.origin);
+      }, '*');
     } catch (err) {}
   }
   target.addEventListener('wheel', onWheel, { passive: false, capture: true });
@@ -200,7 +201,7 @@ const EDIT_BRIDGE_SCRIPT = `
     selectedEl = e.target;
     var info = getElementInfo(selectedEl);
     positionOverlay(selectionOverlay, selectedEl);
-    window.parent.postMessage({ type: 'element-select', payload: info }, window.location.origin);
+    window.parent.postMessage({ type: 'element-select', payload: info }, '*');
   }, true);
 
   document.addEventListener('mouseover', function(e) {
@@ -208,7 +209,7 @@ const EDIT_BRIDGE_SCRIPT = `
     hoveredEl = e.target;
     positionOverlay(highlightOverlay, hoveredEl);
     var info = getElementInfo(hoveredEl);
-    window.parent.postMessage({ type: 'element-hover', payload: info }, window.location.origin);
+    window.parent.postMessage({ type: 'element-hover', payload: info }, '*');
   }, true);
 
   document.addEventListener('mouseout', function() {
@@ -217,7 +218,7 @@ const EDIT_BRIDGE_SCRIPT = `
   }, true);
 
   window.addEventListener('message', function(e) {
-    if (e.origin !== window.location.origin) return;
+    if (e.source !== window.parent) return;
     if (!e.data || e.data.type !== 'style-change') return;
     var sel = e.data.selector;
     var prop = e.data.property;
@@ -306,8 +307,16 @@ export function DesignCanvas({
   // Listen for messages from the iframe
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
-      if (e.source !== iframeRef.current?.contentWindow) return;
-      if (e.origin !== window.location.origin) return;
+      if (
+        !isTrustedCanvasBridgeMessage({
+          source: e.source,
+          origin: e.origin,
+          iframeWindow: iframeRef.current?.contentWindow,
+          parentOrigin: window.location.origin,
+        })
+      ) {
+        return;
+      }
       if (!e.data || !e.data.type) return;
       if (e.data.type === "element-select") {
         onElementSelect(e.data.payload);
@@ -369,7 +378,7 @@ export function DesignCanvas({
     const send = () => {
       iframe.contentWindow?.postMessage(
         { type: "tweak-values", values: tweakValues },
-        window.location.origin,
+        "*",
       );
     };
     send();
@@ -383,7 +392,7 @@ export function DesignCanvas({
       if (!iframe?.contentWindow) return;
       iframe.contentWindow.postMessage(
         { type: "style-change", selector, property, value },
-        window.location.origin,
+        "*",
       );
     },
     [],

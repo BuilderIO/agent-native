@@ -82,6 +82,7 @@ export function useNavigationState() {
     viewMode,
     setViewMode,
     setSelectedDate,
+    setEventDetailSidebar,
     setSidebarEvent,
     sidebarEvent,
     eventDraft,
@@ -222,6 +223,7 @@ export function useNavigationState() {
               setSelectedDate(startDate);
             }
           }
+          setEventDetailSidebar(true);
           setSidebarEvent(evt);
         } catch {
           // Best-effort — a failed focus must not break navigation.
@@ -230,8 +232,9 @@ export function useNavigationState() {
     }
 
     // A deep link can also carry an unsent event draft. The draft lives in
-    // app-state and opens in the same New Event popover the user would fill out
-    // by hand; nothing is written to Google Calendar until they submit.
+    // app-state and opens as a visible calendar placeholder with the native
+    // event detail editor; nothing is written to Google Calendar until the
+    // user creates it.
     if (cmd.eventDraftId || cmd.calendarDraft) {
       (async () => {
         const draft = await loadEventDraft(cmd);
@@ -242,6 +245,8 @@ export function useNavigationState() {
             setSelectedDate(startDate);
           }
         }
+        setSidebarEvent(null);
+        setEventDetailSidebar(false);
         setEventDraft(draft);
       })();
     }
@@ -251,6 +256,7 @@ export function useNavigationState() {
     qc,
     setViewMode,
     setSelectedDate,
+    setEventDetailSidebar,
     setSidebarEvent,
     setEventDraft,
   ]);

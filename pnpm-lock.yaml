@@ -273,6 +273,9 @@ importers:
       postgres:
         specifier: '>=3'
         version: 3.4.9
+      prettier:
+        specifier: ^3.8.3
+        version: 3.8.3
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.14)(react@19.2.5)
@@ -16210,6 +16213,11 @@ packages:
     engines: {node: '>=14'}
     hasBin: true
 
+  prettier@3.8.3:
+    resolution: {integrity: sha512-7igPTM53cGHMW8xWuVTydi2KO233VFiTNyF5hLJqpilHfmn8C8gPf+PS7dUT64YcXFbiMGZxS9pCSxL/Dxm/Jw==}
+    engines: {node: '>=14'}
+    hasBin: true
+
   pretty-format@27.5.1:
     resolution: {integrity: sha512-Qb1gy5OrP5+zDf2Bvnzdl3jsTf1qXVMazbvCoKhtKqVs4/YK4ozX4gKQJJVyNe+cajNPn0KoC0MC3FUmaHWEmQ==}
     engines: {node: ^10.13.0 || ^12.13.0 || ^14.15.0 || >=15.0.0}
@@ -24279,7 +24287,7 @@ snapshots:
       pathe: 1.1.2
       picocolors: 1.1.1
       pkg-types: 2.3.0
-      prettier: 3.8.1
+      prettier: 3.8.3
       react-refresh: 0.14.2
       react-router: 7.14.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       semver: 7.7.4
@@ -24329,7 +24337,7 @@ snapshots:
       pathe: 1.1.2
       picocolors: 1.1.1
       pkg-types: 2.3.0
-      prettier: 3.8.1
+      prettier: 3.8.3
       react-refresh: 0.14.2
       react-router: 7.14.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       semver: 7.7.4
@@ -24379,7 +24387,7 @@ snapshots:
       pathe: 1.1.2
       picocolors: 1.1.1
       pkg-types: 2.3.0
-      prettier: 3.8.1
+      prettier: 3.8.3
       react-refresh: 0.14.2
       react-router: 7.15.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       semver: 7.7.4
@@ -24429,7 +24437,7 @@ snapshots:
       pathe: 1.1.2
       picocolors: 1.1.1
       pkg-types: 2.3.0
-      prettier: 3.8.1
+      prettier: 3.8.3
       react-refresh: 0.14.2
       react-router: 7.15.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       semver: 7.7.4
@@ -27539,7 +27547,7 @@ snapshots:
   convex@1.34.1(react@19.2.5):
     dependencies:
       esbuild: 0.27.0
-      prettier: 3.8.1
+      prettier: 3.8.3
       ws: 8.18.0
     optionalDependencies:
       react: 19.2.5
@@ -32096,6 +32104,8 @@ snapshots:
   prettier@2.8.8: {}
 
   prettier@3.8.1: {}
+
+  prettier@3.8.3: {}
 
   pretty-format@27.5.1:
     dependencies:

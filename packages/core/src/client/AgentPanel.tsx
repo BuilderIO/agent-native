@@ -89,6 +89,7 @@ import {
   dispatchAgentSidebarStateChange,
   getInitialAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
+  subscribeAgentSidebarUrlChanges,
 } from "./agent-sidebar-state.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
@@ -2073,10 +2074,15 @@ export function AgentSidebar({
     [],
   );
 
-  useEffect(() => {
+  const applyUrlOpenOverride = useCallback(() => {
     const override = consumeAgentSidebarUrlOpenOverride();
     if (override !== null) setOpenPersisted(override);
   }, [setOpenPersisted]);
+
+  useEffect(() => {
+    applyUrlOpenOverride();
+    return subscribeAgentSidebarUrlChanges(applyUrlOpenOverride);
+  }, [applyUrlOpenOverride]);
 
   const toggleFullscreen = useCallback(() => {
     setFullscreen((prev) => {

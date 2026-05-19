@@ -104,7 +104,7 @@ function setIfPresent<T extends keyof CalendarEventDraft>(
 
 export default defineAction({
   description:
-    "Create, update, or delete an unsent calendar invite draft. Opening a draft shows the Calendar New Event form prefilled so the user can review it before creating/sending.",
+    "Create, update, or delete an unsent calendar invite draft. Opening a draft shows a visible placeholder on the calendar with the event detail editor so the user can review it before creating/sending.",
   schema: z.object({
     action: z
       .enum(["create", "update", "delete", "delete-all"])

@@ -24,6 +24,39 @@ const DEFAULT_DESIGN_SYSTEM: DesignSystemData = {
   logos: [],
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function mergeWithDefaults<T>(defaults: T, value: unknown): T {
+  if (Array.isArray(defaults)) {
+    return (Array.isArray(value) ? value : defaults) as T;
+  }
+
+  if (isRecord(defaults)) {
+    const source = isRecord(value) ? value : {};
+    const merged: Record<string, unknown> = {};
+
+    for (const [key, defaultValue] of Object.entries(defaults)) {
+      merged[key] = mergeWithDefaults(defaultValue, source[key]);
+    }
+
+    for (const [key, sourceValue] of Object.entries(source)) {
+      if (!(key in merged) && sourceValue !== undefined) {
+        merged[key] = sourceValue;
+      }
+    }
+
+    return merged as T;
+  }
+
+  return (value === undefined || value === null ? defaults : value) as T;
+}
+
+export function mergeDesignSystemData(value: unknown): DesignSystemData {
+  return mergeWithDefaults(DEFAULT_DESIGN_SYSTEM, value);
+}
+
 export function useDeckDesignSystem(designSystemId?: string | null) {
   const { data, isLoading } = useActionQuery<{
     id: string;
@@ -42,7 +75,7 @@ export function useDeckDesignSystem(designSystemId?: string | null) {
   }
 
   try {
-    const parsed = JSON.parse(data.data) as DesignSystemData;
+    const parsed = mergeDesignSystemData(JSON.parse(data.data));
     return {
       designSystem: parsed,
       designSystemTitle: data.title ?? null,

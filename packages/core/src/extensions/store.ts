@@ -47,6 +47,11 @@ import {
   extensionChangeMarkerValue,
   type ExtensionChangeTarget,
 } from "./change-marker.js";
+import {
+  applyExtensionContentUpdate,
+  type ExtensionContentEdit,
+  type ExtensionLegacyPatch,
+} from "./content-patch.js";
 
 const getDb = createGetDb({ extensions, extensionShares, extensionHides });
 
@@ -466,7 +471,9 @@ export async function updateExtension(
 
 export interface UpdateExtensionContentOpts {
   content?: string;
-  patches?: Array<{ find: string; replace: string }>;
+  patches?: ExtensionLegacyPatch[];
+  edits?: ExtensionContentEdit[];
+  format?: boolean;
 }
 
 export async function updateExtensionContent(
@@ -477,27 +484,27 @@ export async function updateExtensionContent(
   await assertAccess("extension", id, "editor");
   const db = getDb();
 
-  let newContent: string;
-  if (opts.content !== undefined) {
-    newContent = opts.content;
-  } else if (opts.patches) {
-    const rows = await db
-      .select()
-      .from(extensions)
-      .where(eq(extensions.id, id));
-    if (!rows[0]) return null;
-    newContent = (rows[0] as ExtensionRow).content;
-    for (const patch of opts.patches) {
-      newContent = newContent.replace(patch.find, patch.replace);
-    }
-  } else {
+  if (
+    opts.content === undefined &&
+    opts.patches === undefined &&
+    opts.edits === undefined &&
+    !opts.format
+  ) {
     return null;
   }
+
+  const existingRows = await db
+    .select()
+    .from(extensions)
+    .where(eq(extensions.id, id));
+  if (!existingRows[0]) return null;
+  const existingContent = (existingRows[0] as ExtensionRow).content;
+  const update = await applyExtensionContentUpdate(existingContent, opts);
 
   const beforeTargets = await extensionChangeTargetsForId(id);
   await db
     .update(extensions)
-    .set({ content: newContent, updatedAt: new Date().toISOString() })
+    .set({ content: update.content, updatedAt: new Date().toISOString() })
     .where(eq(extensions.id, id));
   const rows = await db.select().from(extensions).where(eq(extensions.id, id));
   const row = (rows[0] as ExtensionRow) ?? null;

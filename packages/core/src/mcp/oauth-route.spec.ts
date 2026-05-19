@@ -1,0 +1,387 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+
+vi.mock("h3", () => ({
+  getMethod: (event: any) => event.method ?? "GET",
+  getHeader: (event: any, name: string) =>
+    event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
+  getQuery: (event: any) => event.query ?? {},
+  setResponseStatus: (event: any, status: number) => {
+    event.status = status;
+  },
+}));
+
+vi.mock("../server/h3-helpers.js", () => ({
+  readBody: vi.fn(async (event: any) => event.body ?? {}),
+}));
+
+const getSessionMock = vi.fn();
+const getConfiguredLoginHtmlMock = vi.fn(() => "<form>Sign in</form>");
+vi.mock("../server/auth.js", () => ({
+  getSession: (...a: any[]) => getSessionMock(...a),
+  getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
+}));
+
+vi.mock("../org/context.js", () => ({
+  getOrgDomain: vi.fn(async () => "builder.io"),
+}));
+
+const clients = new Map<string, any>();
+const codes = new Map<string, any>();
+const refreshRows = new Map<string, any>();
+let counter = 0;
+
+vi.mock("./oauth-store.js", () => ({
+  MCP_OAUTH_ACCESS_TOKEN_TTL: "1h",
+  MCP_OAUTH_CODE_TTL_MS: 600_000,
+  MCP_OAUTH_REFRESH_TOKEN_TTL_MS: 90 * 24 * 60 * 60_000,
+  generateOpaqueToken: vi.fn(() => `opaque-${++counter}`),
+  registerOAuthClient: vi.fn(async (params: any) => {
+    const row = {
+      clientId: `client-${++counter}`,
+      clientName: params.clientName ?? null,
+      redirectUris: params.redirectUris,
+      grantTypes: params.grantTypes ?? ["authorization_code", "refresh_token"],
+      responseTypes: params.responseTypes ?? ["code"],
+      tokenEndpointAuthMethod: params.tokenEndpointAuthMethod ?? "none",
+      createdAt: 1_700_000_000_000,
+    };
+    clients.set(row.clientId, row);
+    return row;
+  }),
+  getOAuthClient: vi.fn(
+    async (clientId: string) => clients.get(clientId) ?? null,
+  ),
+  createOAuthCode: vi.fn(async (params: any) => {
+    const row = {
+      code: `code-${++counter}`,
+      ...params,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 600_000,
+      consumedAt: null,
+    };
+    codes.set(row.code, row);
+    return row;
+  }),
+  consumeOAuthCode: vi.fn(async (code: string) => {
+    const row = codes.get(code);
+    if (!row || row.consumedAt) return null;
+    row.consumedAt = Date.now();
+    return row;
+  }),
+  createOAuthRefreshToken: vi.fn(async (params: any) => {
+    refreshRows.set(params.refreshToken, {
+      id: `refresh-${++counter}`,
+      tokenHash: params.refreshToken,
+      ...params,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 90 * 24 * 60 * 60_000,
+      revokedAt: null,
+    });
+  }),
+  rotateOAuthRefreshToken: vi.fn(
+    async ({ oldRefreshToken, newRefreshToken }) => {
+      const old = refreshRows.get(oldRefreshToken);
+      if (!old || old.revokedAt) return null;
+      old.revokedAt = Date.now();
+      const next = { ...old, tokenHash: newRefreshToken, revokedAt: null };
+      refreshRows.set(newRefreshToken, next);
+      return next;
+    },
+  ),
+}));
+
+const {
+  handleMcpOAuth,
+  handleMcpOAuthAuthorizationServerMetadata,
+  handleMcpOAuthProtectedResourceMetadata,
+} = await import("./oauth-route.js");
+const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
+
+function event(
+  opts: {
+    method?: string;
+    query?: Record<string, string>;
+    body?: Record<string, string> | string;
+  } = {},
+) {
+  return {
+    method: opts.method ?? "GET",
+    headers: {
+      host: "mail.agent-native.com",
+      "x-forwarded-proto": "https",
+    },
+    query: opts.query ?? {},
+    body: opts.body ?? {},
+    url: { pathname: "" },
+  } as any;
+}
+
+function challenge(verifier: string): string {
+  return createHash("sha256").update(verifier).digest("base64url");
+}
+
+describe("MCP OAuth route", () => {
+  beforeEach(() => {
+    clients.clear();
+    codes.clear();
+    refreshRows.clear();
+    counter = 0;
+    vi.clearAllMocks();
+    process.env.A2A_SECRET = "test-oauth-secret";
+    delete process.env.APP_BASE_PATH;
+    getSessionMock.mockResolvedValue({
+      email: "steve@example.com",
+      orgId: "org_123",
+    });
+  });
+
+  it("serves protected-resource and authorization-server metadata", async () => {
+    const protectedRes = handleMcpOAuthProtectedResourceMetadata(event());
+    expect(protectedRes.status).toBe(200);
+    await expect(protectedRes.json()).resolves.toMatchObject({
+      resource: "https://mail.agent-native.com/_agent-native/mcp",
+      authorization_servers: ["https://mail.agent-native.com"],
+      scopes_supported: ["mcp:read", "mcp:write", "mcp:apps"],
+    });
+
+    const authRes = handleMcpOAuthAuthorizationServerMetadata(event());
+    await expect(authRes.json()).resolves.toMatchObject({
+      issuer: "https://mail.agent-native.com",
+      authorization_endpoint:
+        "https://mail.agent-native.com/_agent-native/mcp/oauth/authorize",
+      token_endpoint:
+        "https://mail.agent-native.com/_agent-native/mcp/oauth/token",
+      registration_endpoint:
+        "https://mail.agent-native.com/_agent-native/mcp/oauth/register",
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["none"],
+    });
+  });
+
+  it("registers public OAuth clients with safe redirect URIs", async () => {
+    const res = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          client_name: "Claude Code",
+          redirect_uris: ["http://localhost:54545/callback"],
+          token_endpoint_auth_method: "none",
+        } as any,
+      }),
+      "/register",
+    );
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({
+      client_name: "Claude Code",
+      redirect_uris: ["http://localhost:54545/callback"],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    });
+  });
+
+  it("serves login HTML when authorize is opened without a browser session", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            redirect_uris: ["http://localhost:5555/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    getSessionMock.mockResolvedValueOnce(null);
+    const res = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge("v".repeat(50)),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+      { appName: "Mail" },
+    );
+    expect(res.status).toBe(200);
+    await expect(res.text()).resolves.toContain("Sign in");
+  });
+
+  it("approves an authorization code and exchanges it for scoped MCP tokens", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            redirect_uris: ["http://localhost:5555/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          scope: "mcp:read mcp:apps",
+          state: "state-123",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+      { appName: "Mail" },
+    );
+    const consentHtml = await consent.text();
+    const consentToken =
+      consentHtml.match(/name="consent_token" value="([^"]+)"/)?.[1] ?? "";
+    expect(consentToken).not.toBe("");
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          scope: "mcp:read mcp:apps",
+          state: "state-123",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+      { appName: "Mail" },
+    );
+    expect(authorize.status).toBe(302);
+    const location = authorize.headers.get("location")!;
+    const code = new URL(location).searchParams.get("code")!;
+    expect(location).toContain("state=state-123");
+
+    const token = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          code,
+          code_verifier: verifier,
+        },
+      }),
+      "/token",
+    );
+    expect(token.status).toBe(200);
+    const body = await token.json();
+    expect(body).toMatchObject({
+      token_type: "Bearer",
+      expires_in: 3600,
+      scope: "mcp:read mcp:apps",
+    });
+    expect(body.refresh_token).toBeTruthy();
+    await expect(
+      verifyMcpOAuthAccessToken(
+        body.access_token,
+        "https://mail.agent-native.com/_agent-native/mcp",
+      ),
+    ).resolves.toMatchObject({
+      userEmail: "steve@example.com",
+      orgDomain: "builder.io",
+      scopes: ["mcp:read", "mcp:apps"],
+      clientId: client.client_id,
+    });
+  });
+
+  it("rotates refresh tokens", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            redirect_uris: ["http://localhost:5555/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    expect(consentToken).not.toBe("");
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
+    const first = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            grant_type: "authorization_code",
+            client_id: client.client_id,
+            redirect_uri: "http://localhost:5555/callback",
+            code,
+            code_verifier: verifier,
+          },
+        }),
+        "/token",
+      )
+    ).json();
+    const second = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "refresh_token",
+          client_id: client.client_id,
+          refresh_token: first.refresh_token,
+        },
+      }),
+      "/token",
+    );
+    expect(second.status).toBe(200);
+    const body = await second.json();
+    expect(body.refresh_token).not.toBe(first.refresh_token);
+    expect(refreshRows.get(first.refresh_token)?.revokedAt).toBeTruthy();
+  });
+});
