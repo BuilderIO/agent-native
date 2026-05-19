@@ -250,7 +250,7 @@ external agent's MCP token. See **context-awareness** for the
 An action an external agent reads to pull live app state into its own context
 must be: `http: { method: "GET" }` + `readOnly: true` +
 `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`. GET +
-`readOnly` keeps it side-effect-free and out of the screen-refresh poll;
+`readOnly` keeps it side-effect-free and out of the screen-refresh change event;
 `publicAgent` is the explicit opt-in (public web routes never imply public
 MCP/A2A exposure). Design/content ingest actions MUST read **live** state
 (e.g. the Yjs document) — not the stale DB snapshot column — so the external
