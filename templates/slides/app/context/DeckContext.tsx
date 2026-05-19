@@ -88,6 +88,7 @@ interface DeckContextType {
     title?: string,
     options?: { noDefaultSlides?: boolean; designSystemId?: string | null },
   ) => Deck;
+  ensureDeckPersisted: (id: string) => Promise<boolean>;
   /**
    * Optimistically duplicate a deck. Inserts a copy into local state with the
    * supplied `newId` immediately so the UI can navigate without awaiting the
@@ -364,6 +365,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // Track client-created decks that haven't been confirmed on the server yet.
   // Prevents the poll from wiping optimistic decks before their POST lands.
   const pendingCreateIdsRef = useRef<Set<string>>(new Set());
+  const pendingCreatePromisesRef = useRef<Map<string, Promise<void>>>(
+    new Map(),
+  );
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
 
@@ -749,18 +753,39 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Save to API immediately (not debounced). Track as pending so the
       // poll doesn't wipe the optimistic deck before the POST completes.
       pendingCreateIdsRef.current.add(newDeck.id);
-      createDeckOnAPI(newDeck)
+      const createPromise = createDeckOnAPI(newDeck);
+      pendingCreatePromisesRef.current.set(newDeck.id, createPromise);
+      createPromise
         .catch((err) => {
           console.error(`Failed to create deck ${newDeck.id}:`, err);
         })
         .finally(() => {
           pendingCreateIdsRef.current.delete(newDeck.id);
+          if (
+            pendingCreatePromisesRef.current.get(newDeck.id) === createPromise
+          ) {
+            pendingCreatePromisesRef.current.delete(newDeck.id);
+          }
         });
       setDecksWithHistory("Create deck", (prev) => [...prev, newDeck]);
       return newDeck;
     },
     [setDecksWithHistory],
   );
+
+  const ensureDeckPersisted = useCallback(async (id: string) => {
+    const pendingCreate = pendingCreatePromisesRef.current.get(id);
+    if (pendingCreate) {
+      try {
+        await pendingCreate;
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    return (await fetchDeckFromAPI(id)) !== null;
+  }, []);
 
   const duplicateDeck = useCallback(
     (sourceDeckId: string, newId: string, title?: string): Deck | null => {
@@ -981,6 +1006,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         decks,
         loading,
         createDeck,
+        ensureDeckPersisted,
         duplicateDeck,
         deleteDeck,
         updateDeck,

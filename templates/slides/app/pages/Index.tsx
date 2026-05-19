@@ -8,15 +8,12 @@ import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
-import {
-  agentNativePath,
-  appBasePath,
-  useSession,
-} from "@agent-native/core/client";
+import { agentNativePath, useSession } from "@agent-native/core/client";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   AlertDialog,
@@ -43,6 +40,40 @@ import { toast } from "@/hooks/use-toast";
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
+
+function savePromptForRetry(
+  prompt: string,
+  options: { persistAcrossSignIn?: boolean } = {},
+) {
+  let signInHandoffSaved = !options.persistAcrossSignIn;
+  if (options.persistAcrossSignIn) {
+    try {
+      sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
+      signInHandoffSaved = true;
+    } catch {}
+  }
+  const draftSaved = savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, prompt);
+  return signInHandoffSaved && draftSaved;
+}
+
+function clearPendingPromptForRetry() {
+  try {
+    sessionStorage.removeItem(PENDING_PROMPT_KEY);
+  } catch {}
+}
+
+function mergeUploadedFilesForRetry(
+  savedFiles: UploadedFile[],
+  newFiles: UploadedFile[],
+): UploadedFile[] {
+  const seen = new Set<string>();
+  return [...savedFiles, ...newFiles].filter((file) => {
+    const key = file.path || file.url || file.filename;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 function summarizePromptForChat(prompt: string): string {
   const singleLine = prompt.trim().replace(/\s+/g, " ");
@@ -89,29 +120,29 @@ function describeUploadedFilesForAgent(
   ].join("\n");
 }
 
-async function waitForDeckServerRow(deckId: string): Promise<boolean> {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${appBasePath()}/api/decks/${deckId}`);
-      if (res.ok) return true;
-      if (res.status !== 404) return false;
-    } catch {
-      // keep polling until the optimistic create either lands or times out
-    }
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  }
-  return false;
-}
-
 export default function Index() {
-  const { decks, createDeck, deleteDeck, updateDeck, loading } = useDecks();
+  const {
+    decks,
+    createDeck,
+    ensureDeckPersisted,
+    deleteDeck,
+    updateDeck,
+    loading,
+  } = useDecks();
   const { designSystems, defaultSystem } = useDesignSystems();
   const { session } = useSession();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
+  const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
+    text: string;
+    key: number;
+  } | null>(null);
+  const [newDeckRetryFiles, setNewDeckRetryFiles] = useState<UploadedFile[]>(
+    [],
+  );
+  const [signInPromptHadFiles, setSignInPromptHadFiles] = useState(false);
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState("");
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [duplicating, setDuplicating] = useState<string | null>(null);
@@ -159,9 +190,38 @@ export default function Index() {
     [defaultSystem?.id],
   );
 
-  const setNewDeckPromptOpen = useCallback((open: boolean) => {
-    setShowNewDeckPrompt(open);
-    if (!open) setSelectedDesignSystemId("");
+  const setNewDeckPromptOpen = useCallback(
+    (open: boolean, options: { clearInitialPrompt?: boolean } = {}) => {
+      setShowNewDeckPrompt(open);
+      if (!open) {
+        setSelectedDesignSystemId("");
+        if (options.clearInitialPrompt !== false) {
+          setNewDeckInitialPrompt(null);
+          setNewDeckRetryFiles([]);
+        }
+      }
+    },
+    [],
+  );
+
+  const preservePromptForSignIn = useCallback(
+    (prompt: string, options: { hadFiles?: boolean } = {}) => {
+      if (!savePromptForRetry(prompt, { persistAcrossSignIn: true })) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+      }
+      setNewDeckRetryFiles([]);
+      setSignInPromptHadFiles(Boolean(options.hadFiles));
+      setNewDeckPromptOpen(false, { clearInitialPrompt: false });
+      setShowSignInDialog(true);
+    },
+    [setNewDeckPromptOpen],
+  );
+
+  const setSignInDialogOpen = useCallback((open: boolean) => {
+    setShowSignInDialog(open);
+    if (!open) {
+      setSignInPromptHadFiles(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -190,21 +250,13 @@ export default function Index() {
       saved = sessionStorage.getItem(PENDING_PROMPT_KEY);
     } catch {}
     if (!saved) return;
-    try {
-      const escaped = saved
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-      const paragraphs = escaped
-        .split(/\n+/)
-        .map((line) => `<p>${line || "<br/>"}</p>`)
-        .join("");
-      localStorage.setItem(
-        `an-composer-draft:${encodeURIComponent(NEW_DECK_DRAFT_SCOPE)}`,
-        paragraphs,
-      );
-      sessionStorage.removeItem(PENDING_PROMPT_KEY);
-    } catch {}
+    if (savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved)) {
+      clearPendingPromptForRetry();
+      setNewDeckInitialPrompt(null);
+    } else {
+      clearPendingPromptForRetry();
+      setNewDeckInitialPrompt({ text: saved, key: Date.now() });
+    }
     setSelectedDesignSystemId(defaultSystem?.id ?? "none");
     setShowNewDeckPrompt(true);
   }, [defaultSystem?.id, session]);
@@ -234,14 +286,14 @@ export default function Index() {
     // sidebar. Catch it here so the user sees a clear sign-in prompt
     // and the typed prompt isn't lost when they come back.
     if (!session) {
-      try {
-        sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
-      } catch {}
-      setNewDeckPromptOpen(false);
-      setShowSignInDialog(true);
+      preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });
       return;
     }
 
+    const filesForGeneration = mergeUploadedFilesForRetry(
+      newDeckRetryFiles,
+      files,
+    );
     const selectedDesignSystem =
       selectedDesignSystemId && selectedDesignSystemId !== "none"
         ? designSystems.find((ds) => ds.id === selectedDesignSystemId)
@@ -262,7 +314,10 @@ export default function Index() {
     const googleDocUrls = hasImportedGoogleDocContext
       ? []
       : extractGoogleDocUrls(trimmedPrompt);
-    const fileContext = describeUploadedFilesForAgent(files, deck.id);
+    const fileContext = describeUploadedFilesForAgent(
+      filesForGeneration,
+      deck.id,
+    );
     const googleDocContext =
       googleDocUrls.length > 0
         ? [
@@ -312,11 +367,12 @@ export default function Index() {
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, resource-read, or search-files.",
     ].join("\n");
 
-    const persisted = await waitForDeckServerRow(deck.id);
+    const persisted = await ensureDeckPersisted(deck.id);
     if (!persisted) {
-      try {
-        sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
-      } catch {}
+      if (!savePromptForRetry(prompt)) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+      }
+      setNewDeckRetryFiles(filesForGeneration);
       deleteDeck(deck.id);
       toast({
         title: "Couldn't start deck generation",
@@ -327,11 +383,14 @@ export default function Index() {
       return;
     }
 
-    navigate(`/deck/${deck.id}?generating=1`);
+    clearPendingPromptForRetry();
+    setNewDeckInitialPrompt(null);
+    setNewDeckRetryFiles([]);
     agentSubmit(
       `Create deck: ${summarizePromptForChat(trimmedPrompt)}`,
       context,
     );
+    navigate(`/deck/${deck.id}?generating=1`);
   };
 
   const handleConfirmDelete = () => {
@@ -529,9 +588,16 @@ export default function Index() {
         onSkip={handleCreateDeckBlank}
         skipLabel="Skip prompt"
         onSubmit={handleCreateDeckWithPrompt}
+        onBeforeUpload={(prompt, files) => {
+          if (session) return true;
+          preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });
+          return false;
+        }}
         loading={generating}
         anchorRef={anchorRef}
         draftScope={NEW_DECK_DRAFT_SCOPE}
+        initialText={newDeckInitialPrompt?.text}
+        initialTextKey={newDeckInitialPrompt?.key}
       >
         {designSystems.length > 0 && (
           <div className="border-t border-border px-3.5 py-2">
@@ -562,13 +628,14 @@ export default function Index() {
       {/* Sign-in required to create a deck. Shown when an unauthenticated
           user submits a prompt — the typed prompt is preserved in
           sessionStorage and replayed into the composer after sign-in. */}
-      <AlertDialog open={showSignInDialog} onOpenChange={setShowSignInDialog}>
+      <AlertDialog open={showSignInDialog} onOpenChange={setSignInDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Sign in to create a deck</AlertDialogTitle>
             <AlertDialogDescription>
-              You need to sign in before generating a deck. We've saved your
-              prompt — once you're back, it'll be ready to go.
+              {signInPromptHadFiles
+                ? "You need to sign in before generating a deck. We've saved your prompt; reattach any files once you're back."
+                : "You need to sign in before generating a deck. We've saved your prompt — once you're back, it'll be ready to go."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
