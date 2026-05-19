@@ -1060,6 +1060,9 @@ export class RecorderEngine {
 
     this.audioMixCtx?.close().catch(() => {});
     const ctx = new AudioContext();
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
     const dest = ctx.createMediaStreamDestination();
     for (const track of audioTracks) {
       ctx.createMediaStreamSource(new MediaStream([track])).connect(dest);
