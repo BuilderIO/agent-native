@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineAction, loadEnv } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 
@@ -99,13 +99,10 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async ({ question, followUpSessionId }) => {
-    loadEnv();
     const db = getDb();
     const id = crypto.randomUUID();
 
-    await db
-      .insert(schema.askSessions)
-      .values({ id, question, status: "searching" });
+    await db.insert(schema.askSessions).values({ id, question, status: "searching" });
 
     const ghSources = await searchGitHub(question, process.env.GITHUB_TOKEN);
 
