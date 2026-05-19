@@ -18,6 +18,7 @@ import { closeDbExec } from "../db/client.js";
 import { loadEnv } from "./utils.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveDevUserEmail } from "./dev-session.js";
+import { notifyActionChange } from "../server/action-change.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 
 // Load .env from cwd so DATABASE_URL and other vars are available to all actions.
@@ -212,6 +213,9 @@ async function dispatchAction(
       ) {
         const parsed = parseActionArgs(args, { coerceBooleans: true });
         const result = await handler.run(parsed);
+        if (handler.readOnly !== true) {
+          await notifyActionChange({ actionName }).catch(() => {});
+        }
         if (result) console.log(result);
       } else if (typeof handler === "function") {
         await handler(args);
@@ -237,6 +241,9 @@ async function dispatchAction(
       await runAppDbPluginIfPresent();
       const parsed = parseActionArgs(args, { coerceBooleans: true });
       const result = await packageAction.run(parsed as Record<string, string>);
+      if (packageAction.readOnly !== true) {
+        await notifyActionChange({ actionName }).catch(() => {});
+      }
       if (result) console.log(result);
       await closeDbExec().catch(() => {});
       process.exit(0);

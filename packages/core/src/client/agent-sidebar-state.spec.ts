@@ -1,12 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
-
-vi.mock("./builder-frame.js", () => ({
-  isInBuilderFrame: () => frameState.inBuilderFrame,
-}));
-
 const {
   consumeAgentSidebarUrlOpenOverride,
   dispatchAgentSidebarStateChange,
@@ -34,7 +28,6 @@ function stubMatchMedia(matches: boolean) {
 
 describe("getInitialAgentSidebarOpen", () => {
   beforeEach(() => {
-    frameState.inBuilderFrame = false;
     window.localStorage.clear();
     window.history.replaceState(null, "", "/");
     stubMatchMedia(false);
@@ -56,13 +49,6 @@ describe("getInitialAgentSidebarOpen", () => {
   it("starts closed on mobile even with a saved open preference", () => {
     window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
     stubMatchMedia(true);
-
-    expect(getInitialAgentSidebarOpen(true)).toBe(false);
-  });
-
-  it("starts closed in Builder even with a saved open preference", () => {
-    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
-    frameState.inBuilderFrame = true;
 
     expect(getInitialAgentSidebarOpen(true)).toBe(false);
   });

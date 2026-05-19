@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionEntry } from "../agent/production-agent.js";
 
-const mockRecordChange = vi.hoisted(() => vi.fn());
+const mockNotifyActionChange = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -23,8 +23,8 @@ vi.mock("./framework-request-handler.js", () => ({
   getH3App: (app: any) => app,
 }));
 
-vi.mock("./poll.js", () => ({
-  recordChange: (...args: unknown[]) => mockRecordChange(...args),
+vi.mock("./action-change.js", () => ({
+  notifyActionChange: (...args: unknown[]) => mockNotifyActionChange(...args),
 }));
 
 describe("mountActionRoutes", () => {
@@ -32,7 +32,7 @@ describe("mountActionRoutes", () => {
     delete process.env.AGENT_USER_EMAIL;
     delete process.env.AGENT_ORG_ID;
     delete process.env.AGENT_USER_TIMEZONE;
-    mockRecordChange.mockReset();
+    mockNotifyActionChange.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -152,7 +152,7 @@ describe("mountActionRoutes", () => {
 
     expect(result).toEqual({ ok: true, params: { q: "hello" } });
     expect(actions["list-things"].run).toHaveBeenCalledWith({ q: "hello" });
-    expect(mockRecordChange).not.toHaveBeenCalled();
+    expect(mockNotifyActionChange).not.toHaveBeenCalled();
   });
 
   it("short-circuits OPTIONS without resolving auth context", async () => {
@@ -233,10 +233,8 @@ describe("mountActionRoutes", () => {
       req: { url: "http://app.test/_agent-native/actions/mutating-read" },
     });
 
-    expect(mockRecordChange).toHaveBeenCalledWith({
-      source: "action",
-      type: "change",
-      key: "mutating-read",
+    expect(mockNotifyActionChange).toHaveBeenCalledWith({
+      actionName: "mutating-read",
     });
   });
 

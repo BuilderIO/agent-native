@@ -68,7 +68,7 @@ Controls how the action is exposed as an HTTP endpoint:
 
 ### Screen Refresh (automatic)
 
-The framework auto-refreshes the UI after any successful mutating action. On completion of a non-`GET` action, the server emits a change event that the client's `useDbSync` picks up and uses to invalidate `["action"]` React Query keys — so `list-*` / `get-*` hooks refetch without a full page reload.
+The framework auto-refreshes the UI after any successful mutating action. On completion of a non-`GET` action, the framework emits a change event with `source: "action"` that the client's `useDbSync` picks up and uses to invalidate `["action"]` React Query keys — so `list-*` / `get-*` hooks refetch without a full page reload. In-process calls emit directly; dev-mode `pnpm action ...` calls also write a durable marker so the web server sees child-process action changes.
 
 Rules:
 

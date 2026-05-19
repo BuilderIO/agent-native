@@ -263,7 +263,7 @@ export interface ActionEntry {
   /** Explicit opt-in metadata for public agent protocols. Public routes never
    *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
   publicAgent?: import("../action.js").PublicAgentActionConfig;
-  /** If true, completion does NOT trigger a screen-refresh poll event.
+  /** If true, completion does NOT trigger a screen-refresh change event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
   /** If true, this action can run concurrently with other same-turn
@@ -1755,19 +1755,18 @@ export async function runAgentLoop(opts: {
 
       // Auto-refresh the UI after a successful mutating tool call. Any action
       // that isn't explicitly read-only is assumed to mutate. The client's
-      // useDbSync listener sees a poll event with source:"action" and
+      // useDbSync listener sees a change event with source:"action" and
       // invalidates ["action"] queries so list-* / get-* refetch. This makes
       // refresh after agent writes reliable without the model needing to
       // remember to call `refresh-screen` itself.
       if (!isError && actionEntry.readOnly !== true) {
         try {
-          const { recordChange } = await import("../server/poll.js");
+          const { notifyActionChange } =
+            await import("../server/action-change.js");
           const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
           const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-          recordChange({
-            source: "action",
-            type: "change",
-            key: toolCall.name,
+          await notifyActionChange({
+            actionName: toolCall.name,
             ...(owner ? { owner } : {}),
             ...(orgId ? { orgId } : {}),
           });

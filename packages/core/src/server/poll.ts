@@ -15,6 +15,11 @@
 
 import { EventEmitter } from "node:events";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
+import {
+  ACTION_CHANGE_MARKER_KEY,
+  parseActionChangeMarker,
+  type ActionChangeTarget,
+} from "../action-change-marker.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
 import { getDbExec } from "../db/client.js";
 import {
@@ -67,6 +72,7 @@ let _lastSettingsTs = 0;
 let _lastExtensionsTs = 0;
 let _lastExtensionsUpdatedAt: string | number | undefined;
 let _lastExtensionMarkerTs = 0;
+let _lastActionMarkerTs = 0;
 
 /**
  * Tracks the latest updated_at seen on the `__screen_refresh__` key in
@@ -87,6 +93,12 @@ function wireLocalEmitters(): void {
   if (_localEmittersWired) return;
   _localEmittersWired = true;
   getAppStateEmitter().on("app-state", (event) => {
+    if (
+      event.key === EXTENSION_CHANGE_MARKER_KEY ||
+      event.key === ACTION_CHANGE_MARKER_KEY
+    ) {
+      return;
+    }
     recordChange(event);
   });
   getSettingsEmitter().on("settings", (event) => {
@@ -148,6 +160,22 @@ async function readExtensionMarkerMaxUpdatedAt(db: {
     const result = await db.execute({
       sql: "SELECT MAX(updated_at) as max_ts FROM application_state WHERE key = ?",
       args: [EXTENSION_CHANGE_MARKER_KEY],
+    });
+    return timestampValue(result.rows[0]?.max_ts);
+  } catch {
+    return 0;
+  }
+}
+
+async function readActionMarkerMaxUpdatedAt(db: {
+  execute: (
+    query: string | { sql: string; args?: unknown[] },
+  ) => Promise<{ rows: Array<Record<string, unknown>> }>;
+}): Promise<number> {
+  try {
+    const result = await db.execute({
+      sql: "SELECT MAX(updated_at) as max_ts FROM application_state WHERE key = ?",
+      args: [ACTION_CHANGE_MARKER_KEY],
     });
     return timestampValue(result.rows[0]?.max_ts);
   } catch {
@@ -217,6 +245,18 @@ function recordExtensionChanges(targets: ExtensionChangeTarget[]): void {
       source: "extensions",
       type: "change",
       key: "*",
+      ...(target.owner ? { owner: target.owner } : {}),
+      ...(target.orgId ? { orgId: target.orgId } : {}),
+    });
+  }
+}
+
+function recordActionChanges(targets: ActionChangeTarget[]): void {
+  for (const target of targets) {
+    recordChange({
+      source: "action",
+      type: "change",
+      key: target.actionName ?? "*",
       ...(target.owner ? { owner: target.owner } : {}),
       ...(target.orgId ? { orgId: target.orgId } : {}),
     });
@@ -345,12 +385,14 @@ async function seedVersionFromDb(): Promise<void> {
       settingsTs,
       extensionsMaxUpdatedAt,
       extensionMarkerTs,
+      actionMarkerTs,
       refreshResult,
     ] = await Promise.all([
       readMaxUpdatedAt(db, "application_state"),
       readMaxUpdatedAt(db, "settings"),
       readMaxUpdatedAtRaw(db, "tools"),
       readExtensionMarkerMaxUpdatedAt(db),
+      readActionMarkerMaxUpdatedAt(db),
       db
         .execute({
           sql: "SELECT updated_at FROM application_state WHERE key = ?",
@@ -369,6 +411,7 @@ async function seedVersionFromDb(): Promise<void> {
       settingsTs,
       extensionsTs,
       extensionMarkerTs,
+      actionMarkerTs,
     );
 
     // Set baselines so checkExternalDbChanges detects future writes
@@ -377,6 +420,10 @@ async function seedVersionFromDb(): Promise<void> {
     _lastExtensionsTs = extensionsTs;
     _lastExtensionsUpdatedAt = sqlWatermarkValue(extensionsMaxUpdatedAt);
     _lastExtensionMarkerTs = extensionMarkerTs;
+    // Action markers are durable specifically so a web server can observe work
+    // performed by a separate action process. Do not baseline past an existing
+    // marker on cold start, or the first poll after the action will miss it.
+    _lastActionMarkerTs = 0;
     _lastScreenRefreshTs = refreshTs;
     _screenRefreshInitialized = true;
   } catch {
@@ -412,7 +459,12 @@ async function checkExternalDbChanges(): Promise<void> {
       if (_lastAppStateTs > 0) {
         for (const row of appResult.rows) {
           const key = typeof row.key === "string" ? row.key : "*";
-          if (key === EXTENSION_CHANGE_MARKER_KEY) continue;
+          if (
+            key === EXTENSION_CHANGE_MARKER_KEY ||
+            key === ACTION_CHANGE_MARKER_KEY
+          ) {
+            continue;
+          }
           const owner =
             typeof row.session_id === "string" ? row.session_id : undefined;
           recordChange({
@@ -424,6 +476,27 @@ async function checkExternalDbChanges(): Promise<void> {
         }
       }
       _lastAppStateTs = appTs;
+    }
+
+    // Mutating actions write a durable marker in addition to the in-process
+    // event. This lets dev-mode `pnpm action ...` child processes and
+    // serverless action invocations wake the web server's SSE/poll loop as a
+    // first-class source:"action" event rather than a generic app-state bump.
+    const actionMarkerTs = await readActionMarkerMaxUpdatedAt(db);
+    if (actionMarkerTs > _lastActionMarkerTs) {
+      const actionMarkerResult = await db.execute({
+        sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
+        args: [ACTION_CHANGE_MARKER_KEY],
+      });
+      const changedActionMarkers = actionMarkerResult.rows.filter(
+        (row) => timestampValue(row.updated_at) > _lastActionMarkerTs,
+      );
+      recordActionChanges(
+        changedActionMarkers
+          .map((row) => parseActionChangeMarker(row.session_id, row.value))
+          .filter((target): target is ActionChangeTarget => !!target),
+      );
+      _lastActionMarkerTs = actionMarkerTs;
     }
 
     // Check for screen-refresh requests from the agent. The `refresh-screen`
