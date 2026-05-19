@@ -23,6 +23,8 @@ import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { identify, track } from "../tracking/index.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
   getDialect,
   getDatabaseUrl,
@@ -51,11 +53,14 @@ import {
  *
  * Resolution order:
  *   1. `BETTER_AUTH_SECRET` env var — explicit, recommended for prod.
- *   2. `.env.local` in the template cwd — a per-workspace persistent secret
+ *   2. Hosted workspace deploys can derive a per-purpose secret from the
+ *      already-required `A2A_SECRET` root. This keeps fresh workspace branches
+ *      bootable without reusing the raw A2A key as a cookie-signing key.
+ *   3. `.env.local` in the template cwd — a per-workspace persistent secret
  *      that the framework writes once on first boot when no secret is set.
  *      Gitignored by convention (`.env*` in template .gitignore files), so
  *      it's safe to persist credentials here.
- *   3. Generate a new random 32-byte hex, write it to `.env.local`, and use
+ *   4. Generate a new random 32-byte hex, write it to `.env.local`, and use
  *      it. Subsequent restarts re-read the same file — so session cookies
  *      signed by a previous boot remain valid across dev-server restarts.
  *
@@ -70,12 +75,15 @@ import {
  */
 function resolveAuthSecret(): string {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
+  const workspaceDerivedSecret = getWorkspaceA2ADerivedSecret("better-auth");
+  if (workspaceDerivedSecret) return workspaceDerivedSecret;
 
-  // In production, never auto-generate or fall back. A regenerated/derived
-  // secret invalidates every signed session cookie on the next cold start
-  // (serverless filesystems aren't persistent), and the legacy hardcoded
-  // fallback is identical across every deploy that hits it — both are
-  // serious enough to fail the boot loudly so the deployer notices.
+  // In production, beyond the workspace A2A-derived fallback above, never
+  // auto-generate or use legacy fallbacks. A generated secret invalidates every
+  // signed session cookie on the next cold start (serverless filesystems
+  // aren't persistent), and the legacy hardcoded fallback is identical across
+  // every deploy that hits it — both are serious enough to fail the boot loudly
+  // so the deployer notices.
   if (process.env.NODE_ENV === "production") {
     const sample = crypto.randomBytes(32).toString("hex");
     throw new Error(
@@ -86,7 +94,9 @@ function resolveAuthSecret(): string {
         "Generate your own with `openssl rand -hex 32`. If you already have a " +
         "running deploy on the legacy hardcoded fallback and need to preserve " +
         "existing sessions, set BETTER_AUTH_SECRET=agent-native-local-dev-secret-k9x2m7q4w8 " +
-        "first, then rotate to a real value.",
+        "first, then rotate to a real value. Hosted workspace deploys may also " +
+        "set A2A_SECRET; agent-native derives a per-purpose Better Auth secret " +
+        "from that workspace root secret.",
     );
   }
 
@@ -680,6 +690,7 @@ async function createBetterAuthInstance(
   const secret = resolveAuthSecret();
 
   const appUrl = getAppProductionUrl();
+  const cookieNamespace = resolveAuthCookieNamespace();
   const requireEmailVerification =
     isEmailConfigured() && !shouldSkipEmailVerification();
 
@@ -845,7 +856,7 @@ async function createBetterAuthInstance(
       },
     },
     advanced: {
-      cookiePrefix: "an",
+      cookiePrefix: cookieNamespace.betterAuthCookiePrefix,
       // Emit `SameSite=None; Secure` when the app is served over HTTPS so
       // session cookies are delivered inside third-party iframes (e.g. the
       // Builder.io editor). Plain-HTTP dev keeps the default (Lax) because
@@ -859,16 +870,15 @@ async function createBetterAuthInstance(
             },
           }
         : {}),
-      // When `COOKIE_DOMAIN` is set, share Better Auth's session cookie
-      // across every subdomain matching that domain. Pairs with the legacy
-      // framework cookie's matching `Domain=` attribute (auth.ts) so that
-      // signing into one first-party app (e.g. mail.agent-native.com)
-      // signs the user into all sibling apps without re-authenticating.
-      ...(process.env.COOKIE_DOMAIN
+      // When an effective shared cookie domain is set, share Better Auth's
+      // session cookie across that domain. First-party `*.agent-native.com`
+      // apps intentionally do not use this path because their auth DBs are
+      // separate; Dispatch identity federation handles cross-app sign-in.
+      ...(cookieNamespace.betterAuthCookieDomain
         ? {
             crossSubDomainCookies: {
               enabled: true,
-              domain: process.env.COOKIE_DOMAIN,
+              domain: cookieNamespace.betterAuthCookieDomain,
             },
           }
         : {}),

@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { getAuthSecret } from "./better-auth-instance.js";
+import { deriveServerSecret } from "./derived-secret.js";
 
 describe("resolveAuthSecret", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_WORKSPACE;
+    delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
     delete process.env.NODE_ENV;
   });
 
@@ -24,6 +28,17 @@ describe("resolveAuthSecret", () => {
   it("throws in production when BETTER_AUTH_SECRET is missing", () => {
     process.env.NODE_ENV = "production";
     expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  it("derives a production workspace auth secret from A2A_SECRET", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    expect(getAuthSecret()).toBe(
+      deriveServerSecret("workspace-root-secret", "better-auth"),
+    );
+    expect(getAuthSecret()).not.toBe("workspace-root-secret");
   });
 
   it("includes a sample value and openssl command in the prod error", () => {

@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.22.3
+
+### Patch Changes
+
+- 5a5b620: Isolate local dev auth cookies per app and stop first-party hosted apps from sharing incompatible agent-native.com session cookies.
+- 5a5b620: Derive production workspace auth and OAuth signing secrets from A2A_SECRET when explicit auth secrets are not configured.
+
 ## 0.22.2
 
 ### Patch Changes

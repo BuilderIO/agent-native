@@ -13,12 +13,14 @@
  * Key resolution mirrors `google-oauth.ts:getStateSigningKey`:
  *   1. OAUTH_STATE_SECRET (preferred — dedicated to short-lived signing)
  *   2. BETTER_AUTH_SECRET (already used as a server secret)
- *   3. In dev only, an ephemeral random key (per-process)
+ *   3. Hosted workspace deploys derive a per-purpose key from A2A_SECRET
+ *   4. In dev only, an ephemeral random key (per-process)
  *
- * In production, throws if neither secret is set.
+ * In production, throws if no usable server secret is set.
  */
 
 import crypto from "node:crypto";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 
 /** Default token TTL, in seconds. 10 minutes covers a typical video session. */
 const DEFAULT_TTL_SECONDS = 600;
@@ -53,13 +55,15 @@ let _devSigningKey: string | undefined;
 
 function getSigningKey(): string {
   const secret =
-    process.env.OAUTH_STATE_SECRET || process.env.BETTER_AUTH_SECRET;
+    process.env.OAUTH_STATE_SECRET ||
+    process.env.BETTER_AUTH_SECRET ||
+    getWorkspaceA2ADerivedSecret("short-lived-token");
   if (secret) return secret;
 
   if (process.env.NODE_ENV === "production") {
     throw new Error(
       "Short-lived token signing requires a server secret. " +
-        "Set OAUTH_STATE_SECRET or BETTER_AUTH_SECRET in production.",
+        "Set OAUTH_STATE_SECRET, BETTER_AUTH_SECRET, or A2A_SECRET in production workspace deploys.",
     );
   }
 
