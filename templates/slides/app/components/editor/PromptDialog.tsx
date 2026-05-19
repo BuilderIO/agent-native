@@ -28,6 +28,7 @@ interface PromptPopoverProps {
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
+  onBeforeUpload?: (prompt: string, files: File[]) => boolean | void;
   children?: React.ReactNode;
 }
 
@@ -45,6 +46,7 @@ export default function PromptPopover({
   draftScope,
   initialText,
   initialTextKey,
+  onBeforeUpload,
   children,
 }: PromptPopoverProps) {
   const [uploading, setUploading] = useState(false);
@@ -136,11 +138,14 @@ export default function PromptPopover({
 
   const handleSubmit = useCallback(
     async (text: string, files: File[]) => {
+      const enrichedText = [text.trim(), googleDocContext]
+        .filter(Boolean)
+        .join("\n\n");
+      if (files.length > 0 && onBeforeUpload?.(enrichedText, files) === false) {
+        return;
+      }
       try {
         const uploaded = await uploadFiles(files);
-        const enrichedText = [text.trim(), googleDocContext]
-          .filter(Boolean)
-          .join("\n\n");
         onSubmit(enrichedText, uploaded);
       } catch (error) {
         toast({
@@ -153,7 +158,7 @@ export default function PromptPopover({
         });
       }
     },
-    [googleDocContext, onSubmit, uploadFiles],
+    [googleDocContext, onBeforeUpload, onSubmit, uploadFiles],
   );
 
   useEffect(() => {

@@ -62,6 +62,19 @@ function clearPendingPromptForRetry() {
   } catch {}
 }
 
+function mergeUploadedFilesForRetry(
+  savedFiles: UploadedFile[],
+  newFiles: UploadedFile[],
+): UploadedFile[] {
+  const seen = new Set<string>();
+  return [...savedFiles, ...newFiles].filter((file) => {
+    const key = file.path || file.url || file.filename;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function summarizePromptForChat(prompt: string): string {
   const singleLine = prompt.trim().replace(/\s+/g, " ");
   if (!singleLine) return "new deck";
@@ -126,6 +139,10 @@ export default function Index() {
     text: string;
     key: number;
   } | null>(null);
+  const [newDeckRetryFiles, setNewDeckRetryFiles] = useState<UploadedFile[]>(
+    [],
+  );
+  const [signInPromptHadFiles, setSignInPromptHadFiles] = useState(false);
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState("");
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [duplicating, setDuplicating] = useState<string | null>(null);
@@ -180,11 +197,32 @@ export default function Index() {
         setSelectedDesignSystemId("");
         if (options.clearInitialPrompt !== false) {
           setNewDeckInitialPrompt(null);
+          setNewDeckRetryFiles([]);
         }
       }
     },
     [],
   );
+
+  const preservePromptForSignIn = useCallback(
+    (prompt: string, options: { hadFiles?: boolean } = {}) => {
+      if (!savePromptForRetry(prompt, { persistAcrossSignIn: true })) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+      }
+      setNewDeckRetryFiles([]);
+      setSignInPromptHadFiles(Boolean(options.hadFiles));
+      setNewDeckPromptOpen(false, { clearInitialPrompt: false });
+      setShowSignInDialog(true);
+    },
+    [setNewDeckPromptOpen],
+  );
+
+  const setSignInDialogOpen = useCallback((open: boolean) => {
+    setShowSignInDialog(open);
+    if (!open) {
+      setSignInPromptHadFiles(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!showNewDeckPrompt || selectedDesignSystemId) return;
@@ -248,14 +286,14 @@ export default function Index() {
     // sidebar. Catch it here so the user sees a clear sign-in prompt
     // and the typed prompt isn't lost when they come back.
     if (!session) {
-      if (!savePromptForRetry(prompt, { persistAcrossSignIn: true })) {
-        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
-      }
-      setNewDeckPromptOpen(false, { clearInitialPrompt: false });
-      setShowSignInDialog(true);
+      preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });
       return;
     }
 
+    const filesForGeneration = mergeUploadedFilesForRetry(
+      newDeckRetryFiles,
+      files,
+    );
     const selectedDesignSystem =
       selectedDesignSystemId && selectedDesignSystemId !== "none"
         ? designSystems.find((ds) => ds.id === selectedDesignSystemId)
@@ -276,7 +314,10 @@ export default function Index() {
     const googleDocUrls = hasImportedGoogleDocContext
       ? []
       : extractGoogleDocUrls(trimmedPrompt);
-    const fileContext = describeUploadedFilesForAgent(files, deck.id);
+    const fileContext = describeUploadedFilesForAgent(
+      filesForGeneration,
+      deck.id,
+    );
     const googleDocContext =
       googleDocUrls.length > 0
         ? [
@@ -331,6 +372,7 @@ export default function Index() {
       if (!savePromptForRetry(prompt)) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
+      setNewDeckRetryFiles(filesForGeneration);
       deleteDeck(deck.id);
       toast({
         title: "Couldn't start deck generation",
@@ -343,6 +385,7 @@ export default function Index() {
 
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
+    setNewDeckRetryFiles([]);
     agentSubmit(
       `Create deck: ${summarizePromptForChat(trimmedPrompt)}`,
       context,
@@ -545,6 +588,11 @@ export default function Index() {
         onSkip={handleCreateDeckBlank}
         skipLabel="Skip prompt"
         onSubmit={handleCreateDeckWithPrompt}
+        onBeforeUpload={(prompt, files) => {
+          if (session) return true;
+          preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });
+          return false;
+        }}
         loading={generating}
         anchorRef={anchorRef}
         draftScope={NEW_DECK_DRAFT_SCOPE}
@@ -580,13 +628,14 @@ export default function Index() {
       {/* Sign-in required to create a deck. Shown when an unauthenticated
           user submits a prompt — the typed prompt is preserved in
           sessionStorage and replayed into the composer after sign-in. */}
-      <AlertDialog open={showSignInDialog} onOpenChange={setShowSignInDialog}>
+      <AlertDialog open={showSignInDialog} onOpenChange={setSignInDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Sign in to create a deck</AlertDialogTitle>
             <AlertDialogDescription>
-              You need to sign in before generating a deck. We've saved your
-              prompt — once you're back, it'll be ready to go.
+              {signInPromptHadFiles
+                ? "You need to sign in before generating a deck. We've saved your prompt; reattach any files once you're back."
+                : "You need to sign in before generating a deck. We've saved your prompt — once you're back, it'll be ready to go."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
