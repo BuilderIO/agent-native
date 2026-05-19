@@ -1040,15 +1040,18 @@ export class RecorderEngine {
   // -------------------------------------------------------------------------
 
   private buildCombinedStream(): MediaStream {
-    // Screen-only: just add mic audio if we have it.
+    // Screen-only: prefer mic audio; fall back to display (system) audio only
+    // when no mic is present. MediaRecorder in Chromium-based browsers records
+    // only the first audio track in the stream, so mic must come first.
     if (this.opts.mode === "screen") {
       const combined = new MediaStream();
       for (const t of this.displayStream!.getVideoTracks())
         combined.addTrack(t);
-      for (const t of this.displayStream!.getAudioTracks())
-        combined.addTrack(t);
       if (this.micStream) {
         for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
+      } else {
+        for (const t of this.displayStream!.getAudioTracks())
+          combined.addTrack(t);
       }
       return combined;
     }
@@ -1075,9 +1078,11 @@ export class RecorderEngine {
     const combined = new MediaStream();
     for (const t of this.cameraComposite.stream.getVideoTracks())
       combined.addTrack(t);
-    for (const t of this.displayStream!.getAudioTracks()) combined.addTrack(t);
+    // Prefer mic audio; fall back to display (system) audio only when no mic.
     if (this.micStream) {
       for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
+    } else {
+      for (const t of this.displayStream!.getAudioTracks()) combined.addTrack(t);
     }
     return combined;
   }
