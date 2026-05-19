@@ -390,18 +390,10 @@ export async function withDbTimeout<T>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
 
-  const runCleanup = () => {
+  const runCleanup = async () => {
     if (!onTimeout) return;
     try {
-      const result = onTimeout();
-      if (result && typeof (result as Promise<void>).catch === "function") {
-        void (result as Promise<void>).catch((err) => {
-          console.warn(
-            `[db] timeout cleanup for ${op} failed:`,
-            err instanceof Error ? err.message : err,
-          );
-        });
-      }
+      await onTimeout();
     } catch (err) {
       console.warn(
         `[db] timeout cleanup for ${op} failed:`,
@@ -428,8 +420,12 @@ export async function withDbTimeout<T>(
     };
 
     timer = setTimeout(() => {
-      runCleanup();
-      fail(new DbTimeoutError(op, ms));
+      if (settled) return;
+      settled = true;
+      void (async () => {
+        await runCleanup();
+        reject(new DbTimeoutError(op, ms));
+      })();
     }, ms);
 
     let promise: Promise<T>;
@@ -627,7 +623,6 @@ async function createDbExecInternal(
             onnotice: () => {},
           });
           let timedOut = false;
-          let query: ReturnType<typeof conn.unsafe> | undefined;
           try {
             const rawSql = typeof sql === "string" ? sql : sql.sql;
             const args = typeof sql === "string" ? [] : sql.args || [];
@@ -636,16 +631,14 @@ async function createDbExecInternal(
               ArrayLike<unknown> & { count?: number }
             >(
               "query",
-              () => {
-                query = conn.unsafe(pgSql, args as any[]);
-                return query as Promise<
+              () =>
+                conn.unsafe(pgSql, args as any[]) as Promise<
                   ArrayLike<unknown> & { count?: number }
-                >;
-              },
+                >,
               dbOpTimeoutMs(),
               () => {
                 timedOut = true;
-                query?.cancel?.();
+                return conn.end({ timeout: 1 });
               },
             );
             return {
@@ -653,8 +646,7 @@ async function createDbExecInternal(
               rowsAffected: result.count ?? 0,
             };
           } finally {
-            if (timedOut) await conn.end({ timeout: 1 });
-            else await conn.end();
+            if (!timedOut) await conn.end();
           }
         },
       };
@@ -664,8 +656,15 @@ async function createDbExecInternal(
       // frozen instances don't exhaust Neon/Postgres' connection limit;
       // idle_timeout also closes idle connections before Neon's ~5min
       // server-side timeout, avoiding ECONNRESET when the server hangs up.
-      const pool = postgres(url, pgPoolOptions(url));
+      const createPool = () => postgres(url, pgPoolOptions(url));
+      let pool = createPool();
       if (trackSingletonResources) _pgPool = pool;
+      const recyclePool = async () => {
+        const oldPool = pool;
+        pool = createPool();
+        if (trackSingletonResources) _pgPool = pool;
+        await oldPool.end({ timeout: 1 });
+      };
 
       return {
         async execute(sql) {
@@ -680,7 +679,7 @@ async function createDbExecInternal(
               "query",
               () => query,
               dbOpTimeoutMs(),
-              () => query.cancel(),
+              recyclePool,
             );
           });
           return {

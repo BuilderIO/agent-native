@@ -2,15 +2,27 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   deleteAppSecret: vi.fn(),
+  getDb: vi.fn(),
+  listAppSecretsForScope: vi.fn(),
   writeAppSecret: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/secrets", () => ({
   deleteAppSecret: mocks.deleteAppSecret,
+  listAppSecretsForScope: mocks.listAppSecretsForScope,
   writeAppSecret: mocks.writeAppSecret,
 }));
 
+vi.mock("../../db/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../db/index.js")>();
+  return {
+    ...actual,
+    getDb: mocks.getDb,
+  };
+});
+
 import {
+  cleanupSyncedCredentialKeysIfUnused,
   credentialStoreScopeForVaultCtx,
   syncSecretsToCredentialStore,
 } from "./vault-store.js";
@@ -66,6 +78,72 @@ describe("syncSecretsToCredentialStore", () => {
       scope: "org",
       scopeId: "org_123",
       keys: ["OPENAI_API_KEY"],
+    });
+  });
+});
+
+describe("cleanupSyncedCredentialKeysIfUnused", () => {
+  function mockVaultSecretLookup(rows: Array<{ id: string }> = []) {
+    const query = {
+      select: vi.fn(() => query),
+      from: vi.fn(() => query),
+      where: vi.fn(() => query),
+      limit: vi.fn(async () => rows),
+    };
+    mocks.getDb.mockReturnValue(query);
+    return query;
+  }
+
+  it("deletes a candidate synced credential when no vault secret still uses it", async () => {
+    mockVaultSecretLookup([]);
+
+    await cleanupSyncedCredentialKeysIfUnused(
+      { ownerEmail: "admin@example.test", orgId: "org_123" },
+      ["OLD_API_KEY"],
+    );
+
+    expect(mocks.deleteAppSecret).toHaveBeenCalledWith({
+      key: "OLD_API_KEY",
+      scope: "org",
+      scopeId: "org_123",
+    });
+  });
+
+  it("keeps a candidate synced credential when another vault secret still uses it", async () => {
+    mockVaultSecretLookup([{ id: "secret_1" }]);
+
+    await cleanupSyncedCredentialKeysIfUnused(
+      { ownerEmail: "admin@example.test", orgId: "org_123" },
+      ["SHARED_API_KEY"],
+    );
+
+    expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("can scan synced app secrets to recover stale keys after a retry", async () => {
+    mockVaultSecretLookup([]);
+    mocks.listAppSecretsForScope.mockResolvedValue([
+      {
+        key: "STALE_KEY",
+        description: "Synced from Dispatch vault: Old key",
+      },
+      {
+        key: "HAND_WRITTEN_KEY",
+        description: "Created manually",
+      },
+    ]);
+
+    await cleanupSyncedCredentialKeysIfUnused({
+      ownerEmail: "admin@example.test",
+      orgId: "org_123",
+    });
+
+    expect(mocks.listAppSecretsForScope).toHaveBeenCalledWith("org", "org_123");
+    expect(mocks.deleteAppSecret).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteAppSecret).toHaveBeenCalledWith({
+      key: "STALE_KEY",
+      scope: "org",
+      scopeId: "org_123",
     });
   });
 });

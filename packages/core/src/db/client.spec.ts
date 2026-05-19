@@ -143,6 +143,25 @@ describe("withDbTimeout", () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
+  it("waits for async timeout cleanup before rejecting", async () => {
+    const { withDbTimeout } = await import("./client.js");
+    const events: string[] = [];
+
+    await expect(
+      withDbTimeout(
+        "query",
+        () => new Promise(() => {}),
+        10,
+        async () => {
+          await new Promise((r) => setTimeout(r, 10));
+          events.push("cleanup");
+        },
+      ),
+    ).rejects.toMatchObject({ code: "CONNECT_TIMEOUT" });
+
+    expect(events).toEqual(["cleanup"]);
+  });
+
   it("can retry when timeout is inside the retry attempt", async () => {
     const { retryOnConnectionError, withDbTimeout } =
       await import("./client.js");

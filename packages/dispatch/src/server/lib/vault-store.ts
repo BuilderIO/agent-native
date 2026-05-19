@@ -3,6 +3,7 @@ import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import {
   deleteAppSecret,
+  listAppSecretsForScope,
   writeAppSecret,
   type SecretScope,
 } from "@agent-native/core/secrets";
@@ -20,6 +21,7 @@ import {
 } from "./dispatch-store.js";
 
 const VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
+const VAULT_SYNC_DESCRIPTION_PREFIX = "Synced from Dispatch vault:";
 
 export type VaultAccessMode = "all-apps" | "manual";
 
@@ -403,24 +405,9 @@ export async function updateSecret(
   const updated = await getSecret(secretId, ctx);
   if (updated) await syncSecretsToCredentialStore([updated], ctx);
   if (updated && credentialKey !== existing.credentialKey) {
-    const stillUsesOldKey = await db
-      .select({ id: schema.vaultSecrets.id })
-      .from(schema.vaultSecrets)
-      .where(
-        and(
-          eq(schema.vaultSecrets.credentialKey, existing.credentialKey),
-          ctxScope(schema.vaultSecrets, ctx),
-        ),
-      )
-      .limit(1);
-    if (!stillUsesOldKey[0]) {
-      const target = credentialStoreScopeForVaultCtx(ctx);
-      await deleteAppSecret({
-        key: existing.credentialKey,
-        scope: target.scope,
-        scopeId: target.scopeId,
-      });
-    }
+    await cleanupSyncedCredentialKeysIfUnused(ctx, [existing.credentialKey]);
+  } else if (patch.credentialKey !== undefined) {
+    await cleanupSyncedCredentialKeysIfUnused(ctx);
   }
   return updated;
 }
@@ -449,6 +436,7 @@ export async function deleteSecret(
         ctxScope(schema.vaultSecrets, ctx),
       ),
     );
+  await cleanupSyncedCredentialKeysIfUnused(ctx, [existing.credentialKey]);
 
   await recordVaultAudit({
     action: "secret.deleted",
@@ -652,12 +640,47 @@ export async function syncSecretsToCredentialStore(
       value: secret.value,
       scope: target.scope,
       scopeId: target.scopeId,
-      description: `Synced from Dispatch vault: ${secret.name}`,
+      description: `${VAULT_SYNC_DESCRIPTION_PREFIX} ${secret.name}`,
     });
     syncedKeys.push(secret.credentialKey);
   }
 
   return { ...target, keys: syncedKeys };
+}
+
+export async function cleanupSyncedCredentialKeysIfUnused(
+  ctx: VaultCtx,
+  candidateKeys?: string[],
+) {
+  const db = getDb();
+  const target = credentialStoreScopeForVaultCtx(ctx);
+  const keys = candidateKeys
+    ? candidateKeys
+    : (await listAppSecretsForScope(target.scope, target.scopeId))
+        .filter((secret) =>
+          secret.description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX),
+        )
+        .map((secret) => secret.key);
+
+  for (const key of new Set(keys.filter(Boolean))) {
+    const stillUsesKey = await db
+      .select({ id: schema.vaultSecrets.id })
+      .from(schema.vaultSecrets)
+      .where(
+        and(
+          eq(schema.vaultSecrets.credentialKey, key),
+          ctxScope(schema.vaultSecrets, ctx),
+        ),
+      )
+      .limit(1);
+    if (!stillUsesKey[0]) {
+      await deleteAppSecret({
+        key,
+        scope: target.scope,
+        scopeId: target.scopeId,
+      });
+    }
+  }
 }
 
 // ─── Sync ──────────────────────────────────────────────────────
