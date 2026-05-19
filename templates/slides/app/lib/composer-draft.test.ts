@@ -12,6 +12,10 @@ describe("composer draft helpers", () => {
     );
   });
 
+  it("keeps empty prompts as empty drafts", () => {
+    expect(promptToComposerDraftHtml(" \n ")).toBe("");
+  });
+
   it("stores prompts under the encoded draft scope", () => {
     const storage = { setItem: vi.fn() } as unknown as Storage;
 
@@ -22,5 +26,17 @@ describe("composer draft helpers", () => {
       composerDraftStorageKey("slides new/deck"),
       "<p>Try again</p>",
     );
+  });
+
+  it("reports storage failures", () => {
+    const storage = {
+      setItem: vi.fn(() => {
+        throw new Error("quota exceeded");
+      }),
+    } as unknown as Storage;
+
+    expect(
+      savePromptToComposerDraft("slides-new-deck", "Try again", storage),
+    ).toBe(false);
   });
 });

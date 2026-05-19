@@ -186,10 +186,11 @@ export default function Index() {
       saved = sessionStorage.getItem(PENDING_PROMPT_KEY);
     } catch {}
     if (!saved) return;
-    savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved);
-    try {
-      sessionStorage.removeItem(PENDING_PROMPT_KEY);
-    } catch {}
+    if (savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved)) {
+      try {
+        sessionStorage.removeItem(PENDING_PROMPT_KEY);
+      } catch {}
+    }
     setSelectedDesignSystemId(defaultSystem?.id ?? "none");
     setShowNewDeckPrompt(true);
   }, [defaultSystem?.id, session]);

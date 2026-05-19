@@ -3,6 +3,8 @@ export function composerDraftStorageKey(draftScope: string): string {
 }
 
 export function promptToComposerDraftHtml(prompt: string): string {
+  if (!prompt.trim()) return "";
+
   const escaped = prompt
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
