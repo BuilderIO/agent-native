@@ -6,6 +6,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 import { getAnalysis } from "../server/lib/dashboards-store";
+import {
+  analyticsAnalysisMcpAppHtml,
+  analyticsMcpAppResourceMeta,
+} from "./_mcp-apps.js";
 
 export default defineAction({
   description: "Get a saved ad-hoc analysis by ID, including its full results.",
@@ -15,6 +19,14 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpApp: {
+    resource: {
+      title: "Analysis preview",
+      description: "Read the saved Analytics analysis inline.",
+      html: analyticsAnalysisMcpAppHtml,
+      ...analyticsMcpAppResourceMeta,
+    },
+  },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
     const a = result as { id?: string; error?: string };

@@ -9,6 +9,7 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { appendSignatureToBody } from "../shared/signature.js";
+import { mailDraftMcpAppHtml, mailMcpAppResourceMeta } from "./_mcp-apps.js";
 
 /**
  * Cap for the base64url `compose=` query param. A full draft (recipients +
@@ -109,6 +110,14 @@ export default defineAction({
       .optional()
       .describe("The 'from' account email address to send from"),
   }),
+  mcpApp: {
+    resource: {
+      title: "Review email draft",
+      description: "Review and edit a generated Mail draft inline.",
+      html: mailDraftMcpAppHtml,
+      ...mailMcpAppResourceMeta,
+    },
+  },
   run: async (args) => {
     const action = args.action;
     if (!action)

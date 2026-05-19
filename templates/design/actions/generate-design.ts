@@ -10,6 +10,10 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
+import {
+  designMcpAppResourceMeta,
+  designPreviewMcpAppHtml,
+} from "./_mcp-apps.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -98,6 +102,14 @@ export default defineAction({
           "the design's `:root` block actually uses.",
       ),
   }),
+  mcpApp: {
+    resource: {
+      title: "Design preview",
+      description: "Preview generated Design files inline.",
+      html: designPreviewMcpAppHtml,
+      ...designMcpAppResourceMeta,
+    },
+  },
   run: async ({
     designId,
     prompt,

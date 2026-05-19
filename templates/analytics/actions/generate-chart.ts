@@ -2,18 +2,13 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import type { ChartJSNodeCanvas as ChartJSNodeCanvasType } from "chartjs-node-canvas";
 import type { ChartConfiguration, ChartType } from "chart.js";
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "path";
-
-function getMediaDir(): string {
-  const base = import.meta.dirname ?? process.cwd?.();
-  if (!base) {
-    throw new Error(
-      "generate-chart: cannot resolve media directory (no dirname or cwd available in this runtime)",
-    );
-  }
-  return join(base, import.meta.dirname ? "../media" : "media");
-}
+import {
+  analyticsChartMcpAppHtml,
+  analyticsMcpAppResourceMeta,
+} from "./_mcp-apps.js";
+import { getAnalyticsMediaDir } from "../server/lib/media-dir.js";
 
 const THEMES = {
   dark: {
@@ -57,7 +52,7 @@ const PALETTES = {
 
 function getTheme(): "dark" | "light" {
   try {
-    const themeFile = join(getMediaDir(), "theme.json");
+    const themeFile = join(getAnalyticsMediaDir(), "theme.json");
     if (existsSync(themeFile)) {
       const data = JSON.parse(readFileSync(themeFile, "utf8"));
       if (data.theme === "light") return "light";
@@ -125,6 +120,14 @@ export default defineAction({
     filename: z.string().optional().describe("Output filename (without .png)"),
   }),
   http: false,
+  mcpApp: {
+    resource: {
+      title: "Chart preview",
+      description: "Preview the generated Analytics chart inline.",
+      html: analyticsChartMcpAppHtml,
+      ...analyticsMcpAppResourceMeta,
+    },
+  },
   run: async (args) => {
     if (!args.title) {
       return { error: "--title is required", fallback: CHART_FALLBACK_HINT };
@@ -284,10 +287,7 @@ export default defineAction({
       ],
     };
 
-    const mediaDir = getMediaDir();
-    if (!existsSync(mediaDir)) {
-      mkdirSync(mediaDir, { recursive: true });
-    }
+    const mediaDir = getAnalyticsMediaDir();
 
     const filename =
       (args.filename || `${slugify(title)}-${Date.now()}`) + ".png";

@@ -190,6 +190,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.link === "function") {
     out.link = entry.link;
   }
+  if (
+    entry.mcpApp &&
+    typeof entry.mcpApp === "object" &&
+    !Array.isArray(entry.mcpApp)
+  ) {
+    out.mcpApp = entry.mcpApp;
+  }
   return out;
 }
 

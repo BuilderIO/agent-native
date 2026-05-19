@@ -8,6 +8,10 @@ import {
 import { z } from "zod";
 import { upsertAnalysis } from "../server/lib/dashboards-store";
 import { hasDataQueryAttempt } from "../server/lib/real-data-actions";
+import {
+  analyticsAnalysisMcpAppHtml,
+  analyticsMcpAppResourceMeta,
+} from "./_mcp-apps.js";
 
 function parseJsonArg(value: unknown, label: string): unknown {
   if (typeof value !== "string") return value;
@@ -100,6 +104,14 @@ export default defineAction({
       ),
   }),
   http: false,
+  mcpApp: {
+    resource: {
+      title: "Saved analysis",
+      description: "Preview the saved Analytics analysis inline.",
+      html: analyticsAnalysisMcpAppHtml,
+      ...analyticsMcpAppResourceMeta,
+    },
+  },
   run: async (args) => {
     const runCtx = getRequestRunContext();
     if (
@@ -127,6 +139,9 @@ export default defineAction({
       id: args.id,
       analysisId: args.id,
       name: args.name,
+      description: args.description,
+      resultMarkdown: args.resultMarkdown,
+      resultData: args.resultData,
       urlPath: `/analyses/${args.id}`,
       deepLink: buildDeepLink({
         app: "analytics",
