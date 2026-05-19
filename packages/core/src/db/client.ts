@@ -377,26 +377,70 @@ class DbTimeoutError extends Error {
 }
 
 /**
- * Race a DB op against {@link dbOpTimeoutMs}. The losing (hung) promise is
- * abandoned — acceptable on serverless, where the instance is short-lived and
- * the Neon pool has its own 'error' handler — but the request no longer hangs.
+ * Race a DB op against {@link dbOpTimeoutMs}. Callers that own a cancellable
+ * query or pooled client should pass onTimeout so the losing operation does
+ * not keep occupying a scarce connection slot after the request has recovered.
  */
 export async function withDbTimeout<T>(
   op: string,
   run: () => Promise<T>,
   ms = dbOpTimeoutMs(),
+  onTimeout?: () => void | Promise<void>,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      run(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new DbTimeoutError(op, ms)), ms);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  let settled = false;
+
+  const runCleanup = () => {
+    if (!onTimeout) return;
+    try {
+      const result = onTimeout();
+      if (result && typeof (result as Promise<void>).catch === "function") {
+        void (result as Promise<void>).catch((err) => {
+          console.warn(
+            `[db] timeout cleanup for ${op} failed:`,
+            err instanceof Error ? err.message : err,
+          );
+        });
+      }
+    } catch (err) {
+      console.warn(
+        `[db] timeout cleanup for ${op} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  };
+
+  return await new Promise<T>((resolve, reject) => {
+    const finish = (
+      complete: (value: T | PromiseLike<T>) => void,
+      value: T | PromiseLike<T>,
+    ) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      complete(value);
+    };
+    const fail = (err: unknown) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      reject(err);
+    };
+
+    timer = setTimeout(() => {
+      runCleanup();
+      fail(new DbTimeoutError(op, ms));
+    }, ms);
+
+    let promise: Promise<T>;
+    try {
+      promise = run();
+    } catch (err) {
+      fail(err);
+      return;
+    }
+    promise.then((value) => finish(resolve, value), fail);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -529,12 +573,36 @@ async function createDbExecInternal(
           const rawSql = typeof sql === "string" ? sql : sql.sql;
           const args = typeof sql === "string" ? [] : sql.args || [];
           const pgSql = sqliteToPostgresParams(rawSql);
-          const result = await withDbTimeout("query", () =>
-            retryOnConnectionError<{
-              rows: unknown[];
-              rowCount?: number;
-            }>(() => pool.query(pgSql, args as any[])),
-          );
+          const result = await retryOnConnectionError<{
+            rows: unknown[];
+            rowCount?: number;
+          }>(async () => {
+            const client = await pool.connect();
+            let released = false;
+            const releaseClient = (err?: Error | boolean) => {
+              if (released) return;
+              released = true;
+              client.release(err);
+            };
+
+            try {
+              const result = await withDbTimeout(
+                "query",
+                () =>
+                  client.query(pgSql, args as any[]) as Promise<{
+                    rows: unknown[];
+                    rowCount?: number;
+                  }>,
+                dbOpTimeoutMs(),
+                () => releaseClient(true),
+              );
+              releaseClient();
+              return result;
+            } catch (err) {
+              releaseClient(isConnectionError(err) ? true : undefined);
+              throw err;
+            }
+          });
           return {
             rows: result.rows,
             rowsAffected: result.rowCount ?? 0,
@@ -558,19 +626,35 @@ async function createDbExecInternal(
             idle_timeout: 0,
             onnotice: () => {},
           });
+          let timedOut = false;
+          let query: ReturnType<typeof conn.unsafe> | undefined;
           try {
             const rawSql = typeof sql === "string" ? sql : sql.sql;
             const args = typeof sql === "string" ? [] : sql.args || [];
             const pgSql = sqliteToPostgresParams(rawSql);
-            const result = await withDbTimeout("query", () =>
-              conn.unsafe(pgSql, args as any[]),
+            const result = await withDbTimeout<
+              ArrayLike<unknown> & { count?: number }
+            >(
+              "query",
+              () => {
+                query = conn.unsafe(pgSql, args as any[]);
+                return query as Promise<
+                  ArrayLike<unknown> & { count?: number }
+                >;
+              },
+              dbOpTimeoutMs(),
+              () => {
+                timedOut = true;
+                query?.cancel?.();
+              },
             );
             return {
               rows: Array.from(result),
               rowsAffected: result.count ?? 0,
             };
           } finally {
-            await conn.end();
+            if (timedOut) await conn.end({ timeout: 1 });
+            else await conn.end();
           }
         },
       };
@@ -588,11 +672,17 @@ async function createDbExecInternal(
           const rawSql = typeof sql === "string" ? sql : sql.sql;
           const args = typeof sql === "string" ? [] : sql.args || [];
           const pgSql = sqliteToPostgresParams(rawSql);
-          const result = await withDbTimeout("query", () =>
-            retryOnConnectionError<ArrayLike<unknown> & { count?: number }>(
-              () => pool.unsafe(pgSql, args as any[]),
-            ),
-          );
+          const result = await retryOnConnectionError<
+            ArrayLike<unknown> & { count?: number }
+          >(() => {
+            const query = pool.unsafe(pgSql, args as any[]);
+            return withDbTimeout(
+              "query",
+              () => query,
+              dbOpTimeoutMs(),
+              () => query.cancel(),
+            );
+          });
           return {
             rows: Array.from(result),
             rowsAffected: result.count ?? 0,

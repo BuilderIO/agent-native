@@ -328,6 +328,12 @@ export async function updateSecret(
   if (!name) throw new Error("Secret name is required");
   const value = patch.value !== undefined ? patch.value : existing.value;
   if (!value) throw new Error("Secret value is required");
+  const provider =
+    patch.provider !== undefined ? patch.provider || null : existing.provider;
+  const description =
+    patch.description !== undefined
+      ? patch.description || null
+      : existing.description;
 
   if (credentialKey !== existing.credentialKey) {
     const conflict = await db
@@ -351,14 +357,8 @@ export async function updateSecret(
       name,
       credentialKey,
       value,
-      provider:
-        patch.provider !== undefined
-          ? patch.provider || null
-          : existing.provider,
-      description:
-        patch.description !== undefined
-          ? patch.description || null
-          : existing.description,
+      provider,
+      description,
       updatedAt: now(),
     })
     .where(
@@ -368,21 +368,28 @@ export async function updateSecret(
       ),
     );
 
+  const auditMetadata = {
+    name,
+    previousName: name !== existing.name ? existing.name : undefined,
+    credentialKey,
+    previousCredentialKey:
+      credentialKey !== existing.credentialKey
+        ? existing.credentialKey
+        : undefined,
+    provider,
+    previousProvider:
+      provider !== existing.provider ? existing.provider : undefined,
+    description,
+    previousDescription:
+      description !== existing.description ? existing.description : undefined,
+    valueChanged: value !== existing.value ? true : undefined,
+  };
+
   await recordVaultAudit({
     action: "secret.updated",
     secretId,
     summary: `Updated secret "${name}" (${credentialKey})`,
-    metadata: {
-      credentialKey,
-      previousCredentialKey:
-        credentialKey !== existing.credentialKey
-          ? existing.credentialKey
-          : undefined,
-      provider:
-        patch.provider !== undefined
-          ? patch.provider || null
-          : existing.provider,
-    },
+    metadata: auditMetadata,
   });
 
   await recordAudit({
@@ -390,13 +397,7 @@ export async function updateSecret(
     targetType: "vault-secret",
     targetId: secretId,
     summary: `Updated vault secret "${name}" (${credentialKey})`,
-    metadata: {
-      credentialKey,
-      previousCredentialKey:
-        credentialKey !== existing.credentialKey
-          ? existing.credentialKey
-          : undefined,
-    },
+    metadata: auditMetadata,
   });
 
   const updated = await getSecret(secretId, ctx);
