@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.4
+
+### Patch Changes
+
+- 15d9967: Clean up synced Dispatch vault secrets on delete and make DB timeout cleanup awaitable.
+
 ## 0.8.3
 
 ### Patch Changes
