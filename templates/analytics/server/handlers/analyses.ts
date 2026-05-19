@@ -26,6 +26,7 @@ export const listAnalyses = defineEventHandler(async (event) => {
         author: a.author,
         ownerEmail: a.ownerEmail,
         visibility: a.visibility,
+        keptAt: a.keptAt,
       }))
       .sort(
         (a, b) =>
@@ -66,6 +67,7 @@ export const getAnalysis = defineEventHandler(async (event) => {
       ownerEmail: a.ownerEmail,
       orgId: a.orgId,
       visibility: a.visibility,
+      keptAt: a.keptAt,
     };
   } catch (err: any) {
     const status = err?.statusCode ?? 500;

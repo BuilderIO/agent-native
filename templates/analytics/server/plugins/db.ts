@@ -173,6 +173,24 @@ export default runMigrations(
       version: 20,
       sql: `CREATE INDEX IF NOT EXISTS dashboards_archived_at_idx ON dashboards (archived_at)`,
     },
+    {
+      version: 21,
+      sql: `ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS kept_at TEXT`,
+    },
+    {
+      version: 22,
+      sql: `ALTER TABLE analyses ADD COLUMN IF NOT EXISTS kept_at TEXT`,
+    },
+    {
+      // One-time pass: make all pre-existing private dashboards org-visible so
+      // teammates can open them and decide whether to keep them.
+      version: 23,
+      sql: `UPDATE dashboards SET visibility = 'org' WHERE visibility = 'private'`,
+    },
+    {
+      version: 24,
+      sql: `UPDATE analyses SET visibility = 'org' WHERE visibility = 'private'`,
+    },
   ],
   { table: "analytics_migrations" },
 );

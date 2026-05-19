@@ -1,4 +1,4 @@
-import Index from "@/pages/Index";
+import OverviewPage from "@/pages/overview/OverviewPage";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
@@ -14,5 +14,5 @@ export function HydrateFallback() {
 }
 
 export default function OverviewRoute() {
-  return <Index />;
+  return <OverviewPage />;
 }

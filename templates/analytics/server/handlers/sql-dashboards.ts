@@ -103,6 +103,9 @@ export const listSqlDashboards = defineEventHandler(async (event) => {
       orgId: d.orgId,
       visibility: d.visibility,
       archivedAt: d.archivedAt,
+      keptAt: d.keptAt,
+      updatedAt: d.updatedAt,
+      createdAt: d.createdAt,
     }));
     return { dashboards };
   } catch (err: any) {
@@ -131,6 +134,9 @@ export const getSqlDashboard = defineEventHandler(async (event) => {
       orgId: dash.orgId,
       visibility: dash.visibility,
       archivedAt: dash.archivedAt,
+      keptAt: dash.keptAt,
+      createdAt: dash.createdAt,
+      updatedAt: dash.updatedAt,
     };
   } catch (err: any) {
     const status = err?.statusCode ?? 500;

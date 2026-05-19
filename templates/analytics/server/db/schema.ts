@@ -27,6 +27,8 @@ export const dashboards = table("dashboards", {
   /** Archive timestamp. Null = active. Archived rows are hidden from
    *  default list responses but remain accessible by id and can be restored. */
   archivedAt: text("archived_at"),
+  /** Set when a user clicks "Keep" during the one-time cleanup pass. Null = unclaimed. */
+  keptAt: text("kept_at"),
   ...ownableColumns(),
 });
 
@@ -68,6 +70,8 @@ export const analyses = table("analyses", {
   author: text("author"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  /** Set when a user clicks "Keep" during the one-time cleanup pass. Null = unclaimed. */
+  keptAt: text("kept_at"),
   ...ownableColumns(),
 });
 

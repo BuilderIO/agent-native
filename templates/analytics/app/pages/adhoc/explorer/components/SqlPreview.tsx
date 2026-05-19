@@ -2,6 +2,7 @@ import { useState } from "react";
 import { IconChevronRight, IconCopy, IconCheck } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { SqlHighlight } from "@/components/SqlHighlight";
 
 interface SqlPreviewProps {
   sql: string;
@@ -33,9 +34,10 @@ export function SqlPreview({ sql }: SqlPreviewProps) {
       </button>
       {expanded && (
         <div className="relative border-t">
-          <pre className="p-3 text-xs overflow-auto max-h-[300px] bg-muted/50 font-mono">
-            {sql}
-          </pre>
+          <SqlHighlight
+            sql={sql}
+            preClassName="p-3 overflow-auto max-h-[300px] bg-muted/50 rounded-b-lg"
+          />
           <Button
             variant="ghost"
             size="icon"

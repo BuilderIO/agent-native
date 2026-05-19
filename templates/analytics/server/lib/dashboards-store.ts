@@ -42,6 +42,8 @@ export interface DashboardRecord {
   updatedAt: string;
   /** ISO timestamp set when the dashboard is archived. Null = active. */
   archivedAt: string | null;
+  /** ISO timestamp set when a user clicks "Keep" during the cleanup pass. Null = unclaimed. */
+  keptAt: string | null;
 }
 
 export type DashboardArchiveFilter = "active" | "archived" | "all";
@@ -61,6 +63,8 @@ export interface AnalysisRecord {
   visibility: "private" | "org" | "public";
   createdAt: string;
   updatedAt: string;
+  /** ISO timestamp set when a user clicks "Keep" during the cleanup pass. Null = unclaimed. */
+  keptAt: string | null;
 }
 
 interface AccessCtx {
@@ -126,6 +130,7 @@ function rowToDashboard(row: any): DashboardRecord {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     archivedAt: row.archivedAt ?? null,
+    keptAt: row.keptAt ?? null,
   };
 }
 
@@ -523,6 +528,7 @@ function rowToAnalysis(row: any): AnalysisRecord {
     visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    keptAt: row.keptAt ?? null,
   };
 }
 
@@ -776,6 +782,66 @@ export async function removeAnalysis(
   } catch {
     // best-effort
   }
+}
+
+// ---------------------------------------------------------------------------
+// Keep (cleanup-pass claim)
+// ---------------------------------------------------------------------------
+
+/** Mark a dashboard as "kept" so it survives the one-time cleanup pass. */
+export async function keepDashboard(
+  id: string,
+  ctx: AccessCtx,
+): Promise<DashboardRecord | null> {
+  const existing = await getDashboard(id, ctx);
+  if (!existing) return null;
+  await assertAccess("dashboard", id, "viewer", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const keptAt = nowIso();
+  await db
+    .update(schema.dashboards)
+    .set({ keptAt })
+    .where(eq(schema.dashboards.id, id));
+  recordScopedChange(
+    "dashboards",
+    "change",
+    id,
+    existing.ownerEmail,
+    existing.orgId,
+    existing.visibility,
+  );
+  return { ...existing, keptAt };
+}
+
+/** Mark an analysis as "kept" so it survives the one-time cleanup pass. */
+export async function keepAnalysis(
+  id: string,
+  ctx: AccessCtx,
+): Promise<AnalysisRecord | null> {
+  const existing = await getAnalysis(id, ctx);
+  if (!existing) return null;
+  await assertAccess("analysis", id, "viewer", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const keptAt = nowIso();
+  await db
+    .update(schema.analyses)
+    .set({ keptAt })
+    .where(eq(schema.analyses.id, id));
+  recordScopedChange(
+    "analyses",
+    "change",
+    id,
+    existing.ownerEmail,
+    existing.orgId,
+    existing.visibility,
+  );
+  return { ...existing, keptAt };
 }
 
 // ---------------------------------------------------------------------------
