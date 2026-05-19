@@ -45,7 +45,7 @@ function savePendingPromptForRetry(prompt: string) {
   try {
     sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
   } catch {}
-  savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, prompt);
+  return savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, prompt);
 }
 
 function summarizePromptForChat(prompt: string): string {
@@ -108,6 +108,10 @@ export default function Index() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
+  const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
+    text: string;
+    key: number;
+  } | null>(null);
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState("");
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [duplicating, setDuplicating] = useState<string | null>(null);
@@ -149,6 +153,7 @@ export default function Index() {
   const openNewDeck = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
+      setNewDeckInitialPrompt(null);
       setSelectedDesignSystemId(defaultSystem?.id ?? "");
       setShowNewDeckPrompt(true);
     },
@@ -157,7 +162,10 @@ export default function Index() {
 
   const setNewDeckPromptOpen = useCallback((open: boolean) => {
     setShowNewDeckPrompt(open);
-    if (!open) setSelectedDesignSystemId("");
+    if (!open) {
+      setSelectedDesignSystemId("");
+      setNewDeckInitialPrompt(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -190,6 +198,9 @@ export default function Index() {
       try {
         sessionStorage.removeItem(PENDING_PROMPT_KEY);
       } catch {}
+      setNewDeckInitialPrompt(null);
+    } else {
+      setNewDeckInitialPrompt({ text: saved, key: Date.now() });
     }
     setSelectedDesignSystemId(defaultSystem?.id ?? "none");
     setShowNewDeckPrompt(true);
@@ -220,7 +231,9 @@ export default function Index() {
     // sidebar. Catch it here so the user sees a clear sign-in prompt
     // and the typed prompt isn't lost when they come back.
     if (!session) {
-      savePendingPromptForRetry(prompt);
+      if (!savePendingPromptForRetry(prompt)) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+      }
       setNewDeckPromptOpen(false);
       setShowSignInDialog(true);
       return;
@@ -298,7 +311,9 @@ export default function Index() {
 
     const persisted = await ensureDeckPersisted(deck.id);
     if (!persisted) {
-      savePendingPromptForRetry(prompt);
+      if (!savePendingPromptForRetry(prompt)) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+      }
       deleteDeck(deck.id);
       toast({
         title: "Couldn't start deck generation",
@@ -514,6 +529,8 @@ export default function Index() {
         loading={generating}
         anchorRef={anchorRef}
         draftScope={NEW_DECK_DRAFT_SCOPE}
+        initialText={newDeckInitialPrompt?.text}
+        initialTextKey={newDeckInitialPrompt?.key}
       >
         {designSystems.length > 0 && (
           <div className="border-t border-border px-3.5 py-2">

@@ -26,6 +26,8 @@ interface PromptPopoverProps {
   centered?: boolean;
   /** Forwarded to PromptComposer/TipTap for draft persistence in localStorage. */
   draftScope?: string;
+  initialText?: string;
+  initialTextKey?: string | number;
   children?: React.ReactNode;
 }
 
@@ -41,6 +43,8 @@ export default function PromptPopover({
   anchorRef,
   centered = false,
   draftScope,
+  initialText,
+  initialTextKey,
   children,
 }: PromptPopoverProps) {
   const [uploading, setUploading] = useState(false);
@@ -189,6 +193,8 @@ export default function PromptPopover({
             onSubmit={handleSubmit}
             onTextChange={setPromptText}
             draftScope={draftScope}
+            initialText={initialText}
+            initialTextKey={initialTextKey}
           />
         </div>
 
