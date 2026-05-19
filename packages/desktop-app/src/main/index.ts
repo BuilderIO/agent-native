@@ -3931,14 +3931,14 @@ function localAppDevPortForFolder(
   const explicitPort = explicitPortFromScript(devScript);
   if (explicitPort) return explicitPort;
 
+  const isWorkspaceRoot = fs.existsSync(path.join(dir, "pnpm-workspace.yaml"));
+  if (isWorkspaceRoot || /\bworkspace-dev\b/.test(devScript ?? "")) return 8080;
+
   const packageName = firstStringValue(pkg?.name);
   const template = packageName
     ? getTemplate(stripPackageScope(packageName))
     : undefined;
   if (template?.devPort) return template.devPort;
-
-  const isWorkspaceRoot = fs.existsSync(path.join(dir, "pnpm-workspace.yaml"));
-  if (isWorkspaceRoot || /\bworkspace-dev\b/.test(devScript ?? "")) return 8080;
 
   if (/\b(agent-native\s+dev|vite)\b/.test(devScript ?? "")) return 5173;
 
@@ -3972,7 +3972,9 @@ function inspectLocalAppFolder(dir: string): LocalAppFolderInfo {
     devPort,
     devCommand: commandForLocalAppFolder(dir, runCommand),
     packageManager,
-    warning: pkg ? undefined : "No package.json was found. Fill in the dev URL manually if needed.",
+    warning: pkg
+      ? undefined
+      : "No package.json was found. Fill in the dev URL manually if needed.",
   };
 }
 

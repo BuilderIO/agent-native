@@ -1018,8 +1018,8 @@ export function AddAppDialog({
                 required
               />
               <span className="settings-field-hint">
-                Auto-filled from the folder when possible. You can still edit
-                it manually.
+                Auto-filled from the folder when possible. You can still edit it
+                manually.
               </span>
             </label>
 
@@ -1088,6 +1088,7 @@ function AppEditForm({
       devPort: app?.devPort || inferPortFromUrl(trimmedDevUrl),
       devUrl: trimmedDevUrl || undefined,
       devCommand: devCommand.trim() || undefined,
+      localPath: app?.localPath,
       isBuiltIn: app?.isBuiltIn ?? false,
       enabled: app?.enabled ?? true,
       mode: app?.mode ?? (trimmedUrl ? "prod" : "dev"),
