@@ -1644,6 +1644,7 @@ function mapBetterAuthSession(baSession: {
     email: baSession.user.email,
     userId: baSession.user.id,
     name: baSession.user.name,
+    token: baSession.session?.token,
   };
 }
 
