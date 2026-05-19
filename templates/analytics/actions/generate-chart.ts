@@ -9,6 +9,7 @@ import {
   analyticsMcpAppResourceMeta,
 } from "./_mcp-apps.js";
 import { getAnalyticsMediaDir } from "../server/lib/media-dir.js";
+import { signedSvgMediaUrl } from "../server/lib/signed-media.js";
 
 const THEMES = {
   dark: {
@@ -554,7 +555,7 @@ export default defineAction({
 
       return {
         filename: svgFilename,
-        url: chartUrl(svgFilename),
+        url: signedSvgMediaUrl(svgFilename, svg) || chartUrl(svgFilename),
         width,
         height,
         renderer: "svg-fallback",

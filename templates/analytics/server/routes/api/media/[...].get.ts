@@ -1,9 +1,15 @@
 import path from "path";
 import { createReadStream } from "fs";
 import { stat } from "fs/promises";
-import { defineEventHandler, setResponseHeader, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseHeader,
+  setResponseStatus,
+} from "h3";
 import { streamFile } from "@agent-native/core/server";
 import { getAnalyticsMediaDir } from "../../../lib/media-dir.js";
+import { readSignedSvgMediaPayload } from "../../../lib/signed-media.js";
 
 export default defineEventHandler(async (event) => {
   let mediaDir: string;
@@ -29,6 +35,23 @@ export default defineEventHandler(async (event) => {
     }
     return streamFile(createReadStream(filepath));
   } catch {
+    if (path.extname(filepath).toLowerCase() === ".svg") {
+      const query = getQuery(event);
+      const signedSvg = readSignedSvgMediaPayload(
+        filename,
+        query.svg,
+        query.sig,
+      );
+      if (signedSvg) {
+        setResponseHeader(
+          event,
+          "content-type",
+          "image/svg+xml; charset=utf-8",
+        );
+        setResponseHeader(event, "cache-control", "private, max-age=31536000");
+        return signedSvg;
+      }
+    }
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
