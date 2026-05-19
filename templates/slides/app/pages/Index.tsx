@@ -41,11 +41,22 @@ const MAX_SOURCE_CONTEXT_CHARS = 60_000;
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 
-function savePendingPromptForRetry(prompt: string) {
-  try {
-    sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
-  } catch {}
+function savePromptForRetry(
+  prompt: string,
+  options: { persistAcrossSignIn?: boolean } = {},
+) {
+  if (options.persistAcrossSignIn) {
+    try {
+      sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
+    } catch {}
+  }
   return savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, prompt);
+}
+
+function clearPendingPromptForRetry() {
+  try {
+    sessionStorage.removeItem(PENDING_PROMPT_KEY);
+  } catch {}
 }
 
 function summarizePromptForChat(prompt: string): string {
@@ -160,13 +171,18 @@ export default function Index() {
     [defaultSystem?.id],
   );
 
-  const setNewDeckPromptOpen = useCallback((open: boolean) => {
-    setShowNewDeckPrompt(open);
-    if (!open) {
-      setSelectedDesignSystemId("");
-      setNewDeckInitialPrompt(null);
-    }
-  }, []);
+  const setNewDeckPromptOpen = useCallback(
+    (open: boolean, options: { clearInitialPrompt?: boolean } = {}) => {
+      setShowNewDeckPrompt(open);
+      if (!open) {
+        setSelectedDesignSystemId("");
+        if (options.clearInitialPrompt !== false) {
+          setNewDeckInitialPrompt(null);
+        }
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!showNewDeckPrompt || selectedDesignSystemId) return;
@@ -195,9 +211,7 @@ export default function Index() {
     } catch {}
     if (!saved) return;
     if (savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved)) {
-      try {
-        sessionStorage.removeItem(PENDING_PROMPT_KEY);
-      } catch {}
+      clearPendingPromptForRetry();
       setNewDeckInitialPrompt(null);
     } else {
       setNewDeckInitialPrompt({ text: saved, key: Date.now() });
@@ -231,10 +245,10 @@ export default function Index() {
     // sidebar. Catch it here so the user sees a clear sign-in prompt
     // and the typed prompt isn't lost when they come back.
     if (!session) {
-      if (!savePendingPromptForRetry(prompt)) {
+      if (!savePromptForRetry(prompt, { persistAcrossSignIn: true })) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
-      setNewDeckPromptOpen(false);
+      setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       setShowSignInDialog(true);
       return;
     }
@@ -311,7 +325,7 @@ export default function Index() {
 
     const persisted = await ensureDeckPersisted(deck.id);
     if (!persisted) {
-      if (!savePendingPromptForRetry(prompt)) {
+      if (!savePromptForRetry(prompt)) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
       deleteDeck(deck.id);
@@ -324,6 +338,8 @@ export default function Index() {
       return;
     }
 
+    clearPendingPromptForRetry();
+    setNewDeckInitialPrompt(null);
     agentSubmit(
       `Create deck: ${summarizePromptForChat(trimmedPrompt)}`,
       context,
