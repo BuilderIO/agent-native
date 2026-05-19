@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.5
+
+### Patch Changes
+
+- 819cf59: Address MCP app route hardening and Dispatch vault cleanup edge cases from review.
+
 ## 0.8.4
 
 ### Patch Changes

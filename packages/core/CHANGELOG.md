@@ -1,5 +1,21 @@
 # @agent-native/core
 
+## 0.22.0
+
+### Minor Changes
+
+- 819cf59: Add standard remote MCP OAuth discovery, authorization-code + PKCE, refresh-token rotation, scoped MCP access tokens, and OAuth-native `agent-native connect` config for Claude Code clients.
+
+### Patch Changes
+
+- 819cf59: Improve custom app action sync defaults and starter guidance.
+- 819cf59: Honor collapsed agent-sidebar deep links when an already-mounted app receives the URL hint.
+- 819cf59: Mount the local agent sidebar before delivering programmatic chat submissions so prompts are not dropped when the sidebar starts closed.
+- 819cf59: Address MCP app route hardening and Dispatch vault cleanup edge cases from review.
+- 819cf59: Fix dev-mode agent feedback issues around connection-reset overlays, request-scoped shell identity, and assistant markdown rendering.
+- 819cf59: Sign Builder connect URLs rendered in chat cards and return gateway callbacks to the preview opener.
+- 819cf59: Add granular extension content edits with marker/section operations and optional Prettier formatting.
+
 ## 0.21.0
 
 ### Minor Changes
