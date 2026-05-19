@@ -1,4 +1,3 @@
-import { isInBuilderFrame } from "./builder-frame.js";
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
@@ -119,13 +118,6 @@ export function getInitialAgentSidebarOpen(defaultOpen: boolean): boolean {
     typeof window !== "undefined" &&
     window.matchMedia("(max-width: 767px)").matches
   ) {
-    return false;
-  }
-
-  // Builder owns the code/chat surface around embedded apps. Start the
-  // app-native chat collapsed there even if a previous standalone session
-  // persisted it as open.
-  if (isInBuilderFrame()) {
     return false;
   }
 
