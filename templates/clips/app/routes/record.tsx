@@ -1319,7 +1319,7 @@ export default function RecordRoute() {
       setUiState("error");
       showRecordingErrorToast(message);
     }
-  }, [liveTranscription, showRecordingErrorToast]);
+  }, [showRecordingErrorToast]);
 
   // -------------------------------------------------------------------------
   // Stop / upload / navigate.

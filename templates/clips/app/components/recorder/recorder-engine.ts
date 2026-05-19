@@ -252,6 +252,7 @@ export class RecorderEngine {
   private combinedStream: MediaStream | null = null;
   private previewStream: MediaStream | null = null;
   private cameraComposite: CameraCompositeHandle | null = null;
+  private audioMixCtx: AudioContext | null = null;
   private recorder: MediaRecorder | null = null;
   private mimeType: string = "video/webm";
 
@@ -1039,30 +1040,53 @@ export class RecorderEngine {
   // Internals
   // -------------------------------------------------------------------------
 
+  /**
+   * Mix audio tracks from multiple streams into a single track via Web Audio
+   * API. A single mixed track avoids the Chromium behaviour where only the
+   * first audio track in a MediaStream is reliably encoded by MediaRecorder,
+   * while still capturing both mic and system audio when both are present.
+   *
+   * Returns null when no audio tracks exist. Returns the single raw track
+   * directly when only one exists (avoids unnecessary AudioContext overhead).
+   */
+  private buildMixedAudioTrack(
+    streams: (MediaStream | null | undefined)[],
+  ): MediaStreamTrack | null {
+    const audioTracks = streams
+      .filter((s): s is MediaStream => s != null)
+      .flatMap((s) => s.getAudioTracks());
+    if (audioTracks.length === 0) return null;
+    if (audioTracks.length === 1) return audioTracks[0];
+
+    this.audioMixCtx?.close().catch(() => {});
+    const ctx = new AudioContext();
+    const dest = ctx.createMediaStreamDestination();
+    for (const track of audioTracks) {
+      ctx.createMediaStreamSource(new MediaStream([track])).connect(dest);
+    }
+    this.audioMixCtx = ctx;
+    return dest.stream.getAudioTracks()[0];
+  }
+
   private buildCombinedStream(): MediaStream {
-    // Screen-only: prefer mic audio; fall back to display (system) audio only
-    // when no mic is present. MediaRecorder in Chromium-based browsers records
-    // only the first audio track in the stream, so mic must come first.
     if (this.opts.mode === "screen") {
       const combined = new MediaStream();
       for (const t of this.displayStream!.getVideoTracks())
         combined.addTrack(t);
-      if (this.micStream) {
-        for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
-      } else {
-        for (const t of this.displayStream!.getAudioTracks())
-          combined.addTrack(t);
-      }
+      const audio = this.buildMixedAudioTrack([
+        this.micStream,
+        this.displayStream,
+      ]);
+      if (audio) combined.addTrack(audio);
       return combined;
     }
 
-    // Camera-only: camera video + mic.
+    // Camera-only: camera video + mic (no display stream to mix).
     if (this.opts.mode === "camera") {
       const combined = new MediaStream();
       for (const t of this.cameraStream!.getVideoTracks()) combined.addTrack(t);
-      if (this.micStream) {
-        for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
-      }
+      const audio = this.buildMixedAudioTrack([this.micStream]);
+      if (audio) combined.addTrack(audio);
       return combined;
     }
 
@@ -1078,12 +1102,11 @@ export class RecorderEngine {
     const combined = new MediaStream();
     for (const t of this.cameraComposite.stream.getVideoTracks())
       combined.addTrack(t);
-    // Prefer mic audio; fall back to display (system) audio only when no mic.
-    if (this.micStream) {
-      for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
-    } else {
-      for (const t of this.displayStream!.getAudioTracks()) combined.addTrack(t);
-    }
+    const audio = this.buildMixedAudioTrack([
+      this.micStream,
+      this.displayStream,
+    ]);
+    if (audio) combined.addTrack(audio);
     return combined;
   }
 
@@ -1317,6 +1340,8 @@ export class RecorderEngine {
   }
 
   private cleanupTracks(): void {
+    this.audioMixCtx?.close().catch(() => {});
+    this.audioMixCtx = null;
     this.cameraComposite?.cleanup();
     this.cameraComposite = null;
     for (const s of [
