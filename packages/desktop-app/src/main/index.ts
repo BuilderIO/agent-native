@@ -63,9 +63,15 @@ import {
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
   type InterAppMessage,
+  type LocalAppFolderInfo,
+  type LocalAppFolderSelectResult,
   type UpdateStatus,
 } from "@shared/ipc-channels";
-import { FRAME_PORT, getTemplateGatewayAppUrl } from "@shared/app-registry";
+import {
+  FRAME_PORT,
+  getTemplate,
+  getTemplateGatewayAppUrl,
+} from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
 import {
   getBackgroundAgentRun,
@@ -3827,6 +3833,173 @@ async function chooseCodeAgentProject(): Promise<CodeAgentProjectSelectResult> {
   return upsertCodeAgentProject(result.filePaths[0]);
 }
 
+function packageManagerForFolder(
+  dir: string,
+  pkg: Record<string, unknown> | null,
+): string {
+  const packageManager = firstStringValue(pkg?.packageManager);
+  const packageManagerName = packageManager?.split("@")[0]?.trim();
+  if (
+    packageManagerName === "pnpm" ||
+    packageManagerName === "npm" ||
+    packageManagerName === "yarn" ||
+    packageManagerName === "bun"
+  ) {
+    return packageManagerName;
+  }
+  if (fs.existsSync(path.join(dir, "pnpm-lock.yaml"))) return "pnpm";
+  if (fs.existsSync(path.join(dir, "yarn.lock"))) return "yarn";
+  if (
+    fs.existsSync(path.join(dir, "bun.lock")) ||
+    fs.existsSync(path.join(dir, "bun.lockb"))
+  ) {
+    return "bun";
+  }
+  if (fs.existsSync(path.join(dir, "package-lock.json"))) return "npm";
+  return "pnpm";
+}
+
+function scriptCommand(packageManager: string, scriptName: string): string {
+  if (packageManager === "npm") {
+    return scriptName === "start" ? "npm start" : `npm run ${scriptName}`;
+  }
+  if (packageManager === "bun") return `bun run ${scriptName}`;
+  return `${packageManager} ${scriptName}`;
+}
+
+function scriptsFromPackage(
+  pkg: Record<string, unknown> | null,
+): Record<string, string> {
+  const scripts = isObject(pkg?.scripts) ? pkg.scripts : {};
+  return Object.fromEntries(
+    Object.entries(scripts).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
+function selectedDevScriptName(scripts: Record<string, string>): string {
+  if (scripts.dev) return "dev";
+  if (scripts.start) return "start";
+  return "dev";
+}
+
+function stripPackageScope(value: string): string {
+  return value.startsWith("@") ? (value.split("/")[1] ?? value) : value;
+}
+
+function titleizePackageName(value: string): string {
+  return value
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function localAppNameForFolder(
+  dir: string,
+  pkg: Record<string, unknown> | null,
+): string {
+  const displayName = firstStringValue(pkg?.displayName, pkg?.productName);
+  if (displayName) return displayName;
+  const packageName = firstStringValue(pkg?.name);
+  if (packageName) return titleizePackageName(stripPackageScope(packageName));
+  return titleizePackageName(path.basename(dir) || dir);
+}
+
+function explicitPortFromScript(script: string | undefined): number | null {
+  if (!script) return null;
+  const patterns = [
+    /\bPORT=(\d{2,5})\b/i,
+    /\b--port(?:=|\s+)(\d{2,5})\b/i,
+    /\b-p\s+(\d{2,5})\b/i,
+    /\b(?:localhost|127\.0\.0\.1|\[::1\]):(\d{2,5})\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = script.match(pattern);
+    const port = match?.[1] ? Number(match[1]) : NaN;
+    if (Number.isInteger(port) && port > 0 && port <= 65535) return port;
+  }
+  return null;
+}
+
+function localAppDevPortForFolder(
+  dir: string,
+  pkg: Record<string, unknown> | null,
+  devScript: string | undefined,
+): number {
+  const explicitPort = explicitPortFromScript(devScript);
+  if (explicitPort) return explicitPort;
+
+  const packageName = firstStringValue(pkg?.name);
+  const template = packageName
+    ? getTemplate(stripPackageScope(packageName))
+    : undefined;
+  if (template?.devPort) return template.devPort;
+
+  const isWorkspaceRoot = fs.existsSync(path.join(dir, "pnpm-workspace.yaml"));
+  if (isWorkspaceRoot || /\bworkspace-dev\b/.test(devScript ?? "")) return 8080;
+
+  if (/\b(agent-native\s+dev|vite)\b/.test(devScript ?? "")) return 5173;
+
+  return 3000;
+}
+
+function quotePosixShellPath(value: string): string {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function commandForLocalAppFolder(dir: string, command: string): string {
+  if (process.platform === "win32") {
+    return `cd /d ${quoteWindowsCmdPath(dir)} && ${command}`;
+  }
+  return `cd ${quotePosixShellPath(dir)} && ${command}`;
+}
+
+function inspectLocalAppFolder(dir: string): LocalAppFolderInfo {
+  const packagePath = path.join(dir, "package.json");
+  const pkg = readJsonObjectFile(packagePath);
+  const scripts = scriptsFromPackage(pkg);
+  const scriptName = selectedDevScriptName(scripts);
+  const packageManager = packageManagerForFolder(dir, pkg);
+  const runCommand = scriptCommand(packageManager, scriptName);
+  const devScript = scripts[scriptName];
+  const devPort = localAppDevPortForFolder(dir, pkg, devScript);
+  return {
+    path: dir,
+    name: localAppNameForFolder(dir, pkg),
+    devUrl: `http://localhost:${devPort}`,
+    devPort,
+    devCommand: commandForLocalAppFolder(dir, runCommand),
+    packageManager,
+    warning: pkg ? undefined : "No package.json was found. Fill in the dev URL manually if needed.",
+  };
+}
+
+async function chooseLocalAppFolder(): Promise<LocalAppFolderSelectResult> {
+  const result = await dialog.showOpenDialog({
+    title: "Choose local app folder",
+    properties: ["openDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return {
+      ok: false,
+      error: "No folder selected.",
+    };
+  }
+  const dir = resolveUsableDirectory(result.filePaths[0]);
+  if (!dir) {
+    return {
+      ok: false,
+      error: "Choose an existing folder.",
+    };
+  }
+  return {
+    ok: true,
+    folder: inspectLocalAppFolder(dir),
+  };
+}
+
 function quoteWindowsCmdPath(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
@@ -4980,6 +5153,11 @@ ipcMain.handle(
 ipcMain.handle(IPC.APPS_RESET, (): AppConfig[] => {
   return AppStore.resetToDefaults();
 });
+
+ipcMain.handle(
+  IPC.APPS_CHOOSE_LOCAL_FOLDER,
+  (): Promise<LocalAppFolderSelectResult> => chooseLocalAppFolder(),
+);
 
 // ---------- IPC: Frame settings ----------
 

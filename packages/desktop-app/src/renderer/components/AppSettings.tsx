@@ -13,6 +13,9 @@ import {
   IconRefresh,
   IconWorld,
   IconTerminal2,
+  IconFolder,
+  IconFolderPlus,
+  IconAlertCircle,
 } from "@tabler/icons-react";
 import type { AppConfig } from "@shared/app-registry";
 import type { UpdateStatus } from "@shared/ipc-channels";
