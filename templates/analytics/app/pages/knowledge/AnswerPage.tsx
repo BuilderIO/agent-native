@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useActionQuery, useSendToAgentChat } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -96,9 +96,13 @@ interface Props {
   id: string;
 }
 
+const AGENT_TIMEOUT_MS = 90_000;
+
 export default function AnswerPage({ id }: Props) {
   const queryClient = useQueryClient();
   const agentTriggeredRef = useRef(false);
+  const generatingStartRef = useRef<number | null>(null);
+  const [timedOut, setTimedOut] = useState(false);
   const { send } = useSendToAgentChat();
 
   const { data: session, isLoading } = useActionQuery(
@@ -109,32 +113,58 @@ export default function AnswerPage({ id }: Props) {
 
   const isDone = session?.status === "done" || session?.status === "error";
 
-  // Poll every 3s until agent writes the answer
+  // Track when we entered generating state
+  useEffect(() => {
+    if (session?.status === "generating" && generatingStartRef.current === null) {
+      generatingStartRef.current = Date.now();
+    }
+    if (isDone) generatingStartRef.current = null;
+  }, [session?.status, isDone]);
+
+  // Poll every 3s until agent writes the answer; timeout after 90s
   useEffect(() => {
     if (isDone) return;
     const interval = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["action", "get-session"] });
+      if (
+        generatingStartRef.current !== null &&
+        Date.now() - generatingStartRef.current > AGENT_TIMEOUT_MS
+      ) {
+        setTimedOut(true);
+      }
     }, 3000);
     return () => clearInterval(interval);
   }, [isDone, queryClient]);
 
-  // Trigger agent once when session enters "generating" state
-  useEffect(() => {
-    if (!session || agentTriggeredRef.current) return;
-    if (session.status !== "generating") return;
-    agentTriggeredRef.current = true;
+  function retriggerAgent() {
+    if (!session) return;
+    agentTriggeredRef.current = false;
+    generatingStartRef.current = Date.now();
+    setTimedOut(false);
+    triggerAgent(session);
+  }
 
+  function triggerAgent(s: NonNullable<typeof session>) {
+    agentTriggeredRef.current = true;
     send({
-      message: session.question,
+      message: s.question,
       context: JSON.stringify({
-        sessionId: session.id,
-        sources: session.sources,
+        sessionId: s.id,
+        sources: s.sources,
         instruction:
           "Use dbt MCP as your PRIMARY source. Run ONE targeted lookup for the model/metric in the question. Then call store-answer with a factual markdown answer. Cite sources as [1][2].",
       }),
       submit: true,
       background: true,
     });
+  }
+
+  // Trigger agent once when session enters "generating" state
+  useEffect(() => {
+    if (!session || agentTriggeredRef.current) return;
+    if (session.status !== "generating") return;
+
+    triggerAgent(session);
   }, [session?.status, send]);
 
   const question = session?.question ?? "";
@@ -208,6 +238,22 @@ export default function AnswerPage({ id }: Props) {
                   Ask again
                 </Button>
               </Link>
+            </div>
+          )}
+
+          {timedOut && !isDone && (
+            <div className="flex items-center gap-3 text-sm text-muted-foreground rounded-lg border border-dashed p-4">
+              <IconAlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
+              <span>The agent is taking longer than expected.</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto h-7"
+                onClick={retriggerAgent}
+              >
+                <IconRefresh className="h-3.5 w-3.5 mr-1" />
+                Retry
+              </Button>
             </div>
           )}
         </div>
