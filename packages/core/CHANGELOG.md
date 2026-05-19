@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.2
+
+### Patch Changes
+
+- 4a35c70: Preserve MCP Apps metadata during static action discovery and write hosted Codex MCP installs as HTTP server entries.
+
 ## 0.22.1
 
 ### Patch Changes
