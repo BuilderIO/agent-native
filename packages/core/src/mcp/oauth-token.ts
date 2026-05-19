@@ -20,7 +20,7 @@ function signingSecret(): Uint8Array {
   return new TextEncoder().encode(process.env.A2A_SECRET || getAuthSecret());
 }
 
-export function normalizeOAuthScope(input: unknown): string {
+export function normalizeOAuthScope(input: unknown): string | null {
   const requested =
     typeof input === "string"
       ? input
@@ -29,10 +29,9 @@ export function normalizeOAuthScope(input: unknown): string {
           .filter(Boolean)
       : [];
   const allowed = new Set<string>(MCP_OAUTH_SCOPES);
-  const selected = requested.length
-    ? requested.filter((scope) => allowed.has(scope))
-    : [...MCP_OAUTH_SCOPES];
-  return [...new Set(selected)].join(" ") || MCP_OAUTH_DEFAULT_SCOPE;
+  if (requested.length === 0) return MCP_OAUTH_DEFAULT_SCOPE;
+  const selected = requested.filter((scope) => allowed.has(scope));
+  return selected.length ? [...new Set(selected)].join(" ") : null;
 }
 
 export function scopeList(scope: string | undefined): string[] {

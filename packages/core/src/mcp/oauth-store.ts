@@ -445,3 +445,21 @@ export async function rotateOAuthRefreshToken(params: {
   });
   return next;
 }
+
+export async function getOAuthRefreshToken(
+  refreshToken: string,
+): Promise<OAuthRefreshTokenRow | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const tokenHash = hashOAuthToken(refreshToken);
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM mcp_oauth_refresh_tokens WHERE token_hash = ?`,
+    args: [tokenHash],
+  });
+  if (rows.length === 0) return null;
+  const row = mapRefreshRow(rows[0]);
+  if (row.revokedAt != null || (row.expiresAt ?? 0) < Date.now()) {
+    return null;
+  }
+  return row;
+}

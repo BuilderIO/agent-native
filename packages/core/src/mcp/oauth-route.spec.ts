@@ -79,6 +79,11 @@ vi.mock("./oauth-store.js", () => ({
       revokedAt: null,
     });
   }),
+  getOAuthRefreshToken: vi.fn(async (refreshToken: string) => {
+    const row = refreshRows.get(refreshToken);
+    if (!row || row.revokedAt) return null;
+    return row;
+  }),
   rotateOAuthRefreshToken: vi.fn(
     async ({ oldRefreshToken, newRefreshToken }) => {
       const old = refreshRows.get(oldRefreshToken);
@@ -101,6 +106,7 @@ const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
 function event(
   opts: {
     method?: string;
+    headers?: Record<string, string>;
     query?: Record<string, string>;
     body?: Record<string, string> | string;
   } = {},
@@ -110,6 +116,7 @@ function event(
     headers: {
       host: "mail.agent-native.com",
       "x-forwarded-proto": "https",
+      ...(opts.headers ?? {}),
     },
     query: opts.query ?? {},
     body: opts.body ?? {},
@@ -321,6 +328,95 @@ describe("MCP OAuth route", () => {
     });
   });
 
+  it("rejects invalid-only scope requests", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            redirect_uris: ["http://localhost:5555/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const res = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          scope: "mcp:typo",
+          code_challenge: challenge("v".repeat(50)),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get("location")!);
+    expect(location.searchParams.get("error")).toBe("invalid_scope");
+    expect(location.searchParams.get("code")).toBeNull();
+  });
+
+  it("accepts authorize POST origins for base-path deployments", async () => {
+    process.env.APP_BASE_PATH = "/dispatch";
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            redirect_uris: ["http://localhost:5555/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const resource = "https://mail.agent-native.com/dispatch/_agent-native/mcp";
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource,
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    expect(consentToken).not.toBe("");
+
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        headers: { origin: "https://mail.agent-native.com" },
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource,
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    expect(authorize.status).toBe(302);
+    expect(
+      new URL(authorize.headers.get("location")!).searchParams.get("code"),
+    ).toBeTruthy();
+  });
+
   it("rotates refresh tokens", async () => {
     const client = await (
       await handleMcpOAuth(
@@ -401,5 +497,98 @@ describe("MCP OAuth route", () => {
     const body = await second.json();
     expect(body.refresh_token).not.toBe(first.refresh_token);
     expect(refreshRows.get(first.refresh_token)?.revokedAt).toBeTruthy();
+  });
+
+  it("does not revoke a refresh token when client_id mismatches", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            redirect_uris: ["http://localhost:5555/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
+    const first = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            grant_type: "authorization_code",
+            client_id: client.client_id,
+            redirect_uri: "http://localhost:5555/callback",
+            code,
+            code_verifier: verifier,
+          },
+        }),
+        "/token",
+      )
+    ).json();
+
+    const mismatch = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "refresh_token",
+          client_id: "other-client",
+          refresh_token: first.refresh_token,
+        },
+      }),
+      "/token",
+    );
+    expect(mismatch.status).toBe(400);
+    expect(refreshRows.get(first.refresh_token)?.revokedAt).toBeFalsy();
+
+    const retry = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "refresh_token",
+          client_id: client.client_id,
+          refresh_token: first.refresh_token,
+        },
+      }),
+      "/token",
+    );
+    expect(retry.status).toBe(200);
   });
 });

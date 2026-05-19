@@ -21,6 +21,7 @@ import {
   consumeOAuthCode,
   generateOpaqueToken,
   getOAuthClient,
+  getOAuthRefreshToken,
   registerOAuthClient,
   rotateOAuthRefreshToken,
 } from "./oauth-store.js";
@@ -67,7 +68,13 @@ function redirect(location: string): Response {
 function isSameOriginPost(event: H3Event): boolean {
   const origin = getHeader(event, "origin");
   if (!origin) return true;
-  return origin === getMcpOAuthIssuer(event);
+  const issuer = getMcpOAuthIssuer(event);
+  if (!issuer) return false;
+  try {
+    return new URL(origin).origin === new URL(issuer).origin;
+  } catch {
+    return false;
+  }
 }
 
 function oauthError(
@@ -567,6 +574,13 @@ async function handleAuthorize(
   }
 
   const scope = normalizeOAuthScope(params.scope);
+  if (!scope) {
+    return redirectWithOAuthError({
+      redirectUri,
+      state,
+      error: "invalid_scope",
+    });
+  }
   if (method === "GET") {
     return html(
       renderConsentPage({
@@ -706,18 +720,20 @@ async function handleRefreshTokenGrant(
   if (!refreshToken) {
     return oauthError("invalid_request", "refresh_token is required");
   }
+  const existing = await getOAuthRefreshToken(refreshToken);
+  if (!existing) return oauthError("invalid_grant", "Invalid refresh token");
+  if (clientId && existing.clientId !== clientId) {
+    return oauthError(
+      "invalid_grant",
+      "Refresh token belongs to another client",
+    );
+  }
   const nextRefreshToken = generateOpaqueToken();
   const row = await rotateOAuthRefreshToken({
     oldRefreshToken: refreshToken,
     newRefreshToken: nextRefreshToken,
   });
   if (!row) return oauthError("invalid_grant", "Invalid refresh token");
-  if (clientId && row.clientId !== clientId) {
-    return oauthError(
-      "invalid_grant",
-      "Refresh token belongs to another client",
-    );
-  }
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);

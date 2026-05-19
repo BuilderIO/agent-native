@@ -185,6 +185,14 @@ function makeFetch(
 ): typeof fetch {
   let pollIdx = 0;
   return vi.fn(async (url: string) => {
+    if (String(url).endsWith("/.well-known/oauth-protected-resource")) {
+      return new Response(
+        JSON.stringify({
+          resource: `${new URL(String(url)).origin}/_agent-native/mcp`,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
     if (String(url).endsWith("/device/start")) {
       return new Response(
         JSON.stringify({
@@ -866,6 +874,63 @@ describe("runConnect", () => {
       expect(coworkCfg.mcpServers["agent-native-mail"].headers).toEqual({
         Authorization: "Bearer tok-device",
       });
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("rejects mixed-client config when OAuth metadata is unavailable", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/device/start")) {
+        return new Response(
+          JSON.stringify({
+            device_code: "dev-123",
+            user_code: "WXYZ-1234",
+            verification_uri: "https://mail.agent-native.com/connect",
+            verification_uri_complete:
+              "https://mail.agent-native.com/connect?code=WXYZ-1234",
+            interval: 1,
+            expires_in: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (String(url).endsWith("/device/poll")) {
+        return new Response(
+          JSON.stringify({
+            status: "approved",
+            token: "tok-device",
+            mcpUrl: "https://mail.agent-native.com/_agent-native/mcp",
+            serverName: "agent-native-mail",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    try {
+      await runConnect(
+        [
+          "https://mail.agent-native.com",
+          "--client",
+          "all",
+          "--scope",
+          "project",
+        ],
+        { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+      );
+
+      expect(process.exitCode).toBe(1);
+      expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+      expect(fs.existsSync(path.join(home, ".codex", "config.toml"))).toBe(
+        false,
+      );
     } finally {
       process.env.HOME = oldHome;
     }

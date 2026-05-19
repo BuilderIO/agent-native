@@ -1439,9 +1439,6 @@ async function connectOne(
     token = undefined;
     mcpUrl = normalizedMcpUrl;
     serverName = parsed.name ?? defaultServerName(baseUrl);
-    if (!(await validateOAuthMcpServer(baseUrl, mcpUrl, deps))) {
-      return { ok: false };
-    }
   } else {
     const grant = await runDeviceFlow(
       baseUrl,
@@ -1454,6 +1451,12 @@ async function connectOne(
     mcpUrl = grant.mcpUrl;
     serverName = parsed.name ?? grant.serverName ?? defaultServerName(baseUrl);
     headers = grant.headers;
+  }
+
+  if (oauthClients.length > 0 && !parsed.token) {
+    if (!(await validateOAuthMcpServer(baseUrl, mcpUrl, deps))) {
+      return { ok: false };
+    }
   }
 
   if (deviceFlowClients.length > 0) {
