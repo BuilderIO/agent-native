@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.22.1
+
+### Patch Changes
+
+- 570923a: Respect the persisted agent chat sidebar state inside Builder frames.
+- 570923a: Persist mutating action change markers so child-process actions refresh custom app UIs.
+
 ## 0.22.0
 
 ### Minor Changes
