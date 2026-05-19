@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.21.0
+
+### Minor Changes
+
+- 65d43fd: Add host-side MCP Apps rendering support for connected MCP tools.
+
+### Patch Changes
+
+- 65d43fd: Add `agent-native connect dev` and `agent-native connect prod` for switching first-party MCP entries between hosted apps and local dev-lazy gateways.
+- 65d43fd: Add optional MCP Apps UI resources for action tools while preserving deep-link fallbacks.
+- 15d9967: Clean up synced Dispatch vault secrets on delete and make DB timeout cleanup awaitable.
+
 ## 0.20.9
 
 ### Patch Changes
