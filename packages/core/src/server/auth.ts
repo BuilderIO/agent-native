@@ -1638,15 +1638,27 @@ async function maybeAutoCreateDevSession(
  */
 function mapBetterAuthSession(baSession: {
   user: { id: string; email: string; name?: string };
-  session: { token: string; activeOrganizationId?: string };
+  session: { token: string };
 }): AuthSession {
   return {
     email: baSession.user.email,
     userId: baSession.user.id,
     name: baSession.user.name,
-    token: baSession.session?.token,
-    orgId: baSession.session?.activeOrganizationId ?? undefined,
   };
+}
+
+/**
+ * Backfill `orgId` onto a resolved session using the canonical
+ * `resolveOrgIdForEmail` (org_members + active-org-id user setting), so
+ * every consumer of `session.orgId` agrees with `getOrgContext` on which
+ * org is active.
+ *
+ */
+async function backfillSessionOrg(session: AuthSession): Promise<AuthSession> {
+  if (session.orgId) return session;
+  const { resolveOrgIdForEmail } = await import("../org/context.js");
+  const orgId = await resolveOrgIdForEmail(session.email).catch(() => null);
+  return orgId ? { ...session, orgId } : session;
 }
 
 /**
@@ -1667,6 +1679,22 @@ function mapBetterAuthSession(baSession: {
  * page load.
  */
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
+  // Per-request memoization. The wider codebase calls `getSession` many
+  // times per request (auth guard, action wrapper, route handler, plus the
+  // org-backfill query inside `backfillSessionOrg`). Cache the resolved
+  // session on `event.context` so the chain runs once per request.
+  const ctx = event.context as {
+    __anSessionCache?: Promise<AuthSession | null>;
+  };
+  return (ctx.__anSessionCache ??= (async () => {
+    const session = await resolveSessionUncached(event);
+    return session?.email ? backfillSessionOrg(session) : session;
+  })());
+}
+
+async function resolveSessionUncached(
+  event: H3Event,
+): Promise<AuthSession | null> {
   // 1. ACCESS_TOKEN check (programmatic/agent access)
   const accessTokens = getAccessTokens();
   if (accessTokens.length > 0) {
