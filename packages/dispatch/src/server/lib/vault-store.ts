@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
-import { writeAppSecret, type SecretScope } from "@agent-native/core/secrets";
+import {
+  deleteAppSecret,
+  writeAppSecret,
+  type SecretScope,
+} from "@agent-native/core/secrets";
 import {
   getOrgSetting,
   getUserSetting,
@@ -300,16 +304,63 @@ export async function createSecret(
 
 export async function updateSecret(
   secretId: string,
-  value: string,
+  input:
+    | string
+    | {
+        credentialKey?: string;
+        value?: string;
+        name?: string;
+        provider?: string | null;
+        description?: string | null;
+      },
   ctx: VaultCtx = requireVaultCtx(),
 ) {
   const db = getDb();
   const existing = await getSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
+  const patch = typeof input === "string" ? { value: input } : input;
+  const credentialKey =
+    patch.credentialKey !== undefined
+      ? normalizeCredentialKey(patch.credentialKey)
+      : existing.credentialKey;
+  if (!credentialKey) throw new Error("Credential key is required");
+  const name = patch.name !== undefined ? patch.name.trim() : existing.name;
+  if (!name) throw new Error("Secret name is required");
+  const value = patch.value !== undefined ? patch.value : existing.value;
+  if (!value) throw new Error("Secret value is required");
+  const provider =
+    patch.provider !== undefined ? patch.provider || null : existing.provider;
+  const description =
+    patch.description !== undefined
+      ? patch.description || null
+      : existing.description;
+
+  if (credentialKey !== existing.credentialKey) {
+    const conflict = await db
+      .select({ id: schema.vaultSecrets.id })
+      .from(schema.vaultSecrets)
+      .where(
+        and(
+          eq(schema.vaultSecrets.credentialKey, credentialKey),
+          ctxScope(schema.vaultSecrets, ctx),
+        ),
+      )
+      .limit(1);
+    if (conflict[0] && conflict[0].id !== secretId) {
+      throw new Error(`Credential key "${credentialKey}" is already in use`);
+    }
+  }
 
   await db
     .update(schema.vaultSecrets)
-    .set({ value, updatedAt: now() })
+    .set({
+      name,
+      credentialKey,
+      value,
+      provider,
+      description,
+      updatedAt: now(),
+    })
     .where(
       and(
         eq(schema.vaultSecrets.id, secretId),
@@ -317,14 +368,60 @@ export async function updateSecret(
       ),
     );
 
+  const auditMetadata = {
+    name,
+    previousName: name !== existing.name ? existing.name : undefined,
+    credentialKey,
+    previousCredentialKey:
+      credentialKey !== existing.credentialKey
+        ? existing.credentialKey
+        : undefined,
+    provider,
+    previousProvider:
+      provider !== existing.provider ? existing.provider : undefined,
+    description,
+    previousDescription:
+      description !== existing.description ? existing.description : undefined,
+    valueChanged: value !== existing.value ? true : undefined,
+  };
+
   await recordVaultAudit({
     action: "secret.updated",
     secretId,
-    summary: `Updated value for secret "${existing.name}" (${existing.credentialKey})`,
+    summary: `Updated secret "${name}" (${credentialKey})`,
+    metadata: auditMetadata,
+  });
+
+  await recordAudit({
+    action: "vault.secret.updated",
+    targetType: "vault-secret",
+    targetId: secretId,
+    summary: `Updated vault secret "${name}" (${credentialKey})`,
+    metadata: auditMetadata,
   });
 
   const updated = await getSecret(secretId, ctx);
   if (updated) await syncSecretsToCredentialStore([updated], ctx);
+  if (updated && credentialKey !== existing.credentialKey) {
+    const stillUsesOldKey = await db
+      .select({ id: schema.vaultSecrets.id })
+      .from(schema.vaultSecrets)
+      .where(
+        and(
+          eq(schema.vaultSecrets.credentialKey, existing.credentialKey),
+          ctxScope(schema.vaultSecrets, ctx),
+        ),
+      )
+      .limit(1);
+    if (!stillUsesOldKey[0]) {
+      const target = credentialStoreScopeForVaultCtx(ctx);
+      await deleteAppSecret({
+        key: existing.credentialKey,
+        scope: target.scope,
+        scopeId: target.scopeId,
+      });
+    }
+  }
   return updated;
 }
 

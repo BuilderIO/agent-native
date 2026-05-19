@@ -8,6 +8,7 @@
  *                               codex|cowork] [--scope user|project]
  *                               [--name <serverName>]
  *   agent-native connect <url> --token <token>   (no-browser fallback)
+ *   agent-native connect        [--client ...]   (pick first-party apps)
  *   agent-native connect --all  [--client ...]   (every first-party app)
  *
  * Server contract (implemented by another agent on `<url>`):
@@ -226,6 +227,17 @@ export interface ConnectClientPromptContext {
   preferencesFile: string;
 }
 
+export interface HostedApp {
+  name: string;
+  label: string;
+  url: string;
+}
+
+export interface ConnectHostedAppsPromptContext {
+  apps: HostedApp[];
+  initialApps: string[];
+}
+
 function clientPromptOptions(): ConnectClientPromptContext["options"] {
   return CLIENTS.map((client) => ({
     value: client,
@@ -234,11 +246,15 @@ function clientPromptOptions(): ConnectClientPromptContext["options"] {
   }));
 }
 
-function shouldPromptForClients(deps: ConnectDeps): boolean {
+function shouldPrompt(deps: ConnectDeps): boolean {
   if (deps.isInteractive) return deps.isInteractive();
   if (process.env.AGENT_NATIVE_NO_PROMPT === "1") return false;
   if (process.env.CI === "true") return false;
   return !!process.stdin.isTTY && !!process.stdout.isTTY;
+}
+
+function shouldPromptForClients(deps: ConnectDeps): boolean {
+  return shouldPrompt(deps);
 }
 
 async function promptForClients(
@@ -258,6 +274,44 @@ async function promptForClients(
     return null;
   }
   return normalizeClientIds(result);
+}
+
+function normalizeHostedAppNames(values: unknown, apps: HostedApp[]): string[] {
+  if (!Array.isArray(values)) return [];
+  const byName = new Map(apps.map((app) => [app.name, app]));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const app = byName.get(value);
+    if (!app || seen.has(app.name)) continue;
+    seen.add(app.name);
+    out.push(app.name);
+  }
+  return out;
+}
+
+async function promptForHostedApps(
+  context: ConnectHostedAppsPromptContext,
+): Promise<string[] | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.multiselect({
+    message:
+      "Which Agent Native apps do you want to connect?\n" +
+      "  (all are selected by default; space toggles, enter confirms)",
+    options: context.apps.map((app) => ({
+      value: app.name,
+      label: app.label,
+      hint: app.url,
+    })),
+    initialValues: context.initialApps,
+    required: true,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Cancelled.");
+    return null;
+  }
+  return normalizeHostedAppNames(result, context.apps);
 }
 
 async function resolveConnectClients(
@@ -290,6 +344,30 @@ async function resolveConnectClients(
     );
   }
   return selected;
+}
+
+async function resolveHostedAppsFromPrompt(
+  deps: ConnectDeps,
+): Promise<HostedApp[] | null> {
+  const apps = hostedApps();
+  if (apps.length === 0) {
+    logErr("  No hosted first-party apps found in the template registry.");
+    return null;
+  }
+  if (!shouldPrompt(deps)) return null;
+
+  const prompt = deps.promptHostedApps ?? promptForHostedApps;
+  const selectedNames = normalizeHostedAppNames(
+    await prompt({
+      apps,
+      initialApps: apps.map((app) => app.name),
+    }),
+    apps,
+  );
+  if (selectedNames.length === 0) return [];
+
+  const selected = new Set(selectedNames);
+  return apps.filter((app) => selected.has(app.name));
 }
 
 function clientArgForDeviceFlow(clients: ClientId[]): string {
@@ -381,6 +459,10 @@ export interface ConnectDeps {
   promptClients?: (
     context: ConnectClientPromptContext,
   ) => Promise<ClientId[] | null>;
+  /** Injectable hosted app picker. Defaults to @clack/prompts multiselect. */
+  promptHostedApps?: (
+    context: ConnectHostedAppsPromptContext,
+  ) => Promise<string[] | null>;
   /** Override the persisted connect preferences file. */
   preferencesFile?: string;
 }
@@ -664,18 +746,22 @@ async function connectOne(
 // ---------------------------------------------------------------------------
 
 /** Hosted first-party apps: visible (non-hidden) templates with a prodUrl. */
-export function hostedApps(): { name: string; url: string }[] {
+export function hostedApps(): HostedApp[] {
   return visibleTemplates()
     .filter((t) => typeof t.prodUrl === "string" && t.prodUrl.length > 0)
-    .map((t) => ({ name: t.name, url: t.prodUrl as string }));
+    .map((t) => ({
+      name: t.name,
+      label: t.label,
+      url: t.prodUrl as string,
+    }));
 }
 
-async function connectAll(
+async function connectApps(
+  apps: HostedApp[],
   parsed: ParsedConnectArgs,
   clients: ClientId[],
   deps: ConnectDeps,
 ): Promise<boolean> {
-  const apps = hostedApps();
   if (apps.length === 0) {
     logErr("  No hosted first-party apps found in the template registry.");
     return false;
@@ -686,11 +772,11 @@ async function connectAll(
   const results: { name: string; status: string; files: string[] }[] = [];
   for (const app of apps) {
     logOut("");
-    logOut(`  ── ${app.name} (${app.url}) ──`);
+    logOut(`  ── ${app.label} (${app.url}) ──`);
     try {
       const res = await connectOne(app.url, parsed, clients, deps);
       results.push({
-        name: app.name,
+        name: app.label,
         status: res.ok ? "connected" : "skipped",
         files: res.files ?? [],
       });
@@ -709,6 +795,14 @@ async function connectAll(
   return results.every((r) => r.status === "connected");
 }
 
+async function connectAll(
+  parsed: ParsedConnectArgs,
+  clients: ClientId[],
+  deps: ConnectDeps,
+): Promise<boolean> {
+  return connectApps(hostedApps(), parsed, clients, deps);
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -716,6 +810,10 @@ async function connectAll(
 const HELP = `agent-native connect — wire your coding agent to a deployed app
 
 Usage:
+  agent-native connect [--client <c>] [--scope user|project]
+      With no URL, opens a picker for the built-in hosted apps
+      (mail.agent-native.com, calendar.agent-native.com, and friends).
+
   agent-native connect <url> [--client <c>] [--scope user|project] [--name <n>]
       Browser device-code flow. Prints a code, opens the verification URL,
       polls until approved, then writes the HTTP MCP entry into your
@@ -762,6 +860,16 @@ export async function runConnect(
     }
 
     if (!parsed.url) {
+      const apps = await resolveHostedAppsFromPrompt(deps);
+      if (apps) {
+        if (apps.length === 0) return;
+        const clients = await resolveConnectClients(parsed, deps);
+        if (!clients) return;
+        const ok = await connectApps(apps, parsed, clients, deps);
+        if (!ok) process.exitCode = 1;
+        return;
+      }
+
       logErr("  Missing app URL.");
       logErr("");
       logOut(HELP);

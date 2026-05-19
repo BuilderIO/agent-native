@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   IconChevronDown,
   IconChevronRight,
+  IconEdit,
   IconEye,
   IconEyeOff,
   IconKey,
@@ -61,6 +62,7 @@ const PROVIDERS = [
   "anthropic",
   "other",
 ];
+const PROVIDER_NONE_VALUE = "__none__";
 
 type VaultAccessMode = "all-apps" | "manual";
 
@@ -172,6 +174,174 @@ function AddSecretDialog() {
             {create.isPending ? "Creating..." : "Create secret"}
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditSecretDialog({ secret }: { secret: any }) {
+  const [open, setOpen] = useState(false);
+  const [credentialKey, setCredentialKey] = useState(
+    secret.credentialKey || "",
+  );
+  const [name, setName] = useState(secret.name || "");
+  const [value, setValue] = useState(secret.value || "");
+  const [provider, setProvider] = useState(secret.provider || "");
+  const [description, setDescription] = useState(secret.description || "");
+  const [showValue, setShowValue] = useState(false);
+
+  const update = useActionMutation("update-vault-secret", {
+    onSuccess: () => {
+      toast.success("Secret updated");
+      setOpen(false);
+      setShowValue(false);
+    },
+    onError: (err) => toast.error(String(err)),
+  });
+
+  const resetDraft = () => {
+    setCredentialKey(secret.credentialKey || "");
+    setName(secret.name || "");
+    setValue(secret.value || "");
+    setProvider(secret.provider || "");
+    setDescription(secret.description || "");
+    setShowValue(false);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) resetDraft();
+        setOpen(nextOpen);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <IconEdit size={14} className="mr-1" />
+          Edit secret
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit vault secret</DialogTitle>
+          <DialogDescription>
+            Update the stored key and metadata. Changes sync to the shared
+            credential store.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-4 py-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            update.mutate({
+              id: secret.id,
+              credentialKey,
+              name,
+              value,
+              provider: provider || null,
+              description: description || null,
+            });
+          }}
+        >
+          <div className="space-y-2">
+            <Label htmlFor={`vault-secret-name-${secret.id}`}>Name</Label>
+            <Input
+              id={`vault-secret-name-${secret.id}`}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`vault-secret-key-${secret.id}`}>
+              Credential key (env var name)
+            </Label>
+            <Input
+              id={`vault-secret-key-${secret.id}`}
+              value={credentialKey}
+              onChange={(e) => setCredentialKey(e.target.value)}
+              className="font-mono text-sm"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`vault-secret-value-${secret.id}`}>Value</Label>
+            <div className="flex gap-2">
+              <Input
+                id={`vault-secret-value-${secret.id}`}
+                type={showValue ? "text" : "password"}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                className="font-mono text-sm"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => setShowValue((current) => !current)}
+                aria-label={
+                  showValue ? "Hide secret value" : "Show secret value"
+                }
+              >
+                {showValue ? <IconEyeOff size={15} /> : <IconEye size={15} />}
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Provider</Label>
+            <Select
+              value={provider || PROVIDER_NONE_VALUE}
+              onValueChange={(nextProvider) =>
+                setProvider(
+                  nextProvider === PROVIDER_NONE_VALUE ? "" : nextProvider,
+                )
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a provider..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={PROVIDER_NONE_VALUE}>No provider</SelectItem>
+                {PROVIDERS.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p.charAt(0).toUpperCase() + p.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`vault-secret-description-${secret.id}`}>
+              Description
+            </Label>
+            <Textarea
+              id={`vault-secret-description-${secret.id}`}
+              placeholder="What is this secret used for?"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={
+                !credentialKey.trim() ||
+                !name.trim() ||
+                !value ||
+                update.isPending
+              }
+            >
+              {update.isPending ? "Saving..." : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -429,7 +599,8 @@ function SecretRow({
             )}
           </div>
 
-          <div className="flex justify-end border-t pt-3">
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <EditSecretDialog secret={secret} />
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
