@@ -121,9 +121,9 @@ export function embedApp(
     }
 
     function wantsEmbed() {
-      if (toolInput.embed === false) return false;
-      if (toolInput.embed === true) return true;
-      return embedByDefault;
+      if (toolInput.embed === false || toolInput.embed === "false") return false;
+      if (embedByDefault) return true;
+      return toolInput.embed === true || toolInput.embed === "true";
     }
 
     function setMessage(message) {

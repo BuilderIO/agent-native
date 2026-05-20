@@ -481,6 +481,10 @@ export async function createMCPServerForRequest(
             : {}),
         };
         const baseDescription = entry.tool.description ?? name;
+        const annotations: Record<string, unknown> = {
+          readOnlyHint: entry.readOnly === true,
+        };
+        if (hasLink) annotations["agent-native/producesOpenLink"] = true;
         return {
           name,
           description: hasLink
@@ -491,9 +495,7 @@ export async function createMCPServerForRequest(
             properties: {},
           },
           ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
-          ...(hasLink
-            ? { annotations: { "agent-native/producesOpenLink": true } }
-            : {}),
+          annotations,
         };
       });
 
@@ -517,6 +519,7 @@ export async function createMCPServerForRequest(
             },
             required: ["message"],
           },
+          annotations: { readOnlyHint: false },
         });
       }
 

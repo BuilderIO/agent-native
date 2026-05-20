@@ -308,7 +308,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
           params = undefined;
         }
       }
-      const embed = args.embed === true;
+      const embed = args.embed === true || args.embed === "true";
       const directViewPath = embed && view ? viewToAppPath(view) : null;
       const relUrl = path
         ? appendParamsToPath(path, params)
@@ -388,8 +388,8 @@ function createEmbedSessionTool(requestMeta?: {
       ),
       _meta: { ui: { visibility: ["app"] } },
     } as ActionTool,
-    // Minting a browser session lets the iframe operate the real app as the
-    // caller, so OAuth callers must have mcp:write rather than only mcp:read.
+    // App-only bootstrap helper: the ticket becomes a normal browser session,
+    // so keep it write-scoped until embed sessions can enforce MCP scopes.
     readOnly: false,
     parallelSafe: true,
     run: async (args: Record<string, any>) => {

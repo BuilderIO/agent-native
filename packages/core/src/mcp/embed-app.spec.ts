@@ -15,6 +15,9 @@ describe("embedApp", () => {
     expect(html).toContain("create_embed_session");
     expect(html).toContain("app.callServerTool");
     expect(html).toContain('document.createElement("iframe")');
+    expect(html).toContain(
+      'toolInput.embed === false || toolInput.embed === "false"',
+    );
     expect(html).toContain("min-height: 900px");
     expect(resource.csp?.frameDomains).toContain(
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
