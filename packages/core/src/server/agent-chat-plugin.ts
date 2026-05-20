@@ -4540,10 +4540,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
           const runtimeContext = runtimeContextForEvent(event);
-          const codeEditingSurfaceRestriction =
-            shouldBlockInProductCodeEditing(event)
-              ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
-              : "";
+          const codeEditingSurfaceRestriction = shouldBlockInProductCodeEditing(
+            event,
+          )
+            ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
+            : "";
           if (leanPrompt) {
             return setSystemPromptOnContext(
               leanBasePrompt +

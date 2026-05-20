@@ -697,7 +697,8 @@ function AgentPanelInner({
   // Hide the CLI tab when embedded in the Builder.io frame — code editing
   // there happens via Builder, and the CLI panel only offers a Download
   // Desktop CTA, which adds clutter without value.
-  const showCliMode = (isDevMode || !codeAccessEnabled) && isDevFrameChatSurface;
+  const showCliMode =
+    (isDevMode || !codeAccessEnabled) && isDevFrameChatSurface;
   useEffect(() => {
     if (mode === "cli" && !showCliMode) switchMode("chat");
   }, [mode, showCliMode, switchMode]);
