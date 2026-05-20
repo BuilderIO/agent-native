@@ -117,7 +117,7 @@ export default defineAction({
       iframeTitle: "Agent-Native Mail",
       openLabel: "Open in Mail",
       frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
-      height: 680,
+      height: 900,
     }),
   },
   run: async (args) => {
