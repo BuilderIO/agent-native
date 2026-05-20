@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.10
+
+### Patch Changes
+
+- ce325de: Include chat session context in feedback submissions and harden chat debug clipboard actions.
+
 ## 0.22.9
 
 ### Patch Changes

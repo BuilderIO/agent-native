@@ -1,5 +1,12 @@
 # @agent-native/frame
 
+## 0.1.115
+
+### Patch Changes
+
+- Updated dependencies [ce325de]
+  - @agent-native/core@0.22.10
+
 ## 0.1.114
 
 ### Patch Changes
