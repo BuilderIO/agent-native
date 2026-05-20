@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { and, desc, eq, inArray, like, or } from "drizzle-orm";
-import { assertAccess } from "@agent-native/core/sharing";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -28,9 +28,12 @@ async function findDerivedCitationRefs(captureId: string) {
       .select({ id: schema.brainKnowledge.id })
       .from(schema.brainKnowledge)
       .where(
-        or(
-          eq(schema.brainKnowledge.captureId, captureId),
-          like(schema.brainKnowledge.evidenceJson, needle),
+        and(
+          accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
+          or(
+            eq(schema.brainKnowledge.captureId, captureId),
+            like(schema.brainKnowledge.evidenceJson, needle),
+          ),
         ),
       )
       .limit(10),
@@ -38,9 +41,12 @@ async function findDerivedCitationRefs(captureId: string) {
       .select({ id: schema.brainProposals.id })
       .from(schema.brainProposals)
       .where(
-        or(
-          eq(schema.brainProposals.captureId, captureId),
-          like(schema.brainProposals.evidenceJson, needle),
+        and(
+          accessFilter(schema.brainProposals, schema.brainProposalShares),
+          or(
+            eq(schema.brainProposals.captureId, captureId),
+            like(schema.brainProposals.evidenceJson, needle),
+          ),
         ),
       )
       .limit(10),
