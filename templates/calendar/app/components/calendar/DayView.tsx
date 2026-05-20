@@ -176,8 +176,12 @@ export function DayView({
     const dayStart = set(startOfDay(date), { hours: START_HOUR });
     const dayEnd = addDays(startOfDay(date), 1);
     const cappedEnd = min([end, dayEnd]);
-    const topMinutes = Math.max(0, differenceInMinutes(start, dayStart));
-    const durationMinutes = Math.max(15, differenceInMinutes(cappedEnd, start));
+    const segStart = start > dayStart ? start : dayStart;
+    const topMinutes = Math.max(0, differenceInMinutes(segStart, dayStart));
+    const durationMinutes = Math.max(
+      15,
+      differenceInMinutes(cappedEnd, segStart),
+    );
     return {
       top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
       height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
