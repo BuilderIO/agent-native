@@ -17,6 +17,7 @@ import {
   getRequestOrgId,
 } from "../server/request-context.js";
 import { getDbExec } from "../db/client.js";
+import { findReservedJob } from "./reserved.js";
 
 function getOwner(): string {
   const email = getRequestUserEmail();
@@ -95,6 +96,13 @@ async function runCreate(args: Record<string, any>): Promise<string> {
   if (!isValidCron(schedule)) {
     return JSON.stringify({
       error: `Invalid cron expression: "${schedule}". Use 5 fields: minute hour day-of-month month day-of-week.`,
+    });
+  }
+
+  const reserved = findReservedJob(name);
+  if (reserved) {
+    return JSON.stringify({
+      error: `"${name}" is reserved by a native background loop and cannot be created as a recurring job. ${reserved.reason}`,
     });
   }
 

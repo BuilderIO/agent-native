@@ -7,3 +7,8 @@ export {
   type SchedulerDeps,
 } from "./scheduler.js";
 export { createJobTools } from "./tools.js";
+export {
+  registerReservedJob,
+  findReservedJob,
+  type ReservedJob,
+} from "./reserved.js";

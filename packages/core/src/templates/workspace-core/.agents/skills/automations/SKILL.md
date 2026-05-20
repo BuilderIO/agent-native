@@ -14,12 +14,18 @@ Automations are agent-executed tasks that fire in response to events or on a cro
 
 ## The Two Trigger Types
 
-| Type       | Fires when                                      | Key field           |
-| ---------- | ----------------------------------------------- | ------------------- |
-| `schedule` | Cron expression matches (same as recurring jobs) | `schedule` (cron)   |
+| Type       | Fires when                                       | Key field            |
+| ---------- | ------------------------------------------------ | -------------------- |
+| `schedule` | Cron expression matches (same as recurring jobs) | `schedule` (cron)    |
 | `event`    | A matching event is emitted on the event bus     | `event` (event name) |
 
 Event triggers can optionally include a `condition` -- a natural-language string evaluated by Haiku against the event payload before dispatch. If the condition does not match, the automation is skipped.
+
+## Reserved Names
+
+Templates that ship their own native cron loops (TypeScript `setInterval` in `server/plugins/*.ts`) reserve job names via `registerReservedJob({ name, reason })` from `@agent-native/core/jobs`. Both `manage-jobs.create` and `manage-automations.define` refuse matching names with the registered `reason` -- this prevents the agent from accidentally creating an agentic loop that duplicates a native one and burns LLM credits every tick.
+
+If `define` returns `Error: "<name>" is reserved by a native background loop...`, do not retry with a similar name -- the native loop already does this work. Tell the user the equivalent is already running and ask if they want a different behavior.
 
 ## How It Works
 
@@ -52,22 +58,22 @@ Use the web-request tool with ${keys.SLACK_WEBHOOK}.
 
 ### Frontmatter Fields
 
-| Field         | Type                           | Purpose                                                |
-| ------------- | ------------------------------ | ------------------------------------------------------ |
-| `schedule`    | `string`                       | Cron expression (required for schedule triggers)       |
-| `enabled`     | `boolean`                      | Whether the automation is active                       |
-| `triggerType` | `"schedule" \| "event"`        | How the automation fires                               |
-| `event`       | `string?`                      | Event name to subscribe to (event triggers)            |
-| `condition`   | `string?`                      | Natural-language condition evaluated before dispatch   |
-| `mode`        | `"agentic" \| "deterministic"` | Full agent loop vs. fixed action set                   |
-| `model`       | `string?`                      | Override the model for this trigger's agent loop       |
-| `domain`      | `string?`                      | Grouping tag (mail, calendar, clips, etc.)             |
-| `createdBy`   | `string?`                      | Owner email                                            |
-| `orgId`       | `string?`                      | Org scope                                              |
-| `runAs`       | `"creator" \| "shared"`        | Whose API key and permissions to use                   |
-| `lastRun`     | `string?`                      | ISO timestamp of last execution                        |
-| `lastStatus`  | `string?`                      | `success`, `error`, `running`, or `skipped`            |
-| `lastError`   | `string?`                      | Error message from last failed run                     |
+| Field         | Type                           | Purpose                                              |
+| ------------- | ------------------------------ | ---------------------------------------------------- |
+| `schedule`    | `string`                       | Cron expression (required for schedule triggers)     |
+| `enabled`     | `boolean`                      | Whether the automation is active                     |
+| `triggerType` | `"schedule" \| "event"`        | How the automation fires                             |
+| `event`       | `string?`                      | Event name to subscribe to (event triggers)          |
+| `condition`   | `string?`                      | Natural-language condition evaluated before dispatch |
+| `mode`        | `"agentic" \| "deterministic"` | Full agent loop vs. fixed action set                 |
+| `model`       | `string?`                      | Override the model for this trigger's agent loop     |
+| `domain`      | `string?`                      | Grouping tag (mail, calendar, clips, etc.)           |
+| `createdBy`   | `string?`                      | Owner email                                          |
+| `orgId`       | `string?`                      | Org scope                                            |
+| `runAs`       | `"creator" \| "shared"`        | Whose API key and permissions to use                 |
+| `lastRun`     | `string?`                      | ISO timestamp of last execution                      |
+| `lastStatus`  | `string?`                      | `success`, `error`, `running`, or `skipped`          |
+| `lastError`   | `string?`                      | Error message from last failed run                   |
 
 ## Agent Tools
 
@@ -77,7 +83,7 @@ All automation operations are accessed through a single `manage-automations` too
 | ------------- | -------------------------------------------------------------------- |
 | `list-events` | Discover all registered events with descriptions and payload schemas |
 | `list`        | List all automations with status, filter by domain or enabled        |
-| `define`      | Create a new automation (name, trigger type, event, condition, body)  |
+| `define`      | Create a new automation (name, trigger type, event, condition, body) |
 | `update`      | Update an existing automation (enabled, condition, body)             |
 | `delete`      | Delete an automation (always confirm with user first)                |
 | `fire-test`   | Emit a `test.event.fired` event to validate automations              |
@@ -101,36 +107,44 @@ registerEvent({
     attendeeEmail: z.string(),
     startTime: z.string(),
   }),
-  example: { bookingId: "abc", attendeeEmail: "jane@co.com", startTime: "2025-01-15T10:00:00Z" },
+  example: {
+    bookingId: "abc",
+    attendeeEmail: "jane@co.com",
+    startTime: "2025-01-15T10:00:00Z",
+  },
 });
 
 // Emit the event (from an action, webhook handler, etc.)
-emit("calendar.booking.created", {
-  bookingId: "abc",
-  attendeeEmail: "jane@co.com",
-  startTime: "2025-01-15T10:00:00Z",
-}, { owner: "owner@example.com" });
+emit(
+  "calendar.booking.created",
+  {
+    bookingId: "abc",
+    attendeeEmail: "jane@co.com",
+    startTime: "2025-01-15T10:00:00Z",
+  },
+  { owner: "owner@example.com" },
+);
 ```
 
 ### Built-in Events
 
-| Event                     | Source              |
-| ------------------------- | ------------------- |
-| `test.event.fired`        | Manual / manage-automations action=fire-test |
-| `agent.turn.completed`    | Agent chat          |
-| `calendar.*`              | Calendar integration |
-| `clip.*`                  | Clips integration   |
-| `mail.*`                  | Mail integration    |
+| Event                  | Source                                       |
+| ---------------------- | -------------------------------------------- |
+| `test.event.fired`     | Manual / manage-automations action=fire-test |
+| `agent.turn.completed` | Agent chat                                   |
+| `calendar.*`           | Calendar integration                         |
+| `clip.*`               | Clips integration                            |
+| `mail.*`               | Mail integration                             |
 
 ### Event Bus API
 
-| Function         | Purpose                                     |
-| ---------------- | ------------------------------------------- |
-| `registerEvent`  | Declare an event type with schema           |
-| `emit`           | Fire an event (validates payload)           |
-| `subscribe`      | Listen for an event (returns subscription ID) |
-| `unsubscribe`    | Remove a subscription by ID                 |
-| `listEvents`     | List all registered event definitions       |
+| Function        | Purpose                                       |
+| --------------- | --------------------------------------------- |
+| `registerEvent` | Declare an event type with schema             |
+| `emit`          | Fire an event (validates payload)             |
+| `subscribe`     | Listen for an event (returns subscription ID) |
+| `unsubscribe`   | Remove a subscription by ID                   |
+| `listEvents`    | List all registered event definitions         |
 
 ## Condition Evaluator
 
@@ -173,15 +187,15 @@ Agent flow:
 
 ## Key Files
 
-| File                                           | Purpose                                          |
-| ---------------------------------------------- | ------------------------------------------------ |
-| `packages/core/src/triggers/types.ts`          | `TriggerFrontmatter` interface                   |
-| `packages/core/src/triggers/actions.ts`        | Agent tools (define, list, update, delete, test)  |
-| `packages/core/src/triggers/dispatcher.ts`     | Event subscription and agentic dispatch          |
-| `packages/core/src/triggers/condition-evaluator.ts` | Haiku condition classification with caching |
-| `packages/core/src/event-bus/`                 | Event bus (register, emit, subscribe)            |
-| `packages/core/src/tools/fetch-tool.ts`        | `web-request` tool with key substitution         |
-| `packages/core/src/secrets/substitution.ts`    | `resolveKeyReferences()` and `validateUrlAllowlist()` |
+| File                                                | Purpose                                               |
+| --------------------------------------------------- | ----------------------------------------------------- |
+| `packages/core/src/triggers/types.ts`               | `TriggerFrontmatter` interface                        |
+| `packages/core/src/triggers/actions.ts`             | Agent tools (define, list, update, delete, test)      |
+| `packages/core/src/triggers/dispatcher.ts`          | Event subscription and agentic dispatch               |
+| `packages/core/src/triggers/condition-evaluator.ts` | Haiku condition classification with caching           |
+| `packages/core/src/event-bus/`                      | Event bus (register, emit, subscribe)                 |
+| `packages/core/src/tools/fetch-tool.ts`             | `web-request` tool with key substitution              |
+| `packages/core/src/secrets/substitution.ts`         | `resolveKeyReferences()` and `validateUrlAllowlist()` |
 
 ## Related Skills
 

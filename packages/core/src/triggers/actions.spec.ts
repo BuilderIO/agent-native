@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAutomationToolEntries } from "./actions.js";
+import { __clearReservedJobs, registerReservedJob } from "../jobs/reserved.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
@@ -160,6 +161,26 @@ Record the QA signal.`,
     await tool().run({ action: "delete", name: "qa-alert" });
 
     expect(resourceDeleteMock).toHaveBeenCalledWith("resource-1");
+  });
+
+  it("refuses to define an automation whose name is reserved by a native loop", async () => {
+    registerReservedJob({
+      name: /^send-due-steps$/,
+      reason: "Sequencer runs this as native cron.",
+    });
+
+    const result = await tool().run({
+      action: "define",
+      name: "send-due-steps",
+      trigger_type: "schedule",
+      schedule: "* * * * *",
+      body: "duplicate of native cron",
+    });
+
+    expect(result).toContain("reserved");
+    expect(result).toContain("Sequencer runs this as native cron.");
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    __clearReservedJobs();
   });
 
   it("scopes fire-test events to the current user", async () => {

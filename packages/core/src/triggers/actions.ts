@@ -21,6 +21,7 @@ import {
 import { parseTriggerFrontmatter, buildTriggerContent } from "./dispatcher.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
 import type { TriggerFrontmatter } from "./types.js";
+import { findReservedJob } from "../jobs/reserved.js";
 
 /* ------------------------------------------------------------------ */
 /*  Individual action handlers                                        */
@@ -97,6 +98,11 @@ async function handleDefine(
   if (!name) return "Error: name is required (lowercase, hyphens).";
 
   const path = `jobs/${name}.md`;
+
+  const reserved = findReservedJob(name);
+  if (reserved) {
+    return `Error: "${name}" is reserved by a native background loop and cannot be created as an automation. ${reserved.reason}`;
+  }
 
   // Check if it already exists
   const existing = await resourceGetByPath(owner, path);

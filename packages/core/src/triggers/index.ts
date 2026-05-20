@@ -11,3 +11,8 @@ export {
   __clearConditionCache,
 } from "./condition-evaluator.js";
 export { createAutomationToolEntries } from "./actions.js";
+export {
+  registerReservedJob,
+  findReservedJob,
+  type ReservedJob,
+} from "../jobs/reserved.js";
