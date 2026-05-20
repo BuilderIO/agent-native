@@ -18,6 +18,7 @@ import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
+  resolveBuilderCredentials,
   resolveSecret,
 } from "../../server/credential-provider.js";
 
@@ -168,6 +169,10 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
 
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (entry.requiredEnvVars.length === 0) return false;
+    if (entry.name === "builder") {
+      const creds = await resolveBuilderCredentials();
+      return Boolean(creds.privateKey && creds.publicKey);
+    }
     for (const key of entry.requiredEnvVars) {
       try {
         if (!(await resolveSecret(key))) return false;
@@ -279,6 +284,10 @@ export async function isStoredEngineUsableForRequest(
 ): Promise<boolean> {
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
+  if (entry.name === "builder") {
+    const creds = await resolveBuilderCredentials();
+    return Boolean(creds.privateKey && creds.publicKey);
+  }
   for (const key of entry.requiredEnvVars) {
     try {
       if (await resolveSecret(key)) continue;

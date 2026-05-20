@@ -29,6 +29,13 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
       if (key === "BUILDER_ORG_NAME") return credentialState.builderOrgName;
       return null;
     }),
+    resolveBuilderCredentials: vi.fn(async () => ({
+      privateKey: credentialState.builderPrivateKey,
+      publicKey: credentialState.builderPublicKey,
+      userId: credentialState.builderUserId,
+      orgName: credentialState.builderOrgName,
+      orgKind: null,
+    })),
     resolveBuilderAuthHeader: vi.fn(async () => {
       const key = credentialState.builderPrivateKey;
       return key ? `Bearer ${key}` : null;
@@ -119,10 +126,16 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
   });
 
-  it("short-circuits with missing-credentials when resolveBuilderAuthHeader returns null", async () => {
-    const { resolveBuilderAuthHeader } =
+  it("short-circuits with missing-credentials when resolved Builder credentials are incomplete", async () => {
+    const { resolveBuilderCredentials } =
       await import("../../server/credential-provider.js");
-    vi.mocked(resolveBuilderAuthHeader).mockResolvedValueOnce(null);
+    vi.mocked(resolveBuilderCredentials).mockResolvedValueOnce({
+      privateKey: null,
+      publicKey: "space-test",
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
 
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);

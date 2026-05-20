@@ -2,6 +2,14 @@ import type { CalendarEvent } from "@shared/api";
 
 export type ReminderMethod = "popup" | "email";
 export type ReminderMode = "default" | "none" | "custom";
+export type RecurrencePreset =
+  | "none"
+  | "daily"
+  | "weekdays"
+  | "weekly"
+  | "monthly"
+  | "yearly"
+  | "custom";
 
 export interface ReminderDraft {
   id: string;
@@ -25,6 +33,17 @@ export const REMINDER_PRESETS = [
 ] as const;
 
 export const MAX_EVENT_ATTACHMENTS = 25;
+
+const DAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
+const DAY_LABELS: Record<string, string> = {
+  MO: "Mon",
+  TU: "Tue",
+  WE: "Wed",
+  TH: "Thu",
+  FR: "Fri",
+  SA: "Sat",
+  SU: "Sun",
+};
 
 function makeId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -214,4 +233,85 @@ export function dateTimeInTimezoneToIso(
 export function formatTimezoneLabel(timezone: string) {
   const city = timezone.split("/").pop()?.replace(/_/g, " ") || timezone;
   return `${city} (${timezone})`;
+}
+
+function recurrenceRule(recurrence?: string[]): string | undefined {
+  return recurrence?.find((rule) => rule.startsWith("RRULE:"));
+}
+
+function recurrenceField(rule: string, key: string): string | undefined {
+  return rule.match(new RegExp(`${key}=([^;]+)`))?.[1];
+}
+
+export function formatRecurrenceText(recurrence?: string[]): string | null {
+  const rule = recurrenceRule(recurrence);
+  if (!rule) return null;
+
+  const freq = recurrenceField(rule, "FREQ");
+  const interval = parseInt(recurrenceField(rule, "INTERVAL") || "1", 10);
+  const byDay = recurrenceField(rule, "BYDAY");
+
+  switch (freq) {
+    case "DAILY":
+      return interval === 1 ? "Every day" : `Every ${interval} days`;
+    case "WEEKLY": {
+      const days = byDay
+        ?.split(",")
+        .map((day) => DAY_LABELS[day] || day)
+        .join(", ");
+      if (interval === 1) return days ? `Every week on ${days}` : "Every week";
+      return days
+        ? `Every ${interval} weeks on ${days}`
+        : `Every ${interval} weeks`;
+    }
+    case "MONTHLY":
+      return interval === 1 ? "Every month" : `Every ${interval} months`;
+    case "YEARLY":
+      return interval === 1 ? "Every year" : `Every ${interval} years`;
+    default:
+      return null;
+  }
+}
+
+export function getRecurrencePreset(recurrence?: string[]): RecurrencePreset {
+  const rule = recurrenceRule(recurrence);
+  if (!rule) return "none";
+
+  const freq = recurrenceField(rule, "FREQ");
+  const interval = recurrenceField(rule, "INTERVAL") || "1";
+  const byDay = recurrenceField(rule, "BYDAY");
+
+  if (interval !== "1") return "custom";
+  if (freq === "DAILY" && !byDay) return "daily";
+  if ((freq === "DAILY" || freq === "WEEKLY") && byDay === "MO,TU,WE,TH,FR") {
+    return "weekdays";
+  }
+  if (freq === "WEEKLY") return "weekly";
+  if (freq === "MONTHLY") return "monthly";
+  if (freq === "YEARLY") return "yearly";
+  return "custom";
+}
+
+export function buildRecurrenceRules(
+  preset: RecurrencePreset,
+  startIso: string,
+): string[] | null {
+  switch (preset) {
+    case "none":
+      return [];
+    case "daily":
+      return ["RRULE:FREQ=DAILY"];
+    case "weekdays":
+      return ["RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"];
+    case "weekly": {
+      const day = DAY_CODES[new Date(startIso).getDay()] || "MO";
+      return [`RRULE:FREQ=WEEKLY;BYDAY=${day}`];
+    }
+    case "monthly":
+      return ["RRULE:FREQ=MONTHLY"];
+    case "yearly":
+      return ["RRULE:FREQ=YEARLY"];
+    case "custom":
+      return null;
+  }
 }

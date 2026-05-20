@@ -583,6 +583,61 @@ describe("AgentEngine registry", () => {
       });
     });
 
+    it("picks the Builder engine from org credentials when the user has only a partial stale Builder row", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "member@example.com",
+        getRequestOrgId: () => "builder_org",
+      }));
+      const readAppSecret = vi.fn(
+        async ({
+          key,
+          scope,
+        }: {
+          key: string;
+          scope: "user" | "org" | "workspace";
+        }) => {
+          if (scope === "user" && key === "BUILDER_PRIVATE_KEY") {
+            return { key, value: "stale-user-private" };
+          }
+          if (scope === "org" && key === "BUILDER_PRIVATE_KEY") {
+            return { key, value: "org-private" };
+          }
+          if (scope === "org" && key === "BUILDER_PUBLIC_KEY") {
+            return { key, value: "org-public" };
+          }
+          return null;
+        },
+      );
+      vi.doMock("../../secrets/storage.js", () => ({ readAppSecret }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const detected = await detectEngineFromUserSecrets();
+      expect(detected?.name).toBe("builder");
+    });
+
     it("resolveEngine routes to Builder when the user has Builder creds in app_secrets and no env-level keys", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "brent@example.com",
@@ -633,6 +688,74 @@ describe("AgentEngine registry", () => {
       expect(builderCreate).toHaveBeenCalled();
       expect(anthropicCreate).not.toHaveBeenCalled();
       expect(resolved).toBe(builderEngine);
+    });
+
+    it("does not treat Builder as usable from a stored engine when required keys only exist across mixed scopes", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue({
+          engine: "builder",
+          model: "m",
+        }),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "member@example.com",
+        getRequestOrgId: () => "builder_org",
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn(
+          async ({
+            key,
+            scope,
+          }: {
+            key: string;
+            scope: "user" | "org" | "workspace";
+          }) => {
+            if (scope === "user" && key === "BUILDER_PRIVATE_KEY") {
+              return { key, value: "stale-user-private" };
+            }
+            if (scope === "org" && key === "BUILDER_PUBLIC_KEY") {
+              return { key, value: "org-public" };
+            }
+            return null;
+          },
+        ),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const builderCreate = vi.fn().mockReturnValue({
+        name: "builder",
+        stream: vi.fn(),
+      } as any);
+      const anthropicEngine = { name: "anthropic", stream: vi.fn() } as any;
+      const anthropicCreate = vi.fn().mockReturnValue(anthropicEngine);
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: anthropicCreate,
+      });
+
+      const resolved = await resolveEngine({});
+      expect(builderCreate).not.toHaveBeenCalled();
+      expect(anthropicCreate).toHaveBeenCalled();
+      expect(resolved).toBe(anthropicEngine);
     });
 
     it("resolveEngine prefers connected Builder over a stale stored provider env key", async () => {
