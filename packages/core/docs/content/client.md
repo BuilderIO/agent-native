@@ -176,7 +176,41 @@ function App() {
 | `ignoreSource` | `string?`          | Per-tab request source to ignore so a tab does not refetch from its own writes         |
 | `onEvent`      | `(data) => void`   | Optional callback when SSE/polling receives a change event                             |
 
-For normal CRUD, prefer `useActionQuery` and `useActionMutation`; mutating actions emit `source: "action"` and those hooks refetch automatically. Raw `useQuery` should include `useChangeVersions(["action", "<domain-source>"])` in the query key when it displays data the agent can mutate.
+For normal CRUD, prefer `useActionQuery` and `useActionMutation`; mutating actions emit `source: "action"` and those hooks refetch automatically.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+The framework uses change versions to sync React Query caches with changes made by background agents, cron jobs, or other users.
+
+When any server-side database mutation occurs, the server records a change event with a specific `source` key. The client's `useDbSync` listener receives these events and bumps the local change version counter for that source. By folding the version counter into your React Query keys, queries automatically refetch whenever the backend notifies the client of new activity.
+
+- **`useChangeVersion(source: string): number`** — returns a counter that increments whenever the specified `source` is mutated.
+- **`useChangeVersions(sources: readonly string[]): number`** — returns the sum of version counters for multiple sources.
+
+### Example: Syncing a raw query with the database
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client";
+
+function DashboardView({ id }) {
+  // Get version for dashboards domain source
+  const v = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, v], // Invalidate automatically when version bumps
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev, // Prevent layout flicker during refetch
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+### Latency Models & Invalidation Behavior
+
+- **UI-Initiated mutations:** When you execute an action from the UI using `useActionMutation`, the mutation immediately fires a local event with `source: "action"` on success. This triggers an **instant, optimistic refetch** of all query keys depending on that action, avoiding visual delay.
+- **Background or Agent Mutations:** When the AI agent, a webhook, or a background worker mutates data, the update is broadcast to the client. The client's `useDbSync` captures this either instantly over SSE (Server-Sent Events) or falls back to the **2-second polling tick**. The query key version then bumps, triggering a background refetch.
 
 ## cn(...inputs) {#cn}
 

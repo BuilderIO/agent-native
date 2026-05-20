@@ -1,5 +1,13 @@
 # @agent-native/dispatch
 
+## 0.8.6
+
+### Patch Changes
+
+- 789ba7d: Clarify starter app creation guidance, seed app descriptions, and remove starter/new-app leftovers from starter-derived apps.
+- 789ba7d: Add Dispatch unified MCP gateway guidance and app-grant controls.
+- 789ba7d: Tighten the Dispatch apps grid layout and progressively disclose template and hidden-app sections.
+
 ## 0.8.5
 
 ### Patch Changes

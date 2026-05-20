@@ -648,12 +648,12 @@ function renderConnectPage(params: {
     </div>
     <div class="tab-panel" role="tabpanel" data-panel="chatgpt">
       <ol>
-        <li>In ChatGPT, open <strong>Settings → Connectors</strong> (Business/Enterprise/Edu workspaces with developer mode enabled).</li>
-        <li>Choose <strong>Add custom connector</strong>, paste the MCP URL above, name it <strong>${safeApp}</strong>.</li>
-        <li>Click <strong>Connect</strong>, then sign in with your Agent-Native account and approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
+        <li>In ChatGPT, open <strong>Settings → Apps</strong> (Business/Enterprise/Edu workspaces with developer mode enabled).</li>
+        <li>Scroll to <strong>Advanced settings → Create app</strong>, paste the MCP URL above, name it <strong>${safeApp}</strong>.</li>
+        <li>Click <strong>Connect</strong>, sign in with your Agent-Native account, and approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
       </ol>
       <a class="primary-link" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT</a>
-      <p class="hint">Workspace admins may need to enable custom connectors under organization settings first; each member still authorizes their own account.</p>
+      <p class="hint"><strong>Got "Connector name already exists" but don't see it under Enabled apps?</strong> ChatGPT saves a hidden draft the moment you click Create — even if you closed the OAuth popup before approving. In <strong>Settings → Apps</strong>, scroll past Enabled apps to the <strong>Drafts</strong> section ("Private apps you've created in developer mode"). Click the draft and either press <strong>Connect</strong> to finish OAuth, or use the <strong>⋯ → Delete</strong> menu and re-create. Workspace admins may also need to enable custom connectors under org settings; each member still authorizes their own account.</p>
     </div>
     <div class="tab-panel" role="tabpanel" data-panel="cursor">
       <ol>

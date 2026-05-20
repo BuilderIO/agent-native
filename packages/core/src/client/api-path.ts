@@ -1,3 +1,5 @@
+import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
+
 const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 
 function normalizeBasePath(value: string | undefined): string {
@@ -26,6 +28,7 @@ function pathDerivedBasePath(): string {
 }
 
 export function appBasePath(): string {
+  ensureEmbedAuthFetchInterceptor();
   return configuredBasePath() || pathDerivedBasePath();
 }
 

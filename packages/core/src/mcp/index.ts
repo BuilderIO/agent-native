@@ -17,6 +17,11 @@ export type { RunMCPStdioOptions } from "./stdio.js";
 
 // Generic cross-app builtin tools (merged into the registry, template wins).
 export { getBuiltinCrossAppTools } from "./builtin-tools.js";
+export {
+  embedApp,
+  MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+  type EmbedAppOptions,
+} from "./embed-app.js";
 
 // Workspace / app resolution helpers (Node-only).
 export {

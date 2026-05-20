@@ -284,7 +284,7 @@ export default function SearchRoute() {
             detail={
               hasFilters
                 ? "Broaden the query or clear a filter."
-                : "Enter a phrase or load the demo from Ask to search cited company memory."
+                : "Enter a phrase to search cited company memory."
             }
           />
         )}

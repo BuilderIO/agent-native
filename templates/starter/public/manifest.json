@@ -1,7 +1,7 @@
 {
-  "name": "Agent Native",
-  "short_name": "Starter",
-  "description": "Blank starter template",
+  "name": "Blank app",
+  "short_name": "Blank app",
+  "description": "Blank app ready to customize",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#111111",

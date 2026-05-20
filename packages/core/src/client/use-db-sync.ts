@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { agentNativePath } from "./api-path.js";
 import { bumpChangeVersion } from "./use-change-version.js";
 import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
+import {
+  ensureEmbedAuthFetchInterceptor,
+  isEmbedAuthActive,
+} from "./embed-auth.js";
 
 interface QueryClient {
   invalidateQueries(opts?: { queryKey?: string[] }): void;
@@ -36,6 +40,7 @@ function isDocumentHidden(): boolean {
 
 function resolveSseUrl(sseUrl: string | false | undefined): string | false {
   if (sseUrl === false) return false;
+  if (isEmbedAuthActive()) return false;
   return agentNativePath(sseUrl ?? "/_agent-native/events");
 }
 
@@ -158,6 +163,7 @@ export function useDbSync(
     // Universal demo-mode redaction for the UI. Idempotent + browser-only +
     // a no-op until demo mode is on. Lives here because every template root
     // already mounts useDbSync, so this needs zero per-template wiring.
+    ensureEmbedAuthFetchInterceptor();
     ensureDemoModeFetchInterceptor();
 
     let versionRef = 0;

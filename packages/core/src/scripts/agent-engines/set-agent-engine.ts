@@ -6,6 +6,7 @@ import type { ActionTool } from "../../agent/types.js";
 import {
   listAgentEngines,
   getAgentEngineEntry,
+  isAgentEnginePackageInstalled,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
 import { putSetting } from "../../settings/index.js";
@@ -44,6 +45,10 @@ export async function run(args: Record<string, string>): Promise<string> {
       .map((e) => e.name)
       .join(", ");
     return `Error: Engine "${engineName}" not found. Available engines: ${available}`;
+  }
+
+  if (!isAgentEnginePackageInstalled(entry)) {
+    return `Error: Engine "${engineName}" requires optional packages that are not installed in this app. Run: pnpm add ${entry.installPackage}`;
   }
 
   const resolvedModel = model ?? entry.defaultModel;

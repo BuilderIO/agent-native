@@ -29,6 +29,7 @@ import {
   createAnthropicEngine,
   getStoredModelForEngine,
   getAgentEngineEntry,
+  isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
   listAgentEngines,
   registerBuiltinEngines,
@@ -4831,6 +4832,8 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
                 defaultModel: entry.defaultModel,
                 supportedModels: entry.supportedModels,
                 requiredEnvVars: entry.requiredEnvVars,
+                installPackage: entry.installPackage,
+                packageInstalled: isAgentEnginePackageInstalled(entry),
                 configured: await isStoredEngineUsableForRequest(
                   { engine: entry.name, model: entry.defaultModel },
                   entry,
@@ -4925,6 +4928,12 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
           if (!entry) {
             setResponseStatus(event, 400);
             return { error: `Unknown engine: ${engine}` };
+          }
+          if (!isAgentEnginePackageInstalled(entry)) {
+            setResponseStatus(event, 400);
+            return {
+              error: `Engine "${engine}" requires optional packages that are not installed in this app. Run: pnpm add ${entry.installPackage}`,
+            };
           }
 
           await writeAgentAppModelDefaultSettings(

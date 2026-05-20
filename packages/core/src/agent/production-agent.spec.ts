@@ -169,6 +169,119 @@ describe("buildUserContentWithAttachments", () => {
     ).toEqual([{ type: "text", text: "Can you read this SVG?" }]);
   });
 
+  it("preserves orphan tool-results as text so history is not lost before backfill", () => {
+    // No assistant tool-call ever exists for `t1`. Emitting a synthetic
+    // `tool-result` would be stripped later anyway; converting to text keeps
+    // the payload visible and lets `backfillEngineMessagesToolResults` run on
+    // the full engine message list consistently.
+    expect(
+      structuredHistoryToEngineMessages([
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "t1",
+              content: "stale tool output",
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "(Omitted unmatched tool results from replayed history.) [tool_use_id=t1] stale tool output",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("appends a text note when a sibling tool-result is orphaned", () => {
+    expect(
+      structuredHistoryToEngineMessages([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Here's some context." },
+            {
+              type: "tool-result",
+              toolCallId: "ghost",
+              content: "stale",
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Here's some context." },
+          {
+            type: "text",
+            text: "(Omitted unmatched tool results from replayed history.) [tool_use_id=ghost] stale",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("coerces non-string tool_result fields from older DB JSON", () => {
+    expect(
+      structuredHistoryToEngineMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "99",
+              toolName: "search",
+              args: { q: "x" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: 99 as any,
+              toolName: "search",
+              content: { hits: 3 } as any,
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "99",
+            name: "search",
+            input: { q: "x" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "99",
+            toolName: "search",
+            toolInput: '{"q":"x"}',
+            content: '{"hits":3}',
+          },
+        ],
+      },
+    ]);
+  });
+
   it("normalizes structured chat history with tool calls and results", () => {
     expect(
       structuredHistoryToEngineMessages([
@@ -190,6 +303,7 @@ describe("buildUserContentWithAttachments", () => {
               type: "tool-result",
               toolCallId: "tc_1",
               toolName: "get-document",
+              toolInput: '{"id":"doc-1"}',
               content: '{"title":"Offsite rambles"}',
             },
           ],
@@ -214,6 +328,7 @@ describe("buildUserContentWithAttachments", () => {
             type: "tool-result",
             toolCallId: "tc_1",
             toolName: "get-document",
+            toolInput: '{"id":"doc-1"}',
             content: '{"title":"Offsite rambles"}',
           },
         ],
@@ -625,6 +740,7 @@ describe("runAgentLoop", () => {
               type: "tool-result",
               toolCallId: "tool-original",
               toolName: "get-document",
+              toolInput: '{"id":"doc-1"}',
               content: '{"id":"doc-1","title":"Offsite rambles"}',
             },
           ],
@@ -727,6 +843,7 @@ describe("runAgentLoop", () => {
               type: "tool-result",
               toolCallId: "tool-original",
               toolName: "get-document",
+              toolInput: '{"id":"doc-1"}',
               content: "old result",
             },
           ],
@@ -1161,6 +1278,7 @@ describe("runAgentLoop", () => {
           type: "tool-result",
           toolCallId: "bad-call",
           toolName: "add-slide",
+          toolInput: expect.any(String),
           isError: true,
         },
       ],

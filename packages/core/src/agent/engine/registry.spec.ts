@@ -427,6 +427,73 @@ describe("AgentEngine registry", () => {
     expect(resolved).toBe(appEngine);
   });
 
+  it("resolveEngine ignores stored engines whose optional runtime packages are missing", async () => {
+    vi.doMock("../../settings/store.js", () => ({
+      getSetting: vi.fn().mockResolvedValue({
+        engine: "ai-sdk:openai",
+        model: "gpt-5.4",
+      }),
+    }));
+
+    const { registerAgentEngine, resolveEngine } =
+      await import("./registry.js");
+
+    const openAiCreate = vi.fn().mockReturnValue({
+      name: "ai-sdk:openai",
+      stream: vi.fn(),
+    } as any);
+    const anthropicEngine = { name: "anthropic", stream: vi.fn() } as any;
+    const anthropicCreate = vi.fn().mockReturnValue(anthropicEngine);
+
+    registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      installPackage: "@agent-native/definitely-missing-ai-provider",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.4",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: openAiCreate,
+    });
+    registerAgentEngine({
+      name: "anthropic",
+      label: "Anthropic",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "m",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: anthropicCreate,
+    });
+
+    const resolved = await resolveEngine({});
+
+    expect(openAiCreate).not.toHaveBeenCalled();
+    expect(anthropicCreate).toHaveBeenCalled();
+    expect(resolved).toBe(anthropicEngine);
+  });
+
+  it("detectEngineFromEnv skips engines whose optional runtime packages are missing", async () => {
+    process.env.OPENAI_API_KEY = "sk-env"; // guard:allow-env-credential — fixture: package check should still prevent selection
+    const { detectEngineFromEnv, registerAgentEngine } =
+      await import("./registry.js");
+
+    registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      installPackage: "@agent-native/definitely-missing-ai-provider",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.4",
+      supportedModels: [],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create: vi.fn() as any,
+    });
+
+    expect(detectEngineFromEnv()).toBeNull();
+  });
+
   describe("detectEngineFromUserSecrets", () => {
     beforeEach(() => {
       vi.resetModules();

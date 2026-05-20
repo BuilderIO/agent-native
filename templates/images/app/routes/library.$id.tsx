@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router";
 import { useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   ShareButton,
   appBasePath,
@@ -10,10 +11,13 @@ import {
   useActionQuery,
 } from "@agent-native/core/client";
 import {
+  IconDotsVertical,
   IconMessageCircle,
+  IconPencil,
   IconPhoto,
   IconPhotoPlus,
   IconRefresh,
+  IconTrash,
   IconUpload,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -33,8 +37,25 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
+import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
 import { getLibraryCustomInstructions } from "@/lib/libraries";
 import {
   IMAGE_CATEGORIES,
@@ -52,8 +73,10 @@ export default function LibraryPage() {
   const rerunGeneration = useActionMutation("rerun-generation-run");
   const extractPalette = useActionMutation("extract-palette-from-references");
   const { data: variants } = useVariantState();
+  const queryClient = useQueryClient();
   const [generateOpen, setGenerateOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const library = data?.library;
@@ -75,10 +98,26 @@ export default function LibraryPage() {
       form.append("libraryId", libraryId);
       form.append("category", category);
       for (const file of files) form.append("files", file);
-      await fetch(`${appBasePath()}/api/assets/upload`, {
+      const response = await fetch(`${appBasePath()}/api/assets/upload`, {
         method: "POST",
         body: form,
       });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error || `Upload failed (${response.status})`);
+      }
+      const result = (await response.json().catch(() => null)) as {
+        count?: number;
+      } | null;
+      const count = result?.count ?? files.length;
+      toast.success(`Uploaded ${count} reference${count === 1 ? "" : "s"}.`);
+      await queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploading(false);
     }
@@ -133,6 +172,15 @@ export default function LibraryPage() {
                 {library.title}
               </h2>
               <Badge variant="outline">{library.visibility}</Badge>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                onClick={() => setEditOpen(true)}
+                aria-label="Edit library name and description"
+              >
+                <IconPencil className="h-4 w-4" />
+              </Button>
             </div>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
               {library.description ||
@@ -173,16 +221,23 @@ export default function LibraryPage() {
         onChange={(event) => upload(event.target.files)}
       />
 
+      <EditLibraryDialog
+        library={library}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+      />
+
       <div className="flex-1 overflow-y-auto px-6 py-5">
         {pendingVariants.length > 0 && (
           <section className="mb-6 rounded-lg border border-border bg-card p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-sm font-semibold">Live candidates</h3>
                 <p className="text-xs text-muted-foreground">
                   These slots are written by the agent while generation runs.
                 </p>
               </div>
+              <LiveCandidatesActions slots={pendingVariants} />
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
               {pendingVariants.map((slot: any) => (
@@ -648,6 +703,9 @@ function AssetGrid({
   emptyBody: string;
   onEmptyClick: () => void;
 }) {
+  const deleteAsset = useActionMutation("delete-asset");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
   if (!assets.length) {
     return (
       <button
@@ -662,41 +720,165 @@ function AssetGrid({
       </button>
     );
   }
+
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-      {assets.map((asset) => (
-        <Link
-          key={asset.id}
-          to={`/image/${asset.id}`}
-          className="group overflow-hidden rounded-lg border border-border bg-card"
-        >
-          <div className="aspect-[4/3] bg-muted">
-            <img
-              src={asset.thumbnailUrl}
-              alt={asset.altText || asset.title || ""}
-              className="h-full w-full object-cover transition group-hover:scale-[1.02]"
-            />
-          </div>
-          <div className="space-y-2 p-3">
-            <div className="truncate text-xs font-medium">
-              {asset.title || asset.metadata?.category || asset.status}
+    <>
+      <AlertDialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDeleteId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete image?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the image from the library. Existing exports that
+              already use this URL may stop rendering.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!confirmDeleteId || deleteAsset.isPending}
+              onClick={() => {
+                if (!confirmDeleteId) return;
+                deleteAsset.mutate(
+                  { id: confirmDeleteId },
+                  { onSuccess: () => setConfirmDeleteId(null) },
+                );
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {assets.map((asset) => (
+          <div
+            key={asset.id}
+            className="group relative overflow-hidden rounded-lg border border-border bg-card"
+          >
+            <div className="absolute right-2 top-2 z-10">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
+                    aria-label="Image actions"
+                  >
+                    <IconDotsVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem asChild>
+                    <Link to={`/image/${asset.id}`}>View details</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                    onSelect={() => setConfirmDeleteId(asset.id)}
+                  >
+                    <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">{asset.status}</Badge>
-              {asset.metadata?.category && (
-                <Badge variant="outline">{asset.metadata.category}</Badge>
-              )}
-            </div>
+            <Link to={`/image/${asset.id}`} className="block outline-none">
+              <div className="aspect-[4/3] bg-muted">
+                <img
+                  src={asset.thumbnailUrl}
+                  alt={asset.altText || asset.title || ""}
+                  className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                />
+              </div>
+              <div className="space-y-2 p-3">
+                <div className="truncate text-xs font-medium">
+                  {asset.title || asset.metadata?.category || asset.status}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{asset.status}</Badge>
+                  {asset.metadata?.category && (
+                    <Badge variant="outline">{asset.metadata.category}</Badge>
+                  )}
+                </div>
+              </div>
+            </Link>
           </div>
-        </Link>
-      ))}
-    </div>
+        ))}
+      </div>
+    </>
   );
 }
 
 function VariantCard({ slot, onSave }: { slot: any; onSave: () => void }) {
+  const dismissSlot = useActionMutation("dismiss-variant-slots");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const isFailed = slot.status === "failed";
+  const label = isFailed ? "Dismiss" : "Delete";
+
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-background">
+    <div className="group relative overflow-hidden rounded-lg border border-border bg-background">
+      <div className="absolute right-2 top-2 z-10">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
+              aria-label="Candidate actions"
+            >
+              <IconDotsVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+              onSelect={() => setConfirmOpen(true)}
+            >
+              <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+              {label}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isFailed ? "Dismiss this slot?" : "Delete candidate?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isFailed
+                ? "Removes this failed slot from the live candidates panel."
+                : "Removes this candidate from the library and clears its slot."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={dismissSlot.isPending}
+              onClick={() =>
+                dismissSlot.mutate(
+                  { slotId: slot.slotId },
+                  { onSuccess: () => setConfirmOpen(false) },
+                )
+              }
+            >
+              {label}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="flex aspect-[4/3] items-center justify-center bg-muted">
         {slot.previewUrl ? (
           <img
@@ -704,7 +886,7 @@ function VariantCard({ slot, onSave }: { slot: any; onSave: () => void }) {
             alt=""
             className="h-full w-full object-cover"
           />
-        ) : slot.status === "failed" ? (
+        ) : isFailed ? (
           <div className="p-4 text-center text-xs text-destructive">
             {slot.error}
           </div>
@@ -723,6 +905,86 @@ function VariantCard({ slot, onSave }: { slot: any; onSave: () => void }) {
         )}
       </div>
     </div>
+  );
+}
+
+function LiveCandidatesActions({ slots }: { slots: any[] }) {
+  const dismissSlots = useActionMutation("dismiss-variant-slots");
+  const [pending, setPending] = useState<"failed" | "all" | null>(null);
+  const failedCount = slots.filter((s) => s.status === "failed").length;
+  const hasFailed = failedCount > 0;
+
+  return (
+    <>
+      <AlertDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open) setPending(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pending === "failed"
+                ? `Dismiss ${failedCount} failed ${failedCount === 1 ? "slot" : "slots"}?`
+                : "Clear all live candidates?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pending === "failed"
+                ? "Removes every failed slot from the panel. Successful candidates stay."
+                : "Clears the live candidates panel and deletes any unsaved candidate rows."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={dismissSlots.isPending || pending === null}
+              onClick={() => {
+                if (!pending) return;
+                dismissSlots.mutate(
+                  { scope: pending },
+                  { onSuccess: () => setPending(null) },
+                );
+              }}
+            >
+              {pending === "failed" ? "Dismiss failed" : "Clear all"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            aria-label="Live candidates actions"
+          >
+            <IconDotsVertical className="h-4 w-4" />
+            Clear
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            disabled={!hasFailed}
+            onSelect={() => setPending("failed")}
+          >
+            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+            Dismiss failed ({failedCount})
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            onSelect={() => setPending("all")}
+          >
+            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+            Clear all
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
 
