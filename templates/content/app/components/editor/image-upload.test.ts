@@ -58,6 +58,27 @@ describe("image uploads", () => {
     );
   });
 
+  it("tells users to reconnect Builder.io when saved credentials are rejected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => ({
+          message: "Builder.io upload failed (401): Unauthorized",
+        }),
+      }),
+    );
+
+    const file = new File(["image-bytes"], "diagram.png", {
+      type: "image/png",
+    });
+
+    await expect(uploadImageFile(file)).rejects.toThrow(
+      "Reconnect Builder.io in Settings -> File uploads",
+    );
+  });
+
   it("ignores non-image files before uploading", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

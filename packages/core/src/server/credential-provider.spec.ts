@@ -37,6 +37,7 @@ import {
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveBuilderCredential,
+  resolveBuilderCredentials,
   resolveBuilderCredentialSource,
   resolveSecret,
 } from "./credential-provider.js";
@@ -514,23 +515,24 @@ describe("resolveBuilderCredential", () => {
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
     mockGetRequestUserEmail.mockReturnValue("member@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
-    mockReadAppSecret
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ value: "org-key", last4: "-key", updatedAt: 1 });
+    mockReadAppSecret.mockImplementation(async ({ key, scope }) =>
+      scope === "org" &&
+      (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+        ? { value: `${scope}-${key}`, last4: "-key", updatedAt: 1 }
+        : null,
+    );
     expect(await resolveBuilderCredentialSource()).toBe("org");
   });
 
   it("reports workspace as the credential source for legacy shared Builder rows", async () => {
     mockGetRequestUserEmail.mockReturnValue("member@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
-    mockReadAppSecret
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        value: "workspace-key",
-        last4: "-key",
-        updatedAt: 1,
-      });
+    mockReadAppSecret.mockImplementation(async ({ key, scope }) =>
+      scope === "workspace" &&
+      (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+        ? { value: `${scope}-${key}`, last4: "-key", updatedAt: 1 }
+        : null,
+    );
     expect(await resolveBuilderCredentialSource()).toBe("workspace");
   });
 
@@ -551,6 +553,35 @@ describe("resolveBuilderCredential", () => {
     mockReadAppSecret.mockResolvedValue(null);
 
     expect(await resolveBuilderCredentialSource()).toBeNull();
+  });
+
+  it("resolves Builder credentials from one complete scope instead of mixing partial user rows with org rows", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ key, scope }) => {
+      if (scope === "user" && key === "BUILDER_PRIVATE_KEY") {
+        return { value: "stale-user-private", last4: "vate", updatedAt: 1 };
+      }
+      if (scope === "org" && key === "BUILDER_PRIVATE_KEY") {
+        return { value: "org-private", last4: "vate", updatedAt: 2 };
+      }
+      if (scope === "org" && key === "BUILDER_PUBLIC_KEY") {
+        return { value: "org-public", last4: "blic", updatedAt: 2 };
+      }
+      if (scope === "org" && key === "BUILDER_ORG_NAME") {
+        return { value: "Builder.io", last4: ".io", updatedAt: 2 };
+      }
+      return null;
+    });
+
+    await expect(resolveBuilderCredentials()).resolves.toEqual({
+      privateKey: "org-private",
+      publicKey: "org-public",
+      userId: null,
+      orgName: "Builder.io",
+      orgKind: null,
+    });
+    await expect(resolveBuilderCredentialSource()).resolves.toBe("org");
   });
 });
 

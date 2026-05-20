@@ -3434,6 +3434,11 @@ const AssistantChatInner = forwardRef<
     dropDepthRef.current = Math.max(0, dropDepthRef.current - 1);
     if (dropDepthRef.current === 0) setDropActive(false);
   }, []);
+  const handleChatDropCapture = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    dropDepthRef.current = 0;
+    setDropActive(false);
+  }, []);
   const handleChatDrop = useCallback(
     (e: React.DragEvent) => {
       const files = Array.from(e.dataTransfer?.files ?? []);
@@ -4626,6 +4631,7 @@ const AssistantChatInner = forwardRef<
             onDragEnter={handleChatDragEnter}
             onDragOver={handleChatDragOver}
             onDragLeave={handleChatDragLeave}
+            onDropCapture={handleChatDropCapture}
             onDrop={handleChatDrop}
           >
             {dropActive && (

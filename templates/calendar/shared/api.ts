@@ -131,6 +131,7 @@ export interface CalendarEventDraft {
 }
 
 export type DeleteEventScope = "single" | "all" | "thisAndFollowing";
+export type UpdateEventScope = "single" | "all";
 
 export interface DeleteEventOptions {
   scope?: DeleteEventScope;

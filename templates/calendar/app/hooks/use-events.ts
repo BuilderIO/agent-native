@@ -6,7 +6,7 @@ import {
 } from "@tanstack/react-query";
 import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
-import type { CalendarEvent } from "@shared/api";
+import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 
 type CreateEventInput = Omit<
   CalendarEvent,
@@ -25,6 +25,7 @@ type UpdateEventInput = Partial<CalendarEvent> & {
   addZoom?: boolean;
   sendUpdates?: "all" | "none";
   notificationMessage?: string;
+  scope?: UpdateEventScope;
 };
 
 async function readErrorMessage(res: Response, fallback: string) {
@@ -195,6 +196,7 @@ export function useUpdateEvent() {
         addZoom,
         sendUpdates,
         notificationMessage,
+        scope,
         ...optimisticData
       } = newData;
       queryClient.setQueriesData<CalendarEvent[]>(
