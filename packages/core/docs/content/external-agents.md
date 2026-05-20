@@ -14,7 +14,17 @@ The external-agent bridge closes the loop. First you connect your own agent to a
 
 Add the hosted app as a remote MCP connector in your chat host, sign in, and enable it in a chat.
 
-**Shortcut:** every hosted agent-native app serves a one-page connect helper at `https://<app>/_agent-native/mcp/connect` (for example [mail.agent-native.com/\_agent-native/mcp/connect](https://mail.agent-native.com/_agent-native/mcp/connect), [analytics.agent-native.com/\_agent-native/mcp/connect](https://analytics.agent-native.com/_agent-native/mcp/connect)). It shows the MCP URL with a one-click copy button and a tab strip — Claude · ChatGPT · Cursor · Claude Code · Codex · Other — each with the exact steps or copy-able command for that host. Bookmark it and share with non-developer teammates; everything below is also reachable from that page.
+### One-page setup helper
+
+Every hosted agent-native app ships a connect page that does the work below for you. Send non-developer teammates here:
+
+- [`mail.agent-native.com/_agent-native/mcp/connect`](https://mail.agent-native.com/_agent-native/mcp/connect)
+- [`analytics.agent-native.com/_agent-native/mcp/connect`](https://analytics.agent-native.com/_agent-native/mcp/connect)
+- `https://<your-app>/_agent-native/mcp/connect`
+
+The page shows your MCP URL with a copy button and a host picker (Claude · ChatGPT · Cursor · Claude Code · Codex · Other). Pick your assistant, follow the inline steps. No terminal needed for Claude, ChatGPT, or Cursor.
+
+### Doing it manually
 
 Use the hosted app's MCP URL:
 
