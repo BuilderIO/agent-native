@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getOAuthAccountsMock = vi.hoisted(() => vi.fn());
+const listOAuthAccountsByOwnerMock = vi.hoisted(() => vi.fn());
 const saveOAuthTokensMock = vi.hoisted(() => vi.fn());
 const deleteOAuthTokensMock = vi.hoisted(() => vi.fn());
 const createOAuth2ClientMock = vi.hoisted(() => vi.fn());
 const oauth2GetUserInfoMock = vi.hoisted(() => vi.fn());
 const peopleGetProfileMock = vi.hoisted(() => vi.fn());
+const calendarGetEventMock = vi.hoisted(() => vi.fn());
+const calendarPatchEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getOAuthAccounts: getOAuthAccountsMock,
@@ -16,7 +19,7 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
   getOAuthTokens: vi.fn(),
   saveOAuthTokens: saveOAuthTokensMock,
   deleteOAuthTokens: deleteOAuthTokensMock,
-  listOAuthAccountsByOwner: vi.fn(),
+  listOAuthAccountsByOwner: listOAuthAccountsByOwnerMock,
   hasOAuthTokens: vi.fn(),
 }));
 
@@ -25,13 +28,13 @@ vi.mock("./google-api.js", () => ({
   oauth2GetUserInfo: oauth2GetUserInfoMock,
   peopleGetProfile: peopleGetProfileMock,
   calendarListEvents: vi.fn(),
-  calendarGetEvent: vi.fn(),
+  calendarGetEvent: calendarGetEventMock,
   calendarInsertEvent: vi.fn(),
   calendarDeleteEvent: vi.fn(),
-  calendarPatchEvent: vi.fn(),
+  calendarPatchEvent: calendarPatchEventMock,
 }));
 
-import { exchangeCode, getAuthStatus } from "./google-calendar";
+import { exchangeCode, getAuthStatus, updateEvent } from "./google-calendar";
 
 describe("calendar Google auth status", () => {
   beforeEach(() => {
@@ -108,6 +111,61 @@ describe("calendar Google auth status", () => {
       "secondary@example.com",
       expect.objectContaining({ access_token: "new-token" }),
       "owner@example.com",
+    );
+  });
+});
+
+describe("calendar recurring event updates", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarPatchEventMock.mockResolvedValue({
+      id: "series-1",
+      htmlLink: "https://calendar.google.com/event",
+    });
+  });
+
+  it("patches the recurring master when updating all events from an occurrence", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+        end: { dateTime: "2026-05-20T16:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        start: { dateTime: "2026-05-06T15:00:00Z" },
+        end: { dateTime: "2026-05-06T16:00:00Z" },
+      });
+
+    await updateEvent(
+      "instance-1",
+      {
+        accountEmail: "steve@example.com",
+        start: "2026-05-20T16:00:00Z",
+        end: "2026-05-20T17:00:00Z",
+      },
+      { scope: "all" },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "series-1",
+      expect.objectContaining({
+        start: { dateTime: "2026-05-06T16:00:00Z" },
+        end: { dateTime: "2026-05-06T17:00:00Z" },
+      }),
+      expect.any(Object),
     );
   });
 });

@@ -36,6 +36,87 @@ describe("useChatThreads", () => {
     vi.unstubAllGlobals();
   });
 
+  it("starts fresh when no active thread is saved, even if server history exists", async () => {
+    const oldThread: ChatThreadSummary = {
+      id: "old-project-thread",
+      title: "Animated charting tool",
+      preview: "make the chart more playful",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [oldThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "analytics-project");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("forked-thread");
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "forked-thread",
+      "old-project-thread",
+    ]);
+  });
+
+  it("keeps a saved active thread when it still exists on the server", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:analytics-project",
+      "old-project-thread",
+    );
+    const oldThread: ChatThreadSummary = {
+      id: "old-project-thread",
+      title: "Analytics for Academy",
+      preview: "show weekly signups",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [oldThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "analytics-project");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("old-project-thread");
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "old-project-thread",
+    ]);
+  });
+
   it("sends the current client snapshot when forking a thread", async () => {
     const sourceThread: ChatThreadSummary = {
       id: "source-thread",

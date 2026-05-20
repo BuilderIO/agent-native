@@ -243,8 +243,11 @@ export function useChatThreads(
   //   on first message, same as any new tab), so there's no 404 to avoid.
   //   This is what makes "the state you left is the state you see on
   //   refresh" hold — stale (>12h) tabs are still cleared downstream.
-  // - No savedId, no server threads → synthesize a fresh local id (no
-  //   POST; server creates the row on first message).
+  // - No savedId → synthesize a fresh local id (no POST; server creates the
+  //   row on first message). The server may contain chats from another
+  //   branch, preview, or project that shares the same user/database, so
+  //   auto-opening the latest server thread here leaks unrelated context into
+  //   a fresh surface. Existing threads remain available in History.
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
@@ -280,10 +283,8 @@ export function useChatThreads(
         // activeThreadId already === savedId from the localStorage
         // initializer; nothing else to set.
       } else if (!savedId) {
-        if (loadedThreads && loadedThreads.length > 0) {
-          setActiveThreadId(loadedThreads[0].id);
-        } else if (typeof crypto !== "undefined" && crypto.randomUUID) {
-          // Brand new user — synthesize a local id so the composer has a
+        if (typeof crypto !== "undefined" && crypto.randomUUID) {
+          // Brand new surface — synthesize a local id so the composer has a
           // target. No POST: the server creates the row on first send.
           const id = crypto.randomUUID();
           newlyCreatedRef.current.add(id);

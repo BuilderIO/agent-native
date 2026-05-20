@@ -1,4 +1,8 @@
-import type { CalendarEvent, GoogleAuthStatus } from "../../shared/api.js";
+import type {
+  CalendarEvent,
+  GoogleAuthStatus,
+  UpdateEventScope,
+} from "../../shared/api.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
 import {
   getOAuthTokens,
@@ -18,6 +22,10 @@ import {
   calendarPatchEvent,
   peopleGetProfile,
 } from "./google-api.js";
+import {
+  alignSeriesRecurrenceToStart,
+  shiftSeriesDateValue,
+} from "./series-recurrence.js";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
@@ -151,6 +159,43 @@ function buildDateRange(event: CalendarEvent | Partial<CalendarEvent>) {
           ...(event.endTimeZone ? { timeZone: event.endTimeZone } : {}),
         },
   };
+}
+
+function googleEventStartValue(event: any): string | undefined {
+  return event.start?.dateTime || event.start?.date || undefined;
+}
+
+function googleEventEndValue(event: any): string | undefined {
+  return event.end?.dateTime || event.end?.date || undefined;
+}
+
+function alignSeriesUpdateToMaster(
+  event: Partial<CalendarEvent>,
+  instance: any,
+  master: any,
+): Partial<CalendarEvent> {
+  const aligned: Partial<CalendarEvent> = { ...event };
+  if (event.start !== undefined) {
+    aligned.start = shiftSeriesDateValue(
+      event.start,
+      googleEventStartValue(instance),
+      googleEventStartValue(master),
+    );
+    if (event.startTimeZone === undefined && master.start?.timeZone) {
+      aligned.startTimeZone = master.start.timeZone;
+    }
+  }
+  if (event.end !== undefined) {
+    aligned.end = shiftSeriesDateValue(
+      event.end,
+      googleEventEndValue(instance),
+      googleEventEndValue(master),
+    );
+    if (event.endTimeZone === undefined && master.end?.timeZone) {
+      aligned.endTimeZone = master.end.timeZone;
+    }
+  }
+  return aligned;
 }
 
 function applyEventOptions(body: any, event: CalendarEvent): void {
@@ -811,7 +856,11 @@ export async function createEvent(
 export async function updateEvent(
   googleEventId: string,
   event: Partial<CalendarEvent>,
-  options?: { sendUpdates?: "all" | "none"; addGoogleMeet?: boolean },
+  options?: {
+    sendUpdates?: "all" | "none";
+    addGoogleMeet?: boolean;
+    scope?: UpdateEventScope;
+  },
 ): Promise<{
   htmlLink?: string;
   meetLink?: string;
@@ -824,41 +873,72 @@ export async function updateEvent(
     );
   }
 
+  let targetEventId = googleEventId;
+  let eventPatch = event;
+  if (options?.scope === "all") {
+    const instance = await calendarGetEvent(
+      client.accessToken,
+      "primary",
+      googleEventId,
+    );
+    const recurringEventId = instance.recurringEventId || googleEventId;
+    targetEventId = recurringEventId;
+    let master = instance;
+    if (recurringEventId !== googleEventId) {
+      master = await calendarGetEvent(
+        client.accessToken,
+        "primary",
+        recurringEventId,
+      );
+      eventPatch = alignSeriesUpdateToMaster(event, instance, master);
+    }
+    eventPatch = alignSeriesRecurrenceToStart(eventPatch, {
+      startValue: googleEventStartValue(master),
+      startTimeZone: master.start?.timeZone,
+      recurrence: master.recurrence,
+    });
+  }
+
   const requestBody: any = {};
-  if (event.title !== undefined) requestBody.summary = event.title;
-  if (event.description !== undefined)
-    requestBody.description = event.description;
-  if (event.location !== undefined) requestBody.location = event.location;
-  if (event.start !== undefined) {
-    requestBody.start = event.allDay
-      ? { date: event.start.split("T")[0] }
+  if (eventPatch.title !== undefined) requestBody.summary = eventPatch.title;
+  if (eventPatch.description !== undefined)
+    requestBody.description = eventPatch.description;
+  if (eventPatch.location !== undefined)
+    requestBody.location = eventPatch.location;
+  if (eventPatch.start !== undefined) {
+    requestBody.start = eventPatch.allDay
+      ? { date: eventPatch.start.split("T")[0] }
       : {
-          dateTime: event.start,
-          ...(event.startTimeZone ? { timeZone: event.startTimeZone } : {}),
+          dateTime: eventPatch.start,
+          ...(eventPatch.startTimeZone
+            ? { timeZone: eventPatch.startTimeZone }
+            : {}),
         };
   }
-  if (event.end !== undefined) {
-    requestBody.end = event.allDay
-      ? { date: event.end.split("T")[0] }
+  if (eventPatch.end !== undefined) {
+    requestBody.end = eventPatch.allDay
+      ? { date: eventPatch.end.split("T")[0] }
       : {
-          dateTime: event.end,
-          ...(event.endTimeZone ? { timeZone: event.endTimeZone } : {}),
+          dateTime: eventPatch.end,
+          ...(eventPatch.endTimeZone
+            ? { timeZone: eventPatch.endTimeZone }
+            : {}),
         };
   }
-  if (event.attendees !== undefined) {
-    requestBody.attendees = event.attendees.map((a) => ({
+  if (eventPatch.attendees !== undefined) {
+    requestBody.attendees = eventPatch.attendees.map((a) => ({
       email: a.email,
       ...(a.displayName ? { displayName: a.displayName } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
     }));
   }
-  if (event.recurrence !== undefined) {
-    requestBody.recurrence = event.recurrence;
+  if (eventPatch.recurrence !== undefined) {
+    requestBody.recurrence = eventPatch.recurrence;
   }
-  if (event.attachments !== undefined) {
-    requestBody.attachments = event.attachments;
+  if (eventPatch.attachments !== undefined) {
+    requestBody.attachments = eventPatch.attachments;
   }
-  applyEventPatchOptions(requestBody, event);
+  applyEventPatchOptions(requestBody, eventPatch);
   if (options?.addGoogleMeet) {
     requestBody.conferenceData = createGoogleMeetRequest();
   }
@@ -866,12 +946,13 @@ export async function updateEvent(
   const response = await calendarPatchEvent(
     client.accessToken,
     "primary",
-    googleEventId,
+    targetEventId,
     requestBody,
     {
       sendUpdates: options?.sendUpdates,
       conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
-      supportsAttachments: event.attachments !== undefined ? true : undefined,
+      supportsAttachments:
+        eventPatch.attachments !== undefined ? true : undefined,
     },
   );
 

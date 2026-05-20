@@ -2634,6 +2634,11 @@ async function mountBetterAuthRoutes(
       const reqPath = event.url?.pathname ?? event.path ?? "";
       const isResetPassword =
         reqPath.includes("reset-password") && getMethod(event) === "POST";
+      const isSendVerificationEmail =
+        reqPath.includes("send-verification-email") &&
+        getMethod(event) === "POST";
+      const authRequest = toWebRequest(event);
+      let requestForAuth = authRequest;
 
       // Pre-read the body for reset-password so we can auto-verify the
       // user's email after they save the new password. CRUCIAL: clone
@@ -2646,7 +2651,7 @@ async function mountBetterAuthRoutes(
       let resetUserId: string | undefined;
       if (isResetPassword) {
         try {
-          const cloned = (event.req as Request).clone();
+          const cloned = authRequest.clone();
           const body = (await cloned.json().catch(() => undefined)) as
             | { token?: string }
             | undefined;
@@ -2673,7 +2678,37 @@ async function mountBetterAuthRoutes(
         }
       }
 
-      const response = await auth.handler(toWebRequest(event));
+      // The signup wrapper sanitizes callbackURL before calling Better Auth,
+      // but the resend endpoint is exposed directly so users can request a
+      // fresh link while unauthenticated. Keep that path equally strict:
+      // only same-origin relative return paths survive into the email.
+      if (isSendVerificationEmail) {
+        try {
+          const body = (await authRequest
+            .clone()
+            .json()
+            .catch(() => undefined)) as Record<string, unknown> | undefined;
+          if (body && typeof body.callbackURL === "string") {
+            const callbackURL = safeReturnPath(body.callbackURL);
+            if (callbackURL !== body.callbackURL) {
+              const headers = new Headers(authRequest.headers);
+              headers.delete("content-length");
+              headers.set("content-type", "application/json");
+              requestForAuth = new Request(authRequest.url, {
+                method: authRequest.method,
+                headers,
+                body: JSON.stringify({ ...body, callbackURL }),
+                duplex: "half",
+              } as RequestInit & { duplex: "half" });
+            }
+          }
+        } catch {
+          // Let Better Auth handle malformed bodies and return its normal
+          // validation error.
+        }
+      }
+
+      const response = await auth.handler(requestForAuth);
       const isResponse =
         response != null &&
         typeof (response as any).status === "number" &&

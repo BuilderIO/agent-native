@@ -181,6 +181,22 @@ function streamFromTracks(tracks: MediaStreamTrack[]): MediaStream {
   return stream;
 }
 
+const VOICE_FOCUSED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: { ideal: true },
+  noiseSuppression: { ideal: true },
+  autoGainControl: { ideal: true },
+  channelCount: { ideal: 1 },
+};
+
+function voiceFocusedAudioConstraints(
+  deviceId?: string | null,
+): MediaTrackConstraints {
+  return {
+    ...VOICE_FOCUSED_AUDIO_CONSTRAINTS,
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+  };
+}
+
 function localRecordingTargetsForMode({
   localRecordingMode,
   displayStream,
@@ -1912,7 +1928,7 @@ async function startNativeRecordingInner(
       : null;
   const audioStreamPromise: Promise<MediaStream> | null = wantsAudio
     ? navigator.mediaDevices.getUserMedia({
-        audio: params.micId ? { deviceId: { exact: params.micId } } : true,
+        audio: voiceFocusedAudioConstraints(params.micId),
         video: false,
       })
     : null;
