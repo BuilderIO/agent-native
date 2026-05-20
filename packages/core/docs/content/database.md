@@ -74,6 +74,35 @@ For cases where you need raw SQL outside of Drizzle queries:
 - `isPostgres()` — runtime dialect check
 - `intType()` — returns the correct integer type for the current dialect
 
+## Migrations and Schema Updates {#migrations}
+
+In hosted environments, multiple deployment previews, branches, and the production server share the same underlying database. Therefore, database schema updates must follow strict constraints to avoid data loss and service disruption.
+
+### The "Zero Destructive Changes" Rule
+
+All database schema updates must be **strictly additive**.
+
+- **Do not drop tables or columns.**
+- **Do not rename tables or columns.** Renaming a column or table looks like a drop + create sequence to Drizzle, which will permanently delete your existing production data.
+- If a column needs to be renamed or replaced, add the new column alongside the old one, update your application code to read from/write to both, migrate the data, and only retire the old column in a later release once no active deployments are referencing it.
+
+> [!WARNING]
+> **Never run `drizzle-kit push` against a production database.**
+> Template database schemas only define app-specific domain tables; they do not define central framework tables (`user`, `session`, `application_state`, etc.). If you run `drizzle-kit push` against production, Drizzle will detect these framework tables as "not in schema" and attempt to drop them, causing immediate system-wide failure and data loss.
+
+### Safe Migration Path
+
+Instead of pushing directly, schema changes should be applied via SQL migrations executed at application startup. Implement additive migrations within a server plugin (e.g., `server/plugins/db.ts`) by invoking the framework's `runMigrations()` helper:
+
+```ts
+import { runMigrations } from "@agent-native/core/db";
+
+export default defineNitroPlugin(async () => {
+  // Executes pending SQL migrations safely at startup
+  await runMigrations();
+});
+```
+
 ## Environment Variables {#environment-variables}
 
 | Variable           | Purpose                                           |

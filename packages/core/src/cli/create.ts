@@ -195,7 +195,7 @@ async function createWorkspaceInteractive(
       s.message(
         `Configuring ${titleCase(t)} (${i + 1}/${templates.length})...`,
       );
-      replacePlaceholders(appDir, t, titleCase(t), name);
+      replacePlaceholders(appDir, t, appTitleForScaffold(t, t), name);
       rewriteTrackingAppId(appDir, t, t);
       workspacifyApp({
         appDir,
@@ -207,6 +207,7 @@ async function createWorkspaceInteractive(
         dispatchDependencyVersion: getDispatchDependencyVersion(),
       });
       fixPackageJsonName(appDir, t);
+      fixWebManifestName(appDir, t, t);
       rewriteNetlifyToml(appDir, t, "workspace");
       renameGitignore(appDir);
       // Each app owns its own .claude / .agents symlinks.
@@ -469,7 +470,7 @@ async function scaffoldOneAppIntoWorkspace(
     replacePlaceholders(
       appDir,
       appName,
-      titleCase(appName),
+      appTitleForScaffold(appName, templateName),
       path.basename(workspace.workspaceRoot),
     );
     rewriteTrackingAppId(appDir, appName, templateName);
@@ -483,6 +484,7 @@ async function scaffoldOneAppIntoWorkspace(
       dispatchDependencyVersion: getDispatchDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName, templateName);
+    fixWebManifestName(appDir, appName, templateName);
     rewriteNetlifyToml(appDir, appName, "workspace");
     renameGitignore(appDir);
     setupAgentSymlinks(appDir);
@@ -771,10 +773,11 @@ function postProcessStandalone(
   targetDir: string,
   templateName?: string,
 ): void {
-  const appTitle = titleCase(name);
+  const appTitle = appTitleForScaffold(name, templateName);
   replacePlaceholders(targetDir, name, appTitle);
   rewriteTrackingAppId(targetDir, name, templateName);
   fixPackageJsonName(targetDir, name, templateName);
+  fixWebManifestName(targetDir, name, templateName);
   rewriteNetlifyToml(targetDir, name, "standalone");
 
   for (const base of ["learnings"]) {
@@ -1155,6 +1158,27 @@ function titleCase(name: string): string {
     .join(" ");
 }
 
+function appTitleForScaffold(appName: string, templateName?: string): string {
+  if (appName === "starter" && (!templateName || templateName === "starter")) {
+    return "Blank app";
+  }
+  return titleCase(appName);
+}
+
+function defaultPackageDescriptionForScaffold(
+  appName: string,
+  templateName?: string,
+): string {
+  const appTitle = appTitleForScaffold(appName, templateName);
+  if (appTitle === "Blank app") return "Blank agent-native app scaffold.";
+  return `Workspace app for ${appTitle}.`;
+}
+
+function shouldReplaceScaffoldDescription(value: unknown): boolean {
+  if (typeof value !== "string" || !value.trim()) return true;
+  return /\b(starter|new app|blank\b.*\bapp)\b/i.test(value);
+}
+
 function fixPackageJsonName(
   appDir: string,
   name: string,
@@ -1166,13 +1190,45 @@ function fixPackageJsonName(
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     pkg.name = name;
     // When the user picked a custom name (e.g. `add-app todo --template=starter`)
-    // the template's displayName ("Agent-Native Starter") would otherwise leak
-    // into the workspace apps grid as the new app's label. Overwrite it so the
-    // app shows up as "Todo" instead of the template's branding.
+    // the template's displayName would otherwise leak into the workspace apps
+    // grid as the new app's label. Overwrite it so the app shows up as "Todo"
+    // instead of the source template's branding.
     if (templateName && name !== templateName) {
       pkg.displayName = titleCase(name);
     }
+    if (shouldReplaceScaffoldDescription(pkg.description)) {
+      pkg.description = defaultPackageDescriptionForScaffold(
+        name,
+        templateName,
+      );
+    }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  } catch {}
+}
+
+function fixWebManifestName(
+  appDir: string,
+  name: string,
+  templateName?: string,
+): void {
+  if (templateName !== "starter" || name === templateName) return;
+  const manifestPath = path.join(appDir, "public", "manifest.json");
+  if (!fs.existsSync(manifestPath)) return;
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+    const appTitle = titleCase(name);
+    manifest.name = appTitle;
+    manifest.short_name = appTitle;
+    if (
+      typeof manifest.description !== "string" ||
+      /\b(blank app|starter)\b/i.test(manifest.description)
+    ) {
+      manifest.description = defaultPackageDescriptionForScaffold(
+        name,
+        templateName,
+      );
+    }
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   } catch {}
 }
 

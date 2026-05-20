@@ -34,6 +34,11 @@ export {
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
+export {
+  embedApp,
+  MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+  type EmbedAppOptions,
+} from "./mcp/embed-app.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
   createAgentChatPlugin,
@@ -92,6 +97,12 @@ export {
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./shared/index.js";
+export {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_SESSION_COOKIE,
+  EMBED_START_PATH,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "./shared/embed-auth.js";
 
 // Agent Web surfaces
 export {

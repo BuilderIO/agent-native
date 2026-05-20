@@ -360,6 +360,7 @@ function contentToStructuredMessages(
           type: "tool-result",
           toolCallId,
           toolName: part.toolName,
+          toolInput: JSON.stringify(part.args ?? {}),
           content: truncate
             ? truncateForHistory(
                 toolResultContent(part.result),
@@ -373,6 +374,7 @@ function contentToStructuredMessages(
           type: "tool-result",
           toolCallId,
           toolName: part.toolName,
+          toolInput: JSON.stringify(part.args ?? {}),
           content: "Interrupted before this tool returned a result.",
         });
       }
@@ -417,16 +419,19 @@ function assistantUiMessagesToStructuredHistory(
         continue;
       }
       if (part?.type === "tool-call") {
+        const toolNameRaw =
+          typeof part.toolName === "string"
+            ? part.toolName
+            : typeof (part as { name?: string }).name === "string"
+              ? (part as { name?: string }).name
+              : "";
+        const toolName = toolNameRaw.trim();
+        if (!toolName) continue;
         content.push({
           type: "tool-call",
           toolCallId:
             typeof part.toolCallId === "string" ? part.toolCallId : "",
-          toolName:
-            typeof part.toolName === "string"
-              ? part.toolName
-              : typeof part.toolName === "undefined"
-                ? "unknown"
-                : String(part.toolName),
+          toolName,
           argsText:
             typeof part.argsText === "string"
               ? part.argsText

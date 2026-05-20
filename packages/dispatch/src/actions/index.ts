@@ -2,6 +2,7 @@ import type { ActionEntry } from "@agent-native/core/server";
 import approveDispatchChange from "./approve-dispatch-change.js";
 import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
+import askApp from "./ask_app.js";
 import createLinkToken from "./create-link-token.js";
 import createPylonTicket from "./create-pylon-ticket.js";
 import createVaultGrant from "./create-vault-grant.js";
@@ -9,6 +10,7 @@ import createVaultSecret from "./create-vault-secret.js";
 import createWorkspaceResourceGrant from "./create-workspace-resource-grant.js";
 import createWorkspaceResource from "./create-workspace-resource.js";
 import createDreamReport from "./create-dream-report.js";
+import createEmbedSession from "./create_embed_session.js";
 import deleteDestination from "./delete-destination.js";
 import deleteVaultSecret from "./delete-vault-secret.js";
 import deleteWorkspaceResource from "./delete-workspace-resource.js";
@@ -36,6 +38,8 @@ import listDreamCandidates from "./list-dream-candidates.js";
 import listDreams from "./list-dreams.js";
 import listIntegrationsCatalog from "./list-integrations-catalog.js";
 import listLinkedIdentities from "./list-linked-identities.js";
+import listMcpAppAccess from "./list-mcp-app-access.js";
+import listApps from "./list_apps.js";
 import listVaultAudit from "./list-vault-audit.js";
 import listVaultGrants from "./list-vault-grants.js";
 import listVaultRequests from "./list-vault-requests.js";
@@ -47,6 +51,7 @@ import listWorkspaceResourceGrants from "./list-workspace-resource-grants.js";
 import listWorkspaceResourcesForApp from "./list-workspace-resources-for-app.js";
 import listWorkspaceResources from "./list-workspace-resources.js";
 import navigate from "./navigate.js";
+import openApp from "./open_app.js";
 import applyDreamProposal from "./apply-dream-proposal.js";
 import previewDreamProposal from "./preview-dream-proposal.js";
 import previewWorkspaceResourceChange from "./preview-workspace-resource-change.js";
@@ -64,6 +69,7 @@ import sendPlatformMessage from "./send-platform-message.js";
 import setAppCreationSettings from "./set-app-creation-settings.js";
 import setDispatchApprovalPolicy from "./set-dispatch-approval-policy.js";
 import setDreamSettings from "./set-dream-settings.js";
+import setMcpAppAccess from "./set-mcp-app-access.js";
 import setVaultAccessSettings from "./set-vault-access-settings.js";
 import startWorkspaceAppCreation from "./start-workspace-app-creation.js";
 import syncVaultToApp from "./sync-vault-to-app.js";
@@ -84,6 +90,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "approve-dispatch-change": approveDispatchChange,
   "approve-vault-request": approveVaultRequest,
   "archive-workspace-app": archiveWorkspaceApp,
+  ask_app: askApp,
   "create-link-token": createLinkToken,
   "create-pylon-ticket": createPylonTicket,
   "create-vault-grant": createVaultGrant,
@@ -91,6 +98,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "create-workspace-resource-grant": createWorkspaceResourceGrant,
   "create-workspace-resource": createWorkspaceResource,
   "create-dream-report": createDreamReport,
+  create_embed_session: createEmbedSession,
   "delete-destination": deleteDestination,
   "delete-vault-secret": deleteVaultSecret,
   "delete-workspace-resource": deleteWorkspaceResource,
@@ -119,6 +127,8 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-dreams": listDreams,
   "list-integrations-catalog": listIntegrationsCatalog,
   "list-linked-identities": listLinkedIdentities,
+  "list-mcp-app-access": listMcpAppAccess,
+  list_apps: listApps,
   "list-vault-audit": listVaultAudit,
   "list-vault-grants": listVaultGrants,
   "list-vault-requests": listVaultRequests,
@@ -130,6 +140,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-workspace-resources-for-app": listWorkspaceResourcesForApp,
   "list-workspace-resources": listWorkspaceResources,
   navigate: navigate,
+  open_app: openApp,
   "apply-dream-proposal": applyDreamProposal,
   "preview-dream-proposal": previewDreamProposal,
   "preview-workspace-resource-change": previewWorkspaceResourceChange,
@@ -147,6 +158,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "set-app-creation-settings": setAppCreationSettings,
   "set-dispatch-approval-policy": setDispatchApprovalPolicy,
   "set-dream-settings": setDreamSettings,
+  "set-mcp-app-access": setMcpAppAccess,
   "set-vault-access-settings": setVaultAccessSettings,
   "start-workspace-app-creation": startWorkspaceAppCreation,
   "sync-vault-to-app": syncVaultToApp,

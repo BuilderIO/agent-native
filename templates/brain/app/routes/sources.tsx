@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
@@ -14,7 +14,6 @@ import {
   IconExternalLink,
   IconFileSearch,
   IconFileText,
-  IconHistory,
   IconLoader2,
   IconNotes,
   IconPlayerPlay,
@@ -33,14 +32,11 @@ import {
   type BrainCaptureReviewItem,
   type EnqueueCapturesDistillationResponse,
   type CapturesResponse,
-  type BrainPilotReport,
   type BrainSource,
   type BrainWorkspaceConnectionGrantState,
   type BrainWorkspaceConnectionStatus,
   type BrainWorkspaceCredentialRef,
   type ConnectionProvidersResponse,
-  type SlackConnectionResponse,
-  type SlackPilotReport,
   type SourcesResponse,
   formatPercent,
   sourceAutoSync,
@@ -314,12 +310,6 @@ function syncDetail(source: BrainSource) {
   }
   if (source.nextSyncAt) return `Next ${shortDate(source.nextSyncAt)}`;
   return sourceAutoSync(source) ? "Waiting for first sync" : "Manual sync";
-}
-
-function metricValue(value: unknown) {
-  if (typeof value === "number") return value.toLocaleString();
-  if (typeof value === "string" && value.trim()) return value;
-  return "0";
 }
 
 const captureStatusOptions: CaptureStatusFilter[] = [
@@ -1389,563 +1379,6 @@ function ProviderCatalog({
   );
 }
 
-function SlackPilotReportCard({ report }: { report: SlackPilotReport }) {
-  const visibleChannels = report.channelValidation.channels.slice(0, 3);
-  const stats = report.sync?.stats ?? {};
-  return (
-    <div className="rounded-md border border-border bg-card p-3 text-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-medium">
-            {report.status === "synced"
-              ? "Pilot sync complete"
-              : report.status === "validated"
-                ? "Pilot validated"
-                : report.status === "blocked"
-                  ? "Pilot blocked"
-                  : "Pilot needs attention"}
-          </p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {report.credential.ok
-              ? `Slack ${report.credential.team ?? "workspace"} checked`
-              : report.credential.error}
-          </p>
-        </div>
-        <Badge variant={report.ok ? "secondary" : "outline"}>
-          {report.historyRead ? "History read" : "No history"}
-        </Badge>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-        <div className="rounded-md bg-muted/35 p-2">
-          <p className="text-muted-foreground">Channels OK</p>
-          <p className="mt-1 font-medium">{report.channelValidation.ok}</p>
-        </div>
-        <div className="rounded-md bg-muted/35 p-2">
-          <p className="text-muted-foreground">Captures</p>
-          <p className="mt-1 font-medium">{report.capturesCreated}</p>
-        </div>
-        <div className="rounded-md bg-muted/35 p-2">
-          <p className="text-muted-foreground">Pending</p>
-          <p className="mt-1 font-medium">{report.proposals.pending}</p>
-        </div>
-      </div>
-
-      <div className="mt-3 grid gap-2">
-        {visibleChannels.length ? (
-          visibleChannels.map((channel) => (
-            <div
-              key={`${channel.ref}-${channel.id ?? channel.status}`}
-              className="flex items-start justify-between gap-3 rounded-md bg-muted/25 px-3 py-2"
-            >
-              <div className="min-w-0">
-                <p className="truncate font-medium">
-                  {channel.name ? `#${channel.name}` : channel.ref}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {channel.message}
-                </p>
-              </div>
-              <Badge
-                variant={channel.status === "ok" ? "secondary" : "outline"}
-              >
-                {channel.status}
-              </Badge>
-            </div>
-          ))
-        ) : (
-          <p className="text-xs leading-5 text-muted-foreground">
-            Add channel IDs to the source allow-list before a pilot sync.
-          </p>
-        )}
-      </div>
-
-      {report.historyRead ? (
-        <div className="mt-3 grid gap-2 rounded-md border border-border bg-card p-3 text-xs">
-          <div className="grid grid-cols-3 gap-2">
-            <span>
-              Seen{" "}
-              <strong className="font-medium">
-                {metricValue(stats.messagesSeen)}
-              </strong>
-            </span>
-            <span>
-              Scanned{" "}
-              <strong className="font-medium">
-                {metricValue(stats.scannedChannels)}
-              </strong>
-            </span>
-            <span>
-              Limit{" "}
-              <strong className="font-medium">
-                {report.guardrails.historyLimit}
-              </strong>
-            </span>
-          </div>
-          <p className="leading-5 text-muted-foreground">
-            {report.sync?.message ?? "Pilot sync finished."}
-          </p>
-        </div>
-      ) : null}
-
-      <div className="mt-3 grid gap-1 text-xs leading-5 text-muted-foreground">
-        {report.privacyExclusions.slice(0, 2).map((item) => (
-          <p key={item}>{item}</p>
-        ))}
-        {report.nextSteps.slice(0, 2).map((item) => (
-          <p key={item}>{item}</p>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function SlackConnectionReportCard({
-  report,
-}: {
-  report: SlackConnectionResponse;
-}) {
-  const visibleChannels = report.channels.slice(0, 3);
-  return (
-    <div className="rounded-md border border-border bg-card p-3 text-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-medium">
-            {report.ok ? "Connection ready" : "Connection needs attention"}
-          </p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {report.ok
-              ? `Slack ${report.team ?? "workspace"} checked without reading history.`
-              : "Slack credentials or allow-listed channels need review."}
-          </p>
-        </div>
-        <Badge variant={report.ok ? "secondary" : "outline"}>
-          No history read
-        </Badge>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-        <div className="rounded-md bg-muted/35 p-2">
-          <p className="text-muted-foreground">Channels</p>
-          <p className="mt-1 font-medium">{report.checkedChannels}</p>
-        </div>
-        <div className="rounded-md bg-muted/35 p-2">
-          <p className="text-muted-foreground">Team</p>
-          <p className="mt-1 truncate font-medium">
-            {report.team ?? report.teamId ?? "Unknown"}
-          </p>
-        </div>
-        <div className="rounded-md bg-muted/35 p-2">
-          <p className="text-muted-foreground">Bot</p>
-          <p className="mt-1 truncate font-medium">
-            {report.botUser ?? "Checked"}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-3 grid gap-2">
-        {visibleChannels.length ? (
-          visibleChannels.map((channel) => (
-            <div
-              key={`${channel.ref}-${channel.id ?? channel.status}`}
-              className="flex items-start justify-between gap-3 rounded-md bg-muted/25 px-3 py-2"
-            >
-              <div className="min-w-0">
-                <p className="truncate font-medium">
-                  {channel.name ? `#${channel.name}` : channel.ref}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {channel.message}
-                </p>
-              </div>
-              <Badge
-                variant={channel.status === "ok" ? "secondary" : "outline"}
-              >
-                {channel.status}
-              </Badge>
-            </div>
-          ))
-        ) : (
-          <p className="text-xs leading-5 text-muted-foreground">
-            Add channel IDs to the source allow-list before testing.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SlackPilotFlow({
-  source,
-  testing,
-  piloting,
-  onTest,
-  onPilot,
-  onReview,
-}: {
-  source: BrainSource;
-  testing: boolean;
-  piloting: boolean;
-  onTest: () => void;
-  onPilot: () => void;
-  onReview: () => void;
-}) {
-  const steps = [
-    {
-      icon: IconShieldCheck,
-      label: "Test",
-      detail: "No history",
-      action: (
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={testing || piloting}
-          onClick={onTest}
-        >
-          {testing ? (
-            <IconLoader2 className="size-4 animate-spin" />
-          ) : (
-            <IconShieldCheck className="size-4" />
-          )}
-          Test
-        </Button>
-      ),
-    },
-    {
-      icon: IconHistory,
-      label: "Safe pilot",
-      detail: "Tiny sample",
-      action: (
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={testing || piloting}
-          onClick={onPilot}
-        >
-          {piloting ? (
-            <IconLoader2 className="size-4 animate-spin" />
-          ) : (
-            <IconHistory className="size-4" />
-          )}
-          Safe pilot
-        </Button>
-      ),
-    },
-    {
-      icon: IconFileSearch,
-      label: "Review",
-      detail: "Captures",
-      action: (
-        <Button size="sm" variant="outline" onClick={onReview}>
-          <IconFileSearch className="size-4" />
-          Review captures
-        </Button>
-      ),
-    },
-    {
-      icon: IconCircleCheck,
-      label: "Approve",
-      detail: sourceReviewRequired(source) ? "Proposals" : "Optional",
-      action: (
-        <Button size="sm" variant="ghost" asChild>
-          <Link to="/review">
-            <IconCircleCheck className="size-4" />
-            Review queue
-          </Link>
-        </Button>
-      ),
-    },
-  ];
-
-  return (
-    <div className="rounded-md border border-border bg-muted/25 p-3">
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
-        <div className="grid gap-2 sm:grid-cols-4">
-          {steps.map((step) => {
-            const Icon = step.icon;
-            return (
-              <div key={step.label} className="flex min-w-0 gap-2">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-card">
-                  <Icon className="size-3.5 text-muted-foreground" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-xs font-medium">
-                    {step.label}
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {step.detail}
-                  </span>
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
-          {steps.map((step) => (
-            <div key={`${step.label}-action`}>{step.action}</div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function countValue(
-  counts: BrainPilotReport["captures"]["counts"] | undefined,
-  key: keyof BrainPilotReport["captures"]["counts"],
-) {
-  const value = counts?.[key];
-  return typeof value === "number" ? value : 0;
-}
-
-function PilotMetric({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: number | string;
-  detail: string;
-}) {
-  return (
-    <div className="rounded-md border border-border bg-card p-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm font-medium">{value}</p>
-      <p className="mt-1 truncate text-xs text-muted-foreground">{detail}</p>
-    </div>
-  );
-}
-
-function PilotReportCard({
-  report,
-  loading,
-  onRefresh,
-}: {
-  report?: BrainPilotReport;
-  loading: boolean;
-  onRefresh: () => void;
-}) {
-  if (loading && !report) {
-    return (
-      <div className="rounded-md border border-border bg-card p-3 text-sm">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <IconLoader2 className="size-4 animate-spin" />
-          Loading source pilot report...
-        </div>
-      </div>
-    );
-  }
-
-  if (!report) {
-    return (
-      <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-        Report unavailable. Check source access and try again.
-      </div>
-    );
-  }
-
-  const captureCounts = report.captures.counts;
-  const queueCounts = report.distillationQueue.counts;
-  const knowledgeCounts = report.knowledge.counts;
-  const proposalCounts = report.proposals.counts;
-  const pendingQueue =
-    countValue(queueCounts, "queued") + countValue(queueCounts, "processing");
-  const publishedKnowledge = countValue(knowledgeCounts, "published");
-  const pendingProposals = countValue(proposalCounts, "pending");
-  const recentPublished = (report.knowledge.recent ?? [])
-    .filter((item) => item.status === "published")
-    .slice(0, 2);
-  const recentPending = (report.proposals.recent ?? [])
-    .filter((item) => item.status === "pending")
-    .slice(0, 2);
-  const health = sourceHealth(report.source);
-  const trustLane = report.pilotTrustLane;
-
-  return (
-    <div className="rounded-md border border-border bg-card p-3 text-sm">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={health} />
-            <Badge variant="outline">
-              {report.latestSyncRun
-                ? `Sync ${statusLabel(report.latestSyncRun.status)}`
-                : "No sync run"}
-            </Badge>
-            {report.distillationQueue.stale.total ? (
-              <Badge variant="outline">
-                {report.distillationQueue.stale.total} stale
-              </Badge>
-            ) : null}
-          </div>
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            Generated {shortDate(report.generatedAt) ?? report.generatedAt}. Raw
-            capture content stays hidden in this view.
-          </p>
-        </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={loading}
-          onClick={onRefresh}
-        >
-          {loading ? (
-            <IconLoader2 className="size-4 animate-spin" />
-          ) : (
-            <IconRefresh className="size-4" />
-          )}
-          Refresh
-        </Button>
-      </div>
-
-      {report.latestSyncRun?.error ? (
-        <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/25 p-2 text-xs leading-5 text-muted-foreground">
-          <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
-          <span>{report.latestSyncRun.error}</span>
-        </div>
-      ) : null}
-
-      {trustLane ? (
-        <div className="mt-3 rounded-md border border-border bg-muted/25 p-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <IconChecks className="size-4 text-muted-foreground" />
-                <p className="text-xs font-medium">
-                  {trustLane.targetChannel} trust lane
-                </p>
-                <Badge variant="outline">{trustLane.label}</Badge>
-              </div>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                {trustLane.summary}
-              </p>
-            </div>
-            {trustLane.nextActions[0] ? (
-              <Badge variant="secondary" className="w-fit">
-                {trustLane.nextActions[0].action}
-              </Badge>
-            ) : null}
-          </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {trustLane.checks.slice(0, 4).map((check) => (
-              <div
-                key={check.id}
-                className="rounded-md border border-border bg-card p-2"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="truncate text-xs font-medium">{check.label}</p>
-                  <Badge
-                    variant={check.status === "ok" ? "secondary" : "outline"}
-                  >
-                    {check.status}
-                  </Badge>
-                </div>
-                <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                  {check.detail}
-                </p>
-              </div>
-            ))}
-          </div>
-          {trustLane.evalQuestions.length ? (
-            <p className="mt-2 truncate text-xs text-muted-foreground">
-              Eval: {trustLane.evalQuestions[0]}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-4">
-        <PilotMetric
-          label="Captures"
-          value={captureCounts.total.toLocaleString()}
-          detail={`${countValue(captureCounts, "queued")} queued, ${countValue(captureCounts, "distilled")} distilled`}
-        />
-        <PilotMetric
-          label="Queue"
-          value={pendingQueue.toLocaleString()}
-          detail={`${countValue(queueCounts, "failed")} failed, ${countValue(queueCounts, "done")} done`}
-        />
-        <PilotMetric
-          label="Published"
-          value={publishedKnowledge.toLocaleString()}
-          detail={`${countValue(knowledgeCounts, "draft")} draft, ${countValue(knowledgeCounts, "redacted")} redacted`}
-        />
-        <PilotMetric
-          label="Proposals"
-          value={pendingProposals.toLocaleString()}
-          detail={`${proposalCounts.total.toLocaleString()} total`}
-        />
-      </div>
-
-      <div className="mt-3 grid gap-3 xl:grid-cols-2">
-        <div className="rounded-md border border-border bg-muted/25 p-3">
-          <div className="flex items-center gap-2 text-xs font-medium">
-            <IconCircleCheck className="size-4 text-muted-foreground" />
-            Published knowledge
-          </div>
-          {recentPublished.length ? (
-            <div className="mt-2 grid gap-2">
-              {recentPublished.map((item) => (
-                <p key={item.id} className="truncate text-xs">
-                  {item.title}
-                </p>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              No published knowledge from this source yet.
-            </p>
-          )}
-        </div>
-        <div className="rounded-md border border-border bg-muted/25 p-3">
-          <div className="flex items-center gap-2 text-xs font-medium">
-            <IconCircleDashed className="size-4 text-muted-foreground" />
-            Pending proposals
-          </div>
-          {recentPending.length ? (
-            <div className="mt-2 grid gap-2">
-              {recentPending.map((item) => (
-                <p key={item.id} className="truncate text-xs">
-                  {item.title}
-                </p>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              No pending proposals are waiting for this source.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-3 grid gap-3 xl:grid-cols-2">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-medium">
-            <IconShieldCheck className="size-4 text-muted-foreground" />
-            Privacy notes
-          </div>
-          <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
-            {report.privacyNotes.slice(0, 3).map((note) => (
-              <p key={note}>{note}</p>
-            ))}
-          </div>
-        </div>
-        <div>
-          <div className="flex items-center gap-2 text-xs font-medium">
-            <IconClock className="size-4 text-muted-foreground" />
-            Next steps
-          </div>
-          <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
-            {report.recommendedNextSteps.slice(0, 3).map((step) => (
-              <p key={step}>{step}</p>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function BrainHealthStrip({
   health,
   loading,
@@ -2011,6 +1444,7 @@ function BrainHealthStrip({
 export default function SourcesRoute() {
   const [params, setParams] = useSearchParams();
   const type = params.get("type") ?? "all";
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [editingSource, setEditingSource] = useState<BrainSource | null>(null);
   const [reviewSource, setReviewSource] = useState<BrainSource | null>(null);
@@ -2023,13 +1457,6 @@ export default function SourcesRoute() {
   const [bulkResult, setBulkResult] =
     useState<EnqueueCapturesDistillationResponse | null>(null);
   const [form, setForm] = useState<SourceFormState>(() => defaultForm("slack"));
-  const [slackPilotReport, setSlackPilotReport] =
-    useState<SlackPilotReport | null>(null);
-  const [slackConnectionReport, setSlackConnectionReport] =
-    useState<SlackConnectionResponse | null>(null);
-  const [pilotReportSourceId, setPilotReportSourceId] = useState<string | null>(
-    null,
-  );
 
   const sourcesQuery = useActionQuery<SourcesResponse>(
     "list-sources" as any,
@@ -2070,19 +1497,6 @@ export default function SourcesRoute() {
   );
   const syncDueSources = useActionMutation<unknown, { limit: number }>(
     "sync-due-sources" as any,
-  );
-  const runSlackPilot = useActionMutation<
-    SlackPilotReport,
-    { sourceId: string; readHistory: boolean; resolveNames: boolean }
-  >("run-slack-pilot" as any);
-  const testSlackConnection = useActionMutation<
-    SlackConnectionResponse,
-    { sourceId: string; resolveNames: boolean }
-  >("test-slack-connection" as any);
-  const pilotReportQuery = useActionQuery<BrainPilotReport>(
-    "get-pilot-report" as any,
-    { sourceId: pilotReportSourceId ?? "" } as any,
-    { enabled: Boolean(pilotReportSourceId), retry: false },
   );
   const capturesQuery = useActionQuery<CapturesResponse>(
     "list-captures" as any,
@@ -2163,15 +1577,6 @@ export default function SourcesRoute() {
     if (selected) setReviewSource(selected);
   }, [selectedSourceId, sources]);
 
-  useEffect(() => {
-    if (
-      pilotReportSourceId &&
-      !sources.some((source) => source.id === pilotReportSourceId)
-    ) {
-      setPilotReportSourceId(null);
-    }
-  }, [pilotReportSourceId, sources]);
-
   function updateType(value: string) {
     const next = new URLSearchParams(params);
     if (value === "all") next.delete("type");
@@ -2246,32 +1651,6 @@ export default function SourcesRoute() {
     setSetupOpen(false);
   }
 
-  async function runSlackPilotReport(
-    source: BrainSource,
-    readHistory: boolean,
-  ) {
-    const result = await runSlackPilot.mutateAsync({
-      sourceId: source.id,
-      readHistory,
-      resolveNames: true,
-    });
-    setSlackPilotReport(result);
-  }
-
-  async function testSlackSource(source: BrainSource) {
-    const result = await testSlackConnection.mutateAsync({
-      sourceId: source.id,
-      resolveNames: true,
-    });
-    setSlackConnectionReport(result);
-  }
-
-  function togglePilotReport(source: BrainSource) {
-    setPilotReportSourceId((current) =>
-      current === source.id ? null : source.id,
-    );
-  }
-
   function toggleCaptureSelection(captureId: string, checked: boolean) {
     setSelectedCaptureIds((current) => {
       const next = new Set(current);
@@ -2308,29 +1687,16 @@ export default function SourcesRoute() {
       <PageHeader
         eyebrow="Sources"
         title="Source configuration"
-        description="Connect approved Slack channels, Granola Team-space notes, GitHub repos, Clips exports, and signed transcript feeds using shared grants when available."
+        description="Connect approved places Brain can learn from, then sync and review them as needed."
         actions={
           <div className="grid w-full gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:justify-end">
-            <Select value={type} onValueChange={updateType}>
-              <SelectTrigger className="w-full sm:w-44">
-                <SelectValue placeholder="Source type" />
-              </SelectTrigger>
-              <SelectContent>
-                {sourceTypes.map((sourceType) => (
-                  <SelectItem key={sourceType} value={sourceType}>
-                    {sourceType === "all" ? "All sources" : sourceType}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <Button
               size="sm"
               variant="outline"
-              disabled={syncDueSources.isPending}
-              onClick={() => syncDueSources.mutate({ limit: 5 })}
+              onClick={() => setAdvancedOpen(true)}
             >
-              <IconPlayerPlay className="size-4" />
-              Run due
+              <IconSettings2 className="size-4" />
+              Advanced
             </Button>
             <Button
               size="sm"
@@ -2345,20 +1711,6 @@ export default function SourcesRoute() {
       />
 
       <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-3 lg:p-7">
-        <BrainHealthStrip
-          health={healthQuery.data}
-          loading={healthQuery.isLoading}
-        />
-
-        <ProviderCatalog
-          providers={connectionProviders}
-          loading={connectionProvidersQuery.isLoading}
-          workspaceError={
-            connectionProvidersQuery.data?.workspaceConnections?.error ?? null
-          }
-          onAddSource={openCreate}
-        />
-
         {sourcesQuery.isLoading ? (
           <div className="lg:col-span-3">
             <LoadingRows rows={3} />
@@ -2418,60 +1770,6 @@ export default function SourcesRoute() {
                     </div>
                   </div>
 
-                  <div className="grid gap-3 rounded-md border border-border bg-muted/25 p-3">
-                    <label className="flex items-center justify-between gap-3 text-sm">
-                      <span>
-                        Enabled
-                        <span className="block text-xs text-muted-foreground">
-                          Include in manual and scheduled syncs
-                        </span>
-                      </span>
-                      <Switch
-                        checked={sourceEnabled(source)}
-                        onCheckedChange={(enabled) =>
-                          updateSource.mutate({
-                            id: source.id,
-                            status: enabled ? "active" : "paused",
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="flex items-center justify-between gap-3 text-sm">
-                      <span>
-                        Auto-sync
-                        <span className="block text-xs text-muted-foreground">
-                          Poll on the background schedule
-                        </span>
-                      </span>
-                      <Switch
-                        checked={sourceAutoSync(source)}
-                        onCheckedChange={(autoSync) =>
-                          updateSource.mutate({
-                            id: source.id,
-                            config: { autoSync },
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="flex items-center justify-between gap-3 text-sm">
-                      <span>
-                        Review required
-                        <span className="block text-xs text-muted-foreground">
-                          Queue extracted memories before approval
-                        </span>
-                      </span>
-                      <Switch
-                        checked={sourceReviewRequired(source)}
-                        onCheckedChange={(reviewRequired) =>
-                          updateSource.mutate({
-                            id: source.id,
-                            config: { reviewRequired },
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-
                   {(source.lastError || retry || source.latestRun) && (
                     <div className="flex gap-2 rounded-md border border-border bg-card p-3 text-sm">
                       <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -2488,27 +1786,6 @@ export default function SourcesRoute() {
                         : "Manual"}
                     </Badge>
                     <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                      <Button
-                        size="sm"
-                        variant={
-                          pilotReportSourceId === source.id
-                            ? "secondary"
-                            : "outline"
-                        }
-                        disabled={
-                          pilotReportQuery.isLoading &&
-                          pilotReportSourceId === source.id
-                        }
-                        onClick={() => togglePilotReport(source)}
-                      >
-                        {pilotReportQuery.isLoading &&
-                        pilotReportSourceId === source.id ? (
-                          <IconLoader2 className="size-4 animate-spin" />
-                        ) : (
-                          <IconReportAnalytics className="size-4" />
-                        )}
-                        Report
-                      </Button>
                       <Button
                         size="sm"
                         variant="outline"
@@ -2538,37 +1815,6 @@ export default function SourcesRoute() {
                       </Button>
                     </div>
                   </div>
-
-                  {source.provider === "slack" ? (
-                    <SlackPilotFlow
-                      source={source}
-                      testing={testSlackConnection.isPending}
-                      piloting={runSlackPilot.isPending}
-                      onTest={() => void testSlackSource(source)}
-                      onPilot={() => void runSlackPilotReport(source, true)}
-                      onReview={() => openCaptureReview(source)}
-                    />
-                  ) : null}
-
-                  {slackConnectionReport?.sourceId === source.id ? (
-                    <SlackConnectionReportCard report={slackConnectionReport} />
-                  ) : null}
-
-                  {slackPilotReport?.sourceId === source.id ? (
-                    <SlackPilotReportCard report={slackPilotReport} />
-                  ) : null}
-
-                  {pilotReportSourceId === source.id ? (
-                    <PilotReportCard
-                      report={
-                        pilotReportQuery.data?.source.id === source.id
-                          ? pilotReportQuery.data
-                          : undefined
-                      }
-                      loading={pilotReportQuery.isLoading}
-                      onRefresh={() => void pilotReportQuery.refetch()}
-                    />
-                  ) : null}
                 </CardContent>
               </Card>
             );
@@ -2577,27 +1823,8 @@ export default function SourcesRoute() {
           <div className="lg:col-span-3">
             <EmptyActionState
               title="Connect Brain's first source"
-              detail="Start with the demo, then add an approved Slack channel, Granola Team-space source, GitHub repo, Clips export, or signed webhook."
+              detail="Add an approved Slack channel, Granola Team-space source, GitHub repo, Clips export, manual import, or signed webhook."
             />
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              {providers.map((provider) => {
-                const Icon = provider.icon;
-                return (
-                  <button
-                    key={provider.value}
-                    type="button"
-                    onClick={() => openCreate(provider.value)}
-                    className="rounded-md border border-border bg-card p-4 text-left transition hover:bg-muted/40"
-                  >
-                    <Icon className="size-5 text-muted-foreground" />
-                    <p className="mt-3 font-medium">{provider.label}</p>
-                    <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                      {provider.detail}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
           </div>
         )}
 
@@ -2607,10 +1834,7 @@ export default function SourcesRoute() {
         createSource.isError ||
         syncSource.isError ||
         syncDueSources.isError ||
-        runSlackPilot.isError ||
-        testSlackConnection.isError ||
-        enqueueCapturesDistillation.isError ||
-        pilotReportQuery.isError ? (
+        enqueueCapturesDistillation.isError ? (
           <div className="lg:col-span-3">
             <EmptyActionState
               title="Source action failed"
@@ -2619,6 +1843,67 @@ export default function SourcesRoute() {
           </div>
         ) : null}
       </div>
+
+      <Sheet open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-3xl">
+          <SheetHeader>
+            <SheetTitle>Advanced source controls</SheetTitle>
+            <SheetDescription>
+              Filter sources, check connection readiness, and run maintenance
+              syncs when the normal source list is not enough.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="mt-6 grid gap-5">
+            <section className="grid gap-3 rounded-md border border-border bg-card p-4">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <div className="grid gap-2">
+                  <Label htmlFor="source-type-filter">Source type</Label>
+                  <Select value={type} onValueChange={updateType}>
+                    <SelectTrigger id="source-type-filter">
+                      <SelectValue placeholder="Source type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sourceTypes.map((sourceType) => (
+                        <SelectItem key={sourceType} value={sourceType}>
+                          {sourceType === "all" ? "All sources" : sourceType}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={syncDueSources.isPending}
+                  onClick={() => syncDueSources.mutate({ limit: 5 })}
+                >
+                  <IconPlayerPlay className="size-4" />
+                  Run due syncs
+                </Button>
+              </div>
+            </section>
+
+            <BrainHealthStrip
+              health={healthQuery.data}
+              loading={healthQuery.isLoading}
+            />
+
+            <ProviderCatalog
+              providers={connectionProviders}
+              loading={connectionProvidersQuery.isLoading}
+              workspaceError={
+                connectionProvidersQuery.data?.workspaceConnections?.error ??
+                null
+              }
+              onAddSource={(provider) => {
+                setAdvancedOpen(false);
+                openCreate(provider);
+              }}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Sheet
         open={Boolean(reviewSource)}
