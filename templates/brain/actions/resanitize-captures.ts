@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -20,6 +20,37 @@ function reviewPreview(value: string) {
   return redactSensitiveText(value).replace(/\s+/g, " ").trim().slice(0, 320);
 }
 
+async function findDerivedCitationRefs(captureId: string) {
+  const db = getDb();
+  const needle = `%${captureId}%`;
+  const [knowledge, proposals] = await Promise.all([
+    db
+      .select({ id: schema.brainKnowledge.id })
+      .from(schema.brainKnowledge)
+      .where(
+        or(
+          eq(schema.brainKnowledge.captureId, captureId),
+          like(schema.brainKnowledge.evidenceJson, needle),
+        ),
+      )
+      .limit(10),
+    db
+      .select({ id: schema.brainProposals.id })
+      .from(schema.brainProposals)
+      .where(
+        or(
+          eq(schema.brainProposals.captureId, captureId),
+          like(schema.brainProposals.evidenceJson, needle),
+        ),
+      )
+      .limit(10),
+  ]);
+  return {
+    knowledgeIds: knowledge.map((row) => row.id),
+    proposalIds: proposals.map((row) => row.id),
+  };
+}
+
 export default defineAction({
   description:
     "Re-run Brain's pre-storage sanitizer over existing transcript captures. Use after enabling or tightening sanitization.",
@@ -30,6 +61,12 @@ export default defineAction({
       limit: z.coerce.number().int().min(1).max(50).default(25),
       dryRun: z.coerce.boolean().default(false),
       includeNonTranscript: z.coerce.boolean().default(false),
+      allowCitationDrift: z.coerce
+        .boolean()
+        .default(false)
+        .describe(
+          "Allow rewriting captures that already have derived knowledge or proposals citing them. Prefer dryRun first.",
+        ),
     })
     .refine((args) => args.sourceId || args.captureIds?.length, {
       message: "Provide sourceId or captureIds",
@@ -91,6 +128,30 @@ export default defineAction({
     const results = [];
     for (const row of deduped) {
       const beforeLength = row.capture.content.length;
+      const derivedRefs = await findDerivedCitationRefs(row.capture.id);
+      const hasDerivedRefs =
+        derivedRefs.knowledgeIds.length > 0 ||
+        derivedRefs.proposalIds.length > 0;
+      if (!args.dryRun && hasDerivedRefs && !args.allowCitationDrift) {
+        results.push({
+          id: row.capture.id,
+          sourceId: row.capture.sourceId,
+          externalId: row.capture.externalId,
+          title: row.capture.title,
+          capturedAt: row.capture.capturedAt,
+          beforeLength,
+          afterLength: beforeLength,
+          method: "skipped-derived-citations",
+          rawContentRetained: true,
+          skipped: true,
+          skipReason:
+            "Capture already has derived knowledge/proposals citing its current text. Run with dryRun first, then re-distill or pass allowCitationDrift=true intentionally.",
+          dependentKnowledgeIds: derivedRefs.knowledgeIds,
+          dependentProposalIds: derivedRefs.proposalIds,
+          preview: reviewPreview(row.capture.content),
+        });
+        continue;
+      }
       const sanitized = await sanitizeCaptureForStorage({
         kind: row.capture.kind as BrainCaptureKind,
         title: row.capture.title,
@@ -137,6 +198,9 @@ export default defineAction({
         afterLength: sanitized.content.length,
         method: sanitizer?.method ?? "not-sanitized",
         rawContentRetained: sanitizer?.rawContentRetained ?? true,
+        skipped: false,
+        dependentKnowledgeIds: derivedRefs.knowledgeIds,
+        dependentProposalIds: derivedRefs.proposalIds,
         preview: reviewPreview(sanitized.content),
       });
     }
@@ -144,7 +208,9 @@ export default defineAction({
     return {
       dryRun: args.dryRun,
       requested: deduped.length,
-      updated: args.dryRun ? 0 : results.length,
+      updated: args.dryRun
+        ? 0
+        : results.filter((result) => !result.skipped).length,
       results,
     };
   },

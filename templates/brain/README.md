@@ -484,8 +484,14 @@ transcript captures:
 ```bash
 pnpm --filter brain action resanitize-captures \
   --sourceId <source-id> \
-  --limit 25
+  --limit 25 \
+  --dryRun true
 ```
+
+Non-dry-run resanitization skips captures that already have knowledge or
+proposals citing their current text, so evidence quotes do not silently drift.
+After reviewing the dry-run preview, re-distill affected captures or pass
+`--allowCitationDrift true` only for an intentional repair.
 
 ## Data
 
