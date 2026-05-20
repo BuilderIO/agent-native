@@ -213,16 +213,22 @@ function WorkspaceAppsSection({
         </Button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {showSkeletons
-          ? Array.from({ length: 6 }).map((_, index) => (
-              <AppCardSkeleton key={index} />
-            ))
-          : visibleApps.map((app) => (
-              <WorkspaceAppCard key={app.id} app={app} className="min-h-32" />
-            ))}
-
-        {!showSkeletons ? <CreateAppPopover /> : null}
+      <div className="grid auto-rows-fr gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {showSkeletons ? (
+          Array.from({ length: 6 }).map((_, index) => (
+            <AppCardSkeleton key={index} />
+          ))
+        ) : visibleApps.length > 0 ? (
+          visibleApps.map((app) => (
+            <WorkspaceAppCard
+              key={app.id}
+              app={app}
+              className="h-full min-h-32"
+            />
+          ))
+        ) : (
+          <CreateAppPopover />
+        )}
       </div>
     </section>
   );

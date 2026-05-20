@@ -41,7 +41,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
-import type { CalendarEvent } from "@shared/api";
+import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
 import {
@@ -49,7 +49,7 @@ import {
   type AttendeeRecipient,
 } from "@/components/calendar/AttendeeAutocomplete";
 import { useCalendarContext } from "@/components/layout/AppLayout";
-import { useUpdateEvent } from "@/hooks/use-events";
+import { useEvent, useUpdateEvent } from "@/hooks/use-events";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { sendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
@@ -66,14 +66,18 @@ import {
 } from "@/components/calendar/EventOptionControls";
 import {
   attachmentsToDrafts,
+  buildRecurrenceRules,
   buildReminderPayload,
   dateTimeInTimezoneToIso,
+  formatRecurrenceText,
   formatReminderText,
   formatTimezoneLabel,
   getEventEndValidationMessage,
   getLocalTimezone,
+  getRecurrencePreset,
   remindersToDraftState,
   type AttachmentDraft,
+  type RecurrencePreset,
   type ReminderDraft,
   type ReminderMode,
   validateAttachmentDrafts,
@@ -198,6 +202,12 @@ type ReminderValue =
   | "1440"
   | "custom";
 
+type EventUpdatePatch = Partial<CalendarEvent> & {
+  addGoogleMeet?: boolean;
+  addZoom?: boolean;
+  scope?: UpdateEventScope;
+};
+
 function getReminderValue(event: CalendarEvent): ReminderValue {
   if (event.remindersUseDefault !== false) return "default";
   if (!event.reminders || event.reminders.length === 0) return "none";
@@ -216,47 +226,6 @@ function getReminderUpdate(value: ReminderValue): Partial<CalendarEvent> {
     remindersUseDefault: false,
     reminders: [{ method: "popup", minutes: Number(value) }],
   };
-}
-
-function formatRecurrence(recurrence?: string[]): string | null {
-  if (!recurrence || recurrence.length === 0) return null;
-  const rule = recurrence.find((r) => r.startsWith("RRULE:"));
-  if (!rule) return null;
-
-  const freq = rule.match(/FREQ=(\w+)/)?.[1];
-  const interval = parseInt(rule.match(/INTERVAL=(\d+)/)?.[1] || "1", 10);
-  const byDay = rule.match(/BYDAY=([^;]+)/)?.[1];
-
-  const dayMap: Record<string, string> = {
-    MO: "Mon",
-    TU: "Tue",
-    WE: "Wed",
-    TH: "Thu",
-    FR: "Fri",
-    SA: "Sat",
-    SU: "Sun",
-  };
-
-  switch (freq) {
-    case "DAILY":
-      return interval === 1 ? "Every day" : `Every ${interval} days`;
-    case "WEEKLY": {
-      const days = byDay
-        ?.split(",")
-        .map((d) => dayMap[d] || d)
-        .join(", ");
-      if (interval === 1) return days ? `Every week on ${days}` : "Every week";
-      return days
-        ? `Every ${interval} weeks on ${days}`
-        : `Every ${interval} weeks`;
-    }
-    case "MONTHLY":
-      return interval === 1 ? "Every month" : `Every ${interval} months`;
-    case "YEARLY":
-      return interval === 1 ? "Every year" : `Every ${interval} years`;
-    default:
-      return null;
-  }
 }
 
 /** Check if a string looks like a URL */
@@ -378,11 +347,29 @@ export function EventDetailPopover({
     () => attachmentsToDrafts(event.attachments),
   );
   const [editMeetingLink, setEditMeetingLink] = useState("");
+  const [editTimeScope, setEditTimeScope] =
+    useState<UpdateEventScope>("single");
+  const [editRecurrencePreset, setEditRecurrencePreset] =
+    useState<RecurrencePreset>(() => getRecurrencePreset(event.recurrence));
   const [pendingVideoProvider, setPendingVideoProvider] = useState<
     "meet" | "zoom" | null
   >(null);
+  const isOverlay = !!event.overlayEmail;
 
   const updateEvent = useUpdateEvent();
+  const masterEventId =
+    open && event.recurringEventId ? `google-${event.recurringEventId}` : "";
+  const masterEvent = useEvent(masterEventId);
+  const recurrenceRules =
+    event.recurrence && event.recurrence.length > 0
+      ? event.recurrence
+      : masterEvent.data?.recurrence;
+  const isRecurringEvent = !!(
+    event.recurringEventId || recurrenceRules?.length
+  );
+  const recurrenceLoading =
+    isRecurringEvent && !recurrenceRules?.length && masterEvent.isLoading;
+  const canEditRecurrence = !isDraft && !isOverlay && !!recurrenceRules?.length;
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
   const zoomStatus = useZoomStatus();
@@ -407,6 +394,7 @@ export function EventDetailPopover({
     setEditReminderMode(reminderState.mode);
     setEditReminders(reminderState.reminders);
     setEditAttachments(attachmentsToDrafts(event.attachments));
+    setEditTimeScope("single");
   }, [
     event.id,
     event.description,
@@ -419,6 +407,10 @@ export function EventDetailPopover({
     event.remindersUseDefault,
     event.attachments,
   ]);
+
+  useEffect(() => {
+    setEditRecurrencePreset(getRecurrencePreset(recurrenceRules));
+  }, [recurrenceRules]);
 
   // When defaultOpen changes to true (new event created), open the popover
   useEffect(() => {
@@ -461,17 +453,19 @@ export function EventDetailPopover({
 
   // Save a field update
   const saveField = useCallback(
-    (updates: Partial<CalendarEvent> & { addGoogleMeet?: boolean }) => {
+    (updates: EventUpdatePatch) => {
       if (!event.id) return;
       if (isDraft) {
-        onDraftUpdate?.(event.id, updates);
+        const { scope: _scope, ...draftUpdates } = updates;
+        onDraftUpdate?.(event.id, draftUpdates);
         return;
       }
       void (async () => {
+        const { scope: _scope, ...notificationUpdates } = updates;
         const guestNotification = await promptGuestNotification({
           event,
           action: "update",
-          updates,
+          updates: notificationUpdates,
         });
         if (!guestNotification) return;
         updateEvent.mutate({
@@ -722,8 +716,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
         allDay: event.allDay,
         startTimeZone: event.allDay ? undefined : editTimezone,
         endTimeZone: event.allDay ? undefined : editTimezone,
+        scope: isRecurringEvent ? editTimeScope : "single",
       });
     }
+    setEditTimeScope("single");
     setEditingField(null);
   }, [
     editDate,
@@ -734,6 +730,30 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     event.start,
     event.end,
     event.allDay,
+    isRecurringEvent,
+    editTimeScope,
+    saveField,
+  ]);
+
+  const handleSaveRecurrence = useCallback(() => {
+    const recurrence = buildRecurrenceRules(
+      editRecurrencePreset,
+      masterEvent.data?.start || event.start,
+      masterEvent.data?.startTimeZone || event.startTimeZone || editTimezone,
+    );
+    if (!recurrence) {
+      toast.error("Custom repeat schedules must be edited in Google Calendar.");
+      return;
+    }
+    saveField({ recurrence, scope: "all" });
+    setEditingField(null);
+  }, [
+    editRecurrencePreset,
+    editTimezone,
+    event.start,
+    event.startTimeZone,
+    masterEvent.data?.start,
+    masterEvent.data?.startTimeZone,
     saveField,
   ]);
 
@@ -832,7 +852,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
   const locationIsUrl = event.location ? isUrl(event.location) : false;
   const locationIsMeetingLink =
     meetingLink && event.location?.includes(meetingLink.url);
-  const recurrenceText = formatRecurrence(event.recurrence);
+  const recurrenceText = recurrenceLoading
+    ? "Loading repeat..."
+    : formatRecurrenceText(recurrenceRules) ||
+      (isRecurringEvent ? "Repeats" : null);
   // Show the browser's local timezone offset (this is what the user sees times in)
   const localOffsetMinutes = -new Date().getTimezoneOffset();
   const localOffsetSign = localOffsetMinutes >= 0 ? "+" : "-";
@@ -887,8 +910,6 @@ Write a short, useful meeting description. If I ask you to apply it, update this
       handleSaveAttachments,
     ],
   );
-
-  const isOverlay = !!event.overlayEmail;
 
   return (
     <Popover
@@ -1084,6 +1105,27 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                         onChange={setEditTimezone}
                       />
                     )}
+                    {isRecurringEvent && !isDraft && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          Apply to
+                        </span>
+                        <Select
+                          value={editTimeScope}
+                          onValueChange={(value) =>
+                            setEditTimeScope(value as UpdateEventScope)
+                          }
+                        >
+                          <SelectTrigger className="h-7 flex-1 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="single">This event</SelectItem>
+                            <SelectItem value="all">All events</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <div className="flex justify-end gap-1.5">
                       <Button
                         variant="ghost"
@@ -1101,6 +1143,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           setEditTimezone(
                             event.startTimeZone || getLocalTimezone(),
                           );
+                          setEditTimeScope("single");
                           setEditingField(null);
                         }}
                       >
@@ -1169,14 +1212,79 @@ Write a short, useful meeting description. If I ask you to apply it, update this
               </div>
 
               {/* Recurrence */}
-              {recurrenceText && (
-                <div className="flex items-center gap-3 py-1.5">
+              {editingField === "recurrence" ? (
+                <div className="flex items-start gap-3 py-1.5">
+                  <IconRefresh className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="flex-1 space-y-2">
+                    <Select
+                      value={editRecurrencePreset}
+                      onValueChange={(value) =>
+                        setEditRecurrencePreset(value as RecurrencePreset)
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Does not repeat</SelectItem>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekdays">Every weekday</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="yearly">Yearly</SelectItem>
+                        {editRecurrencePreset === "custom" && (
+                          <SelectItem value="custom" disabled>
+                            Custom schedule
+                          </SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex justify-end gap-1.5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={() => {
+                          setEditRecurrencePreset(
+                            getRecurrencePreset(recurrenceRules),
+                          );
+                          setEditingField(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={handleSaveRecurrence}
+                        disabled={editRecurrencePreset === "custom"}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : recurrenceText ? (
+                <button
+                  type="button"
+                  className={`group flex w-full items-center gap-3 rounded-md py-1.5 text-left ${canEditRecurrence ? "cursor-pointer hover:bg-muted/50" : ""}`}
+                  onClick={() => {
+                    if (!canEditRecurrence) return;
+                    setEditRecurrencePreset(
+                      getRecurrencePreset(recurrenceRules),
+                    );
+                    setEditingField("recurrence");
+                  }}
+                >
                   <IconRefresh className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">
                     {recurrenceText}
                   </span>
-                </div>
-              )}
+                  {canEditRecurrence && (
+                    <IconChevronRight className="ml-auto h-3.5 w-3.5 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100" />
+                  )}
+                </button>
+              ) : null}
             </div>
 
             {/* Separator */}

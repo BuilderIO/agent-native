@@ -26,6 +26,7 @@ import {
   MCP_APP_RESOURCE_URI_META_KEY,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
+import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { toAbsoluteOpenUrl, toDesktopOpenUrl } from "../server/deep-link.js";
 import {
@@ -220,8 +221,22 @@ function defaultMcpAppUri(config: MCPConfig, actionName: string): string {
   return `ui://${app}/${action}`;
 }
 
+function expandRequestOriginSources(
+  sources: string[] | undefined,
+  requestMeta?: MCPRequestMeta,
+): string[] | undefined {
+  if (!sources) return undefined;
+  const origin = requestMeta?.origin;
+  return sources.flatMap((source) =>
+    source === MCP_APP_REQUEST_ORIGIN_CSP_SOURCE && origin
+      ? [origin]
+      : [source],
+  );
+}
+
 function mcpAppUiMeta(
   resource: ActionMcpAppResourceConfig,
+  requestMeta?: MCPRequestMeta,
 ): Record<string, unknown> | undefined {
   const base =
     resource._meta && typeof resource._meta === "object"
@@ -232,7 +247,27 @@ function mcpAppUiMeta(
       ? (base.ui as Record<string, unknown>)
       : {};
   const ui: Record<string, unknown> = { ...existingUi };
-  if (resource.csp) ui.csp = resource.csp;
+  if (resource.csp) {
+    ui.csp = {
+      ...resource.csp,
+      connectDomains: expandRequestOriginSources(
+        resource.csp.connectDomains,
+        requestMeta,
+      ),
+      resourceDomains: expandRequestOriginSources(
+        resource.csp.resourceDomains,
+        requestMeta,
+      ),
+      frameDomains: expandRequestOriginSources(
+        resource.csp.frameDomains,
+        requestMeta,
+      ),
+      baseUriDomains: expandRequestOriginSources(
+        resource.csp.baseUriDomains,
+        requestMeta,
+      ),
+    };
+  }
   if (resource.permissions) ui.permissions = resource.permissions;
   if (resource.domain) ui.domain = resource.domain;
   if (typeof resource.prefersBorder === "boolean") {
@@ -246,12 +281,13 @@ function resolveMcpAppResource(
   config: MCPConfig,
   actionName: string,
   entry: ActionEntry,
+  requestMeta?: MCPRequestMeta,
 ): ResolvedMcpAppResource | null {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
   const uri = resource.uri?.trim() || defaultMcpAppUri(config, actionName);
   if (!uri.startsWith("ui://")) return null;
-  const resourceMeta = mcpAppUiMeta(resource);
+  const resourceMeta = mcpAppUiMeta(resource, requestMeta);
   return {
     uri,
     name: resource.name?.trim() || actionName,
@@ -268,9 +304,10 @@ function resolveMcpAppResource(
 function getMcpAppResources(
   config: MCPConfig,
   actions: Record<string, ActionEntry>,
+  requestMeta?: MCPRequestMeta,
 ): ResolvedMcpAppResource[] {
   return Object.entries(actions).flatMap(([name, entry]) => {
-    const resource = resolveMcpAppResource(config, name, entry);
+    const resource = resolveMcpAppResource(config, name, entry, requestMeta);
     return resource ? [resource] : [];
   });
 }
@@ -355,7 +392,7 @@ export async function createMCPServerForRequest(
     effectiveIdentity?.oauthScopes,
     "mcp:apps",
   )
-    ? getMcpAppResources(config, visibleActions)
+    ? getMcpAppResources(config, visibleActions, requestMeta)
     : [];
   const supportsMcpApps = mcpAppResources.length > 0;
   const server = new Server(
@@ -414,7 +451,35 @@ export async function createMCPServerForRequest(
     return withCallerContext(async () => {
       const tools = Object.entries(visibleActions).map(([name, entry]) => {
         const hasLink = typeof entry.link === "function";
-        const mcpAppResource = resolveMcpAppResource(config, name, entry);
+        const mcpAppResource = resolveMcpAppResource(
+          config,
+          name,
+          entry,
+          requestMeta,
+        );
+        const rawToolMeta =
+          (entry.tool as any)._meta &&
+          typeof (entry.tool as any)._meta === "object" &&
+          !Array.isArray((entry.tool as any)._meta)
+            ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
+            : {};
+        const toolMeta = {
+          ...rawToolMeta,
+          ...(mcpAppResource
+            ? {
+                [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
+                ui: {
+                  ...(((rawToolMeta.ui as any) &&
+                  typeof rawToolMeta.ui === "object" &&
+                  !Array.isArray(rawToolMeta.ui)
+                    ? rawToolMeta.ui
+                    : {}) as Record<string, unknown>),
+                  resourceUri: mcpAppResource.uri,
+                  visibility: entry.mcpApp?.visibility ?? ["model", "app"],
+                },
+              }
+            : {}),
+        };
         const baseDescription = entry.tool.description ?? name;
         return {
           name,
@@ -425,17 +490,7 @@ export async function createMCPServerForRequest(
             type: "object" as const,
             properties: {},
           },
-          ...(mcpAppResource
-            ? {
-                _meta: {
-                  [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
-                  ui: {
-                    resourceUri: mcpAppResource.uri,
-                    visibility: entry.mcpApp?.visibility ?? ["model", "app"],
-                  },
-                },
-              }
-            : {}),
+          ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
           ...(hasLink
             ? { annotations: { "agent-native/producesOpenLink": true } }
             : {}),
@@ -576,7 +631,7 @@ export async function createMCPServerForRequest(
           const found = Object.entries(visibleActions)
             .map(([name, entry]) => ({
               actionName: name,
-              resource: resolveMcpAppResource(config, name, entry),
+              resource: resolveMcpAppResource(config, name, entry, requestMeta),
             }))
             .find((candidate) => candidate.resource?.uri === uri);
           if (!found?.resource) {

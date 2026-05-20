@@ -18,19 +18,25 @@ An agent-native app is reachable by any MCP-compatible host (Claude, Claude
 Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Cowork, VS Code
 GitHub Copilot, Goose, Postman, MCPJam, and future standard clients). The
 **recommended** way to connect OAuth-capable remote MCP hosts is the standard
-remote MCP OAuth flow: point the host at `https://<app>/_agent-native/mcp`,
-let it discover `/.well-known/oauth-protected-resource`, dynamically register a
-public client, and complete authorization-code + PKCE in the browser. For
-local stdio proxying and fallback clients, keep using the one-command hosted
-flow — `npx @agent-native/core connect <url>` — which mints a per-user,
-scoped, revocable token from a logged-in browser session; no shared secret is
-copied. Once connected, every action that produces or lists a navigable
-resource SHOULD return a deep link from a `link` builder, so the external agent
-can surface an **"Open in <app> →"** link that drops the user back into the
-running UI at the right view and record. Actions can also declare `mcpApp` so
-hosts that support MCP Apps render an inline interactive UI. The link is a pure
-pointer — the record-focusing write is always scoped to the **browser
-session**, never the agent's token.
+remote MCP OAuth flow. For cross-app / first-party usage, prefer the unified
+Dispatch gateway: point the host at
+`https://dispatch.agent-native.com/_agent-native/mcp`, authorize once, then
+manage which apps are exposed from Dispatch's Agents page. Dispatch overrides
+the generic `list_apps`, `ask_app`, and `open_app` tools so the single MCP URL
+only lists and routes to granted apps. For a deliberately isolated single-app
+connection, point the host at `https://<app>/_agent-native/mcp`; it discovers
+`/.well-known/oauth-protected-resource`, dynamically registers a public client,
+and completes authorization-code + PKCE in the browser. For local stdio
+proxying and fallback clients, keep using the one-command hosted flow —
+`npx @agent-native/core connect <url>` — which mints a per-user, scoped,
+revocable token from a logged-in browser session; no shared secret is copied.
+Once connected, every action that produces or lists a navigable resource SHOULD
+return a deep link from a `link` builder, so the external agent can surface an
+**"Open in <app> →"** link that drops the user back into the running UI at the
+right view and record. Actions can also declare `mcpApp` so hosts that support
+MCP Apps render an inline interactive UI. The link is a pure pointer — the
+record-focusing write is always scoped to the **browser session**, never the
+agent's token.
 
 ## Why
 
@@ -45,11 +51,23 @@ the real app focused on exactly what was produced. It reuses the existing
 
 ## How
 
-### 1. Connect to a hosted app
+### 1. Connect to hosted apps
 
 The first-party hosted apps live at `mail.agent-native.com`,
-`calendar.agent-native.com`, etc. For clients with standard remote MCP OAuth,
-configure the remote HTTP endpoint directly:
+`calendar.agent-native.com`, etc. For most cross-app work, connect Dispatch
+once instead of adding every app one-by-one:
+
+```bash
+claude mcp add --transport http agent-native https://dispatch.agent-native.com/_agent-native/mcp
+```
+
+Then open Dispatch → Agents to choose whether the unified MCP gateway exposes
+all apps or only selected app IDs. External agents call `list_apps` to see the
+granted set, `ask_app` to route a natural-language task over A2A to a granted
+app, and `open_app` to produce a deep link to a granted app.
+
+For an intentionally isolated single-app connection, configure that app's
+remote HTTP endpoint directly:
 
 ```bash
 claude mcp add --transport http agent-native-mail https://mail.agent-native.com/_agent-native/mcp
@@ -82,7 +100,9 @@ no-CLI/manual config path:
 
 ```bash
 npx @agent-native/core connect https://mail.agent-native.com
-# or connect every first-party hosted app at once:
+# or connect the unified Dispatch gateway once:
+npx @agent-native/core connect https://dispatch.agent-native.com
+# legacy: connect every first-party hosted app as separate MCP resources:
 npx @agent-native/core connect --all
 ```
 
@@ -117,8 +137,10 @@ stable verb set (see `packages/core/src/mcp/builtin-tools.ts`) so an external
 agent has a predictable surface without guessing per-app action names:
 
 - `list_apps` — workspace apps + their URLs / running state.
-- `open_app({ app, view, params? })` — returns a `buildDeepLink` URL (no side
-  effects); surfaces as an "Open …" link.
+- `open_app({ app, view?, path?, params?, embed? })` — returns a deep link or
+  direct same-origin app route (no user-data side effects); surfaces as an
+  "Open …" link and, with `embed: true`, an inline full-app MCP App in capable
+  hosts.
 - `ask_app({ app, message })` — routes a natural-language task to that app's
   in-app agent (delegates to the existing `ask-agent` meta-tool).
 - `create_workspace_app({ name, template })` — scaffolds + boots a new app via
@@ -209,8 +231,17 @@ Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients,
 older hosts, and any host that does not render MCP Apps will ignore the UI
 metadata and still need the "Open in … →" link. Treat `mcpApp.resource.html`
 like `link`: synchronous, deterministic, and self-contained; declare external
-origins in `csp`. Use the full app deep link for heavyweight authenticated
-workflows that do not fit cleanly in an embedded iframe.
+origins in `csp`.
+
+For heavyweight authenticated workflows, prefer reusing the real React app
+instead of rebuilding a mini UI in plain HTML. Core exports `embedApp()` from
+`@agent-native/core/mcp` and `@agent-native/core`; attach it to an action that
+already has a `link` builder. The MCP App calls the app-only
+`create_embed_session` helper, exchanges a one-time SQL ticket at
+`/_agent-native/embed/start`, and loads the target route in an iframe with a
+short-lived browser session. `open_app({ app, path, embed: true })` is the
+generic escape hatch for routes like dashboards, filtered inboxes, calendar
+drafts, or extension pages.
 
 Compatibility target: build to the standard once, not per-client shims. MCP
 Apps-capable hosts should include Claude/Claude Desktop/Claude Code, ChatGPT
@@ -301,6 +332,8 @@ connect or present a token rather than assuming the action is missing.
   resource (draft, event, dashboard, document).
 - Do add `mcpApp` when a UI-capable MCP host should render an inline review or
   edit surface, while keeping the `link` fallback.
+- Do use `embedApp()` / `open_app({ embed: true })` when the right UI is the
+  existing React app at a specific route.
 - Do build the URL with `buildDeepLink(...)` — it is the single source of truth
   for the open-route format.
 - Do keep `link` pure and synchronous; return `null` when there's nothing to

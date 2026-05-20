@@ -162,6 +162,26 @@ describe("createOpenRouteHandler", () => {
     });
   });
 
+  it("preserves embed launch params through the redirect but not navigate payload", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?view=inbox&threadId=t1&embedded=1&__an_embed_token=tok_123",
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    const loc = res.headers.get("Location")!;
+    const sp = new URL(loc, "http://x.invalid").searchParams;
+    expect(sp.get("embedded")).toBe("1");
+    expect(sp.get("__an_embed_token")).toBe("tok_123");
+
+    const [, , payload] = appStatePut.mock.calls[0];
+    expect(payload).toEqual({ threadId: "t1", view: "inbox" });
+  });
+
   it("honors a safe same-origin relative `to` override", async () => {
     getSession.mockResolvedValue({ email: "user@example.com" });
     const handler = createOpenRouteHandler();

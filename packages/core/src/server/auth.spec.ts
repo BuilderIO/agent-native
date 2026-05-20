@@ -1275,6 +1275,77 @@ describe("server/auth", () => {
       expect(forwardedPath).toBe("/_agent-native/auth/ba/sign-in/email");
     });
 
+    it("sanitizes resend verification callback URLs before forwarding to Better Auth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      let forwardedBody: any;
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async (request: Request) => {
+            forwardedBody = await request.json();
+            return new Response(JSON.stringify({ ok: true }), {
+              headers: { "content-type": "application/json" },
+            });
+          },
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const fullPath = "/_agent-native/auth/ba/send-verification-email";
+      const request = new Request(`http://localhost${fullPath}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "user@example.com",
+          callbackURL: "https://slack.com/app_redirect?channel=C123",
+        }),
+      });
+      const event = {
+        req: request,
+        url: new URL("http://localhost/send-verification-email"),
+        res: { headers: new Headers(), status: 200 },
+        node: {
+          req: { headers: {}, url: fullPath, method: "POST" },
+          res: {
+            setHeader: vi.fn(),
+            getHeader: vi.fn(),
+            appendHeader: vi.fn(),
+          },
+        },
+        headers: request.headers,
+        context: {
+          _mountedPathname: fullPath,
+          _mountPrefix: "/_agent-native/auth/ba",
+        },
+        path: "/send-verification-email",
+      };
+
+      await baHandler(event);
+
+      expect(forwardedBody).toEqual({
+        email: "user@example.com",
+        callbackURL: "/",
+      });
+    });
+
     it("supports multiple ACCESS_TOKENS", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKENS", "token1, token2, token3");

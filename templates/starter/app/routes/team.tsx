@@ -1,8 +1,9 @@
 import { TeamPage } from "@agent-native/core/client/org";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import { APP_TITLE } from "@/lib/app-config";
 
 export function meta() {
-  return [{ title: "Team - Starter" }];
+  return [{ title: `Team — ${APP_TITLE}` }];
 }
 
 export default function TeamRoute() {

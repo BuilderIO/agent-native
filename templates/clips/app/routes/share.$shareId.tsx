@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconAlertTriangle,
@@ -33,6 +33,7 @@ import { AccessPasswordPrompt } from "@/components/player/access-password-prompt
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
@@ -185,6 +186,7 @@ const STORAGE_KEY_PREFIX = "clips-share-pw-";
 
 export default function ShareRoute() {
   const { shareId } = useParams<{ shareId: string }>();
+  const navigate = useNavigate();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const [password, setPassword] = useState<string | null>(() => {
     if (typeof window === "undefined" || !shareId) return null;
@@ -237,6 +239,7 @@ export default function ShareRoute() {
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
   const viewerCanEdit = Boolean(dataQ.data?.data?.viewer?.canEdit);
+  const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
   const showTitleSkeleton = recording
     ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
     : false;
@@ -536,6 +539,12 @@ export default function ShareRoute() {
               Try Clips <IconExternalLink className="h-3 w-3" />
             </a>
           )}
+          {viewerIsOwner ? (
+            <DeleteRecordingMenu
+              recordingId={recording.id}
+              onDeleted={() => navigate("/library", { replace: true })}
+            />
+          ) : null}
           {viewerCanEdit ? (
             <ShareRecordingPopover
               recordingId={recording.id}

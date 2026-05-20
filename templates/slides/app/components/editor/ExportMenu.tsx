@@ -102,27 +102,15 @@ export function ExportMenu({
   };
 
   const handleExportGoogleSlides = async () => {
-    // Open the importer synchronously during the click. window.open() loses
-    // its user activation after `await`, so opening it after the fetch gets
-    // silently popup-blocked in Safari/Firefox. Returns null when blocked
-    // (e.g. user has disabled popups for the site) — we fall back to a
-    // toast that tells them what to do.
-    const importerWindow = window.open(
-      "https://docs.google.com/presentation/u/0/?usp=import",
-      "_blank",
-      "noopener,noreferrer",
-    );
     try {
       const { blob, filename } = await fetchPptxExport();
       triggerBlobDownload(blob, filename);
       toast({
-        title: "Open in Google Slides",
-        description: importerWindow
-          ? "We downloaded the .pptx and opened Google Slides — choose File → Import slides and drop the file in."
-          : "We downloaded the .pptx. Open Google Slides → File → Import slides and drop the file in (your browser blocked the popup).",
+        title: "Downloaded for Google Slides",
+        description:
+          "Open Google Slides, choose File → Import slides, then select the downloaded .pptx.",
       });
     } catch (err) {
-      importerWindow?.close();
       console.error("Export failed:", err);
       toast({
         title: "Export failed",
@@ -208,7 +196,7 @@ export function ExportMenu({
           className="cursor-pointer"
         >
           <IconBrandGoogle className="w-4 h-4 mr-2" />
-          Export to Google Slides
+          Download for Google Slides
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">

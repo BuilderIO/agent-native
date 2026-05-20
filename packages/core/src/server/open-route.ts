@@ -29,6 +29,10 @@ import {
   AGENT_SIDEBAR_QUERY_PARAM,
   withCollapsedAgentSidebarParam,
 } from "../shared/agent-sidebar-url.js";
+import {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 
 /** Query keys that are route control, not navigation payload. */
 const RESERVED = new Set([
@@ -36,6 +40,8 @@ const RESERVED = new Set([
   "view",
   "to",
   "compose",
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_PARAM,
 ]);
 
@@ -217,6 +223,12 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
       if (k.startsWith("f_")) filters.set(k, v);
     }
     target = appendSearchParams(target, filters);
+    const embedParams = new URLSearchParams();
+    for (const key of [EMBED_MODE_QUERY_PARAM, EMBED_TOKEN_QUERY_PARAM]) {
+      const value = search.get(key);
+      if (value) embedParams.set(key, value);
+    }
+    target = appendSearchParams(target, embedParams);
     target = withCollapsedAgentSidebarParam(target);
 
     return redirect(target);

@@ -15,6 +15,26 @@ export {
   type DeepLinkInput,
 } from "./deep-link.js";
 export { createOpenRouteHandler, type OpenRouteOptions } from "./open-route.js";
+export {
+  createEmbedStartRouteHandler,
+  buildEmbedStartPath,
+} from "./embed-route.js";
+export {
+  createEmbedSessionTicket,
+  consumeEmbedSessionTicket,
+  normalizeEmbedTargetPath,
+  requestHasEmbedAuthMarker,
+  resolveEmbedSessionFromRequest,
+  setEmbedSessionCookie,
+  signEmbedSessionToken,
+  verifyEmbedSessionToken,
+  type ConsumedEmbedSessionTicket,
+  type EmbedSessionTicket,
+  type EmbedSessionTicketInput,
+  type EmbedSessionTokenClaims,
+  type ResolvedEmbedSession,
+  type VerifyEmbedSessionTokenResult,
+} from "./embed-session.js";
 export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
 export {
   mountAuthMiddleware,

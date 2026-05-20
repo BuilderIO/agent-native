@@ -1,5 +1,4 @@
 import path from "path";
-import { Readable } from "node:stream";
 import { defineEventHandler, setResponseStatus } from "h3";
 import {
   getSession,
@@ -41,19 +40,14 @@ export default defineEventHandler(async (event) => {
         }),
     );
 
-    event.node.res.setHeader("Content-Type", PPTX_CONTENT_TYPE);
-    event.node.res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${path.basename(result.filename)}"`,
-    );
-
-    // Stream directly from the in-memory buffer. Going through disk used to
-    // break on serverless: the action wrote into a per-invocation /tmp that a
-    // separate download request couldn't reach. Skipping the disk hop also
-    // halves the I/O.
-    return Readable.toWeb(
-      Readable.from(result.buffer),
-    ) as unknown as ReadableStream;
+    return new Response(result.buffer, {
+      headers: {
+        "Content-Type": PPTX_CONTENT_TYPE,
+        "Content-Disposition": `attachment; filename="${path.basename(
+          result.filename,
+        )}"`,
+      },
+    });
   } catch (error) {
     const message =
       error instanceof Error

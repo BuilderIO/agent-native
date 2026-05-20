@@ -1,13 +1,10 @@
 import type { Icon } from "@tabler/icons-react";
 import {
-  IconActivityHeartbeat,
   IconBook2,
   IconChecks,
   IconDatabase,
   IconFileText,
   IconMessageQuestion,
-  IconSearch,
-  IconSettings,
 } from "@tabler/icons-react";
 
 export type BrainView =
@@ -859,6 +856,9 @@ export interface BrainSettings {
   autoRedactEmails?: boolean;
   defaultPublishTier?: "private" | "team" | "company";
   distillationInstructions?: string;
+  captureSanitizationEnabled?: boolean;
+  captureSanitizationModel?: string;
+  captureSanitizationInstructions?: string;
   connectorPollMinutes?: number;
   requireCitations?: boolean;
   autoArchiveResolved?: boolean;
@@ -887,38 +887,17 @@ export interface SettingsResponse {
       instructions: string;
       rules: string[];
     };
+    captureSanitization: {
+      enabled: boolean;
+      model: string | null;
+      instructions: string;
+      rules: string[];
+    };
     response: {
       toneInstruction: string;
       citationInstruction: string;
     };
   };
-}
-
-export interface DemoSeedResponse {
-  seedId: string;
-  seededAt: string;
-  suggestedQuestions: string[];
-}
-
-export interface DemoEvalCheck {
-  id: string;
-  label: string;
-  passed: boolean;
-  detail: string;
-}
-
-export interface DemoEvalResponse {
-  seedId: string;
-  mode?: "product-demo" | "retrieval";
-  dataset?: string;
-  dataMode?: "workspace" | "seeded-fallback";
-  workspaceHadSupport?: boolean;
-  fallbackSeeded?: boolean;
-  ok: boolean;
-  passed: number;
-  total: number;
-  score: number;
-  checks: DemoEvalCheck[];
 }
 
 export const navItems: Array<{
@@ -928,150 +907,13 @@ export const navItems: Array<{
   icon: Icon;
 }> = [
   { view: "ask", label: "Ask", href: "/", icon: IconMessageQuestion },
-  { view: "search", label: "Search", href: "/search", icon: IconSearch },
+  { view: "sources", label: "Sources", href: "/sources", icon: IconDatabase },
+  { view: "review", label: "Review", href: "/review", icon: IconChecks },
   {
     view: "knowledge",
     label: "Knowledge",
     href: "/knowledge",
     icon: IconBook2,
-  },
-  { view: "review", label: "Review", href: "/review", icon: IconChecks },
-  { view: "sources", label: "Sources", href: "/sources", icon: IconDatabase },
-  {
-    view: "ops",
-    label: "Ops",
-    href: "/ops",
-    icon: IconActivityHeartbeat,
-  },
-  {
-    view: "settings",
-    label: "Settings",
-    href: "/settings",
-    icon: IconSettings,
-  },
-];
-
-export const emptyMetrics: BrainMetric[] = [
-  { label: "Facts indexed", value: "0", detail: "Waiting for sources" },
-  { label: "Needs review", value: "0", detail: "No queued memories" },
-  { label: "Source health", value: "0%", detail: "Connect a source" },
-  { label: "Citation coverage", value: "0%", detail: "No answers yet" },
-];
-
-export const sampleKnowledgeRows: KnowledgeRow[] = [
-  {
-    id: "sample-pricing",
-    title: "Enterprise pricing requires security review",
-    summary:
-      "Large-plan pricing conversations should include security, procurement, and implementation-owner details before final quote approval.",
-    sourceName: "Sales handbook",
-    sourceType: "Docs",
-    topic: "Revenue",
-    status: "approved",
-    confidence: 0.92,
-    citations: 4,
-    updatedAt: "Just now",
-    owner: "Revenue Ops",
-  },
-  {
-    id: "sample-onboarding",
-    title: "Customer onboarding milestone policy",
-    summary:
-      "New customers get a launch plan, success criteria, integration checklist, and two-week adoption review.",
-    sourceName: "Customer success wiki",
-    sourceType: "Notion",
-    topic: "Customer Success",
-    status: "needs_review",
-    confidence: 0.74,
-    citations: 7,
-    updatedAt: "Pending sync",
-    owner: "CS",
-  },
-  {
-    id: "sample-incident",
-    title: "Incident response escalation path",
-    summary:
-      "Customer-impacting incidents route through engineering on-call, support lead, and comms owner with hourly updates.",
-    sourceName: "Runbooks",
-    sourceType: "GitHub",
-    topic: "Operations",
-    status: "stale",
-    confidence: 0.68,
-    citations: 3,
-    updatedAt: "Stale",
-    owner: "Platform",
-  },
-];
-
-export const sampleReviewItems: ReviewItem[] = [
-  {
-    id: "sample-review-1",
-    title: "Should beta customers get migration support?",
-    proposedAnswer:
-      "Beta customers qualify for guided migration when contract value or integration risk is high.",
-    sourceName: "Slack #sales-engineering",
-    reason: "Conflicting Slack and handbook evidence",
-    priority: "high",
-    createdAt: "Queued today",
-  },
-  {
-    id: "sample-review-2",
-    title: "Preferred vendor for SOC 2 evidence exports",
-    proposedAnswer:
-      "The latest approved vendor appears to be Drata, but older docs still mention Vanta.",
-    sourceName: "Security folder",
-    reason: "Possible policy drift",
-    priority: "medium",
-    createdAt: "Queued yesterday",
-  },
-];
-
-export const sampleSources: BrainSource[] = [
-  {
-    id: "sample-notion",
-    name: "Company Wiki",
-    title: "Company Wiki",
-    type: "Notion",
-    provider: "generic",
-    description:
-      "Policies, operating docs, team handbooks, and project briefs.",
-    health: "healthy",
-    enabled: true,
-    recordCount: 1284,
-    coverage: 0.88,
-    lastSyncAt: "8 min ago",
-    nextSyncAt: "52 min",
-    reviewRequired: true,
-  },
-  {
-    id: "sample-slack",
-    name: "Slack Knowledge Channels",
-    title: "Slack Knowledge Channels",
-    type: "Slack",
-    provider: "slack",
-    description: "Decision threads from product, sales, support, and launches.",
-    health: "degraded",
-    enabled: true,
-    recordCount: 6430,
-    coverage: 0.61,
-    lastSyncAt: "34 min ago",
-    nextSyncAt: "26 min",
-    reviewRequired: true,
-  },
-  {
-    id: "sample-drive",
-    name: "Shared Drive",
-    title: "Shared Drive",
-    type: "Google Drive",
-    provider: "generic",
-    description: "Decks, PDFs, security collateral, and customer templates.",
-    health: "paused",
-    enabled: false,
-    recordCount: 0,
-    coverage: 0,
-    lastSyncAt: null,
-    nextSyncAt: null,
-    reviewRequired: false,
   },
 ];
 
@@ -1085,6 +927,10 @@ export const defaultSettings: BrainSettings = {
   defaultPublishTier: "company",
   distillationInstructions:
     "Distill durable, reusable institutional knowledge. Preserve short direct quotes as evidence.",
+  captureSanitizationEnabled: true,
+  captureSanitizationModel: "",
+  captureSanitizationInstructions:
+    "Keep durable company-relevant information and remove personal, recruiting, hiring, candidate-evaluation, sensitive, or casual content before storage.",
   connectorPollMinutes: 60,
   requireCitations: true,
   autoArchiveResolved: true,
