@@ -9,6 +9,7 @@ import {
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
   getAgentEngineEntry,
+  isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
 } from "../../agent/engine/index.js";
 import { DEFAULT_MODEL } from "../../agent/default-model.js";
@@ -84,6 +85,7 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       capabilities: e.capabilities,
       requiredEnvVars: e.requiredEnvVars,
       installPackage: e.installPackage,
+      packageInstalled: isAgentEnginePackageInstalled(e),
     })),
     current: {
       engine: currentEngineName,
