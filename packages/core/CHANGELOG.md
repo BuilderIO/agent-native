@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.22.5
+
+### Patch Changes
+
+- 7873242: Clear the chat attachment drop overlay when editor-level drops consume the drop event.
+- 7873242: Resolve Builder assistant credentials from a single complete user/org/workspace scope so partial personal rows do not hide org-shared connections.
+- 7873242: Start fresh chats on new browser/project surfaces instead of auto-opening the latest server thread.
+- 7873242: Sanitize resent email verification callback URLs before forwarding to Better Auth.
+
 ## 0.22.4
 
 ### Patch Changes
