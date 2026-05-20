@@ -92,18 +92,28 @@ export function unmatchedToolResultReplayText(part: {
 export function backfillEngineMessagesToolResults(
   messages: EngineMessage[],
 ): EngineMessage[] {
+  // Walk messages in order. For each user message, only consider tool-calls
+  // from assistant messages that appeared earlier in the conversation. This
+  // prevents an older tool-result from being backfilled with a later,
+  // unrelated tool-call when ids are reused (e.g. `continuation_tc_1` reset
+  // across adapter recreations).
   const toolUseById = new Map<string, { name: string; input: unknown }>();
-  for (const msg of messages) {
-    if (msg.role !== "assistant") continue;
-    for (const part of msg.content) {
-      if (part.type === "tool-call") {
-        toolUseById.set(part.id, { name: part.name, input: part.input });
-      }
-    }
-  }
+  const out: EngineMessage[] = [];
 
-  return messages.map((msg) => {
-    if (msg.role !== "user") return msg;
+  for (const msg of messages) {
+    if (msg.role === "assistant") {
+      for (const part of msg.content) {
+        if (part.type === "tool-call") {
+          toolUseById.set(part.id, { name: part.name, input: part.input });
+        }
+      }
+      out.push(msg);
+      continue;
+    }
+    if (msg.role !== "user") {
+      out.push(msg);
+      continue;
+    }
     const newContent: EngineContentPart[] = [];
     for (const part of msg.content) {
       if (part.type !== "tool-result") {
@@ -146,7 +156,7 @@ export function backfillEngineMessagesToolResults(
       });
     }
     if (newContent.length === 0) {
-      return {
+      out.push({
         role: "user",
         content: [
           {
@@ -154,10 +164,13 @@ export function backfillEngineMessagesToolResults(
             text: UNMATCHED_TOOL_RESULT_REPLAY_PREFIX,
           },
         ],
-      };
+      });
+      continue;
     }
-    return { role: "user", content: newContent };
-  });
+    out.push({ role: "user", content: newContent });
+  }
+
+  return out;
 }
 
 // ---------------------------------------------------------------------------
