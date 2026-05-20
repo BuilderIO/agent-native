@@ -8,6 +8,8 @@ import {
   set,
   isToday,
   addMinutes,
+  addDays,
+  min,
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
@@ -171,9 +173,15 @@ export function DayView({
   function getEventStyle(event: CalendarEvent) {
     const start = parseISO(event.start);
     const end = parseISO(event.end);
-    const dayStart = set(startOfDay(start), { hours: START_HOUR });
-    const topMinutes = Math.max(0, differenceInMinutes(start, dayStart));
-    const durationMinutes = Math.max(15, differenceInMinutes(end, start));
+    const dayStart = set(startOfDay(date), { hours: START_HOUR });
+    const dayEnd = addDays(startOfDay(date), 1);
+    const cappedEnd = min([end, dayEnd]);
+    const segStart = start > dayStart ? start : dayStart;
+    const topMinutes = Math.max(0, differenceInMinutes(segStart, dayStart));
+    const durationMinutes = Math.max(
+      15,
+      differenceInMinutes(cappedEnd, segStart),
+    );
     return {
       top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
       height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
@@ -390,12 +398,14 @@ export function DayView({
                   }
                 : getEventStyle(event);
               const color = getEventDisplayColor(event, prefs);
+              const evStart = parseISO(event.start);
+              const rawEnd = parseISO(event.end);
+              const midnight = addDays(startOfDay(date), 1);
+              const evEnd = min([rawEnd, midnight]);
+              const isOvernightCapped = rawEnd > midnight;
               const durationMin = overrides
                 ? (overrides.height / HOUR_HEIGHT) * 60
-                : differenceInMinutes(
-                    parseISO(event.end),
-                    parseISO(event.start),
-                  );
+                : differenceInMinutes(evEnd, evStart);
               // Compute display times (use drag overrides if active)
               const displayStart = overrides
                 ? addMinutes(
@@ -547,8 +557,8 @@ export function DayView({
                       style={{ touchAction: "none" }}
                     />
                   )}
-                  {/* Bottom resize handle */}
-                  {canDrag && (
+                  {/* Bottom resize handle — hidden on overnight events capped at midnight; drag math uses uncapped duration and would truncate the true end */}
+                  {canDrag && !isOvernightCapped && (
                     <div
                       data-resize-handle="true"
                       onPointerDown={(e) => {
