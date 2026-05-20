@@ -83,6 +83,15 @@ When Dispatch approval policy is enabled, applying a shared or team-wide dream p
 
 Use Dreams when you want to answer questions like "what did agents keep getting wrong this week?", "what should we remember?", or "which repeated lesson deserves a skill?" Inbound Slack, email, Telegram, WhatsApp, and web-derived evidence is treated as untrusted input, so proposals from those sources require review and provenance before they affect shared memory. Workspace-instruction proposals require durable evidence spanning at least two threads or two source apps; eval-only noise, account setup issues, quota limits, and single-app UI wording corrections stay out of global instructions.
 
+### Dream Input Validation Boundaries
+
+Because evidence is collected from external, untrusted sources (such as chat transcripts, webhooks, and third-party integrations), the Dream processor enforces strict input validation boundaries to prevent prompt injection and payload-size attacks:
+
+- **Byte Size Limits:** Individual thread payloads are capped at a maximum of 10KB of text content per message, and candidate scans are truncated if they exceed 100KB in total to prevent context exhaustion.
+- **Sanitization:** All text inputs are sanitized to strip control characters, binary payloads, and non-printable Unicode ranges.
+- **Schema Validation:** Inbound debug data and thread history are parsed against strict Zod schemas before being compiled into LLM prompts. Any candidate structure that fails schema validation is immediately discarded from the processing batch.
+- **Escaping:** All user-provided text chunks are dynamically escaped when formatted into the prompt templates to prevent prompt injections (e.g., trying to hijack the Dream loop to write arbitrary instructions).
+
 In the Dispatch UI, open **Dreams** to run a manual pass, review candidate threads, inspect the report, and open each proposal's review sheet before applying or rejecting it. Use **Settings** to edit the recurring cron schedule, source scope, timeout/concurrency limits, candidate limit, and minimum candidate threshold; use **Ensure schedule** after saving when you want the `jobs/dispatch-dream.md` recurring job materialized from those settings. The review sheet shows approval behavior, the current target content, proposed content, and source evidence. Agents use the same workflow through actions:
 
 - `list-dream-candidates` finds recent threads with grounded signals such as explicit user corrections, failed runs, tool errors, feedback, eval failures, and successful checkpointed workflows. Pass `sourceId: "all"` or `sourceIds` to scan multiple thread-debug sources; `sourceTimeoutMs`, `sourceConcurrency`, `sourceStartStaggerMs`, `threadConcurrency`, and `threadTimeoutMs` keep production scans partial and bounded, and the response includes per-source health.

@@ -953,11 +953,12 @@ export function MultiTabAssistantChat({
                 label: e.label,
                 models,
                 configured:
-                  e.requiredEnvVars.length === 0 ||
-                  e.requiredEnvVars.some((v: string) =>
-                    configuredKeys.has(v),
-                  ) ||
-                  e.name === currentEngineName,
+                  e.packageInstalled !== false &&
+                  (e.requiredEnvVars.length === 0 ||
+                    e.requiredEnvVars.some((v: string) =>
+                      configuredKeys.has(v),
+                    ) ||
+                    e.name === currentEngineName),
               };
             });
         }

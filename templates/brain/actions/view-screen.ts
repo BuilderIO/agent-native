@@ -19,11 +19,7 @@ export default defineAction({
   run: async () => {
     const screen = await readBrainScreen();
     const navigation = (screen as { navigation?: unknown }).navigation;
-    const demoState = demoStateFromNavigation(navigation);
     screen.brainHealth = await readBrainHealth();
-    if (demoState) {
-      screen.demo = demoState;
-    }
     if (
       navigation &&
       typeof navigation === "object" &&
@@ -53,24 +49,6 @@ function opsQueueArgs(
       : "all",
     sourceId: stringValue(navigation.sourceId) ?? undefined,
     limit: clampLimit(navigation.limit, params.get("limit")),
-  };
-}
-
-function demoStateFromNavigation(navigation: unknown) {
-  if (!navigation || typeof navigation !== "object") return null;
-  const nav = navigation as Record<string, unknown>;
-  if (nav.view !== "ask" || stringValue(nav.demo) !== "product-decisions") {
-    return null;
-  }
-  return {
-    demo: "product-decisions",
-    status: stringValue(nav.demoStatus) ?? "idle",
-    askQuestion:
-      stringValue(nav.askQuestion) === "retired-freemium"
-        ? "Why did we retire freemium, and what replaced it?"
-        : undefined,
-    primaryActions: ["seed-demo-data", "run-demo-eval"],
-    followUpViews: ["review", "knowledge"],
   };
 }
 

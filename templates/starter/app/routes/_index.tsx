@@ -1,11 +1,9 @@
 import { useState } from "react";
-import { Link } from "react-router";
 import {
   IconArrowUpRight,
   IconBolt,
   IconBook2,
   IconBrush,
-  IconPlus,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
@@ -20,14 +18,15 @@ import {
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import { APP_NAME, APP_TITLE } from "@/lib/app-config";
 
 export function meta() {
   return [
-    { title: "Agent-Native Starter" },
+    { title: APP_TITLE },
     {
       name: "description",
       content:
-        "Build apps where the AI agent and UI are equal partners — sharing state, actions, and context in real time.",
+        "Build an agent-native app where the AI agent and UI share state, actions, and context.",
     },
   ];
 }
@@ -52,8 +51,7 @@ export default function IndexPage() {
     openAgentSidebar();
     sendToAgentChat({
       message: trimmed,
-      context:
-        "The user is starting from the Agent-Native starter template and wants you to customize this app. Make the requested app changes directly in the starter template code.",
+      context: `The user is working in ${APP_TITLE} and wants this app customized directly. Edit this app's source; do not create a separate workspace app unless the user explicitly asks for a separate workspace app.`,
       submit: true,
       type: "code",
     });
@@ -70,7 +68,7 @@ export default function IndexPage() {
             </div>
             <div className="space-y-2">
               <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-                Blank app
+                {APP_TITLE}
               </h1>
               <p className="mx-auto max-w-md text-sm leading-relaxed text-muted-foreground">
                 This app is ready for your first route, workflow, data model, or
@@ -107,7 +105,7 @@ export default function IndexPage() {
               <PromptComposer
                 autoFocus
                 placeholder="Describe what you want to add or change..."
-                draftScope="starter:start-building"
+                draftScope={`${APP_NAME}:start-building`}
                 onSubmit={(text) => submit(text)}
               />
             </PopoverContent>
@@ -115,19 +113,7 @@ export default function IndexPage() {
 
           <div className="h-px bg-border" />
 
-          <div className="grid gap-3 text-left sm:grid-cols-3">
-            <Link
-              to="/new-app"
-              className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50"
-            >
-              <p className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
-                <IconPlus className="h-3.5 w-3.5" />
-                New app
-              </p>
-              <p className="text-[12px] text-muted-foreground mt-0.5">
-                Create a separate workspace app
-              </p>
-            </Link>
+          <div className="grid gap-3 text-left sm:grid-cols-2">
             <a
               href="https://agent-native.com/docs"
               target="_blank"

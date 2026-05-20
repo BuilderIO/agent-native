@@ -231,6 +231,8 @@ describe("NewWorkspaceAppFlow", () => {
     expect(message).toContain("shared workspace database/hosting model");
     expect(message).toContain("not a feature request for the current app");
     expect(message).toContain("inside apps/starter");
+    expect(message).toContain("treat it as scaffolding only");
+    expect(message).toContain('must not leave visible "Starter"');
     expect(message).toContain("There is no separate workspace app registry");
     expect(message).toContain("apps/quality/package.json exists");
     expect(message).toContain("Do not hardcode localhost");

@@ -13,6 +13,8 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 import type { H3AppShim } from "./framework-request-handler.js";
+import { EMBED_START_PATH } from "../shared/embed-auth.js";
+import { resolveEmbedSessionFromRequest } from "./embed-session.js";
 
 // In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
 // runtime), event.url and event.req share the same underlying URL object.
@@ -1280,7 +1282,7 @@ function createAuthGuardFn(): (
     // returns to the same deep link). It must bypass the guard's blanket
     // 401-for-/_agent-native/* so an external-agent "Open in … →" link
     // clicked in any browser/webview lands correctly.
-    if (p === "/_agent-native/open") {
+    if (p === "/_agent-native/open" || p === EMBED_START_PATH) {
       return;
     }
 
@@ -1677,12 +1679,13 @@ async function backfillSessionOrg(session: AuthSession): Promise<AuthSession> {
  *
  * Resolution chain:
  * 1. ACCESS_TOKEN → check legacy cookie-based token sessions
- * 2. BYOA custom getSession → delegate to template callback
- * 3. Bearer legacy session → check Authorization: Bearer against sessions
- * 4. Better Auth → check session via Better Auth API (cookie or Bearer)
- * 5. Legacy cookie → check an_session cookie in legacy sessions table
- * 6. Desktop SSO broker (Electron loopback only)
- * 7. Mobile _session query param → promote to cookie
+ * 2. Embed session → short-lived token minted by /_agent-native/embed/start
+ * 3. BYOA custom getSession → delegate to template callback
+ * 4. Bearer legacy session → check Authorization: Bearer against sessions
+ * 5. Better Auth → check session via Better Auth API (cookie or Bearer)
+ * 6. Legacy cookie → check an_session cookie in legacy sessions table
+ * 7. Desktop SSO broker (Electron loopback only)
+ * 8. Mobile _session query param → promote to cookie
  *
  * Returns `null` for unauthenticated requests. There is no dev-mode bypass:
  * local development uses the same Better Auth signup flow as production. The
@@ -1713,7 +1716,20 @@ async function resolveSessionUncached(
     if (cookieSession) return cookieSession;
   }
 
-  // 2. BYOA custom getSession
+  // 2. MCP App embed session. This is a short-lived browser session minted
+  // from a one-time ticket that was scoped to the authenticated MCP caller.
+  // It lets an inline MCP App iframe load the real app without reusing the
+  // MCP bearer token as a browser cookie.
+  const embedSession = await resolveEmbedSessionFromRequest(event);
+  if (embedSession) {
+    return {
+      email: embedSession.email,
+      token: embedSession.token,
+      ...(embedSession.orgId ? { orgId: embedSession.orgId } : {}),
+    };
+  }
+
+  // 3. BYOA custom getSession
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) return session;
@@ -1730,12 +1746,12 @@ async function resolveSessionUncached(
     if (sso?.email) return { email: sso.email, token: sso.token };
     // Fall through to mobile _session check
   } else {
-    // 3. Bearer legacy session. Desktop/native clients can persist a session
+    // 4. Bearer legacy session. Desktop/native clients can persist a session
     // token outside the WebView cookie jar and attach it to all app requests.
     const bearerSession = await getBearerLegacySession(event);
     if (bearerSession) return bearerSession;
 
-    // 4. Better Auth session (cookie or Bearer token)
+    // 5. Better Auth session (cookie or Bearer token)
     try {
       const ba = getBetterAuthSync();
       if (ba) {
@@ -1750,11 +1766,11 @@ async function resolveSessionUncached(
       console.error("[auth] ba.api.getSession error:", e);
     }
 
-    // 5. Legacy cookie fallback (for sessions created before migration)
+    // 6. Legacy cookie fallback (for sessions created before migration)
     const cookieSession = await getLegacyCookieSession(event);
     if (cookieSession) return cookieSession;
 
-    // 6. Desktop SSO broker fallback.
+    // 7. Desktop SSO broker fallback.
     // Each template in the Electron desktop app has its own database, so
     // a session token created by one template doesn't resolve in another.
     // When an Electron request has no resolvable session, trust the
@@ -1769,7 +1785,7 @@ async function resolveSessionUncached(
     }
   }
 
-  // 7. Mobile WebView bridge — _session query param
+  // 8. Mobile WebView bridge — _session query param
   const querySession = await promoteQuerySession(event);
   if (querySession) return querySession;
 

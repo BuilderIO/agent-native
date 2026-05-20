@@ -568,6 +568,8 @@ interface EngineInfo {
   defaultModel: string;
   supportedModels: string[];
   requiredEnvVars: string[];
+  installPackage?: string;
+  packageInstalled?: boolean;
 }
 
 const PROVIDER_DOCS: Record<string, string> = {
@@ -689,6 +691,8 @@ function LLMSectionInner({
 
   const selectedEngineInfo = engines.find((e) => e.name === selectedEngine);
   const envVar = selectedEngineInfo?.requiredEnvVars?.[0];
+  const selectedEnginePackageInstalled =
+    selectedEngineInfo?.packageInstalled !== false;
   const envConfigured = envVar
     ? (envKeys.find((k) => k.key === envVar)?.configured ?? false)
     : false;
@@ -696,7 +700,8 @@ function LLMSectionInner({
     settingsStatus != null && settingsStatus.engine === currentEngine;
   const builderConnected = connected || builderFlow.configured;
   const anyKeyConfigured =
-    envConfigured || builderConnected || settingsConfigured;
+    builderConnected ||
+    (selectedEnginePackageInstalled && (envConfigured || settingsConfigured));
   const sourceBadge = computeSourceBadge({
     settingsConfigured,
     settingsStatus,
@@ -1116,7 +1121,9 @@ function AppModelDefaultsSectionInner({
           : engine.label || engine.name,
       description: engine.configured
         ? "Configured for this workspace"
-        : "Credentials not detected yet",
+        : engine.packageInstalled === false
+          ? `Install ${engine.installPackage ?? "the provider packages"} to use this provider`
+          : "Credentials not detected yet",
     }));
   const modelOptions: SettingsSelectOption[] = latestModelsOnly(
     selectedEngineInfo?.supportedModels ?? [],
@@ -1311,12 +1318,17 @@ function AppModelDefaultsSectionInner({
                 defaults.
               </p>
             )}
-            {selectedEngineInfo && !selectedEngineInfo.configured && (
+            {selectedEngineInfo?.packageInstalled === false ? (
+              <p className="mt-2 text-[10px] text-muted-foreground">
+                This app does not include the optional runtime packages for this
+                provider.
+              </p>
+            ) : selectedEngineInfo && !selectedEngineInfo.configured ? (
               <p className="mt-2 text-[10px] text-muted-foreground">
                 Credentials for this provider were not detected; runtime will
                 fall back if the model cannot be used.
               </p>
-            )}
+            ) : null}
             {error && (
               <p className="mt-2 text-[10px] text-destructive">{error}</p>
             )}

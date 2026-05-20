@@ -78,12 +78,35 @@ afterEach(() => {
 });
 
 describe("<ExportMenu>", () => {
-  it("exports Google Slides through the streamed PPTX endpoint", async () => {
+  it("downloads PPTX through the streamed endpoint", async () => {
     renderMenu();
 
     const trigger = screen.getByRole("button", { name: /export/i });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByText("Export to Google Slides"));
+    fireEvent.click(await screen.findByText("Export as PPTX"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/slides/api/exports/pptx",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ deckId: "deck-1" }),
+      }),
+    );
+    expect(URL.createObjectURL).toHaveBeenCalled();
+    expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled();
+    expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it("downloads Google Slides exports as PPTX without navigating away first", async () => {
+    renderMenu();
+
+    const trigger = screen.getByRole("button", { name: /export/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByText("Download for Google Slides"));
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledTimes(1);
@@ -105,20 +128,13 @@ describe("<ExportMenu>", () => {
       60_000,
     );
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
-    expect(window.open).toHaveBeenCalledWith(
-      "https://docs.google.com/presentation/u/0/?usp=import",
-      "_blank",
-      "noopener,noreferrer",
-    );
+    expect(window.open).not.toHaveBeenCalled();
     expect(toastMock).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Open in Google Slides" }),
+      expect.objectContaining({ title: "Downloaded for Google Slides" }),
     );
   });
 
-  it("opens the importer synchronously before awaiting the export", async () => {
-    // Browsers (Safari, Firefox) block window.open() after an `await`
-    // because the user activation is lost. Verify open fires during the
-    // click — i.e. before fetch resolves.
+  it("does not open Google Slides when Google export fails", async () => {
     let resolveFetch!: (value: Response) => void;
     globalThis.fetch = vi.fn(
       () =>
@@ -130,45 +146,27 @@ describe("<ExportMenu>", () => {
     renderMenu();
     const trigger = screen.getByRole("button", { name: /export/i });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByText("Export to Google Slides"));
+    fireEvent.click(await screen.findByText("Download for Google Slides"));
 
-    expect(window.open).toHaveBeenCalledWith(
-      "https://docs.google.com/presentation/u/0/?usp=import",
-      "_blank",
-      "noopener,noreferrer",
-    );
+    expect(window.open).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);
 
     resolveFetch(
-      new Response(new Blob(["pptx"], { type: PPTX_CONTENT_TYPE }), {
-        status: 200,
-        headers: {
-          "content-disposition": 'attachment; filename="quarterly.pptx"',
-        },
+      new Response(JSON.stringify({ error: "Could not generate PPTX file." }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
       }),
     );
     await waitFor(() => {
-      expect(toastMock).toHaveBeenCalled();
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Export failed",
+          description: "Could not generate PPTX file.",
+          variant: "destructive",
+        }),
+      );
     });
-  });
-
-  it("falls back to a popup-blocked toast when window.open returns null", async () => {
-    vi.spyOn(window, "open").mockReturnValueOnce(null);
-
-    renderMenu();
-    const trigger = screen.getByRole("button", { name: /export/i });
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByText("Export to Google Slides"));
-
-    await waitFor(() => {
-      expect(toastMock).toHaveBeenCalled();
-    });
-    expect(toastMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "Open in Google Slides",
-        description: expect.stringContaining("blocked the popup"),
-      }),
-    );
+    expect(window.open).not.toHaveBeenCalled();
   });
 
   it("downloads HTML via the streamed POST endpoint, not the broken filename GET", async () => {

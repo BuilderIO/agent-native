@@ -132,6 +132,32 @@ export default defineNitroPlugin(() => {
 });
 ```
 
+### Checking Workspace Connections in Onboarding
+
+When building templates that interact with external services (like Slack, Google Workspace, GitHub, or HubSpot), you should check if the workspace has already connected and granted that provider connection to your application. This prevents users from having to duplicate credentials (like API keys or refresh tokens) in their local environment variables when a central, managed connection exists.
+
+You can check connection readiness in your `isComplete` callback using the connection catalog APIs:
+
+```ts
+import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
+
+// Inside registerOnboardingStep:
+isComplete: async () => {
+  // Check if a managed workspace connection exists and is ready
+  const catalog = await listWorkspaceConnectionProviderCatalogForApp("gmail");
+  const connection = catalog.find((p) => p.providerId === "google-gmail");
+
+  if (connection?.status === "ready" && connection.granted) {
+    return true;
+  }
+
+  // Fall back to local environment variable check
+  return !!process.env.GMAIL_REFRESH_TOKEN;
+};
+```
+
+Refer to the [Workspace Connections](/docs/workspace-connections) documentation for the full list of connection provider catalog methods.
+
 ### Method kinds
 
 | Kind               | Payload                                               | Use for                                   |

@@ -46,6 +46,7 @@
  */
 
 import { defineEventHandler, setResponseHeader } from "h3";
+import { requestHasEmbedAuthMarker } from "./embed-session.js";
 
 const HSTS = "max-age=31536000; includeSubDomains; preload";
 const PERMISSIONS_POLICY =
@@ -82,14 +83,15 @@ function isHttpsRequest(event: any): boolean {
 export function createSecurityHeadersMiddleware() {
   const isProduction = process.env.NODE_ENV === "production";
   return defineEventHandler((event) => {
+    const embedFrameRequest = requestHasEmbedAuthMarker(event);
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    if (isProduction) {
+    if (isProduction && !embedFrameRequest) {
       setResponseHeader(event, "X-Frame-Options", "DENY");
     }
     setResponseHeader(
       event,
       "Referrer-Policy",
-      "strict-origin-when-cross-origin",
+      embedFrameRequest ? "no-referrer" : "strict-origin-when-cross-origin",
     );
     setResponseHeader(event, "Permissions-Policy", PERMISSIONS_POLICY);
     setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
