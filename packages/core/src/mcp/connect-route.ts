@@ -556,9 +556,27 @@ function renderConnectPage(params: {
     border-radius: 4px;
   }
   .tab-panel pre { margin: 0.4rem 0 0.5rem; }
+  /* Per-tab primary CTA — visually distinct from the static-token mint
+   * button below. Either a link (Open Claude →) or a copy command button.
+   */
+  .primary-link {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 0.35rem; min-height: 36px; padding: 0.45rem 0.85rem;
+    background: var(--accent); color: var(--accent-fg);
+    border: 1px solid var(--accent); border-radius: 8px;
+    font-size: 0.86rem; font-weight: 650; text-decoration: none;
+    cursor: pointer; width: 100%; text-align: center;
+    margin: 0.5rem 0 0.2rem;
+  }
+  .primary-link:hover { background: #e4e4e7; border-color: #e4e4e7; }
+  .primary-link.compact { width: auto; min-width: 0; }
   .copy-flash {
     color: var(--ok) !important;
     border-color: var(--ok-border) !important;
+  }
+  .static-token-mint .static-token-body { padding-top: 0.5rem; }
+  .static-token-mint > summary .connections-state {
+    font-style: normal;
   }
   @media (min-width: 560px) {
     .card { max-width: 580px; }
@@ -589,7 +607,7 @@ function renderConnectPage(params: {
     </div>
 
     <div class="eyebrow">Connect an external agent</div>
-    <h1>${safeUserCode ? `Authorize ${safeApp} from your terminal?` : `Connect ${safeApp} to an agent`}</h1>
+    <h1>${safeUserCode ? `Authorize ${safeApp} from your terminal?` : `Use ${safeApp} from your AI assistant`}</h1>
     <p class="identity">
       <span>Signed in as <strong>${safeEmail}</strong></span>
     </p>
@@ -620,84 +638,94 @@ function renderConnectPage(params: {
     </div>
     <div class="tab-panel is-active" role="tabpanel" data-panel="claude">
       <ol>
-        <li>Open <a href="https://claude.ai/customize/connectors" target="_blank" rel="noopener noreferrer">claude.ai → Customize → Connectors</a> (or Settings → Connectors in Claude Desktop).</li>
+        <li>Open <strong>Customize → Connectors</strong> in Claude.</li>
         <li>Click the <strong>+</strong> button → <strong>Add custom connector</strong>.</li>
         <li>Paste the MCP URL above, name it <strong>${safeApp}</strong>, click <strong>Connect</strong>.</li>
         <li>On the consent page, click <strong>Authorize</strong> to approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
       </ol>
-      <p class="hint">Inline MCP Apps (charts, dashboards, drafts) render automatically inside Claude chats.</p>
+      <a class="primary-link" href="https://claude.ai/customize/connectors" target="_blank" rel="noopener noreferrer">Open Claude → Connectors</a>
+      <p class="hint">Works in Claude web and Claude Desktop. Inline MCP Apps (charts, dashboards, drafts) render automatically inside the chat.</p>
     </div>
     <div class="tab-panel" role="tabpanel" data-panel="chatgpt">
       <ol>
-        <li>In ChatGPT, open <strong>Settings → Connectors → Add</strong> (Business/Enterprise/Edu workspaces with developer mode enabled).</li>
-        <li>Paste the MCP URL above, name it <strong>${safeApp}</strong>, click <strong>Connect</strong>.</li>
-        <li>Sign in with your Agent-Native account and approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
+        <li>In ChatGPT, open <strong>Settings → Connectors</strong> (Business/Enterprise/Edu workspaces with developer mode enabled).</li>
+        <li>Choose <strong>Add custom connector</strong>, paste the MCP URL above, name it <strong>${safeApp}</strong>.</li>
+        <li>Click <strong>Connect</strong>, then sign in with your Agent-Native account and approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
       </ol>
-      <p class="hint">Workspace admins may need to add the connector under organization settings first; each member still authorizes their own account.</p>
+      <a class="primary-link" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT</a>
+      <p class="hint">Workspace admins may need to enable custom connectors under organization settings first; each member still authorizes their own account.</p>
     </div>
     <div class="tab-panel" role="tabpanel" data-panel="cursor">
       <ol>
-        <li>Open Cursor → <strong>Settings → MCP</strong>.</li>
+        <li>Open <strong>Cursor → Settings → MCP</strong>.</li>
         <li>Click <strong>Add MCP Server</strong>, paste the MCP URL above, save.</li>
-        <li>When prompted, sign in with your Agent-Native account.</li>
+        <li>When prompted, sign in with your Agent-Native account and approve the MCP scopes.</li>
       </ol>
+      <p class="hint">Cursor supports remote-OAuth MCP servers, same paste-URL flow as Claude — no terminal needed.</p>
     </div>
     <div class="tab-panel" role="tabpanel" data-panel="claude-code">
       <p>In your terminal, run:</p>
       <pre id="claudeCodeCmd">${safeClaudeCodeCmd}</pre>
-      <button type="button" class="ghost" data-copy="claudeCodeCmd">Copy command</button>
-      <p>Then inside Claude Code, type <code>/mcp</code>, choose <strong>${safeServerId}</strong>, and click <strong>Authenticate</strong>.</p>
+      <button type="button" class="primary-link compact" data-copy="claudeCodeCmd">Copy command</button>
+      <p class="hint">Then inside Claude Code type <code>/mcp</code>, choose <strong>${safeServerId}</strong>, and click <strong>Authenticate</strong>. Claude completes the OAuth flow itself — no static token needed.</p>
     </div>
     <div class="tab-panel" role="tabpanel" data-panel="codex">
-      <p>For Codex (and other CLI agents), run:</p>
+      <p>In your terminal, run:</p>
       <pre id="codexCmd">${safeCodexCmd}</pre>
-      <button type="button" class="ghost" data-copy="codexCmd">Copy command</button>
-      <p class="hint">Mints a per-user token (revocable under <strong>Existing connections</strong> below) and writes the right config file for Codex automatically. For Cowork or Goose, the same command writes the right config.</p>
+      <button type="button" class="primary-link compact" data-copy="codexCmd">Copy command</button>
+      <p class="hint">Opens this page in your browser and writes Codex's <code>~/.codex/config.toml</code> automatically. The same command works for Claude Cowork and Goose.</p>
     </div>
     <div class="tab-panel" role="tabpanel" data-panel="other">
-      <p>For any MCP-compatible client with remote-OAuth support, paste the MCP URL above. For clients without OAuth, this generic HTTP config snippet works once paired with a static token (generated below):</p>
+      <p>Any MCP-compatible client with remote-OAuth support: paste the MCP URL above. For clients without OAuth, paste this <code>.mcp.json</code> snippet and generate a static bearer below:</p>
       <pre id="genericConfig">${safeGenericConfig}</pre>
-      <button type="button" class="ghost" data-copy="genericConfig">Copy config</button>
+      <button type="button" class="primary-link compact" data-copy="genericConfig">Copy config</button>
     </div>
   </div>
 
-  <div id="msg" class="msg"></div>
-
-  <div id="mintForm">
-    <button id="authorizeBtn" class="primary">${safeUserCode ? "Authorize device" : "Create connection token"}</button>
-    <details class="advanced">
-      <summary>
-        Advanced options
-        <span class="chev" aria-hidden="true"></span>
-      </summary>
-      <div class="advanced-body">
-        <div class="field">
-          <label for="label">Label (optional)</label>
-          <input id="label" type="text" placeholder="e.g. Claude Code on my laptop" maxlength="120" />
-        </div>
-        <div class="field">
-          <label for="ttl">Expires in (days, 1–365)</label>
-          <input id="ttl" type="number" min="1" max="365" value="${DEFAULT_TOKEN_TTL_DAYS}" />
-        </div>
+  <details id="staticTokenMint" class="connections static-token-mint"${safeUserCode ? " open" : ""}>
+    <summary>
+      <span class="connections-title">${safeUserCode ? "Authorize this device" : "Generate a static token"}</span>
+      <span class="connections-state">${safeUserCode ? "From your terminal" : "Advanced — clients without OAuth"}</span>
+      <span class="chev" aria-hidden="true"></span>
+    </summary>
+    <div class="static-token-body">
+      <div id="msg" class="msg"></div>
+      <div id="mintForm">
+        <button id="authorizeBtn" class="primary">${safeUserCode ? "Authorize device" : "Create connection token"}</button>
+        <details class="advanced">
+          <summary>
+            Advanced options
+            <span class="chev" aria-hidden="true"></span>
+          </summary>
+          <div class="advanced-body">
+            <div class="field">
+              <label for="label">Label (optional)</label>
+              <input id="label" type="text" placeholder="e.g. Claude Code on my laptop" maxlength="120" />
+            </div>
+            <div class="field">
+              <label for="ttl">Expires in (days, 1–365)</label>
+              <input id="ttl" type="number" min="1" max="365" value="${DEFAULT_TOKEN_TTL_DAYS}" />
+            </div>
+          </div>
+        </details>
       </div>
-    </details>
-  </div>
-
-  <div id="result" class="result-panel hidden">
-    <div class="result-title">Connection token created</div>
-    <p class="result-copy" id="resultMsg">Paste this into your agent's MCP config. The token is shown only once.</p>
-    <div class="section-label">MCP config</div>
-    <pre id="mcpJson"></pre>
-    <details class="advanced">
-      <summary>
-        Terminal alternative
-        <span class="chev" aria-hidden="true"></span>
-      </summary>
-      <div class="advanced-body">
-        <pre id="cliLine"></pre>
+      <div id="result" class="result-panel hidden">
+        <div class="result-title">Connection token created</div>
+        <p class="result-copy" id="resultMsg">Paste this into your agent's MCP config. The token is shown only once.</p>
+        <div class="section-label">MCP config</div>
+        <pre id="mcpJson"></pre>
+        <details class="advanced">
+          <summary>
+            Terminal alternative
+            <span class="chev" aria-hidden="true"></span>
+          </summary>
+          <div class="advanced-body">
+            <pre id="cliLine"></pre>
+          </div>
+        </details>
       </div>
-    </details>
-  </div>
+    </div>
+  </details>
 
   <details id="connections" class="connections">
     <summary>
