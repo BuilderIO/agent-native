@@ -32,7 +32,10 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import {
+  createAgentChatAdapter,
+  type AgentChatSurface,
+} from "./agent-chat-adapter.js";
 import {
   useAgentDynamicSuggestions,
   type AgentDynamicSuggestionsOption,
@@ -3195,6 +3198,7 @@ export interface AssistantChatAdapterContext {
   execModeRef: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef: { current: ChatThreadScope | null | undefined };
+  surface: AgentChatSurface;
 }
 
 export interface AssistantChatProps {
@@ -3208,6 +3212,11 @@ export interface AssistantChatProps {
   threadId?: string;
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
+  /**
+   * Identifies which surface hosts this chat. Defaults to "app", which keeps
+   * dev filesystem/bash code-editing tools out of in-product sidebars.
+   */
+  agentChatSurface?: AgentChatSurface;
   /** Placeholder text for empty state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
@@ -5172,6 +5181,7 @@ export const AssistantChat = forwardRef<
   execModeRef.current = props.execMode;
   const scopeRef = useRef<ChatThreadScope | null | undefined>(contextScope);
   scopeRef.current = contextScope;
+  const surface = props.agentChatSurface ?? "app";
   const createAdapterRef = useRef(props.createAdapter);
   createAdapterRef.current = props.createAdapter;
 
@@ -5187,6 +5197,7 @@ export const AssistantChat = forwardRef<
         execModeRef,
         browserTabId,
         scopeRef,
+        surface,
       };
       const createAdapter = createAdapterRef.current;
       return createAdapter
@@ -5196,7 +5207,7 @@ export const AssistantChat = forwardRef<
     // Adapter factories must be memoized and use refs for changing values.
     // `adapterReloadKey` is an explicit opt-in for embedded hosts whose
     // transport identity can change without changing tab/thread ids.
-    [apiUrl, tabId, threadId, browserTabId, props.adapterReloadKey],
+    [apiUrl, tabId, threadId, browserTabId, surface, props.adapterReloadKey],
   );
   const attachmentAdapter = useMemo(
     () =>
