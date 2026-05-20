@@ -171,6 +171,18 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(html).toContain("min-height: 900px");
   });
 
+  it("accepts string embed:true from MCP clients that stringify arguments", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.open_app.run({
+      app: "mail",
+      view: "inbox",
+      params: { threadId: "abc" },
+      embed: "true",
+    });
+    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.embed).toBe(true);
+  });
+
   it("prefixes direct same-app paths with the configured app base path", async () => {
     process.env.APP_BASE_PATH = "/mail";
     const tools = getBuiltinCrossAppTools(baseConfig());
@@ -193,11 +205,11 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
 });
 
 describe("create_embed_session", () => {
-  it("is write-scoped because it mints a browser app session", () => {
+  it("is read-scoped so MCP App iframes can bootstrap without extra approval", () => {
     const tools = getBuiltinCrossAppTools(baseConfig(), {
       origin: "https://mail.example.com",
     });
-    expect(tools.create_embed_session.readOnly).toBe(false);
+    expect(tools.create_embed_session.readOnly).toBe(true);
   });
 
   it("requires an authenticated MCP caller", async () => {
