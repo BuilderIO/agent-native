@@ -252,11 +252,24 @@ function renderConnectPage(params: {
   connectBasePath: string;
   email: string;
   appName: string;
+  appUrl: string;
+  serverId: string;
   userCode: string | null;
 }): string {
-  const { connectBasePath, email, appName, userCode } = params;
+  const { connectBasePath, email, appName, appUrl, serverId, userCode } =
+    params;
   const safeEmail = escapeHtml(email);
   const safeApp = escapeHtml(appName);
+  const mcpUrl = `${appUrl}/_agent-native/mcp`;
+  const safeMcpUrl = escapeHtml(mcpUrl);
+  const safeServerId = escapeHtml(serverId);
+  const safeClaudeCodeCmd = escapeHtml(
+    `claude mcp add --transport http ${serverId} ${mcpUrl}`,
+  );
+  const safeCodexCmd = escapeHtml(`npx @agent-native/core connect ${appUrl}`);
+  const safeGenericConfig = escapeHtml(
+    `{\n  "mcpServers": {\n    "${serverId}": {\n      "type": "http",\n      "url": "${mcpUrl}"\n    }\n  }\n}`,
+  );
   const brandMarkSvg = agentNativeMarkSvg(
     "brand-mark",
     "agent-native-connect-brand-gradient",
@@ -487,6 +500,69 @@ function renderConnectPage(params: {
     .app-pill { max-width: 46%; }
     pre { font-size: 0.72rem; }
   }
+  /* MCP URL display + per-host tabs (the non-dev path). */
+  .mcp-url-block { margin: 0 0 1rem; }
+  .url-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    background: var(--panel-2); border: 1px solid var(--border-strong);
+    border-radius: 8px; padding: 0.45rem 0.5rem 0.45rem 0.75rem;
+  }
+  .url-row code {
+    flex: 1 1 auto; min-width: 0; overflow-x: auto; white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.78rem; color: var(--text);
+  }
+  .url-row .ghost { flex: 0 0 auto; }
+  .hosts { margin: 0 0 1rem; }
+  .tabs {
+    display: flex; flex-wrap: wrap; gap: 0.25rem;
+    border-bottom: 1px solid var(--border); margin-bottom: 0.75rem;
+    padding-bottom: 0.4rem;
+  }
+  .tab {
+    background: transparent; color: var(--subtle);
+    border: 1px solid transparent;
+    padding: 0.35rem 0.65rem; font-size: 0.8rem; font-weight: 600;
+    border-radius: 6px;
+  }
+  .tab:hover { color: var(--muted); background: var(--panel-soft); }
+  .tab.is-active {
+    color: var(--text); background: var(--panel-2);
+    border-color: var(--border-strong);
+  }
+  .tab-panel { display: none; }
+  .tab-panel.is-active { display: block; }
+  .tab-panel ol { margin: 0 0 0.6rem 1.1rem; padding: 0; }
+  .tab-panel li {
+    margin-bottom: 0.3rem; font-size: 0.86rem; line-height: 1.5;
+    color: var(--muted);
+  }
+  .tab-panel li strong { color: var(--text); font-weight: 650; }
+  .tab-panel a {
+    color: var(--text); text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .tab-panel p {
+    font-size: 0.84rem; color: var(--muted); margin: 0.4rem 0;
+    line-height: 1.5;
+  }
+  .tab-panel .hint {
+    font-size: 0.78rem; color: var(--subtle); margin-top: 0.5rem;
+  }
+  .tab-panel code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.78rem; color: var(--text);
+    background: var(--panel-2); padding: 0.05rem 0.3rem;
+    border-radius: 4px;
+  }
+  .tab-panel pre { margin: 0.4rem 0 0.5rem; }
+  .copy-flash {
+    color: var(--ok) !important;
+    border-color: var(--ok-border) !important;
+  }
+  @media (min-width: 560px) {
+    .card { max-width: 580px; }
+  }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -522,6 +598,67 @@ function renderConnectPage(params: {
   <div id="codeCallout" class="device-strip ${safeUserCode ? "" : "hidden"}">
     <span class="label">Device code</span>
     <span class="value" id="userCodeValue">${safeUserCode}</span>
+  </div>
+
+  <div class="mcp-url-block">
+    <div class="section-label">Your MCP URL</div>
+    <div class="url-row">
+      <code id="mcpUrlValue">${safeMcpUrl}</code>
+      <button type="button" class="ghost" data-copy="mcpUrlValue" aria-label="Copy MCP URL">Copy</button>
+    </div>
+  </div>
+
+  <div class="hosts">
+    <div class="section-label">Pick your AI assistant</div>
+    <div class="tabs" role="tablist" aria-label="Choose your AI assistant">
+      <button type="button" class="tab is-active" role="tab" data-tab="claude" aria-selected="true">Claude</button>
+      <button type="button" class="tab" role="tab" data-tab="chatgpt" aria-selected="false">ChatGPT</button>
+      <button type="button" class="tab" role="tab" data-tab="cursor" aria-selected="false">Cursor</button>
+      <button type="button" class="tab" role="tab" data-tab="claude-code" aria-selected="false">Claude Code</button>
+      <button type="button" class="tab" role="tab" data-tab="codex" aria-selected="false">Codex</button>
+      <button type="button" class="tab" role="tab" data-tab="other" aria-selected="false">Other</button>
+    </div>
+    <div class="tab-panel is-active" role="tabpanel" data-panel="claude">
+      <ol>
+        <li>Open <a href="https://claude.ai/customize/connectors" target="_blank" rel="noopener noreferrer">claude.ai → Customize → Connectors</a> (or Settings → Connectors in Claude Desktop).</li>
+        <li>Click the <strong>+</strong> button → <strong>Add custom connector</strong>.</li>
+        <li>Paste the MCP URL above, name it <strong>${safeApp}</strong>, click <strong>Connect</strong>.</li>
+        <li>On the consent page, click <strong>Authorize</strong> to approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
+      </ol>
+      <p class="hint">Inline MCP Apps (charts, dashboards, drafts) render automatically inside Claude chats.</p>
+    </div>
+    <div class="tab-panel" role="tabpanel" data-panel="chatgpt">
+      <ol>
+        <li>In ChatGPT, open <strong>Settings → Connectors → Add</strong> (Business/Enterprise/Edu workspaces with developer mode enabled).</li>
+        <li>Paste the MCP URL above, name it <strong>${safeApp}</strong>, click <strong>Connect</strong>.</li>
+        <li>Sign in with your Agent-Native account and approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
+      </ol>
+      <p class="hint">Workspace admins may need to add the connector under organization settings first; each member still authorizes their own account.</p>
+    </div>
+    <div class="tab-panel" role="tabpanel" data-panel="cursor">
+      <ol>
+        <li>Open Cursor → <strong>Settings → MCP</strong>.</li>
+        <li>Click <strong>Add MCP Server</strong>, paste the MCP URL above, save.</li>
+        <li>When prompted, sign in with your Agent-Native account.</li>
+      </ol>
+    </div>
+    <div class="tab-panel" role="tabpanel" data-panel="claude-code">
+      <p>In your terminal, run:</p>
+      <pre id="claudeCodeCmd">${safeClaudeCodeCmd}</pre>
+      <button type="button" class="ghost" data-copy="claudeCodeCmd">Copy command</button>
+      <p>Then inside Claude Code, type <code>/mcp</code>, choose <strong>${safeServerId}</strong>, and click <strong>Authenticate</strong>.</p>
+    </div>
+    <div class="tab-panel" role="tabpanel" data-panel="codex">
+      <p>For Codex (and other CLI agents), run:</p>
+      <pre id="codexCmd">${safeCodexCmd}</pre>
+      <button type="button" class="ghost" data-copy="codexCmd">Copy command</button>
+      <p class="hint">Mints a per-user token (revocable under <strong>Existing connections</strong> below) and writes the right config file for Codex automatically. For Cowork or Goose, the same command writes the right config.</p>
+    </div>
+    <div class="tab-panel" role="tabpanel" data-panel="other">
+      <p>For any MCP-compatible client with remote-OAuth support, paste the MCP URL above. For clients without OAuth, this generic HTTP config snippet works once paired with a static token (generated below):</p>
+      <pre id="genericConfig">${safeGenericConfig}</pre>
+      <button type="button" class="ghost" data-copy="genericConfig">Copy config</button>
+    </div>
   </div>
 
   <div id="msg" class="msg"></div>
@@ -578,6 +715,44 @@ function renderConnectPage(params: {
   var msgEl = document.getElementById("msg");
   var connectionsEl = document.getElementById("connections");
   var connectionsStateEl = document.getElementById("connectionsState");
+
+  // Tab switching for the per-host instructions block.
+  var tabBtns = document.querySelectorAll(".tabs .tab");
+  var tabPanels = document.querySelectorAll(".tab-panel");
+  for (var i = 0; i < tabBtns.length; i++) {
+    tabBtns[i].addEventListener("click", function (ev) {
+      var btn = ev.currentTarget;
+      var name = btn.getAttribute("data-tab");
+      for (var j = 0; j < tabBtns.length; j++) {
+        var active = tabBtns[j] === btn;
+        tabBtns[j].classList.toggle("is-active", active);
+        tabBtns[j].setAttribute("aria-selected", active ? "true" : "false");
+      }
+      for (var k = 0; k < tabPanels.length; k++) {
+        tabPanels[k].classList.toggle(
+          "is-active",
+          tabPanels[k].getAttribute("data-panel") === name,
+        );
+      }
+    });
+  }
+
+  // Copy buttons — any element with data-copy="<id>" copies that node's text.
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target && ev.target.closest && ev.target.closest("[data-copy]");
+    if (!btn) return;
+    var node = document.getElementById(btn.getAttribute("data-copy"));
+    if (!node || !navigator.clipboard) return;
+    navigator.clipboard.writeText(node.textContent || "").then(function () {
+      var prev = btn.textContent;
+      btn.textContent = "Copied";
+      btn.classList.add("copy-flash");
+      setTimeout(function () {
+        btn.textContent = prev;
+        btn.classList.remove("copy-flash");
+      }, 1400);
+    });
+  });
   function showMsg(text, kind) {
     msgEl.textContent = text;
     msgEl.className = "msg " + (kind || "err");
@@ -788,6 +963,8 @@ export async function handleMcpConnect(
           connectBasePath: basePath,
           email: "(no auth configured)",
           appName: options.appName || appLabel(appUrl, options),
+          appUrl,
+          serverId: serverName(appUrl, options),
           userCode: null,
         }),
       );
@@ -808,6 +985,8 @@ export async function handleMcpConnect(
         connectBasePath: basePath,
         email: session.email,
         appName: options.appName || appLabel(appUrl, options),
+        appUrl,
+        serverId: serverName(appUrl, options),
         userCode,
       }),
     );

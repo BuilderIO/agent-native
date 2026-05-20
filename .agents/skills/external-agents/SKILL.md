@@ -90,9 +90,13 @@ For OAuth-native Claude clients, restart Claude Code after the config write,
 run `/mcp`, and choose Authenticate. For fallback clients, the command opens
 the browser at the app; the user is already logged in and clicks **Authorize**
 once. No token to copy, no local server. The fallback connection is **per-user,
-scoped, and revocable**. The no-CLI equivalent is the in-app **Connect**
-affordance served at `https://<app>/_agent-native/mcp/connect`, which hands
-back a one-click deep link or a ready-to-paste `.mcp.json` block.
+scoped, and revocable**. The no-CLI equivalent is the in-app **Connect** page
+served at `https://<app>/_agent-native/mcp/connect`: it shows the remote MCP
+URL with a copy button and a tab strip — **Claude · ChatGPT · Cursor · Claude
+Code · Codex · Other** — with the exact paste-URL steps or copy-able
+`claude mcp add` / `npx @agent-native/core connect` snippet for each host, plus
+a collapsible static-token mint for clients without remote-OAuth support.
+Point non-developer teammates there instead of telling them to install a CLI.
 
 Re-running `agent-native connect <url> --client claude-code` over an older
 Claude bearer-token entry is the migration path: the CLI replaces
