@@ -17,7 +17,13 @@ const VALID_CHART_TYPES = new Set([
 ]);
 // Embed URLs accept external sources plus the restricted first-party analytics
 // source. They intentionally do not expose arbitrary app database querying.
-const VALID_SOURCES = new Set(["bigquery", "ga4", "amplitude", "first-party"]);
+const VALID_SOURCES = new Set([
+  "bigquery",
+  "ga4",
+  "amplitude",
+  "first-party",
+  "prometheus",
+]);
 
 function decodePanel(raw: string): SqlPanel | { error: string } {
   try {
@@ -34,7 +40,8 @@ function decodePanel(raw: string): SqlPanel | { error: string } {
     }
     if (typeof p.source !== "string" || !VALID_SOURCES.has(p.source)) {
       return {
-        error: "Panel source must be bigquery, ga4, amplitude, or first-party.",
+        error:
+          "Panel source must be bigquery, ga4, amplitude, first-party, or prometheus.",
       };
     }
     if (

@@ -19,6 +19,7 @@ import {
 import { dryRunQuery } from "../lib/bigquery";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { validateFirstPartyAnalyticsSql } from "../lib/first-party-analytics";
+import { parsePanelDescriptor as parsePrometheusPanelDescriptor } from "../lib/prometheus";
 
 async function ctxFromEvent(event: any) {
   const ctx = await getOrgContext(event);
@@ -215,6 +216,15 @@ async function validatePanelSql(
       continue;
     }
 
+    if (p.source === "prometheus") {
+      try {
+        parsePrometheusPanelDescriptor(interpolate(raw, vars));
+      } catch (e: any) {
+        return `panel[${i}] "${p.title || p.id}" Prometheus descriptor is invalid: ${e?.message ?? e}`;
+      }
+      continue;
+    }
+
     if (p.source !== "bigquery") continue;
     const sql = interpolate(raw, vars);
     if (!sql.trim()) continue;
@@ -344,6 +354,7 @@ function validateDashboardConfig(
       "ga4",
       "amplitude",
       "first-party",
+      "prometheus",
     ]);
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i] as Record<string, unknown> | null;
@@ -359,7 +370,7 @@ function validateDashboardConfig(
         }
       }
       if (!isSection && !validSources.has(p.source as string)) {
-        return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
+        return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', or 'prometheus' (got '${p.source}'). The PromQL/SQL/table belongs in the panel's sql, not in source — source selects the backend, not the table.`;
       }
       if (
         typeof p.width !== "number" ||
