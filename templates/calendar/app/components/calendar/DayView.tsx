@@ -569,8 +569,8 @@ export function DayView({
                       style={{ touchAction: "none" }}
                     />
                   )}
-                  {/* Bottom resize handle — only when event ends today (not overnight or multi-day) */}
-                  {canDrag && isEnd && (
+                  {/* Bottom resize handle — only when event both starts and ends today */}
+                  {canDrag && isEnd && isStart && (
                     <div
                       data-resize-handle="true"
                       onPointerDown={(e) => {
