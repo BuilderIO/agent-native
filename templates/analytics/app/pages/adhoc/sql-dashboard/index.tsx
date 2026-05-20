@@ -37,8 +37,16 @@ import {
   IconDots,
   IconPencil,
   IconPlus,
+  IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -137,6 +145,7 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
       filters: data.filters,
       variables: data.variables,
       columns: typeof data.columns === "number" ? data.columns : undefined,
+      refreshInterval: typeof data.refreshInterval === "number" ? data.refreshInterval : undefined,
       panels: data.panels ?? [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
@@ -1005,13 +1014,44 @@ export default function SqlDashboardPage() {
         </Tabs>
       )}
 
-      {/* Filters */}
-      {dashboard.filters && dashboard.filters.length > 0 && (
-        <DashboardFilterBar
-          filters={dashboard.filters}
-          onSaveView={handleSaveView}
-        />
-      )}
+      {/* Filters + refresh interval */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {dashboard.filters && dashboard.filters.length > 0 && (
+          <DashboardFilterBar
+            filters={dashboard.filters}
+            onSaveView={handleSaveView}
+          />
+        )}
+        <div className="flex items-center gap-1.5 ml-auto">
+          <IconRefresh className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">Refresh</span>
+          <Select
+            value={
+              dashboard.refreshInterval
+                ? String(dashboard.refreshInterval)
+                : "off"
+            }
+            onValueChange={(v) => {
+              const ms = v === "off" ? undefined : Number(v);
+              persist({ ...dashboard, refreshInterval: ms });
+            }}
+          >
+            <SelectTrigger className="h-7 text-xs w-[64px] px-2">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">Off</SelectItem>
+              <SelectItem value="500">0.5 s ⚠</SelectItem>
+              <SelectItem value="5000">5 s</SelectItem>
+              <SelectItem value="30000">30 s</SelectItem>
+              <SelectItem value="60000">1 min</SelectItem>
+              <SelectItem value="300000">5 min</SelectItem>
+              <SelectItem value="900000">15 min</SelectItem>
+              <SelectItem value="1800000">30 min</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
       {/* Panels grid */}
       {dashboard.panels.length === 0 ? (
@@ -1090,6 +1130,7 @@ export default function SqlDashboardPage() {
                         panel={resolved}
                         resolvedSql={interpolate(panel.sql, vars)}
                         gridColumns={group.columns}
+                        refreshInterval={dashboard?.refreshInterval}
                         onRemove={() => removePanel(panel.id)}
                         onToggleWidth={() =>
                           toggleWidth(panel.id, group.columns)

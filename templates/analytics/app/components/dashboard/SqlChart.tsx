@@ -279,12 +279,15 @@ interface SqlChartProps {
   resolvedSql?: string;
   className?: string;
   onExportCsvChange?: (handler: (() => void) | null) => void;
+  /** Auto-refresh interval in ms forwarded from the dashboard config. */
+  refreshInterval?: number;
 }
 
 export function SqlChart({
   panel,
   resolvedSql,
   onExportCsvChange,
+  refreshInterval,
 }: SqlChartProps) {
   // Section panels are pure layout — no query, no chart. Render a header with
   // optional description and skip the SQL pipeline entirely.
@@ -305,6 +308,7 @@ export function SqlChart({
     ["sql-chart", panel.id, sql, panel.source],
     sql,
     panel.source,
+    refreshInterval ? { refetchInterval: refreshInterval } : undefined,
   );
 
   const rawRows = result?.rows ?? [];
