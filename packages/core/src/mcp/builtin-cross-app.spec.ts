@@ -16,6 +16,8 @@ function resetEnv() {
   delete process.env.AGENT_NATIVE_OWNER_EMAIL;
   delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
   delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+  delete process.env.APP_BASE_PATH;
+  delete process.env.VITE_APP_BASE_PATH;
 }
 
 beforeEach(resetEnv);
@@ -144,6 +146,18 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     });
     expect(result.url).toBe("/extensions/ext_123?tab=settings");
     expect(result.embed).toBe(true);
+  });
+
+  it("prefixes direct same-app paths with the configured app base path", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.open_app.run({
+      app: "mail",
+      path: "/extensions/ext_123",
+      params: { tab: "settings" },
+      embed: true,
+    });
+    expect(result.url).toBe("/mail/extensions/ext_123?tab=settings");
   });
 
   it("rejects open_app calls without a view or path", async () => {

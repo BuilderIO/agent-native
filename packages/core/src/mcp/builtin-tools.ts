@@ -32,6 +32,7 @@
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { buildDeepLink } from "../server/deep-link.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { MCPConfig } from "./build-server.js";
 import { fetchOrgApps, type OrgApp } from "./org-directory.js";
 import { embedApp } from "./embed-app.js";
@@ -97,6 +98,12 @@ function appendParamsToPath(
     url.searchParams.set(key, String(value));
   }
   return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function withConfiguredBasePath(path: string): string {
+  const base = getConfiguredAppBasePath();
+  if (!base || path === base || path.startsWith(`${base}/`)) return path;
+  return `${base}${path}`;
 }
 
 /**
@@ -296,6 +303,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
       const relUrl = path
         ? appendParamsToPath(path, params)
         : buildDeepLink({ app, view, params });
+      const sameAppUrl = path ? withConfiguredBasePath(relUrl) : relUrl;
 
       // Cross-app target in a workspace: resolve the TARGET app's origin and
       // return an absolute URL. Otherwise the MCP layer would prefix the
@@ -305,7 +313,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
       const targetApp = await resolveTargetAppOrigin(config, app);
       const url = targetApp
         ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
-        : relUrl;
+        : sameAppUrl;
 
       return {
         app,

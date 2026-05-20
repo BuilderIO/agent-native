@@ -40,6 +40,10 @@ export interface EmbedSessionTicket {
   expiresAt: number;
 }
 
+export interface ConsumeEmbedSessionTicketOptions {
+  expectedOrgId?: string | null;
+}
+
 export interface ConsumedEmbedSessionTicket {
   ownerEmail: string;
   orgId?: string;
@@ -310,6 +314,7 @@ export async function createEmbedSessionTicket(
 
 export async function consumeEmbedSessionTicket(
   ticket: string | undefined | null,
+  options: ConsumeEmbedSessionTicketOptions = {},
 ): Promise<ConsumedEmbedSessionTicket | null> {
   if (!ticket) return null;
   await ensureTable();
@@ -325,8 +330,12 @@ export async function consumeEmbedSessionTicket(
   const row: any = rows[0];
   const expiresAt = numberOrNull(row.expires_at ?? row.expiresAt);
   const consumedAt = numberOrNull(row.consumed_at ?? row.consumedAt);
+  const orgId = stringOrUndefined(row.org_id ?? row.orgId);
   if (consumedAt != null) return null;
   if (expiresAt != null && expiresAt < now) return null;
+  if (options.expectedOrgId && orgId && orgId !== options.expectedOrgId) {
+    return null;
+  }
 
   const result = await getDbExec().execute({
     sql:
@@ -344,9 +353,7 @@ export async function consumeEmbedSessionTicket(
 
   return {
     ownerEmail,
-    ...(stringOrUndefined(row.org_id ?? row.orgId)
-      ? { orgId: stringOrUndefined(row.org_id ?? row.orgId) }
-      : {}),
+    ...(orgId ? { orgId } : {}),
     targetPath,
     ...(stringOrUndefined(row.scope)
       ? { scope: stringOrUndefined(row.scope) }

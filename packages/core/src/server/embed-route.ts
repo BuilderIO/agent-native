@@ -6,6 +6,7 @@ import {
   setEmbedSessionCookie,
   signEmbedSessionToken,
 } from "./embed-session.js";
+import type { AuthSession } from "./auth.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   EMBED_MODE_QUERY_PARAM,
@@ -52,7 +53,13 @@ export function buildEmbedStartPath(ticket: string): string {
   return `${getConfiguredAppBasePath()}${EMBED_START_PATH}?${qs}`;
 }
 
-export function createEmbedStartRouteHandler() {
+export interface EmbedStartRouteOptions {
+  getExistingSession?: (event: H3Event) => Promise<AuthSession | null>;
+}
+
+export function createEmbedStartRouteHandler(
+  options: EmbedStartRouteOptions = {},
+) {
   return defineEventHandler(async (event: H3Event) => {
     const method = getMethod(event);
     if (method !== "GET" && method !== "HEAD") {
@@ -61,7 +68,12 @@ export function createEmbedStartRouteHandler() {
 
     const rawTicket = getQuery(event)?.ticket;
     const ticket = Array.isArray(rawTicket) ? rawTicket[0] : rawTicket;
-    const consumed = await consumeEmbedSessionTicket(ticket);
+    const existingSession = await options
+      .getExistingSession?.(event)
+      .catch(() => null);
+    const consumed = await consumeEmbedSessionTicket(ticket, {
+      expectedOrgId: existingSession?.orgId ?? null,
+    });
     if (!consumed) {
       return textResponse("Invalid or expired embed session.", 401);
     }

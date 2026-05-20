@@ -4,8 +4,6 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 
-const HISTORY_STATE_TOKEN_KEY = "__agentNativeEmbedToken";
-
 let installed = false;
 let memoryToken: string | null = null;
 
@@ -22,36 +20,8 @@ function readTokenFromUrl(win: Window): string | null {
   }
 }
 
-function storeToken(win: Window, token: string): void {
+function storeToken(token: string): void {
   memoryToken = token;
-  try {
-    const existing =
-      win.history.state && typeof win.history.state === "object"
-        ? win.history.state
-        : {};
-    win.history.replaceState(
-      { ...existing, [HISTORY_STATE_TOKEN_KEY]: token },
-      "",
-      win.location.href,
-    );
-  } catch {
-    (win as any).__agentNativeEmbedToken = token;
-  }
-}
-
-function storedToken(win: Window): string | null {
-  if (memoryToken) return memoryToken;
-  try {
-    const state = win.history.state;
-    const token =
-      state && typeof state === "object"
-        ? state[HISTORY_STATE_TOKEN_KEY]
-        : null;
-    if (typeof token === "string" && token) return token;
-  } catch {
-    // fall back below
-  }
-  return (win as any).__agentNativeEmbedToken ?? null;
 }
 
 export function getEmbedAuthToken(): string | null {
@@ -59,7 +29,7 @@ export function getEmbedAuthToken(): string | null {
   if (!win) return null;
   const fromUrl = readTokenFromUrl(win);
   if (fromUrl) return fromUrl;
-  return storedToken(win);
+  return memoryToken;
 }
 
 export function isEmbedAuthActive(): boolean {
@@ -112,7 +82,7 @@ export function ensureEmbedAuthFetchInterceptor(): void {
 
   const urlToken = readTokenFromUrl(win);
   if (urlToken) {
-    storeToken(win, urlToken);
+    storeToken(urlToken);
     stripTokenFromUrl(win);
   }
 

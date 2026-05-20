@@ -18,6 +18,7 @@ export { createOpenRouteHandler, type OpenRouteOptions } from "./open-route.js";
 export {
   createEmbedStartRouteHandler,
   buildEmbedStartPath,
+  type EmbedStartRouteOptions,
 } from "./embed-route.js";
 export {
   createEmbedSessionTicket,
@@ -29,6 +30,7 @@ export {
   signEmbedSessionToken,
   verifyEmbedSessionToken,
   type ConsumedEmbedSessionTicket,
+  type ConsumeEmbedSessionTicketOptions,
   type EmbedSessionTicket,
   type EmbedSessionTicketInput,
   type EmbedSessionTokenClaims,
