@@ -71,6 +71,17 @@ ChatGPT's full MCP connector flow is currently workspace/admin gated. Use ChatGP
 
 If the ChatGPT workspace does not expose custom MCP connectors, ask a workspace admin to enable them first.
 
+#### Recovering "Connector name already exists" {#chatgpt-drafts}
+
+ChatGPT creates a **draft** the moment you click **Create app** — even if you closed the OAuth popup before approving the scopes. The draft is not visible under **Enabled apps**, but it still owns the name, so retrying with the same name surfaces a `"Connector name already exists"` toast. Recovery is fully self-service in the ChatGPT UI:
+
+1. Open **Settings → Apps**.
+2. Scroll past **Enabled apps** and **Advanced settings** to the **Drafts** section (labeled _"Private apps you've created in developer mode"_).
+3. Click the draft with the conflicting name.
+4. Either press **Connect** to finish OAuth in place (no rename needed), or open the **⋯** overflow menu and choose **Delete** and re-add via **Advanced settings → Create app**.
+
+There is no "Drafts" tab on the **Add more / app directory** dialog, so non-admins sometimes miss the section entirely — it lives further down the same Settings → Apps page that lists enabled apps.
+
 ### Cursor {#cursor}
 
 1. Open Cursor → **Settings → MCP**.
