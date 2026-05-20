@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.9
+
+### Patch Changes
+
+- e834a27: Improve MCP App embed startup reliability.
+
 ## 0.22.8
 
 ### Patch Changes
