@@ -420,60 +420,16 @@ function primitiveValue(value: unknown): value is string | number | boolean {
   );
 }
 
-function compactRecord(
-  value: unknown,
-  keys: string[],
-): Record<string, string | number | boolean> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  const out: Record<string, string | number | boolean> = {};
-  const record = value as Record<string, unknown>;
-  for (const key of keys) {
-    const v = record[key];
-    if (primitiveValue(v)) out[key] = v;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
-function compactMcpAppStructuredContent(
+function mcpAppStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  const root = compactRecord(result, [
-    "id",
-    "message",
-    "status",
-    "app",
-    "view",
-    "path",
-    "url",
-    "deepLink",
-    "openUrl",
-    "label",
-    "title",
-    "name",
-    "embed",
-    "created",
-    "updated",
-    "reused",
-  ]);
-  if (root) Object.assign(out, root);
-  if (result && typeof result === "object" && !Array.isArray(result)) {
-    const draft = compactRecord((result as Record<string, unknown>).draft, [
-      "id",
-      "to",
-      "cc",
-      "bcc",
-      "subject",
-      "mode",
-      "accountEmail",
-    ]);
-    if (draft) out.draft = draft;
-  } else if (primitiveValue(result)) {
-    out.result = result;
-  }
+  const out: Record<string, unknown> =
+    result && typeof result === "object" && !Array.isArray(result)
+      ? { ...(result as Record<string, unknown>) }
+      : primitiveValue(result)
+        ? { result }
+        : {};
   const openLink = meta?.["agent-native/openLink"];
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     out.openLink = openLink;
@@ -569,10 +525,9 @@ export async function createMCPServerForRequest(
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
   );
-  const compactMcpAppCatalog = hasMcpOAuthScope(
-    effectiveIdentity?.oauthScopes,
-    "mcp:apps",
-  );
+  const compactMcpAppCatalog =
+    Array.isArray(effectiveIdentity?.oauthScopes) &&
+    hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps");
   const advertisedActions = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
@@ -580,10 +535,7 @@ export async function createMCPServerForRequest(
         ),
       )
     : visibleActions;
-  const mcpAppResources = hasMcpOAuthScope(
-    effectiveIdentity?.oauthScopes,
-    "mcp:apps",
-  )
+  const mcpAppResources = compactMcpAppCatalog
     ? getMcpAppResources(config, advertisedActions, requestMeta)
     : [];
   const supportsMcpApps = mcpAppResources.length > 0;
@@ -801,7 +753,7 @@ export async function createMCPServerForRequest(
           ...(mcpAppResource ? openAiToolResultMeta(mcpAppResource) : {}),
         };
         const structuredContent = mcpAppResource
-          ? compactMcpAppStructuredContent(
+          ? mcpAppStructuredContent(
               isMcpActionResult(result) ? result.raw : result,
               responseMeta,
             )

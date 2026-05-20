@@ -252,6 +252,19 @@ async function callWeb(
   return JSON.parse(text);
 }
 
+async function mcpAppsAuthHeaders() {
+  process.env.BETTER_AUTH_SECRET = "oauth-secret";
+  const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+  const token = await signMcpOAuthAccessToken({
+    ownerEmail: "oauth@example.com",
+    clientId: "client-123",
+    scope: "mcp:read mcp:write mcp:apps",
+    resource: "https://mail.agent-native.com/_agent-native/mcp",
+    issuer: "https://mail.agent-native.com",
+  });
+  return { authorization: `Bearer ${token}` };
+}
+
 describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)", () => {
   beforeEach(() => {
     // A deployed app has a real token; the default makeWebEvent bearer
@@ -269,16 +282,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("handles `initialize` without a 501", async () => {
-    const out = await callWeb({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2025-06-18",
-        capabilities: {},
-        clientInfo: { name: "agent-native-connect", version: "1.0.0" },
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "agent-native-connect", version: "1.0.0" },
+        },
       },
-    });
+      { headers: await mcpAppsAuthHeaders() },
+    );
     expect(out.jsonrpc).toBe("2.0");
     expect(out.id).toBe(1);
     expect(out.error).toBeUndefined();
@@ -318,17 +334,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("uses a compact tool catalog for OAuth MCP Apps callers", async () => {
-    process.env.BETTER_AUTH_SECRET = "oauth-secret";
-    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
-    const resource = "https://mail.agent-native.com/_agent-native/mcp";
-    const token = await signMcpOAuthAccessToken({
-      ownerEmail: "oauth@example.com",
-      clientId: "client-123",
-      scope: "mcp:read mcp:write mcp:apps",
-      resource,
-      issuer: "https://mail.agent-native.com",
-    });
-
     const out = await callWeb(
       {
         jsonrpc: "2.0",
@@ -337,7 +342,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: {},
       },
       {
-        headers: { authorization: `Bearer ${token}` },
+        headers: await mcpAppsAuthHeaders(),
         config: compactSurfaceConfig,
       },
     );
@@ -351,13 +356,34 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(names).not.toContain("ask-agent");
   });
 
+  it("keeps the full tool catalog for non-OAuth callers without mcp:apps", async () => {
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 21,
+        method: "tools/list",
+        params: {},
+      },
+      { config: compactSurfaceConfig },
+    );
+
+    expect(out.error).toBeUndefined();
+    const names = out.result.tools.map((t: any) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
+    );
+  });
+
   it("handles `resources/list` and advertises MCP App resources", async () => {
-    const out = await callWeb({
-      jsonrpc: "2.0",
-      id: 4,
-      method: "resources/list",
-      params: {},
-    });
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "resources/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders() },
+    );
     expect(out.error).toBeUndefined();
     expect(out.result.resources).toEqual([
       expect.objectContaining({
@@ -385,12 +411,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("handles `resources/templates/list` with MCP App templates", async () => {
-    const out = await callWeb({
-      jsonrpc: "2.0",
-      id: 5,
-      method: "resources/templates/list",
-      params: {},
-    });
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 5,
+        method: "resources/templates/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders() },
+    );
     expect(out.error).toBeUndefined();
     expect(out.result.resourceTemplates).toEqual([
       expect.objectContaining({
@@ -404,12 +433,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("handles `resources/read` and returns MCP App HTML", async () => {
-    const out = await callWeb({
-      jsonrpc: "2.0",
-      id: 6,
-      method: "resources/read",
-      params: { uri: "ui://mail/echo-thing" },
-    });
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 6,
+        method: "resources/read",
+        params: { uri: "ui://mail/echo-thing" },
+      },
+      { headers: await mcpAppsAuthHeaders() },
+    );
     expect(out.error).toBeUndefined();
     expect(out.result.contents).toEqual([
       expect.objectContaining({
@@ -463,6 +495,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "ui://mail/echo-thing",
     );
     expect(out.result.structuredContent).toMatchObject({
+      echoed: "hello",
       id: "thing-42",
       openLink: {
         label: "Open in Mail",
