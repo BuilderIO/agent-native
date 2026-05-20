@@ -86,7 +86,7 @@ In hosts that support MCP Apps, Analytics can render charts and dashboards inlin
 
 ## Advanced setup: local agents {#connect}
 
-Use this flow for local agent clients on your machine — Claude Code, Claude Code CLI, Codex, and Claude Cowork. Cursor can use the same MCP endpoint via the manual config path below.
+Use this flow for local agent clients on your machine — Claude Code, Claude Code CLI, Codex, and Claude Cowork. (Cursor uses the paste-URL flow above; it does not need this CLI path.)
 
 If you have the Agent-Native CLI installed, run:
 
