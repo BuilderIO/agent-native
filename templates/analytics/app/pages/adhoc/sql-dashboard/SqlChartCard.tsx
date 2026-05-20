@@ -53,6 +53,8 @@ interface SqlChartCardProps {
   /** Persist a SQL-only edit from the inline View SQL popover. Should throw on
    *  validation failure so the popover can stay open and surface the error. */
   onSaveSql?: (sql: string) => Promise<void>;
+  /** Auto-refresh interval in ms forwarded from the dashboard config. */
+  refreshInterval?: number;
 }
 
 export function SqlChartCard({
@@ -63,6 +65,7 @@ export function SqlChartCard({
   gridColumns,
   onEdit,
   onSaveSql,
+  refreshInterval,
 }: SqlChartCardProps) {
   const {
     attributes,
@@ -283,6 +286,7 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             onExportCsvChange={handleExportCsvChange}
+            refreshInterval={refreshInterval}
           />
         </CardContent>
       </Card>

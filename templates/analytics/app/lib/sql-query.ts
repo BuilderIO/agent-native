@@ -58,6 +58,6 @@ export function useSqlQuery(
     queryFn: () => executeSqlQuery(sql, source),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
-    staleTime: 5 * 60 * 1000,
+    staleTime: options?.refetchInterval ? 0 : 5 * 60 * 1000,
   });
 }

@@ -121,6 +121,9 @@ export interface SqlDashboardConfig {
    * not only at narrow viewports). Defaults to 2.
    */
   columns?: number;
+  /** Auto-refresh interval in milliseconds. When set, all panels refetch at
+   *  this cadence. Omit (or set to 0) to disable. */
+  refreshInterval?: number;
   panels: SqlPanel[];
 }
 
