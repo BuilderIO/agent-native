@@ -94,8 +94,10 @@ export interface EngineToolCallPart {
 export interface EngineToolResultPart {
   type: "tool-result";
   toolCallId: string;
-  /** Required by AI SDK v6+ ModelMessage. */
-  toolName?: string;
+  /** Same as the originating `tool-call.name` (required for Builder / Gemini). */
+  toolName: string;
+  /** JSON string of the originating tool_use `input` object (Builder / Gemini). */
+  toolInput: string;
   content: string;
   isError?: boolean;
 }

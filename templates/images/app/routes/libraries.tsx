@@ -8,6 +8,7 @@ import {
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
+import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
 import { LibraryCard } from "@/components/library/LibraryCard";
 import { PageShell } from "@/components/layout/PageShell";
 import {
@@ -20,6 +21,7 @@ export default function LibrariesPage() {
   const { data, isLoading } = useActionQuery("list-libraries", {});
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<ImageLibrarySummary | null>(null);
 
   const libraries = useMemo(() => {
     const items = sortLibrariesByUsage(
@@ -90,6 +92,7 @@ export default function LibrariesPage() {
                 key={library.id}
                 library={library}
                 to={`/library/${library.id}`}
+                onEdit={() => setEditing(library)}
               />
             ))}
           </div>
@@ -119,6 +122,13 @@ export default function LibrariesPage() {
         open={open}
         onOpenChange={setOpen}
         onCreated={(library) => navigate(`/library/${library.id}`)}
+      />
+      <EditLibraryDialog
+        library={editing}
+        open={!!editing}
+        onOpenChange={(next) => {
+          if (!next) setEditing(null);
+        }}
       />
     </PageShell>
   );

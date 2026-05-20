@@ -199,6 +199,31 @@ export default defineAction({
           mimeType = "image/png";
         }
       }
+      if (await wasSlotDismissed(args.libraryId, slotId)) {
+        await db
+          .update(schema.imageGenerationRuns)
+          .set({
+            status: "completed",
+            completedAt: nowIso(),
+            metadata: stringifyJson({
+              ...baseMetadata,
+              dismissed: true,
+              slotId,
+              referenceSelection,
+              settingsUsed,
+              provider: generated.provider,
+              providerGenerationId: generated.providerGenerationId,
+              creditsCharged: generated.creditsCharged,
+            }),
+          })
+          .where(eq(schema.imageGenerationRuns.id, runId));
+        return {
+          runId,
+          dismissed: true,
+          artifactType: "image",
+          Artifacts: [],
+        };
+      }
       const asset = await createAssetFromBuffer({
         libraryId: args.libraryId,
         collectionId: args.collectionId ?? null,
@@ -272,6 +297,7 @@ export default defineAction({
         .update(schema.imageGenerationRuns)
         .set({ status: "failed", error: message, completedAt: nowIso() })
         .where(eq(schema.imageGenerationRuns.id, runId));
+      if (await wasSlotDismissed(args.libraryId, slotId)) throw err;
       await upsertVariantSlot({
         runId,
         libraryId: args.libraryId,
@@ -285,6 +311,17 @@ export default defineAction({
     }
   },
 });
+
+async function wasSlotDismissed(
+  libraryId: string,
+  slotId: string,
+): Promise<boolean> {
+  const raw = (await readAppState("image-variants")) as unknown | null;
+  const state = (raw ?? null) as ImageVariantState | null;
+  if (!state) return true;
+  if (state.libraryId !== libraryId) return false;
+  return !state.slots.some((s) => s.slotId === slotId);
+}
 
 async function upsertVariantSlot(input: {
   runId: string;
