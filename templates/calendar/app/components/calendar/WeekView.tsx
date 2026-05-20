@@ -122,12 +122,15 @@ interface LayoutInfo {
  * indent per nesting depth and stack on top with opaque backgrounds.
  * Text at the top stays readable; the card beneath is covered.
  */
-function computeLayout(dayEvents: CalendarEvent[], day: Date): Map<string, LayoutInfo> {
+function computeLayout(
+  dayEvents: CalendarEvent[],
+  day: Date,
+): Map<string, LayoutInfo> {
   const result = new Map<string, LayoutInfo>();
   if (dayEvents.length === 0) return result;
 
   const dayStartMs = startOfDay(day).getTime();
-  const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
+  const dayEndMs = addDays(startOfDay(day), 1).getTime();
 
   // Cap each event's times to this day's boundaries once, reuse in sort + overlap
   const times = new Map(
@@ -962,8 +965,8 @@ export function WeekView({
                             style={{ touchAction: "none" }}
                           />
                         )}
-                        {/* Bottom resize handle */}
-                        {canDrag && isEnd && (
+                        {/* Bottom resize handle — only on single-day segments; multi-day end segments need segment-aware drag math */}
+                        {canDrag && isEnd && isStart && (
                           <div
                             data-resize-handle="true"
                             onPointerDown={(e) => {

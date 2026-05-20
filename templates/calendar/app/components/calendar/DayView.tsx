@@ -173,9 +173,8 @@ export function DayView({
   function getEventStyle(event: CalendarEvent) {
     const start = parseISO(event.start);
     const end = parseISO(event.end);
-    const midnight = startOfDay(start);
-    const dayStart = set(midnight, { hours: START_HOUR });
-    const dayEnd = addDays(midnight, 1);
+    const dayStart = set(startOfDay(date), { hours: START_HOUR });
+    const dayEnd = addDays(startOfDay(date), 1);
     const cappedEnd = min([end, dayEnd]);
     const topMinutes = Math.max(0, differenceInMinutes(start, dayStart));
     const durationMinutes = Math.max(15, differenceInMinutes(cappedEnd, start));
@@ -396,8 +395,10 @@ export function DayView({
                 : getEventStyle(event);
               const color = getEventDisplayColor(event, prefs);
               const evStart = parseISO(event.start);
-              const evEndRaw = parseISO(event.end);
-              const evEnd = min([evEndRaw, addDays(startOfDay(evStart), 1)]);
+              const evEnd = min([
+                parseISO(event.end),
+                addDays(startOfDay(date), 1),
+              ]);
               const durationMin = overrides
                 ? (overrides.height / HOUR_HEIGHT) * 60
                 : differenceInMinutes(evEnd, evStart);
@@ -411,9 +412,11 @@ export function DayView({
                     }),
                     (overrides.top / HOUR_HEIGHT) * 60,
                   )
-                : evStart;
-              const displayEnd = overrides ? addMinutes(displayStart, durationMin) : evEndRaw;
-              const isPast = evEndRaw < now;
+                : parseISO(event.start);
+              const displayEnd = overrides
+                ? addMinutes(displayStart, durationMin)
+                : parseISO(event.end);
+              const isPast = parseISO(event.end) < now;
               const isDeclined = event.responseStatus === "declined";
               const allOthersOut = allOtherDeclined(event);
               const canDrag = !!onEventTimeChange;
