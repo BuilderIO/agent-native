@@ -19,8 +19,6 @@ export interface NavigationState {
   provider?: string;
   status?: string;
   issue?: string;
-  demo?: string;
-  demoStatus?: string;
   askQuestion?: string;
   limit?: number;
   priority?: string;
@@ -52,8 +50,6 @@ export function useNavigationState() {
       provider: params.get("provider") || undefined,
       status: params.get("status") || undefined,
       issue: params.get("issue") || undefined,
-      demo: params.get("demo") || undefined,
-      demoStatus: params.get("demoStatus") || undefined,
       askQuestion: params.get("ask") || undefined,
       limit: parseLimit(params.get("limit")),
       priority: params.get("priority") || undefined,
@@ -109,10 +105,6 @@ export function useNavigationState() {
     if (navCommand.provider) params.set("provider", navCommand.provider);
     if (navCommand.status) params.set("status", navCommand.status);
     if (navCommand.issue) params.set("issue", navCommand.issue);
-    if (navCommand.demo) params.set("demo", navCommand.demo);
-    if (navCommand.demoStatus) {
-      params.set("demoStatus", navCommand.demoStatus);
-    }
     if (navCommand.askQuestion) params.set("ask", navCommand.askQuestion);
     if (navCommand.limit) params.set("limit", String(navCommand.limit));
     if (navCommand.priority) params.set("priority", navCommand.priority);

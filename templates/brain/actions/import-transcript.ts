@@ -10,7 +10,7 @@ import { optionalJsonRecordSchema } from "./_schemas.js";
 
 export default defineAction({
   description:
-    "Import a meeting transcript into Brain as a raw capture. Generic import works without Slack or Granola.",
+    "Import a meeting transcript into Brain. Transcript captures are sanitized before storage by default.",
   schema: z.object({
     sourceId: z.string().optional(),
     sourceTitle: z.string().default("Meeting transcripts"),

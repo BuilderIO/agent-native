@@ -2,6 +2,7 @@ import { useLocation } from "react-router";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton } from "@agent-native/core/client";
+import { APP_TITLE } from "@/lib/app-config";
 
 const pageTitles: Record<string, string> = {
   "/": "Home",
@@ -13,7 +14,7 @@ const pageTitles: Record<string, string> = {
 function resolveTitle(pathname: string): string {
   if (pageTitles[pathname]) return pageTitles[pathname];
   if (pathname.startsWith("/extensions")) return "Extensions";
-  return "Starter";
+  return APP_TITLE;
 }
 
 interface HeaderProps {

@@ -165,6 +165,11 @@ export class DockerAdapter implements CliAdapter {
 }
 ```
 
+> [!WARNING]
+> **Edge and Serverless Compatibility:**
+> CLI adapters (both `ShellCliAdapter` and custom adapters using `node:child_process`) rely on Node.js-specific system bindings (`child_process.execFile` or `child_process.spawn`).
+> These APIs **do not exist** on edge/worker runtimes (e.g., Cloudflare Workers, Netlify Edge Functions). If you deploy your server routes to these edge presets, executing CLI adapters will throw runtime exceptions. Always ensure CLI adapter endpoints and tasks run in standard Node.js environments (like traditional server containers or serverless Node functions).
+
 ## Server route {#server-route}
 
 Expose the registry to the UI via an API route so actions and components can discover and invoke CLIs:

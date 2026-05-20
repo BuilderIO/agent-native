@@ -47,7 +47,18 @@ function analyticsAppHtml({
     .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
     .chart { width: 100%; min-height: 240px; }
     .chart img, .chart svg { display: block; width: 100%; height: auto; border-radius: 7px; }
-    .markdown { max-height: 280px; overflow: auto; white-space: pre-wrap; font-size: 13px; line-height: 1.5; }
+    .markdown { max-height: 280px; overflow: auto; white-space: normal; font-size: 13px; line-height: 1.5; }
+    .markdown > :first-child { margin-top: 0; }
+    .markdown > :last-child { margin-bottom: 0; }
+    .markdown h1 { margin: 0 0 10px; font-size: 16px; line-height: 1.3; }
+    .markdown h2 { margin: 14px 0 8px; font-size: 14px; line-height: 1.35; }
+    .markdown h3 { margin: 12px 0 6px; font-size: 13px; line-height: 1.35; }
+    .markdown p { margin: 0 0 10px; }
+    .markdown ul, .markdown ol { margin: 0 0 10px; padding-left: 18px; }
+    .markdown li { margin: 3px 0; }
+    .markdown blockquote { border-left: 3px solid color-mix(in srgb, CanvasText 20%, Canvas); color: color-mix(in srgb, CanvasText 70%, Canvas); margin: 0 0 10px; padding-left: 10px; }
+    .markdown code { border-radius: 4px; background: color-mix(in srgb, CanvasText 8%, Canvas); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; padding: 1px 4px; }
+    .markdown a { color: #2563eb; font-weight: 700; text-decoration: none; }
     table { border-collapse: collapse; width: 100%; font-size: 12px; }
     th, td { border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, Canvas); padding: 7px 6px; text-align: left; vertical-align: top; }
     th { color: color-mix(in srgb, CanvasText 62%, Canvas); font-weight: 700; }
@@ -157,6 +168,99 @@ function analyticsAppHtml({
         '</tbody></table></div>';
     }
 
+    function safeHref(value) {
+      const text = String(value ?? "").trim();
+      if (!/^https?:\\/\\//i.test(text)) return "";
+      try { return new URL(text).toString(); } catch { return ""; }
+    }
+
+    function markdownInline(value) {
+      let html = esc(value);
+      html = html.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, (_match, label, href) => {
+        const safe = safeHref(href);
+        return safe ? '<a href="' + esc(safe) + '" target="_blank" rel="noreferrer">' + label + '</a>' : label;
+      });
+      html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+      html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+      html = html.replace(/\\x60([^\\x60]+)\\x60/g, '<code>$1</code>');
+      return html;
+    }
+
+    function markdownToHtml(markdown) {
+      const lines = String(markdown ?? "").replace(/\\r\\n/g, "\\n").split("\\n");
+      let html = "";
+      let paragraph = [];
+      let listType = "";
+
+      function closeParagraph() {
+        if (!paragraph.length) return;
+        html += "<p>" + markdownInline(paragraph.join(" ")) + "</p>";
+        paragraph = [];
+      }
+
+      function closeList() {
+        if (!listType) return;
+        html += "</" + listType + ">";
+        listType = "";
+      }
+
+      function openList(type) {
+        closeParagraph();
+        if (listType === type) return;
+        closeList();
+        html += "<" + type + ">";
+        listType = type;
+      }
+
+      for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        const trimmed = line.trim();
+        if (!trimmed) {
+          closeParagraph();
+          closeList();
+          continue;
+        }
+
+        const heading = /^(#{1,3})\\s+(.+)$/.exec(trimmed);
+        if (heading) {
+          closeParagraph();
+          closeList();
+          const level = heading[1].length;
+          html += "<h" + level + ">" + markdownInline(heading[2]) + "</h" + level + ">";
+          continue;
+        }
+
+        const quote = /^>\\s?(.+)$/.exec(trimmed);
+        if (quote) {
+          closeParagraph();
+          closeList();
+          html += "<blockquote>" + markdownInline(quote[1]) + "</blockquote>";
+          continue;
+        }
+
+        const bullet = /^[-*]\\s+(.+)$/.exec(trimmed);
+        if (bullet) {
+          openList("ul");
+          html += "<li>" + markdownInline(bullet[1]) + "</li>";
+          continue;
+        }
+
+        const ordered = /^\\d+[.)]\\s+(.+)$/.exec(trimmed);
+        if (ordered) {
+          openList("ol");
+          html += "<li>" + markdownInline(ordered[1]) + "</li>";
+          continue;
+        }
+
+        closeList();
+        paragraph.push(trimmed);
+      }
+
+      closeParagraph();
+      closeList();
+      return html || "<p>Analysis content was not available.</p>";
+    }
+
     function renderShell(title, subtitle, body) {
       const openButton = openUrl ? '<button type="button" data-open>Open in Analytics</button>' : "";
       root.innerHTML = '<section class="top"><div><h1>' + esc(title) + '</h1>' +
@@ -179,8 +283,9 @@ function analyticsAppHtml({
 
     function renderAnalysis() {
       const rows = resultRows();
+      const markdown = toolResult.resultMarkdown || toolInput.resultMarkdown || "Analysis content was not available.";
       renderShell(toolResult.name || toolInput.name || "Analysis", toolResult.description || toolInput.description || "",
-        '<section class="card markdown">' + esc(toolResult.resultMarkdown || toolInput.resultMarkdown || "Analysis content was not available.") + '</section>' + renderTable(rows));
+        '<section class="card markdown">' + markdownToHtml(markdown) + '</section>' + renderTable(rows));
     }
 
     function renderChart() {
