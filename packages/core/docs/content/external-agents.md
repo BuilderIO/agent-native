@@ -14,6 +14,8 @@ The external-agent bridge closes the loop. First you connect your own agent to a
 
 Add the hosted app as a remote MCP connector in your chat host, sign in, and enable it in a chat.
 
+**Shortcut:** every hosted agent-native app serves a one-page connect helper at `https://<app>/_agent-native/mcp/connect` (for example [mail.agent-native.com/\_agent-native/mcp/connect](https://mail.agent-native.com/_agent-native/mcp/connect), [analytics.agent-native.com/\_agent-native/mcp/connect](https://analytics.agent-native.com/_agent-native/mcp/connect)). It shows the MCP URL with a one-click copy button and a tab strip — Claude · ChatGPT · Cursor · Claude Code · Codex · Other — each with the exact steps or copy-able command for that host. Bookmark it and share with non-developer teammates; everything below is also reachable from that page.
+
 Use the hosted app's MCP URL:
 
 | App       | Remote MCP URL                                         |
@@ -58,6 +60,15 @@ ChatGPT's full MCP connector flow is currently workspace/admin gated. Use ChatGP
 8. Create the connector, then select it from a new chat's tools/apps menu.
 
 If the ChatGPT workspace does not expose custom MCP connectors, ask a workspace admin to enable them first.
+
+### Cursor {#cursor}
+
+1. Open Cursor → **Settings → MCP**.
+2. Click **Add MCP Server**.
+3. Paste the remote MCP URL for the app and save.
+4. When Cursor prompts, sign in with your Agent-Native account and approve `mcp:read`, `mcp:write`, and `mcp:apps`.
+
+Cursor supports remote-OAuth MCP servers, so the paste-URL flow works the same as Claude — no terminal involved. Goose, Postman, MCPJam, and VS Code GitHub Copilot accept the same URL through their own MCP-server UIs once OAuth support is enabled in your build.
 
 ### Quick test prompt {#quick-test}
 
