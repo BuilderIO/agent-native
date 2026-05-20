@@ -249,7 +249,13 @@ function validateDashboardConfig(
   if (!Array.isArray(panels)) {
     return "config.panels must be an array (use [] for an empty dashboard)";
   }
-  const validSources = new Set(["bigquery", "ga4", "amplitude", "first-party"]);
+  const validSources = new Set([
+    "bigquery",
+    "ga4",
+    "amplitude",
+    "first-party",
+    "prometheus",
+  ]);
   const isValidColumnCount = (v: unknown): v is number =>
     typeof v === "number" &&
     Number.isFinite(v) &&
@@ -281,7 +287,7 @@ function validateDashboardConfig(
       }
     }
     if (!isSection && !validSources.has(p.source as string)) {
-      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
+      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', or 'prometheus' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name in sql, not here.`;
     }
     if (
       isSection &&
