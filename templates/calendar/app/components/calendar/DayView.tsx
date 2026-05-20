@@ -395,10 +395,10 @@ export function DayView({
                 : getEventStyle(event);
               const color = getEventDisplayColor(event, prefs);
               const evStart = parseISO(event.start);
-              const evEnd = min([
-                parseISO(event.end),
-                addDays(startOfDay(date), 1),
-              ]);
+              const rawEnd = parseISO(event.end);
+              const midnight = addDays(startOfDay(date), 1);
+              const evEnd = min([rawEnd, midnight]);
+              const isOvernightCapped = rawEnd > midnight;
               const durationMin = overrides
                 ? (overrides.height / HOUR_HEIGHT) * 60
                 : differenceInMinutes(evEnd, evStart);
@@ -553,8 +553,8 @@ export function DayView({
                       style={{ touchAction: "none" }}
                     />
                   )}
-                  {/* Bottom resize handle */}
-                  {canDrag && (
+                  {/* Bottom resize handle — hidden on overnight events capped at midnight; drag math uses uncapped duration and would truncate the true end */}
+                  {canDrag && !isOvernightCapped && (
                     <div
                       data-resize-handle="true"
                       onPointerDown={(e) => {
