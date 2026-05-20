@@ -39,6 +39,12 @@ interface SubmissionPayload {
   submittedAt: string;
   /** Email of the submitter, when known (claimed by the client, not verified). */
   submitterEmail?: string | null;
+  /** Agent chat thread/session ids claimed by the client, when available. */
+  chatSessionIds?: string[];
+  /** Active agent run id claimed by the client, when available. */
+  activeRunId?: string | null;
+  /** Page URL where the feedback was submitted, when available. */
+  pageUrl?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,6 +65,25 @@ function formatFields(
   return out;
 }
 
+function formatDebugContext(submission: SubmissionPayload): string[] {
+  const lines: string[] = [];
+  const chatSessionIds = submission.chatSessionIds ?? [];
+  if (chatSessionIds.length === 1) {
+    lines.push(`Chat session: \`${chatSessionIds[0]}\``);
+  } else if (chatSessionIds.length > 1) {
+    lines.push(
+      `Chat sessions: ${chatSessionIds.map((id) => `\`${id}\``).join(", ")}`,
+    );
+  }
+  if (submission.activeRunId) {
+    lines.push(`Run: \`${submission.activeRunId}\``);
+  }
+  if (submission.pageUrl) {
+    lines.push(`Page: <${submission.pageUrl}|open>`);
+  }
+  return lines;
+}
+
 /** Slack Block Kit message */
 function buildSlackPayload(submission: SubmissionPayload) {
   const fieldLines = submission.fields
@@ -73,6 +98,7 @@ function buildSlackPayload(submission: SubmissionPayload) {
   const contextText = submission.submitterEmail
     ? `${tsContext} by *${submission.submitterEmail}*`
     : tsContext;
+  const debugContext = formatDebugContext(submission);
 
   return {
     blocks: [
@@ -96,7 +122,7 @@ function buildSlackPayload(submission: SubmissionPayload) {
         elements: [
           {
             type: "mrkdwn",
-            text: contextText,
+            text: [contextText, ...debugContext].join("\n"),
           },
         ],
       },
@@ -120,6 +146,27 @@ function buildDiscordPayload(submission: SubmissionPayload) {
       inline: true,
     });
   }
+  if (submission.chatSessionIds?.length) {
+    discordFields.push({
+      name: "Chat session",
+      value: submission.chatSessionIds.join(", "),
+      inline: false,
+    });
+  }
+  if (submission.activeRunId) {
+    discordFields.push({
+      name: "Run",
+      value: submission.activeRunId,
+      inline: true,
+    });
+  }
+  if (submission.pageUrl) {
+    discordFields.push({
+      name: "Page",
+      value: submission.pageUrl,
+      inline: false,
+    });
+  }
 
   return {
     embeds: [
@@ -139,6 +186,9 @@ function buildGoogleSheetsPayload(submission: SubmissionPayload) {
     formTitle: submission.formTitle,
     submittedAt: submission.submittedAt,
     submitterEmail: submission.submitterEmail ?? "",
+    chatSessionIds: (submission.chatSessionIds ?? []).join(", "),
+    activeRunId: submission.activeRunId ?? "",
+    pageUrl: submission.pageUrl ?? "",
     ...formatFields(submission.fields, submission.data),
   };
 }
@@ -152,6 +202,9 @@ function buildWebhookPayload(submission: SubmissionPayload) {
     responseId: submission.responseId,
     submittedAt: submission.submittedAt,
     submitterEmail: submission.submitterEmail ?? null,
+    chatSessionIds: submission.chatSessionIds ?? [],
+    activeRunId: submission.activeRunId ?? null,
+    pageUrl: submission.pageUrl ?? null,
     data: formatFields(submission.fields, submission.data),
     rawData: submission.data,
   };
