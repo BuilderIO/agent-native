@@ -16,6 +16,11 @@ export {
   appPath,
 } from "./api-path.js";
 export {
+  ensureEmbedAuthFetchInterceptor,
+  getEmbedAuthToken,
+  isEmbedAuthActive,
+} from "./embed-auth.js";
+export {
   codeAgentTranscriptEventsToContent,
   createCodeAgentChatAdapter,
   type CodeAgentChatController,

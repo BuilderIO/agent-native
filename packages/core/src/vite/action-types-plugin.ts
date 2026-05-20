@@ -59,6 +59,13 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   },
 ];
 
+function isRuntimeSourceFile(filename: string): boolean {
+  if (!/\.(ts|js)$/.test(filename)) return false;
+  if (/\.d\.ts$/.test(filename)) return false;
+  if (/\.(test|spec)\.(ts|js)$/.test(filename)) return false;
+  return true;
+}
+
 function scanActionFiles(actionsDir: string): string[] {
   let files: string[];
   try {
@@ -67,7 +74,7 @@ function scanActionFiles(actionsDir: string): string[] {
     return [];
   }
   return files.filter((f) => {
-    if (!f.endsWith(".ts") && !f.endsWith(".js")) return false;
+    if (!isRuntimeSourceFile(f)) return false;
     const name = f.replace(/\.(ts|js)$/, "");
     if (name.startsWith("_")) return false;
     if (SKIP_FILES.has(name)) return false;

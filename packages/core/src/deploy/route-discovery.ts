@@ -181,7 +181,7 @@ async function scanActionsDir(actionsDir: string): Promise<DiscoveredAction[]> {
   if (!fs.existsSync(actionsDir)) return [];
 
   const files = fs.readdirSync(actionsDir).filter((f) => {
-    if (!f.endsWith(".ts") && !f.endsWith(".js")) return false;
+    if (!isRuntimeSourceFile(f)) return false;
     const name = f.replace(/\.(ts|js)$/, "");
     if (name.startsWith("_")) return false;
     if (SKIP_ACTION_FILES.has(name)) return false;

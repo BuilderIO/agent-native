@@ -112,7 +112,7 @@ For actions that change state:
 ```tsx
 import { useActionMutation } from "@agent-native/core/client";
 
-const { mutate, isPending } = useActionMutation("replyToEmail");
+const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
   disabled={isPending}
@@ -131,17 +131,17 @@ For read-only GET actions:
 ```ts
 import { useActionQuery } from "@agent-native/core/client";
 
-const { data, isLoading } = useActionQuery("getLead", { leadId });
+const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
-The query is cached under `["action", "getLead", { leadId }]` and auto-invalidated on any mutating action that completes.
+The query is cached under `["action", "get-lead", { leadId }]` and auto-invalidated on any mutating action that completes.
 
 ## Calling it from the CLI {#cli}
 
 Every action is runnable via `pnpm action`:
 
 ```bash
-pnpm action replyToEmail --emailId thread-123 --body "Thanks!"
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
 Flags are parsed into the shape your schema expects. Useful for agent-dev loops, scripts, and cron.
@@ -176,6 +176,21 @@ export default defineAction({
 ```
 
 This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes the HTML via MCP resources, and includes both current and legacy UI resource metadata for compatible hosts. Keep `link` as the fallback for CLI and non-UI MCP clients; see [External Agents](/docs/external-agents#mcp-apps).
+
+When the best inline UI is the existing app itself, use the framework helper instead of hand-writing a duplicate HTML surface:
+
+```ts
+import { embedApp } from "@agent-native/core/mcp";
+
+export default defineAction({
+  // ...description, schema, run, link...
+  mcpApp: {
+    resource: embedApp({ title: "Open dashboard" }),
+  },
+});
+```
+
+The helper launches the action's `link` target through `/_agent-native/embed/start` with a short-lived browser session, so routes such as dashboards, filtered inboxes, drafts, and extension pages can reuse the app's React components directly.
 
 ## Standard actions {#standard-actions}
 

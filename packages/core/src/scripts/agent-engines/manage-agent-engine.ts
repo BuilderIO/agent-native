@@ -18,6 +18,7 @@ import {
 } from "../../agent/app-model-defaults.js";
 import {
   getAgentEngineEntry,
+  isAgentEnginePackageInstalled,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
 import {
@@ -103,6 +104,9 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
 
   const entry = getAgentEngineEntry(engine);
   if (!entry) return `Error: Unknown engine "${engine}"`;
+  if (!isAgentEnginePackageInstalled(entry)) {
+    return `Error: Engine "${engine}" requires optional packages that are not installed in this app. Run: pnpm add ${entry.installPackage}`;
+  }
 
   const ctx = currentContext();
   const canUpdate = await canUpdateAgentAppModelDefaultSettings(

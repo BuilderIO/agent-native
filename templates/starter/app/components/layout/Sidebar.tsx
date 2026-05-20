@@ -1,13 +1,13 @@
 import { Link, useLocation } from "react-router";
-import { IconActivity, IconHome, IconPlus } from "@tabler/icons-react";
+import { IconActivity, IconHome } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { FeedbackButton, appPath } from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { APP_TITLE } from "@/lib/app-config";
 
 const navItems = [
   { icon: IconHome, label: "Home", href: "/" },
-  { icon: IconPlus, label: "New App", href: "/new-app" },
   { icon: IconActivity, label: "Observability", href: "/observability" },
 ];
 
@@ -29,7 +29,9 @@ export function Sidebar() {
           aria-hidden="true"
           className="hidden h-4 w-auto dark:block"
         />
-        <span className="text-sm font-semibold tracking-tight">Starter</span>
+        <span className="truncate text-sm font-semibold tracking-tight">
+          {APP_TITLE}
+        </span>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-1">

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseRouteFile } from "./route-discovery.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { discoverActionFiles, parseRouteFile } from "./route-discovery.js";
 
 describe("parseRouteFile", () => {
   it("parses a simple GET route", () => {
@@ -86,5 +89,37 @@ describe("parseRouteFile", () => {
       method: "get",
       route: "/api/:org/:repo/issues",
     });
+  });
+});
+
+describe("discoverActionFiles", () => {
+  it("ignores test files in actions/ even if they mention defineAction", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-actions-"));
+    try {
+      const actionsDir = path.join(root, "actions");
+      fs.mkdirSync(actionsDir);
+      fs.writeFileSync(
+        path.join(actionsDir, "real-action.ts"),
+        `import { defineAction } from "@agent-native/core";\nexport default defineAction({ tool: { description: "ok", parameters: {} }, run: async () => ({ ok: true }) });\n`,
+      );
+      fs.writeFileSync(
+        path.join(actionsDir, "real-action.spec.ts"),
+        `// Regression guard: mentioning defineAction here must not mount this file.\nexport default {};\n`,
+      );
+      fs.writeFileSync(
+        path.join(actionsDir, "other.test.ts"),
+        `const text = "defineAction";\nexport default {};\n`,
+      );
+
+      await expect(discoverActionFiles(root)).resolves.toEqual([
+        {
+          name: "real-action",
+          absPath: path.join(actionsDir, "real-action.ts"),
+          method: "post",
+        },
+      ]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

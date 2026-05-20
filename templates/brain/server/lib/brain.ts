@@ -30,6 +30,7 @@ import {
   type BrainSourceProvider,
   type BrainSourceStatus,
 } from "../../shared/types.js";
+import { sanitizeCaptureForStorage } from "./capture-sanitization.js";
 
 export const BRAIN_SETTINGS_KEY = "brain-settings";
 
@@ -123,6 +124,12 @@ export interface BrainAgentGuidance {
     instructions: string;
     rules: string[];
   };
+  captureSanitization: {
+    enabled: boolean;
+    model: string | null;
+    instructions: string;
+    rules: string[];
+  };
   response: {
     toneInstruction: string;
     citationInstruction: string;
@@ -190,6 +197,10 @@ export function buildBrainAgentGuidance(
   const distillationInstructions =
     settings.distillationInstructions?.trim() ||
     DEFAULT_BRAIN_SETTINGS.distillationInstructions;
+  const captureSanitizationInstructions =
+    settings.captureSanitizationInstructions?.trim() ||
+    DEFAULT_BRAIN_SETTINGS.captureSanitizationInstructions ||
+    "";
 
   return {
     identity: {
@@ -212,6 +223,9 @@ export function buildBrainAgentGuidance(
       instructions: distillationInstructions,
       rules: [
         "Extract durable, reusable institutional knowledge only.",
+        settings.captureSanitizationEnabled === false
+          ? "Captures may contain raw provider text; avoid personal or out-of-scope material."
+          : "Transcript captures are pre-sanitized before storage; treat capture text as the durable company-relevant source.",
         "Preserve short exact quotes as evidence.",
         `Use ${settings.defaultPublishTier} as the default publish tier unless the user or capture context clearly calls for another tier.`,
         settings.requireApprovalForCompanyKnowledge
@@ -220,6 +234,18 @@ export function buildBrainAgentGuidance(
         settings.autoRedactEmails
           ? "Email addresses are auto-redacted by write-knowledge; still avoid adding unnecessary personal data."
           : "Email auto-redaction is disabled; avoid including personal data unless it is essential evidence.",
+      ],
+    },
+    captureSanitization: {
+      enabled: settings.captureSanitizationEnabled !== false,
+      model: settings.captureSanitizationModel?.trim() || null,
+      instructions: captureSanitizationInstructions,
+      rules: [
+        "Run before transcript-style captures are inserted into SQL.",
+        "Keep company/product/customer/GTM/technical/process information.",
+        "Always strip recruiting, hiring, candidate evaluation, interview feedback, compensation, references, and personnel assessment.",
+        "Drop personal life details, casual small talk, secrets, credentials, and raw transcript metadata.",
+        "Granola, Clips, signed generic transcript ingest, and manual transcript imports share this boundary.",
       ],
     },
     response: {
@@ -489,7 +515,9 @@ export async function createCapture(values: {
   capturedAt?: string;
   status?: "queued" | "distilling" | "distilled" | "ignored";
 }) {
-  await getAccessibleSource(values.sourceId, "editor");
+  const sourceAccess = await getAccessibleSource(values.sourceId, "editor");
+  const source =
+    sourceAccess.resource as typeof schema.brainSources.$inferSelect;
   const db = getDb();
   const now = nowIso();
   const id = values.id ?? nanoid();
@@ -506,16 +534,32 @@ export async function createCapture(values: {
       .limit(1);
     if (existing) return existing;
   }
+  const settings = await readBrainSettings();
+  const sanitized = await sanitizeCaptureForStorage({
+    kind: values.kind,
+    title: values.title,
+    content: values.content,
+    metadata: values.metadata,
+    capturedAt: values.capturedAt,
+    source: {
+      id: source.id,
+      title: source.title,
+      provider: source.provider as BrainSourceProvider,
+      ownerEmail: source.ownerEmail,
+    },
+    sourceConfig: parseJson<Record<string, unknown>>(source.configJson, {}),
+    settings,
+  });
   try {
     await db.insert(schema.brainRawCaptures).values({
       id,
       sourceId: values.sourceId,
       externalId: values.externalId ?? null,
-      title: values.title,
+      title: sanitized.title,
       kind: values.kind,
-      content: values.content,
-      contentHash: await contentHash(values.content),
-      metadataJson: stableJson(values.metadata ?? {}),
+      content: sanitized.content,
+      contentHash: await contentHash(sanitized.content),
+      metadataJson: stableJson(sanitized.metadata),
       capturedAt: values.capturedAt ?? now,
       importedBy: requireUserEmail(),
       status: values.status ?? "queued",

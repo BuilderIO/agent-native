@@ -1,6 +1,13 @@
 import { Link } from "react-router";
-import { IconLibraryPhoto } from "@tabler/icons-react";
+import { IconDots, IconLibraryPhoto, IconPencil } from "@tabler/icons-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
   getLibraryCustomInstructions,
@@ -12,12 +19,14 @@ export function LibraryCard({
   to,
   selected,
   onClick,
+  onEdit,
   compact = false,
 }: {
   library: ImageLibrarySummary;
   to?: string;
   selected?: boolean;
   onClick?: () => void;
+  onEdit?: () => void;
   compact?: boolean;
 }) {
   const instructions = getLibraryCustomInstructions(library);
@@ -70,17 +79,47 @@ export function LibraryCard({
     </>
   );
 
+  const editAffordance = onEdit ? (
+    <div className="absolute right-2 top-2 z-10">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
+            aria-label="Library actions"
+          >
+            <IconDots className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => onEdit()}>
+            <IconPencil className="mr-2 h-4 w-4 shrink-0" />
+            Edit
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  ) : null;
+
   if (to) {
     return (
-      <Link to={to} className={className}>
-        {body}
-      </Link>
+      <div className="relative h-full">
+        <Link to={to} className={className}>
+          {body}
+        </Link>
+        {editAffordance}
+      </div>
     );
   }
 
   return (
-    <button type="button" onClick={onClick} className={className}>
-      {body}
-    </button>
+    <div className="relative h-full">
+      <button type="button" onClick={onClick} className={className}>
+        {body}
+      </button>
+      {editAffordance}
+    </div>
   );
 }
