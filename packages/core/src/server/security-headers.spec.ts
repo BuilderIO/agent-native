@@ -12,6 +12,7 @@ vi.mock("h3", () => ({
 }));
 
 import { createSecurityHeadersMiddleware } from "./security-headers.js";
+import { signEmbedSessionToken } from "./embed-session.js";
 
 describe("security headers middleware", () => {
   it("allows same-origin microphone prompts for composer dictation", () => {
@@ -28,10 +29,17 @@ describe("security headers middleware", () => {
   it("omits X-Frame-Options for embed-token page loads in production", () => {
     headers.clear();
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("OAUTH_STATE_SECRET", "embed-test-secret");
+    const token = signEmbedSessionToken({
+      ownerEmail: "user@example.test",
+      targetPath: "/inbox",
+      ttlSeconds: 60,
+    });
 
     const handler = createSecurityHeadersMiddleware();
     handler({
-      query: { __an_embed_token: "tok" },
+      path: "/inbox",
+      query: { __an_embed_token: token },
       url: { protocol: "https:" },
       node: { req: { headers: {} } },
     });

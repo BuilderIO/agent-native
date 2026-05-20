@@ -1,11 +1,13 @@
 import {
   EMBED_MODE_QUERY_PARAM,
+  EMBED_TARGET_HEADER,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 
-const STORAGE_KEY = "agent-native.embed-token.v1";
+const HISTORY_STATE_TOKEN_KEY = "__agentNativeEmbedToken";
 
 let installed = false;
+let memoryToken: string | null = null;
 
 function browserWindow(): Window | null {
   return typeof window === "undefined" ? null : window;
@@ -21,11 +23,35 @@ function readTokenFromUrl(win: Window): string | null {
 }
 
 function storeToken(win: Window, token: string): void {
+  memoryToken = token;
   try {
-    win.sessionStorage.setItem(STORAGE_KEY, token);
+    const existing =
+      win.history.state && typeof win.history.state === "object"
+        ? win.history.state
+        : {};
+    win.history.replaceState(
+      { ...existing, [HISTORY_STATE_TOKEN_KEY]: token },
+      "",
+      win.location.href,
+    );
   } catch {
     (win as any).__agentNativeEmbedToken = token;
   }
+}
+
+function storedToken(win: Window): string | null {
+  if (memoryToken) return memoryToken;
+  try {
+    const state = win.history.state;
+    const token =
+      state && typeof state === "object"
+        ? state[HISTORY_STATE_TOKEN_KEY]
+        : null;
+    if (typeof token === "string" && token) return token;
+  } catch {
+    // fall back below
+  }
+  return (win as any).__agentNativeEmbedToken ?? null;
 }
 
 export function getEmbedAuthToken(): string | null {
@@ -33,11 +59,7 @@ export function getEmbedAuthToken(): string | null {
   if (!win) return null;
   const fromUrl = readTokenFromUrl(win);
   if (fromUrl) return fromUrl;
-  try {
-    return win.sessionStorage.getItem(STORAGE_KEY);
-  } catch {
-    return (win as any).__agentNativeEmbedToken ?? null;
-  }
+  return storedToken(win);
 }
 
 export function isEmbedAuthActive(): boolean {
@@ -66,6 +88,10 @@ function stripTokenFromUrl(win: Window): void {
   } catch {
     // best effort only
   }
+}
+
+function currentEmbedTarget(win: Window): string {
+  return `${win.location.pathname}${win.location.search}`;
 }
 
 function sameOrigin(input: RequestInfo | URL, win: Window): boolean {
@@ -106,6 +132,9 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     );
     if (!headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`);
+    }
+    if (!headers.has(EMBED_TARGET_HEADER)) {
+      headers.set(EMBED_TARGET_HEADER, currentEmbedTarget(win));
     }
 
     if (input instanceof Request) {

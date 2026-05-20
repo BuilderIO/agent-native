@@ -28,6 +28,30 @@ function normalizeAppId(value: string): string {
   return value.trim().toLowerCase();
 }
 
+const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
+
+function safeAppPath(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const value = raw.trim();
+  if (CONTROL_CHARS.test(value)) return null;
+  if (!value.startsWith("/")) return null;
+  if (value.startsWith("//") || value.startsWith("/\\")) return null;
+  if (/^\/[a-z][a-z0-9+.-]*:/i.test(value)) return null;
+  return value;
+}
+
+function appendParamsToPath(
+  path: string,
+  params: Record<string, string | number | boolean> | undefined,
+): string {
+  if (!params || Object.keys(params).length === 0) return path;
+  const url = new URL(path, "http://agent-native.invalid");
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, String(value));
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 function toAccessibleApp(
   agent: DiscoveredAgent,
   settings: DispatchMcpAppAccessSettings,
@@ -115,20 +139,36 @@ export async function askGrantedDispatchMcpApp(
 
 export async function openGrantedDispatchMcpApp(input: {
   app: string;
-  view: string;
+  view?: string;
+  path?: string;
   params?: Record<string, string | number | boolean>;
-}): Promise<{ app: string; view: string; url: string }> {
-  const view = input.view.trim();
-  if (!view) throw new Error("view is required");
+  embed?: boolean;
+  chrome?: "full" | "minimal";
+}): Promise<{
+  app: string;
+  view?: string;
+  path?: string;
+  url: string;
+  embed?: boolean;
+  chrome?: "full" | "minimal";
+}> {
+  const view = input.view?.trim() ?? "";
+  const path = safeAppPath(input.path);
+  if (!view && !path) throw new Error("open_app requires view or path");
   const target = await resolveGrantedDispatchMcpApp(input.app);
-  const relUrl = buildDeepLink({
-    app: target.id,
-    view,
-    params: input.params,
-  });
+  const relUrl = path
+    ? appendParamsToPath(path, input.params)
+    : buildDeepLink({
+        app: target.id,
+        view,
+        params: input.params,
+      });
   return {
     app: target.id,
-    view,
+    ...(view ? { view } : {}),
+    ...(path ? { path } : {}),
     url: `${target.url.replace(/\/+$/, "")}${relUrl}`,
+    ...(input.embed === true ? { embed: true } : {}),
+    ...(input.chrome ? { chrome: input.chrome } : {}),
   };
 }
