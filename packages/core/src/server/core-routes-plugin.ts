@@ -22,6 +22,7 @@ import path from "node:path";
 import { createPollHandler } from "./poll.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createOpenRouteHandler } from "./open-route.js";
+import { createEmbedStartRouteHandler } from "./embed-route.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -312,6 +313,8 @@ export interface CoreRoutesPluginOptions {
   disableAppState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
   disableOpenRoute?: boolean;
+  /** Disable the /_agent-native/embed/start iframe session launcher. */
+  disableEmbedRoute?: boolean;
   /**
    * Disable the /_agent-native/mcp/connect routes (browser Connect page +
    * CLI device-code flow that mints per-user, revocable MCP tokens) and the
@@ -2611,6 +2614,16 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/open`,
         createOpenRouteHandler({ resolveOpenPath: options.resolveOpenPath }),
+      );
+    }
+
+    if (!options.disableEmbedRoute) {
+      // One-time ticket launcher for MCP Apps that embed the full React app.
+      // The ticket is minted by an authenticated MCP tool call and exchanged
+      // here for a short-lived browser session cookie + bearer fallback.
+      getH3App(nitroApp).use(
+        `${P}/embed/start`,
+        createEmbedStartRouteHandler(),
       );
     }
 

@@ -21,7 +21,7 @@ export function useNavigationState() {
   // Sync current route to application state
   useEffect(() => {
     const state: NavigationState = {
-      view: location.pathname.startsWith("/new-app") ? "new-app" : "home",
+      view: viewForPath(location.pathname),
       path: appPath(location.pathname),
     };
 
@@ -68,12 +68,30 @@ export function useNavigationState() {
     const cmd = navCommand as NavigationState;
 
     // Navigate to a specific path or resolve view name to path
-    const path = routerPath(
-      cmd.path || (cmd.view === "new-app" ? "/new-app" : "/"),
-    );
+    const path = routerPath(cmd.path || pathForView(cmd.view));
     navigate(path);
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
+}
+
+function viewForPath(pathname: string): string {
+  if (pathname.startsWith("/extensions")) return "extensions";
+  if (pathname.startsWith("/observability")) return "observability";
+  if (pathname.startsWith("/team")) return "team";
+  return "home";
+}
+
+function pathForView(view?: string): string {
+  switch (view) {
+    case "extensions":
+      return "/extensions";
+    case "observability":
+      return "/observability";
+    case "team":
+      return "/team";
+    default:
+      return "/";
+  }
 }
 
 function routerPath(path: string): string {

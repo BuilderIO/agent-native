@@ -3,10 +3,12 @@
 Brain is a Company Brain template: clean company chat backed by cited
 institutional memory. The Ask route is the primary product surface for humans
 and agents; Sources, Review, Knowledge, Ops, and Settings are support/admin
-surfaces for ingestion, trust, and operations. V1 turns raw captures (Slack
-channel messages, Clips recordings, Granola notes, transcripts, documents, and
-generic text) into reviewed, searchable, SQL-backed knowledge with source
-quotes preserved as evidence.
+surfaces for ingestion, trust, and operations. V1 turns imported captures
+(Slack channel messages, Clips recordings, Granola notes, transcripts,
+documents, and generic text) into reviewed, searchable, SQL-backed knowledge
+with source quotes preserved as evidence. Transcript-style sources are
+sanitized before storage by default so Brain stores the company-relevant
+capture, not the full raw call transcript or provider payload.
 
 Brain is not a full Glean replacement today. Position it honestly as an
 open-source, Glean-shaped foundation: durable company memory first, then a
@@ -39,7 +41,8 @@ broader permission-aware workspace search layer over time.
 ## Data Model
 
 - `brain_sources` — shareable source configuration (`brain-source`)
-- `brain_raw_captures` — raw imported text tied to a source
+- `brain_raw_captures` — imported capture text tied to a source; transcript
+  bodies are pre-sanitized before storage by default
 - `brain_knowledge` — shareable durable knowledge (`brain-knowledge`)
 - `brain_proposals` — shareable review queue (`brain-proposal`)
 - `brain_sync_runs` — connector run history
@@ -61,6 +64,7 @@ JSON is stored in text columns. There is no vector database.
 | `import-capture`                                                                    | Import arbitrary raw text                                                                                                              |
 | `import-transcript`                                                                 | Import meeting transcripts                                                                                                             |
 | `list-captures` / `get-capture`                                                     | Review raw captures by source/status, including distillation queue state                                                               |
+| `resanitize-captures`                                                               | Re-run the pre-storage transcript sanitizer over existing captures after enabling or tightening privacy filters                        |
 | `enqueue-distillation` / `enqueue-captures-distillation`                            | Idempotently queue one capture or a selected batch for distillation                                                                    |
 | `claim-distillation`                                                                | Claim one queued distillation item before a browser or worker hands it to the agent                                                    |
 | `list-distillation-queue` / `retry-distillation`                                    | Inspect queue counts, failed/stale/retryable work, failure reasons, and safely retry one, selected, or all accessible items            |
@@ -82,7 +86,8 @@ When answering company-memory questions:
 1. Call `get-brain-settings` first when current settings are not already in
    context, and apply its effective guidance. The settings control assistant
    name, company name, tone, citation requirements, source policy, default
-   publish tier, redaction, and distillation instructions.
+   publish tier, pre-save capture sanitization, redaction, and distillation
+   instructions.
 2. Start with `search-everything` when it is available. It is the V1.5
    Brain-wide search surface and should return candidate knowledge entries, raw
    captures, and sources the current user can access. Its `federatedCoverage`
@@ -131,6 +136,23 @@ then synthesize-with-boundaries loop.
 - Use `approve-proposal --publishCanonical=true` when a reviewed item should become ambient company context for Dispatch and other apps. Otherwise leave canonical publishing off and use `set-knowledge-canonical` later for an intentional publish/unpublish decision.
 - Redactions are applied before storage. Explicit `redactions` replace matching text with `[redacted]`; settings can also auto-redact email addresses.
 
+## Capture Sanitization Rules
+
+Brain passes this `AGENTS.md` content into the model-based pre-storage
+sanitizer. Keep durable company/product/customer/GTM/technical/process
+information, but strip content that should not be saved in `brain_raw_captures`.
+
+- Recruiting is always sensitive. Remove hiring, candidate evaluation,
+  interview feedback, compensation, references, recruiting pipeline, search
+  firm, offer, and personnel-assessment content even when it mentions product,
+  GTM, strategy, or company context.
+- Remove personal life details, casual small talk, private contact details,
+  secrets, credentials, raw speaker names, and third-party biographical details.
+- Preserve only the company-relevant capture that is safe to review and distill.
+  Do not preserve raw transcript bodies as a fallback.
+- If a capture is mostly recruiting or personal context, keep the sanitized body
+  as `No company-relevant content retained from this capture.`
+
 ## Connector Notes
 
 Slack sources use the scoped `SLACK_BOT_TOKEN` credential and only scan
@@ -168,11 +190,11 @@ blocked, ready to sample, waiting on distillation, waiting on review, waiting on
 retrieval eval, or ready for a narrow expansion. Use the returned
 `nextActions` and `evalQuestions` before enabling broader sync.
 
-In the Sources UI, Slack source cards expose the same safe sequence as
-first-class controls: Test connection, run a safe pilot sample, review captures,
-then approve proposals in the Review queue. Preserve that sequence when adding
-new Slack source affordances; do not make broad sync the primary first-run
-action.
+Slack pilot actions should remain progressively disclosed. Keep the main
+Sources UI focused on configured sources, sync, captures, and tuning; expose
+connection tests, safe samples, and pilot reports through advanced flows or
+agent actions rather than always-visible source-card controls. Do not make broad
+sync the primary first-run action.
 
 After a successful pilot sync, use `list-captures` first to review capture
 inventory without raw bodies. The listing includes each capture's latest
@@ -227,7 +249,10 @@ on that route.
 Granola sources use the scoped `GRANOLA_API_KEY` credential and poll Granola's
 public API for accessible Team-space notes, then fetch each note with its
 transcript. Keep the Granola cursor and sync window in the source cursor/config
-JSON instead of process memory.
+JSON instead of process memory. Granola transcript text, attendees, calendar
+objects, and transcript segments pass through the pre-storage sanitizer before
+`brain_raw_captures` is written; source metadata keeps safe linkage such as
+`sourceUrl`, connector, and sync run ids.
 
 GitHub sources are the first reusable connector proof for Brain. They resolve
 credentials from granted workspace connections first, then fall back to the
@@ -326,7 +351,10 @@ the agent or UI.
 Manual, generic, and Clips sources can still import fixture/exported items
 through `config.transcripts`, `config.sampleTranscripts`, or `config.messages`.
 Each item can be a string or an object with `title`, `content` or `text`, `kind`,
-`capturedAt`, and `metadata`.
+`capturedAt`, and `metadata`. Transcript imports from these paths share the
+same pre-storage sanitization boundary. Set source config
+`sanitizeBeforeStorage: false` only when the user explicitly wants raw transcript
+retention for that source.
 
 ## Demo/Eval
 

@@ -39,3 +39,9 @@ export {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";
+export {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_SESSION_COOKIE,
+  EMBED_START_PATH,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "./embed-auth.js";

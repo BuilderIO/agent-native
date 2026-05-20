@@ -60,6 +60,9 @@ export interface BrainSettings {
   autoRedactEmails: boolean;
   defaultPublishTier: BrainPublishTier;
   distillationInstructions: string;
+  captureSanitizationEnabled?: boolean;
+  captureSanitizationModel?: string;
+  captureSanitizationInstructions?: string;
   connectorPollMinutes: number;
   requireCitations?: boolean;
   autoArchiveResolved?: boolean;
@@ -76,6 +79,10 @@ export const DEFAULT_BRAIN_SETTINGS: BrainSettings = {
   defaultPublishTier: "company",
   distillationInstructions:
     "Distill durable, reusable institutional knowledge. Preserve short direct quotes as evidence.",
+  captureSanitizationEnabled: true,
+  captureSanitizationModel: "",
+  captureSanitizationInstructions:
+    "Keep durable company-relevant information and remove personal, recruiting, hiring, candidate-evaluation, sensitive, or casual content before storage.",
   connectorPollMinutes: 60,
   requireCitations: true,
   autoArchiveResolved: true,
