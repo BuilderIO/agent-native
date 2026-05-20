@@ -120,6 +120,24 @@
   }
 }
 
+.notion-logo-icon {
+  --notion-logo-face: hsl(var(--popover));
+  --notion-logo-mark: hsl(var(--muted-foreground));
+}
+
+.dark .notion-logo-icon {
+  --notion-logo-face: hsl(var(--popover));
+  --notion-logo-mark: hsl(var(--muted-foreground));
+}
+
+.notion-logo-icon-face {
+  fill: var(--notion-logo-face);
+}
+
+.notion-logo-icon-mark {
+  fill: var(--notion-logo-mark);
+}
+
 /* ===== Scrollbar ===== */
 @layer utilities {
   .scrollbar-thin::-webkit-scrollbar {
