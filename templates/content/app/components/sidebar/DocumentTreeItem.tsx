@@ -132,16 +132,6 @@ export function DocumentTreeItem({
                 {canEdit && (
                   <>
                     <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onCreateChild(node.id);
-                      }}
-                    >
-                      <IconPlus size={14} className="mr-2" />
-                      Add sub-page
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
                       disabled={!movement.up}
                       onClick={(e) => {
                         e.stopPropagation();
