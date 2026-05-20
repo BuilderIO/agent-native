@@ -1410,16 +1410,12 @@ async function startNativeFullscreenRecording(
   let cancelPromise: Promise<void> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
   let tickHandle: ReturnType<typeof setInterval> | null = null;
-  // Pause/resume support for the native ScreenCaptureKit path. SCStream
-  // doesn't expose a true pause primitive, so we keep capturing in the
-  // background but record each paused interval (relative to startedAt).
-  // After the recording is uploaded we call `trim-recording` for each
-  // interval — those ranges land in `editsJson.trims` with `excluded:true`,
-  // so playback and export skip them entirely. The user never sees the
-  // paused parts in the final video.
+  // Pause/resume tracking. The Rust side actually stops the SCStream on
+  // pause and starts a new segment on resume; on stop it concatenates
+  // segments via AVFoundation. We keep the JS-side timer in sync so the
+  // toolbar / pill show the right paused state and elapsed time.
   let pausedAt: number | null = null;
   let accumulatedPauseMs = 0;
-  const pausedIntervals: { startMs: number; endMs: number }[] = [];
 
   function emitState() {
     const now = Date.now();
@@ -1432,46 +1428,6 @@ async function startNativeFullscreenRecording(
       paused: pausedAt != null,
       elapsedMs,
     }).catch(() => {});
-  }
-
-  function closeOpenPauseInterval() {
-    if (pausedAt == null) return;
-    const startMs = Math.max(0, pausedAt - startedAt);
-    const endMs = Math.max(startMs, Date.now() - startedAt);
-    if (endMs > startMs) {
-      pausedIntervals.push({ startMs, endMs });
-    }
-    accumulatedPauseMs += Date.now() - pausedAt;
-    pausedAt = null;
-  }
-
-  async function applyPauseTrims(recordingId: string) {
-    if (!recordingId || pausedIntervals.length === 0) return;
-    const url = `${params.serverUrl.replace(/\/+$/, "")}/_agent-native/actions/trim-recording`;
-    for (const interval of pausedIntervals) {
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: buildRetryHeaders("application/json", params.authToken),
-          credentials: "include",
-          body: JSON.stringify({
-            recordingId,
-            startMs: interval.startMs,
-            endMs: interval.endMs,
-          }),
-        });
-        if (!res.ok) {
-          const body = await res.text().catch(() => "");
-          console.warn(
-            "[clips-recorder] trim paused interval failed:",
-            res.status,
-            body.slice(0, 200),
-          );
-        }
-      } catch (err) {
-        console.warn("[clips-recorder] trim paused interval failed:", err);
-      }
-    }
   }
 
   const handle: RecorderHandle = {
@@ -1487,9 +1443,12 @@ async function startNativeFullscreenRecording(
         }
         stateUnlistens.forEach((u) => u());
         stateUnlistens = [];
-        // If the user hits Stop while paused, close out the open interval
-        // so it lands in `pausedIntervals` and gets trimmed below.
-        closeOpenPauseInterval();
+        // If the user hits Stop while paused, account for the open pause
+        // interval so the reported elapsed/duration excludes it.
+        if (pausedAt != null) {
+          accumulatedPauseMs += Date.now() - pausedAt;
+          pausedAt = null;
+        }
 
         if (localOnly) {
           const durationMs = Math.max(0, Date.now() - startedAt);
@@ -1616,10 +1575,6 @@ async function startNativeFullscreenRecording(
             throw err;
           }
 
-          // Apply pause intervals as non-destructive trims so the final
-          // clip skips the paused parts during playback / export.
-          await applyPauseTrims(uploadResult.recordingId);
-
           try {
             await openExternal(
               `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
@@ -1686,12 +1641,29 @@ async function startNativeFullscreenRecording(
   const toolbarUnlistens = await Promise.all([
     listen("clips:recorder-pause", () => {
       if (pausedAt != null) return;
-      pausedAt = Date.now();
-      emitState();
+      const at = Date.now();
+      invoke("native_fullscreen_recording_pause")
+        .then(() => {
+          pausedAt = at;
+          emitState();
+        })
+        .catch((err) => {
+          console.warn("[clips-recorder] native pause failed:", err);
+        });
     }),
     listen("clips:recorder-resume", () => {
-      closeOpenPauseInterval();
-      emitState();
+      if (pausedAt == null) return;
+      invoke("native_fullscreen_recording_resume")
+        .then(() => {
+          if (pausedAt != null) {
+            accumulatedPauseMs += Date.now() - pausedAt;
+            pausedAt = null;
+          }
+          emitState();
+        })
+        .catch((err) => {
+          console.warn("[clips-recorder] native resume failed:", err);
+        });
     }),
     listen("clips:recorder-stop", () => {
       console.log("[clips-recorder] native stop event received");
