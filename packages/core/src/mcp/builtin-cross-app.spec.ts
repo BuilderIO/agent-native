@@ -160,6 +160,17 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(result.embed).toBe(true);
   });
 
+  it("requests the largest full-app MCP App height we support", () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const resource = tools.open_app.mcpApp?.resource;
+    const html =
+      typeof resource?.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "mail" })
+        : resource?.html;
+
+    expect(html).toContain("min-height: 900px");
+  });
+
   it("prefixes direct same-app paths with the configured app base path", async () => {
     process.env.APP_BASE_PATH = "/mail";
     const tools = getBuiltinCrossAppTools(baseConfig());

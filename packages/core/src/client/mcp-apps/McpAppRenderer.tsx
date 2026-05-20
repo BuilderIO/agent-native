@@ -13,7 +13,7 @@ import { agentNativePath } from "../api-path.js";
 import { cn } from "../utils.js";
 
 const DEFAULT_IFRAME_HEIGHT = 360;
-const MAX_IFRAME_HEIGHT = 720;
+const MAX_IFRAME_HEIGHT = 900;
 const SANDBOX_FLAGS = "allow-scripts allow-forms allow-popups";
 
 export interface McpAppRendererProps {

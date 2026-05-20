@@ -20,4 +20,15 @@ describe("embedApp", () => {
     );
     expect(resource.csp?.resourceDomains).toContain("https://esm.sh");
   });
+
+  it("allows full-app embeds to request a 900px canvas", () => {
+    const resource = embedApp({ height: 900 });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "analytics" })
+        : resource.html;
+
+    expect(html).toContain("min-height: 900px");
+    expect(html).toContain("height: 856px");
+  });
 });

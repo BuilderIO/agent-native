@@ -350,6 +350,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
         description: "Render the requested app route inline.",
         iframeTitle: "Agent Native app",
         openLabel: "Open app",
+        height: 900,
       }),
     },
   };
