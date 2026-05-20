@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
@@ -10,10 +10,12 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
-import {
-  designMcpAppResourceMeta,
-  designPreviewMcpAppHtml,
-} from "./_mcp-apps.js";
+
+const MCP_APP_FRAME_DOMAINS = [
+  "https:",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+];
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -103,12 +105,14 @@ export default defineAction({
       ),
   }),
   mcpApp: {
-    resource: {
+    resource: embedApp({
       title: "Design preview",
-      description: "Preview generated Design files inline.",
-      html: designPreviewMcpAppHtml,
-      ...designMcpAppResourceMeta,
-    },
+      description: "Open the generated design in the real Design editor.",
+      iframeTitle: "Agent-Native Design",
+      openLabel: "Open design",
+      frameDomains: MCP_APP_FRAME_DOMAINS,
+      height: 680,
+    }),
   },
   run: async ({
     designId,

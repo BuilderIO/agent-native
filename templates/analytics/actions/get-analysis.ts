@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -6,10 +6,12 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 import { getAnalysis } from "../server/lib/dashboards-store";
-import {
-  analyticsAnalysisMcpAppHtml,
-  analyticsMcpAppResourceMeta,
-} from "./_mcp-apps.js";
+
+const MCP_APP_FRAME_DOMAINS = [
+  "https:",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+];
 
 export default defineAction({
   description: "Get a saved ad-hoc analysis by ID, including its full results.",
@@ -20,12 +22,14 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpApp: {
-    resource: {
+    resource: embedApp({
       title: "Analysis preview",
-      description: "Read the saved Analytics analysis inline.",
-      html: analyticsAnalysisMcpAppHtml,
-      ...analyticsMcpAppResourceMeta,
-    },
+      description: "Open the saved analysis in the real Analytics UI.",
+      iframeTitle: "Agent-Native Analytics",
+      openLabel: "Open analysis",
+      frameDomains: MCP_APP_FRAME_DOMAINS,
+      height: 680,
+    }),
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;

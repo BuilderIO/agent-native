@@ -32,7 +32,7 @@ export function embedApp(
   const openLabel = options.openLabel ?? "Open in app";
   const startToolName = options.startToolName ?? "create_embed_session";
   const embedByDefault = options.embedByDefault !== false;
-  const height = Math.max(320, Math.min(680, options.height ?? 640));
+  const height = Math.max(320, Math.min(900, options.height ?? 900));
 
   return {
     title,

@@ -47,6 +47,7 @@ interface AppAccessMetric {
   name: string;
   path: string;
   status?: "ready" | "pending";
+  statusLabel?: string;
   isDispatch: boolean;
   accessLabel: string;
   accessUsers: number;
@@ -440,7 +441,9 @@ function AppAccessTable({
                       "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
                   )}
                 >
-                  {row.status === "pending" ? "Building" : row.accessLabel}
+                  {row.status === "pending"
+                    ? row.statusLabel || "Builder branch"
+                    : row.accessLabel}
                 </Badge>
               </td>
               <td className="px-2 py-3 text-right tabular-nums">

@@ -102,7 +102,7 @@ Use Agent-Native Analytics to generate a weekly conversion-rate bar chart and sh
 Use Agent-Native Mail to draft a short follow-up email to me, but do not send it.
 ```
 
-In hosts that support MCP Apps, Analytics can render charts and dashboards inline, and Mail can render draft-review UI inline. In hosts that do not render MCP Apps, the same tool call still returns a deep link such as **Open draft in Mail →** or **Open chart in Analytics →**.
+In hosts that support MCP Apps, Analytics can render real dashboard and analysis routes inline, and Mail can render the real compose UI inline for draft review. In hosts that do not render MCP Apps, the same tool call still returns a deep link such as **Open draft in Mail →** or **Open dashboard in Analytics →**.
 
 ## Advanced setup: local agents {#connect}
 
@@ -279,31 +279,36 @@ List/search actions point at a record-focused view the same way — e.g. calenda
 
 ## Authoring: optional MCP Apps UI {#mcp-apps}
 
-For hosts that support the MCP Apps extension, an action can also advertise an inline HTML UI resource with `mcpApp`. This is a progressive enhancement for flows where the external agent should hand the user an interactive surface instead of only text — for example reviewing an email draft, editing a calendar invite, or choosing between generated dashboard variants.
+For hosts that support the MCP Apps extension, an action can also advertise an inline UI resource with `mcpApp`. This is a progressive enhancement for flows where the external agent should hand the user an interactive surface instead of only text — for example reviewing an email draft, editing a calendar invite, or choosing between generated dashboard variants.
+
+Use the real React app with `embedApp()` whenever the user needs UI. The mental model is simple: the action's `link` target is also the MCP App embed target. Expose the operation as a normal action/tool, return a focused deep link with `link`, and add `mcpApp.resource = embedApp(...)` so capable hosts load that same route inline instead of opening a new tab.
+
+That means full-app embeds can do anything the route can do once opened: review or edit an email draft, show a filtered inbox/search, open a calendar event or event draft, load an extension page, inspect a full analytics dashboard or saved analysis, continue a deck in the Slides editor, or open a Design project/editor. Prefer URL/deep-link params and the existing `/_agent-native/open` navigation/app-state bridge over inventing a second state protocol for MCP Apps.
+
+On rare occasions the right target is a focused app route that renders one shared React component instead of the whole app shell. Analytics' `/chart` route is the model: it takes a compact `SqlPanel` payload in the URL and renders the same chart component the dashboard uses. This is still an app embed, not a plain HTML MCP App. Expose or call it through a normal action / `open_app({ path, embed: true })`, keep the URL deterministic, and let `embedApp()` render that route inline.
+
+Do not hand-write one-off plain HTML MCP Apps for product UI; if the action needs a custom surface, add or reuse a real app route/component first and embed that route.
 
 ```ts
+import { embedApp } from "@agent-native/core";
+
 export default defineAction({
   // ...description, schema, run, link...
   mcpApp: {
-    resource: {
+    resource: embedApp({
       title: "Review draft",
-      description: "Review and send the generated email draft.",
-      html: ({ actionName, requestOrigin }) => `<!doctype html>
-        <html><body data-action="${actionName}" data-origin="${requestOrigin}">
-          <main id="app"></main>
-        </body></html>`,
-      csp: { connectDomains: ["https://mail.agent-native.com"] },
-      prefersBorder: true,
-    },
+      description: "Open the generated draft in the real Mail compose UI.",
+      iframeTitle: "Agent-Native Mail",
+      openLabel: "Open in Mail",
+      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
+    }),
   },
 });
 ```
 
 The MCP server advertises extension `io.modelcontextprotocol/ui`, adds `_meta.ui.resourceUri` plus `_meta["ui/resourceUri"]` to `tools/list`, and exposes the HTML through `resources/list` + `resources/read` using MIME `text/html;profile=mcp-app`. The stdio proxy forwards those resource handlers from the live app, so desktop and CLI clients see the same resources as HTTP clients.
 
-Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. Treat `mcpApp.resource.html` like `link`: synchronous, deterministic, and self-contained; declare external origins in `csp`.
-
-For heavyweight authenticated workflows, reuse the real React app instead of rebuilding a plain-HTML mini UI. Core exports `embedApp()` from `@agent-native/core/mcp` and `@agent-native/core`; attach it to an action that already has a `link` builder. The embedded MCP App calls the app-only `create_embed_session` helper, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and loads the target route in an iframe with a short-lived browser session plus a bearer fallback for same-origin fetches. `open_app({ app, path, embed: true })` is the generic escape hatch for routes such as dashboards, filtered inboxes, calendar draft views, and extension pages.
+Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. `embedApp()` uses that link as its launch target, calls the app-only `create_embed_session` helper, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and loads the target route in an iframe with a short-lived browser session plus a bearer fallback for same-origin fetches. `open_app({ app, path, embed: true })` is the generic escape hatch for routes such as full dashboards, filtered inboxes, calendar draft views, analyses, and extension pages, and should be used liberally when the full app is the clearest review/edit surface.
 
 ### The `link` contract {#link-contract}
 

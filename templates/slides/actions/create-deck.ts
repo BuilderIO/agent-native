@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
@@ -14,7 +14,12 @@ import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { getDeckUrl } from "./_app-url.js";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
-import { slidesDeckMcpAppHtml, slidesMcpAppResourceMeta } from "./_mcp-apps.js";
+
+const MCP_APP_FRAME_DOMAINS = [
+  "https:",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+];
 
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
@@ -79,12 +84,14 @@ export default defineAction({
       .describe("Optional design system ID to link to the deck"),
   }),
   mcpApp: {
-    resource: {
+    resource: embedApp({
       title: "Deck preview",
-      description: "Preview a generated slide deck inline.",
-      html: slidesDeckMcpAppHtml,
-      ...slidesMcpAppResourceMeta,
-    },
+      description: "Open the generated deck in the real Slides editor.",
+      iframeTitle: "Agent-Native Slides",
+      openLabel: "Open deck",
+      frameDomains: MCP_APP_FRAME_DOMAINS,
+      height: 680,
+    }),
   },
   http: false,
   run: async ({

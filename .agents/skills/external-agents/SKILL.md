@@ -197,25 +197,50 @@ the DB, read app-state, or call other actions.
 ### 2a. Optional MCP Apps UI
 
 For hosts that support the MCP Apps extension, an action can also advertise an
-inline HTML UI resource with `mcpApp`. This is a progressive enhancement for
-flows where the external agent should hand the user an interactive surface
-instead of only text — for example reviewing an email draft, editing a calendar
-invite, or choosing between generated dashboard variants.
+inline UI resource with `mcpApp`. This is a progressive enhancement for flows
+where the external agent should hand the user an interactive surface instead of
+only text — for example reviewing an email draft, editing a calendar invite, or
+choosing between generated dashboard variants.
+
+Use the real React app with `embedApp()` whenever the user needs UI. The mental
+model is simple: the action's `link` target is also the MCP App embed target.
+Expose the operation as a normal action/tool, return a focused deep link with
+`link`, and add `mcpApp.resource = embedApp(...)` so capable hosts load that
+same route inline instead of opening a new tab.
+
+That means full-app embeds can do anything the route can do once opened:
+review or edit an email draft, show a filtered inbox/search, open a calendar
+event or event draft, load an extension page, inspect a full analytics
+dashboard or saved analysis, continue a deck in the Slides editor, or open a
+Design project/editor. Prefer URL/deep-link params and the existing
+`/_agent-native/open` navigation/app-state bridge over inventing a second
+state protocol for MCP Apps.
+
+On rare occasions the right target is a focused app route that renders one
+shared React component instead of the whole app shell. Analytics' `/chart`
+route is the model: it takes a compact `SqlPanel` payload in the URL and
+renders the same chart component the dashboard uses. This is still an app
+embed, not a plain HTML MCP App. Expose or call it through a normal action /
+`open_app({ path, embed: true })`, keep the URL deterministic, and let
+`embedApp()` render that route inline.
+
+Do not hand-write one-off plain HTML MCP Apps for product UI; if the action
+needs a custom surface, add or reuse a real app route/component first and embed
+that route.
 
 ```ts
+import { embedApp } from "@agent-native/core";
+
 export default defineAction({
   // ...schema, run, link...
   mcpApp: {
-    resource: {
+    resource: embedApp({
       title: "Review draft",
-      description: "Review and send the generated email draft.",
-      html: ({ actionName, requestOrigin }) => `<!doctype html>
-        <html><body data-action="${actionName}" data-origin="${requestOrigin}">
-          <main id="app"></main>
-        </body></html>`,
-      csp: { connectDomains: ["https://mail.agent-native.com"] },
-      prefersBorder: true,
-    },
+      description: "Open the generated draft in the real Mail compose UI.",
+      iframeTitle: "Agent-Native Mail",
+      openLabel: "Open in Mail",
+      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
+    }),
   },
 });
 ```
@@ -229,19 +254,13 @@ resources as HTTP clients.
 
 Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients,
 older hosts, and any host that does not render MCP Apps will ignore the UI
-metadata and still need the "Open in … →" link. Treat `mcpApp.resource.html`
-like `link`: synchronous, deterministic, and self-contained; declare external
-origins in `csp`.
-
-For heavyweight authenticated workflows, prefer reusing the real React app
-instead of rebuilding a mini UI in plain HTML. Core exports `embedApp()` from
-`@agent-native/core/mcp` and `@agent-native/core`; attach it to an action that
-already has a `link` builder. The MCP App calls the app-only
-`create_embed_session` helper, exchanges a one-time SQL ticket at
-`/_agent-native/embed/start`, and loads the target route in an iframe with a
-short-lived browser session. `open_app({ app, path, embed: true })` is the
-generic escape hatch for routes like dashboards, filtered inboxes, calendar
-drafts, or extension pages.
+metadata and still need the "Open in … →" link. `embedApp()` uses that link as
+its launch target, calls the app-only `create_embed_session` helper, exchanges
+a one-time SQL ticket at `/_agent-native/embed/start`, and loads the target
+route in an iframe with a short-lived browser session. `open_app({ app, path,
+embed: true })` is the generic escape hatch for routes like full dashboards,
+filtered inboxes, calendar drafts, analyses, or extension pages, and should be
+used liberally when the full app is the clearest review/edit surface.
 
 Compatibility target: build to the standard once, not per-client shims. MCP
 Apps-capable hosts should include Claude/Claude Desktop/Claude Code, ChatGPT
@@ -333,13 +352,14 @@ connect or present a token rather than assuming the action is missing.
 - Do add `mcpApp` when a UI-capable MCP host should render an inline review or
   edit surface, while keeping the `link` fallback.
 - Do use `embedApp()` / `open_app({ embed: true })` when the right UI is the
-  existing React app at a specific route.
+  existing React app at a specific route, including full app routes and focused
+  component routes like an Analytics chart embed.
 - Do build the URL with `buildDeepLink(...)` — it is the single source of truth
   for the open-route format.
 - Do keep `link` pure and synchronous; return `null` when there's nothing to
   open.
-- Do keep MCP App HTML synchronous/self-contained and declare external origins
-  in `csp`.
+- Do keep `link` and `mcpApp` metadata pure and synchronous; use `embedApp()`
+  so the user sees the shared React UI.
 - Do make external-agent read/ingest actions GET + `readOnly` + `publicAgent`,
   and read live (Yjs) state, not the stale DB column.
 - Do let the open route resolve the browser session; pass record ids as deep-
@@ -353,6 +373,8 @@ connect or present a token rather than assuming the action is missing.
   `buildDeepLink`.
 - Don't do I/O, awaits, DB reads, or app-state reads inside a `link` builder.
 - Don't replace deep links with MCP Apps; non-UI clients still need the link.
+- Don't hand-write product UI in `mcpApp.resource.html`; use a real React
+  route/component and embed it with `embedApp()`.
 - Don't scope the `navigate` write to the agent token, or pass privileged
   state through the deep link — it's a pure pointer.
 - Don't invent a new navigation mechanism; bridge to the existing

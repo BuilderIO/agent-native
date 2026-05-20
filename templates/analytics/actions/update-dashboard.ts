@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -14,10 +14,12 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
-import {
-  analyticsDashboardMcpAppHtml,
-  analyticsMcpAppResourceMeta,
-} from "./_mcp-apps.js";
+
+const MCP_APP_FRAME_DOMAINS = [
+  "https:",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+];
 
 /**
  * Same shape as the server-side validator in `server/handlers/sql-dashboards.ts`.
@@ -442,12 +444,14 @@ export default defineAction({
   }),
   http: false,
   mcpApp: {
-    resource: {
+    resource: embedApp({
       title: "Dashboard preview",
-      description: "Preview the updated Analytics dashboard inline.",
-      html: analyticsDashboardMcpAppHtml,
-      ...analyticsMcpAppResourceMeta,
-    },
+      description: "Open the updated dashboard in the real Analytics UI.",
+      iframeTitle: "Agent-Native Analytics",
+      openLabel: "Open dashboard",
+      frameDomains: MCP_APP_FRAME_DOMAINS,
+      height: 680,
+    }),
   },
   run: async (args) => {
     if (!args.ops && !args.config) {

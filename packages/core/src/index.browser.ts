@@ -40,3 +40,8 @@ export {
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
+export {
+  embedApp,
+  MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+  type EmbedAppOptions,
+} from "./mcp/embed-app.js";

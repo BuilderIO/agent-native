@@ -282,6 +282,48 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
+  it("synthesizes interrupted results for replayed tool calls without results", () => {
+    expect(
+      structuredHistoryToEngineMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "history_tc_1",
+              toolName: "chat-history",
+              args: { action: "search" },
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "history_tc_1",
+            name: "chat-history",
+            input: { action: "search" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "history_tc_1",
+            toolName: "chat-history",
+            toolInput: '{"action":"search"}',
+            content: "Interrupted before this tool returned a result.",
+          },
+        ],
+      },
+    ]);
+  });
+
   it("normalizes structured chat history with tool calls and results", () => {
     expect(
       structuredHistoryToEngineMessages([
