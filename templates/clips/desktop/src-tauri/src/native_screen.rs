@@ -37,9 +37,19 @@ const THUMBNAIL_MAX_BYTES: u64 = 2 * 1024 * 1024;
 const THUMBNAIL_WIDTH: &str = "1280";
 const SIPS_PATH: &str = "/usr/bin/sips";
 
-#[derive(Default)]
 pub struct NativeFullscreenRecordingState {
     inner: Mutex<Option<NativeFullscreenSession>>,
+    /// Paths to fully-finalized segment files from previous pause cycles.
+    completed_segments: Mutex<Vec<PathBuf>>,
+}
+
+impl Default for NativeFullscreenRecordingState {
+    fn default() -> Self {
+        Self {
+            inner: Mutex::new(None),
+            completed_segments: Mutex::new(Vec::new()),
+        }
+    }
 }
 
 struct NativeFullscreenSession {
@@ -49,6 +59,14 @@ struct NativeFullscreenSession {
     started_at: Instant,
     width: Option<u32>,
     height: Option<u32>,
+    /// True when paused: the recording output has been removed from the stream
+    /// but the next segment's output has not been added yet. While paused,
+    /// `path` is a prepared destination that hasn't been written to yet.
+    is_paused: bool,
+    /// Total milliseconds spent in paused state so far.
+    accumulated_pause_ms: u128,
+    /// Instant when the current pause began; None while actively recording.
+    paused_at: Option<Instant>,
 }
 
 enum NativeFullscreenBackend {
@@ -341,14 +359,43 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     }
     .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
 
+    let completed_segments: Vec<PathBuf> = {
+        let mut segs = state.completed_segments.lock().map_err(|e| e.to_string())?;
+        segs.drain(..).collect()
+    };
+
+    // Actual recording duration excluding all paused intervals.
+    let current_pause_ms =
+        session.paused_at.as_ref().map_or(0, |pa| pa.elapsed().as_millis());
+    let duration_ms = session
+        .started_at
+        .elapsed()
+        .as_millis()
+        .saturating_sub(session.accumulated_pause_ms)
+        .saturating_sub(current_pause_ms);
+
     // Try to finalize the ScreenCaptureKit stream, but don't early-return on
     // failure: the underlying MP4 file is already on disk after stop_capture(),
     // and ScreenCaptureKit's StreamError("invalid parameter") on
     // remove_recording_output occasionally fires even though the file is
     // playable. Persist the recovery metadata first so a finalize failure
     // doesn't orphan the file — pending-uploads can then retry it.
-    let stop_outcome = stop_native_recording(&mut session.backend, true);
-    let duration_ms = session.started_at.elapsed().as_millis();
+    //
+    // When paused the recording output was already removed; only stop the stream.
+    let stop_outcome = if session.is_paused {
+        #[cfg(target_os = "macos")]
+        if let NativeFullscreenBackend::ScreenCaptureKit { stream, .. } = &mut session.backend {
+            let _ = stream.stop_capture();
+        }
+        Ok(())
+    } else {
+        stop_native_recording(&mut session.backend, true)
+    };
+
+    // Collect all segments into a single file (concat if paused during recording).
+    let current_path = if session.is_paused { None } else { Some(session.path.clone()) };
+    session.path = collect_and_merge_segments(completed_segments, current_path);
+
     let mut saved = saved_recording_from_session(
         &session,
         &server_url,
@@ -409,13 +456,37 @@ pub async fn native_fullscreen_recording_stop_and_save(
     }
     .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
 
-    let stop_outcome = stop_native_recording(&mut session.backend, true);
-    let duration_ms = session.started_at.elapsed().as_millis();
+    let completed_segments: Vec<PathBuf> = {
+        let mut segs = state.completed_segments.lock().map_err(|e| e.to_string())?;
+        segs.drain(..).collect()
+    };
+
+    let current_pause_ms =
+        session.paused_at.as_ref().map_or(0, |pa| pa.elapsed().as_millis());
+    let duration_ms = session
+        .started_at
+        .elapsed()
+        .as_millis()
+        .saturating_sub(session.accumulated_pause_ms)
+        .saturating_sub(current_pause_ms);
+
+    let stop_outcome = if session.is_paused {
+        #[cfg(target_os = "macos")]
+        if let NativeFullscreenBackend::ScreenCaptureKit { stream, .. } = &mut session.backend {
+            let _ = stream.stop_capture();
+        }
+        Ok(())
+    } else {
+        stop_native_recording(&mut session.backend, true)
+    };
     if let Err(err) = &stop_outcome {
         eprintln!(
             "[clips-tray] native local recording stop reported an error; attempting to save file anyway: {err}"
         );
     }
+
+    let current_path = if session.is_paused { None } else { Some(session.path.clone()) };
+    session.path = collect_and_merge_segments(completed_segments, current_path);
 
     save_native_recording_to_local_export(&app, &session, &folder_name, &file_role, duration_ms)
 }
@@ -454,10 +525,189 @@ pub async fn native_fullscreen_recording_cancel(
         guard.take()
     };
     if let Some(mut session) = session {
-        let _ = stop_native_recording(&mut session.backend, false);
-        let _ = std::fs::remove_file(session.path);
+        // When paused the recording output was already removed from the stream;
+        // just stop stream capture without trying to remove an unattached output.
+        #[cfg(target_os = "macos")]
+        if session.is_paused {
+            if let NativeFullscreenBackend::ScreenCaptureKit { stream, .. } = &mut session.backend {
+                let _ = stream.stop_capture();
+            }
+        } else {
+            let _ = stop_native_recording(&mut session.backend, false);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = stop_native_recording(&mut session.backend, false);
+        }
+        let _ = std::fs::remove_file(&session.path);
+    }
+    // Clean up any completed segments from previous pause cycles.
+    if let Ok(mut segs) = state.completed_segments.lock() {
+        for seg_path in segs.drain(..) {
+            let _ = std::fs::remove_file(seg_path);
+        }
     }
     Ok(())
+}
+
+/// Pause the native full-screen recording: finalize the current segment file,
+/// then prepare a fresh recording output for the next segment. The SCStream
+/// keeps running so resume is instant (no permission prompt, no delay).
+/// The recording output is only re-attached on `native_fullscreen_recording_resume`.
+#[tauri::command]
+pub async fn native_fullscreen_recording_pause(
+    state: State<'_, NativeFullscreenRecordingState>,
+) -> Result<(), String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = state;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut session = {
+            let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+            match guard.take() {
+                Some(s) => s,
+                None => return Ok(()),
+            }
+        };
+
+        if session.is_paused {
+            let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+            *guard = Some(session);
+            return Ok(());
+        }
+
+        match &session.backend {
+            NativeFullscreenBackend::ScreenCaptureKit { .. } => {}
+            NativeFullscreenBackend::Screencapture { .. } => {
+                let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+                *guard = Some(session);
+                return Err(
+                    "Pause is not supported in screencapture fallback mode.".into(),
+                );
+            }
+        }
+
+        let (stream, old_recording, old_finish) = match session.backend {
+            NativeFullscreenBackend::ScreenCaptureKit { stream, recording, finish } => {
+                (stream, recording, finish)
+            }
+            _ => unreachable!(),
+        };
+
+        // Remove recording output — triggers async MP4 finalization.
+        let remove_result = stream
+            .remove_recording_output(&old_recording)
+            .map_err(|e| format!("pause: remove_recording_output failed: {e:?}"));
+        let remove_result = match remove_result {
+            Ok(v) => Ok(v),
+            Err(first_err) => {
+                std::thread::sleep(Duration::from_millis(150));
+                stream.remove_recording_output(&old_recording).map_err(|e| {
+                    format!("pause: remove_recording_output retry: {e:?}; first: {first_err}")
+                })
+            }
+        };
+
+        // Wait for the MP4 writer to flush before we move on.
+        if remove_result.is_ok() {
+            let outcome = old_finish.wait(SCK_FINALIZE_TIMEOUT);
+            if outcome.is_none() {
+                eprintln!(
+                    "[clips-tray] pause: finalize callback did not fire within {}s",
+                    SCK_FINALIZE_TIMEOUT.as_secs()
+                );
+            }
+        } else {
+            eprintln!(
+                "[clips-tray] pause: segment may not be properly finalized: {:?}",
+                remove_result
+            );
+        }
+
+        // Accumulate this pause interval's start.
+        session.paused_at = Some(Instant::now());
+
+        // Push the completed segment path.
+        {
+            let mut segs = state.completed_segments.lock().map_err(|e| e.to_string())?;
+            segs.push(session.path.clone());
+        }
+
+        // Prepare a new path and recording output for when the user resumes.
+        let seg_index = {
+            let segs = state.completed_segments.lock().map_err(|e| e.to_string())?;
+            segs.len()
+        };
+        let new_path = segment_path_for_index(&session.path, seg_index);
+        let _ = std::fs::remove_file(&new_path);
+
+        let new_finish = Arc::new(RecordingFinish::new());
+        let new_config = SCRecordingOutputConfiguration::new()
+            .with_output_url(&new_path)
+            .with_video_codec(SCRecordingOutputCodec::H264)
+            .with_output_file_type(SCRecordingOutputFileType::MP4);
+        let new_recording =
+            SCRecordingOutput::new_with_delegate(&new_config, FinishDelegate {
+                finish: Arc::clone(&new_finish),
+            })
+            .ok_or_else(|| {
+                "Could not create recording output for the next segment.".to_string()
+            })?;
+
+        session.backend = NativeFullscreenBackend::ScreenCaptureKit {
+            stream,
+            recording: new_recording,
+            finish: new_finish,
+        };
+        session.path = new_path;
+        session.is_paused = true;
+
+        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+        *guard = Some(session);
+        Ok(())
+    }
+}
+
+/// Resume a paused native full-screen recording by attaching the prepared
+/// recording output back to the still-running SCStream.
+#[tauri::command]
+pub async fn native_fullscreen_recording_resume(
+    state: State<'_, NativeFullscreenRecordingState>,
+) -> Result<(), String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = state;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+        if let Some(session) = guard.as_mut() {
+            if !session.is_paused {
+                return Ok(());
+            }
+            match &session.backend {
+                NativeFullscreenBackend::ScreenCaptureKit { stream, recording, .. } => {
+                    stream
+                        .add_recording_output(recording)
+                        .map_err(|e| format!("resume: add_recording_output failed: {e:?}"))?;
+                }
+                NativeFullscreenBackend::Screencapture { .. } => {
+                    return Err("Resume not supported in screencapture fallback mode.".into());
+                }
+            }
+            if let Some(pa) = session.paused_at.take() {
+                session.accumulated_pause_ms += pa.elapsed().as_millis();
+            }
+            session.is_paused = false;
+        }
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -863,6 +1113,137 @@ fn saved_recording_from_session(
     })
 }
 
+/// Derive the path for segment N of a recording, given the base path for segment 0.
+/// E.g. `/tmp/clips-fullscreen-abc-1234.mp4` → `/tmp/clips-fullscreen-abc-1234_seg2.mp4`
+fn segment_path_for_index(base: &Path, index: usize) -> PathBuf {
+    let stem = base
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("recording");
+    let ext = base
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("mp4");
+    base.with_file_name(format!("{stem}_seg{index}.{ext}"))
+}
+
+/// Look for ffmpeg in common macOS install locations.
+fn find_ffmpeg() -> Option<std::ffi::OsString> {
+    for candidate in &[
+        "/opt/homebrew/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "/usr/bin/ffmpeg",
+    ] {
+        if std::path::Path::new(candidate).exists() {
+            return Some(std::ffi::OsString::from(candidate));
+        }
+    }
+    // Try PATH as a last resort.
+    if let Ok(output) = Command::new("which").arg("ffmpeg").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Some(std::ffi::OsString::from(path));
+            }
+        }
+    }
+    None
+}
+
+/// Concatenate multiple video segment files into one using ffmpeg's concat demuxer.
+/// Returns an error if ffmpeg is unavailable or exits non-zero.
+fn concat_with_ffmpeg(segments: &[PathBuf], output: &Path) -> Result<(), String> {
+    let ffmpeg = find_ffmpeg().ok_or_else(|| {
+        "ffmpeg not found. Install it with `brew install ffmpeg` to enable pause in recordings."
+            .to_string()
+    })?;
+
+    // Write a temporary concat list file next to the output.
+    let list_path = output.with_extension("concat-list.txt");
+    let list_content: String = segments
+        .iter()
+        .map(|p| format!("file '{}'\n", p.to_string_lossy().replace('\'', "\\'")))
+        .collect();
+    std::fs::write(&list_path, list_content)
+        .map_err(|e| format!("concat list write failed: {e}"))?;
+
+    let status = Command::new(&ffmpeg)
+        .args([
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            list_path.to_str().unwrap_or(""),
+            "-c",
+            "copy",
+            output.to_str().unwrap_or(""),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("ffmpeg exec failed: {e}"))?;
+
+    let _ = std::fs::remove_file(&list_path);
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("ffmpeg exited with status {status}"))
+    }
+}
+
+/// Collect all completed segments and the (optional) current recording into a
+/// single file. When there is exactly one segment no work is done. When there
+/// are multiple segments they are concatenated with ffmpeg; if that fails the
+/// first segment is returned so the recording is not completely lost.
+fn collect_and_merge_segments(
+    mut completed: Vec<PathBuf>,
+    current: Option<PathBuf>,
+) -> PathBuf {
+    if let Some(ref p) = current {
+        completed.push(p.clone());
+    }
+
+    match completed.len() {
+        0 => current.unwrap_or_else(|| PathBuf::from("")),
+        1 => completed.remove(0),
+        _ => {
+            // Use the last segment's path as a base for the concat output name.
+            let base = completed.last().cloned().unwrap();
+            let stem = base
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("recording");
+            let ext = base.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
+            let concat_path = base.with_file_name(format!("{stem}-merged.{ext}"));
+            let _ = std::fs::remove_file(&concat_path);
+
+            match concat_with_ffmpeg(&completed, &concat_path) {
+                Ok(()) => {
+                    // Clean up the original segments now that the merged file is ready.
+                    for seg in &completed {
+                        let _ = std::fs::remove_file(seg);
+                    }
+                    concat_path
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[clips-tray] segment concat failed ({err}); uploading first segment only"
+                    );
+                    // Return the first (largest) segment so the user doesn't lose everything.
+                    for seg in completed.iter().skip(1) {
+                        let _ = std::fs::remove_file(seg);
+                    }
+                    completed.into_iter().next().unwrap()
+                }
+            }
+        }
+    }
+}
+
 fn write_saved_recording_metadata(
     app: &AppHandle,
     saved: &SavedNativeRecording,
@@ -993,6 +1374,9 @@ fn start_screencapturekit_recording(
         started_at: Instant::now(),
         width: Some(width).or(fallback_width),
         height: Some(height).or(fallback_height),
+        is_paused: false,
+        accumulated_pause_ms: 0,
+        paused_at: None,
     })
 }
 
@@ -1048,6 +1432,9 @@ fn start_screencapture_recording(
         started_at: Instant::now(),
         width,
         height,
+        is_paused: false,
+        accumulated_pause_ms: 0,
+        paused_at: None,
     })
 }
 

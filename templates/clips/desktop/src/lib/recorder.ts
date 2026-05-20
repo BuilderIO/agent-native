@@ -1410,12 +1410,17 @@ async function startNativeFullscreenRecording(
   let cancelPromise: Promise<void> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
   let tickHandle: ReturnType<typeof setInterval> | null = null;
+  let pausedAt: number | null = null;
+  let accumulatedPauseMs = 0;
 
-  function emitState() {
-    emit("clips:recorder-state", {
-      paused: false,
-      elapsedMs: Date.now() - startedAt,
-    }).catch(() => {});
+  function emitState(paused = pausedAt != null) {
+    const now = Date.now();
+    const pausedNowMs = paused && pausedAt ? now - pausedAt : 0;
+    const elapsedMs = Math.max(
+      0,
+      now - startedAt - accumulatedPauseMs - pausedNowMs,
+    );
+    emit("clips:recorder-state", { paused, elapsedMs }).catch(() => {});
   }
 
   const handle: RecorderHandle = {
@@ -1622,10 +1627,27 @@ async function startNativeFullscreenRecording(
 
   const toolbarUnlistens = await Promise.all([
     listen("clips:recorder-pause", () => {
-      emitState();
+      if (pausedAt != null) return;
+      invoke("native_fullscreen_recording_pause")
+        .then(() => {
+          pausedAt = Date.now();
+          emitState(true);
+        })
+        .catch((err) => {
+          console.warn("[clips-recorder] native pause failed:", err);
+        });
     }),
     listen("clips:recorder-resume", () => {
-      emitState();
+      if (pausedAt == null) return;
+      invoke("native_fullscreen_recording_resume")
+        .then(() => {
+          if (pausedAt) accumulatedPauseMs += Date.now() - pausedAt;
+          pausedAt = null;
+          emitState(false);
+        })
+        .catch((err) => {
+          console.warn("[clips-recorder] native resume failed:", err);
+        });
     }),
     listen("clips:recorder-stop", () => {
       console.log("[clips-recorder] native stop event received");
@@ -1641,7 +1663,7 @@ async function startNativeFullscreenRecording(
     }),
   ]);
   stateUnlistens = toolbarUnlistens;
-  tickHandle = setInterval(emitState, 500);
+  tickHandle = setInterval(() => emitState(), 500);
   recordingStartCue.play();
   emit("clips:toolbar-enabled", true).catch(() => {});
   emitState();
