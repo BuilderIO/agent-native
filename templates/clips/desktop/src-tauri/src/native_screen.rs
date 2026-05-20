@@ -1173,78 +1173,100 @@ fn segment_path_for_index(base: &Path, index: usize) -> PathBuf {
     base.with_file_name(format!("{stem}_seg{index}.{ext}"))
 }
 
-/// Look for ffmpeg in common macOS install locations.
-fn find_ffmpeg() -> Option<std::ffi::OsString> {
-    for candidate in &[
-        "/opt/homebrew/bin/ffmpeg",
-        "/usr/local/bin/ffmpeg",
-        "/usr/bin/ffmpeg",
-    ] {
-        if std::path::Path::new(candidate).exists() {
-            return Some(std::ffi::OsString::from(candidate));
+/// Merge multiple H.264/MP4 segment files into a single output file using
+/// Apple's AVFoundation framework — no external tools required.
+///
+/// Uses AVMutableComposition to sequence the segments and AVAssetExportSession
+/// with the passthrough preset (no re-encoding) to write the merged file.
+/// This is equivalent to `ffmpeg -f concat -c copy` but uses only built-in
+/// macOS APIs available on every Mac running macOS 15+.
+#[cfg(target_os = "macos")]
+fn concat_with_avfoundation(segments: &[PathBuf], output: &Path) -> Result<(), String> {
+    use block2::RcBlock;
+    use objc2_av_foundation::{AVAssetExportSession, AVAssetExportSessionStatus, AVMutableComposition, AVURLAsset};
+    use objc2_core_media::{CMTime, CMTimeRange};
+    use objc2_foundation::{NSString, NSURL};
+    use std::sync::mpsc;
+
+    // A valid CMTime at position zero (value=0, timescale=600).
+    let zero = unsafe { CMTime::new(0, 600) };
+
+    let composition = unsafe { AVMutableComposition::new() };
+    let mut cursor = zero;
+
+    for seg in segments {
+        let path_str = seg.to_str().ok_or("segment path is not valid UTF-8")?;
+        let url = unsafe {
+            let ns_path = NSString::from_str(path_str);
+            NSURL::fileURLWithPath(&ns_path)
+        };
+
+        // Load the segment as an AVURLAsset and read its duration synchronously.
+        // Synchronous property access is reliable for local files on macOS.
+        let asset = unsafe { AVURLAsset::URLAssetWithURL_options(&url, None) };
+        let duration = unsafe { asset.duration() };
+
+        // insertTimeRange:ofAsset:atTime:error: appends all tracks from the
+        // source asset into the composition in one call.
+        let seg_range = CMTimeRange { start: zero, duration };
+        unsafe {
+            composition
+                .insertTimeRange_ofAsset_atTime_error(seg_range, &*asset, cursor)
+                .map_err(|e| format!("insertTimeRange failed: {e:?}"))?;
         }
+
+        cursor = unsafe { cursor.add(duration) };
     }
-    // Try PATH as a last resort.
-    if let Ok(output) = Command::new("which").arg("ffmpeg").output() {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Some(std::ffi::OsString::from(path));
-            }
-        }
+
+    // "AVAssetExportPresetPassthrough" is the literal NSString value of the
+    // constant — no re-encoding; only the container is rebuilt.
+    let preset = NSString::from_str("AVAssetExportPresetPassthrough");
+    let exporter = unsafe {
+        // exportSessionWithAsset:presetName: accepts AVAsset; deref through
+        // Retained<AVMutableComposition> -> AVMutableComposition -> AVComposition -> AVAsset.
+        AVAssetExportSession::exportSessionWithAsset_presetName(&***composition, &preset)
     }
-    None
-}
+    .ok_or("could not create AVAssetExportSession — composition may be empty")?;
 
-/// Concatenate multiple video segment files into one using ffmpeg's concat demuxer.
-/// Returns an error if ffmpeg is unavailable or exits non-zero.
-fn concat_with_ffmpeg(segments: &[PathBuf], output: &Path) -> Result<(), String> {
-    let ffmpeg = find_ffmpeg().ok_or_else(|| {
-        "ffmpeg not found. Install it with `brew install ffmpeg` to enable pause in recordings."
-            .to_string()
-    })?;
+    let output_url = unsafe {
+        let ns_path = NSString::from_str(
+            output.to_str().ok_or("output path is not valid UTF-8")?,
+        );
+        NSURL::fileURLWithPath(&ns_path)
+    };
 
-    // Write a temporary concat list file next to the output.
-    let list_path = output.with_extension("concat-list.txt");
-    let list_content: String = segments
-        .iter()
-        .map(|p| format!("file '{}'\n", p.to_string_lossy().replace('\'', "\\'")))
-        .collect();
-    std::fs::write(&list_path, list_content)
-        .map_err(|e| format!("concat list write failed: {e}"))?;
+    unsafe {
+        exporter.setOutputURL(Some(&output_url));
+        // outputFileType nil → AVAssetExportSession infers from URL extension (.mp4).
+    }
 
-    let status = Command::new(&ffmpeg)
-        .args([
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            list_path.to_str().unwrap_or(""),
-            "-c",
-            "copy",
-            output.to_str().unwrap_or(""),
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|e| format!("ffmpeg exec failed: {e}"))?;
+    // Wait for the async export using a channel; avoid capturing the exporter
+    // in the block so we don't need AVAssetExportSession to be Send.
+    let (tx, rx) = mpsc::channel::<()>();
+    let block = RcBlock::new(move || {
+        let _ = tx.send(());
+    });
+    unsafe { exporter.exportAsynchronouslyWithCompletionHandler(&*block) };
+    rx.recv().map_err(|_| "AVAssetExportSession: channel closed before completion")?;
 
-    let _ = std::fs::remove_file(&list_path);
-
-    if status.success() {
+    let status = unsafe { exporter.status() };
+    if status == AVAssetExportSessionStatus::Completed {
         Ok(())
     } else {
-        Err(format!("ffmpeg exited with status {status}"))
+        let err_msg = unsafe {
+            exporter
+                .error()
+                .map(|e| format!("{e:?}"))
+                .unwrap_or_else(|| "unknown error".to_string())
+        };
+        Err(format!("AVAssetExportSession failed (status={status:?}): {err_msg}"))
     }
 }
 
 /// Collect all completed segments and the (optional) current recording into a
 /// single file. When there is exactly one segment no work is done. When there
-/// are multiple segments they are concatenated with ffmpeg; if that fails the
-/// first segment is returned so the recording is not completely lost.
+/// are multiple segments they are merged with AVFoundation (no re-encoding).
+/// If the merge fails the first segment is returned so the recording is not lost.
 fn collect_and_merge_segments(
     mut completed: Vec<PathBuf>,
     current: Option<PathBuf>,
@@ -1257,32 +1279,29 @@ fn collect_and_merge_segments(
         0 => current.unwrap_or_else(|| PathBuf::from("")),
         1 => completed.remove(0),
         _ => {
-            // Use the last segment's path as a base for the concat output name.
             let base = completed.last().cloned().unwrap();
             let stem = base
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("recording");
             let ext = base.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
-            let concat_path = base.with_file_name(format!("{stem}-merged.{ext}"));
-            let _ = std::fs::remove_file(&concat_path);
+            let merged_path = base.with_file_name(format!("{stem}-merged.{ext}"));
+            let _ = std::fs::remove_file(&merged_path);
 
-            match concat_with_ffmpeg(&completed, &concat_path) {
+            #[cfg(target_os = "macos")]
+            let result = concat_with_avfoundation(&completed, &merged_path);
+            #[cfg(not(target_os = "macos"))]
+            let result: Result<(), String> = Err("segment merge is macOS-only".into());
+
+            match result {
                 Ok(()) => {
-                    // Clean up the original segments now that the merged file is ready.
                     for seg in &completed {
                         let _ = std::fs::remove_file(seg);
                     }
-                    concat_path
+                    merged_path
                 }
                 Err(err) => {
-                    eprintln!(
-                        "[clips-tray] segment concat failed ({err}); uploading first segment only. \
-                        Remaining segments are preserved on disk — install ffmpeg (`brew install ffmpeg`) \
-                        to enable automatic concat on future recordings."
-                    );
-                    // Return the first segment; intentionally leave the others on disk
-                    // so the user does not lose the post-pause content.
+                    eprintln!("[clips-tray] segment merge failed ({err}); using first segment only.");
                     completed.into_iter().next().unwrap()
                 }
             }

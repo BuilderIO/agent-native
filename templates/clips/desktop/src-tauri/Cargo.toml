@@ -110,6 +110,10 @@ screencapturekit = { version = "2.0.0", features = ["macos_15_0"] }
 # AudioBufferList type so we can hand SCK's CMSampleBuffer audio bytes to
 # AVAudioPCMBuffer for the speech recognizer.
 objc2-core-audio-types = "0.3"
+# AVMutableComposition + AVAssetExportSession for zero-dependency video segment
+# merging after pause/resume (replaces the optional ffmpeg dependency).
+objc2-av-foundation = { version = "0.3.2", features = ["objc2-core-media"] }
+objc2-core-media = { version = "0.3.2", features = ["CMTime", "CMTimeRange"] }
 # NOTE: We hand-roll the few EventKit selectors we need via raw `objc2`
 # msg_send! in `eventkit.rs` rather than depending on the `objc2-event-kit`
 # crate. Its API surface drifts between minor 0.3.x releases (and not
