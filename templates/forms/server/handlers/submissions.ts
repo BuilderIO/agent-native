@@ -57,19 +57,18 @@ function cleanMetaText(value: unknown): string | null {
 }
 
 function cleanChatSessionIds(value: unknown): string[] {
-  const values = Array.isArray(value) ? [...value] : [value];
   const ids: string[] = [];
-  for (let i = 0; i < values.length; i += 1) {
-    const item = values[i];
+  const visit = (item: unknown) => {
+    if (ids.length >= MAX_CHAT_SESSION_IDS) return;
     if (Array.isArray(item)) {
-      values.push(...item);
-      continue;
+      for (const nested of item) visit(nested);
+      return;
     }
     const cleaned = cleanMetaText(item);
-    if (!cleaned || ids.includes(cleaned)) continue;
+    if (!cleaned || ids.includes(cleaned)) return;
     ids.push(cleaned);
-    if (ids.length >= MAX_CHAT_SESSION_IDS) break;
-  }
+  };
+  visit(value);
   return ids;
 }
 
@@ -266,7 +265,9 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     // Non-critical — don't fail the submission
   }
 
-  // Fire integrations (non-blocking, never fails the submission)
+  // Fire integrations (non-blocking, never fails the submission). Feedback
+  // debug context is intentionally integration-only: it helps triage Slack
+  // submissions without retaining page URLs or debug breadcrumbs in SQL.
   try {
     const integrations: FormIntegration[] = settings.integrations ?? [];
     if (integrations.length > 0) {

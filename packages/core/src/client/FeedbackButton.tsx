@@ -89,6 +89,8 @@ export interface FeedbackButtonProps {
   placeholder?: string;
   /** Current chat session/thread id, when the host already knows it. */
   chatSessionId?: string | null;
+  /** Chat localStorage namespace, when the host uses per-app chat storage. */
+  chatStorageKey?: string | null;
 }
 
 const surfaceStyle: CSSProperties = {
@@ -113,6 +115,7 @@ export function FeedbackButton({
   align = "end",
   placeholder,
   chatSessionId,
+  chatStorageKey,
 }: FeedbackButtonProps) {
   const target = parseTarget(url);
   const { session } = useSession();
@@ -173,7 +176,10 @@ export function FeedbackButton({
         const resolvedSchema = schema ?? (await loadSchema(target));
         if (!schema) setSchema(resolvedSchema);
         const submitterEmail = session?.email;
-        const feedbackContext = getFeedbackClientContext(chatSessionId);
+        const feedbackContext = getFeedbackClientContext({
+          chatSessionId,
+          storageKey: chatStorageKey,
+        });
         const res = await fetch(
           `${target.endpoint}/api/submit/${encodeURIComponent(resolvedSchema.formId)}`,
           {
@@ -211,6 +217,7 @@ export function FeedbackButton({
       submitting,
       session?.email,
       chatSessionId,
+      chatStorageKey,
     ],
   );
 

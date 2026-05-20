@@ -1,4 +1,5 @@
 import { getActiveRun } from "./active-run-state.js";
+import { scrubUrl } from "./url-scrub.js";
 
 export interface FeedbackClientContext {
   chatSessionIds: string[];
@@ -6,13 +7,23 @@ export interface FeedbackClientContext {
   pageUrl?: string;
 }
 
+export interface FeedbackClientContextOptions {
+  chatSessionId?: string | null;
+  storageKey?: string | null;
+}
+
 const ACTIVE_THREAD_KEY_PREFIX = "agent-chat-active-thread";
 const MAX_CHAT_SESSION_IDS = 5;
 
-function isThreadStorageKey(key: string): boolean {
+function isThreadStorageKey(key: string, storageKey?: string | null): boolean {
+  if (key.endsWith(":seen")) return false;
+  if (storageKey) {
+    const namespaced = `${ACTIVE_THREAD_KEY_PREFIX}:${storageKey}`;
+    return key === namespaced || key.startsWith(`${namespaced}:scope:`);
+  }
   return (
     key === ACTIVE_THREAD_KEY_PREFIX ||
-    (key.startsWith(`${ACTIVE_THREAD_KEY_PREFIX}:`) && !key.endsWith(":seen"))
+    key.startsWith(`${ACTIVE_THREAD_KEY_PREFIX}:scope:`)
   );
 }
 
@@ -32,13 +43,13 @@ function addId(ids: Set<string>, value: unknown): void {
   if (trimmed) ids.add(trimmed);
 }
 
-function recentStoredThreadIds(): string[] {
+function recentStoredThreadIds(storageKey?: string | null): string[] {
   if (typeof window === "undefined") return [];
   try {
     const candidates: Array<{ id: string; seenAt: number }> = [];
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
-      if (!key || !isThreadStorageKey(key)) continue;
+      if (!key || !isThreadStorageKey(key, storageKey)) continue;
       const id = localStorage.getItem(key)?.trim();
       if (!id) continue;
       candidates.push({ id, seenAt: readSeenAt(key) });
@@ -51,15 +62,15 @@ function recentStoredThreadIds(): string[] {
 }
 
 export function getFeedbackClientContext(
-  chatSessionId?: string | null,
+  options: FeedbackClientContextOptions = {},
 ): FeedbackClientContext {
   const ids = new Set<string>();
-  addId(ids, chatSessionId);
+  addId(ids, options.chatSessionId);
 
   const activeRun = typeof window !== "undefined" ? getActiveRun() : null;
   addId(ids, activeRun?.threadId);
 
-  for (const id of recentStoredThreadIds()) {
+  for (const id of recentStoredThreadIds(options.storageKey)) {
     addId(ids, id);
     if (ids.size >= MAX_CHAT_SESSION_IDS) break;
   }
@@ -68,6 +79,8 @@ export function getFeedbackClientContext(
     chatSessionIds: [...ids].slice(0, MAX_CHAT_SESSION_IDS),
   };
   if (activeRun?.runId) context.activeRunId = activeRun.runId;
-  if (typeof window !== "undefined") context.pageUrl = window.location.href;
+  if (typeof window !== "undefined") {
+    context.pageUrl = scrubUrl(window.location.href);
+  }
   return context;
 }

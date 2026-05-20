@@ -34,7 +34,7 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   createAgentChatAdapter,
-  type AgentChatSurface,
+  type AgentChatSurfaceKind,
 } from "./agent-chat-adapter.js";
 import {
   useAgentDynamicSuggestions,
@@ -3198,7 +3198,7 @@ export interface AssistantChatAdapterContext {
   execModeRef: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef: { current: ChatThreadScope | null | undefined };
-  surface: AgentChatSurface;
+  surface: AgentChatSurfaceKind;
 }
 
 export interface AssistantChatProps {
@@ -3216,7 +3216,7 @@ export interface AssistantChatProps {
    * Identifies which surface hosts this chat. Defaults to "app", which keeps
    * dev filesystem/bash code-editing tools out of in-product sidebars.
    */
-  agentChatSurface?: AgentChatSurface;
+  agentChatSurface?: AgentChatSurfaceKind;
   /** Placeholder text for empty state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */

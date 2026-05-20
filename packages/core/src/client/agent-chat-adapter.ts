@@ -20,7 +20,7 @@ import type {
 } from "../agent/types.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 
-export type AgentChatSurface =
+export type AgentChatSurfaceKind =
   /**
    * Chat rendered by the app itself, including the normal AgentSidebar. This
    * surface must not receive code-editing dev tools because source edits can
@@ -786,7 +786,7 @@ export function createAgentChatAdapter(options?: {
   execModeRef?: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef?: { current: ChatThreadScope | null | undefined };
-  surface?: AgentChatSurface;
+  surface?: AgentChatSurfaceKind;
 }): ChatModelAdapter {
   const apiUrl =
     options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");

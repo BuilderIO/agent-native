@@ -82,7 +82,7 @@ import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
 import { trackEvent } from "./analytics.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
-import { getFrameOrigin, isInFrame, isTrustedFrameMessage } from "./frame.js";
+import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
   consumeAgentSidebarUrlOpenOverride,
@@ -104,11 +104,6 @@ const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 
 function parentFrameTargetOrigin(): string {
   return getFrameOrigin() ?? window.location.origin;
-}
-
-function isAgentNativeDesktop() {
-  if (typeof navigator === "undefined") return false;
-  return /AgentNativeDesktop/i.test(navigator.userAgent);
 }
 
 // Lazy-load ResourcesPanel to avoid bundling when not needed
@@ -680,8 +675,9 @@ function AgentPanelInner({
   const selectedLabel =
     availableClis.find((c) => c.command === selectedCli)?.label || selectedCli;
   const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
-  const inferredCodeAccessEnabled =
-    !isDevMode || isAgentNativeDesktop() || isInFrame();
+  const isDevFrameChatSurface =
+    assistantChatProps.agentChatSurface === "dev-frame";
+  const inferredCodeAccessEnabled = !isDevMode || isDevFrameChatSurface;
   const codeAccessEnabled = codeAccess?.enabled ?? inferredCodeAccessEnabled;
   const codeUnavailableTitle =
     codeAccess?.unavailableTitle ?? "Open Desktop to edit code";
@@ -696,11 +692,12 @@ function AgentPanelInner({
     codeAccess?.unavailableSecondaryCtaLabel ?? "Use Builder";
   const codeUnavailableSecondaryCtaHref =
     codeAccess?.unavailableSecondaryCtaHref;
-  const canUseCodeTools = isDevMode && codeAccessEnabled;
+  const canUseCodeTools =
+    isDevMode && codeAccessEnabled && isDevFrameChatSurface;
   // Hide the CLI tab when embedded in the Builder.io frame — code editing
   // there happens via Builder, and the CLI panel only offers a Download
   // Desktop CTA, which adds clutter without value.
-  const showCliMode = (isDevMode || !codeAccessEnabled) && !isInFrame();
+  const showCliMode = (isDevMode || !codeAccessEnabled) && isDevFrameChatSurface;
   useEffect(() => {
     if (mode === "cli" && !showCliMode) switchMode("chat");
   }, [mode, showCliMode, switchMode]);
@@ -733,7 +730,7 @@ function AgentPanelInner({
     (window.location.hostname === "localhost" ||
       window.location.hostname === "127.0.0.1" ||
       window.location.hostname === "::1");
-  const showDevToggle = canToggle && isLocalhost;
+  const showDevToggle = canToggle && isLocalhost && isDevFrameChatSurface;
 
   const renderModeButtons = useCallback(
     (activeMode: PanelMode) => (
@@ -840,6 +837,7 @@ function AgentPanelInner({
           side="bottom"
           align="end"
           chatSessionId={activeChatSessionId}
+          chatStorageKey={storageKey}
         />
         {onToggleFullscreen && (
           <IconTooltip
