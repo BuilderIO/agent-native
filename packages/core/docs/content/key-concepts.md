@@ -84,9 +84,9 @@ Core SQL stores are auto-created and available in every template:
 
 ```ts
 // Drizzle schema for domain data
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { table, text, integer } from "@agent-native/core/db/schema";
 
-export const forms = sqliteTable("forms", {
+export const forms = table("forms", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   schema: text("schema").notNull(), // JSON
@@ -239,7 +239,7 @@ The framework supports every Drizzle-supported database. Never write SQL that on
 Use the framework helpers for dialect-agnostic SQL:
 
 ```ts
-import { getDbExec, isPostgres, intType } from "@agent-native/core/db/client";
+import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
 
 // getDbExec() auto-converts ? params to $1 for Postgres
 const client = getDbExec();
