@@ -388,10 +388,9 @@ function createEmbedSessionTool(requestMeta?: {
       ),
       _meta: { ui: { visibility: ["app"] } },
     } as ActionTool,
-    // App-only bootstrap helper: it mints a short-lived, same-origin browser
-    // ticket but does not mutate app data. Mark it read-only so MCP hosts do
-    // not block iframe startup behind an extra model/user tool approval.
-    readOnly: true,
+    // App-only bootstrap helper: the ticket becomes a normal browser session,
+    // so keep it write-scoped until embed sessions can enforce MCP scopes.
+    readOnly: false,
     parallelSafe: true,
     run: async (args: Record<string, any>) => {
       const { getRequestContext } =

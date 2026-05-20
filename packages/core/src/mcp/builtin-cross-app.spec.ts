@@ -205,11 +205,11 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
 });
 
 describe("create_embed_session", () => {
-  it("is read-scoped so MCP App iframes can bootstrap without extra approval", () => {
+  it("is write-scoped because the embed ticket becomes a browser session", () => {
     const tools = getBuiltinCrossAppTools(baseConfig(), {
       origin: "https://mail.example.com",
     });
-    expect(tools.create_embed_session.readOnly).toBe(true);
+    expect(tools.create_embed_session.readOnly).toBe(false);
   });
 
   it("requires an authenticated MCP caller", async () => {
