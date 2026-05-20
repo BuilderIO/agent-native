@@ -39,7 +39,7 @@ export const AGENT_MODEL_CONFIG = {
       "gpt-5-4-mini",
       "gpt-5-1-codex-mini",
       "gemini-3-1-pro",
-      "gemini-3-0-flash",
+      "gemini-3-5-flash",
       "gemini-3-1-flash-lite",
       "grok-code-fast",
       "qwen3-coder",
