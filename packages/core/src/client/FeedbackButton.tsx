@@ -11,6 +11,7 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { IconMessage2, IconCheck } from "@tabler/icons-react";
 import { cn } from "./utils.js";
 import { useSession } from "./use-session.js";
+import { getFeedbackClientContext } from "./feedback-context.js";
 
 const DEFAULT_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
@@ -86,6 +87,8 @@ export interface FeedbackButtonProps {
   align?: "start" | "center" | "end";
   /** Placeholder text for the textarea. */
   placeholder?: string;
+  /** Current chat session/thread id, when the host already knows it. */
+  chatSessionId?: string | null;
 }
 
 const surfaceStyle: CSSProperties = {
@@ -109,6 +112,7 @@ export function FeedbackButton({
   side,
   align = "end",
   placeholder,
+  chatSessionId,
 }: FeedbackButtonProps) {
   const target = parseTarget(url);
   const { session } = useSession();
@@ -169,6 +173,7 @@ export function FeedbackButton({
         const resolvedSchema = schema ?? (await loadSchema(target));
         if (!schema) setSchema(resolvedSchema);
         const submitterEmail = session?.email;
+        const feedbackContext = getFeedbackClientContext(chatSessionId);
         const res = await fetch(
           `${target.endpoint}/api/submit/${encodeURIComponent(resolvedSchema.formId)}`,
           {
@@ -178,7 +183,10 @@ export function FeedbackButton({
               data: { [resolvedSchema.fieldId]: trimmed },
               _t: openedAtRef.current,
               _hp: honeypot,
-              ...(submitterEmail ? { _meta: { submitterEmail } } : {}),
+              _meta: {
+                ...(submitterEmail ? { submitterEmail } : {}),
+                ...feedbackContext,
+              },
             }),
           },
         );
@@ -195,7 +203,15 @@ export function FeedbackButton({
         setError(err instanceof Error ? err.message : "Couldn't send feedback");
       }
     },
-    [target, schema, value, honeypot, submitting, session?.email],
+    [
+      target,
+      schema,
+      value,
+      honeypot,
+      submitting,
+      session?.email,
+      chatSessionId,
+    ],
   );
 
   let trigger;

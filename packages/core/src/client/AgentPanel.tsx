@@ -828,14 +828,19 @@ function AgentPanelInner({
   );
 
   const renderHeaderActions = useCallback(
-    () => (
+    (activeChatSessionId?: string) => (
       <div className="flex shrink-0 items-center gap-1.5">
         {SHOW_ONBOARDING && canUseCodeTools && (
           <Suspense fallback={null}>
             <SetupButton />
           </Suspense>
         )}
-        <FeedbackButton variant="icon" side="bottom" align="end" />
+        <FeedbackButton
+          variant="icon"
+          side="bottom"
+          align="end"
+          chatSessionId={activeChatSessionId}
+        />
         {onToggleFullscreen && (
           <IconTooltip
             content={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
@@ -912,7 +917,7 @@ function AgentPanelInner({
             {renderModeButtons(mode)}
           </div>
           <div className="flex items-center gap-0.5">
-            {renderHeaderActions()}
+            {renderHeaderActions(activeTabId)}
           </div>
         </div>
         {mode === "chat" && chatNotice ? (

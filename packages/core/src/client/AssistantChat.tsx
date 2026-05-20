@@ -51,6 +51,7 @@ import {
 } from "./sse-event-processor.js";
 import { captureError, trackEvent } from "./analytics.js";
 import { cn } from "./utils.js";
+import { writeClipboardText } from "./clipboard.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
@@ -536,6 +537,18 @@ function shouldImportServerThreadData(currentRepo: any, incomingRepo: any) {
   }
 
   return true;
+}
+
+function cloneContentParts(content: ContentPart[]): ContentPart[] {
+  return content.map((part) =>
+    part.type === "text"
+      ? { ...part }
+      : {
+          ...part,
+          args: { ...part.args },
+          ...(part.mcpApp ? { mcpApp: { ...part.mcpApp } } : {}),
+        },
+  );
 }
 
 function clearPendingSelection() {
@@ -1301,10 +1314,11 @@ function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
 
   const copyValue = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(payload.copyText);
-      setCopied(true);
-      if (copyResetRef.current) clearTimeout(copyResetRef.current);
-      copyResetRef.current = setTimeout(() => setCopied(false), 1200);
+      if (await writeClipboardText(payload.copyText)) {
+        setCopied(true);
+        if (copyResetRef.current) clearTimeout(copyResetRef.current);
+        copyResetRef.current = setTimeout(() => setCopied(false), 1200);
+      }
     } catch {
       // Clipboard failures should not interrupt chat rendering.
     }
@@ -2105,12 +2119,14 @@ function MessageActionsMenu({
       .filter((p) => p.type === "text")
       .map((p) => (p as { text: string }).text)
       .join("\n");
-    navigator.clipboard.writeText(text);
-    setCopied("message");
-    setTimeout(() => {
-      setCopied(null);
-      setOpen(false);
-    }, 1000);
+    void writeClipboardText(text).then((ok) => {
+      if (!ok) return;
+      setCopied("message");
+      setTimeout(() => {
+        setCopied(null);
+        setOpen(false);
+      }, 1000);
+    });
   }, [messageRuntime]);
 
   const handleCopyRequestId = useCallback(() => {
@@ -2132,12 +2148,14 @@ function MessageActionsMenu({
       (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
       m.id ||
       "";
-    navigator.clipboard.writeText(runId);
-    setCopied("id");
-    setTimeout(() => {
-      setCopied(null);
-      setOpen(false);
-    }, 1000);
+    void writeClipboardText(runId).then((ok) => {
+      if (!ok) return;
+      setCopied("id");
+      setTimeout(() => {
+        setCopied(null);
+        setOpen(false);
+      }, 1000);
+    });
   }, [messageRuntime]);
 
   const handleForkChat = useCallback(() => {
@@ -2740,9 +2758,11 @@ function RunErrorRecoveryCard({
     ]
       .filter(Boolean)
       .join("\n\n");
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+    void writeClipboardText(text).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
   }, [info]);
   const startNewChat = useCallback(() => {
     window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
@@ -4398,6 +4418,68 @@ const AssistantChatInner = forwardRef<
     }
   }, [isReconnecting, forceStopped]);
 
+  const materializeFrozenReconnectContent = useCallback(() => {
+    if (!reconnectFrozen || reconnectContent.length === 0) return;
+    try {
+      const repo = normalizeThreadRepository(threadRuntime.export());
+      const messages = getRepoMessages(repo);
+      const lastEntry = messages[messages.length - 1];
+      const lastMessage = getRepoMessage(lastEntry);
+      const parentId =
+        typeof repo.headId === "string"
+          ? repo.headId
+          : typeof lastMessage?.id === "string"
+            ? lastMessage.id
+            : null;
+      const runId = runErrorInfo?.runId ?? reconnectRunIdRef.current;
+      const id = `reconnect-${runId ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      repo.messages = [
+        ...messages,
+        {
+          parentId,
+          message: {
+            id,
+            role: "assistant",
+            createdAt: new Date(),
+            content: cloneContentParts(reconnectContent),
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              custom: {
+                reconnectFrozen: true,
+                ...(runId ? { runId } : {}),
+              },
+            },
+          },
+        },
+      ];
+      repo.headId = id;
+
+      threadRuntime.import(ensureMessageMetadata(repo));
+      setReconnectFrozen(false);
+      setReconnectContent([]);
+    } catch (err) {
+      captureError(err, {
+        tags: {
+          source: "agent-chat-client",
+          phase: "materialize-reconnect-content",
+        },
+        extra: {
+          threadId: threadId ?? null,
+          tabId: tabId ?? null,
+          reconnectParts: reconnectContent.length,
+        },
+      });
+    }
+  }, [
+    reconnectFrozen,
+    reconnectContent,
+    runErrorInfo?.runId,
+    tabId,
+    threadId,
+    threadRuntime,
+  ]);
+
   const addToQueue = useCallback(
     async (
       text: string,
@@ -4407,6 +4489,7 @@ const AssistantChatInner = forwardRef<
       requestMode?: AgentRequestMode,
       intent: ComposerSubmitIntent = "queued",
     ) => {
+      materializeFrozenReconnectContent();
       setShowContinue(false);
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
@@ -4469,7 +4552,7 @@ const AssistantChatInner = forwardRef<
         } as Parameters<typeof threadRuntime.append>[0]);
       }
     },
-    [execMode, isRunning, threadRuntime],
+    [execMode, isRunning, materializeFrozenReconnectContent, threadRuntime],
   );
 
   // Expose imperative handle

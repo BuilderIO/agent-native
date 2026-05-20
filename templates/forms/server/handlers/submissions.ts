@@ -46,6 +46,32 @@ const MAX_FIELD_LENGTH: Record<string, number> = {
 
 const MAX_PAYLOAD_BYTES = 100 * 1024; // 100KB
 const MIN_FILL_TIME_MS = 500; // reject submits faster than this
+const MAX_META_TEXT_LENGTH = 500;
+const MAX_CHAT_SESSION_IDS = 5;
+
+function cleanMetaText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, MAX_META_TEXT_LENGTH);
+}
+
+function cleanChatSessionIds(value: unknown): string[] {
+  const values = Array.isArray(value) ? [...value] : [value];
+  const ids: string[] = [];
+  for (let i = 0; i < values.length; i += 1) {
+    const item = values[i];
+    if (Array.isArray(item)) {
+      values.push(...item);
+      continue;
+    }
+    const cleaned = cleanMetaText(item);
+    if (!cleaned || ids.includes(cleaned)) continue;
+    ids.push(cleaned);
+    if (ids.length >= MAX_CHAT_SESSION_IDS) break;
+  }
+  return ids;
+}
 
 export const submitForm = defineEventHandler(async (event: H3Event) => {
   const db = getDb();
@@ -193,10 +219,17 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   // FeedbackButton, which forwards the logged-in user's email so we can see
   // who sent feedback in Slack). Never required, never trusted as identity —
   // anyone can claim any email — but useful as a hint when the client is ours.
-  const rawSubmitter =
+  const meta =
     typeof body._meta === "object" && body._meta !== null
-      ? (body._meta as { submitterEmail?: unknown }).submitterEmail
-      : undefined;
+      ? (body._meta as {
+          submitterEmail?: unknown;
+          chatSessionId?: unknown;
+          chatSessionIds?: unknown;
+          activeRunId?: unknown;
+          pageUrl?: unknown;
+        })
+      : null;
+  const rawSubmitter = meta?.submitterEmail;
   const submitterEmail =
     typeof rawSubmitter === "string" &&
     rawSubmitter.length > 0 &&
@@ -204,6 +237,12 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     rawSubmitter.includes("@")
       ? rawSubmitter
       : null;
+  const chatSessionIds = cleanChatSessionIds([
+    meta?.chatSessionId,
+    meta?.chatSessionIds,
+  ]);
+  const activeRunId = cleanMetaText(meta?.activeRunId);
+  const pageUrl = cleanMetaText(meta?.pageUrl);
 
   await db.insert(schema.responses).values({
     id: responseId,
@@ -240,6 +279,9 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
         data,
         submittedAt: now,
         submitterEmail,
+        chatSessionIds,
+        activeRunId,
+        pageUrl,
       }).catch(() => {});
     }
   } catch {
