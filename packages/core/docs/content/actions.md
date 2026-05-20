@@ -154,9 +154,13 @@ If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discov
 
 With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Any MCP client — Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, etc. — can connect and see them as tools. See [MCP Protocol](/docs/mcp-protocol).
 
-For UI-capable MCP hosts, actions can also attach an optional MCP Apps resource:
+For UI-capable MCP hosts, actions can also attach an optional MCP Apps resource.
+Prefer the shared full-app embed helper when the right inline experience is an
+existing React route:
 
 ```ts
+import { embedApp } from "@agent-native/core/mcp";
+
 export default defineAction({
   description: "Create an email draft for review.",
   schema: z.object({ body: z.string() }),
@@ -166,29 +170,12 @@ export default defineAction({
     url: "/_agent-native/open?app=mail&view=inbox",
   }),
   mcpApp: {
-    resource: {
-      title: "Review draft",
-      html: '<!doctype html><html><body><main id="app"></main></body></html>',
-      csp: { connectDomains: ["https://mail.agent-native.com"] },
-    },
+    resource: embedApp({ title: "Review draft", openLabel: "Open in Mail" }),
   },
 });
 ```
 
 This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes the HTML via MCP resources, and includes both current and legacy UI resource metadata for compatible hosts. Keep `link` as the fallback for CLI and non-UI MCP clients; see [External Agents](/docs/external-agents#mcp-apps).
-
-When the best inline UI is the existing app itself, use the framework helper instead of hand-writing a duplicate HTML surface:
-
-```ts
-import { embedApp } from "@agent-native/core/mcp";
-
-export default defineAction({
-  // ...description, schema, run, link...
-  mcpApp: {
-    resource: embedApp({ title: "Open dashboard" }),
-  },
-});
-```
 
 The helper launches the action's `link` target through `/_agent-native/embed/start` with a short-lived browser session, so routes such as dashboards, filtered inboxes, drafts, and extension pages can reuse the app's React components directly.
 

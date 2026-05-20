@@ -102,7 +102,7 @@ Use Agent-Native Analytics to generate a weekly conversion-rate bar chart and sh
 Use Agent-Native Mail to draft a short follow-up email to me, but do not send it.
 ```
 
-In hosts that support MCP Apps, Analytics can render charts and dashboards inline, and Mail can render draft-review UI inline. In hosts that do not render MCP Apps, the same tool call still returns a deep link such as **Open draft in Mail →** or **Open chart in Analytics →**.
+In hosts that support MCP Apps, Analytics can render charts and dashboards inline, and Mail can render the real compose UI inline for draft review. In hosts that do not render MCP Apps, the same tool call still returns a deep link such as **Open draft in Mail →** or **Open chart in Analytics →**.
 
 ## Advanced setup: local agents {#connect}
 
@@ -279,31 +279,30 @@ List/search actions point at a record-focused view the same way — e.g. calenda
 
 ## Authoring: optional MCP Apps UI {#mcp-apps}
 
-For hosts that support the MCP Apps extension, an action can also advertise an inline HTML UI resource with `mcpApp`. This is a progressive enhancement for flows where the external agent should hand the user an interactive surface instead of only text — for example reviewing an email draft, editing a calendar invite, or choosing between generated dashboard variants.
+For hosts that support the MCP Apps extension, an action can also advertise an inline UI resource with `mcpApp`. This is a progressive enhancement for flows where the external agent should hand the user an interactive surface instead of only text — for example reviewing an email draft, editing a calendar invite, or choosing between generated dashboard variants.
+
+Prefer reusing the real React app with `embedApp()` whenever the user needs an existing product surface such as Mail compose, a dashboard, a calendar editor, or an extension page. Plain self-contained HTML is only for tiny purpose-built widgets that should not share the app UI.
 
 ```ts
+import { embedApp } from "@agent-native/core";
+
 export default defineAction({
   // ...description, schema, run, link...
   mcpApp: {
-    resource: {
+    resource: embedApp({
       title: "Review draft",
-      description: "Review and send the generated email draft.",
-      html: ({ actionName, requestOrigin }) => `<!doctype html>
-        <html><body data-action="${actionName}" data-origin="${requestOrigin}">
-          <main id="app"></main>
-        </body></html>`,
-      csp: { connectDomains: ["https://mail.agent-native.com"] },
-      prefersBorder: true,
-    },
+      description: "Open the generated draft in the real Mail compose UI.",
+      iframeTitle: "Agent-Native Mail",
+      openLabel: "Open in Mail",
+      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
+    }),
   },
 });
 ```
 
 The MCP server advertises extension `io.modelcontextprotocol/ui`, adds `_meta.ui.resourceUri` plus `_meta["ui/resourceUri"]` to `tools/list`, and exposes the HTML through `resources/list` + `resources/read` using MIME `text/html;profile=mcp-app`. The stdio proxy forwards those resource handlers from the live app, so desktop and CLI clients see the same resources as HTTP clients.
 
-Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. Treat `mcpApp.resource.html` like `link`: synchronous, deterministic, and self-contained; declare external origins in `csp`.
-
-For heavyweight authenticated workflows, reuse the real React app instead of rebuilding a plain-HTML mini UI. Core exports `embedApp()` from `@agent-native/core/mcp` and `@agent-native/core`; attach it to an action that already has a `link` builder. The embedded MCP App calls the app-only `create_embed_session` helper, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and loads the target route in an iframe with a short-lived browser session plus a bearer fallback for same-origin fetches. `open_app({ app, path, embed: true })` is the generic escape hatch for routes such as dashboards, filtered inboxes, calendar draft views, and extension pages.
+Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. `embedApp()` uses that link as its launch target, calls the app-only `create_embed_session` helper, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and loads the target route in an iframe with a short-lived browser session plus a bearer fallback for same-origin fetches. `open_app({ app, path, embed: true })` is the generic escape hatch for routes such as dashboards, filtered inboxes, calendar draft views, and extension pages.
 
 ### The `link` contract {#link-contract}
 

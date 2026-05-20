@@ -197,25 +197,29 @@ the DB, read app-state, or call other actions.
 ### 2a. Optional MCP Apps UI
 
 For hosts that support the MCP Apps extension, an action can also advertise an
-inline HTML UI resource with `mcpApp`. This is a progressive enhancement for
-flows where the external agent should hand the user an interactive surface
-instead of only text — for example reviewing an email draft, editing a calendar
-invite, or choosing between generated dashboard variants.
+inline UI resource with `mcpApp`. This is a progressive enhancement for flows
+where the external agent should hand the user an interactive surface instead of
+only text — for example reviewing an email draft, editing a calendar invite, or
+choosing between generated dashboard variants.
+
+Prefer reusing the real React app with `embedApp()` whenever the user needs an
+existing product surface such as Mail compose, a dashboard, a calendar editor,
+or an extension page. Plain self-contained HTML is only for tiny purpose-built
+widgets that should not share the app UI.
 
 ```ts
+import { embedApp } from "@agent-native/core";
+
 export default defineAction({
   // ...schema, run, link...
   mcpApp: {
-    resource: {
+    resource: embedApp({
       title: "Review draft",
-      description: "Review and send the generated email draft.",
-      html: ({ actionName, requestOrigin }) => `<!doctype html>
-        <html><body data-action="${actionName}" data-origin="${requestOrigin}">
-          <main id="app"></main>
-        </body></html>`,
-      csp: { connectDomains: ["https://mail.agent-native.com"] },
-      prefersBorder: true,
-    },
+      description: "Open the generated draft in the real Mail compose UI.",
+      iframeTitle: "Agent-Native Mail",
+      openLabel: "Open in Mail",
+      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
+    }),
   },
 });
 ```
@@ -229,19 +233,12 @@ resources as HTTP clients.
 
 Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients,
 older hosts, and any host that does not render MCP Apps will ignore the UI
-metadata and still need the "Open in … →" link. Treat `mcpApp.resource.html`
-like `link`: synchronous, deterministic, and self-contained; declare external
-origins in `csp`.
-
-For heavyweight authenticated workflows, prefer reusing the real React app
-instead of rebuilding a mini UI in plain HTML. Core exports `embedApp()` from
-`@agent-native/core/mcp` and `@agent-native/core`; attach it to an action that
-already has a `link` builder. The MCP App calls the app-only
-`create_embed_session` helper, exchanges a one-time SQL ticket at
-`/_agent-native/embed/start`, and loads the target route in an iframe with a
-short-lived browser session. `open_app({ app, path, embed: true })` is the
-generic escape hatch for routes like dashboards, filtered inboxes, calendar
-drafts, or extension pages.
+metadata and still need the "Open in … →" link. `embedApp()` uses that link as
+its launch target, calls the app-only `create_embed_session` helper, exchanges
+a one-time SQL ticket at `/_agent-native/embed/start`, and loads the target
+route in an iframe with a short-lived browser session. `open_app({ app, path,
+embed: true })` is the generic escape hatch for routes like dashboards,
+filtered inboxes, calendar drafts, or extension pages.
 
 Compatibility target: build to the standard once, not per-client shims. MCP
 Apps-capable hosts should include Claude/Claude Desktop/Claude Code, ChatGPT

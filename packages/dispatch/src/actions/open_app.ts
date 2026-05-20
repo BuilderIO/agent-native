@@ -5,13 +5,17 @@ import { openGrantedDispatchMcpApp } from "../server/lib/mcp-gateway.js";
 const deepLinkParam = z.union([z.string(), z.number(), z.boolean()]);
 const openAppSchema = z
   .object({
-    app: z.string().describe("Granted app id, e.g. mail or calendar."),
+    app: z
+      .string()
+      .describe(
+        'Granted app id, e.g. mail or calendar. Use "dispatch" for Dispatch-owned pages such as /extensions.',
+      ),
     view: z.string().optional().describe("Target view in the app, e.g. inbox."),
     path: z
       .string()
       .optional()
       .describe(
-        "Optional same-origin app route to open directly, e.g. /dashboards/q2.",
+        'Optional route within the target app, e.g. /dashboards/q2. Dispatch extension routes such as /extensions/<id>/<slug> belong to app "dispatch".',
       ),
     params: z
       .record(z.string(), deepLinkParam)
@@ -33,7 +37,7 @@ const openAppSchema = z
 
 export default defineAction({
   description:
-    "Build a deep link or embeddable app route for an app available through Dispatch MCP. No side effects; surface the returned Open link to the user.",
+    'Build a deep link or embeddable app route for an app available through Dispatch MCP. Use app "dispatch" for Dispatch extension/tool pages. No side effects; surface the returned Open link to the user.',
   schema: openAppSchema,
   http: { method: "GET" },
   readOnly: true,

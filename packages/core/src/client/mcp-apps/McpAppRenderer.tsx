@@ -251,6 +251,10 @@ function sanitizeCspSources(values: string[] | undefined): string[] {
 function sanitizeCspSource(value: string): string | null {
   const source = value.trim();
   if (!source || source.includes("'") || /[\s;]/.test(source)) return null;
+  if (source === "https:") return source;
+  if (/^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):\*$/i.test(source)) {
+    return source;
+  }
   if (/^https:\/\/\*\.[a-z0-9.-]+(?::\d+)?$/i.test(source)) return source;
   try {
     const url = new URL(source);

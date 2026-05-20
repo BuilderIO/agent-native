@@ -3,7 +3,12 @@ import {
   buildMcpToolName,
   McpClientManager,
 } from "@agent-native/core/mcp-client";
-import { buildDeepLink } from "@agent-native/core/server";
+import {
+  buildDeepLink,
+  buildEmbedStartPath,
+  createEmbedSessionTicket,
+  getRequestContext,
+} from "@agent-native/core/server";
 import {
   discoverAgents,
   type DiscoveredAgent,
@@ -19,6 +24,12 @@ import {
   type DispatchMcpAppAccessSettings,
 } from "./mcp-access-store.js";
 
+const DISPATCH_APP_ID = "dispatch";
+const DISPATCH_NAME = "Agent-Native Dispatch";
+const DISPATCH_DESCRIPTION =
+  "Workspace control plane for extensions, agents, vault, integrations, approvals, and app routing.";
+const DISPATCH_COLOR = "#14B8A6";
+
 export interface DispatchMcpAccessibleApp {
   id: string;
   name: string;
@@ -30,6 +41,73 @@ export interface DispatchMcpAccessibleApp {
 
 function normalizeAppId(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function normalizeBaseUrl(raw: string | undefined | null): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function normalizeBasePath(value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === "/") return "";
+  const normalized = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
+  return normalized ? `/${normalized}` : "";
+}
+
+function withConfiguredBasePath(baseUrl: string): string {
+  const basePath = normalizeBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+  if (!basePath) return baseUrl;
+  try {
+    const url = new URL(baseUrl);
+    const path = normalizeBasePath(url.pathname);
+    if (path === basePath || path.startsWith(`${basePath}/`)) {
+      return baseUrl;
+    }
+    url.pathname = path && path !== "/" ? `${basePath}${path}` : `${basePath}/`;
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return baseUrl;
+  }
+}
+
+function dispatchSelfBaseUrl(): string {
+  const requestOrigin = normalizeBaseUrl(getRequestContext()?.requestOrigin);
+  if (requestOrigin) return withConfiguredBasePath(requestOrigin);
+
+  const configured =
+    normalizeBaseUrl(process.env.WORKSPACE_GATEWAY_URL) ??
+    normalizeBaseUrl(process.env.APP_URL) ??
+    normalizeBaseUrl(process.env.URL) ??
+    normalizeBaseUrl(process.env.DEPLOY_URL) ??
+    normalizeBaseUrl(process.env.BETTER_AUTH_URL);
+  if (configured) return withConfiguredBasePath(configured);
+
+  return process.env.NODE_ENV === "production"
+    ? "https://dispatch.agent-native.com"
+    : "http://localhost:8092";
+}
+
+function dispatchSelfApp(
+  settings: DispatchMcpAppAccessSettings,
+): DispatchMcpAccessibleApp {
+  return {
+    id: DISPATCH_APP_ID,
+    name: DISPATCH_NAME,
+    description: DISPATCH_DESCRIPTION,
+    url: dispatchSelfBaseUrl(),
+    color: DISPATCH_COLOR,
+    granted: isAppAllowedByMcpAccess(DISPATCH_APP_ID, settings),
+  };
 }
 
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
@@ -64,6 +142,17 @@ function appBaseUrl(app: DispatchMcpAccessibleApp): string {
   return app.url.replace(/\/+$/, "");
 }
 
+function isDispatchControlPath(path: string | null): boolean {
+  if (!path) return false;
+  const route = path.split(/[?#]/, 1)[0] ?? path;
+  return (
+    route === "/extensions" ||
+    route.startsWith("/extensions/") ||
+    route === "/tools" ||
+    route.startsWith("/tools/")
+  );
+}
+
 function toAccessibleApp(
   agent: DiscoveredAgent,
   settings: DispatchMcpAppAccessSettings,
@@ -88,7 +177,12 @@ export async function listDispatchMcpApps(): Promise<{
   ]);
   return {
     settings,
-    apps: agents.map((agent) => toAccessibleApp(agent, settings)),
+    apps: [
+      dispatchSelfApp(settings),
+      ...agents
+        .filter((agent) => normalizeAppId(agent.id) !== DISPATCH_APP_ID)
+        .map((agent) => toAccessibleApp(agent, settings)),
+    ],
   };
 }
 
@@ -168,6 +262,11 @@ export async function openGrantedDispatchMcpApp(input: {
   const path = safeAppPath(input.path);
   if (!view && !path) throw new Error("open_app requires view or path");
   const target = await resolveGrantedDispatchMcpApp(input.app);
+  if (target.id !== DISPATCH_APP_ID && isDispatchControlPath(path)) {
+    throw new Error(
+      `Path "${path}" belongs to Dispatch. Use app: "dispatch" for Dispatch extension and tool routes.`,
+    );
+  }
   const relUrl = path
     ? appendParamsToPath(path, input.params)
     : buildDeepLink({
@@ -253,6 +352,33 @@ async function resolveDispatchEmbedTarget(input: {
   return { app: target, path, url: `${appBaseUrl(target)}${path}` };
 }
 
+async function createDispatchSelfEmbedSession(input: {
+  ownerEmail: string;
+  orgId?: string;
+  path: string;
+  baseUrl: string;
+  chrome?: "full" | "minimal";
+}): Promise<{
+  startUrl: string;
+  targetPath?: string;
+  expiresAt?: number;
+  app: string;
+}> {
+  const ticket = await createEmbedSessionTicket({
+    ownerEmail: input.ownerEmail,
+    orgId: input.orgId,
+    targetPath: input.path,
+    scope: input.chrome ?? null,
+  });
+  const startPath = buildEmbedStartPath(ticket.ticket);
+  return {
+    startUrl: new URL(startPath, input.baseUrl).toString(),
+    targetPath: input.path,
+    expiresAt: ticket.expiresAt,
+    app: DISPATCH_APP_ID,
+  };
+}
+
 export async function createGrantedDispatchMcpEmbedSession(input: {
   app?: string;
   url?: string;
@@ -269,6 +395,16 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
   const target = await resolveDispatchEmbedTarget(input);
 
   const orgId = getRequestOrgId();
+  if (target.app.id === DISPATCH_APP_ID) {
+    return createDispatchSelfEmbedSession({
+      ownerEmail: userEmail,
+      orgId,
+      path: target.path,
+      baseUrl: appBaseUrl(target.app),
+      chrome: input.chrome,
+    });
+  }
+
   const [orgDomain, orgSecret] = orgId
     ? await Promise.all([
         getOrgDomain(orgId).catch(() => null),
