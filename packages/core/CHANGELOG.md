@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.22.8
+
+### Patch Changes
+
+- bbaa675: Allow MCP App frame CSP sources emitted by the built-in app embed helper so local and HTTPS app frames render correctly, and expose the helper through the browser-safe core entry used by template actions.
+- bbaa675: Clarify MCP app embeds can target focused app routes as well as full app surfaces.
+- bbaa675: Request taller full-app MCP App embeds.
+- bbaa675: Prevent replayed chat history with interrupted tool calls from sending malformed tool-use messages to model gateways.
+
 ## 0.22.7
 
 ### Patch Changes
