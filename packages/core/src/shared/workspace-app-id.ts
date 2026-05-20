@@ -16,6 +16,7 @@ export const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
   ["approval", "approval"],
   ["approvals", "approvals"],
   ["audit", "audit"],
+  ["thread-debug", "thread-debug"],
   ["team", "team"],
 ] as const;
 

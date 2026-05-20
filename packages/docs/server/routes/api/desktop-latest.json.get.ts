@@ -27,6 +27,8 @@ type DesktopAssetKind =
   | "mac-x64"
   | "windows-x64"
   | "windows-arm64"
+  | "linux-tar-x64"
+  | "linux-tar-arm64"
   | "linux-appimage-x64"
   | "linux-appimage-arm64"
   | "linux-deb-x64"
@@ -76,6 +78,11 @@ export function classifyDesktopAsset(name: string): DesktopAssetKind {
     return n.includes("arm64") || n.includes("aarch64")
       ? "windows-arm64"
       : "windows-x64";
+  }
+  if (n.endsWith(".tar.xz")) {
+    return n.includes("arm64") || n.includes("aarch64")
+      ? "linux-tar-arm64"
+      : "linux-tar-x64";
   }
   if (n.endsWith(".appimage")) {
     return n.includes("arm64") || n.includes("aarch64")

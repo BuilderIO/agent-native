@@ -10,6 +10,8 @@
  */
 import path from "path";
 
+const recyclingPostgresPools = new WeakSet<object>();
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -68,13 +70,11 @@ export function isLocalSqliteUrl(url: string): boolean {
 export async function prepareLocalSqliteUrl(url: string): Promise<string> {
   if (!url.startsWith("file:")) return url;
 
-  // On serverless runtimes (Netlify, AWS Lambda) the working directory is
-  // read-only. Detect this and redirect local SQLite to /tmp which IS writable
-  // (ephemeral per invocation, but the server stays alive for the request).
-  const isServerless =
-    !!process.env.NETLIFY ||
-    !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    !!process.env.LAMBDA_TASK_ROOT;
+  // On serverless runtimes (Netlify / Vercel / AWS Lambda / CF Pages) the
+  // working directory is read-only. Detect this and redirect local SQLite to
+  // /tmp which IS writable (ephemeral per invocation, but the server stays
+  // alive for the request). Shares the canonical isServerlessRuntime() check.
+  const isServerless = isServerlessRuntime();
   try {
     const fs = await import("fs");
     if (isServerless && url === "file:./data/app.db") {
@@ -297,6 +297,7 @@ const CONNECTION_ERROR_CODES = new Set([
   "ETIMEDOUT",
   "EPIPE",
   "ENOTFOUND",
+  "CONNECT_TIMEOUT",
   "CONNECTION_ENDED",
   "CONNECTION_DESTROYED",
   "CONNECTION_CLOSED",
@@ -339,6 +340,161 @@ export async function retryOnConnectionError<T>(
     }
   }
   throw last;
+}
+
+// ---------------------------------------------------------------------------
+// Per-op timeout — converts a silent serverless hang into a retryable error
+// ---------------------------------------------------------------------------
+
+/**
+ * Max wall time for a single DB op (init or query) before we treat it as a
+ * dead connection. A frozen→thawed serverless instance can leave the Neon
+ * WebSocket (or a postgres.js socket) hung mid-flight: the promise neither
+ * settles nor errors, so retryOnConnectionError() — which only retries thrown
+ * errors — can't help and the request hangs until the platform kills the
+ * function (~30s on Netlify). For authenticated requests that run a session
+ * lookup on every navigation this surfaces as "the site won't load". Bounding
+ * each op well under the platform function limit turns the silent hang into a
+ * CONNECT_TIMEOUT that the existing retry and reject-reset paths already
+ * handle. Override with DB_OP_TIMEOUT_MS.
+ */
+export function dbOpTimeoutMs(): number {
+  const raw = Number(process.env.DB_OP_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return isServerlessRuntime() ? 8_000 : 30_000;
+}
+
+/**
+ * Timeout error tagged with a recognized connection-error code so
+ * isConnectionError() / retryOnConnectionError() treat a hung op as a
+ * retryable dead connection, and upstream reject-reset guards (e.g. the
+ * cached session-table init promise) clear their poisoned state.
+ */
+class DbTimeoutError extends Error {
+  code = "CONNECT_TIMEOUT";
+  constructor(op: string, ms: number) {
+    super(`DB ${op} timed out after ${ms}ms (connection terminated)`);
+    this.name = "DbTimeoutError";
+  }
+}
+
+/**
+ * Race a DB op against {@link dbOpTimeoutMs}. Callers that own a cancellable
+ * query or pooled client should pass onTimeout so the losing operation does
+ * not keep occupying a scarce connection slot after the request has recovered.
+ */
+export async function withDbTimeout<T>(
+  op: string,
+  run: () => Promise<T>,
+  ms = dbOpTimeoutMs(),
+  onTimeout?: () => void | Promise<void>,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let settled = false;
+
+  const runCleanup = async () => {
+    if (!onTimeout) return;
+    try {
+      await onTimeout();
+    } catch (err) {
+      console.warn(
+        `[db] timeout cleanup for ${op} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  };
+
+  return await new Promise<T>((resolve, reject) => {
+    const finish = (
+      complete: (value: T | PromiseLike<T>) => void,
+      value: T | PromiseLike<T>,
+    ) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      complete(value);
+    };
+    const fail = (err: unknown) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      reject(err);
+    };
+
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      void (async () => {
+        await runCleanup();
+        reject(new DbTimeoutError(op, ms));
+      })();
+    }, ms);
+
+    let promise: Promise<T>;
+    try {
+      promise = run();
+    } catch (err) {
+      fail(err);
+      return;
+    }
+    promise.then((value) => finish(resolve, value), fail);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Serverless-aware Postgres pool options
+// ---------------------------------------------------------------------------
+
+/**
+ * True on serverless function runtimes (Netlify / Vercel / AWS Lambda /
+ * Cloudflare Pages Functions) where every concurrent request can spin up its
+ * own frozen process. Connections cannot be shared across instances, so each
+ * instance must keep its pool tiny — otherwise dozens of warm instances each
+ * holding postgres.js's default 10-connection pool blow past Neon/Postgres'
+ * connection cap and every `/_agent-native/*` route 500s with "Max client
+ * connections reached".
+ */
+export function isServerlessRuntime(): boolean {
+  return (
+    !!process.env.NETLIFY ||
+    !!process.env.VERCEL ||
+    !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    !!process.env.LAMBDA_TASK_ROOT ||
+    !!process.env.CF_PAGES
+  );
+}
+
+/**
+ * postgres.js pool options tuned per runtime. A serverless instance handles
+ * one request at a time, so a tiny pool is enough — but we cap at 2 (not 1)
+ * so a single slow query or open transaction can't serialize every other
+ * query in the same request. Total connections stay bounded to ≈ 2×
+ * concurrent-instance count instead of 10×. idle_timeout is shortened on
+ * serverless so a thawed-but-idle instance releases its connections quickly.
+ * Long-lived Node servers keep the normal pool for throughput.
+ */
+export function pgPoolOptions(url: string): Record<string, unknown> {
+  const serverless = isServerlessRuntime();
+  return {
+    onnotice: () => {},
+    max: serverless ? 2 : 10,
+    idle_timeout: serverless ? 20 : 240,
+    max_lifetime: 60 * 30,
+    connect_timeout: 10,
+    // Supabase's connection pooler (Transaction mode) requires prepare:false.
+    // Only disable for Supabase URLs to avoid degrading other deployments.
+    ...(url.includes("supabase") ? { prepare: false } : {}),
+  };
+}
+
+/**
+ * Connection cap for the @neondatabase/serverless `Pool`. Same instance
+ * accumulation risk as postgres.js — a small pool (2) is enough on serverless
+ * and keeps total connections bounded while still letting a second query
+ * proceed when one connection is busy.
+ */
+export function neonPoolMax(): number {
+  return isServerlessRuntime() ? 2 : 10;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +552,7 @@ async function createDbExecInternal(
     // and keeps the same `pg`-compatible query(...) interface we need here.
     if (isNeonUrl(url)) {
       const { Pool } = await import("@neondatabase/serverless");
-      const pool = new Pool({ connectionString: url });
+      const pool = new Pool({ connectionString: url, max: neonPoolMax() });
       // Neon's serverless Pool extends EventEmitter and emits 'error'
       // when its WebSocket connection drops (idle timeout, Lambda
       // suspend, network blip). Without a listener, Node 24 surfaces
@@ -418,7 +574,33 @@ async function createDbExecInternal(
           const result = await retryOnConnectionError<{
             rows: unknown[];
             rowCount?: number;
-          }>(() => pool.query(pgSql, args as any[]));
+          }>(async () => {
+            const client = await pool.connect();
+            let released = false;
+            const releaseClient = (err?: Error | boolean) => {
+              if (released) return;
+              released = true;
+              client.release(err);
+            };
+
+            try {
+              const result = await withDbTimeout(
+                "query",
+                () =>
+                  client.query(pgSql, args as any[]) as Promise<{
+                    rows: unknown[];
+                    rowCount?: number;
+                  }>,
+                dbOpTimeoutMs(),
+                () => releaseClient(true),
+              );
+              releaseClient();
+              return result;
+            } catch (err) {
+              releaseClient(isConnectionError(err) ? true : undefined);
+              throw err;
+            }
+          });
           return {
             rows: result.rows,
             rowsAffected: result.rowCount ?? 0,
@@ -442,34 +624,53 @@ async function createDbExecInternal(
             idle_timeout: 0,
             onnotice: () => {},
           });
+          let timedOut = false;
           try {
             const rawSql = typeof sql === "string" ? sql : sql.sql;
             const args = typeof sql === "string" ? [] : sql.args || [];
             const pgSql = sqliteToPostgresParams(rawSql);
-            const result = await conn.unsafe(pgSql, args as any[]);
+            const result = await withDbTimeout<
+              ArrayLike<unknown> & { count?: number }
+            >(
+              "query",
+              () =>
+                conn.unsafe(pgSql, args as any[]) as Promise<
+                  ArrayLike<unknown> & { count?: number }
+                >,
+              dbOpTimeoutMs(),
+              () => {
+                timedOut = true;
+                return conn.end({ timeout: 1 });
+              },
+            );
             return {
               rows: Array.from(result),
               rowsAffected: result.count ?? 0,
             };
           } finally {
-            await conn.end();
+            if (!timedOut) await conn.end();
           }
         },
       };
     } else {
-      // Node.js: reuse connection pool.
-      // idle_timeout:240 closes idle connections before Neon's ~5min server-side
-      // timeout, avoiding ECONNRESET when the server hangs up on us.
-      const pool = postgres(url, {
-        onnotice: () => {},
-        idle_timeout: 240,
-        max_lifetime: 60 * 30,
-        connect_timeout: 10,
-        // Supabase's connection pooler (Transaction mode) requires prepare: false.
-        // Only disable for Supabase URLs to avoid degrading other Postgres deployments.
-        ...(url.includes("supabase") ? { prepare: false } : {}),
-      });
+      // Node.js: reuse connection pool. pgPoolOptions caps the pool to a
+      // small size on serverless (Netlify/Vercel/Lambda/CF) so concurrent
+      // frozen instances don't exhaust Neon/Postgres' connection limit;
+      // idle_timeout also closes idle connections before Neon's ~5min
+      // server-side timeout, avoiding ECONNRESET when the server hangs up.
+      const createPool = () => postgres(url, pgPoolOptions(url));
+      type PostgresPool = ReturnType<typeof createPool>;
+      let pool = createPool();
       if (trackSingletonResources) _pgPool = pool;
+      const recyclePool = async (timedOutPool: PostgresPool) => {
+        if (recyclingPostgresPools.has(timedOutPool)) return;
+        recyclingPostgresPools.add(timedOutPool);
+        if (pool === timedOutPool) {
+          pool = createPool();
+          if (trackSingletonResources) _pgPool = pool;
+        }
+        await timedOutPool.end({ timeout: 1 });
+      };
 
       return {
         async execute(sql) {
@@ -478,7 +679,16 @@ async function createDbExecInternal(
           const pgSql = sqliteToPostgresParams(rawSql);
           const result = await retryOnConnectionError<
             ArrayLike<unknown> & { count?: number }
-          >(() => pool.unsafe(pgSql, args as any[]));
+          >(() => {
+            const queryPool = pool;
+            const query = queryPool.unsafe(pgSql, args as any[]);
+            return withDbTimeout(
+              "query",
+              () => query,
+              dbOpTimeoutMs(),
+              () => recyclePool(queryPool),
+            );
+          });
           return {
             rows: Array.from(result),
             rowsAffected: result.count ?? 0,
@@ -587,7 +797,16 @@ export function getDbExec(): DbExec {
   const proxy: DbExec = {
     async execute(sql) {
       if (!_initPromise) _initPromise = initClient();
-      await _initPromise;
+      try {
+        await _initPromise;
+      } catch (err) {
+        // A failed/hung init must not poison the singleton for the life of
+        // the process — drop it so the next call retries a fresh connection
+        // instead of re-awaiting a permanently rejected/pending promise.
+        _initPromise = undefined;
+        _exec = undefined;
+        throw err;
+      }
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
         execute: (s) => _exec!.execute(sanitize(s)),

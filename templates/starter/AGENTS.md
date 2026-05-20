@@ -2,7 +2,7 @@
 
 This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
 
-This is an **@agent-native/core** application -- the AI agent and UI share state through a SQL database, with polling for real-time sync. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` (auto-covered) or fold `useChangeVersions([<source>, "action"])` into raw `useQuery` keys. See the `real-time-sync` and `adding-a-feature` skills.
+This is an **@agent-native/core** application -- the AI agent and UI share state through a SQL database, with SSE for in-process live sync and polling as the cross-process/serverless fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
 
 ## Resources
 
@@ -86,6 +86,7 @@ cd templates/starter && pnpm action <name> [args]
 | `actions`             | Before creating or modifying actions                                              |
 | `self-modifying-code` | Before editing source, components, or styles                                      |
 | `frontend-design`     | Before building or restyling any UI component, page, or layout                    |
+| `shadcn-ui`           | Before adding, updating, or debugging shadcn/ui components                        |
 
 ## When Adding Features
 
@@ -94,7 +95,7 @@ cd templates/starter && pnpm action <name> [args]
 1. **Add navigation state entries** — extend `use-navigation-state.ts` to track new routes
 2. **Enhance view-screen** — make the view-screen action return relevant context for the new view
 3. **Create domain actions** — add actions for CRUD operations on new data models
-4. **Wire UI for auto-refresh** — use `useActionQuery` (auto-covered) OR fold `useChangeVersions([<source>, "action"])` into raw `useQuery` keys with `placeholderData`. When the agent mutates this data, the UI must reflect the change without a manual refresh. See `real-time-sync` skill.
+4. **Wire UI for auto-refresh** — use `useActionQuery` / `useActionMutation` for normal CRUD. If a raw `useQuery` is unavoidable, fold `useChangeVersions([<source>, "action"])` into its key with `placeholderData`. When the agent mutates this data, the UI must reflect the change without a manual refresh. See `real-time-sync` skill.
 5. **Create domain skills** — add `.agents/skills/<feature>/SKILL.md` documenting the data model, storage patterns, and agent operations
 6. **Update this AGENTS.md** — add the new actions, state keys, and common tasks
 

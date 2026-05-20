@@ -115,11 +115,12 @@ function buildNewWorkspaceAppPrompt(input: {
     `If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.`,
     grantRequest,
     `Requested Dispatch workspace resources for this app:\n${resourceList}`,
+    `Dispatch workspace resources with scope=all are inherited workspace context. Do not copy or sync them into the new app; every workspace app reads them at runtime and may override with app shared or personal resources.`,
     ``,
     `Pick a starter template that fits the user's prompt — analytics, calendar, content, design, dispatch, forms, mail, slides, clips, or starter when none of the others fit.`,
     `Use the workspace app layout: create it under apps/${input.appId}, mount it at /${input.appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
     `Important routing rule: from outside the app, link to /${input.appId}; inside apps/${input.appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${input.appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs like /${input.appId}/${input.appId}/review.`,
-    `Prefer useActionQuery/useActionMutation for actions. If you must raw-fetch framework endpoints, wrap them with agentNativePath("/_agent-native/actions/<name>") so mounted apps call the right URL.`,
+    `Action-backed UI is mandatory for normal CRUD. Define reads/writes in actions/ with defineAction, expose read actions with http: { method: "GET" }, and call them from React with useActionQuery/useActionMutation. Do not create duplicate JSON CRUD routes under /api/* for data the agent can mutate; those bypass the action cache contract and make agent-created records invisible until reload. If a rare raw fetch is unavoidable, include useChangeVersions(["action", <domain-source>]) in the query key and wrap framework URLs with agentNativePath("/_agent-native/actions/<name>") so mounted apps call the right URL.`,
     `If the user's prompt mentions sibling apps like Mail, Calendar, Dispatch, or other templates, treat them as existing workspace neighbors or integrations. Do not scaffold those sibling apps inside apps/${input.appId} unless the user explicitly asks to create them too.`,
     `Do not satisfy this by adding a route, page, component, or file inside apps/starter or another existing app unless the user explicitly asks to modify that existing app.`,
     `Use relative workspace links like /${input.appId}. Do not hardcode localhost, 127.0.0.1, 8080, 8100, or any dev port; the active workspace gateway/browser origin owns the port.`,
@@ -131,8 +132,8 @@ function buildNewWorkspaceAppPrompt(input: {
         ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
         : `Do not grant any Dispatch vault keys unless the user asks later.`,
     input.selectedResources.length
-      ? `After the app exists, grant the selected Dispatch workspace resources to appId "${input.appId}" and sync them once the app server is available. Add a short note to apps/${input.appId}/AGENTS.md telling the app agent to read relevant shared resources under context/ or the selected resource paths before doing GTM/domain work.`
-      : `Do not grant any Dispatch workspace resources unless the user asks later.`,
+      ? `After the app exists, grant the selected Dispatch workspace resources to appId "${input.appId}". Do not sync all-app workspace resources; they are inherited.`
+      : `Do not grant any selected-only Dispatch workspace resources unless the user asks later.`,
     ``,
     `App readiness requirements before handing off:`,
     `- Ensure apps/${input.appId}/package.json exists with displayName/name and a concise description so Dispatch and the workspace gateway discover it from the filesystem. There is no separate workspace app registry to edit.`,

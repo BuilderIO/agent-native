@@ -20,8 +20,11 @@ import {
   listExtensionsForSlot,
   listSlotsForExtension,
 } from "./slots/store.js";
-
-type ExtensionPatch = { find: string; replace: string };
+import { extensionPath } from "./path.js";
+import type {
+  ExtensionContentEdit,
+  ExtensionLegacyPatch,
+} from "./content-patch.js";
 
 export function createExtensionActionEntries(): Record<string, ActionEntry> {
   return {
@@ -127,6 +130,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           content,
           icon: args?.icon ? String(args.icon) : undefined,
         });
+        const path = extensionPath(extension.id, extension.name);
 
         // Auto-navigate so the user lands on the new extension instead of
         // having to read the JSON response and click a link. Writes a
@@ -135,7 +139,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           await writeAppState("navigate", {
             view: "extensions",
             extensionId: extension.id,
-            path: `/extensions/${extension.id}`,
+            path,
             // Unique-per-write token so the UI's `use-navigation-state` hook
             // can dedup race-driven re-reads of the same command.
             _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -146,7 +150,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
 
         return {
           ok: true,
-          extension,
+          extension: { ...extension, path },
+          path,
           next: `Created. The user is being navigated to the new extension automatically — no further navigation tool calls needed.`,
         };
       },
@@ -155,7 +160,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "update-extension": {
       tool: {
         description:
-          "Update an existing sandboxed Alpine.js mini-app extension. Prefer patches for surgical edits; use full content replacement only when necessary.",
+          "Update an existing sandboxed Alpine.js mini-app extension. Prefer granular edits for surgical changes; use full content replacement only for broad rewrites. Supported edits include literal replace, insert-before/after marker, replace-between markers, replace-section/wrap-section/remove-section for <!-- agent-native:section name --> blocks, and regex-replace. Pass format=true to run Prettier on the final HTML.",
         parameters: {
           type: "object",
           properties: {
@@ -179,7 +184,17 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             patches: {
               type: "string",
               description:
-                'Optional JSON array of { "find": "...", "replace": "..." } patches to apply to the current content.',
+                'Legacy optional JSON array of { "find": "...", "replace": "...", "all"?: true, "expectedMatches"?: 1, "required"?: true } patches. Missing required targets fail instead of silently no-oping.',
+            },
+            edits: {
+              type: "string",
+              description:
+                'Preferred optional JSON array of granular edit operations. Examples: { "op": "insert-after", "marker": "<!-- section:metrics -->", "content": "..." }, { "op": "replace-section", "section": "npm-chart", "content": "..." }, { "op": "wrap-section", "section": "charts", "before": "<div>", "after": "</div>" }, { "op": "regex-replace", "pattern": "...", "replace": "...", "expectedMatches": 1 }.',
+            },
+            format: {
+              type: "boolean",
+              description:
+                "When true, format the final extension HTML with Prettier after applying content, patches, and edits.",
             },
             icon: {
               type: "string",
@@ -199,15 +214,26 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         if (!id) return "Error: id is required.";
 
         let result = null;
-        if (args?.content !== undefined || args?.patches !== undefined) {
+        const hasContentUpdate =
+          args?.content !== undefined ||
+          args?.patches !== undefined ||
+          args?.edits !== undefined ||
+          args?.format !== undefined;
+        if (hasContentUpdate) {
           const patches = parsePatches((args as any).patches);
           if (args?.patches !== undefined && !patches) {
             return "Error: patches must be a JSON array of { find, replace } objects.";
+          }
+          const edits = parseEdits((args as any).edits);
+          if (args?.edits !== undefined && !edits) {
+            return "Error: edits must be a JSON array of supported extension edit operations.";
           }
           result = await updateExtensionContent(id, {
             content:
               args?.content !== undefined ? String(args.content) : undefined,
             patches,
+            edits,
+            format: coerceBoolean(args?.format),
           });
         }
 
@@ -477,6 +503,7 @@ async function summarizeExtension(
   return {
     id: row.id,
     name: row.name,
+    path: extensionPath(row.id, row.name),
     description: row.description,
     icon: row.icon,
     ownerEmail: row.ownerEmail,
@@ -512,7 +539,7 @@ function coerceLimit(value: unknown): number {
   return Math.min(Math.max(1, Math.floor(limit)), 500);
 }
 
-function parsePatches(value: unknown): ExtensionPatch[] | undefined {
+function parsePatches(value: unknown): ExtensionLegacyPatch[] | undefined {
   if (value === undefined) return undefined;
   const parsed = typeof value === "string" ? JSON.parse(value) : value;
   if (!Array.isArray(parsed)) return undefined;
@@ -527,4 +554,54 @@ function parsePatches(value: unknown): ExtensionPatch[] | undefined {
     return undefined;
   }
   return parsed;
+}
+
+function parseEdits(value: unknown): ExtensionContentEdit[] | undefined {
+  if (value === undefined) return undefined;
+  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  if (!Array.isArray(parsed)) return undefined;
+  return parsed.every(isValidContentEdit)
+    ? (parsed as ExtensionContentEdit[])
+    : undefined;
+}
+
+function isValidContentEdit(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const edit = value as Record<string, unknown>;
+  const op = edit.op ?? "replace";
+  if (typeof op !== "string") return false;
+
+  switch (op) {
+    case "replace":
+      return typeof edit.find === "string" && typeof edit.replace === "string";
+    case "insert-before":
+    case "insert-after":
+      return (
+        typeof edit.marker === "string" && typeof edit.content === "string"
+      );
+    case "replace-between":
+      return (
+        typeof edit.start === "string" &&
+        typeof edit.end === "string" &&
+        typeof edit.content === "string"
+      );
+    case "replace-section":
+      return (
+        typeof edit.section === "string" && typeof edit.content === "string"
+      );
+    case "wrap-section":
+      return (
+        typeof edit.section === "string" &&
+        typeof edit.before === "string" &&
+        typeof edit.after === "string"
+      );
+    case "remove-section":
+      return typeof edit.section === "string";
+    case "regex-replace":
+      return (
+        typeof edit.pattern === "string" && typeof edit.replace === "string"
+      );
+    default:
+      return false;
+  }
 }

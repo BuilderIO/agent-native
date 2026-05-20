@@ -8,6 +8,7 @@ import { runReport } from "../lib/google-analytics";
 import { getUserSegmentation, queryEvents } from "../lib/amplitude";
 import { readBody } from "@agent-native/core/server";
 import { queryFirstPartyAnalytics } from "../lib/first-party-analytics";
+import { runPrometheusPanel } from "../lib/prometheus";
 
 /**
  * ga4 panels carry a JSON blob in `sql` describing the GA4 Data API call.
@@ -256,12 +257,14 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
 
     if (
       !source ||
-      !["bigquery", "ga4", "amplitude", "first-party"].includes(source)
+      !["bigquery", "ga4", "amplitude", "first-party", "prometheus"].includes(
+        source,
+      )
     ) {
       setResponseStatus(event, 400);
       return {
         error:
-          "Invalid source. Must be 'bigquery', 'ga4', 'amplitude', or 'first-party'",
+          "Invalid source. Must be 'bigquery', 'ga4', 'amplitude', 'first-party', or 'prometheus'",
       };
     }
 
@@ -314,6 +317,16 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
           userEmail: ctx.userEmail,
           orgId: ctx.orgId ?? null,
         });
+      }
+
+      if (source === "prometheus") {
+        const missingUrl = await requireCredential(
+          event,
+          "PROMETHEUS_URL",
+          "Prometheus",
+        );
+        if (missingUrl) return missingUrl;
+        return await runPrometheusPanel(query);
       }
 
       setResponseStatus(event, 400);

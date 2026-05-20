@@ -1,8 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { IconExternalLink, IconShare3 } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconExternalLink,
+  IconLogin2,
+  IconShare3,
+} from "@tabler/icons-react";
 import { eq } from "drizzle-orm";
 import {
   agentNativePath,
@@ -59,6 +70,26 @@ function pageTitle(title: string | null | undefined): string {
 
 function displayRecordingTitle(title: string | null | undefined): string {
   return hasGeneratedTitle(title) ? (title ?? "").trim() : "Untitled Clip";
+}
+
+function isStorageSetupFailureReason(
+  reason: string | null | undefined,
+): boolean {
+  return /video storage is not connected|file upload provider|storage provider|connect builder|s3-compatible/i.test(
+    reason ?? "",
+  );
+}
+
+function failureDetail(reason: string | null | undefined): string | null {
+  const trimmed = reason?.trim();
+  if (!trimmed) return null;
+  return trimmed.length > 800 ? `${trimmed.slice(0, 800)}...` : trimmed;
+}
+
+function buildSignInHref(returnTo: string): string {
+  return agentNativePath(
+    `/_agent-native/sign-in?return=${encodeURIComponent(returnTo)}`,
+  );
 }
 
 function shouldShowGeneratedTitleSkeleton(
@@ -165,10 +196,11 @@ export default function ShareRoute() {
   });
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
-  const { session } = useSession();
+  const { session, isLoading: sessionLoading } = useSession();
   const [signInIntent, setSignInIntent] = useState<"comment" | "react" | null>(
     null,
   );
+  const [processingTimeout, setProcessingTimeout] = useState(false);
   const requireSignIn = useCallback(
     (intent: "comment" | "react") => setSignInIntent(intent),
     [],
@@ -216,6 +248,32 @@ export default function ShareRoute() {
     if (!recording) return;
     document.title = pageTitle(recording.title);
   }, [recording?.title]);
+
+  useEffect(() => {
+    if (!recording) {
+      setProcessingTimeout(false);
+      return;
+    }
+    if (recording.status === "ready" && recording.videoUrl) {
+      setProcessingTimeout(false);
+      return;
+    }
+    if (recording.status === "failed") {
+      setProcessingTimeout(false);
+      return;
+    }
+
+    const progress = Number(recording.uploadProgress ?? 0);
+    const timeoutMs =
+      recording.status === "processing" || progress >= 95 ? 12_000 : 30_000;
+    const handle = setTimeout(() => setProcessingTimeout(true), timeoutMs);
+    return () => clearTimeout(handle);
+  }, [
+    recording?.id,
+    recording?.status,
+    recording?.videoUrl,
+    recording?.uploadProgress,
+  ]);
 
   usePlayerShortcuts({ playerRef });
 
@@ -306,7 +364,17 @@ export default function ShareRoute() {
     return (
       <EndState
         title="Clip unavailable"
-        message="This recording isn't public, or the link is invalid."
+        message="This recording isn't public, or the link is invalid. If it's your clip, sign in to check access."
+        action={
+          shareId ? (
+            <Button asChild size="sm">
+              <a href={buildSignInHref(`/r/${shareId}`)} className="gap-1.5">
+                <IconLogin2 className="h-4 w-4" />
+                Sign in
+              </a>
+            </Button>
+          ) : null
+        }
       />
     );
   }
@@ -323,28 +391,59 @@ export default function ShareRoute() {
   if (recording.status !== "ready" || !recording.videoUrl) {
     const progress = Number(recording.uploadProgress ?? 0);
     const explicitFailure = recording.status === "failed";
-    const label = explicitFailure
-      ? "Something went wrong while saving this clip."
-      : "Finishing up this clip...";
-    const message = explicitFailure
-      ? ((recording as any).failureReason ?? "The creator may need to retry.")
-      : "Uploading and assembling the video. This page will update automatically.";
-    const storageSetupFailure =
-      explicitFailure &&
-      /file upload provider|storage provider|connect builder|s3-compatible/i.test(
-        message,
-      );
+    const rawFailureReason =
+      ((recording as any).failureReason as string | null | undefined) ?? null;
+    const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
+    const stuckFailure = !explicitFailure && processingTimeout;
+    const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
+    const canManageStorage = viewerCanEdit;
+    const signInHref = buildSignInHref(`/r/${recording.id}`);
+    const detail = failureDetail(rawFailureReason);
+    const label = storageSetupFailure
+      ? "Connect storage to finish this clip."
+      : stuckFailure
+        ? "This clip needs attention to finish."
+        : explicitFailure
+          ? "Something went wrong while saving this clip."
+          : "Finishing up this clip...";
+    const message = storageSetupFailure
+      ? canManageStorage
+        ? "The video is preserved. Connect Builder.io or S3 storage and Clips will finish uploading it."
+        : session
+          ? "The creator needs to connect Builder.io or S3 storage before this clip can finish."
+          : "If this is your clip, sign in here to connect Builder.io or S3 storage and finish the upload."
+      : stuckFailure
+        ? session
+          ? "The upload has not completed yet. Open the dashboard for this clip or ask the creator to check storage."
+          : "The upload has not completed yet. If this is your clip, sign in to open the owner controls and check storage."
+        : explicitFailure
+          ? (rawFailureReason ?? "The creator may need to retry.")
+          : "Uploading and assembling the video. This page will update automatically.";
 
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
-        {!explicitFailure ? (
+        {!isFailure ? (
           <Spinner className="h-8 w-8 mb-4 text-muted-foreground" />
-        ) : null}
-        <h1 className="text-lg font-semibold mb-1">{label}</h1>
-        <p className="text-sm text-muted-foreground mb-4 max-w-md text-center">
+        ) : (
+          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-destructive/30 bg-destructive/10 text-destructive">
+            <IconAlertTriangle className="h-5 w-5" />
+          </div>
+        )}
+        <h1 className="mb-1 text-center text-lg font-semibold">{label}</h1>
+        <p className="mb-4 max-w-md text-center text-sm text-muted-foreground">
           {message}
         </p>
-        {!explicitFailure && progress > 0 ? (
+        {isFailure && detail && canManageStorage ? (
+          <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-left shadow-sm">
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Details
+            </div>
+            <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
+              {detail}
+            </pre>
+          </div>
+        ) : null}
+        {!isFailure && progress > 0 ? (
           <div className="w-64 h-1.5 rounded-full bg-accent overflow-hidden mb-4">
             <div
               className="h-full bg-foreground"
@@ -352,20 +451,43 @@ export default function ShareRoute() {
             />
           </div>
         ) : null}
-        {storageSetupFailure ? (
+        {storageSetupFailure && canManageStorage ? (
           <div className="mb-4 w-full">
             <StorageSetupCard
               title="Connect storage to finish saving"
-              description="If this is your clip, connect Builder.io here and this page will check again."
+              description="Choose where Clips should store videos. After it connects, this page will check again."
+              connectedDescription="Storage connected. Checking this clip..."
               onConfigured={() => {
                 void dataQ.refetch();
               }}
             />
           </div>
         ) : null}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {!session && isFailure ? (
+            <Button asChild size="sm">
+              <a href={signInHref} className="gap-1.5">
+                <IconLogin2 className="h-4 w-4" />
+                Sign in to finish
+              </a>
+            </Button>
+          ) : !session && !sessionLoading && !isFailure ? (
+            <Button asChild variant="ghost" size="sm">
+              <a href={signInHref} className="gap-1.5">
+                <IconLogin2 className="h-4 w-4" />
+                Sign in if this is yours
+              </a>
+            </Button>
+          ) : canManageStorage && isFailure ? (
+            <Button asChild size="sm">
+              <a href={appPath(`/r/${recording.id}`)}>Open dashboard</a>
+            </Button>
+          ) : null}
           <Button
-            onClick={() => dataQ.refetch()}
+            onClick={() => {
+              setProcessingTimeout(false);
+              void dataQ.refetch();
+            }}
             variant="outline"
             size="sm"
             className="border-foreground/20 bg-muted/50 hover:bg-accent text-foreground"
@@ -379,33 +501,37 @@ export default function ShareRoute() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2">
           <img
             src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
-            className="block h-4 w-auto dark:hidden"
+            className="block h-4 w-auto shrink-0 dark:hidden"
           />
           <img
             src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
-            className="hidden h-4 w-auto dark:block"
+            className="hidden h-4 w-auto shrink-0 dark:block"
           />
-          <span className="font-medium">Clips</span>
+          <span className="truncate font-medium">Clips</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full min-w-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
           {viewerCanEdit ? (
             <Button variant="ghost" size="sm" asChild>
-              <a href={appPath(`/r/${recording.id}`)} className="gap-1.5">
-                Open dashboard <IconExternalLink className="h-3.5 w-3.5" />
+              <a
+                href={appPath(`/r/${recording.id}`)}
+                className="min-w-0 gap-1.5"
+              >
+                <span className="truncate">Open dashboard</span>
+                <IconExternalLink className="h-3.5 w-3.5 shrink-0" />
               </a>
             </Button>
           ) : (
             <a
               href={appPath("/")}
-              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               Try Clips <IconExternalLink className="h-3 w-3" />
             </a>
@@ -417,7 +543,7 @@ export default function ShareRoute() {
               videoUrl={recording.videoUrl}
               animatedThumbnailUrl={recording.animatedThumbnailUrl}
             >
-              <Button size="sm" className="gap-1.5">
+              <Button size="sm" className="shrink-0 gap-1.5">
                 <IconShare3 className="h-4 w-4" />
                 Share
               </Button>
@@ -426,7 +552,7 @@ export default function ShareRoute() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-6xl px-4 pb-8 grid grid-cols-[1fr_360px] gap-6">
+      <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-5 px-4 pb-8 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6">
         <div className="min-w-0 space-y-4">
           <div className="aspect-video rounded-xl overflow-hidden bg-black">
             <VideoPlayer
@@ -448,48 +574,52 @@ export default function ShareRoute() {
             />
           </div>
 
-          <div className="flex items-start gap-3">
-            <div className="flex-1 min-w-0">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
+            <div className="min-w-0 flex-1">
               {showTitleSkeleton ? (
                 <Skeleton
                   aria-label="Generating title"
                   className="h-7 w-80 max-w-full"
                 />
               ) : (
-                <h1 className="text-xl font-semibold">{visibleTitle}</h1>
+                <h1 className="break-words text-lg font-semibold leading-tight sm:text-xl">
+                  {visibleTitle}
+                </h1>
               )}
               {recording.description ? (
-                <p className="text-sm text-foreground/70 mt-1 whitespace-pre-wrap">
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground/70">
                   {recording.description}
                 </p>
               ) : null}
             </div>
             {recording.enableReactions ? (
-              <ReactionsTray
-                onReact={(emoji) => {
-                  if (!session) {
-                    requireSignIn("react");
-                    return;
-                  }
-                  tracking.reportReaction(emoji);
-                  fetch(
-                    agentNativePath(
-                      "/_agent-native/actions/react-to-recording",
-                    ),
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        recordingId: recording.id,
-                        emoji,
-                        videoTimestampMs: currentMs,
-                      }),
-                    },
-                  )
-                    .then(() => dataQ.refetch())
-                    .catch(() => {});
-                }}
-              />
+              <div className="max-w-full self-start">
+                <ReactionsTray
+                  onReact={(emoji) => {
+                    if (!session) {
+                      requireSignIn("react");
+                      return;
+                    }
+                    tracking.reportReaction(emoji);
+                    fetch(
+                      agentNativePath(
+                        "/_agent-native/actions/react-to-recording",
+                      ),
+                      {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          recordingId: recording.id,
+                          emoji,
+                          videoTimestampMs: currentMs,
+                        }),
+                      },
+                    )
+                      .then(() => dataQ.refetch())
+                      .catch(() => {});
+                  }}
+                />
+              </div>
             ) : null}
           </div>
 
@@ -499,14 +629,14 @@ export default function ShareRoute() {
               size="sm"
               onClick={downloadRecording}
               disabled={downloading}
-              className="border-foreground/20 bg-muted/50 hover:bg-accent text-foreground"
+              className="w-full border-foreground/20 bg-muted/50 text-foreground hover:bg-accent sm:w-auto"
             >
               {downloading ? "Downloading..." : "Download MP4"}
             </Button>
           ) : null}
         </div>
 
-        <aside className="min-w-0">
+        <aside className="min-w-0 lg:sticky lg:top-4 lg:self-start">
           <Tabs defaultValue="transcript" className="flex flex-col">
             <TabsList className="w-full bg-muted/50">
               <TabsTrigger value="transcript" className="flex-1">
@@ -519,7 +649,7 @@ export default function ShareRoute() {
               ) : null}
             </TabsList>
             <TabsContent value="transcript" className="mt-3">
-              <div className="rounded-lg border border-border bg-muted/50 h-[600px] overflow-hidden">
+              <div className="h-[420px] overflow-hidden rounded-lg border border-border bg-muted/50 sm:h-[520px] lg:h-[600px]">
                 <TranscriptPanel
                   segments={transcriptSegments}
                   fullText={transcriptFullText}
@@ -534,7 +664,7 @@ export default function ShareRoute() {
             </TabsContent>
             {recording.enableComments ? (
               <TabsContent value="comments" className="mt-3">
-                <div className="rounded-lg border border-border bg-muted/50 h-[600px] overflow-hidden">
+                <div className="h-[420px] overflow-hidden rounded-lg border border-border bg-muted/50 sm:h-[520px] lg:h-[600px]">
                   <CommentsPanel
                     recordingId={recording.id}
                     comments={comments}
@@ -558,7 +688,7 @@ export default function ShareRoute() {
         </aside>
       </div>
 
-      <div className="mx-auto max-w-6xl px-4 pb-6 flex justify-center">
+      <div className="mx-auto flex max-w-6xl justify-center px-4 pb-6 sm:px-6">
         <PoweredByBadge />
       </div>
 
@@ -583,14 +713,27 @@ function sanitizeFilename(name: string): string {
   );
 }
 
-function EndState({ title, message }: { title: string; message: string }) {
+function EndState({
+  title,
+  message,
+  action,
+}: {
+  title: string;
+  message: string;
+  action?: ReactNode;
+}) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
       <h1 className="text-2xl font-semibold mb-2">{title}</h1>
-      <p className="text-sm text-muted-foreground mb-6">{message}</p>
-      <a href={appPath("/")} className="text-sm text-primary hover:underline">
-        Go home
-      </a>
+      <p className="mb-6 max-w-md text-center text-sm text-muted-foreground">
+        {message}
+      </p>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {action}
+        <Button asChild variant="ghost" size="sm">
+          <a href={appPath("/")}>Go home</a>
+        </Button>
+      </div>
     </div>
   );
 }

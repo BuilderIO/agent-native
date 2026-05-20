@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSetting, putSetting } from "@agent-native/core/settings";
+import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
 import {
   getBuilderBranchProjectId,
   getRequestContext,
@@ -12,7 +13,6 @@ import {
   runBuilderAgent,
 } from "@agent-native/core/server";
 import { getDbExec } from "@agent-native/core/db";
-import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
 import {
   currentOrgId,
   currentOwnerEmail,
@@ -36,6 +36,9 @@ const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 1_000;
 const MAX_PENDING_APPS = 50;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
 const AGENT_CARD_FETCH_TIMEOUT_MS = 1_500;
+const DEFAULT_WORKSPACE_APP_AUDIENCE = "internal";
+
+type WorkspaceAppAudience = "internal" | "public";
 
 export interface WorkspaceAppSummary {
   id: string;
@@ -44,6 +47,9 @@ export interface WorkspaceAppSummary {
   path: string;
   url: string | null;
   isDispatch: boolean;
+  audience: WorkspaceAppAudience;
+  publicPaths: string[];
+  protectedPaths: string[];
   status?: "ready" | "pending";
   statusLabel?: string;
   builderUrl?: string | null;
@@ -65,6 +71,7 @@ export interface ListWorkspaceAppsOptions {
    * when rendering the "Hidden apps" expander.
    */
   includeArchived?: boolean;
+  audience?: WorkspaceAppAudience | "all";
 }
 
 export interface AvailableWorkspaceTemplate {
@@ -104,6 +111,7 @@ interface PendingWorkspaceApp {
   builderUrl: string | null;
   branchName: string | null;
   projectId: string | null;
+  audience?: WorkspaceAppAudience;
   createdAt: string;
   updatedAt: string;
 }
@@ -346,6 +354,85 @@ function workspaceAppLink(
   }
 }
 
+function normalizeWorkspaceAppAudience(value: unknown): WorkspaceAppAudience {
+  return value === "public" ? "public" : DEFAULT_WORKSPACE_APP_AUDIENCE;
+}
+
+function normalizeWorkspaceAppPathList(value: unknown): string[] {
+  let rawPaths: unknown[] = [];
+  if (Array.isArray(value)) {
+    rawPaths = value;
+  } else if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      rawPaths = Array.isArray(parsed) ? parsed : [trimmed];
+    } catch {
+      rawPaths = trimmed.split(",");
+    }
+  }
+
+  const paths = rawPaths
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => entry.startsWith("/"))
+    .map((entry) =>
+      entry.length > 1 && entry.endsWith("/") ? entry.slice(0, -1) : entry,
+    );
+  return Array.from(new Set(paths));
+}
+
+function workspaceAppAudienceFromPackageJson(
+  pkg: unknown,
+): WorkspaceAppAudience | undefined {
+  if (!pkg || typeof pkg !== "object" || Array.isArray(pkg)) return undefined;
+  const record = pkg as Record<string, any>;
+  const config = record["agent-native"] ?? record.agentNative;
+  const nested =
+    config && typeof config === "object" && !Array.isArray(config)
+      ? (config as Record<string, any>)
+      : {};
+  const raw =
+    nested.workspaceApp?.audience ??
+    nested.workspace?.audience ??
+    nested.audience ??
+    record.workspaceAppAudience;
+  if (raw === undefined) return undefined;
+  return normalizeWorkspaceAppAudience(raw);
+}
+
+function workspaceAppRouteAccessFromPackageJson(pkg: unknown): {
+  publicPaths: string[];
+  protectedPaths: string[];
+} {
+  if (!pkg || typeof pkg !== "object" || Array.isArray(pkg)) {
+    return { publicPaths: [], protectedPaths: [] };
+  }
+  const record = pkg as Record<string, any>;
+  const config = record["agent-native"] ?? record.agentNative;
+  const nested =
+    config && typeof config === "object" && !Array.isArray(config)
+      ? (config as Record<string, any>)
+      : {};
+  return {
+    publicPaths: normalizeWorkspaceAppPathList(
+      nested.workspaceApp?.publicPaths ??
+        nested.workspaceApp?.publicPagePaths ??
+        nested.workspace?.publicPaths ??
+        nested.publicPaths ??
+        record.workspaceAppPublicPaths,
+    ),
+    protectedPaths: normalizeWorkspaceAppPathList(
+      nested.workspaceApp?.protectedPaths ??
+        nested.workspaceApp?.privatePaths ??
+        nested.workspaceApp?.authRequiredPaths ??
+        nested.workspace?.protectedPaths ??
+        nested.protectedPaths ??
+        record.workspaceAppProtectedPaths,
+    ),
+  };
+}
+
 function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
   const rawApps = Array.isArray(parsed?.apps)
     ? parsed.apps
@@ -374,6 +461,12 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
           typeof entry.isDispatch === "boolean"
             ? entry.isDispatch
             : id === "dispatch",
+        audience:
+          entry.audience === undefined
+            ? DEFAULT_WORKSPACE_APP_AUDIENCE
+            : normalizeWorkspaceAppAudience(entry.audience),
+        publicPaths: normalizeWorkspaceAppPathList(entry.publicPaths),
+        protectedPaths: normalizeWorkspaceAppPathList(entry.protectedPaths),
         status: "ready",
       } satisfies WorkspaceAppSummary;
     })
@@ -394,7 +487,7 @@ function sortWorkspaceApps(a: WorkspaceAppSummary, b: WorkspaceAppSummary) {
 function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
   if (!Array.isArray(value)) return [];
   return value
-    .map((entry) => {
+    .map((entry): PendingWorkspaceApp | null => {
       if (!entry || typeof entry !== "object") return null;
       const record = entry as Record<string, unknown>;
       const id = typeof record.id === "string" ? record.id.trim() : "";
@@ -425,6 +518,9 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
           typeof record.projectId === "string" && record.projectId.trim()
             ? record.projectId.trim()
             : null,
+        ...(record.audience === undefined
+          ? {}
+          : { audience: normalizeWorkspaceAppAudience(record.audience) }),
         createdAt:
           typeof record.createdAt === "string" && record.createdAt.trim()
             ? record.createdAt.trim()
@@ -522,6 +618,9 @@ function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
     path: app.path,
     url: app.builderUrl,
     isDispatch: false,
+    audience: app.audience ?? DEFAULT_WORKSPACE_APP_AUDIENCE,
+    publicPaths: [],
+    protectedPaths: [],
     status: "pending",
     statusLabel: "Building in Builder",
     builderUrl: app.builderUrl,
@@ -796,6 +895,7 @@ function readWorkspaceAppsFromFilesystem(
       const appDir = path.join(appsDir, entry.name);
       const pkg = readJson(path.join(appDir, "package.json"));
       if (!pkg) return null;
+      const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
       return {
         id: entry.name,
         name: pkg.displayName || titleCase(entry.name),
@@ -803,6 +903,11 @@ function readWorkspaceAppsFromFilesystem(
         path: `/${entry.name}`,
         url: workspaceAppUrl(`/${entry.name}`),
         isDispatch: entry.name === "dispatch",
+        audience:
+          workspaceAppAudienceFromPackageJson(pkg) ??
+          DEFAULT_WORKSPACE_APP_AUDIENCE,
+        publicPaths: routeAccess.publicPaths,
+        protectedPaths: routeAccess.protectedPaths,
         status: "ready",
       } satisfies WorkspaceAppSummary;
     })
@@ -882,8 +987,23 @@ async function applyArchivedAndPending(
       : withMetadata;
   });
   return options.includeArchived
-    ? annotated
-    : annotated.filter((app) => !app.archived);
+    ? filterAppsByAudience(annotated, options.audience)
+    : filterAppsByAudience(
+        annotated.filter((app) => !app.archived),
+        options.audience,
+      );
+}
+
+function filterAppsByAudience(
+  apps: WorkspaceAppSummary[],
+  audience: ListWorkspaceAppsOptions["audience"],
+): WorkspaceAppSummary[] {
+  if (!audience || audience === "all") return apps;
+  return apps.filter(
+    (app) =>
+      (app.audience ?? DEFAULT_WORKSPACE_APP_AUDIENCE) ===
+      normalizeWorkspaceAppAudience(audience),
+  );
 }
 
 export async function updateWorkspaceAppMetadata(input: {
@@ -902,8 +1022,15 @@ export async function updateWorkspaceAppMetadata(input: {
   const app = apps.find((candidate) => candidate.id === appId);
   if (!app) throw new Error(`Workspace app "${appId}" was not found.`);
 
-  const name = input.name?.trim() || app.name;
-  const description = input.description?.trim() || "";
+  // Treat undefined/null as "field omitted, leave existing value alone"; an
+  // explicit empty string clears the override (the app reverts to its
+  // built-in name / no description). Without this, a partial update that
+  // only touches one field silently wipes the other.
+  const name = input.name == null ? app.name : input.name.trim();
+  const description =
+    input.description == null
+      ? (app.description ?? undefined)
+      : input.description.trim();
   await writeWorkspaceAppMetadataOverride({
     appId,
     name,
@@ -975,6 +1102,9 @@ export async function listWorkspaceApps(
             path: "/dispatch",
             url: workspaceAppUrl("/dispatch"),
             isDispatch: true,
+            audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
+            publicPaths: [],
+            protectedPaths: [],
             status: "ready",
           },
         ],
@@ -1434,6 +1564,7 @@ function buildWorkspaceAppPrompt(input: {
         ? `Dispatch vault keys selected for this app: ${selectedKeys.join(", ")}`
         : "Dispatch vault keys selected for this app: none",
       `Dispatch workspace resources selected for this app:\n${resourceList}`,
+      `Dispatch workspace resources with scope=all are global. After the app exists, sync workspace resources to appId "${appId}" so global skills, guardrail instructions, and reference resources reach the new app even when no per-app resources were selected.`,
       "",
       `Use the workspace app layout: create it under apps/${appId}, mount it at /${appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
       `Important routing rule: from outside the app, link to /${appId}; inside apps/${appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs like /${appId}/${appId}/review.`,
@@ -1444,8 +1575,8 @@ function buildWorkspaceAppPrompt(input: {
         ? `Dispatch will create pending vault requests for the selected keys for appId "${appId}" after this app creation request is accepted. Do not grant or sync vault keys directly from the app-creation branch.`
         : "Do not grant or request any Dispatch vault keys unless the user asks later.",
       selectedResources.length
-        ? `Dispatch will create workspace resource grants for the selected resources for appId "${appId}". After the app exists, sync workspace resources so the app receives those shared resources. Add a short note to apps/${appId}/AGENTS.md telling the app agent to read relevant shared resources under context/ or the selected resource paths before doing GTM/domain work.`
-        : "Do not grant any Dispatch workspace resources unless the user asks later.",
+        ? `Dispatch will create workspace resource grants for the selected resources for appId "${appId}". After the app exists, sync workspace resources so the app receives both global and selected shared resources.`
+        : "Do not grant any selected-only Dispatch workspace resources unless the user asks later.",
       "",
       "Agent-native rules (these are the framework's contract — not optional):",
       `- Persist ALL data in SQL via Drizzle. Add tables to apps/${appId}/server/db/schema.ts and migrations to apps/${appId}/server/plugins/db.ts. NEVER use localStorage, sessionStorage, IndexedDB, or in-memory state for anything the user expects to persist — agent and UI must read the same source of truth.`,

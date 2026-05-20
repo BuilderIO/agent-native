@@ -3,15 +3,14 @@ import { NavLink, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  IconAlertTriangle,
   IconAppWindow,
   IconCalendar,
-  IconCalendarOff,
+  IconCheck,
   IconExternalLink,
   IconLoader2,
+  IconNotes,
   IconPlugConnected,
   IconPlugOff,
-  IconRefresh,
   IconSearch,
   IconSettings,
   IconX,
@@ -38,11 +37,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import {
-  MeetingCard,
-  MeetingCardSkeleton,
-  type MeetingCardData,
-} from "@/components/meetings/meeting-card";
 import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
 import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
 import { PageHeader } from "@/components/library/page-header";
@@ -51,8 +45,25 @@ export function meta() {
   return [{ title: "Meetings · Clips" }];
 }
 
-interface Meeting extends MeetingCardData {
-  source?: "calendar" | "adhoc";
+interface Meeting {
+  id: string;
+  title: string;
+  scheduledStart: string;
+  scheduledEnd?: string | null;
+  actualStart?: string | null;
+  actualEnd?: string | null;
+  recordingId?: string | null;
+  transcriptStatus?:
+    | "pending"
+    | "ready"
+    | "failed"
+    | "in_progress"
+    | string
+    | null;
+  summaryPreview?: string | null;
+  summaryMd?: string | null;
+  userNotesMd?: string | null;
+  source?: "calendar" | "adhoc" | "manual";
   participants?: AttendeeStackParticipant[];
 }
 
@@ -64,22 +75,6 @@ interface CalendarAccount {
   status?: "connected" | "needs-reauth" | "disconnected" | string;
   lastSyncedAt?: string | null;
   lastSyncError?: string | null;
-}
-
-interface CalendarFetchError {
-  accountId: string;
-  error: string;
-  needsReauth?: boolean;
-}
-
-type CalendarIssueKind = "reauth" | "fetch-error";
-
-interface CalendarIssue {
-  kind: CalendarIssueKind;
-  title: string;
-  description: string;
-  detail?: string | null;
-  account?: CalendarAccount;
 }
 
 async function requestDisconnectCalendar(accountId: string): Promise<void> {
@@ -142,67 +137,12 @@ async function startCalendarOAuth(): Promise<void> {
   });
 }
 
-function cleanCalendarError(message?: string | null): string | null {
-  const clean = (message ?? "").replace(/\s+/g, " ").trim();
-  if (!clean) return null;
-  if (clean === "needs-reauth") {
-    return "Google Calendar needs to be reconnected.";
-  }
-  return clean.length > 180 ? `${clean.slice(0, 177)}...` : clean;
-}
-
 function calendarAccountLabel(account: CalendarAccount): string {
   return (
     account.email ||
     account.displayName ||
     `${account.provider === "google" ? "Google" : account.provider} calendar`
   );
-}
-
-function getCalendarIssue(
-  accounts: CalendarAccount[],
-  liveErrors: CalendarFetchError[],
-): CalendarIssue | null {
-  const reauthAccount = accounts.find((a) => a.status === "needs-reauth");
-  if (reauthAccount) {
-    const label = calendarAccountLabel(reauthAccount);
-    return {
-      kind: "reauth",
-      account: reauthAccount,
-      title: "Reconnect Google Calendar",
-      description: `Clips cannot read ${label} until the calendar connection is refreshed.`,
-      detail: cleanCalendarError(reauthAccount.lastSyncError),
-    };
-  }
-
-  const erroredAccount = accounts.find((a) => !!a.lastSyncError);
-  if (erroredAccount) {
-    const label = calendarAccountLabel(erroredAccount);
-    return {
-      kind: "fetch-error",
-      account: erroredAccount,
-      title: "Calendar connection needs attention",
-      description: `Clips could not read events from ${label}. Reconnect the calendar if this keeps happening.`,
-      detail: cleanCalendarError(erroredAccount.lastSyncError),
-    };
-  }
-
-  const liveError = liveErrors[0];
-  if (liveError) {
-    const account = accounts.find((a) => a.id === liveError.accountId);
-    const label = account ? calendarAccountLabel(account) : "Google Calendar";
-    return {
-      kind: "fetch-error",
-      account,
-      title: liveError.needsReauth
-        ? "Reconnect Google Calendar"
-        : "Calendar connection needs attention",
-      description: `Clips could not read events from ${label}.`,
-      detail: cleanCalendarError(liveError.error),
-    };
-  }
-
-  return null;
 }
 
 function groupByDay(meetings: Meeting[]): Array<[string, Meeting[]]> {
@@ -223,31 +163,127 @@ function groupByDay(meetings: Meeting[]): Array<[string, Meeting[]]> {
   return Array.from(groups.entries());
 }
 
-function MeetingSection({
-  title,
-  meetings,
-}: {
-  title: string;
-  meetings: Meeting[];
-}) {
+function formatTime(iso?: string | null): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function formatTimeRange(meeting: Meeting): string {
+  const start = formatTime(meeting.actualStart ?? meeting.scheduledStart);
+  const end = formatTime(meeting.actualEnd ?? meeting.scheduledEnd);
+  if (start && end) return `${start} - ${end}`;
+  return start || end || "Recorded meeting";
+}
+
+function buildPreview(meeting: Meeting): string | null {
+  const raw = meeting.summaryPreview || meeting.summaryMd || "";
+  const plain = raw
+    .replace(/[#*`>_~-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return plain ? plain.slice(0, 180) : null;
+}
+
+function hasGeneratedNotes(meeting: Meeting): boolean {
+  return Boolean(meeting.summaryMd?.trim() || meeting.userNotesMd?.trim());
+}
+
+function RecordedMeetingRow({ meeting }: { meeting: Meeting }) {
+  const preview = buildPreview(meeting);
+  const transcriptReady = meeting.transcriptStatus === "ready";
+  const notesReady = hasGeneratedNotes(meeting);
+
+  return (
+    <NavLink
+      to={`/meetings/${meeting.id}`}
+      className="group flex items-start gap-4 rounded-md border border-border/70 bg-background px-4 py-3 transition-colors hover:border-foreground/20 hover:bg-accent/20 focus:outline-none focus:ring-2 focus:ring-ring"
+    >
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-accent/30 text-muted-foreground">
+        <IconCalendar className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+            {meeting.title || "Untitled meeting"}
+          </h3>
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {formatTimeRange(meeting)}
+          </span>
+        </div>
+        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          {preview || "No summary yet"}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          {transcriptReady ? (
+            <span className="inline-flex items-center gap-1 rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-700 dark:text-emerald-300">
+              <IconCheck className="h-3 w-3" />
+              Transcript
+            </span>
+          ) : (
+            <span className="rounded border border-border px-1.5 py-0.5">
+              Transcript pending
+            </span>
+          )}
+          {notesReady ? (
+            <span className="inline-flex items-center gap-1 rounded border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
+              <IconNotes className="h-3 w-3" />
+              Notes
+            </span>
+          ) : (
+            <span className="rounded border border-border px-1.5 py-0.5">
+              Notes pending
+            </span>
+          )}
+        </div>
+      </div>
+    </NavLink>
+  );
+}
+
+function RecordedMeetingsList({ meetings }: { meetings: Meeting[] }) {
   if (meetings.length === 0) return null;
   const groups = groupByDay(meetings);
   return (
     <section className="space-y-4">
       <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 px-1">
-        {title}
+        Past recordings
       </h2>
       {groups.map(([day, items]) => (
         <div key={day} className="space-y-2">
           <DayHeader label={day} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="space-y-2">
             {items.map((m) => (
-              <MeetingCard key={m.id} meeting={m} />
+              <RecordedMeetingRow key={m.id} meeting={m} />
             ))}
           </div>
         </div>
       ))}
     </section>
+  );
+}
+
+function RecordedMeetingSkeleton() {
+  return (
+    <div className="rounded-md border border-border/70 bg-background px-4 py-3">
+      <div className="flex items-start gap-4">
+        <div className="h-8 w-8 rounded-md bg-muted animate-pulse" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex justify-between gap-4">
+            <div className="h-4 w-2/5 rounded bg-muted animate-pulse" />
+            <div className="h-3 w-24 rounded bg-muted/70 animate-pulse" />
+          </div>
+          <div className="h-3 w-full rounded bg-muted/70 animate-pulse" />
+          <div className="h-3 w-4/5 rounded bg-muted/70 animate-pulse" />
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -310,8 +346,8 @@ function ConnectCalendarEmptyState({
               Connect Google Calendar
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-              See your upcoming meetings, get a notification a few minutes
-              before, and one-click notes + transcription.
+              Get a desktop reminder when meetings start so recorded notes land
+              in this history automatically.
             </p>
             <div className="mt-3">
               <CalendarConnectionAction
@@ -342,13 +378,11 @@ function CalendarAccountMenu({
 
   const primaryAccount = accounts[0] ?? null;
   const statusText =
-    primaryAccount?.status === "needs-reauth"
-      ? "Needs reconnect"
-      : primaryAccount?.lastSyncError
-        ? "Connection issue"
-        : primaryAccount
-          ? "Connected"
-          : "Not connected";
+    primaryAccount?.status === "disconnected"
+      ? "Disconnected"
+      : primaryAccount
+        ? "Connected"
+        : "Not connected";
 
   const handleReconnect = () => {
     setConnectPending(true);
@@ -417,7 +451,7 @@ function CalendarAccountMenu({
                 <div>{statusText}</div>
               </>
             ) : (
-              "Connect Google Calendar to populate meetings."
+              "Connect Google Calendar for meeting reminders."
             )}
           </div>
           <DropdownMenuSeparator />
@@ -486,69 +520,6 @@ function CalendarAccountMenu({
   );
 }
 
-function CalendarConnectionIssue({
-  issue,
-  onRetry,
-  retryPending,
-  onConnected,
-}: {
-  issue: CalendarIssue;
-  onRetry: () => void;
-  retryPending: boolean;
-  onConnected?: () => void | Promise<void>;
-}) {
-  const shouldShowRetry = issue.kind !== "reauth";
-  return (
-    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-            <IconAlertTriangle className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-foreground">
-              {issue.title}
-            </div>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              {issue.description}
-            </p>
-            {issue.detail && (
-              <p className="mt-2 rounded-md border border-amber-500/20 bg-background/70 px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                {issue.detail}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-          {shouldShowRetry && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onRetry}
-              disabled={retryPending}
-              className="gap-1.5 cursor-pointer"
-            >
-              <IconRefresh
-                className={`h-3.5 w-3.5 ${retryPending ? "animate-spin" : ""}`}
-              />
-              {retryPending ? "Refreshing..." : "Try again"}
-            </Button>
-          )}
-          <CalendarConnectionAction
-            label={
-              issue.kind === "reauth"
-                ? "Reconnect Google Calendar"
-                : "Reconnect"
-            }
-            variant={issue.kind === "reauth" ? "default" : "outline"}
-            onConnected={onConnected}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function MeetingsHeader({
   query,
   onQueryChange,
@@ -581,14 +552,14 @@ function MeetingsHeader({
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1 space-y-4">
           <p className="text-sm text-muted-foreground">
-            Upcoming and past meetings with live transcripts and AI notes.
+            Recorded meetings with transcripts and AI notes.
           </p>
           <div className="relative max-w-sm">
             <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
-              placeholder="Search by title or attendee…"
+              placeholder="Search recorded meetings..."
               className="pl-8 pr-8 h-9 text-sm"
             />
             {query && (
@@ -658,7 +629,6 @@ export default function MeetingsIndexRoute() {
 
   const queryClient = useQueryClient();
   const { shouldShowSidebarLink: showDesktopCta } = useDesktopPromo();
-  const [refreshPending, setRefreshPending] = useState(false);
 
   const accounts = useActionQuery<{ accounts: CalendarAccount[] } | undefined>(
     "list-calendar-accounts",
@@ -666,29 +636,44 @@ export default function MeetingsIndexRoute() {
     { retry: false },
   );
   const meetingsQuery = useActionQuery<
-    | { meetings: Meeting[]; calendarErrors?: CalendarFetchError[] }
-    | Meeting[]
-    | undefined
-  >("list-meetings", { view: "all" }, { retry: false });
+    { meetings: Meeting[] } | Meeting[] | undefined
+  >(
+    "list-meetings",
+    { view: "past", recordedOnly: true, includeLiveCalendar: false },
+    { retry: false },
+  );
 
-  const refreshCalendarData = useCallback(async () => {
-    setRefreshPending(true);
-    try {
-      await Promise.all([accounts.refetch(), meetingsQuery.refetch()]);
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Couldn't refresh your calendar",
-      );
-    } finally {
-      setRefreshPending(false);
-    }
-  }, [accounts, meetingsQuery]);
+  const clearCalendarConnectionWarnings = useCallback(() => {
+    queryClient.setQueriesData<{ accounts: CalendarAccount[] } | undefined>(
+      { queryKey: ["action", "list-calendar-accounts"] },
+      (prev) => {
+        if (!prev?.accounts) return prev;
+        const connectedAt = new Date().toISOString();
+        return {
+          ...prev,
+          accounts: prev.accounts.map((account) => ({
+            ...account,
+            status: "connected",
+            lastSyncError: null,
+            lastSyncedAt: account.lastSyncedAt ?? connectedAt,
+          })),
+        };
+      },
+    );
+    queryClient.setQueriesData<any>(
+      { queryKey: ["action", "list-meetings"] },
+      (prev) => {
+        if (!prev || Array.isArray(prev)) return prev;
+        return { ...prev, calendarErrors: [] };
+      },
+    );
+  }, [queryClient]);
 
   // After the OAuth popup closes, poll the account action briefly. The
   // callback writes `calendar_accounts` just before the popup closes, but the
   // browser can observe the close before React Query has seen the new row.
   const handleCalendarConnected = useCallback(async () => {
-    setRefreshPending(true);
+    clearCalendarConnectionWarnings();
     try {
       let connected = false;
       for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -704,9 +689,14 @@ export default function MeetingsIndexRoute() {
         err instanceof Error ? err.message : "Couldn't refresh your calendar",
       );
     } finally {
-      setRefreshPending(false);
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-calendar-accounts"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-meetings"],
+      });
     }
-  }, [accounts, meetingsQuery]);
+  }, [accounts, clearCalendarConnectionWarnings, meetingsQuery, queryClient]);
 
   const meetings: Meeting[] = useMemo(() => {
     const data = meetingsQuery.data;
@@ -714,22 +704,8 @@ export default function MeetingsIndexRoute() {
     if (Array.isArray(data)) return data;
     return data.meetings ?? [];
   }, [meetingsQuery.data]);
-  const calendarErrors: CalendarFetchError[] = useMemo(() => {
-    const data = meetingsQuery.data;
-    if (!data || Array.isArray(data)) return [];
-    return data.calendarErrors ?? [];
-  }, [meetingsQuery.data]);
-
   const calendarAccounts = accounts.data?.accounts ?? [];
   const hasCalendar = calendarAccounts.length > 0;
-  const calendarIssue = useMemo(
-    () => getCalendarIssue(calendarAccounts, calendarErrors),
-    [calendarAccounts, calendarErrors],
-  );
-
-  const handleRetryCalendarFetch = useCallback(() => {
-    void refreshCalendarData();
-  }, [refreshCalendarData]);
 
   const handleCalendarDisconnected = useCallback(() => {
     queryClient.invalidateQueries({
@@ -748,31 +724,14 @@ export default function MeetingsIndexRoute() {
       ? "Couldn't load meetings. Try again in a moment."
       : null;
 
-  const { upcoming, past } = useMemo(() => {
-    const now = Date.now();
-    const upcoming: Meeting[] = [];
-    const past: Meeting[] = [];
-    for (const m of meetings) {
-      if (!meetingMatches(m, debouncedQuery)) continue;
-      const start = new Date(m.scheduledStart).getTime();
-      const end = m.scheduledEnd
-        ? new Date(m.scheduledEnd).getTime()
-        : start + 30 * 60 * 1000;
-      const isLiveNow = !!(m.actualStart && !m.actualEnd);
-      if (end < now && !isLiveNow) past.push(m);
-      else upcoming.push(m);
-    }
-    upcoming.sort(
-      (a, b) =>
-        new Date(a.scheduledStart).getTime() -
-        new Date(b.scheduledStart).getTime(),
-    );
-    past.sort(
+  const recordedMeetings = useMemo(() => {
+    const filtered = meetings.filter((m) => meetingMatches(m, debouncedQuery));
+    filtered.sort(
       (a, b) =>
         new Date(b.scheduledStart).getTime() -
         new Date(a.scheduledStart).getTime(),
     );
-    return { upcoming, past };
+    return filtered;
   }, [meetings, debouncedQuery]);
 
   if (isLoading) {
@@ -788,9 +747,9 @@ export default function MeetingsIndexRoute() {
             <div className="h-7 w-40 rounded bg-muted animate-pulse" />
             <div className="h-4 w-64 rounded bg-muted/70 animate-pulse" />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="space-y-2">
             {Array.from({ length: 6 }).map((_, i) => (
-              <MeetingCardSkeleton key={i} />
+              <RecordedMeetingSkeleton key={i} />
             ))}
           </div>
         </div>
@@ -831,7 +790,7 @@ export default function MeetingsIndexRoute() {
     );
   }
 
-  const hasResults = upcoming.length + past.length > 0;
+  const hasResults = recordedMeetings.length > 0;
 
   return (
     <div className="p-6 max-w-6xl mx-auto w-full">
@@ -844,37 +803,17 @@ export default function MeetingsIndexRoute() {
         onDisconnected={handleCalendarDisconnected}
       />
 
-      {calendarIssue && meetings.length > 0 && (
-        <div className="mb-4">
-          <CalendarConnectionIssue
-            issue={calendarIssue}
-            onRetry={handleRetryCalendarFetch}
-            retryPending={refreshPending}
-            onConnected={handleCalendarConnected}
-          />
-        </div>
-      )}
-
       {meetings.length === 0 ? (
-        calendarIssue ? (
-          <CalendarConnectionIssue
-            issue={calendarIssue}
-            onRetry={handleRetryCalendarFetch}
-            retryPending={refreshPending}
-            onConnected={handleCalendarConnected}
-          />
-        ) : (
-          <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-16 text-center">
-            <IconCalendarOff className="h-10 w-10 text-muted-foreground/50 mx-auto" />
-            <p className="mt-3 text-sm text-foreground font-medium">
-              No calendar meetings
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Clips reads directly from Google Calendar. New events appear here
-              automatically.
-            </p>
-          </div>
-        )
+        <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-16 text-center">
+          <IconCalendar className="h-10 w-10 text-muted-foreground/50 mx-auto" />
+          <p className="mt-3 text-sm text-foreground font-medium">
+            No recorded meetings yet
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Start notes from the desktop meeting widget and finished recordings
+            will appear here.
+          </p>
+        </div>
       ) : !hasResults ? (
         <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-12 text-center">
           <IconSearch className="h-7 w-7 text-muted-foreground/50 mx-auto" />
@@ -891,10 +830,7 @@ export default function MeetingsIndexRoute() {
           </Button>
         </div>
       ) : (
-        <div className="space-y-8">
-          <MeetingSection title="Upcoming" meetings={upcoming} />
-          <MeetingSection title="Past" meetings={past} />
-        </div>
+        <RecordedMeetingsList meetings={recordedMeetings} />
       )}
 
       {meetingsQuery.isFetching && !meetingsQuery.isLoading && (

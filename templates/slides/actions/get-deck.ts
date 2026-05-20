@@ -1,7 +1,9 @@
 import { defineAction } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { slidesDeckMcpAppHtml, slidesMcpAppResourceMeta } from "./_mcp-apps.js";
 
 function stripHtml(html: string): string {
   return html
@@ -11,6 +13,14 @@ function stripHtml(html: string): string {
     .replace(/&#x[0-9a-f]+;/gi, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function deckDeepLink(deckId: string): string {
+  return buildDeepLink({
+    app: "slides",
+    view: "editor",
+    params: { deckId },
+  });
 }
 
 export default defineAction({
@@ -24,6 +34,14 @@ export default defineAction({
       .describe("Set to 'true' for compact output (slide summaries only)"),
   }),
   http: { method: "GET" },
+  mcpApp: {
+    resource: {
+      title: "Deck preview",
+      description: "Preview a Slides deck inline.",
+      html: slidesDeckMcpAppHtml,
+      ...slidesMcpAppResourceMeta,
+    },
+  },
   run: async (args) => {
     if (!args.id) {
       return "Error: --id is required.";
@@ -47,6 +65,7 @@ export default defineAction({
         slideCount: slides.length,
         slideNumbering:
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
+        deepLink: deckDeepLink(row.id),
         slides: slides.map((s: any, i: number) => ({
           slideNumber: i + 1,
           zeroBasedIndex: i,
@@ -67,6 +86,7 @@ export default defineAction({
         'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      deepLink: deckDeepLink(row.id),
       slides: slides.map((s: any, i: number) => ({
         slideNumber: i + 1,
         zeroBasedIndex: i,
@@ -75,6 +95,20 @@ export default defineAction({
         content: s.content,
         notes: s.notes ?? null,
       })),
+    };
+  },
+  link: ({ result, args }) => {
+    const id =
+      result && typeof result === "object"
+        ? (result as { id?: string }).id
+        : typeof args.id === "string"
+          ? args.id
+          : undefined;
+    if (!id) return null;
+    return {
+      url: deckDeepLink(id),
+      label: "Open deck in Slides",
+      view: "editor",
     };
   },
 });

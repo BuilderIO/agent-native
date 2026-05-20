@@ -4,6 +4,8 @@ export const coreResourceScripts: Record<
 > = {
   "resource-list": (args) => import("./list.js").then((m) => m.default(args)),
   "resource-read": (args) => import("./read.js").then((m) => m.default(args)),
+  "resource-effective": (args) =>
+    import("./effective.js").then((m) => m.default(args)),
   "resource-write": (args) => import("./write.js").then((m) => m.default(args)),
   "resource-delete": (args) =>
     import("./delete.js").then((m) => m.default(args)),

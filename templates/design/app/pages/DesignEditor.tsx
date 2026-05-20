@@ -22,6 +22,7 @@ import {
   IconArchive,
   IconPhoto,
   IconRefresh,
+  IconMenu2,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -34,6 +35,7 @@ import {
   PresenceBar,
   AgentToggleButton,
   NotificationsBell,
+  ShareButton,
   type CollabUser,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
@@ -62,6 +64,7 @@ import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import { useVariantFlow } from "@/hooks/use-variant-flow";
+import { useOpenMobileSidebar } from "@/components/layout/Layout";
 import type {
   ElementInfo,
   DeviceFrameType,
@@ -78,6 +81,10 @@ import {
   readPendingGeneration,
 } from "@/lib/pending-generation";
 import type { TweakDefinition } from "@shared/api";
+import {
+  resolveTweaksToCssVars,
+  type TweakSelections,
+} from "@shared/resolve-tweaks";
 import {
   Tooltip,
   TooltipContent,
@@ -184,6 +191,7 @@ export default function DesignEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const openMobileSidebar = useOpenMobileSidebar();
 
   // Editor state
   const [mode, setMode] = useState<EditorMode>("comment");
@@ -344,13 +352,16 @@ export default function DesignEditor() {
     }
   }, [id, markGenerationStale, trackAgentGeneration]);
 
+  const pendingGenerationActive =
+    hasPendingGeneration && !!readPendingGeneration(id);
+
   const { data: designResult, isLoading: designLoading } = useActionQuery<
     DesignData | string
   >(
     "get-design",
     { id: id! },
     {
-      refetchInterval: hasPendingGeneration || generating ? 1000 : false,
+      refetchInterval: pendingGenerationActive || generating ? 1000 : false,
     },
   );
 
@@ -383,6 +394,7 @@ export default function DesignEditor() {
 
   const updateFileMutation = useActionMutation("update-file");
   const updateDesignMutation = useActionMutation("update-design");
+  const applyTweaksMutation = useActionMutation("apply-tweaks");
   const createCodingHandoffMutation = useActionMutation(
     "export-coding-handoff",
   );
@@ -417,6 +429,41 @@ export default function DesignEditor() {
     return () => {
       if (fileSaveTimerRef.current) {
         window.clearTimeout(fileSaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Debounced persistence of the user's live tweak knob values into
+  // designs.data.tweakSelections (additive JSON merge, server-side). This is
+  // what makes the visual-tune survive reload and feeds the snapshot/handoff
+  // round-trip so external agents continue from the *tuned* design.
+  const pendingTweakSaveRef = useRef<TweakSelections | null>(null);
+  const tweakSaveTimerRef = useRef<number | null>(null);
+  const queueTweakSave = useCallback(
+    (selections: TweakSelections) => {
+      if (!id) return;
+      pendingTweakSaveRef.current = selections;
+      if (tweakSaveTimerRef.current) {
+        window.clearTimeout(tweakSaveTimerRef.current);
+      }
+      tweakSaveTimerRef.current = window.setTimeout(() => {
+        const pending = pendingTweakSaveRef.current;
+        pendingTweakSaveRef.current = null;
+        tweakSaveTimerRef.current = null;
+        if (!pending) return;
+        applyTweaksMutation.mutate({
+          designId: id,
+          selections: pending,
+        } as any);
+      }, 600);
+    },
+    [id, applyTweaksMutation],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (tweakSaveTimerRef.current) {
+        window.clearTimeout(tweakSaveTimerRef.current);
       }
     };
   }, []);
@@ -498,6 +545,12 @@ export default function DesignEditor() {
     const sourceContext = pending.source
       ? `The user picked the "${pending.source}" template.`
       : "The user just created a new empty design.";
+
+    if (pending.autoGenerate === false) {
+      setGenerationIssue(null);
+      setHasPendingGeneration(true);
+      return;
+    }
 
     const context = [
       sourceContext,
@@ -622,7 +675,23 @@ export default function DesignEditor() {
     }
   }, [design?.data]);
 
-  // Initialize tweak selections from defaults the first time we see a tweak set.
+  // Persisted user knob values live in designs.data.tweakSelections (written by
+  // the apply-tweaks action). Restoring them on load is what makes the
+  // visual-tune round-trip survive a refresh and feed the snapshot/handoff.
+  const persistedSelections: TweakSelections = useMemo(() => {
+    if (!design?.data) return {};
+    try {
+      const parsed = JSON.parse(design.data);
+      const sel = parsed?.tweakSelections;
+      return sel && typeof sel === "object" && !Array.isArray(sel) ? sel : {};
+    } catch {
+      return {};
+    }
+  }, [design?.data]);
+
+  // Initialize tweak selections: persisted user value first, then the tweak's
+  // default. Runs once per design load (only fills keys still undefined locally
+  // so an in-progress drag isn't clobbered by a slightly-stale fetch).
   useEffect(() => {
     if (tweaks.length === 0) return;
     setTweakSelections((prev) => {
@@ -630,33 +699,22 @@ export default function DesignEditor() {
       let changed = false;
       for (const t of tweaks) {
         if (next[t.id] === undefined) {
-          next[t.id] = t.defaultValue;
+          const persisted = persistedSelections[t.id];
+          next[t.id] = persisted !== undefined ? persisted : t.defaultValue;
           changed = true;
         }
       }
       return changed ? next : prev;
     });
-  }, [tweaks]);
+  }, [tweaks, persistedSelections]);
 
   // Map tweak selections (id -> value) to CSS-var assignments (--var -> value)
-  // for the iframe bridge. Toggle booleans become "1"/"0"; numbers get the
-  // unit they're declared with (px for radius, otherwise unitless).
-  const cssVarValues = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const t of tweaks) {
-      if (!t.cssVar) continue;
-      const v = tweakSelections[t.id] ?? t.defaultValue;
-      if (typeof v === "boolean") {
-        out[t.cssVar] = v ? "1" : "0";
-      } else if (typeof v === "number") {
-        const unit = t.cssVar.toLowerCase().includes("radius") ? "px" : "";
-        out[t.cssVar] = `${v}${unit}`;
-      } else {
-        out[t.cssVar] = String(v);
-      }
-    }
-    return out;
-  }, [tweaks, tweakSelections]);
+  // for the iframe bridge. Shared with the snapshot/handoff actions via
+  // `@shared/resolve-tweaks` so the UI and external agents resolve identically.
+  const cssVarValues = useMemo(
+    () => resolveTweaksToCssVars(tweaks, tweakSelections),
+    [tweaks, tweakSelections],
+  );
 
   // Expose selection state for agent context
   useEffect(() => {
@@ -998,7 +1056,7 @@ export default function DesignEditor() {
     return null;
   }
 
-  if (designLoading || (!design && hasPendingGeneration)) {
+  if (designLoading || (!design && pendingGenerationActive)) {
     return (
       <div className="flex-1 bg-background flex items-center justify-center">
         <Spinner className="size-8 text-foreground/30" />
@@ -1034,11 +1092,22 @@ export default function DesignEditor() {
     // flex-col page shell). Without this the canvas collapses to ~150px.
     <div className="h-full flex flex-col overflow-hidden bg-background">
       {/* Toolbar */}
-      <header className="h-12 border-b border-border flex items-center justify-between px-3 shrink-0">
-        <div className="flex items-center gap-2">
+      <header className="h-12 shrink-0 overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex h-full min-w-max w-full items-center gap-2 px-3">
+          {openMobileSidebar && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 cursor-pointer md:hidden"
+              onClick={openMobileSidebar}
+              aria-label="Open navigation"
+            >
+              <IconMenu2 className="w-4 h-4" />
+            </Button>
+          )}
           <Link
             to="/"
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground/90"
+            className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground hover:text-foreground/90"
           >
             <IconArrowLeft className="w-4 h-4" />
           </Link>
@@ -1057,7 +1126,7 @@ export default function DesignEditor() {
                   setTitleEditing(false);
                 }
               }}
-              className="h-7 w-[240px] text-sm"
+              className="h-7 w-40 text-sm sm:w-[240px]"
             />
           ) : (
             <button
@@ -1067,277 +1136,285 @@ export default function DesignEditor() {
                 setTitleEditing(true);
               }}
               title="Click to rename"
-              className="text-sm font-medium text-foreground/90 truncate max-w-[240px] cursor-text rounded px-1 -mx-1 hover:bg-accent/50 text-left"
+              className="max-w-[38vw] cursor-text truncate rounded px-1 -mx-1 text-left text-sm font-medium text-foreground/90 hover:bg-accent/50 sm:max-w-[240px]"
             >
               {design.title}
             </button>
           )}
-          <Badge variant="secondary" className="text-[10px]">
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
             {design.projectType}
           </Badge>
-        </div>
 
-        <div className="flex items-center gap-1">
-          {/* Mode switcher */}
-          <Tabs
-            value={mode}
-            onValueChange={(v) => handleModeChange(v as EditorMode)}
-          >
-            <TabsList className="h-8">
-              <TabsTrigger
-                value="comment"
-                className="h-6 px-2 text-xs gap-1"
-                onClick={handleCommentTabClick}
-              >
-                <IconMessage className="w-3 h-3" />
-                Comment
-              </TabsTrigger>
-              <TabsTrigger value="edit" className="h-6 px-2 text-xs gap-1">
-                <IconPencil className="w-3 h-3" />
-                Edit
-              </TabsTrigger>
-              <TabsTrigger
-                value="draw"
-                className="h-6 px-2 text-xs gap-1"
-                disabled={!activeFile || viewMode === "overview"}
-              >
-                <IconBrush className="w-3 h-3" />
-                Draw
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
+            {/* Mode switcher */}
+            <Tabs
+              value={mode}
+              onValueChange={(v) => handleModeChange(v as EditorMode)}
+            >
+              <TabsList className="h-8">
+                <TabsTrigger
+                  value="comment"
+                  className="h-6 px-2 text-xs gap-1"
+                  onClick={handleCommentTabClick}
+                >
+                  <IconMessage className="w-3 h-3" />
+                  Comment
+                </TabsTrigger>
+                <TabsTrigger value="edit" className="h-6 px-2 text-xs gap-1">
+                  <IconPencil className="w-3 h-3" />
+                  Edit
+                </TabsTrigger>
+                <TabsTrigger
+                  value="draw"
+                  className="h-6 px-2 text-xs gap-1"
+                  disabled={!activeFile || viewMode === "overview"}
+                >
+                  <IconBrush className="w-3 h-3" />
+                  Draw
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
 
-          <div className="w-px h-5 bg-accent mx-1" />
+            <div className="w-px h-5 bg-accent mx-1" />
 
-          {/* Overview / single-screen toggle. Clicking Overview shows every
+            {/* Overview / single-screen toggle. Clicking Overview shows every
               file in the design as a Figma-style pannable lineup. */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={viewMode === "overview" ? "secondary" : "ghost"}
-                size="icon"
-                className="h-7 w-7 cursor-pointer"
-                onClick={handleViewModeToggle}
-              >
-                <IconLayoutGrid className="w-3.5 h-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {viewMode === "overview" ? "Single screen" : "All screens"}
-            </TooltipContent>
-          </Tooltip>
-
-          <div className="w-px h-5 bg-accent mx-1" />
-
-          {/* Device frame — only meaningful in single-screen mode. */}
-          <div className="flex items-center gap-0.5">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant={deviceFrame === "none" ? "secondary" : "ghost"}
+                  variant={viewMode === "overview" ? "secondary" : "ghost"}
                   size="icon"
                   className="h-7 w-7 cursor-pointer"
-                  onClick={() => setDeviceFrame("none")}
-                  disabled={viewMode === "overview"}
+                  onClick={handleViewModeToggle}
                 >
-                  <IconDeviceDesktopOff className="w-3.5 h-3.5" />
+                  <IconLayoutGrid className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>No frame</TooltipContent>
+              <TooltipContent>
+                {viewMode === "overview" ? "Single screen" : "All screens"}
+              </TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={deviceFrame === "desktop" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7 cursor-pointer"
-                  onClick={() => setDeviceFrame("desktop")}
-                  disabled={viewMode === "overview"}
-                >
-                  <IconDeviceDesktop className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Desktop</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={deviceFrame === "tablet" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7 cursor-pointer"
-                  onClick={() => setDeviceFrame("tablet")}
-                  disabled={viewMode === "overview"}
-                >
-                  <IconDeviceTablet className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Tablet</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={deviceFrame === "mobile" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7 cursor-pointer"
-                  onClick={() => setDeviceFrame("mobile")}
-                  disabled={viewMode === "overview"}
-                >
-                  <IconDeviceMobile className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Mobile</TooltipContent>
-            </Tooltip>
-          </div>
 
-          <div className="w-px h-5 bg-accent mx-1" />
+            <div className="w-px h-5 bg-accent mx-1" />
 
-          {/* Zoom */}
-          <div className="flex items-center gap-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 cursor-pointer"
-              onClick={handleZoomOut}
-            >
-              <IconZoomOut className="w-3.5 h-3.5" />
-            </Button>
-            <span className="text-xs text-muted-foreground w-10 text-center tabular-nums">
-              {zoom}%
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 cursor-pointer"
-              onClick={handleZoomIn}
-            >
-              <IconZoomIn className="w-3.5 h-3.5" />
-            </Button>
-          </div>
+            {/* Device frame — only meaningful in single-screen mode. */}
+            <div className="flex items-center gap-0.5">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={deviceFrame === "none" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-7 w-7 cursor-pointer"
+                    onClick={() => setDeviceFrame("none")}
+                    disabled={viewMode === "overview"}
+                  >
+                    <IconDeviceDesktopOff className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>No frame</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={deviceFrame === "desktop" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-7 w-7 cursor-pointer"
+                    onClick={() => setDeviceFrame("desktop")}
+                    disabled={viewMode === "overview"}
+                  >
+                    <IconDeviceDesktop className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Desktop</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={deviceFrame === "tablet" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-7 w-7 cursor-pointer"
+                    onClick={() => setDeviceFrame("tablet")}
+                    disabled={viewMode === "overview"}
+                  >
+                    <IconDeviceTablet className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Tablet</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={deviceFrame === "mobile" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-7 w-7 cursor-pointer"
+                    onClick={() => setDeviceFrame("mobile")}
+                    disabled={viewMode === "overview"}
+                  >
+                    <IconDeviceMobile className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Mobile</TooltipContent>
+              </Tooltip>
+            </div>
 
-          <div className="w-px h-5 bg-accent mx-1" />
+            <div className="w-px h-5 bg-accent mx-1" />
 
-          {/* Actions */}
-          <Tooltip>
-            <TooltipTrigger asChild>
+            {/* Zoom */}
+            <div className="flex items-center gap-0.5">
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 cursor-pointer"
-                onClick={() => setTweaksVisible(!tweaksVisible)}
+                onClick={handleZoomOut}
               >
-                <IconSettings className="w-3.5 h-3.5" />
+                <IconZoomOut className="w-3.5 h-3.5" />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>Tweaks</TooltipContent>
-          </Tooltip>
-
-          {/* Draw on canvas — overlays the iframe with pencil + text. */}
-          <Tooltip>
-            <TooltipTrigger asChild>
+              <span className="text-xs text-muted-foreground w-10 text-center tabular-nums">
+                {zoom}%
+              </span>
               <Button
-                variant={drawMode ? "secondary" : "ghost"}
+                variant="ghost"
                 size="icon"
                 className="h-7 w-7 cursor-pointer"
-                data-toolbar-draw-button
-                onClick={handleDrawToolToggle}
-                disabled={!activeFile || viewMode === "overview"}
+                onClick={handleZoomIn}
               >
-                <IconPencilPlus className="w-3.5 h-3.5" />
+                <IconZoomIn className="w-3.5 h-3.5" />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {viewMode === "overview"
-                ? "Open a single screen to draw"
-                : drawMode
-                  ? "Exit draw mode"
-                  : "Draw on current screen"}
-            </TooltipContent>
-          </Tooltip>
+            </div>
 
-          {/* Drop comment pin — overlays the iframe with click-to-comment. */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={pinMode ? "secondary" : "ghost"}
-                size="icon"
-                className="h-7 w-7 cursor-pointer"
-                data-toolbar-pin-button
-                onClick={handlePinToolToggle}
-                disabled={!activeFile || viewMode === "overview"}
-              >
-                <IconPin className="w-3.5 h-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {viewMode === "overview"
-                ? "Open a single screen to comment"
-                : pinMode
-                  ? "Exit comment pin mode"
-                  : "Drop comment pin"}
-            </TooltipContent>
-          </Tooltip>
+            <div className="w-px h-5 bg-accent mx-1" />
 
-          {/* Save state — currently the design template doesn't expose a
+            {/* Actions */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 cursor-pointer"
+                  onClick={() => setTweaksVisible(!tweaksVisible)}
+                >
+                  <IconSettings className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Tweaks</TooltipContent>
+            </Tooltip>
+
+            {/* Draw on canvas — overlays the iframe with pencil + text. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={drawMode ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7 cursor-pointer"
+                  data-toolbar-draw-button
+                  onClick={handleDrawToolToggle}
+                  disabled={!activeFile || viewMode === "overview"}
+                >
+                  <IconPencilPlus className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {viewMode === "overview"
+                  ? "Open a single screen to draw"
+                  : drawMode
+                    ? "Exit draw mode"
+                    : "Draw on current screen"}
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Drop comment pin — overlays the iframe with click-to-comment. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={pinMode ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7 cursor-pointer"
+                  data-toolbar-pin-button
+                  onClick={handlePinToolToggle}
+                  disabled={!activeFile || viewMode === "overview"}
+                >
+                  <IconPin className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {viewMode === "overview"
+                  ? "Open a single screen to comment"
+                  : pinMode
+                    ? "Exit comment pin mode"
+                    : "Drop comment pin"}
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Save state — currently the design template doesn't expose a
               dedicated "save in flight" signal (file edits go through Yjs +
               update-file actions). Surface the indicator so the UX matches
               slides; flip `saving` off until we wire a real source. */}
-          <SaveStatusIndicator saving={false} className="ml-1 mr-1" />
+            <SaveStatusIndicator saving={false} className="ml-1 mr-1" />
 
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 cursor-pointer"
-                    disabled={!activeFile || exportPending}
-                  >
-                    <IconDownload className="w-3.5 h-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>Export</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem
-                onClick={handleDownloadHtml}
-                disabled={!activeFile || exportHtmlMutation.isPending}
-              >
-                <IconCode className="mr-2 h-4 w-4" />
-                Download HTML
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={handleDownloadPng}
-                disabled={!activeFile}
-              >
-                <IconPhoto className="mr-2 h-4 w-4" />
-                Download PNG
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={handleDownloadZip}
-                disabled={!activeFile || exportZipMutation.isPending}
-              >
-                <IconArchive className="mr-2 h-4 w-4" />
-                Download ZIP
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={handleCopyCodingHandoff}
-                disabled={!activeFile || createCodingHandoffMutation.isPending}
-              >
-                <IconCode className="mr-2 h-4 w-4" />
-                Copy coding handoff
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <ShareButton
+              resourceType="design"
+              resourceId={id}
+              resourceTitle={design.title}
+            />
 
-          <PresenceBar
-            activeUsers={activeUsers}
-            agentActive={agentActive}
-            currentUserEmail={session?.email}
-          />
-          <NotificationsBell />
-          <AgentToggleButton />
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 cursor-pointer"
+                      disabled={!activeFile || exportPending}
+                    >
+                      <IconDownload className="w-3.5 h-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Export</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem
+                  onClick={handleDownloadHtml}
+                  disabled={!activeFile || exportHtmlMutation.isPending}
+                >
+                  <IconCode className="mr-2 h-4 w-4" />
+                  Download HTML
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleDownloadPng}
+                  disabled={!activeFile}
+                >
+                  <IconPhoto className="mr-2 h-4 w-4" />
+                  Download PNG
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleDownloadZip}
+                  disabled={!activeFile || exportZipMutation.isPending}
+                >
+                  <IconArchive className="mr-2 h-4 w-4" />
+                  Download ZIP
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleCopyCodingHandoff}
+                  disabled={
+                    !activeFile || createCodingHandoffMutation.isPending
+                  }
+                >
+                  <IconCode className="mr-2 h-4 w-4" />
+                  Copy coding handoff
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <PresenceBar
+              activeUsers={activeUsers}
+              agentActive={agentActive}
+              currentUserEmail={session?.email}
+            />
+            <NotificationsBell />
+            <AgentToggleButton />
+          </div>
         </div>
       </header>
 
@@ -1345,24 +1422,26 @@ export default function DesignEditor() {
           shouldn't see "mobile.html" in the chrome of their canvas. The
           full filename is still the title attribute for power users + a11y. */}
       {viewportTabs.length > 1 && (
-        <div className="h-8 border-b border-border flex items-center gap-1 px-3 shrink-0">
-          {viewportTabs.map((tab) => (
-            <Tooltip key={tab.id}>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => setActiveFileId(tab.id)}
-                  className={`px-2.5 py-1 rounded text-xs cursor-pointer ${
-                    tab.id === activeFileId
-                      ? "bg-accent text-foreground/90"
-                      : "text-muted-foreground hover:text-muted-foreground"
-                  }`}
-                >
-                  {prettyScreenName(tab.filename)}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{tab.filename}</TooltipContent>
-            </Tooltip>
-          ))}
+        <div className="h-8 shrink-0 overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex h-full min-w-max items-center gap-1 px-3">
+            {viewportTabs.map((tab) => (
+              <Tooltip key={tab.id}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setActiveFileId(tab.id)}
+                    className={`shrink-0 cursor-pointer rounded px-2.5 py-1 text-xs ${
+                      tab.id === activeFileId
+                        ? "bg-accent text-foreground/90"
+                        : "text-muted-foreground hover:text-muted-foreground"
+                    }`}
+                  >
+                    {prettyScreenName(tab.filename)}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{tab.filename}</TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1462,7 +1541,7 @@ export default function DesignEditor() {
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              {generating || hasPendingGeneration ? (
+              {generating || pendingGenerationActive ? (
                 <>
                   <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
                   <p className="text-sm text-muted-foreground">
@@ -1529,8 +1608,12 @@ export default function DesignEditor() {
             <TweaksPanel
               tweaks={tweaks}
               values={tweakSelections}
-              onChange={(id, value) =>
-                setTweakSelections((prev) => ({ ...prev, [id]: value }))
+              onChange={(tweakId, value) =>
+                setTweakSelections((prev) => {
+                  const next = { ...prev, [tweakId]: value };
+                  queueTweakSave(next);
+                  return next;
+                })
               }
               onClose={() => setTweaksVisible(false)}
               visible

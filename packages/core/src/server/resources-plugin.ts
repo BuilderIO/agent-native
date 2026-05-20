@@ -6,6 +6,7 @@ import { defineEventHandler, setResponseStatus, getMethod } from "h3";
 import {
   handleListResources,
   handleGetResourceTree,
+  handleGetEffectiveResourceContext,
   handleGetResource,
   handleCreateResource,
   handleUpdateResource,
@@ -31,6 +32,17 @@ export function createResourcesPlugin(): NitroPluginDef {
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "resources");
     // Mount specific sub-routes BEFORE the catch-all
+
+    getH3App(nitroApp).use(
+      "/_agent-native/resources/effective",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return handleGetEffectiveResourceContext(event);
+      }),
+    );
 
     getH3App(nitroApp).use(
       "/_agent-native/resources/tree",
@@ -72,7 +84,12 @@ export function createResourcesPlugin(): NitroPluginDef {
         }
 
         // Already handled by dedicated routes above
-        if (subPath === "tree" || subPath === "upload") return;
+        if (
+          subPath === "effective" ||
+          subPath === "tree" ||
+          subPath === "upload"
+        )
+          return;
 
         // /_agent-native/resources/:id — get, update, delete
         event.context.params = { ...event.context.params, id: subPath };

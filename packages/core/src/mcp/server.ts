@@ -1,246 +1,298 @@
-import * as jose from "jose";
+import type { H3Event } from "h3";
 import { getH3App } from "../server/framework-request-handler.js";
 import {
   defineEventHandler,
   setResponseStatus,
+  setResponseHeader,
   getMethod,
   getRequestHeader,
 } from "h3";
-import type { ActionEntry } from "../agent/production-agent.js";
 import { readBody } from "../server/h3-helpers.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import { isLoopbackRequest } from "../server/auth.js";
+import {
+  createMCPServerForRequest,
+  verifyAuth,
+  getAccessTokens,
+  resolveOrgIdFromDomain,
+  buildLinkArtifacts,
+  type MCPConfig,
+  type MCPCallerIdentity,
+  type MCPRequestMeta,
+} from "./build-server.js";
+import { buildMcpOAuthChallenge, getMcpOAuthResource } from "./oauth-route.js";
 
-export interface MCPConfig {
-  /** App name shown in MCP server info */
-  name: string;
-  /** App description */
-  description: string;
-  /** Version string (default "1.0.0") */
-  version?: string;
-  /** Action registry — same as agent chat and A2A */
-  actions: Record<string, ActionEntry>;
-  /** Handler for the ask-agent meta-tool — runs the full agent loop */
-  askAgent?: (message: string) => Promise<string>;
-}
+// Re-export the shared MCP server builder + types so the stdio transport and
+// any (future) external importer of `@agent-native/core/mcp` keep resolving
+// against `./server.js` exactly as before this refactor.
+export {
+  createMCPServerForRequest,
+  verifyAuth,
+  getAccessTokens,
+  resolveOrgIdFromDomain,
+  buildLinkArtifacts,
+};
+export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
+
+// ---------------------------------------------------------------------------
+// Runtime detection — Node fast-path vs. web-standard fallback
+// ---------------------------------------------------------------------------
 
 /**
- * Identity extracted from a verified MCP bearer token / JWT. Used to wrap
- * `entry.run()` and `config.askAgent()` calls in `runWithRequestContext`
- * so downstream tools (db-query, accessFilter, resolveCredential) honour
- * per-user / per-org scoping. Without this wrap the MCP endpoint would
- * silently bypass tenant isolation. See finding #6 in
- * /tmp/security-audit/12-mcp-a2a-agent.md.
+ * Resolve the underlying Node `http` req/res pair if (and only if) we're
+ * running on a real Node HTTP server (local dev, `node` Nitro preset). On the
+ * web-standard runtime (Nitro 3 / Netlify web runtime, Cloudflare, Deno, Bun)
+ * BOTH of these are undefined — that's the signal to take the web fallback
+ * instead of returning 501.
  */
-interface MCPCallerIdentity {
-  userEmail: string | undefined;
-  orgDomain: string | undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Auth — reuses the same pattern as A2A (Bearer token or JWT)
-// ---------------------------------------------------------------------------
-
-function getAccessTokens(): string[] {
-  const single = process.env.ACCESS_TOKEN;
-  const multi = process.env.ACCESS_TOKENS;
-  const tokens: string[] = [];
-  if (single) tokens.push(single);
-  if (multi) {
-    tokens.push(
-      ...multi
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-    );
-  }
-  return tokens;
+function getNodeReqRes(event: H3Event): {
+  nodeReq: any | undefined;
+  nodeRes: any | undefined;
+} {
+  const e = event as any;
+  const nodeReq = e.node?.req ?? e.req?.runtime?.node?.req;
+  const nodeRes = e.node?.res ?? e.req?.runtime?.node?.res;
+  return { nodeReq, nodeRes };
 }
 
 /**
- * Verify the inbound auth header. Returns:
- *   - { authed: true, identity } when verified — `identity` may be empty
- *     when authed via a static ACCESS_TOKEN (no caller email available).
- *   - { authed: false } on rejection.
+ * Derive the request origin + the markdown deep-link target from the inbound
+ * headers. Identical logic for both the Node and web paths so the absolute
+ * deep-link URLs in tool results are computed the same way regardless of
+ * runtime.
+ */
+function deriveRequestMeta(event: H3Event): MCPRequestMeta {
+  const forwardedProto = getRequestHeader(event, "x-forwarded-proto");
+  const host = getRequestHeader(event, "host");
+  const proto =
+    forwardedProto?.split(",")[0]?.trim() ||
+    (host && /^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
+  const origin = host ? `${proto}://${host}` : undefined;
+  const targetHeader = getRequestHeader(
+    event,
+    "x-agent-native-open-target",
+  )?.toLowerCase();
+  const target =
+    targetHeader === "desktop" ||
+    targetHeader === "terminal" ||
+    targetHeader === "browser"
+      ? (targetHeader as MCPRequestMeta["target"])
+      : undefined;
+  return { origin, target };
+}
+
+/**
+ * Reconstruct a Web Standard `Request` for the web-standard MCP transport.
  *
- * When A2A_SECRET is set we extract the JWT's `sub` (caller email) and
- * `org_domain` claims so the MCP endpoint can wrap tool runs in
- * `runWithRequestContext({ userEmail, orgId })`. Without that wrap, the
- * MCP endpoint loses tenant identity and downstream `accessFilter` /
- * `resolveCredential` calls fall back to platform-wide defaults.
+ * On the web runtime h3 v2 exposes the real web `Request` as `event.req`; we
+ * prefer it (its `method` / `headers` are exactly what the client sent). But
+ * the framework middleware rewrites `event.req.url` when it strips a mount
+ * prefix, and the transport reads `req.method` + `req.headers` (never the
+ * body — we pass that via `parsedBody`), so we always synthesize a clean
+ * `Request` with the verified method + a fresh `Headers` copy. The URL is
+ * cosmetic for the SDK (it only does `new URL(req.url)` for `requestInfo`),
+ * so a best-effort absolute URL derived from the inbound host is sufficient
+ * and never throws.
  */
-async function verifyAuth(
-  authHeader: string | undefined,
-): Promise<{ authed: boolean; identity?: MCPCallerIdentity }> {
-  // No auth configured → allow (dev mode), but no identity to propagate.
-  const accessTokens = getAccessTokens();
-  const hasA2ASecret = !!process.env.A2A_SECRET;
-  if (accessTokens.length === 0 && !hasA2ASecret) {
-    return { authed: true };
-  }
+function buildWebRequest(event: H3Event, method: string): Request {
+  const src = (event as any).req as Request | undefined;
 
-  if (!authHeader?.startsWith("Bearer ")) return { authed: false };
-  const token = authHeader.slice(7);
-
-  // Try JWT via A2A_SECRET
-  if (hasA2ASecret) {
-    try {
-      const { payload } = await jose.jwtVerify(
-        token,
-        new TextEncoder().encode(process.env.A2A_SECRET!),
-      );
-      return {
-        authed: true,
-        identity: {
-          userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
-          orgDomain:
-            typeof payload.org_domain === "string"
-              ? (payload.org_domain as string)
-              : undefined,
-        },
-      };
-    } catch {
-      // Not a valid JWT — fall through to token check
+  const headers = new Headers();
+  if (src?.headers && typeof src.headers.forEach === "function") {
+    src.headers.forEach((value, key) => headers.set(key, value));
+  } else {
+    const rawHeaders = (event as any).node?.req?.headers as
+      | Record<string, string | string[] | undefined>
+      | undefined;
+    if (rawHeaders) {
+      for (const [key, value] of Object.entries(rawHeaders)) {
+        if (value == null) continue;
+        headers.set(key, Array.isArray(value) ? value.join(", ") : value);
+      }
     }
   }
 
-  // Try ACCESS_TOKEN / ACCESS_TOKENS exact match (no per-caller identity).
-  if (accessTokens.length > 0 && accessTokens.includes(token)) {
-    return { authed: true };
+  // The SDK requires Accept + Content-Type to advertise both JSON and SSE on
+  // a POST. Real MCP clients (Claude Code, `agent-native connect`) always
+  // send these; we never inject/alter them — if they're absent the SDK
+  // returns its spec-mandated 406/415, identical to the Node path.
+
+  const host = headers.get("host") || "localhost";
+  const forwardedProto = headers.get("x-forwarded-proto");
+  const proto =
+    forwardedProto?.split(",")[0]?.trim() ||
+    (/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
+  let url = `${proto}://${host}/_agent-native/mcp`;
+  try {
+    if (src?.url) url = new URL(src.url).href;
+  } catch {
+    // keep the synthesized URL
   }
 
-  return { authed: false };
+  // No body here on purpose: the JSON-RPC payload is forwarded via the
+  // transport's `parsedBody` option (the same mechanism the Node transport
+  // uses), so the request stream is never read twice.
+  return new Request(url, { method, headers });
 }
 
-async function resolveOrgIdFromDomain(
-  orgDomain: string | undefined,
-): Promise<string | undefined> {
-  if (!orgDomain) return undefined;
-  try {
-    const { resolveOrgByDomain } = await import("../org/context.js");
-    const org = await resolveOrgByDomain(orgDomain);
-    return org?.orgId ?? undefined;
-  } catch {
+// ---------------------------------------------------------------------------
+// handleMcpRequest — runtime-agnostic MCP request handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a single `{routePrefix}/mcp` request on either runtime.
+ *
+ * - **Node fast-path** (real Node HTTP server): unchanged — delegate to the
+ *   SDK's `StreamableHTTPServerTransport.handleRequest(nodeReq, nodeRes,
+ *   body)`, which writes directly to the Node response (full protocol incl.
+ *   SSE).
+ * - **Web-standard fallback** (Nitro 3 / Netlify web runtime, Cloudflare,
+ *   Deno, Bun — where there is no Node req/res): build the SAME MCP `Server`
+ *   from the SAME config + identity, drive it through the SDK's
+ *   `WebStandardStreamableHTTPServerTransport` (which the Node transport is
+ *   itself just a thin wrapper around), and return the resulting Web
+ *   `Response` as a normal h3 return value.
+ *
+ * Auth, the `runWithRequestContext` identity wrap, the deep-link `_meta` /
+ * markdown append, `requestMeta` origin/target derivation and the stateless
+ * semantics are IDENTICAL on both paths because both build the same server
+ * via `createMCPServerForRequest` and both transports funnel into the same
+ * `WebStandardStreamableHTTPServerTransport.handleRequest(webRequest, {
+ * parsedBody })` with the same options.
+ *
+ * Returns:
+ *   - `undefined` when the request targets a sub-route (so management/status
+ *     routes mounted under `/_agent-native/mcp/*` handle it themselves) — the
+ *     h3 mount falls through to the next handler.
+ *   - a Web `Response` (web fallback) or a string/object (Node path /
+ *     auth-error path) otherwise. The Node path also sets `_handled` so h3
+ *     doesn't double-write.
+ */
+export async function handleMcpRequest(
+  event: H3Event,
+  config: MCPConfig,
+): Promise<Response | string | { error: string } | undefined> {
+  const pathname = event.url?.pathname || "/";
+  const subpath = pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (subpath) {
+    // Let management/status routes mounted under /_agent-native/mcp/* handle
+    // their own requests instead of treating them as MCP protocol traffic.
     return undefined;
   }
-}
 
-// ---------------------------------------------------------------------------
-// MCP Server creation — converts ActionEntry registry to MCP tools
-// ---------------------------------------------------------------------------
+  const method = getMethod(event);
 
-async function createMCPServerForRequest(
-  config: MCPConfig,
-  identity: MCPCallerIdentity | undefined,
-) {
-  const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
-  const { ListToolsRequestSchema, CallToolRequestSchema } =
-    await import("@modelcontextprotocol/sdk/types.js");
-
-  const server = new Server(
-    { name: config.name, version: config.version ?? "1.0.0" },
-    { capabilities: { tools: {} } },
+  // Auth check — extracts the caller's identity from the JWT (`sub`), or, on
+  // the static-token / dev-open path, from the forwarded
+  // `X-Agent-Native-Owner-Email` hint the stdio proxy sends (the
+  // `agent-native mcp install` flow). Without this the install flow would run
+  // every tool unscoped (userEmail === undefined).
+  const authHeader = getRequestHeader(event, "authorization");
+  const ownerEmailHeader = getRequestHeader(
+    event,
+    "x-agent-native-owner-email",
   );
-
-  // Resolve orgId once per request (DB lookup) so subsequent wraps are
-  // synchronous. The caller identity may be undefined for ACCESS_TOKEN
-  // auth — in that case we run with no userEmail/orgId, which makes
-  // downstream tools that require per-user scope return empty results
-  // rather than cross-tenant data (the safe default).
-  const orgIdPromise = resolveOrgIdFromDomain(identity?.orgDomain);
-
-  /**
-   * Wrap a callback in `runWithRequestContext({ userEmail, orgId }, fn)`.
-   * Both the tools/list and tools/call handlers go through this so
-   * downstream `accessFilter`, `resolveCredential`, and per-user MCP
-   * visibility checks see the verified caller's identity.
-   */
-  async function withCallerContext<T>(fn: () => Promise<T>): Promise<T> {
-    const orgId = await orgIdPromise;
-    return runWithRequestContext(
-      { userEmail: identity?.userEmail, orgId },
-      fn,
-    ) as Promise<T>;
+  // Gate header-only dev-open on the REAL socket peer, never a parsed
+  // `Host` header (client-controlled — an attacker could send
+  // `Host: localhost`). A deployed app missing A2A_SECRET / ACCESS_TOKEN
+  // must fail closed rather than trust a spoofable owner-email header that
+  // `fullSurface` would otherwise escalate to the full mutating surface.
+  const requestMeta = deriveRequestMeta(event);
+  const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+    allowDevOpen: isLoopbackRequest(event),
+    resourceUrl: getMcpOAuthResource(event),
+  });
+  if (!authResult.authed) {
+    setResponseStatus(event, 401);
+    setResponseHeader(event, "WWW-Authenticate", buildMcpOAuthChallenge(event));
+    return { error: "Unauthorized" };
   }
 
-  // tools/list — return all actions + ask-agent meta-tool. Wrapped in the
-  // request context so per-user MCP visibility (mcp-client/visibility.ts)
-  // applies to the listing too.
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return withCallerContext(async () => {
-      const tools = Object.entries(config.actions).map(([name, entry]) => ({
-        name,
-        description: entry.tool.description ?? name,
-        inputSchema: entry.tool.parameters ?? {
-          type: "object" as const,
-          properties: {},
-        },
-      }));
+  // Stateless mode: only POST is meaningful
+  if (method === "DELETE") {
+    setResponseStatus(event, 204);
+    return "";
+  }
 
-      if (config.askAgent) {
-        tools.push({
-          name: "ask-agent",
-          description:
-            "Send a natural-language message to the app's AI agent and get a response. " +
-            "Use this for complex, multi-step tasks that require the agent's reasoning " +
-            "and full context about the app.",
-          inputSchema: {
-            type: "object" as const,
-            properties: {
-              message: {
-                type: "string",
-                description: "The message to send to the agent",
-              },
-            },
-            required: ["message"],
-          },
-        });
-      }
+  if (method !== "POST" && method !== "GET") {
+    setResponseStatus(event, 405);
+    return { error: "Method not allowed" };
+  }
 
-      return { tools };
-    });
+  // Read body for POST (GET has no body). Read it via the h3 helper exactly
+  // once; both transports accept it as a pre-parsed body so the request
+  // stream is never consumed twice.
+  const body = method === "POST" ? await readBody(event) : undefined;
+
+  // Per-request stateless transport + server. Both runtimes build the SAME
+  // server from the SAME config + verified identity + request meta, so
+  // tools/list, tools/call, and the deep-link `_meta` are identical. A
+  // connected real caller (connect-minted token / `mcp install` /
+  // ACCESS_TOKEN / production) gets the full action surface even in local
+  // dev; unauthenticated dev probes stay sparse. See `external-agents` skill.
+  const server = await createMCPServerForRequest(config, authResult.identity, {
+    ...requestMeta,
+    fullSurface: authResult.fullSurface === true,
   });
 
-  // tools/call — dispatch to action registry or ask-agent. Wrapped in the
-  // request context so the action's `run(args)` and `askAgent()` execute
-  // with the verified caller's identity, not the platform default.
-  server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
-    return withCallerContext(async () => {
-      const { name, arguments: args } = request.params;
+  const { nodeReq, nodeRes } = getNodeReqRes(event);
 
-      if (name === "ask-agent" && config.askAgent) {
-        const message = args?.message ?? "";
-        try {
-          const result = await config.askAgent(message);
-          return { content: [{ type: "text", text: result }] };
-        } catch (err: any) {
-          return {
-            content: [{ type: "text", text: `Error: ${err.message}` }],
-            isError: true,
-          };
-        }
-      }
-
-      const entry = config.actions[name];
-      if (!entry) {
-        return {
-          content: [{ type: "text", text: `Unknown tool: ${name}` }],
-          isError: true,
-        };
-      }
-
-      try {
-        const result = await entry.run((args as Record<string, string>) ?? {});
-        return { content: [{ type: "text", text: result }] };
-      } catch (err: any) {
-        return {
-          content: [{ type: "text", text: `Error: ${err.message}` }],
-          isError: true,
-        };
-      }
+  if (nodeReq && nodeRes) {
+    // ---- Node fast-path (UNCHANGED behavior) --------------------------------
+    const { StreamableHTTPServerTransport } =
+      await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // stateless
     });
-  });
+    await server.connect(transport);
+    try {
+      // The SDK transport writes directly to the Node response. Node-only by
+      // construction; we only reach here when real Node req/res exist.
+      await transport.handleRequest(nodeReq, nodeRes, body);
+    } catch (err: any) {
+      // The SDK transport writes directly to the Node response. If the socket
+      // is already closed/ended (client disconnected, or the host stream
+      // layer also flushed), Node throws ERR_STREAM_WRITE_AFTER_END *after*
+      // the MCP payload was already delivered correctly. Swallow that benign
+      // post-flush write so an external agent disconnecting mid-stream can
+      // never take down the server process; rethrow anything else.
+      if (err?.code !== "ERR_STREAM_WRITE_AFTER_END") throw err;
+      if (process.env.DEBUG)
+        console.log(
+          "[mcp] ignored post-flush ERR_STREAM_WRITE_AFTER_END (client disconnected)",
+        );
+    }
+    // Prevent H3 from double-writing the response
+    (event as any)._handled = true;
+    return undefined;
+  }
 
-  return server;
+  // ---- Web-standard fallback (Nitro 3 / Netlify web runtime, CF, Deno,
+  // Bun) ---------------------------------------------------------------------
+  //
+  // `StreamableHTTPServerTransport` is itself just a thin wrapper that
+  // converts the Node req/res to a web Request/Response and delegates to
+  // `WebStandardStreamableHTTPServerTransport.handleRequest(webRequest, {
+  // parsedBody })`. Using the web transport directly with the SAME options +
+  // the same pre-read `parsedBody` produces byte-identical protocol output
+  // (including the deep-link `_meta` built inside createMCPServerForRequest),
+  // and works on every web runtime because it returns a Web `Response`
+  // (JSON for request/response, or an SSE `ReadableStream` body which h3
+  // streams natively).
+  const { WebStandardStreamableHTTPServerTransport } =
+    await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js");
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined, // stateless — same as the Node path
+  });
+  await server.connect(transport);
+  const webRequest = buildWebRequest(event, method);
+  // `parsedBody: undefined` would make the SDK try to read `req.json()`; our
+  // synthesized request has no body, so only pass the option for POST (where
+  // we actually have a parsed body). For GET the transport reads no body.
+  const response = await transport.handleRequest(
+    webRequest,
+    method === "POST" ? { parsedBody: body } : undefined,
+  );
+  return response;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,7 +305,11 @@ async function createMCPServerForRequest(
  * Endpoint: `{routePrefix}/mcp` (default `/_agent-native/mcp`)
  *
  * Uses stateless Streamable HTTP transport — no in-memory sessions,
- * compatible with serverless deployments.
+ * compatible with serverless deployments. Runtime-agnostic: a real Node
+ * server uses the SDK's Node transport; the web-standard runtime (Nitro 3 /
+ * Netlify web runtime, Cloudflare, Deno, Bun) uses the SDK's web-standard
+ * transport. Both build the same server and produce identical JSON-RPC
+ * output.
  *
  * Auth: Bearer token matching ACCESS_TOKEN/ACCESS_TOKENS or JWT via A2A_SECRET.
  * No auth required when neither is configured (dev mode).
@@ -266,71 +322,7 @@ export function mountMCP(
   getH3App(nitroApp).use(
     `${routePrefix}/mcp`,
     defineEventHandler(async (event) => {
-      const pathname = event.url?.pathname || "/";
-      const subpath = pathname.replace(/^\/+/, "").replace(/\/+$/, "");
-      if (subpath) {
-        // Let management/status routes mounted under /_agent-native/mcp/*
-        // handle their own requests instead of treating them as MCP protocol
-        // traffic.
-        return;
-      }
-
-      const method = getMethod(event);
-
-      // Auth check — also extracts the caller's identity from the JWT so
-      // downstream tools run inside `runWithRequestContext`.
-      const authHeader = getRequestHeader(event, "authorization");
-      const authResult = await verifyAuth(authHeader);
-      if (!authResult.authed) {
-        setResponseStatus(event, 401);
-        return { error: "Unauthorized" };
-      }
-
-      // Stateless mode: only POST is meaningful
-      if (method === "DELETE") {
-        setResponseStatus(event, 204);
-        return "";
-      }
-
-      if (method === "GET") {
-        // SSE stream endpoint — not used in stateless mode but the SDK
-        // handles it gracefully. Let it through for protocol compliance.
-      }
-
-      if (method !== "POST" && method !== "GET") {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-
-      // Read body for POST (GET has no body)
-      const body = method === "POST" ? await readBody(event) : undefined;
-
-      // Create per-request stateless transport + server
-      const { StreamableHTTPServerTransport } =
-        await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined, // stateless
-      });
-      const server = await createMCPServerForRequest(
-        config,
-        authResult.identity,
-      );
-      await server.connect(transport);
-
-      // Delegate to the transport — it writes directly to the Node response.
-      // MCP's HTTP transport requires Node streams; this route is Node-only.
-      const nodeReq =
-        (event as any).node?.req ?? (event as any).req?.runtime?.node?.req;
-      const nodeRes =
-        (event as any).node?.res ?? (event as any).req?.runtime?.node?.res;
-      if (!nodeReq || !nodeRes) {
-        setResponseStatus(event, 501);
-        return { error: "MCP requires Node runtime" };
-      }
-      await transport.handleRequest(nodeReq, nodeRes, body);
-
-      // Prevent H3 from double-writing the response
-      (event as any)._handled = true;
+      return handleMcpRequest(event as H3Event, config);
     }),
   );
 

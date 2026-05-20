@@ -6,6 +6,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { buildDeepLink } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -145,6 +146,11 @@ export default defineAction({
     return {
       id: doc.id,
       urlPath: `/page/${doc.id}`,
+      deepLink: buildDeepLink({
+        app: "content",
+        view: "editor",
+        params: { documentId: doc.id },
+      }),
       parentId: doc.parentId,
       title: doc.title,
       content: doc.content,
@@ -157,6 +163,19 @@ export default defineAction({
       canManage: inheritedRole === "owner" || inheritedRole === "admin",
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
+    };
+  },
+  link: ({ result }) => {
+    const id = (result as { id?: string } | null)?.id;
+    if (!id) return null;
+    return {
+      url: buildDeepLink({
+        app: "content",
+        view: "editor",
+        params: { documentId: id },
+      }),
+      label: "Open document",
+      view: "editor",
     };
   },
 });

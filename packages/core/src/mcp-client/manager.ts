@@ -10,6 +10,7 @@
 
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { formatMcpConnectError } from "./errors.js";
+import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
 
 export const MCP_TOOL_PREFIX = "mcp__";
 
@@ -24,6 +25,16 @@ export interface McpTool {
   description: string;
   /** JSON-Schema input spec forwarded verbatim from the server */
   inputSchema: Record<string, unknown>;
+  /** Optional title as reported by the MCP server */
+  title?: string;
+  /** JSON-Schema output spec forwarded verbatim from the server */
+  outputSchema?: Record<string, unknown>;
+  /** MCP tool annotations forwarded verbatim from the server */
+  annotations?: Record<string, unknown>;
+  /** MCP metadata forwarded verbatim from the server */
+  _meta?: Record<string, unknown>;
+  /** Full raw tool object for extensions that depend on fields core does not know yet. */
+  raw: Record<string, unknown>;
 }
 
 interface ServerEntry {
@@ -47,6 +58,10 @@ function isNode(): boolean {
 
 function buildPrefixedName(serverId: string, toolName: string): string {
   return `${MCP_TOOL_PREFIX}${serverId}__${toolName}`;
+}
+
+export function buildMcpToolName(serverId: string, toolName: string): string {
+  return buildPrefixedName(serverId, toolName);
 }
 
 /**
@@ -367,7 +382,15 @@ export class McpClientManager {
 
     const client = new Client(
       { name: "agent-native-mcp-client", version: "1.0.0" },
-      { capabilities: {} },
+      {
+        capabilities: {
+          extensions: {
+            [MCP_APP_EXTENSION_ID]: {
+              mimeTypes: [MCP_APP_MIME_TYPE],
+            },
+          },
+        },
+      } as any,
     );
     const recordConnectionError: ErrorSink = () => {};
     const restoreClientClose = guardClose(client, recordConnectionError);
@@ -392,8 +415,12 @@ export class McpClientManager {
       const listed = await client.listTools();
       const rawTools: Array<{
         name: string;
+        title?: string;
         description?: string;
         inputSchema?: Record<string, unknown>;
+        outputSchema?: Record<string, unknown>;
+        annotations?: Record<string, unknown>;
+        _meta?: Record<string, unknown>;
       }> = (listed?.tools ?? []) as any[];
 
       entry.client = client;
@@ -402,11 +429,16 @@ export class McpClientManager {
         source: entry.id,
         name: buildPrefixedName(entry.id, t.name),
         originalName: t.name,
+        ...(t.title ? { title: t.title } : {}),
         description: t.description ?? t.name,
         inputSchema: (t.inputSchema ?? {
           type: "object",
           properties: {},
         }) as Record<string, unknown>,
+        ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
+        ...(t.annotations ? { annotations: t.annotations } : {}),
+        ...(t._meta ? { _meta: t._meta } : {}),
+        raw: { ...t },
       }));
       client.onerror = (error: unknown) => {
         entry.error = formatMcpConnectError(error);
@@ -536,6 +568,22 @@ export class McpClientManager {
     return out;
   }
 
+  getTool(prefixedName: string): McpTool | null {
+    const parsed = parseMcpToolName(prefixedName);
+    if (!parsed) return null;
+    const entry = this.servers.get(parsed.serverId);
+    return entry?.tools.find((t) => t.name === prefixedName) ?? null;
+  }
+
+  getToolsForServer(serverId: string): McpTool[] {
+    return [...(this.servers.get(serverId)?.tools ?? [])];
+  }
+
+  hasServer(serverId: string): boolean {
+    const entry = this.servers.get(serverId);
+    return !!entry?.client && !entry.error;
+  }
+
   /**
    * Invoke an MCP tool by prefixed name. Routes to the owning server based on
    * the `mcp__<serverId>__` prefix.
@@ -571,6 +619,43 @@ export class McpClientManager {
           : {},
     });
     return result;
+  }
+
+  async readResource(serverId: string, uri: string): Promise<unknown> {
+    if (!uri.startsWith("ui://")) {
+      throw new Error(`Only ui:// MCP App resources can be read by this host`);
+    }
+    const entry = this.servers.get(serverId);
+    if (!entry || !entry.client) {
+      throw new Error(
+        `MCP server "${serverId}" is not connected${
+          entry?.error ? `: ${entry.error}` : ""
+        }`,
+      );
+    }
+    if (typeof entry.client.readResource === "function") {
+      return entry.client.readResource({ uri });
+    }
+    if (typeof entry.client.request === "function") {
+      return entry.client.request({
+        method: "resources/read",
+        params: { uri },
+      });
+    }
+    throw new Error(`MCP server "${serverId}" does not support resources/read`);
+  }
+
+  async readResourceForTool(
+    prefixedName: string,
+    uri: string,
+  ): Promise<unknown> {
+    const parsed = parseMcpToolName(prefixedName);
+    if (!parsed) {
+      throw new Error(
+        `Tool name "${prefixedName}" does not look like an MCP tool (expected mcp__<server>__<tool>)`,
+      );
+    }
+    return this.readResource(parsed.serverId, uri);
   }
 
   /** Cleanly close all MCP clients and child processes. */

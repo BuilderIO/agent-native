@@ -4,11 +4,16 @@
  * Write (create or update) a resource in the SQL store.
  *
  * Usage:
- *   pnpm action resource-write --path <path> --content <content> [--scope personal|shared] [--mime <mime-type>]
+ *   pnpm action resource-write --path <path> --content <content> [--scope personal|shared] [--mime <mime-type>] [--visibility workspace|agent_scratch]
  */
 
 import { parseArgs, fail } from "../utils.js";
-import { resourcePut, SHARED_OWNER } from "../../resources/store.js";
+import {
+  resourcePut,
+  SHARED_OWNER,
+  type ResourceCreatedBy,
+  type ResourceVisibility,
+} from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 
 const EXTENSION_MIME_MAP: Record<string, string> = {
@@ -39,6 +44,32 @@ function inferMimeType(filePath: string): string {
   return EXTENSION_MIME_MAP[ext] ?? "text/plain";
 }
 
+function parseVisibility(
+  value: string | undefined,
+): ResourceVisibility | undefined {
+  if (!value) return undefined;
+  if (value === "workspace" || value === "agent_scratch") return value;
+  fail("--visibility must be workspace or agent_scratch.");
+}
+
+function parseCreatedBy(
+  value: string | undefined,
+): ResourceCreatedBy | undefined {
+  if (!value) return undefined;
+  if (value === "user" || value === "agent" || value === "system") return value;
+  fail("--created-by must be user, agent, or system.");
+}
+
+function parseOptionalNumber(
+  value: string | undefined,
+  flag: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) fail(`${flag} must be a number.`);
+  return parsed;
+}
+
 export default async function resourceWriteScript(
   args: string[],
 ): Promise<void> {
@@ -51,8 +82,15 @@ export default async function resourceWriteScript(
 Options:
   --path <path>            Resource path (required)
   --content <content>      Content to write (required)
-  --scope personal|shared  Scope to write to (default: personal)
+  --scope personal|shared  Scope to write to (default: personal). Workspace resources are managed from Dispatch.
   --mime <mime-type>       MIME type (default: inferred from extension)
+  --visibility workspace|agent_scratch
+                           Visibility (default: workspace)
+  --created-by user|agent|system
+                           Provenance label (default: user)
+  --thread-id <id>         Agent thread id for scratch/provenance
+  --run-id <id>            Agent run id for scratch/provenance
+  --expires-at <ms>        Expiry timestamp in epoch milliseconds
   --help                   Show this help message`,
     );
     return;
@@ -69,7 +107,20 @@ Options:
   }
 
   const scope = parsed.scope ?? "personal";
+  if (scope === "workspace") {
+    fail(
+      "Workspace resources are managed from Dispatch. Use resource-write for personal or shared app resources.",
+    );
+  }
   const mimeType = parsed.mime ?? inferMimeType(resourcePath);
+  const visibility = parseVisibility(parsed.visibility);
+  const createdBy = parseCreatedBy(parsed["created-by"] ?? parsed.createdBy);
+  const threadId = parsed["thread-id"] ?? parsed.threadId;
+  const runId = parsed["run-id"] ?? parsed.runId;
+  const expiresAt = parseOptionalNumber(
+    parsed["expires-at"] ?? parsed.expiresAt,
+    "--expires-at",
+  );
   let owner: string;
   if (scope === "shared") {
     owner = SHARED_OWNER;
@@ -83,6 +134,18 @@ Options:
     owner = personalOwner;
   }
 
-  const resource = await resourcePut(owner, resourcePath, content, mimeType);
+  const writeOptions = {
+    visibility,
+    createdBy,
+    threadId,
+    runId,
+    expiresAt,
+  };
+  const hasWriteOptions = Object.values(writeOptions).some(
+    (value) => value !== undefined,
+  );
+  const resource = hasWriteOptions
+    ? await resourcePut(owner, resourcePath, content, mimeType, writeOptions)
+    : await resourcePut(owner, resourcePath, content, mimeType);
   console.log(`Wrote resource: ${resource.path} (${resource.size} bytes)`);
 }

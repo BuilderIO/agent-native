@@ -22,7 +22,10 @@ import {
 import { uploadFile } from "@agent-native/core/file-upload";
 import { emit } from "@agent-native/core/event-bus";
 import { captureRouteError } from "@agent-native/core/server";
-import { applyFaststart } from "../server/lib/faststart.js";
+import {
+  applyFaststart,
+  hasPlayableMp4Metadata,
+} from "../server/lib/faststart.js";
 import { debugLog } from "../server/lib/debug.js";
 import requestTranscript from "./request-transcript.js";
 
@@ -283,6 +286,30 @@ export default defineAction({
             err: err instanceof Error ? err.message : String(err),
           });
           uploadData = assembled;
+        }
+
+        if (!hasPlayableMp4Metadata(uploadData)) {
+          const err = new Error(
+            "Recorded MP4 is missing playback metadata. Please retry the recording.",
+          );
+          try {
+            captureRouteError(err, {
+              route: "finalize-recording",
+              tags: {
+                uploadStep: "mp4-validation",
+                videoFormat,
+              },
+              extra: {
+                recordingId: id,
+                dataBytes: uploadData.byteLength,
+                mimeType,
+                ownerEmail,
+              },
+            });
+          } catch {
+            // Sentry must never mask the real validation error.
+          }
+          throw err;
         }
       }
 

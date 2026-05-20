@@ -4,6 +4,7 @@ import {
   isBuildAppOrAgentRequest,
   isInBuilderFrame,
   sendToBuilderChat,
+  shouldParentFrameOwnAgentPanel,
 } from "./builder-frame.js";
 
 function setParentWindow(value: unknown) {
@@ -29,6 +30,8 @@ function setAncestorOrigin(origin: string | null) {
 describe("isInBuilderFrame", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
+    setParentWindow(window);
+    setAncestorOrigin(null);
   });
 
   it("does not treat a plain top-level page as Builder", () => {
@@ -39,6 +42,39 @@ describe("isInBuilderFrame", () => {
     window.history.replaceState({}, "", "/?builder.preview=interact");
 
     expect(isInBuilderFrame()).toBe(true);
+  });
+});
+
+describe("shouldParentFrameOwnAgentPanel", () => {
+  beforeEach(() => {
+    window.history.replaceState({}, "", "/");
+    setParentWindow(window);
+    setAncestorOrigin(null);
+  });
+
+  afterEach(() => {
+    setParentWindow(window);
+    setAncestorOrigin(null);
+  });
+
+  it("defers to the parent frame for plain local dev iframes", () => {
+    setParentWindow({ postMessage: vi.fn() });
+
+    expect(shouldParentFrameOwnAgentPanel()).toBe(true);
+  });
+
+  it("keeps the app chat panel active for Builder web iframes marked by query params", () => {
+    setParentWindow({ postMessage: vi.fn() });
+    window.history.replaceState({}, "", "/?builder.preview=interact");
+
+    expect(shouldParentFrameOwnAgentPanel()).toBe(false);
+  });
+
+  it("keeps the app chat panel active for Builder parent origins", () => {
+    setParentWindow({ postMessage: vi.fn() });
+    setAncestorOrigin("https://builder.io");
+
+    expect(shouldParentFrameOwnAgentPanel()).toBe(false);
   });
 });
 

@@ -31,6 +31,7 @@
     "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
+    "postgres": "^3.4.9",
     "sql-formatter": "15.7.3",
     "zod": "^4.3.6"
   },

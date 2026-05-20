@@ -145,11 +145,14 @@ pub async fn meeting_audio_start(
     app: AppHandle,
     meeting_id: Option<String>,
     locale: Option<String>,
+    mic_device_id: Option<String>,
+    mic_device_label: Option<String>,
 ) -> Result<(), String> {
     // Start mic first (less likely to fail). If that succeeds, start system
     // audio; if THAT fails, tear the mic back down so we don't leave a
     // half-open meeting recorder.
-    crate::native_speech::native_speech_start(app.clone(), locale).await?;
+    crate::native_speech::native_speech_start(app.clone(), locale, mic_device_id, mic_device_label)
+        .await?;
     if let Err(err) = system_audio_start(app.clone(), meeting_id).await {
         // Best-effort rollback. We deliberately ignore this Result: even if
         // mic shutdown also fails, the original system-audio error is the

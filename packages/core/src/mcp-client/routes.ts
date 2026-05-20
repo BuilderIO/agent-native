@@ -10,6 +10,11 @@
  *   DELETE /_agent-native/mcp/servers/:id       remove a server (scope via ?scope=)
  *   POST   /_agent-native/mcp/servers/:id/test  dry-run connect (no persist)
  *   POST   /_agent-native/mcp/servers/test      dry-run a URL before persisting
+ *   GET    /_agent-native/mcp/builtin           list built-in capability toggles
+ *   POST   /_agent-native/mcp/builtin           update built-in capability toggles
+ *   POST   /_agent-native/mcp/apps/call-tool    mediated same-server app tool call
+ *   POST   /_agent-native/mcp/apps/list-tools   list tools visible to an app iframe
+ *   POST   /_agent-native/mcp/apps/read-resource read a ui:// app resource
  */
 
 import {
@@ -24,11 +29,32 @@ import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { getAllSettings } from "../settings/store.js";
-import type { McpClientManager } from "./manager.js";
+import {
+  buildMcpToolName,
+  parseMcpToolName,
+  type McpClientManager,
+  type McpTool,
+} from "./manager.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { loadMcpConfig, autoDetectMcpConfig } from "./config.js";
 import { formatMcpConnectError } from "./errors.js";
+import {
+  BUILTIN_MCP_CAPABILITIES,
+  getBuiltinMcpCapability,
+  isBuiltinMcpCapabilityAvailable,
+  normalizeBuiltinMcpCapabilityIds,
+  toBuiltinMcpServerConfig,
+  type BuiltinMcpCapability,
+  type BuiltinMcpCapabilityId,
+} from "./builtin-capabilities.js";
+import {
+  builtinMcpCapabilitiesSettingsKey,
+  listEnabledBuiltinMcpCapabilities,
+  setBuiltinMcpCapabilityEnabled,
+  setEnabledBuiltinMcpCapabilities,
+} from "./builtin-store.js";
 import {
   addRemoteServer,
   listRemoteServers,
@@ -40,6 +66,8 @@ import {
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
 import { fetchHubServers } from "./hub-client.js";
+import { isMcpToolAllowedForRequest } from "./visibility.js";
+import { isToolVisibilityModelOnly } from "@modelcontextprotocol/ext-apps/app-bridge";
 
 export { formatMcpConnectError } from "./errors.js";
 
@@ -85,6 +113,22 @@ export interface ClientServer {
   status: ServerStatus;
 }
 
+export interface ClientBuiltinCapability {
+  id: BuiltinMcpCapabilityId;
+  serverId: string;
+  name: string;
+  description: string;
+  command: string;
+  args: string[];
+  exclusiveGroup?: string;
+  available: boolean;
+  unavailableReason?: string;
+  notes?: string;
+  enabled: { user: boolean; org: boolean };
+  mergedIds: { user?: string; org?: string };
+  status: { user?: ServerStatus; org?: ServerStatus };
+}
+
 type ServerStatus =
   | { state: "connected"; toolCount: number }
   | { state: "error"; error: string }
@@ -103,6 +147,26 @@ function statusFor(manager: McpClientManager, mergedId: string): ServerStatus {
     return { state: "unknown" };
   }
   return { state: "unknown" };
+}
+
+function pseudoStoredBuiltin(
+  capability: BuiltinMcpCapability,
+): StoredRemoteMcpServer {
+  return {
+    id: `builtin_${capability.id}`,
+    name: capability.serverId,
+    url: `builtin:${capability.id}`,
+    description: capability.description,
+    createdAt: 0,
+  };
+}
+
+export function builtinMergedConfigKey(
+  scope: RemoteMcpScope,
+  capability: BuiltinMcpCapability,
+  ownerId: string,
+): string {
+  return mergedConfigKey(scope, pseudoStoredBuiltin(capability), ownerId);
 }
 
 /**
@@ -144,6 +208,34 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
       // Stored row contains only the secret-key reference, never the value.
       servers[mergedConfigKey(scope, stored, ownerId)] =
         await toHttpServerConfigAsync(scope, ownerId, stored);
+    }
+  }
+  for (const [fullKey, value] of Object.entries(all)) {
+    const settingsKey = builtinMcpCapabilitiesSettingsKey();
+    const userMatch = new RegExp(`^u:([^:]+):${settingsKey}$`).exec(fullKey);
+    const orgMatch = new RegExp(`^o:([^:]+):${settingsKey}$`).exec(fullKey);
+    let scope: RemoteMcpScope | null = null;
+    let ownerId: string | null = null;
+    if (userMatch) {
+      scope = "user";
+      ownerId = userMatch[1];
+    } else if (orgMatch) {
+      scope = "org";
+      ownerId = orgMatch[1];
+    }
+    if (!scope || !ownerId) continue;
+    const enabledIds = normalizeBuiltinMcpCapabilityIds(
+      Array.isArray((value as any).enabledIds)
+        ? (value as any).enabledIds.map(String)
+        : [],
+    );
+    for (const id of enabledIds) {
+      const capability = getBuiltinMcpCapability(id);
+      if (!capability || !isBuiltinMcpCapabilityAvailable(capability)) {
+        continue;
+      }
+      servers[builtinMergedConfigKey(scope, capability, ownerId)] =
+        toBuiltinMcpServerConfig(capability);
     }
   }
 
@@ -249,11 +341,396 @@ export function mountMcpServersRoutes(
         return { error: "Not found" };
       }),
     );
+    getH3App(nitroApp).use(
+      "/_agent-native/mcp/builtin",
+      defineEventHandler(async (event: H3Event) => {
+        const method = getMethod(event);
+        const pathname = (event.url?.pathname || "")
+          .replace(/^\/+/, "")
+          .replace(/\/+$/, "");
+        const parts = pathname ? pathname.split("/") : [];
+
+        setResponseHeader(event, "Content-Type", "application/json");
+        if (parts.length === 0) {
+          if (method === "GET") return handleBuiltinList(event, manager);
+          if (method === "POST") return handleBuiltinUpdate(event, manager);
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }),
+    );
+    getH3App(nitroApp).use(
+      "/_agent-native/mcp/apps",
+      defineEventHandler(async (event: H3Event) => {
+        const method = getMethod(event);
+        const pathname = (event.url?.pathname || "")
+          .replace(/^\/+/, "")
+          .replace(/\/+$/, "");
+        const parts = pathname ? pathname.split("/") : [];
+
+        setResponseHeader(event, "Content-Type", "application/json");
+        if (method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        if (parts.length === 1 && parts[0] === "call-tool") {
+          return handleMcpAppCallTool(event, manager);
+        }
+        if (parts.length === 1 && parts[0] === "list-tools") {
+          return handleMcpAppListTools(event, manager);
+        }
+        if (parts.length === 1 && parts[0] === "read-resource") {
+          return handleMcpAppReadResource(event, manager);
+        }
+
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }),
+    );
   } catch (err: any) {
     console.warn(
-      `[mcp-client] Failed to mount /_agent-native/mcp/servers: ${err?.message ?? err}`,
+      `[mcp-client] Failed to mount MCP routes: ${err?.message ?? err}`,
     );
   }
+}
+
+async function withMcpAppRequestContext<T>(
+  event: H3Event,
+  fn: () => Promise<T>,
+): Promise<T | { error: string }> {
+  const { email, orgId } = await resolveContextForRequest(event);
+  if (!email) {
+    setResponseStatus(event, 401);
+    return { error: "Authentication required" };
+  }
+  return runWithRequestContext(
+    {
+      userEmail: email ?? undefined,
+      orgId: orgId ?? undefined,
+    },
+    fn,
+  ) as Promise<T>;
+}
+
+function serverHasVisibleTools(
+  manager: McpClientManager,
+  serverId: string,
+): boolean {
+  return manager
+    .getToolsForServer(serverId)
+    .some(
+      (tool) =>
+        isMcpToolAllowedForRequest(tool.name) && isVisibleToMcpApp(tool),
+    );
+}
+
+function normalizeSameServerToolName(
+  serverId: string,
+  rawName: unknown,
+): string | null {
+  if (typeof rawName !== "string" || !rawName.trim()) return null;
+  const name = rawName.trim();
+  const parsed = parseMcpToolName(name);
+  if (!parsed) return name;
+  if (parsed.serverId !== serverId) return null;
+  return parsed.toolName;
+}
+
+function isVisibleToMcpApp(tool: McpTool): boolean {
+  try {
+    return !isToolVisibilityModelOnly(tool.raw as any);
+  } catch {
+    return true;
+  }
+}
+
+function mcpToolForClient(tool: McpTool) {
+  return {
+    name: tool.originalName,
+    ...(tool.title ? { title: tool.title } : {}),
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+    ...(tool.annotations ? { annotations: tool.annotations } : {}),
+    ...(tool._meta ? { _meta: tool._meta } : {}),
+  };
+}
+
+function mcpAppCallableTool(
+  manager: McpClientManager,
+  serverId: string,
+  originalToolName: string,
+): McpTool | null {
+  const prefixedName = buildMcpToolName(serverId, originalToolName);
+  const tool =
+    manager
+      .getToolsForServer(serverId)
+      .find(
+        (candidate) =>
+          candidate.name === prefixedName ||
+          candidate.originalName === originalToolName,
+      ) ?? null;
+  if (!tool) return null;
+  if (!isMcpToolAllowedForRequest(tool.name) || !isVisibleToMcpApp(tool)) {
+    return null;
+  }
+  return tool;
+}
+
+async function handleMcpAppCallTool(event: H3Event, manager: McpClientManager) {
+  const body = (await readBody(event).catch(() => ({}))) as {
+    serverId?: unknown;
+    toolName?: unknown;
+    arguments?: unknown;
+  };
+  const serverId = typeof body.serverId === "string" ? body.serverId : "";
+  const originalToolName = normalizeSameServerToolName(serverId, body.toolName);
+  if (!serverId || !originalToolName) {
+    setResponseStatus(event, 400);
+    return { error: "serverId and same-server toolName are required" };
+  }
+
+  return withMcpAppRequestContext(event, async () => {
+    const tool = mcpAppCallableTool(manager, serverId, originalToolName);
+    if (!tool) {
+      setResponseStatus(event, 403);
+      return { error: "MCP tool is not available in this request scope" };
+    }
+    try {
+      return await manager.callTool(
+        tool.name,
+        body.arguments && typeof body.arguments === "object"
+          ? (body.arguments as Record<string, unknown>)
+          : {},
+      );
+    } catch (err: any) {
+      setResponseStatus(event, 400);
+      return { error: err?.message ?? "MCP tool call failed" };
+    }
+  });
+}
+
+async function handleMcpAppListTools(
+  event: H3Event,
+  manager: McpClientManager,
+) {
+  const body = (await readBody(event).catch(() => ({}))) as {
+    serverId?: unknown;
+  };
+  const serverId = typeof body.serverId === "string" ? body.serverId : "";
+  if (!serverId) {
+    setResponseStatus(event, 400);
+    return { error: "serverId is required" };
+  }
+  return withMcpAppRequestContext(event, async () => {
+    if (
+      !manager.hasServer(serverId) ||
+      !serverHasVisibleTools(manager, serverId)
+    ) {
+      setResponseStatus(event, 403);
+      return { error: "MCP server is not available in this request scope" };
+    }
+    return {
+      tools: manager
+        .getToolsForServer(serverId)
+        .filter((tool) => isMcpToolAllowedForRequest(tool.name))
+        .filter(isVisibleToMcpApp)
+        .map(mcpToolForClient),
+    };
+  });
+}
+
+async function handleMcpAppReadResource(
+  event: H3Event,
+  manager: McpClientManager,
+) {
+  const body = (await readBody(event).catch(() => ({}))) as {
+    serverId?: unknown;
+    uri?: unknown;
+  };
+  const serverId = typeof body.serverId === "string" ? body.serverId : "";
+  const uri = typeof body.uri === "string" ? body.uri : "";
+  if (!serverId || !uri.startsWith("ui://")) {
+    setResponseStatus(event, 400);
+    return { error: "serverId and ui:// uri are required" };
+  }
+  return withMcpAppRequestContext(event, async () => {
+    if (
+      !manager.hasServer(serverId) ||
+      !serverHasVisibleTools(manager, serverId)
+    ) {
+      setResponseStatus(event, 403);
+      return { error: "MCP server is not available in this request scope" };
+    }
+    try {
+      return await manager.readResource(serverId, uri);
+    } catch (err: any) {
+      setResponseStatus(event, 400);
+      return { error: err?.message ?? "MCP resource read failed" };
+    }
+  });
+}
+
+async function handleBuiltinList(
+  event: H3Event,
+  manager: McpClientManager,
+): Promise<{
+  capabilities: ClientBuiltinCapability[];
+  user: { enabledIds: BuiltinMcpCapabilityId[] };
+  org: {
+    enabledIds: BuiltinMcpCapabilityId[];
+    orgId: string | null;
+    role: string | null;
+  };
+}> {
+  const { email, orgId, role } = await resolveContextForRequest(event);
+  const userEnabled = email
+    ? await listEnabledBuiltinMcpCapabilities("user", email)
+    : [];
+  const orgEnabled = orgId
+    ? await listEnabledBuiltinMcpCapabilities("org", orgId)
+    : [];
+
+  return {
+    capabilities: BUILTIN_MCP_CAPABILITIES.map((capability) => {
+      const available = isBuiltinMcpCapabilityAvailable(capability);
+      const userMergedId = email
+        ? builtinMergedConfigKey("user", capability, email)
+        : undefined;
+      const orgMergedId = orgId
+        ? builtinMergedConfigKey("org", capability, orgId)
+        : undefined;
+      return {
+        id: capability.id,
+        serverId: capability.serverId,
+        name: capability.name,
+        description: capability.description,
+        command: capability.command,
+        args: capability.args,
+        exclusiveGroup: capability.exclusiveGroup,
+        available,
+        unavailableReason: available
+          ? undefined
+          : `Only available on ${capability.platforms?.join(", ")}`,
+        notes: capability.notes,
+        enabled: {
+          user: userEnabled.includes(capability.id),
+          org: orgEnabled.includes(capability.id),
+        },
+        mergedIds: {
+          user: userMergedId,
+          org: orgMergedId,
+        },
+        status: {
+          user:
+            userMergedId && userEnabled.includes(capability.id)
+              ? statusFor(manager, userMergedId)
+              : undefined,
+          org:
+            orgMergedId && orgEnabled.includes(capability.id)
+              ? statusFor(manager, orgMergedId)
+              : undefined,
+        },
+      };
+    }),
+    user: { enabledIds: userEnabled },
+    org: { enabledIds: orgEnabled, orgId, role },
+  };
+}
+
+async function handleBuiltinUpdate(event: H3Event, manager: McpClientManager) {
+  const body = (await readBody(event).catch(() => ({}))) as {
+    scope?: unknown;
+    enabledIds?: unknown;
+    id?: unknown;
+    enabled?: unknown;
+  };
+  const scope =
+    body.scope === "org" ? "org" : body.scope === "user" ? "user" : null;
+  if (!scope) {
+    setResponseStatus(event, 400);
+    return { error: 'scope must be "user" or "org"' };
+  }
+
+  const { email, orgId, role } = await resolveContextForRequest(event);
+  let scopeId: string | null = null;
+  if (scope === "user") {
+    scopeId = email;
+  } else {
+    if (!orgId) {
+      setResponseStatus(event, 400);
+      return {
+        error:
+          "You must belong to an organization to change org-scope built-ins",
+      };
+    }
+    if (role !== "owner" && role !== "admin") {
+      setResponseStatus(event, 403);
+      return {
+        error: "Only owners and admins can change org-scope MCP built-ins",
+      };
+    }
+    scopeId = orgId;
+  }
+  if (!scopeId) {
+    setResponseStatus(event, 401);
+    return { error: "Authentication required" };
+  }
+
+  if (Array.isArray(body.enabledIds)) {
+    for (const rawId of body.enabledIds) {
+      const error = validateBuiltinCapabilityForEnable(String(rawId));
+      if (error) {
+        setResponseStatus(event, 400);
+        return { error };
+      }
+    }
+    await setEnabledBuiltinMcpCapabilities(
+      scope,
+      scopeId,
+      body.enabledIds.map(String),
+    );
+  } else if (typeof body.id === "string" && typeof body.enabled === "boolean") {
+    if (body.enabled) {
+      const error = validateBuiltinCapabilityForEnable(body.id);
+      if (error) {
+        setResponseStatus(event, 400);
+        return { error };
+      }
+    } else if (!getBuiltinMcpCapability(body.id)) {
+      setResponseStatus(event, 400);
+      return { error: `Unknown built-in MCP capability "${body.id}"` };
+    }
+    const result = await setBuiltinMcpCapabilityEnabled(
+      scope,
+      scopeId,
+      body.id,
+      body.enabled,
+    );
+    if (!result) {
+      setResponseStatus(event, 400);
+      return { error: `Unknown built-in MCP capability "${body.id}"` };
+    }
+  } else {
+    setResponseStatus(event, 400);
+    return { error: "Provide enabledIds or id + enabled" };
+  }
+
+  await reconfigureManager(manager);
+  return handleBuiltinList(event, manager);
+}
+
+function validateBuiltinCapabilityForEnable(id: string): string | null {
+  const capability = getBuiltinMcpCapability(id);
+  if (!capability) return `Unknown built-in MCP capability "${id}"`;
+  if (!isBuiltinMcpCapabilityAvailable(capability)) {
+    return `${capability.name} is only available on ${capability.platforms?.join(", ")}`;
+  }
+  return null;
 }
 
 async function handleList(
@@ -406,6 +883,12 @@ async function handleDelete(
 }
 
 async function handleTestUrl(event: H3Event) {
+  const { email, orgId } = await resolveContextForRequest(event);
+  if (!email && !orgId) {
+    setResponseStatus(event, 401);
+    return { error: "Authentication required" };
+  }
+
   const body = (await readBody(event).catch(() => ({}))) as {
     url?: unknown;
     headers?: unknown;

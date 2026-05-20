@@ -38,7 +38,19 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
-const THEME_INIT_SCRIPT = getThemeInitScript();
+const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+
+function getHydrationStableThemeInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      THEME_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getThemeInitScript();
+}
+
+const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -50,6 +62,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
         <script
+          data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
         />
@@ -243,7 +256,7 @@ export default function Root() {
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider
-          attribute="class"
+          attribute={["class", "data-theme"]}
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange

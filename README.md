@@ -14,6 +14,7 @@ The agent and the UI are equal citizens of the same system. Every action works b
 - **Context-aware** — The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
 - **Per-user workspace** — Skills, memory, instructions, sub-agents, and MCP servers — SQL-backed, customizable per user. Claude-Code-level flexibility, SaaS-grade economics.
 - **Agents call agents** — Tag another agent from any app. They discover each other over A2A and take action across your stack.
+- **Reusable integrations** — Connect a provider once in Dispatch, keep secret values in the vault, then grant apps like Brain, Analytics, Mail, and Dispatch access to the shared account metadata and credential refs.
 - **Apps that improve themselves** — Your apps get better on their own. The agent can add features, fix bugs, and refine the UI over time.
 - **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
 - **Any AI agent** — Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use whichever agent you prefer.
@@ -89,7 +90,7 @@ Create and edit Remotion video compositions with agent assistance.
 
 **Agent-Native Amplitude, Mixpanel**
 
-Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
+Connect analytics data sources, prompt for real charts, and build reusable dashboards. Shared workspace connections can provide provider credentials, while Analytics still owns metrics, source-of-truth choices, and saved analyses.
 
 </td>
 </tr>
@@ -124,7 +125,7 @@ Create and edit visual designs by prompt or by hand, with the agent as your co-d
 
 **Mission control for agent-native apps**
 
-Message, manage, and delegate to agents from Slack, Telegram, or the web, with routing, memory, and approvals built in.
+Message, manage, and delegate to agents from Slack, Telegram, or the web. Dispatch is also the control plane for vault secrets, reusable provider connections, app grants, routing, memory, and approvals.
 
 </td>
 </tr>
@@ -162,6 +163,48 @@ Want a single app, no monorepo? Use `--standalone`:
 
 ```bash
 npx @agent-native/core create my-app --standalone --template mail
+```
+
+Need a coding agent workspace? `agent-native` or `agent-native code` opens an open-source Claude Code/Codex-like Code workspace with no prompt required. From there, type a task, run slash goals interactively, or call them directly from your shell:
+
+```bash
+npx @agent-native/core@latest
+npx @agent-native/core@latest "fix the failing auth tests"
+npx @agent-native/core@latest code
+npx @agent-native/core@latest code "fix the failing auth tests"
+npx @agent-native/core@latest code exec "fix the failing auth tests"
+npx @agent-native/core@latest code -p "fix the failing auth tests"
+npx @agent-native/core@latest code --plan "explain the auth test failures"
+npx @agent-native/core@latest code --auto "fix the failing auth tests"
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate ./my-next-app --emit ../migration-dossier
+npx @agent-native/core@latest code list
+npx @agent-native/core@latest code status --last
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code stop --last
+npx @agent-native/core@latest code ui
+npx @agent-native/core@latest code approve --last
+npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code --continue "check the auth edge cases next"
+npx @agent-native/core@latest code resume --last "check the auth edge cases next"
+```
+
+Slash goals can run from the interactive shell or directly from the command line, and `agent-native code goals` shows the goals registered in your checkout. A bare prompt starts a local coding-agent session, streams work, records transcript/status/tool events, and accepts follow-up prompts; `/migrate` is one specialized capability inside that general Code workspace. Project-specific slash commands live in `.agents/commands/*.md`, so teams can add prompts such as `/release-check` or `/migrate-commerce` without changing the framework. Installed `agent-native` with no arguments launches the Code workspace; `agent-native "fix tests"` starts an Agent-Native Code task directly. Use `agent-native create` when you want to create apps or workspaces.
+
+Working inside this repository? Use `pnpm dev:cli ...` to run the source CLI without building first, for example `pnpm dev:cli --help` or `pnpm dev:cli code goals`.
+
+The Code workspace uses the familiar Codex/Claude-style session loop: pick a previous session, list runs, check status, attach to live output, print logs, stop work, resume with context, open the local UI, and continue the same run from Desktop or CLI. The Desktop Code tab, `agent-native code ui`, background sessions, and sub-agent sessions all converge on the shared run harness/controller model instead of separate ad hoc runners. The primary modes are intentionally simple:
+
+- **Plan mode** (`--plan`) inspects, explains, and proposes without writing files.
+- **Auto mode** (`--auto`, default) edits files, runs checks, and only pauses for genuinely destructive file, git, publish, or data operations.
+
+`agent-native migrate` still works as a direct shortcut; `code /migrate` is the Agent-Native Code entrypoint for the migration goal. By default it creates an Agent-Native Code session and portable migration dossier, not a scaffolded app/template. `resume --last` reopens the latest run handoff; adding a quoted prompt records it as a follow-up transcript event for that run so the next active coding agent can pick it up. If a high-risk command is paused for approval, `code approve --last` runs that one pending command and then points you back to resume the session. Use `--app-surface` only when you want the legacy hidden migration detail app for assessment, approval, tasks, artifacts, and verification.
+Use `--emit` when you want only the portable dossier for Codex, Claude Code, Cursor, or another coding agent.
+Agent-Native Code also includes lightweight goals such as `/audit`:
+
+```bash
+npx @agent-native/core@latest code /audit --url https://example.com
 ```
 
 ## Workspaces (Monorepo)

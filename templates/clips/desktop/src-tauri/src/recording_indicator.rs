@@ -1,7 +1,7 @@
 //! Floating recording indicator pill (Granola-style).
 //!
-//! A small floating window anchored bottom-center of the primary display by
-//! default — matching Granola exactly. The user can drag it anywhere; we
+//! A small floating window anchored bottom-center for normal Clips recordings
+//! and center-right for meeting notes. The user can drag it anywhere; we
 //! persist the chosen position to disk so it survives restarts. Always-on-top,
 //! transparent, no decorations, skip-taskbar, and capture-excluded
 //! (`NSWindowSharingNone`) so it never appears in the user's own screen
@@ -44,6 +44,7 @@ const PILL_LABEL: &str = "recording-pill";
 /// dimensions on subsequent expand/show without the caller having to thread
 /// it through every command.
 static PILL_DETACHED: AtomicBool = AtomicBool::new(false);
+static PILL_RIGHT_SIDE: AtomicBool = AtomicBool::new(false);
 
 /// Granola-fidelity collapsed dimensions (logical px). The expanded form
 /// stretches to fit the live-transcript area.
@@ -61,6 +62,7 @@ const PILL_DETACHED_W_LOGICAL: u32 = 180;
 const PILL_DETACHED_H_LOGICAL: u32 = 40;
 const PILL_DETACHED_TOP_MARGIN_LOGICAL: u32 = 24;
 const PILL_DETACHED_RIGHT_MARGIN_LOGICAL: u32 = 24;
+const PILL_RIGHT_MARGIN_LOGICAL: u32 = 24;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -86,12 +88,46 @@ fn pill_position_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("pill-position.json"))
 }
 
+fn pill_meeting_position_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    Some(dir.join("pill-position-meeting.json"))
+}
+
 fn pill_detached_position_path(app: &AppHandle) -> Option<PathBuf> {
     let dir = app.path().app_data_dir().ok()?;
     if std::fs::create_dir_all(&dir).is_err() {
         return None;
     }
     Some(dir.join("pill-position-detached.json"))
+}
+
+fn load_meeting_position(app: &AppHandle) -> Option<(i32, i32)> {
+    let path = pill_meeting_position_path(app)?;
+    let bytes = std::fs::read(&path).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let x = value.get("x")?.as_i64()? as i32;
+    let y = value.get("y")?.as_i64()? as i32;
+    Some((x, y))
+}
+
+fn save_meeting_position_to_disk(app: &AppHandle, x: i32, y: i32) {
+    let Some(path) = pill_meeting_position_path(app) else {
+        return;
+    };
+    let body = match serde_json::to_vec(&serde_json::json!({ "x": x, "y": y })) {
+        Ok(b) => b,
+        Err(_) => return,
+    };
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, &body).is_err() {
+        return;
+    }
+    if std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
 }
 
 fn load_detached_position(app: &AppHandle) -> Option<(i32, i32)> {
@@ -158,6 +194,15 @@ fn default_bottom_center(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
     (x, y)
 }
 
+fn default_center_right(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
+    let scale = scale_factor(app);
+    let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;
+    let (mw, mh) = primary_monitor_physical_size(app).unwrap_or((2880, 1800));
+    let x = (mw as i32 - w as i32 - right_margin).max(0);
+    let y = ((mh as i32 - h as i32) / 2).max(0);
+    (x, y)
+}
+
 fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     let scale = scale_factor(app);
     let detached = PILL_DETACHED.load(Ordering::Relaxed);
@@ -214,6 +259,21 @@ fn anchored_rect(
         return (w, h, x, y);
     }
 
+    if PILL_RIGHT_SIDE.load(Ordering::Relaxed) {
+        if let Some((px, py, prev_w, prev_h)) = previous_position {
+            let prev_right = px + prev_w as i32;
+            let prev_center_y = py + prev_h as i32 / 2;
+            let x = (prev_right - w as i32).clamp(0, max_x);
+            let y = (prev_center_y - h as i32 / 2).clamp(0, max_y);
+            return (w, h, x, y);
+        }
+        let (x, y) = match load_meeting_position(app) {
+            Some((sx, sy)) => (sx.clamp(0, max_x), sy.clamp(0, max_y)),
+            None => default_center_right(app, w, h),
+        };
+        return (w, h, x, y);
+    }
+
     if let Some((px, py, prev_w, prev_h)) = previous_position {
         // Re-anchor on expand/collapse: keep the bottom-center of the pill
         // pinned. New top-left = (prev_center_x - new_w/2, prev_bottom - new_h).
@@ -240,6 +300,8 @@ pub async fn recording_pill_show(
     mode: Option<PillMode>,
 ) -> Result<(), String> {
     let mode = mode.unwrap_or_default();
+    PILL_DETACHED.store(false, Ordering::SeqCst);
+    PILL_RIGHT_SIDE.store(matches!(mode, PillMode::Meeting), Ordering::SeqCst);
     let mode_str = match mode {
         PillMode::Meeting => "meeting",
         PillMode::Clip => "clip",
@@ -332,7 +394,13 @@ pub async fn recording_pill_hide(app: AppHandle) -> Result<(), String> {
         // Snapshot current position before close so the next show re-opens
         // at the user's chosen spot.
         if let Ok(pos) = w.outer_position() {
-            save_pill_position_to_disk(&app, pos.x, pos.y);
+            if PILL_DETACHED.load(Ordering::Relaxed) {
+                save_detached_position_to_disk(&app, pos.x, pos.y);
+            } else if PILL_RIGHT_SIDE.load(Ordering::Relaxed) {
+                save_meeting_position_to_disk(&app, pos.x, pos.y);
+            } else {
+                save_pill_position_to_disk(&app, pos.x, pos.y);
+            }
         }
         let _ = w.close();
     }
@@ -348,6 +416,8 @@ pub async fn recording_pill_save_position(app: AppHandle, x: i32, y: i32) -> Res
     // user's preferred bottom-center position and vice versa.
     if PILL_DETACHED.load(Ordering::Relaxed) {
         save_detached_position_to_disk(&app, x, y);
+    } else if PILL_RIGHT_SIDE.load(Ordering::Relaxed) {
+        save_meeting_position_to_disk(&app, x, y);
     } else {
         save_pill_position_to_disk(&app, x, y);
     }

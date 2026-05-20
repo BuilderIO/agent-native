@@ -1,11 +1,13 @@
 ---
 title: "MCP Protocol"
-description: "Expose your agent-native app as a remote MCP server so Claude Code, Cursor, and other AI tools can call your app's actions directly."
+description: "Expose your agent-native app as a remote MCP server so Claude, ChatGPT, Claude Code, Cursor, and other AI tools can call your app's actions directly."
 ---
 
 # MCP Protocol
 
-Every agent-native app automatically exposes a remote MCP (Model Context Protocol) server. This lets external AI tools like Claude Code, Cursor, and Windsurf discover and call your app's actions directly — no extra code needed.
+Every agent-native app automatically exposes a remote MCP (Model Context Protocol) server. This lets external AI tools like Claude, ChatGPT custom MCP apps, Claude Code, Cursor, Codex, VS Code GitHub Copilot, and Windsurf discover and call your app's actions directly — no extra code needed.
+
+If your goal is to connect Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to a hosted agent-native app, start with [External Agents](/docs/external-agents). It documents the one-command `agent-native connect https://mail.agent-native.com` flow, standard remote MCP OAuth for Claude Code, bearer fallback config for older clients, manual remote MCP setup for hosts we do not write directly, MCP Apps inline UIs, and deep links back into the UI. This page is the lower-level MCP server reference.
 
 ## Overview {#overview}
 
@@ -17,39 +19,40 @@ Key concepts:
 - **Streamable HTTP** — uses the modern MCP transport over standard HTTP (POST + SSE)
 - **Same actions** — the exact same action registry that powers agent chat and A2A
 - **`ask-agent` tool** — a meta-tool that delegates to the full agent loop for complex tasks
-- **Bearer auth** — uses `ACCESS_TOKEN` or `A2A_SECRET` for authentication
+- **MCP Apps** — actions can advertise inline HTML UIs through the official `io.modelcontextprotocol/ui` extension
+- **Standard remote MCP OAuth** — OAuth 2.1 discovery, dynamic client registration, authorization-code + PKCE, refresh-token rotation
+- **Bearer auth fallback** — uses `ACCESS_TOKEN`, `ACCESS_TOKENS`, or connect-minted JWTs for clients that cannot run OAuth
 
 ## MCP vs A2A {#mcp-vs-a2a}
 
 Both protocols are auto-mounted. Use whichever fits your use case:
 
-|                    | MCP                                   | A2A                                          |
-| ------------------ | ------------------------------------- | -------------------------------------------- |
-| **Best for**       | External tools calling your app       | Agent-to-agent communication                 |
-| **Protocol**       | MCP Streamable HTTP                   | JSON-RPC 2.0                                 |
-| **Tool discovery** | `tools/list`                          | Agent card at `/.well-known/agent-card.json` |
-| **Endpoint**       | `/_agent-native/mcp`                  | `/_agent-native/a2a`                         |
-| **Supported by**   | Claude Code, Cursor, Windsurf, Cowork | Other agent-native apps                      |
-| **Execution**      | Direct tool calls (no extra LLM)      | Full agent loop (LLM reasoning)              |
+|                    | MCP                                                                      | A2A                                          |
+| ------------------ | ------------------------------------------------------------------------ | -------------------------------------------- |
+| **Best for**       | External tools calling your app                                          | Agent-to-agent communication                 |
+| **Protocol**       | MCP Streamable HTTP                                                      | JSON-RPC 2.0                                 |
+| **Tool discovery** | `tools/list`                                                             | Agent card at `/.well-known/agent-card.json` |
+| **Endpoint**       | `/_agent-native/mcp`                                                     | `/_agent-native/a2a`                         |
+| **Supported by**   | Claude, ChatGPT, Claude Code, Cursor, Codex, Cowork, and other MCP hosts | Other agent-native apps                      |
+| **Execution**      | Direct tool calls (no extra LLM)                                         | Full agent loop (LLM reasoning)              |
 
 You can also use the `ask-agent` MCP tool to get the best of both worlds — call it from Claude Code and let your app's agent reason through complex tasks.
 
-## Connecting from Claude Code {#claude-code}
+## Manual MCP client config {#claude-code}
 
-Add your app as a remote MCP server in Claude Code's config:
+For the recommended one-command setup, use [External Agents](/docs/external-agents). If you are hand-writing MCP config for an OAuth-capable client, add your app as a remote MCP server with no static headers:
 
 ```jsonc
 // ~/.claude/mcp_servers.json
 {
   "mail": {
-    "type": "url",
+    "type": "http",
     "url": "https://mail.example.com/_agent-native/mcp",
-    "headers": {
-      "Authorization": "Bearer YOUR_ACCESS_TOKEN",
-    },
   },
 }
 ```
+
+Then run `/mcp` in Claude Code and choose **Authenticate**. For clients that cannot perform remote MCP OAuth, use the Connect page or a static bearer-token entry with `headers.Authorization`.
 
 Then in Claude Code, you can use your app's tools naturally:
 
@@ -69,6 +72,8 @@ POST https://your-app.example.com/_agent-native/mcp
 
 The server supports the standard MCP handshake: `initialize` → `initialized` → `tools/list` → `tools/call`.
 
+If an action declares `mcpApp`, the server also advertises the official MCP Apps extension (`io.modelcontextprotocol/ui`) and supports `resources/list`, `resources/templates/list`, and `resources/read` for the app HTML. Hosts that render MCP Apps can show the UI inline; hosts that do not can still call the tool and use the deep-link fallback. The current official extension matrix includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support varies by version and plan, so use the [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) for the user-facing guidance.
+
 ## Tools {#tools}
 
 All actions registered in your app are exposed as MCP tools. The mapping is direct:
@@ -78,6 +83,8 @@ All actions registered in your app are exposed as MCP tools. The mapping is dire
 | `tool.description` | `description`     |
 | `tool.parameters`  | `inputSchema`     |
 | Action name        | Tool name         |
+
+When `mcpApp` is present, the tool entry also includes `_meta.ui.resourceUri` and `_meta["ui/resourceUri"]`, and the corresponding `ui://` resource is returned as `text/html;profile=mcp-app`.
 
 ### The `ask-agent` tool {#ask-agent}
 
@@ -98,16 +105,50 @@ The agent runs the same loop as the interactive chat — it can call multiple to
 
 ## Authentication {#authentication}
 
-The MCP endpoint uses the same auth as the rest of the app:
+The MCP endpoint supports standard remote MCP OAuth plus the existing bearer-token fallback:
 
-| Env var         | How it works                                                |
-| --------------- | ----------------------------------------------------------- |
-| `ACCESS_TOKEN`  | Bearer token — client sends `Authorization: Bearer <token>` |
-| `ACCESS_TOKENS` | Comma-separated list of valid tokens                        |
-| `A2A_SECRET`    | JWT-based auth — tokens are verified cryptographically      |
-| _(none set)_    | No auth required (dev mode)                                 |
+| Mode                        | How it works                                                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Standard MCP OAuth          | Client discovers auth from `WWW-Authenticate`, registers, runs PKCE, and sends `Authorization: Bearer <access-token>` |
+| Connect-minted JWT          | `agent-native connect` / the Connect page mints a per-user, revocable JWT                                             |
+| `ACCESS_TOKEN`              | Static bearer token — client sends `Authorization: Bearer <token>`                                                    |
+| `ACCESS_TOKENS`             | Comma-separated list of valid static bearer tokens                                                                    |
+| `A2A_SECRET`                | JWT-based auth — tokens are verified cryptographically                                                                |
+| _(none set, loopback only)_ | No auth required for local dev probes                                                                                 |
 
-In production, set `ACCESS_TOKEN` or `A2A_SECRET` to secure the endpoint. In development (no auth env vars configured), all requests are allowed.
+For OAuth-capable MCP hosts, configure the remote server URL with no static headers:
+
+```bash
+claude mcp add --transport http agent-native-mail https://mail.agent-native.com/_agent-native/mcp
+```
+
+The first unauthenticated MCP request receives:
+
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
+```
+
+Discovery endpoints:
+
+| Endpoint                                  | Purpose                                     |
+| ----------------------------------------- | ------------------------------------------- |
+| `/.well-known/oauth-protected-resource`   | RFC 9728 protected-resource metadata        |
+| `/.well-known/oauth-authorization-server` | OAuth authorization server metadata         |
+| `/.well-known/openid-configuration`       | OIDC-compatible metadata alias              |
+| `/_agent-native/mcp/oauth/register`       | Dynamic public-client registration          |
+| `/_agent-native/mcp/oauth/authorize`      | Browser authorization + consent             |
+| `/_agent-native/mcp/oauth/token`          | Authorization-code and refresh-token grants |
+
+Access tokens are signed JWTs whose audience is the exact MCP resource URL. The server accepts only tokens issued for itself and applies scopes before listing/calling tools:
+
+| Scope       | Allows                                      |
+| ----------- | ------------------------------------------- |
+| `mcp:read`  | read-only actions                           |
+| `mcp:write` | mutating actions and `ask-agent`            |
+| `mcp:apps`  | MCP Apps resources (`ui://` HTML resources) |
+
+Refresh tokens are stored only as hashes and are rotated on every refresh. `agent-native connect` writes this URL-only OAuth entry for Claude Code clients by default; keep the Connect page, `agent-native connect --token <token>`, and static bearer config for local stdio proxying, older clients, and emergency/debug flows.
 
 ## Custom MCP setup {#custom-setup}
 
@@ -142,9 +183,8 @@ You have a deployed analytics app at `analytics.example.com`. From Claude Code:
 // ~/.claude/mcp_servers.json
 {
   "analytics": {
-    "type": "url",
+    "type": "http",
     "url": "https://analytics.example.com/_agent-native/mcp",
-    "headers": { "Authorization": "Bearer sk-analytics-token" },
   },
 }
 ```

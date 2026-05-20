@@ -20,8 +20,14 @@ let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
 let previousViteAppBasePath: string | undefined;
+let previousViteWorkspaceAppAudience: string | undefined;
+let previousViteWorkspaceAppProtectedPaths: string | undefined;
+let previousViteWorkspaceAppPublicPaths: string | undefined;
 let previousViteWorkspaceGatewayUrl: string | undefined;
 let previousViteWorkspaceOAuthOrigin: string | undefined;
+let previousWorkspaceAppAudience: string | undefined;
+let previousWorkspaceAppProtectedPaths: string | undefined;
+let previousWorkspaceAppPublicPaths: string | undefined;
 let previousWorkspaceGatewayUrl: string | undefined;
 let previousWorkspaceOAuthOrigin: string | undefined;
 let previousWorkspaceAppsJson: string | undefined;
@@ -55,8 +61,20 @@ beforeEach(() => {
   previousViteWorkspaceAppsJson =
     process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
+  previousViteWorkspaceAppAudience =
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
+  previousViteWorkspaceAppProtectedPaths =
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS;
+  previousViteWorkspaceAppPublicPaths =
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS;
   previousViteWorkspaceGatewayUrl = process.env.VITE_WORKSPACE_GATEWAY_URL;
   previousViteWorkspaceOAuthOrigin = process.env.VITE_WORKSPACE_OAUTH_ORIGIN;
+  previousWorkspaceAppAudience =
+    process.env.AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
+  previousWorkspaceAppProtectedPaths =
+    process.env.AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS;
+  previousWorkspaceAppPublicPaths =
+    process.env.AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS;
   previousWorkspaceGatewayUrl = process.env.WORKSPACE_GATEWAY_URL;
   previousWorkspaceOAuthOrigin = process.env.WORKSPACE_OAUTH_ORIGIN;
   previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -73,8 +91,14 @@ beforeEach(() => {
   delete process.env.VERCEL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.VITE_APP_BASE_PATH;
+  delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
+  delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS;
+  delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS;
   delete process.env.VITE_WORKSPACE_GATEWAY_URL;
   delete process.env.VITE_WORKSPACE_OAUTH_ORIGIN;
+  delete process.env.AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
+  delete process.env.AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS;
+  delete process.env.AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS;
   delete process.env.WORKSPACE_GATEWAY_URL;
   delete process.env.WORKSPACE_OAUTH_ORIGIN;
   delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -97,8 +121,32 @@ afterEach(() => {
     previousViteWorkspaceAppsJson,
   );
   restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
+  restoreEnv(
+    "VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE",
+    previousViteWorkspaceAppAudience,
+  );
+  restoreEnv(
+    "VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS",
+    previousViteWorkspaceAppProtectedPaths,
+  );
+  restoreEnv(
+    "VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS",
+    previousViteWorkspaceAppPublicPaths,
+  );
   restoreEnv("VITE_WORKSPACE_GATEWAY_URL", previousViteWorkspaceGatewayUrl);
   restoreEnv("VITE_WORKSPACE_OAUTH_ORIGIN", previousViteWorkspaceOAuthOrigin);
+  restoreEnv(
+    "AGENT_NATIVE_WORKSPACE_APP_AUDIENCE",
+    previousWorkspaceAppAudience,
+  );
+  restoreEnv(
+    "AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS",
+    previousWorkspaceAppProtectedPaths,
+  );
+  restoreEnv(
+    "AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS",
+    previousWorkspaceAppPublicPaths,
+  );
   restoreEnv("WORKSPACE_GATEWAY_URL", previousWorkspaceGatewayUrl);
   restoreEnv("WORKSPACE_OAUTH_ORIGIN", previousWorkspaceOAuthOrigin);
   restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
@@ -136,6 +184,9 @@ describe("workspace deploy", () => {
         description: "",
         path: "/dispatch",
         isDispatch: true,
+        audience: "internal",
+        publicPaths: [],
+        protectedPaths: [],
       },
       {
         id: "starter",
@@ -143,6 +194,9 @@ describe("workspace deploy", () => {
         description: "",
         path: "/starter",
         isDispatch: false,
+        audience: "internal",
+        publicPaths: [],
+        protectedPaths: [],
       },
     ]);
 
@@ -275,6 +329,9 @@ describe("workspace deploy", () => {
           description: "",
           path: "/dispatch",
           isDispatch: true,
+          audience: "internal",
+          publicPaths: [],
+          protectedPaths: [],
         },
         {
           id: "starter",
@@ -282,6 +339,9 @@ describe("workspace deploy", () => {
           description: "",
           path: "/starter",
           isDispatch: false,
+          audience: "internal",
+          publicPaths: [],
+          protectedPaths: [],
         },
       ],
     });
@@ -426,6 +486,7 @@ describe("workspace deploy", () => {
     expect(redirects).toContain("/favicon.ico /dispatch/favicon.ico 302");
     expect(redirects).toContain("/ /dispatch/overview 302");
     expect(redirects).toContain("/dispatch /dispatch/overview 302");
+    expect(redirects).toContain("/dispatch/ /dispatch/overview 302");
     expect(redirects).toContain("/login /dispatch/login 302");
     expect(redirects).toContain("/signup /dispatch/signup 302");
     expect(redirects).toContain("/apps /dispatch/apps 302");
@@ -434,6 +495,7 @@ describe("workspace deploy", () => {
     expect(redirects).toContain("/new-app /dispatch/new-app 302");
     expect(redirects).toContain("/approval /dispatch/approval 302");
     expect(redirects).toContain("/extensions /dispatch/extensions 302");
+    expect(redirects).toContain("/thread-debug /dispatch/thread-debug 302");
     expect(redirects).not.toMatch(/^\/dispatch\/\* .* 200$/m);
     expect(redirects).not.toMatch(/^\/starter .* 200$/m);
     expect(redirects).not.toMatch(/^\/starter\/\* .* 200$/m);
@@ -448,6 +510,63 @@ describe("workspace deploy", () => {
       false,
     );
     expect(fs.existsSync(path.join(tmpDir, "dist", "_worker.js"))).toBe(false);
+  });
+
+  it("propagates workspace app route access into manifests and app env", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "portal", {
+      audience: "public",
+      publicPaths: ["/", "/pricing"],
+      protectedPaths: ["/admin"],
+    });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const portalCall = buildCallForApp("portal");
+    expect(portalCall?.env).toMatchObject({
+      AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+      AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: '["/","/pricing"]',
+      AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: '["/admin"]',
+      VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+      VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: '["/","/pricing"]',
+      VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: '["/admin"]',
+    });
+    const manifest = JSON.parse(
+      portalCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]",
+    );
+    expect(manifest.find((app: any) => app.id === "portal")).toMatchObject({
+      id: "portal",
+      audience: "public",
+      publicPaths: ["/", "/pricing"],
+      protectedPaths: ["/admin"],
+    });
+
+    const portalServer = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "portal-server",
+        "portal-server.mjs",
+      ),
+      "utf-8",
+    );
+    expect(portalServer).toContain(
+      'AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public"',
+    );
+    expect(portalServer).toContain(
+      'AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: "[\\"/\\",\\"/pricing\\"]"',
+    );
+    expect(portalServer).toContain(
+      'AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: "[\\"/admin\\"]"',
+    );
+    expect(portalServer).toContain(
+      'VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public"',
+    );
   });
 
   it("uses Netlify unpooled database URLs for apps that request them", async () => {
@@ -607,6 +726,11 @@ describe("workspace deploy", () => {
       headers: { Location: "/dispatch/overview" },
     });
     expect(config.routes).toContainEqual({
+      src: "/dispatch/",
+      status: 302,
+      headers: { Location: "/dispatch/overview" },
+    });
+    expect(config.routes).toContainEqual({
       src: "/login",
       status: 302,
       headers: { Location: "/dispatch/login" },
@@ -753,6 +877,9 @@ describe("workspace deploy", () => {
         path: "/dispatch",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
+        audience: "internal",
+        publicPaths: [],
+        protectedPaths: [],
       },
       {
         id: "mail",
@@ -761,6 +888,9 @@ describe("workspace deploy", () => {
         path: "/mail",
         url: "https://mail.custom.example.test",
         isDispatch: false,
+        audience: "internal",
+        publicPaths: [],
+        protectedPaths: [],
       },
     ]);
 
@@ -785,6 +915,57 @@ describe("workspace deploy", () => {
     ).toEqual([
       ["dispatch", "https://workspace.example.test/dispatch"],
       ["mail", "https://mail.custom.example.test"],
+    ]);
+  });
+
+  it("uses public workspace URLs before loopback gateways when building apps", async () => {
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "mail");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const dispatchCall = buildCallForApp("dispatch");
+    expect(dispatchCall?.env?.WORKSPACE_GATEWAY_URL).toBe(
+      "http://127.0.0.1:8080",
+    );
+    expect(dispatchCall?.env?.VITE_WORKSPACE_GATEWAY_URL).toBe(
+      "https://workspace.example.test",
+    );
+    expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
+      "https://workspace.example.test",
+    );
+    expect(
+      JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
+    ).toEqual([
+      {
+        id: "dispatch",
+        name: "Dispatch",
+        description: "",
+        path: "/dispatch",
+        url: "https://workspace.example.test/dispatch",
+        isDispatch: true,
+        audience: "internal",
+        publicPaths: [],
+        protectedPaths: [],
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        description: "",
+        path: "/mail",
+        url: "https://workspace.example.test/mail",
+        isDispatch: false,
+        audience: "internal",
+        publicPaths: [],
+        protectedPaths: [],
+      },
     ]);
   });
 
@@ -821,6 +1002,7 @@ describe("workspace deploy", () => {
     expect(routes.include).toContain("/favicon.ico");
     expect(routes.include).toContain("/approval");
     expect(routes.include).toContain("/extensions");
+    expect(routes.include).toContain("/thread-debug");
     expect(routes.include).toContain("/apps/new-app");
     expect(routes.include).toContain("/apps/*");
     expect(routes.include).toContain("/dispatch/*");
@@ -846,10 +1028,16 @@ describe("workspace deploy", () => {
       'if (pathname === "/extensions") return Response.redirect(new URL("/dispatch/extensions" + search, request.url).toString(), 302);',
     );
     expect(worker).toContain(
+      'if (pathname === "/thread-debug") return Response.redirect(new URL("/dispatch/thread-debug" + search, request.url).toString(), 302);',
+    );
+    expect(worker).toContain(
       'if (pathname === "/apps/new-app") return Response.redirect(new URL("/dispatch/new-app" + search, request.url).toString(), 302);',
     );
     expect(worker).toContain(
       'if (pathname.startsWith("/apps/")) return Response.redirect(new URL("/dispatch" + pathname + search, request.url).toString(), 302);',
+    );
+    expect(worker).toContain(
+      'if (pathname === "/dispatch" || pathname === "/dispatch/") return Response.redirect(new URL("/dispatch/overview" + search, request.url).toString(), 302);',
     );
     expect(worker).toContain(
       'if (pathname === "/dispatch" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(request, env, ctx);',
@@ -889,14 +1077,29 @@ describe("workspace deploy", () => {
 function makeWorkspaceApp(
   workspaceRoot: string,
   app: string,
-  opts: { usesUnpooledDatabaseUrl?: boolean } = {},
+  opts: {
+    audience?: "internal" | "public";
+    protectedPaths?: string[];
+    publicPaths?: string[];
+    usesUnpooledDatabaseUrl?: boolean;
+  } = {},
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   fs.mkdirSync(appDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(appDir, "package.json"),
-    JSON.stringify({ name: app, scripts: { build: "agent-native build" } }),
-  );
+  const pkg: Record<string, unknown> = {
+    name: app,
+    scripts: { build: "agent-native build" },
+  };
+  if (opts.audience || opts.protectedPaths || opts.publicPaths) {
+    pkg["agent-native"] = {
+      workspaceApp: {
+        ...(opts.audience ? { audience: opts.audience } : {}),
+        ...(opts.publicPaths ? { publicPaths: opts.publicPaths } : {}),
+        ...(opts.protectedPaths ? { protectedPaths: opts.protectedPaths } : {}),
+      },
+    };
+  }
+  fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
 
   if (opts.usesUnpooledDatabaseUrl) {
     fs.writeFileSync(

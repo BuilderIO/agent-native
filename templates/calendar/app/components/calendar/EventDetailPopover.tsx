@@ -53,6 +53,7 @@ import { useUpdateEvent } from "@/hooks/use-events";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { sendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
+import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
 import {
   RenderedDescription,
   AutoGrowTextarea,
@@ -79,6 +80,7 @@ import {
 } from "@/lib/event-form-utils";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
 import { shortcutModifierLabel } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
@@ -292,22 +294,45 @@ interface EventDetailPopoverProps {
   event: CalendarEvent;
   children: React.ReactNode;
   onDelete: (eventId: string) => void;
+  isDraft?: boolean;
   /** When true, the popover opens immediately and title is focused for editing */
   defaultOpen?: boolean;
   /** Called when the title is changed and should be persisted */
   onTitleSave?: (eventId: string, title: string) => void;
   /** Called when the popover is dismissed for a new event (to clean up if no title was set) */
   onDismissNew?: (eventId: string) => void;
+  onDraftUpdate?: (
+    eventId: string,
+    updates: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+      workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+      workingLocationLabel?: string;
+    },
+  ) => void;
+  onDraftCreate?: (
+    eventId: string,
+    updates?: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+    },
+  ) => void;
+  onDraftDiscard?: (eventId: string) => void;
 }
 
 export function EventDetailPopover({
   event,
   children,
   onDelete,
+  isDraft = false,
   defaultOpen = false,
   onTitleSave,
   onDismissNew,
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
 }: EventDetailPopoverProps) {
+  const isMobile = useIsMobile();
   const [open, setOpen] = useState(defaultOpen);
   const [editingTitle, setEditingTitle] = useState(
     defaultOpen ? event.title : "",
@@ -358,6 +383,8 @@ export function EventDetailPopover({
   >(null);
 
   const updateEvent = useUpdateEvent();
+  const { promptGuestNotification, guestNotificationDialog } =
+    useGuestNotificationPrompt();
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
   const locationRef = useRef<HTMLInputElement>(null);
@@ -436,13 +463,26 @@ export function EventDetailPopover({
   const saveField = useCallback(
     (updates: Partial<CalendarEvent> & { addGoogleMeet?: boolean }) => {
       if (!event.id) return;
-      updateEvent.mutate({
-        id: event.id,
-        accountEmail: event.accountEmail,
-        ...updates,
-      });
+      if (isDraft) {
+        onDraftUpdate?.(event.id, updates);
+        return;
+      }
+      void (async () => {
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) return;
+        updateEvent.mutate({
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        });
+      })();
     },
-    [event.id, event.accountEmail, updateEvent],
+    [event, isDraft, onDraftUpdate, promptGuestNotification, updateEvent],
   );
 
   const handleAvailabilityChange = useCallback(
@@ -520,41 +560,77 @@ Write a short, useful meeting description. If I ask you to apply it, update this
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
+    if (isDraft) {
+      onDraftUpdate?.(event.id, { addGoogleMeet: true, addZoom: false });
+      toast("Google Meet will be added when the event is created");
+      return;
+    }
     setPendingVideoProvider("meet");
-    updateEvent.mutate(
-      {
-        id: event.id,
-        accountEmail: event.accountEmail,
-        addGoogleMeet: true,
-      },
-      {
-        onSuccess: () => toast("Google Meet added"),
-        onError: () => toast.error("Failed to add Google Meet"),
-        onSettled: () => setPendingVideoProvider(null),
-      },
-    );
-  }, [event.id, event.accountEmail, updateEvent]);
+    void (async () => {
+      const updates = { addGoogleMeet: true };
+      const guestNotification = await promptGuestNotification({
+        event,
+        action: "update",
+        updates,
+      });
+      if (!guestNotification) {
+        setPendingVideoProvider(null);
+        return;
+      }
+      updateEvent.mutate(
+        {
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        },
+        {
+          onSuccess: () => toast("Google Meet added"),
+          onError: () => toast.error("Failed to add Google Meet"),
+          onSettled: () => setPendingVideoProvider(null),
+        },
+      );
+    })();
+  }, [event, isDraft, onDraftUpdate, promptGuestNotification, updateEvent]);
 
   const handleAddZoom = useCallback(() => {
     if (!event.id || updateEvent.isPending || connectZoom.isPending) return;
 
     if (zoomStatus.data?.connected) {
+      if (isDraft) {
+        onDraftUpdate?.(event.id, { addZoom: true, addGoogleMeet: false });
+        toast("Zoom will be added when the event is created");
+        return;
+      }
       setPendingVideoProvider("zoom");
-      updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          addZoom: true,
-        },
-        {
-          onSuccess: () => toast("Zoom added"),
-          onError: (error) =>
-            toast.error(
-              error instanceof Error ? error.message : "Failed to add Zoom",
-            ),
-          onSettled: () => setPendingVideoProvider(null),
-        },
-      );
+      void (async () => {
+        const updates = { addZoom: true };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) {
+          setPendingVideoProvider(null);
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast("Zoom added"),
+            onError: (error) =>
+              toast.error(
+                error instanceof Error ? error.message : "Failed to add Zoom",
+              ),
+            onSettled: () => setPendingVideoProvider(null),
+          },
+        );
+      })();
       return;
     }
 
@@ -572,8 +648,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     });
   }, [
     connectZoom,
-    event.accountEmail,
-    event.id,
+    event,
+    isDraft,
+    onDraftUpdate,
+    promptGuestNotification,
     updateEvent,
     zoomStatus.data?.configured,
     zoomStatus.data?.connected,
@@ -700,10 +778,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
   // If in sidebar mode, clicking the trigger opens the sidebar instead of popover
   const handleTriggerClick = useCallback(() => {
     setFocusedEvent(event);
-    if (eventDetailSidebar && !isNewEventRef.current) {
+    if (eventDetailSidebar && !isNewEventRef.current && !isDraft) {
       setSidebarEvent(event);
     }
-  }, [eventDetailSidebar, event, setSidebarEvent, setFocusedEvent]);
+  }, [eventDetailSidebar, event, isDraft, setSidebarEvent, setFocusedEvent]);
 
   const handlePinToSidebar = useCallback(
     (e: React.MouseEvent) => {
@@ -717,6 +795,20 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     },
     [event, setEventDetailSidebar, setSidebarEvent],
   );
+
+  const handleCreateDraft = useCallback(() => {
+    if (!onDraftCreate) return;
+    const updates =
+      isEditingTitle && editingTitle.trim()
+        ? { title: editingTitle.trim() }
+        : undefined;
+    if (updates) {
+      onTitleSave?.(event.id, updates.title);
+      setIsEditingTitle(false);
+      isNewEventRef.current = false;
+    }
+    onDraftCreate(event.id, updates);
+  }, [editingTitle, event.id, isEditingTitle, onDraftCreate, onTitleSave]);
 
   // Keyboard shortcut: Cmd+J to join meeting when popover is open
   const handleKeyDown = useCallback(
@@ -800,16 +892,19 @@ Write a short, useful meeting description. If I ask you to apply it, update this
 
   return (
     <Popover
-      open={eventDetailSidebar && !isNewEventRef.current ? false : open}
+      open={
+        eventDetailSidebar && !isNewEventRef.current && !isDraft ? false : open
+      }
       onOpenChange={handleOpenChange}
     >
       <PopoverTrigger asChild onClick={handleTriggerClick}>
         {children}
       </PopoverTrigger>
       <PopoverContent
-        side="right"
-        align="start"
-        sideOffset={8}
+        align={isMobile ? "center" : "start"}
+        side={isMobile ? "bottom" : "right"}
+        sideOffset={isMobile ? 6 : 8}
+        collisionPadding={12}
         className="w-[calc(100vw-2rem)] sm:w-[420px] max-h-[90vh] p-0 overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
         onOpenAutoFocus={(e) => {
@@ -836,25 +931,27 @@ Write a short, useful meeting description. If I ask you to apply it, update this
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
             <div className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              <span>Event</span>
+              <span>{isDraft ? "Draft event" : "Event"}</span>
               <IconChevronRight className="h-3 w-3" />
             </div>
             <div className="flex items-center gap-0.5">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                    onClick={handlePinToSidebar}
-                  >
-                    <IconLayoutSidebarRight className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>Open in sidebar</p>
-                </TooltipContent>
-              </Tooltip>
+              {!isDraft && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                      onClick={handlePinToSidebar}
+                    >
+                      <IconLayoutSidebarRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>Open in sidebar</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -1674,16 +1771,27 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                 size="sm"
                 className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs"
                 onClick={() => {
-                  onDelete(event.id);
+                  if (isDraft) onDraftDiscard?.(event.id);
+                  else onDelete(event.id);
                   handleOpenChange(false);
                 }}
               >
-                Delete
+                {isDraft ? "Discard" : "Delete"}
               </Button>
+              {isDraft && (
+                <Button
+                  size="sm"
+                  className="ml-auto text-xs"
+                  onClick={handleCreateDraft}
+                >
+                  {event.attendees?.length ? "Create and send" : "Create event"}
+                </Button>
+              )}
             </div>
           )}
         </TooltipProvider>
       </PopoverContent>
+      {guestNotificationDialog}
     </Popover>
   );
 }

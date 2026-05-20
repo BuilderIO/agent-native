@@ -49,6 +49,9 @@ const SKIP_DIRS = new Set([
 const INTENTIONAL_RAW_DB_DENYLIST = {
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
   "analytics:dashboard_views": "view telemetry, scoped by dashboard/action",
+  "brain:brain_ingest_queue": "internal ingestion queue scoped by actions",
+  "brain:brain_raw_captures": "raw imported content scoped through sources",
+  "brain:brain_sync_runs": "provider sync bookkeeping scoped by sources",
   "calendar:booking_slug_redirects": "public redirect helper, no user data",
   "calls:accounts": "third-party/account metadata, accessed by actions",
   "calls:call_comments": "child rows scoped through calls",
@@ -92,6 +95,10 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "meeting-notes:meeting_notes": "child rows scoped through meetings",
   "meeting-notes:meeting_transcripts": "child rows scoped through meetings",
   "meeting-notes:people": "directory/cache table accessed by actions",
+  "migration:migration_artifacts": "child rows scoped through migration runs",
+  "migration:migration_tasks": "child rows scoped through migration runs",
+  "migration:migration_verifier_results":
+    "child rows scoped through migration runs",
   // Scheduling package re-exports (templates/scheduling). All child / join /
   // cache rows reachable only through a scoped parent (booking, user,
   // event-type, schedule, workflow, team) or via dedicated actions.

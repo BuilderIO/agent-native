@@ -1,8 +1,9 @@
 #[cfg(target_os = "macos")]
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::Command;
 #[cfg(target_os = "macos")]
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::thread;
 use std::time::Duration;
 use tauri::{
@@ -16,8 +17,8 @@ use crate::state::{
 };
 use crate::util::{
     build_overlay_url, hide_voice_wake_popover, is_recording_active, mark_popover_shown,
-    primary_monitor_physical_size, set_capture_excluded, set_capture_included,
-    set_dictation_active,
+    primary_monitor_physical_size, set_capture_excluded, set_capture_excluded_always,
+    set_capture_included, set_dictation_active,
 };
 
 /// Native overlay windows for the recording experience. These render the same
@@ -27,6 +28,8 @@ const TOOLBAR_LABEL: &str = "toolbar";
 const BUBBLE_LABEL: &str = "bubble";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
+const REGION_GUIDES_LABEL: &str = "region-guides";
+const REGION_GUIDE_EDITOR_LABEL: &str = "region-guide-editor";
 
 /// Physical-pixel bubble sizes. Logical px on retina = physical / 2, so these
 /// map to ~96 (small) and ~180 (medium) logical px — matching Loom's camera
@@ -178,6 +181,7 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_countdown invoked");
     mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
+        let _ = app.emit("clips:countdown-shortcuts-active", false);
         let _ = existing.close();
     }
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
@@ -205,6 +209,7 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
     let _ = win.show();
+    let _ = app.emit("clips:countdown-shortcuts-active", true);
     dlog!("[clips-tray] countdown shown");
     Ok(())
 }
@@ -255,6 +260,122 @@ pub async fn hide_finalizing(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(FINALIZING_LABEL) {
         let _ = w.close();
     }
+    Ok(())
+}
+
+/// Full-screen, click-through recording guides. The React view renders the
+/// saved translucent rectangles, while AppKit marks the whole overlay as
+/// non-shareable so the guides stay private to the recorder.
+#[tauri::command]
+pub async fn show_region_guides(app: AppHandle) -> Result<(), String> {
+    let guides = crate::config::feature_config(&app).region_guides;
+    if !guides.enabled || guides.rects.is_empty() {
+        if let Some(existing) = app.get_webview_window(REGION_GUIDES_LABEL) {
+            let _ = existing.close();
+        }
+        return Ok(());
+    }
+
+    if let Some(existing) = app.get_webview_window(REGION_GUIDES_LABEL) {
+        let _ = existing.show();
+        return Ok(());
+    }
+
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    let win = WebviewWindowBuilder::new(
+        &app,
+        REGION_GUIDES_LABEL,
+        build_overlay_url("region-guides"),
+    )
+    .title("Clips Region Guides")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .shadow(false)
+    .visible(false)
+    .focused(false)
+    .build()
+    .map_err(|e| {
+        eprintln!("[clips-tray] region guides build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(0, 0));
+    let _ = win.set_ignore_cursor_events(true);
+    set_capture_excluded_always(&win);
+    crate::util::show_without_activation(&win);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_region_guides(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(REGION_GUIDES_LABEL) {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
+/// Reconcile the always-on region-guides overlay with the current config.
+/// Called from config saves and on startup so the guides window matches the
+/// `always_visible` toggle without needing a recording-flow round trip. When a
+/// recording is active the recording flow owns the `region-guides` window, so
+/// we leave it alone.
+pub fn reconcile_region_guides(app: &AppHandle) {
+    let g = crate::config::feature_config(app).region_guides;
+    if crate::util::is_recording_active(app) {
+        return;
+    }
+    let should_show = g.always_visible && g.enabled && !g.rects.is_empty();
+    if should_show {
+        let a = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = show_region_guides(a).await;
+        });
+    } else if let Some(w) = app.get_webview_window(REGION_GUIDES_LABEL) {
+        let _ = w.close();
+    }
+}
+
+/// Interactive full-screen editor for the region-guide preset. It is also
+/// capture-excluded so opening it during an active recording won't leak the
+/// preset UI into the video.
+#[tauri::command]
+pub async fn show_region_guide_editor(app: AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window(REGION_GUIDE_EDITOR_LABEL) {
+        let _ = existing.close();
+    }
+
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(
+        &app,
+        REGION_GUIDE_EDITOR_LABEL,
+        build_overlay_url("region-guides-editor"),
+    )
+    .title("Edit Clips Region Guides")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .shadow(false)
+    .visible(false)
+    .focused(true);
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.accept_first_mouse(true);
+    }
+    let win = builder.build().map_err(|e| {
+        eprintln!("[clips-tray] region guide editor build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(0, 0));
+    set_capture_excluded_always(&win);
+    let _ = win.show();
+    let _ = win.set_focus();
     Ok(())
 }
 
@@ -401,13 +522,27 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
+        if excluded {
+            set_capture_excluded_always(&window);
+        } else {
+            set_capture_included(&window);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
+    let _ = app.emit("clips:countdown-shortcuts-active", false);
     for label in [
         COUNTDOWN_LABEL,
         TOOLBAR_LABEL,
         BUBBLE_LABEL,
         FINALIZING_LABEL,
         FLOW_BAR_LABEL,
+        REGION_GUIDES_LABEL,
     ] {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
@@ -426,7 +561,17 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
 /// popover-close).
 #[tauri::command]
 pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
-    for label in [COUNTDOWN_LABEL, TOOLBAR_LABEL] {
+    let _ = app.emit("clips:countdown-shortcuts-active", false);
+    // The countdown + toolbar always tear down on recording stop. The region
+    // guides only tear down when they aren't pinned on-screen via the always-on
+    // toggle — otherwise we'd flicker close→reopen right after stop.
+    let g = crate::config::feature_config(&app).region_guides;
+    let keep_region_guides = g.always_visible && g.enabled && !g.rects.is_empty();
+    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, TOOLBAR_LABEL];
+    if !keep_region_guides {
+        labels.push(REGION_GUIDES_LABEL);
+    }
+    for label in labels {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
         }
@@ -548,6 +693,63 @@ pub fn open_macos_privacy_settings(pane: String) -> Result<(), String> {
             .status()
             .map_err(|e| format!("failed to open System Settings: {e}"))?;
         Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn open_local_recording_folder(path: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("local recording folder path is empty".to_string());
+    }
+
+    let folder = PathBuf::from(trimmed);
+    if !folder.exists() {
+        return Err(format!("local recording folder does not exist: {trimmed}"));
+    }
+    if !folder.is_dir() {
+        return Err(format!("local recording path is not a folder: {trimmed}"));
+    }
+
+    open_folder_in_file_manager(&folder)
+}
+
+#[cfg(target_os = "macos")]
+fn open_folder_in_file_manager(folder: &PathBuf) -> Result<(), String> {
+    let status = Command::new("open")
+        .arg(folder)
+        .status()
+        .map_err(|e| format!("failed to open local recording folder: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("open exited with {status}"))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn open_folder_in_file_manager(folder: &PathBuf) -> Result<(), String> {
+    let status = Command::new("explorer")
+        .arg(folder)
+        .status()
+        .map_err(|e| format!("failed to open local recording folder: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("explorer exited with {status}"))
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_folder_in_file_manager(folder: &PathBuf) -> Result<(), String> {
+    let status = Command::new("xdg-open")
+        .arg(folder)
+        .status()
+        .map_err(|e| format!("failed to open local recording folder: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("xdg-open exited with {status}"))
     }
 }
 
@@ -960,6 +1162,7 @@ pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), Str
             *g = active;
         }
     }
+    crate::tray::rebuild_tray_menu(&app);
     Ok(())
 }
 
@@ -974,6 +1177,9 @@ pub async fn reset_state(app: AppHandle) -> Result<(), String> {
         if let Ok(mut g) = state.0.lock() {
             *g = false;
         }
+    }
+    if let Some(w) = app.get_webview_window(REGION_GUIDES_LABEL) {
+        let _ = w.close();
     }
     if let Some(window) = app.get_webview_window("popover") {
         // Restore normal size in case the window was shrunk to a pinhole

@@ -36,7 +36,7 @@ export function ReactionsTray({ onReact, disabled }: ReactionsTrayProps) {
   }
 
   return (
-    <div className="relative flex items-center gap-1 rounded-full border border-border bg-card px-2 py-1 shadow-sm w-fit">
+    <div className="relative flex w-fit max-w-full items-center gap-0.5 rounded-full border border-border bg-card px-1.5 py-1 shadow-sm sm:gap-1 sm:px-2">
       {EMOJIS.map((emoji) => (
         <Tooltip key={emoji}>
           <TooltipTrigger asChild>
@@ -44,7 +44,7 @@ export function ReactionsTray({ onReact, disabled }: ReactionsTrayProps) {
               onClick={() => fire(emoji)}
               disabled={disabled}
               className={cn(
-                "h-9 w-9 rounded-full flex items-center justify-center text-xl",
+                "flex h-8 w-8 items-center justify-center rounded-full text-lg sm:h-9 sm:w-9 sm:text-xl",
                 disabled && "opacity-50 cursor-not-allowed",
               )}
             >

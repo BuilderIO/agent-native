@@ -31,7 +31,7 @@ Anything every app in your org should agree on can live in `packages/shared`:
 
 Each individual app becomes _just a set of screens_ — routes, dashboards, views, domain-specific actions. Framework defaults cover the rest until you add a real workspace customization.
 
-That same boundary applies when your app wants to use another first-party app. A new workspace dashboard that needs email, calendar, and analytics context should use the existing Mail, Calendar, and Analytics apps as connected neighbors over links or A2A. It should not clone those templates, create a wrapper app that nests them, or scaffold child apps inside itself just to get access to their data or agents. For example, the hosted first-party apps already live at [mail.agent-native.com](https://mail.agent-native.com), [calendar.agent-native.com](https://calendar.agent-native.com), and [analytics.agent-native.com](https://analytics.agent-native.com). Fork or scaffold a copy only when you explicitly want to customize that app; otherwise, using the hosted/shared app keeps base template improvements flowing automatically.
+That same boundary applies when your app wants to use another first-party app. A new workspace dashboard that needs email, calendar, analytics, and company-memory context should use the existing Mail, Calendar, Analytics, and Brain apps as connected neighbors over links or A2A. It should not clone those templates, create a wrapper app that nests them, or scaffold child apps inside itself just to get access to their data or agents. For example, the hosted first-party apps already live at [mail.agent-native.com](https://mail.agent-native.com), [calendar.agent-native.com](https://calendar.agent-native.com), [analytics.agent-native.com](https://analytics.agent-native.com), and [brain.agent-native.com](https://brain.agent-native.com). Fork or scaffold a copy only when you explicitly want to customize that app; otherwise, using the hosted/shared app keeps base template improvements flowing automatically.
 
 ## Getting started {#getting-started}
 
@@ -133,6 +133,47 @@ No wiring, no config. Create the file and it takes over.
 Everything cross-cutting you customize lives in `packages/shared/`. Export an `authPlugin` from `src/server/index.ts` and every app picks it up on the next dev reload. Add a skill under `.agents/skills/` and every app's agent sees it. Add an action to `actions/` and every app's agent can call it.
 
 Because the shared package is a `workspace:*` dependency, pnpm symlinks it into each app's `node_modules/`. You never build or publish it — the apps bundle whatever they need from it at build time.
+
+## Runtime global resources {#runtime-global-resources}
+
+Use `packages/shared` for code-level defaults that should ship with the repo: plugins, shared actions, shared React code, filesystem `AGENTS.md`, and filesystem skills. Use Dispatch workspace resources for runtime-editable global context that admins want to manage without a code change.
+
+Dispatch resources support two scopes:
+
+- **All apps** — global resources for every app in the workspace. Dispatch stores them once at workspace scope and every app agent inherits them at runtime; no copy or sync step is required.
+- **Selected apps** — resources granted per app for app-specific context. Use these sparingly; most company, brand, persona, positioning, messaging, and guardrail context should be All apps.
+
+Canonical paths control behavior:
+
+| Runtime resource        | Path                                    | How agents use it                               |
+| ----------------------- | --------------------------------------- | ----------------------------------------------- |
+| Guardrail instructions  | `AGENTS.md` or `instructions/<slug>.md` | Loaded every turn in every app that receives it |
+| Global skills           | `skills/<slug>/SKILL.md`                | Listed as workspace skills and read on demand   |
+| Brand/company resources | `context/<slug>.md`                     | Indexed every turn, read when relevant          |
+| Custom agent profiles   | `agents/<slug>.md`                      | Available as reusable local agent profiles      |
+
+This is the right home for core personas, positioning, messaging, company facts, brand guidelines, support policies, or other shared knowledge that many apps should benefit from.
+
+For a starter workspace, create these Dispatch resources and scope them to **All apps**:
+
+```text
+context/company.md              # company overview, ICP, products, canonical links
+context/brand.md                # brand voice, visual identity, spelling, terms to avoid
+context/messaging.md            # value props, product pillars, proof points, objections
+instructions/guardrails.md      # rules that must be loaded every turn
+skills/company-voice/SKILL.md   # copywriting and review workflow for brand voice
+```
+
+Example `skills/company-voice/SKILL.md`:
+
+```markdown
+---
+name: company-voice
+description: Rewrite or review customer-facing copy using the workspace brand and messaging resources.
+---
+
+Before writing, read `context/brand.md` and `context/messaging.md`. Keep claims grounded in those resources, preserve required terminology, and flag missing proof instead of inventing it.
+```
 
 ## Authentication and RBAC {#auth-and-rbac}
 

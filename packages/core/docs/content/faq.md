@@ -62,6 +62,7 @@ The framework ships with production-ready templates you can use as daily drivers
 
 - **[Calendar](/templates/calendar)** — Google Calendar + Calendly-style booking links
 - **[Content](/templates/content)** — Notion-style documents
+- **[Brain](/templates/brain)** — full-page company chat, cited memory, sources, and review queue
 - **[Slides](/templates/slides)** — presentation builder
 - **[Analytics](/templates/analytics)** — data platform (like Amplitude/Mixpanel)
 - **[Mail](/templates/mail)** — full-featured email client (like Superhuman)
@@ -120,9 +121,9 @@ Anywhere. The server runs on Nitro, which compiles to any deployment target: Nod
 
 ## Architecture {#architecture}
 
-### Why polling instead of WebSockets? {#why-polling-not-websockets}
+### Why SSE plus polling instead of WebSockets? {#why-polling-not-websockets}
 
-Polling works in every deployment environment — including serverless, edge, and container platforms where persistent connections aren't available. The framework polls every 2 seconds using a lightweight version counter. When changes are detected, React Query caches are invalidated and components re-render. It's simple, reliable, and universal.
+SSE gives same-process writes an immediate path to the browser without requiring a bidirectional socket server. Polling remains the fallback because it works in every deployment environment — including serverless, edge, and container platforms where persistent connections may not be available. The fallback uses a lightweight version counter; when changes are detected, React Query caches are invalidated and components re-render.
 
 ### Why can't the UI call an LLM directly? {#why-no-inline-llm-calls}
 

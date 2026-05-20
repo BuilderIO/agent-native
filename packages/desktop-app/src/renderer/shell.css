@@ -1,11 +1,8 @@
-/* ─── Reset ─────────────────────────────────────────────────── */
-*,
-*::before,
-*::after {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+
+@source "./**/*.{ts,tsx}";
+@source "../../../code-agents-ui/src/**/*.{ts,tsx}";
 
 /* ─── Design tokens ──────────────────────────────────────────── */
 :root {
@@ -234,6 +231,15 @@ body {
   color: var(--tab-active-text);
 }
 
+.tabbar--shell {
+  overflow: hidden;
+}
+
+.tab--locked {
+  cursor: default;
+  -webkit-app-region: drag;
+}
+
 /* ─── Sidebar ────────────────────────────────────────────────── */
 .sidebar {
   width: var(--sidebar-width);
@@ -334,6 +340,37 @@ body {
   color: var(--icon-active);
 }
 
+.sidebar-agent-native-icon {
+  width: 21px;
+  height: auto;
+  display: block;
+  opacity: 0.55;
+  transition:
+    opacity var(--ease),
+    filter var(--ease);
+}
+
+.sidebar-item:hover .sidebar-agent-native-icon,
+.sidebar-item.sidebar-item--active .sidebar-agent-native-icon {
+  opacity: 1;
+}
+
+.sidebar-item--add {
+  margin-top: 4px;
+}
+
+/* Same size and resting color as its siblings — the only distinction
+   is a faint dashed outline that reads as "action, not destination". */
+.sidebar-item--add .icon-wrapper {
+  border: 1px dashed rgba(255, 255, 255, 0.13);
+}
+
+.sidebar-item--add:hover .icon-wrapper {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: var(--item-hover-bg);
+  color: var(--icon-hover);
+}
+
 /* ─── Item label ─────────────────────────────────────────────── */
 .item-label {
   font-size: 9px;
@@ -342,6 +379,13 @@ body {
   color: var(--label-inactive);
   line-height: 1;
   transition: color var(--ease);
+}
+
+.item-label--two-line {
+  max-width: 46px;
+  line-height: 1.05;
+  text-align: center;
+  white-space: normal;
 }
 
 .sidebar-item:hover .item-label {
@@ -402,6 +446,33 @@ body {
   min-width: 0;
 }
 
+.code-agents-shell-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  min-width: 0;
+  min-height: 0;
+  background: var(--shell-bg);
+  isolation: isolate;
+  transform: translate3d(0, 0, 0);
+}
+
+.code-agents-embedded-app-surface {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--shell-bg);
+}
+
+.code-agents-embedded-app-surface .webview-slot {
+  inset: 0;
+  z-index: 0;
+  transform: translate3d(0, 0, 0);
+}
+
 /* ─── Webview slot ───────────────────────────────────────────── */
 /* Each slot is absolutely positioned so tabs stack on top of each
    other. Electron <webview> is a native guest surface on macOS, and
@@ -424,6 +495,13 @@ body {
 }
 
 .webview-slot--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-200vw, 0, 0);
+}
+
+.content-area--code-agents .webview-slot {
+  z-index: 0;
   opacity: 0;
   pointer-events: none;
   transform: translate3d(-200vw, 0, 0);
@@ -931,6 +1009,479 @@ body {
   color: #777;
 }
 
+.settings-provider-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-provider-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-provider-card-header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-builder-connect-card,
+.settings-builder-actions,
+.settings-provider-actions,
+.settings-provider-advanced-toggle,
+.settings-provider-picker,
+.settings-provider-key-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-builder-connect-card {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.settings-builder-connect-card--ok {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-builder-connect-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-builder-title {
+  color: #f5f5f5;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-builder-description {
+  color: #858585;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.settings-builder-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.settings-builder-connect-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: #f4f4f5;
+  color: #09090b;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  min-height: 31px;
+  padding: 0 11px;
+  transition:
+    opacity var(--ease),
+    transform var(--ease);
+}
+
+.settings-builder-connect-button:hover {
+  opacity: 0.9;
+}
+
+.settings-builder-connect-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.settings-builder-connect-button svg {
+  flex: 0 0 auto;
+}
+
+.settings-builder-connect-spinner {
+  animation: spin 0.8s linear infinite;
+}
+
+.settings-provider-text-button,
+.settings-provider-advanced-toggle {
+  border: 0;
+  background: transparent;
+  color: #7f7f7f;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.settings-provider-text-button:hover,
+.settings-provider-advanced-toggle:hover {
+  color: #d4d4d4;
+}
+
+.settings-provider-advanced-toggle {
+  justify-self: flex-start;
+  padding: 2px 0;
+}
+
+.settings-provider-key-panel {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-provider-picker {
+  flex-wrap: wrap;
+}
+
+.settings-provider-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #858585;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.settings-provider-pill:hover {
+  color: #d4d4d4;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.settings-provider-pill--active {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.09);
+  color: #f5f5f5;
+}
+
+.settings-provider-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+
+.settings-provider-key-summary {
+  color: #858585;
+  font-size: 11px;
+}
+
+.settings-provider-form {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-provider-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #888;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.settings-provider-form input[type="password"] {
+  min-width: 0;
+  height: 34px;
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  padding: 0 10px;
+  color: #fff;
+  font-size: 12px;
+  outline: none;
+}
+
+.settings-provider-form input[type="password"]:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.settings-provider-actions {
+  justify-content: flex-end;
+}
+
+.settings-provider-actions .settings-btn {
+  width: auto;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+.settings-provider-message {
+  color: #888;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.settings-update-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-update-card--ready {
+  border-color: rgba(34, 197, 94, 0.22);
+  background: rgba(34, 197, 94, 0.055);
+}
+
+.settings-update-card--error {
+  border-color: rgba(239, 68, 68, 0.18);
+}
+
+.settings-update-row,
+.settings-update-title,
+.settings-update-actions {
+  display: flex;
+  align-items: center;
+}
+
+.settings-update-row {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-update-title {
+  min-width: 0;
+  gap: 9px;
+}
+
+.settings-update-title > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-update-actions {
+  flex: 0 0 auto;
+}
+
+.settings-update-btn {
+  width: auto;
+  min-width: 86px;
+  height: 32px;
+  margin-bottom: 0;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.settings-update-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #555;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.035);
+}
+
+.settings-update-dot--ok,
+.settings-update-dot--ready {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.settings-update-dot--pending {
+  background: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.settings-update-dot--offline {
+  background: #6b7280;
+}
+
+.settings-update-dot--error {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+.settings-update-progress {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.settings-update-progress span {
+  display: block;
+  height: 100%;
+  min-width: 8px;
+  border-radius: inherit;
+  background: #60a5fa;
+  transition: width var(--ease);
+}
+
+.settings-update-message {
+  color: #fca5a5;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.settings-update-spin {
+  animation: spin 0.8s linear infinite;
+}
+
+.settings-remote-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-remote-row,
+.settings-remote-title,
+.settings-remote-meta {
+  display: flex;
+  align-items: center;
+}
+
+.settings-remote-row {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-remote-title {
+  min-width: 0;
+  gap: 9px;
+}
+
+.settings-remote-title > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-remote-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #555;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.035);
+}
+
+.settings-remote-dot--ok {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.settings-remote-dot--pending {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+
+.settings-remote-dot--offline {
+  background: #6b7280;
+}
+
+.settings-remote-dot--error {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+.settings-remote-meta {
+  flex-wrap: wrap;
+  gap: 6px;
+  color: #5f5f5f;
+  font-size: 10.5px;
+}
+
+.settings-remote-meta span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-remote-message {
+  color: #a3a3a3;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-remote-card--error .settings-remote-message {
+  color: #fca5a5;
+}
+
+.settings-remote-link {
+  justify-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #7f7f7f;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.settings-remote-link:hover {
+  color: #d4d4d4;
+}
+
+.settings-remote-pairing {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-remote-pairing input[type="url"] {
+  min-width: 0;
+  height: 34px;
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  padding: 0 10px;
+  color: #fff;
+  font-size: 12px;
+  outline: none;
+}
+
+.settings-remote-pairing input[type="url"]:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.settings-remote-pairing .settings-btn {
+  width: auto;
+  height: 34px;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+.settings-remote-pairing .settings-field-hint {
+  grid-column: 1 / -1;
+}
+
 /* Disclosure button */
 .settings-disclosure {
   display: flex;
@@ -1047,6 +1598,11 @@ body {
   color: #ccc;
 }
 
+.settings-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 /* ─── Settings form overlay ──────────────────────────────────── */
 .settings-form-overlay {
   position: fixed;
@@ -1074,6 +1630,23 @@ body {
   margin-bottom: 16px;
 }
 
+.settings-form-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.settings-form-header h3 {
+  margin-bottom: 0;
+}
+
+.settings-form-subtitle {
+  color: #777;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .settings-form label {
   display: flex;
   flex-direction: column;
@@ -1087,7 +1660,8 @@ body {
 }
 
 .settings-form input[type="text"],
-.settings-form input[type="url"] {
+.settings-form input[type="url"],
+.settings-form input[type="password"] {
   background: #111;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
@@ -1099,8 +1673,186 @@ body {
 }
 
 .settings-form input[type="text"]:focus,
-.settings-form input[type="url"]:focus {
+.settings-form input[type="url"]:focus,
+.settings-form input[type="password"]:focus {
   border-color: rgba(59, 130, 246, 0.5);
+}
+
+.settings-add-form {
+  width: 440px;
+}
+
+.settings-choice-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.settings-choice-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 62px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background var(--ease),
+    border-color var(--ease),
+    color var(--ease);
+}
+
+.settings-choice-btn:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.settings-choice-btn--active {
+  border-color: rgba(59, 130, 246, 0.42);
+  background: rgba(59, 130, 246, 0.14);
+  color: #fff;
+}
+
+.settings-choice-btn span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-choice-btn strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-choice-btn small {
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 11px;
+}
+
+.settings-folder-picker {
+  margin-bottom: 12px;
+}
+
+.settings-folder-picker__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: #888;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.settings-folder-picker__label small {
+  color: rgba(59, 130, 246, 0.8);
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.settings-folder-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: #111;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background var(--ease),
+    border-color var(--ease),
+    color var(--ease);
+}
+
+.settings-folder-btn:hover:not(:disabled) {
+  border-color: rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.08);
+  color: #fff;
+}
+
+.settings-folder-btn--selected {
+  border-color: rgba(59, 130, 246, 0.28);
+  background: rgba(59, 130, 246, 0.09);
+}
+
+.settings-folder-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.settings-folder-btn > span {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-folder-btn strong,
+.settings-folder-btn small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-folder-btn strong {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-folder-btn small {
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.settings-folder-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 7px;
+  color: #888;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settings-folder-message--error {
+  color: #f87171;
+}
+
+.settings-spinner {
+  flex: 0 0 auto;
+  animation: settings-spin 0.8s linear infinite;
+}
+
+@keyframes settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.settings-field-hint {
+  color: #666;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.45;
+  text-transform: none;
 }
 
 .settings-form-actions {
@@ -1108,6 +1860,11 @@ body {
   gap: 8px;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.settings-form-actions .settings-btn {
+  width: auto;
+  margin-bottom: 0;
 }
 
 /* ─── Update indicator (sidebar pill) ─────────────────────────── */

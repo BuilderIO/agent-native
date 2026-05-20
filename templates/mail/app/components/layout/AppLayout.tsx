@@ -69,8 +69,15 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { normalizeMailLabel } from "@shared/gmail-labels";
+import {
+  qualifiesForInboxTab,
+  pinnedTriageLabels,
+  augmentSelfSentLabels,
+} from "@/lib/inbox-tabs";
 
 const BARE_ROUTES = new Set(["/email"]);
+const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
 
 /**
  * Routes that render the slim "standard layout" chrome instead of the full
@@ -168,6 +175,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
   const activeLabel = searchParams.get("label");
+  const composeInitialExpanded =
+    searchParams.get(COMPOSE_FULLSCREEN_PARAM) === "1";
+  const clearComposeInitialExpanded = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    if (!next.has(COMPOSE_FULLSCREEN_PARAM)) return;
+    next.delete(COMPOSE_FULLSCREEN_PARAM);
+    const search = next.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: search ? `?${search}` : "",
+      },
+      { replace: true },
+    );
+  }, [location.pathname, navigate, searchParams]);
   // Remember which view (and label tab) the user was in before searching —
   // SearchBar always routes searches through /inbox?q=..., so on clear we'd
   // otherwise drop a user searching from Starred/Sent/Archive or from a
@@ -265,19 +287,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         (label) => (label.totalCount ?? 0) > 0 || (label.unreadCount ?? 0) > 0,
       ));
   // Augment emails: self-sent → "important" (or "note-to-self" if pinned)
-  const inboxEmails = useMemo(() => {
-    if (!isGoogleConnected) return rawInboxEmails;
-    return rawInboxEmails.map((e) => {
-      const isSelfSent = connectedEmails.has(e.from.email.toLowerCase());
-      if (!isSelfSent) return e;
-      const virtualLabel = hasNoteToSelf ? "note-to-self" : "important";
-      if (e.labelIds.includes(virtualLabel)) return e;
-      let labelIds = [...e.labelIds];
-      if (hasNoteToSelf) labelIds = labelIds.filter((l) => l !== "important");
-      if (!labelIds.includes(virtualLabel)) labelIds.push(virtualLabel);
-      return { ...e, labelIds };
-    });
-  }, [rawInboxEmails, isGoogleConnected, connectedEmails, hasNoteToSelf]);
+  const inboxEmails = useMemo(
+    () =>
+      augmentSelfSentLabels(rawInboxEmails, {
+        isGoogleConnected,
+        connectedEmails,
+        hasNoteToSelf,
+      }),
+    [rawInboxEmails, isGoogleConnected, connectedEmails, hasNoteToSelf],
+  );
   const tabsLoading =
     labelsLoading || settingsLoading || emailsLoading || allLocalEmailsLoading;
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -301,23 +319,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     side: "left" | "right";
   } | null>(null);
 
-  // Compute unread thread counts for virtual labels and local/demo mail. Gmail
-  // system/user labels use server-provided unread counts when available.
-  const labelCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    const pinnedShorts = pinnedLabels.map((l) =>
-      l.includes("/")
-        ? l
-            .slice(l.lastIndexOf("/") + 1)
-            .replace(/_/g, " ")
-            .toLowerCase()
-        : l.toLowerCase(),
-    );
-    // Full normalized path (underscores -> spaces, lowercased) — matches the
-    // shape Gmail email labelIds end up in (see google-auth.ts mapping).
-    const pinnedFullNorms = pinnedLabels.map((l) =>
-      l.replace(/_/g, " ").toLowerCase(),
-    );
+  // Compute local thread counts for virtual labels and local/demo mail. Gmail
+  // system/user labels use server-provided counts when available.
+  const labelThreadCounts = useMemo(() => {
+    const unread: Record<string, number> = {};
+    const total: Record<string, number> = {};
     // Filter emails by active accounts before counting
     const filtered =
       activeAccounts.size > 0
@@ -343,58 +349,43 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       }
     }
     const threadRows = [...threadState.values()];
-    const hasPinnedFilters = pinnedLabels.some(
-      (id) => !collapsibleViews.some((v) => v.id === id),
+    const triageLabels = pinnedTriageLabels(pinnedLabels);
+    // "Other" = the inbox remainder. Shared with the rendered list
+    // (InboxPage) via qualifiesForInboxTab so a tab's badge can never
+    // disagree with the emails it actually shows.
+    const inboxRows = threadRows.filter(({ latest }) =>
+      qualifiesForInboxTab(latest.labelIds, null, triageLabels),
     );
-    counts["__inboxTotal"] = threadRows.filter(
+    total["__inboxTotal"] = threadRows.length;
+    unread["__inboxTotal"] = threadRows.filter(
       ({ hasUnread }) => hasUnread,
     ).length;
-    counts["inbox"] = threadRows.filter(
-      ({ latest, hasUnread }) =>
-        hasUnread &&
-        (!hasPinnedFilters ||
-          !latest.labelIds.some((lid) => pinnedShorts.includes(lid))),
-    ).length;
-    // Count threads per pinned label: latest message must have that label
-    // For "important", exclude threads that belong to any other pinned tab
+    total["inbox"] = inboxRows.length;
+    unread["inbox"] = inboxRows.filter(({ hasUnread }) => hasUnread).length;
+    // Count threads per pinned label using the exact same membership rule as
+    // the rendered list: latest message has the label; "important" is
+    // exclusive of any other pinned tab.
     for (let i = 0; i < pinnedLabels.length; i++) {
-      const short = pinnedShorts[i];
       const full = pinnedLabels[i];
-      const fullNorm = pinnedFullNorms[i];
-      const hasLabel = (e: (typeof filtered)[0]) =>
-        e.labelIds.some(
-          (lid) => lid === short || lid === full || lid === fullNorm,
-        );
-      let value: number;
-      if (full === "important") {
-        const otherShorts = pinnedShorts.filter((_, j) => j !== i);
-        const otherFullNorms = pinnedFullNorms.filter((_, j) => j !== i);
-        value = threadRows.filter(
-          ({ latest, hasUnread }) =>
-            hasUnread &&
-            hasLabel(latest) &&
-            !latest.labelIds.some(
-              (lid) =>
-                otherShorts.includes(lid) || otherFullNorms.includes(lid),
-            ),
-        ).length;
-      } else {
-        value = threadRows.filter(
-          ({ latest, hasUnread }) => hasUnread && hasLabel(latest),
-        ).length;
-      }
-      counts[full] = value;
+      const rows = threadRows.filter(({ latest }) =>
+        qualifiesForInboxTab(latest.labelIds, full, triageLabels),
+      );
+      total[full] = rows.length;
+      unread[full] = rows.filter(({ hasUnread }) => hasUnread).length;
       // Also index by the canonical label.id (which uses spaces, not
-      // underscores) so getTotalCount(tab.id) finds it for nested labels.
+      // underscores) so count lookups find it for nested labels.
       const canonical = labels.find(
         (l) =>
           l.id === full ||
-          l.id === fullNorm ||
+          l.id === normalizeMailLabel(full) ||
           l.name.toLowerCase() === full.toLowerCase(),
       );
-      if (canonical) counts[canonical.id] = value;
+      if (canonical) {
+        total[canonical.id] = total[full];
+        unread[canonical.id] = unread[full];
+      }
     }
-    return counts;
+    return { total, unread };
   }, [inboxEmails, pinnedLabels, activeAccounts, labels]);
 
   // Tabs to show in the bar: pinned triage filters first, then the inbox
@@ -839,67 +830,74 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const useServerLabelCounts = activeAccounts.size === 0;
 
-  // Take the larger of the server-reported unread count and the count we
-  // compute locally from loaded inbox emails. Either side can be stale (Gmail
-  // threadsUnread sometimes lags; loaded emails may be a partial window) — max
-  // keeps the badge visible whenever either source has unread to report.
-  const getPinnedFilterCount = (id: string) => {
-    const label = resolveLabelForCount(id);
-    const countId = label?.id ?? id;
-    const serverCount =
-      useServerLabelCounts && countId !== "note-to-self"
-        ? (label?.unreadCount ?? 0)
-        : 0;
-    const localCount = labelCounts[countId] ?? labelCounts[id] ?? 0;
-    return Math.max(serverCount, localCount);
-  };
+  type CountKind = "unread" | "total";
+  const countFieldForKind = (kind: CountKind) =>
+    kind === "total" ? "totalCount" : "unreadCount";
+  const localCountsForKind = (kind: CountKind) =>
+    kind === "total" ? labelThreadCounts.total : labelThreadCounts.unread;
 
-  const getInboxCount = () => {
+  // Take the larger of the server-reported count and the count we compute
+  // locally from loaded inbox emails. Either side can be stale (Gmail label
+  // totals can lag; loaded emails may be a partial window).
+  const getInboxCount = (kind: CountKind) => {
     const inboxLabel = resolveLabelForCount("inbox");
+    const countField = countFieldForKind(kind);
+    const localCounts = localCountsForKind(kind);
     const serverCount = useServerLabelCounts
-      ? (inboxLabel?.unreadCount ?? 0)
+      ? (inboxLabel?.[countField] ?? 0)
       : 0;
-    const localCount = labelCounts["inbox"] ?? 0;
+    const localCount = localCounts["inbox"] ?? 0;
     return Math.max(serverCount, localCount);
   };
 
-  const getOtherCount = () => {
-    if (!hasPinnedFilters) return getInboxCount();
-    const localCount = labelCounts["inbox"] ?? 0;
-    let serverRemainder = 0;
-    if (useServerLabelCounts) {
-      const inboxLabel = resolveLabelForCount("inbox");
-      if (inboxLabel?.unreadCount !== undefined) {
-        const pinnedUnreadCount = pinnedLabels.reduce((total, id) => {
-          if (collapsibleViews.some((view) => view.id === id)) return total;
-          const label = resolveLabelForCount(id);
-          const countId = label?.id ?? id;
-          if (countId === "note-to-self") return total;
-          return total + (label?.unreadCount ?? 0);
-        }, 0);
-        serverRemainder = Math.max(
-          0,
-          inboxLabel.unreadCount - pinnedUnreadCount,
-        );
-      }
-    }
-    return Math.max(serverRemainder, localCount);
+  const isExclusivePinnedTab = (viewId: string) => {
+    if (!hasPinnedFilters) return false;
+    // Pinned label rows (the ones that contribute to the "Other" remainder)
+    // are exclusive: each inbox thread is counted in exactly one tab. Gmail's
+    // server label counts don't have that exclusivity (e.g. server "important"
+    // returns *all* important threads, regardless of whether they're also
+    // categorized elsewhere), so we can't mix the two — use local only.
+    return pinnedLabels.some((id) => {
+      if (collapsibleViews.some((view) => view.id === id)) return false;
+      const label = resolveLabelForCount(id);
+      return (label?.id ?? id) === viewId || id === viewId;
+    });
   };
 
-  // Get unread counts for tabs
-  const getTotalCount = (viewId: string) => {
-    if (viewId === "inbox") return getOtherCount();
+  const getOtherCount = (kind: CountKind) => {
+    if (!hasPinnedFilters) return getInboxCount(kind);
+    const localCounts = localCountsForKind(kind);
+    // Don't subtract pinned-label server counts from inbox server count:
+    // Gmail's label totals include archived/sent/trash threads outside the
+    // inbox, so the subtraction can drop "Other" to zero or undercount. The
+    // local count (computed from loaded inbox emails, filtered by pinned-tab
+    // membership) is the authoritative "Other" number.
+    return localCounts["inbox"] ?? 0;
+  };
+
+  const getTabCount = (viewId: string, kind: CountKind) => {
+    if (viewId === "inbox") return getOtherCount(kind);
     const label = resolveLabelForCount(viewId);
+    const countField = countFieldForKind(kind);
+    const localCounts = localCountsForKind(kind);
+    const localCount =
+      localCounts[viewId] ?? (label ? (localCounts[label.id] ?? 0) : 0);
+    // Exclusive pinned tabs (when hasPinnedFilters is on, a thread belongs to
+    // exactly one tab) can't fall back to Gmail's non-exclusive server count
+    // — that would over-report the badge relative to what the tab renders.
+    if (isExclusivePinnedTab(viewId)) return localCount;
     const serverCount =
       useServerLabelCounts && viewId !== "note-to-self"
-        ? (label?.unreadCount ?? 0)
+        ? (label?.[countField] ?? 0)
         : 0;
-    const localCount =
-      labelCounts[viewId] ?? (label ? (labelCounts[label.id] ?? 0) : 0);
     return Math.max(serverCount, localCount);
   };
+  const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
+  const getUnreadCount = (viewId: string) => getTabCount(viewId, "unread");
   const inboxSidebarUnreadCount =
-    labelCounts["__inboxTotal"] ?? labelCounts["inbox"] ?? 0;
+    labelThreadCounts.unread["__inboxTotal"] ??
+    labelThreadCounts.unread["inbox"] ??
+    0;
 
   const accountFilterValue = useMemo(
     () => ({ activeAccounts, allAccounts: accounts }),
@@ -944,7 +942,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     (item) => item.id === tab.id,
                   );
                   const tabIndex = visibleIndex >= 0 ? visibleIndex : idx;
-                  const count = getTotalCount(tab.id);
+                  const count = getTopBarCount(tab.id);
                   const isDragging = dragPinnedId === tab.pinnedId;
                   const canDrag =
                     !!tab.pinnedId && tab.pinnedId !== "important";
@@ -1429,7 +1427,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         {visibleTabs
                           .filter((t) => t.id !== "inbox" && t.type === "label")
                           .map((tab) => {
-                            const count = getTotalCount(tab.id);
+                            const count = getUnreadCount(tab.id);
                             const depth = labelDepth(
                               tab.fullLabel ?? tab.label,
                             );
@@ -1549,6 +1547,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             drafts={popoutDrafts}
             activeId={popoutActiveId}
             activeDraft={popoutActiveDraft}
+            initialExpanded={composeInitialExpanded}
             onSetActiveId={compose.setActiveId}
             onUpdate={compose.update}
             onClose={(id) => {
@@ -1625,6 +1624,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             onNewDraft={handleCompose}
             onFlush={compose.flush}
             onReopen={compose.open}
+            onInitialExpandedConsumed={clearComposeInitialExpanded}
           />
         );
       })()}

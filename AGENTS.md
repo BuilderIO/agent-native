@@ -68,36 +68,38 @@ actions/               # App operations (agent tools + auto-mounted HTTP endpoin
 
 Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant skill before making changes — these are the source of truth for how to do things in this codebase.
 
-| Skill                  | When to use                                                   |
-| ---------------------- | ------------------------------------------------------------- |
-| `address-feedback`     | Triage feedback docs into bugs to fix and UX proposals        |
-| `adding-a-feature`     | Adding any new feature (the four-area checklist)              |
-| `actions`              | Creating or running agent actions                             |
-| `storing-data`         | Adding data models, reading/writing config or state           |
-| `real-time-sync`       | Wiring polling sync, debugging UI not updating, jitter issues |
-| `real-time-collab`     | Multi-user collaborative editing with Yjs CRDT + live cursors |
-| `context-awareness`    | Exposing UI state to the agent, view-screen pattern           |
-| `client-side-routing`  | Adding routes without remounting the app shell                |
-| `delegate-to-agent`    | Delegating AI work from UI or actions to the agent            |
-| `self-modifying-code`  | Editing app source, components, or styles                     |
-| `portability`          | Keeping code database- and hosting-agnostic                   |
-| `server-plugins`       | Framework plugins and the `/_agent-native/` namespace         |
-| `authentication`       | Auth modes, sessions, orgs, protecting routes                 |
-| `security`             | Input validation, SQL injection, XSS, secrets, data scoping   |
-| `a2a-protocol`         | Enabling inter-agent communication                            |
-| `recurring-jobs`       | Scheduled tasks the agent runs on a cron schedule             |
-| `onboarding`           | Registering setup steps for API keys / OAuth                  |
-| `secrets`              | Declaratively register API keys the template needs            |
-| `automations`          | Event-triggered and schedule-triggered automations            |
-| `integration-webhooks` | Cross-platform webhook → SQL queue → processor pattern        |
-| `observability`        | Agent traces, evals, feedback, experiments, and dashboard     |
-| `tracking`             | Server-side analytics with pluggable providers                |
-| `sharing`              | Per-user / per-org sharing and access checks on resources     |
-| `voice-transcription`  | Voice dictation in the agent composer (Whisper / browser)     |
-| `frontend-design`      | Building or styling any web UI, components, or pages          |
-| `create-skill`         | Adding new skills for the agent                               |
-| `extensions`           | Creating, editing, and managing sandboxed mini-app extensions |
-| `capture-learnings`    | Recording corrections and patterns                            |
+| Skill                  | When to use                                                     |
+| ---------------------- | --------------------------------------------------------------- |
+| `address-feedback`     | Triage feedback docs into bugs to fix and UX proposals          |
+| `adding-a-feature`     | Adding any new feature (the four-area checklist)                |
+| `actions`              | Creating or running agent actions                               |
+| `storing-data`         | Adding data models, reading/writing config or state             |
+| `real-time-sync`       | Wiring polling sync, debugging UI not updating, jitter issues   |
+| `real-time-collab`     | Multi-user collaborative editing with Yjs CRDT + live cursors   |
+| `context-awareness`    | Exposing UI state to the agent, view-screen pattern             |
+| `client-side-routing`  | Adding routes without remounting the app shell                  |
+| `delegate-to-agent`    | Delegating AI work from UI or actions to the agent              |
+| `self-modifying-code`  | Editing app source, components, or styles                       |
+| `portability`          | Keeping code database- and hosting-agnostic                     |
+| `server-plugins`       | Framework plugins and the `/_agent-native/` namespace           |
+| `authentication`       | Auth modes, sessions, orgs, protecting routes                   |
+| `security`             | Input validation, SQL injection, XSS, secrets, data scoping     |
+| `a2a-protocol`         | Enabling inter-agent communication                              |
+| `external-agents`      | Connecting Claude Code/Cowork/Codex; deep links; `link` builder |
+| `recurring-jobs`       | Scheduled tasks the agent runs on a cron schedule               |
+| `onboarding`           | Registering setup steps for API keys / OAuth                    |
+| `secrets`              | Declaratively register API keys the template needs              |
+| `automations`          | Event-triggered and schedule-triggered automations              |
+| `integration-webhooks` | Cross-platform webhook → SQL queue → processor pattern          |
+| `observability`        | Agent traces, evals, feedback, experiments, and dashboard       |
+| `tracking`             | Server-side analytics with pluggable providers                  |
+| `sharing`              | Per-user / per-org sharing and access checks on resources       |
+| `voice-transcription`  | Voice dictation in the agent composer (Whisper / browser)       |
+| `frontend-design`      | Building or styling any web UI, components, or pages            |
+| `shadcn-ui`            | shadcn/ui components, CLI, composition, theming, and registries |
+| `create-skill`         | Adding new skills for the agent                                 |
+| `extensions`           | Creating, editing, and managing sandboxed mini-app extensions   |
+| `capture-learnings`    | Recording corrections and patterns                              |
 
 ## All-Agent Support
 
@@ -133,15 +135,36 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
 
 - **Actions first** — use `defineAction` for new operations; only create `/api/` routes for file uploads, streaming, webhooks, or OAuth callbacks.
 - **Integration webhooks (Slack/Telegram/etc.) use the queue pattern.** The webhook handler verifies and enqueues to `integration_pending_tasks`, returns 200 immediately, then a self-fired `POST /_agent-native/integrations/_process-task` runs the agent loop in a fresh function execution. A 60s recurring job retries stuck tasks. This works on every serverless host — never use Netlify Background Functions, Cloudflare `waitUntil`, Vercel `after()`, or fire-and-forget promises after `return`. See `integration-webhooks` skill.
+- **Reusable workspace integrations are a framework primitive.** Shared provider connections own provider identity, non-secret account metadata, credential ref names, per-app grants, and readiness summaries. Dispatch is the usual control plane for connecting, repairing, auditing, and granting them, and for distributing/approving shared workspace resources; the vault/secrets layer owns actual values. Domain apps still own app-specific source config, provider readers, cursors, and interpretation: Brain owns ingestion/distillation/review/search/citations, while Analytics owns data-source choice, metric definitions, dashboards, and analyses. Do not copy provider tokens into each app when a workspace connection can be granted instead, and do not claim workspace connections make OAuth flows or provider data readers universal unless that shared runtime exists.
+- **Workspace apps are internal by default, with route-level public/private overrides.** In an app's `package.json`, use `"agent-native": { "workspaceApp": { "audience": "public", "protectedPaths": ["/admin"] } }` for a public site with login-only management pages, or keep the default internal audience and add `"publicPaths": ["/", "/share"]` for selected public pages. These knobs only affect read-only page navigation. `/_agent-native/*` and `/api/*` stay authenticated unless the app explicitly lists public routes in `createAuthPlugin({ publicPaths: [...] })`. Use auth plugin `publicPaths` only for public form submissions, booking APIs, webhooks, embeds, and other intentional public endpoints.
 - **TypeScript everywhere** — all code must be `.ts`/`.tsx`. Never `.js` or `.mjs`.
 - **Prettier** — run `npx prettier --write <files>` after modifying source files.
 - **SSR for public pages, CSR for logged-in pages.** Any page a visitor can see without logging in — homepages, landing pages, docs, marketing, pricing — must server-side render so crawlers get real HTML. Logged-in app pages use client-side rendering via the `ClientOnly` wrapper in `root.tsx` to keep things simple. Never wrap public/SEO-critical content in `ClientOnly`. If a client-only component (e.g. `AgentSidebar`) needs to appear on a public page, render the page content directly and add the component as a client-only progressive enhancement (render children on server, mount the wrapper after hydration).
 - **Always use shadcn/ui components for standard UI** — `app/components/ui/` (templates) or `packages/core/src/client/components/ui/` (framework). Available primitives include `Button`, `Dialog`, `AlertDialog`, `Popover`, `DropdownMenu`, `Tooltip`, `Sheet`, `Tabs`, `Select`, `Collapsible`, `Accordion`, `HoverCard`, `Command`, etc. **Never build a custom dropdown / menu / popover with `position: absolute` + a manual click-outside `useEffect`** — those get clipped by ancestor `overflow-hidden` / stacking contexts (no `z-index` will save them) and lack the keyboard nav, focus trap, and animations users expect. Use `<DropdownMenu>` for action menus (Rename / Delete / "⋯" overflow), `<Popover>` for transient panels (color pickers, share dialogs, filters), `<Dialog>` for modals, `<AlertDialog>` for confirmations. If a needed shadcn primitive is missing in a package, install it via `npx shadcn@latest add <name>` (templates) or copy from another template + add the matching `@radix-ui/react-*` dep (framework packages) — don't roll your own.
 - **Tabler Icons** (`@tabler/icons-react`) for all icons. **Never use emojis as icons** — not in buttons, not in avatars, not in labels, not in toasts/notifications, not in outbound messages (Slack, email). No other icon libraries, no inline SVGs. Avoid sparkle and wand icons in first-party UI; they are overused. For chat / agent affordances, use a message-style icon instead. Emojis are fine when they are _user-authored content_ (a document title emoji picker, a reaction the user chose, a user-picked space icon) — the rule is about icons the UI picks, not data the user picks.
 - **No browser dialogs** — use shadcn AlertDialog instead of `window.confirm/alert/prompt`.
+- **Agent input surfaces use the shared composer.** Every UI that accepts a prompt
+  for an agent must reuse the framework composer stack:
+  `AgentComposerFrame`, `PromptComposer`, and `TiptapComposer`. Do not build a
+  one-off textarea/chatfield, upload picker, voice control, model/mode picker,
+  slash-command parser, or Enter-to-submit behavior. Host-specific UIs such as
+  Agent-Native Code may add narrow slots around the shared composer — for
+  example Auto/Plan controls or cwd/project metadata — but the input field,
+  attachment pipeline, references, skills, voice dictation, draft behavior, and
+  keyboard semantics stay shared. Slash commands come from project
+  `.agents/commands` and `.agents/skills`; do not hardcode a separate command
+  registry in a prompt surface.
+- **Background agents reuse the shared run harness.** Hosted/background agent work
+  must go through the core `run-manager` / `agent-teams` infrastructure so runs
+  share SQL persistence, streaming, aborts, heartbeats, resume, and stuck-run
+  behavior. Agent-Native Code is the local long-running exception today; new
+  Code-adjacent surfaces should use the `@agent-native/core/code-agents`
+  background-run adapter/foundation to bridge those local sessions instead of
+  inventing another runner. Do not introduce a second background-agent harness
+  for a new UI.
 - **Template UX stays clean, minimal, and intuitive** — this is a high priority across all templates. Treat every important screen as a focused working surface, not a place to accumulate fixes as extra visible controls. When acting on feedback, especially broad prompts like "fix what you agree with," judge each suggestion through visual hierarchy, user intent, and progressive disclosure before changing the UI. Prefer clarifying primary actions, reducing competing elements, tightening layout, and moving secondary or rare actions into menus, sheets, tabs, or advanced sections. Do not solve feedback by adding more buttons, toolbars, badges, panels, helper text, filters, or always-visible options to important screens unless that added surface is genuinely the clearest path for the main workflow. If a fix would make a core screen busier, look for a cleaner interaction model or ask before adding clutter.
 - **Progressive disclosure by default** — UIs should reveal complexity gradually, not dump every option on screen at once. Lead with the primary action and most-used info; hide the rest behind reveals. Concrete patterns: shadcn `Collapsible` / `Accordion` for grouped settings, `Popover` for secondary actions (share, filters, color pickers, "more options"), `DropdownMenu` overflow (`⋯`) for tertiary toolbar items, `Sheet` / side drawer for full-detail editing of a row, `HoverCard` or expand-on-click for card details, "Show advanced" toggles for optional form fields, tabs to split a long surface into focused sections. Anti-patterns we keep regressing into: a settings page that dumps 20 fields in one flat column, a form that shows every optional field upfront, a toolbar where every button has equal visual weight, a card that prints every metadata field instead of summary + expandable details, a dialog the size of the screen because the form has 15 fields, an empty state that scaffolds the full UI instead of one clear CTA. Rule of thumb: if a first-time user wouldn't need it in the first 5 seconds, collapse it. When in doubt, default to hiding — it's much cheaper to expose later than to declutter a busy screen.
-- **Public template list is a strict allow-list — never widen it without flipping `hidden:false` first.** The single source of truth is `packages/shared-app-config/templates.ts` (entries with `hidden: false`). Today the public allow-list is exactly: **calendar, content, slides, videos, clips, analytics, mail, dispatch, forms, design** — plus `starter` for the CLI only. The featured/default set is narrower: **calendar, content, slides, clips, analytics, mail, dispatch, forms, design** — plus `starter` for the CLI/default-app fallback. Videos is scaffoldable by explicit slug, but it is not featured on the homepage, `/templates`, docs sidebar, CLI picker, or desktop/mobile default tabs. Hidden templates (calls, meeting-notes, voice, scheduling, issues, recruiting, images, macros) MUST NOT appear on the homepage, in the docs sidebar, in docs pages, or in the CLI catalog. Surfaces that hardcode their own list — `packages/docs/app/components/TemplateCard.tsx`, `packages/docs/app/components/docsNavItems.ts`, docs pages `packages/core/docs/content/template-*.md`, and the CLI duplicate `packages/core/src/cli/templates-meta.ts` — must only reference allow-listed slugs. To make a hidden template public: flip `hidden: false` in `packages/shared-app-config/templates.ts` AND `packages/core/src/cli/templates-meta.ts`, then add it to the surfaces above. To hide one: flip `hidden: true` in both files; the guard will then point you at every surface that still mentions it. `scripts/guard-template-list.mjs` (CI + `pnpm prep`) enforces this — adding a slug that isn't in the allow-list will fail the build. _This guard exists because agents kept re-adding the hidden templates (calls, meeting-notes, voice, scheduling, issues, recruiting, images, macros) to the homepage and sidebar during overnight sweeps. Do not disable it._
+- **Public template list is a strict allow-list — never widen it without flipping `hidden:false` first.** The single source of truth is `packages/shared-app-config/templates.ts` (entries with `hidden: false`). Today the public allow-list is exactly: **calendar, content, slides, videos, clips, analytics, mail, dispatch, forms, design, brain** — plus `starter` for the CLI only. The featured/default set is narrower: **calendar, content, slides, clips, analytics, mail, dispatch, forms, design, brain** — plus `starter` for the CLI/default-app fallback. Videos is scaffoldable by explicit slug, but it is not featured on the homepage, `/templates`, docs sidebar, CLI picker, or desktop/mobile default tabs. Hidden templates (calls, meeting-notes, voice, scheduling, issues, recruiting, images, macros) MUST NOT appear on the homepage, in the docs sidebar, in docs pages, or in the CLI catalog. Surfaces that hardcode their own list — `packages/docs/app/components/TemplateCard.tsx`, `packages/docs/app/components/docsNavItems.ts`, docs pages `packages/core/docs/content/template-*.md`, and the CLI duplicate `packages/core/src/cli/templates-meta.ts` — must only reference allow-listed slugs. To make a hidden template public: flip `hidden: false` in `packages/shared-app-config/templates.ts` AND `packages/core/src/cli/templates-meta.ts`, then add it to the surfaces above. To hide one: flip `hidden: true` in both files; the guard will then point you at every surface that still mentions it. `scripts/guard-template-list.mjs` (CI + `pnpm prep`) enforces this — adding a slug that isn't in the allow-list will fail the build. _This guard exists because agents kept re-adding the hidden templates (calls, meeting-notes, voice, scheduling, issues, recruiting, images, macros) to the homepage and sidebar during overnight sweeps. Do not disable it._
 - **No breaking database changes — ever.** Hosted templates share their prod DB across every deploy context (preview, branch, prod). Any destructive SQL that runs in any build will overwrite live user data. Symptoms we've already hit in production: users losing accounts, dashboards silently emptied, sessions invalidated. Hard rules:
   - **Schema edits must be strictly additive.** Add new columns/tables, never rename or drop. If a column is wrong, add the replacement alongside it, dual-write from the application, migrate readers, and only retire the old column once every deploy that reads it is gone. Same for tables.
   - **Never rename an existing table or column** in a single step — not via Drizzle, not via raw SQL, not via `drizzle-kit push`. A rename looks like drop+create to the diff tool and wipes the table.

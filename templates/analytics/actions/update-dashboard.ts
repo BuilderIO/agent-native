@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
 import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
@@ -13,6 +14,10 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
+import {
+  analyticsDashboardMcpAppHtml,
+  analyticsMcpAppResourceMeta,
+} from "./_mcp-apps.js";
 
 /**
  * Same shape as the server-side validator in `server/handlers/sql-dashboards.ts`.
@@ -244,7 +249,13 @@ function validateDashboardConfig(
   if (!Array.isArray(panels)) {
     return "config.panels must be an array (use [] for an empty dashboard)";
   }
-  const validSources = new Set(["bigquery", "ga4", "amplitude", "first-party"]);
+  const validSources = new Set([
+    "bigquery",
+    "ga4",
+    "amplitude",
+    "first-party",
+    "prometheus",
+  ]);
   const isValidColumnCount = (v: unknown): v is number =>
     typeof v === "number" &&
     Number.isFinite(v) &&
@@ -276,7 +287,7 @@ function validateDashboardConfig(
       }
     }
     if (!isSection && !validSources.has(p.source as string)) {
-      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
+      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', or 'prometheus' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name in sql, not here.`;
     }
     if (
       isSection &&
@@ -430,6 +441,14 @@ export default defineAction({
       .describe("Replace the whole dashboard config (or a JSON string)."),
   }),
   http: false,
+  mcpApp: {
+    resource: {
+      title: "Dashboard preview",
+      description: "Preview the updated Analytics dashboard inline.",
+      html: analyticsDashboardMcpAppHtml,
+      ...analyticsMcpAppResourceMeta,
+    },
+  },
   run: async (args) => {
     if (!args.ops && !args.config) {
       return "Error: provide either `ops` (for surgical edits) or `config` (for full replace).";
@@ -455,7 +474,13 @@ export default defineAction({
           typeof args.config.name === "string"
             ? args.config.name
             : args.dashboardId,
+        config: args.config,
         urlPath: `/adhoc/${args.dashboardId}`,
+        deepLink: buildDeepLink({
+          app: "analytics",
+          view: "adhoc",
+          params: { dashboardId: args.dashboardId },
+        }),
         message: `Dashboard "${args.dashboardId}" replaced.`,
       };
     }
@@ -490,10 +515,32 @@ export default defineAction({
       id: args.dashboardId,
       dashboardId: args.dashboardId,
       name: typeof root.name === "string" ? root.name : args.dashboardId,
+      config: root,
       urlPath: `/adhoc/${args.dashboardId}`,
+      deepLink: buildDeepLink({
+        app: "analytics",
+        view: "adhoc",
+        params: { dashboardId: args.dashboardId },
+      }),
       message:
         `Dashboard "${args.dashboardId}" updated. ` +
         `Applied ${details.length} op(s): ${details.join("; ")}.`,
+    };
+  },
+  link: ({ result }) => {
+    const dashboardId =
+      result && typeof result === "object"
+        ? (result as { dashboardId?: string }).dashboardId
+        : undefined;
+    if (!dashboardId) return null;
+    return {
+      url: buildDeepLink({
+        app: "analytics",
+        view: "adhoc",
+        params: { dashboardId },
+      }),
+      label: "Open dashboard in Analytics",
+      view: "adhoc",
     };
   },
 });

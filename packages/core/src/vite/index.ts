@@ -8,3 +8,7 @@ export {
   generateActionRegistryForProject,
 } from "./action-types-plugin.js";
 export { agentsBundlePlugin } from "./agents-bundle-plugin.js";
+export {
+  createAgentWebVitePlugin,
+  type AgentWebVitePluginOptions,
+} from "./agent-web-plugin.js";

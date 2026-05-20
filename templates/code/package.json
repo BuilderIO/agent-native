@@ -1,0 +1,41 @@
+{
+  "name": "code",
+  "displayName": "Agent-Native Code",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "agent-native dev --open",
+    "build": "agent-native build",
+    "start": "agent-native start",
+    "typecheck": "agent-native typecheck",
+    "action": "agent-native action",
+    "script": "agent-native script"
+  },
+  "dependencies": {
+    "@agent-native/code-agents-ui": "workspace:*",
+    "@agent-native/core": "workspace:*",
+    "@libsql/client": "^0.15.8",
+    "@tabler/icons-react": "^3.44.0",
+    "h3": "^2.0.1-rc.22",
+    "isbot": "^5.1.40",
+    "node-pty": "^1.1.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@react-router/dev": "^7.15.1",
+    "@react-router/fs-routes": "^7.15.1",
+    "@tailwindcss/vite": "^4.3.0",
+    "@tanstack/react-query": "^5.100.10",
+    "@types/node": "^24.2.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "next-themes": "^0.4.6",
+    "prettier": "^3.6.2",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router": "^7.15.1",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.13"
+  }
+}

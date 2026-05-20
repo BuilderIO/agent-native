@@ -16,14 +16,36 @@
  */
 
 import type { AgentChatEvent } from "../agent/types.js";
-import type { ActionEntry } from "../agent/production-agent.js";
+import type {
+  ActionEntry,
+  AgentLoopFinalResponseGuard,
+} from "../agent/production-agent.js";
 import { actionsToEngineTools } from "../agent/production-agent.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import { createAnthropicEngine } from "../agent/engine/anthropic-engine.js";
 import { createThread } from "../chat-threads/store.js";
-import { startRun, subscribeToRun } from "../agent/run-manager.js";
+import {
+  abortRun,
+  getRun,
+  startRun,
+  subscribeToRun,
+} from "../agent/run-manager.js";
+import { getRunEventsSince } from "../agent/run-store.js";
 import { runAgentLoop } from "../agent/production-agent.js";
 import { buildAssistantMessage } from "../agent/thread-data-builder.js";
+import type { RunEvent } from "../agent/types.js";
+import type {
+  BackgroundAgentRun,
+  BackgroundAgentRunStatus,
+  BackgroundAgentTranscriptEvent,
+} from "../code-agents/background-run.js";
+import type {
+  BackgroundAgentController,
+  BackgroundAgentControlInput,
+  BackgroundAgentControlResult,
+  BackgroundAgentFollowUpInput,
+  ListBackgroundAgentRunsOptions,
+} from "../code-agents/index.js";
 import {
   readAppState,
   writeAppState,
@@ -43,11 +65,261 @@ export interface AgentTask {
   createdAt: number;
 }
 
+export type AgentTeamBackgroundRun = Omit<
+  BackgroundAgentRun,
+  | "kind"
+  | "source"
+  | "sourceRecord"
+  | "status"
+  | "cwd"
+  | "goalId"
+  | "transcriptPath"
+  | "artifactRoot"
+> & {
+  kind: "agent-team";
+  source: "hosted-agent-team";
+  sourceRecord: {
+    type: "agent-team-task";
+    id: string;
+    threadId: string;
+  };
+  status: BackgroundAgentRunStatus;
+  cwd?: string;
+  goalId: "agent-team";
+  transcriptPath?: string;
+  artifactRoot?: string;
+};
+
+export type AgentTeamBackgroundTranscriptEvent = Omit<
+  BackgroundAgentTranscriptEvent,
+  "kind" | "source" | "sourceRecord"
+> & {
+  kind: "user" | "system" | "note" | "artifact" | "status";
+  source: "hosted-agent-team";
+  sourceRecord: {
+    type: "agent-team-run-event";
+    id: string;
+    seq: number;
+  };
+};
+
+export interface SendToAgentTeamBackgroundRunResult {
+  ok: boolean;
+  error?: string;
+  messageId?: string;
+  queuedCount?: number;
+}
+
+export interface ControlAgentTeamBackgroundRunResult {
+  ok: boolean;
+  error?: string;
+}
+
+export function createAgentTeamBackgroundAgentController(): BackgroundAgentController {
+  return {
+    async list(options?: ListBackgroundAgentRunsOptions) {
+      if (options?.goalId && options.goalId !== "agent-team") return [];
+      return listAgentTeamBackgroundRuns();
+    },
+    get: getAgentTeamBackgroundRun,
+    transcript: listAgentTeamBackgroundTranscriptEvents,
+    sendFollowUp: sendAgentTeamBackgroundAgentFollowUp,
+    control: controlAgentTeamBackgroundAgentRun,
+  };
+}
+
+export const agentTeamBackgroundAgentController =
+  createAgentTeamBackgroundAgentController();
+
 /** Key prefix for task records: agent-task:{taskId} */
 const TASK_PREFIX = "agent-task:";
 
 /** Key prefix for thread→task reverse lookup: agent-task-thread:{threadId} */
 const THREAD_PREFIX = "agent-task-thread:";
+
+/** Key prefix for queued orchestrator→sub-agent messages. */
+const TASK_MESSAGE_PREFIX = "task-message:";
+
+export interface QueuedTaskMessage {
+  id: string;
+  from: "orchestrator";
+  message: string;
+  timestamp: number;
+}
+
+function taskMessageQueuePrefix(taskId: string): string {
+  return `${TASK_MESSAGE_PREFIX}${taskId}:`;
+}
+
+function generateTaskMessageId(): string {
+  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeQueuedTaskMessage(
+  value: Record<string, unknown>,
+  fallbackId: string,
+): QueuedTaskMessage | null {
+  if (typeof value.message !== "string" || value.message.trim().length === 0) {
+    return null;
+  }
+  const timestamp =
+    typeof value.timestamp === "number" && Number.isFinite(value.timestamp)
+      ? value.timestamp
+      : Date.now();
+  return {
+    id: typeof value.id === "string" ? value.id : fallbackId,
+    from: "orchestrator",
+    message: value.message,
+    timestamp,
+  };
+}
+
+function formatQueuedTaskMessages(messages: QueuedTaskMessage[]): string {
+  const label =
+    messages.length === 1
+      ? "Orchestrator message received while you were working"
+      : "Orchestrator messages received while you were working";
+  const body = messages
+    .map((message) => {
+      const sentAt = new Date(message.timestamp).toISOString();
+      return `[${sentAt}] ${message.message}`;
+    })
+    .join("\n\n");
+  return `${label}:\n\n${body}\n\nAdjust your next steps to account for this update.`;
+}
+
+const taskMessageDrainLocks = new Map<string, Promise<unknown>>();
+
+async function withTaskMessageDrainLock<T>(
+  taskId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = taskMessageDrainLocks.get(taskId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => (release = resolve));
+  taskMessageDrainLocks.set(taskId, current);
+  await previous.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (taskMessageDrainLocks.get(taskId) === current) {
+      taskMessageDrainLocks.delete(taskId);
+    }
+  }
+}
+
+async function listQueuedTaskMessages(
+  taskId: string,
+): Promise<Array<{ key: string; message: QueuedTaskMessage }>> {
+  const queuePrefix = taskMessageQueuePrefix(taskId);
+  const entries = await listAppState(queuePrefix);
+  const messages = entries
+    .map((entry) => {
+      const id = entry.key.slice(queuePrefix.length);
+      const message = normalizeQueuedTaskMessage(entry.value, id);
+      return message ? { key: entry.key, message } : null;
+    })
+    .filter(
+      (
+        entry,
+      ): entry is {
+        key: string;
+        message: QueuedTaskMessage;
+      } => Boolean(entry),
+    );
+
+  // Backward compatibility for messages queued by the old implementation.
+  const legacyKey = `${TASK_MESSAGE_PREFIX}${taskId}`;
+  const legacy = await readAppState(legacyKey);
+  const legacyMessage = legacy
+    ? normalizeQueuedTaskMessage(legacy, "legacy")
+    : null;
+  if (legacyMessage) {
+    messages.push({ key: legacyKey, message: legacyMessage });
+  }
+
+  return messages.sort((a, b) => {
+    const byTimestamp = a.message.timestamp - b.message.timestamp;
+    return byTimestamp || a.message.id.localeCompare(b.message.id);
+  });
+}
+
+async function drainQueuedTaskMessages(
+  taskId: string,
+): Promise<QueuedTaskMessage[]> {
+  return withTaskMessageDrainLock(taskId, async () => {
+    const entries = await listQueuedTaskMessages(taskId);
+    if (entries.length === 0) return [];
+    for (const entry of entries) {
+      await deleteAppState(entry.key);
+    }
+    return entries.map((entry) => entry.message);
+  });
+}
+
+async function appendQueuedTaskMessage(
+  taskId: string,
+  message: string,
+): Promise<{ messageId: string; queuedCount: number }> {
+  const messageId = generateTaskMessageId();
+  await writeAppState(`${taskMessageQueuePrefix(taskId)}${messageId}`, {
+    id: messageId,
+    from: "orchestrator",
+    message,
+    timestamp: Date.now(),
+  });
+  const queuedCount = (await listQueuedTaskMessages(taskId)).length;
+  return { messageId, queuedCount };
+}
+
+function createMessageAwareActions(
+  taskId: string,
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(actions).map(([name, entry]) => [
+      name,
+      {
+        ...entry,
+        run: async (args, context) => {
+          const result = await entry.run(args, context);
+          const queuedMessages = await drainQueuedTaskMessages(taskId);
+          if (queuedMessages.length === 0) return result;
+
+          // Tool results are already the next safe model-visible boundary:
+          // the loop records all tool output, then asks the model to continue.
+          // Attaching queued updates here avoids mutating message history while
+          // an assistant tool-call turn is still being resolved.
+          const formatted = formatQueuedTaskMessages(queuedMessages);
+          const resultText =
+            typeof result === "string"
+              ? result
+              : JSON.stringify(result, null, 2);
+          return `${resultText}\n\n${formatted}`;
+        },
+      },
+    ]),
+  );
+}
+
+function createTaskMessageFinalGuard(
+  taskId: string,
+): AgentLoopFinalResponseGuard {
+  return async () => {
+    const queuedMessages = await drainQueuedTaskMessages(taskId);
+    if (queuedMessages.length === 0) return null;
+
+    // This is queued delivery, not a live interrupt: if the sub-agent is
+    // already producing a final answer, the guard asks the loop for one more
+    // continuation that includes the orchestrator update as a fresh user turn.
+    return {
+      retryMessage: formatQueuedTaskMessages(queuedMessages),
+      fallbackMessage:
+        "I received an orchestrator update while finishing, but could not continue from it. Please check the task status and send the update again if needed.",
+    };
+  };
+}
 
 async function saveTask(task: AgentTask): Promise<void> {
   await writeAppState(`${TASK_PREFIX}${task.taskId}`, task as any);
@@ -69,6 +341,192 @@ async function loadTaskByThread(threadId: string): Promise<AgentTask | null> {
 
 function generateTaskId(): string {
   return `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function taskRunId(taskId: string): string {
+  return `run-task-${taskId}`;
+}
+
+function taskIdFromBackgroundRunId(runId: string): string {
+  return runId.startsWith("run-task-")
+    ? runId.slice("run-task-".length)
+    : runId;
+}
+
+function mapTaskStatusToBackgroundStatus(
+  status: AgentTask["status"],
+): BackgroundAgentRunStatus {
+  return status;
+}
+
+function taskTimestampToIso(timestamp: number): string {
+  const date = new Date(timestamp);
+  return Number.isFinite(date.getTime())
+    ? date.toISOString()
+    : new Date(0).toISOString();
+}
+
+function latestTaskText(task: AgentTask): string | undefined {
+  return task.summary || task.preview || task.currentStep || undefined;
+}
+
+export function toAgentTaskBackgroundRun(
+  task: AgentTask,
+): AgentTeamBackgroundRun {
+  const createdAt = taskTimestampToIso(task.createdAt);
+  return {
+    schemaVersion: 1,
+    id: taskRunId(task.taskId),
+    kind: "agent-team",
+    source: "hosted-agent-team",
+    sourceLabel: "Agent Teams",
+    sourceRecord: {
+      type: "agent-team-task",
+      id: task.taskId,
+      threadId: task.threadId,
+    },
+    title: task.description,
+    subtitle: task.currentStep || undefined,
+    status: mapTaskStatusToBackgroundStatus(task.status),
+    phase: task.currentStep || task.status,
+    createdAt,
+    updatedAt: createdAt,
+    goalId: "agent-team",
+    needsInput: false,
+    needsApproval: false,
+    details: [
+      { label: "Task", value: task.taskId },
+      { label: "Thread", value: task.threadId },
+    ],
+    surfaceUrl: `agent-native://threads/${task.threadId}`,
+    metadata: {
+      taskId: task.taskId,
+      threadId: task.threadId,
+      description: task.description,
+      preview: task.preview,
+      summary: task.summary,
+      currentStep: task.currentStep,
+      latestText: latestTaskText(task),
+    },
+  };
+}
+
+function summarizeAgentChatEvent(event: RunEvent): {
+  kind: AgentTeamBackgroundTranscriptEvent["kind"];
+  message: string;
+  metadata?: Record<string, unknown>;
+} | null {
+  const payload = event.event;
+  switch (payload.type) {
+    case "text":
+      return { kind: "note", message: payload.text };
+    case "activity":
+      return {
+        kind: "status",
+        message: payload.label,
+        metadata: payload.tool ? { tool: payload.tool } : undefined,
+      };
+    case "tool_start":
+      return {
+        kind: "status",
+        message: `Running ${payload.tool}`,
+        metadata: { tool: payload.tool, input: payload.input },
+      };
+    case "tool_done":
+      return {
+        kind: "artifact",
+        message: payload.result,
+        metadata: { tool: payload.tool },
+      };
+    case "agent_task":
+      return {
+        kind: "status",
+        message: `${payload.description} (${payload.status})`,
+        metadata: {
+          taskId: payload.taskId,
+          threadId: payload.threadId,
+          status: payload.status,
+        },
+      };
+    case "agent_task_update":
+      return {
+        kind: "status",
+        message: payload.preview || payload.currentStep || "Task updated",
+        metadata: {
+          taskId: payload.taskId,
+          currentStep: payload.currentStep,
+        },
+      };
+    case "agent_task_complete":
+      return {
+        kind: "status",
+        message: payload.summary,
+        metadata: { taskId: payload.taskId },
+      };
+    case "error":
+      return {
+        kind: "status",
+        message: payload.error,
+        metadata: {
+          errorCode: payload.errorCode,
+          upgradeUrl: payload.upgradeUrl,
+        },
+      };
+    case "missing_api_key":
+      return {
+        kind: "status",
+        message: "Missing API key",
+      };
+    case "done":
+      return { kind: "status", message: "Run completed" };
+    case "loop_limit":
+      return { kind: "status", message: "Run stopped at the loop limit" };
+    case "auto_continue":
+      return {
+        kind: "status",
+        message: "Run reached its continuation boundary",
+        metadata: { reason: payload.reason },
+      };
+    case "clear":
+      return null;
+    case "agent_call":
+      return {
+        kind: "status",
+        message: `${payload.agent} ${payload.status}`,
+        metadata: { agent: payload.agent, status: payload.status },
+      };
+    case "agent_call_text":
+      return {
+        kind: "note",
+        message: payload.text,
+        metadata: { agent: payload.agent },
+      };
+    default:
+      return null;
+  }
+}
+
+export function toAgentTaskBackgroundTranscriptEvent(
+  runId: string,
+  event: RunEvent,
+): AgentTeamBackgroundTranscriptEvent | null {
+  const summary = summarizeAgentChatEvent(event);
+  if (!summary) return null;
+  return {
+    schemaVersion: 1,
+    id: `${runId}:${event.seq}`,
+    runId,
+    kind: summary.kind,
+    source: "hosted-agent-team",
+    sourceRecord: {
+      type: "agent-team-run-event",
+      id: `${runId}:${event.seq}`,
+      seq: event.seq,
+    },
+    message: summary.message,
+    createdAt: new Date().toISOString(),
+    metadata: summary.metadata,
+  };
 }
 
 export interface SpawnTaskOptions {
@@ -171,9 +629,9 @@ You are a focused sub-agent with a specific task. You have been given a curated 
 
 **Start immediately with your task. Do NOT:**
 - Run \`db-schema\` to explore the database structure
-- Run \`search-files\` or \`list-files\` to find code
+- Run \`bash\` just to search/list files
 - Try to \`curl\` or access external URLs to find the app
-- Use \`shell\` for exploration — only for running \`pnpm action\` commands when no direct action exists
+- Use \`bash\` for exploration — only for running \`pnpm action\` commands when no direct action exists
 
 **Your available actions (${actionNames}) work directly. Use them.**
 
@@ -189,7 +647,8 @@ You are a focused sub-agent with a specific task. You have been given a curated 
   const model = opts.model ?? engine.defaultModel;
 
   // Build tools from actions using the normalized EngineTool format
-  const tools = actionsToEngineTools(opts.actions);
+  const messageAwareActions = createMessageAwareActions(taskId, opts.actions);
+  const tools = actionsToEngineTools(messageAwareActions);
 
   const messages: EngineMessage[] = [
     { role: "user", content: [{ type: "text", text: opts.description }] },
@@ -245,9 +704,10 @@ You are a focused sub-agent with a specific task. You have been given a curated 
         systemPrompt,
         tools,
         messages,
-        actions: opts.actions,
+        actions: messageAwareActions,
         send: wrappedSend,
         signal,
+        finalResponseGuard: createTaskMessageFinalGuard(taskId),
       });
     },
     // onComplete callback — called when the run finishes (success or error)
@@ -405,33 +865,163 @@ export async function listTasks(): Promise<AgentTask[]> {
   return tasks.sort((a, b) => b.createdAt - a.createdAt);
 }
 
+export async function listAgentTeamBackgroundRuns(): Promise<
+  AgentTeamBackgroundRun[]
+> {
+  return (await listTasks()).map(toAgentTaskBackgroundRun);
+}
+
+export async function getAgentTeamBackgroundRun(
+  runId: string,
+): Promise<AgentTeamBackgroundRun | null> {
+  const task = await loadTask(taskIdFromBackgroundRunId(runId));
+  return task ? toAgentTaskBackgroundRun(task) : null;
+}
+
+export async function listAgentTeamBackgroundTranscriptEvents(
+  runId: string,
+): Promise<AgentTeamBackgroundTranscriptEvent[]> {
+  const normalizedRunId = taskRunId(taskIdFromBackgroundRunId(runId));
+  const activeRun = getRun(normalizedRunId);
+  const events = activeRun
+    ? activeRun.events
+    : await getPersistedRunEvents(normalizedRunId);
+
+  return events
+    .map((event) =>
+      toAgentTaskBackgroundTranscriptEvent(normalizedRunId, event),
+    )
+    .filter((event): event is AgentTeamBackgroundTranscriptEvent =>
+      Boolean(event),
+    );
+}
+
+export function subscribeToAgentTeamBackgroundRun(
+  runId: string,
+  fromSeq = 0,
+): ReadableStream<Uint8Array> | null {
+  return subscribeToRun(taskRunId(taskIdFromBackgroundRunId(runId)), fromSeq);
+}
+
+async function getPersistedRunEvents(runId: string): Promise<RunEvent[]> {
+  const rows = await getRunEventsSince(runId, 0);
+  return rows
+    .map((row): RunEvent | null => {
+      try {
+        return {
+          seq: row.seq,
+          event: JSON.parse(row.eventData) as RunEvent["event"],
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter((event): event is RunEvent => Boolean(event));
+}
+
 /** Send a message/update to a running sub-agent via application state */
 export async function sendToTask(
   taskId: string,
   message: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{
+  ok: boolean;
+  error?: string;
+  messageId?: string;
+  queuedCount?: number;
+}> {
   const task = await loadTask(taskId);
   if (!task) return { ok: false, error: "Task not found" };
   if (task.status !== "running")
     return { ok: false, error: "Task is not running" };
+  if (message.trim().length === 0)
+    return { ok: false, error: "Message is required" };
 
-  // Write the message to application state so the sub-agent can read it
-  // on its next tool call or iteration
+  // Append to a durable per-task queue. Running sub-agents drain this queue
+  // after tool batches and immediately before a final response. This does not
+  // interrupt an in-flight model stream or tool call; it guarantees the next
+  // safe continuation sees the update.
   try {
-    const { appStatePut } = await import("../application-state/store.js");
-    const sessionId = getRequestUserEmail();
-    if (!sessionId) {
-      return { ok: false, error: "no authenticated user" };
-    }
-    await appStatePut(sessionId, `task-message:${taskId}`, {
-      from: "orchestrator",
-      message,
-      timestamp: Date.now(),
-    });
+    const queued = await appendQueuedTaskMessage(taskId, message);
+    return { ok: true, ...queued };
   } catch {
-    // Application state not available — best effort
+    const sessionId = getRequestUserEmail();
+    if (!sessionId) return { ok: false, error: "no authenticated user" };
+    return { ok: false, error: "Unable to queue message" };
+  }
+}
+
+export async function sendToAgentTeamBackgroundRun(
+  runId: string,
+  message: string,
+): Promise<SendToAgentTeamBackgroundRunResult> {
+  return sendToTask(taskIdFromBackgroundRunId(runId), message);
+}
+
+async function sendAgentTeamBackgroundAgentFollowUp(
+  input: BackgroundAgentFollowUpInput,
+): Promise<BackgroundAgentControlResult> {
+  const prompt = input.prompt.trim();
+  if (!prompt) {
+    return {
+      ok: false,
+      runId: input.runId,
+      run: await getAgentTeamBackgroundRun(input.runId),
+      error: "Follow-up prompt is required.",
+    };
   }
 
+  const result = await sendToAgentTeamBackgroundRun(input.runId, prompt);
+  return {
+    ok: result.ok,
+    runId: input.runId,
+    run: await getAgentTeamBackgroundRun(input.runId),
+    queued: result.ok,
+    message: result.ok
+      ? "Follow-up queued for the Agent Teams background run."
+      : undefined,
+    error: result.error,
+  };
+}
+
+async function controlAgentTeamBackgroundAgentRun(
+  input: BackgroundAgentControlInput,
+): Promise<BackgroundAgentControlResult> {
+  if (input.command !== "stop") {
+    return {
+      ok: false,
+      runId: input.runId,
+      run: await getAgentTeamBackgroundRun(input.runId),
+      error:
+        "Agent Teams background runs currently support stop through the shared controller.",
+    };
+  }
+
+  const result = await stopAgentTeamBackgroundRun(input.runId);
+  return {
+    ok: result.ok,
+    runId: input.runId,
+    run: await getAgentTeamBackgroundRun(input.runId),
+    message: result.ok ? "Agent Teams background run stopped." : undefined,
+    error: result.error,
+  };
+}
+
+export async function stopAgentTeamBackgroundRun(
+  runId: string,
+  reason = "user",
+): Promise<ControlAgentTeamBackgroundRunResult> {
+  const taskId = taskIdFromBackgroundRunId(runId);
+  const task = await loadTask(taskId);
+  if (!task) return { ok: false, error: "Task not found" };
+  if (task.status !== "running") {
+    return { ok: false, error: "Task is not running" };
+  }
+
+  abortRun(taskRunId(taskId), reason);
+  task.status = "errored";
+  task.summary =
+    reason === "user" ? "Task stopped." : `Task stopped: ${reason}`;
+  await saveTask(task);
   return { ok: true };
 }
 
@@ -447,3 +1037,10 @@ export async function markTaskErrored(
     await saveTask(task);
   }
 }
+
+export const _agentTeamsQueueForTests = {
+  createMessageAwareActions,
+  createTaskMessageFinalGuard,
+  drainQueuedTaskMessages,
+  formatQueuedTaskMessages,
+};

@@ -30,18 +30,22 @@
 use tauri::AppHandle;
 
 #[tauri::command]
-pub async fn native_speech_start(app: AppHandle, locale: Option<String>) -> Result<(), String> {
+pub async fn native_speech_start(
+    app: AppHandle,
+    locale: Option<String>,
+    mic_device_id: Option<String>,
+    mic_device_label: Option<String>,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         // contextual_strings (personal vocabulary) is staged separately via
-        // `native_speech_set_vocabulary` so this command's 2-arg signature
-        // can stay stable for `system_audio.rs`'s 2-arg call site (which
-        // doesn't run dictation, so vocabulary doesn't apply there).
-        macos::native_speech_start_impl(app, locale).await
+        // `native_speech_set_vocabulary` so mic metadata can flow through
+        // meeting capture without coupling vocabulary into that path.
+        macos::native_speech_start_impl(app, locale, mic_device_id, mic_device_label).await
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, locale);
+        let _ = (app, locale, mic_device_id, mic_device_label);
         Err("Native speech recognition is only supported on macOS.".into())
     }
 }
@@ -105,13 +109,24 @@ pub async fn native_speech_cancel(app: AppHandle) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 pub(crate) mod macos {
+    use std::ffi::c_void;
+    use std::mem::size_of;
+    use std::ptr::NonNull;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
 
     use block2::{RcBlock, StackBlock};
     use objc2::rc::Retained;
     use objc2::{AnyThread, ClassType};
+    use objc2_audio_toolbox::{
+        kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, AudioUnitSetProperty,
+    };
     use objc2_avf_audio::{AVAudioEngine, AVAudioPCMBuffer, AVAudioTime};
+    use objc2_core_audio::{
+        kAudioHardwareNoError, kAudioHardwarePropertyTranslateUIDToDevice,
+        kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
+        AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress,
+    };
     use objc2_foundation::{NSArray, NSError, NSLocale, NSString};
     use objc2_speech::{
         SFSpeechAudioBufferRecognitionRequest, SFSpeechRecognitionResult, SFSpeechRecognitionTask,
@@ -119,6 +134,8 @@ pub(crate) mod macos {
     };
     use serde::Serialize;
     use tauri::{AppHandle, Emitter};
+
+    use screencapturekit::audio_devices::AudioInputDevice;
 
     /// One in-flight dictation. Holds strong references to the AppKit objects
     /// so they don't drop while the recognition task is still emitting
@@ -306,6 +323,146 @@ pub(crate) mod macos {
         Ok(recognizer)
     }
 
+    fn normalize_audio_device_name(value: &str) -> String {
+        value
+            .to_lowercase()
+            .replace("(default)", "")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn names_match(a: &str, b: &str) -> bool {
+        let a = normalize_audio_device_name(a);
+        let b = normalize_audio_device_name(b);
+        !a.is_empty() && !b.is_empty() && (a == b || a.contains(&b) || b.contains(&a))
+    }
+
+    fn is_built_in_input_name(value: &str) -> bool {
+        let value = normalize_audio_device_name(value);
+        value.contains("macbook")
+            || value.contains("built-in")
+            || value.contains("built in")
+            || value.contains("internal microphone")
+    }
+
+    fn audio_object_id_for_uid(uid: &str) -> Result<AudioObjectID, String> {
+        let ns_uid = NSString::from_str(uid);
+        let uid_ref = Retained::as_ptr(&ns_uid) as *const c_void;
+        let qualifier = uid_ref;
+        let mut device_id: AudioObjectID = 0;
+        let mut data_size = size_of::<AudioObjectID>() as u32;
+        let mut address = AudioObjectPropertyAddress {
+            mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                kAudioObjectSystemObject as AudioObjectID,
+                NonNull::from(&mut address),
+                size_of::<*const c_void>() as u32,
+                (&qualifier as *const *const c_void).cast::<c_void>(),
+                NonNull::from(&mut data_size),
+                NonNull::new_unchecked((&mut device_id as *mut AudioObjectID).cast::<c_void>()),
+            )
+        };
+
+        if status != kAudioHardwareNoError || device_id == 0 {
+            return Err(format!(
+                "Could not resolve macOS audio device id for microphone UID {uid} (OSStatus {status})."
+            ));
+        }
+
+        Ok(device_id)
+    }
+
+    fn resolve_input_device(
+        device_id: Option<&str>,
+        device_label: Option<&str>,
+    ) -> Result<Option<(AudioInputDevice, AudioObjectID)>, String> {
+        let device_id = device_id.map(str::trim).filter(|value| !value.is_empty());
+        let device_label = device_label
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let has_specific_selection = device_id.is_some() || device_label.is_some();
+        let devices = AudioInputDevice::list();
+
+        let resolved = device_id
+            .and_then(|id| devices.iter().find(|device| device.id == id))
+            .or_else(|| {
+                device_label.and_then(|label| {
+                    devices
+                        .iter()
+                        .find(|device| names_match(&device.name, label))
+                })
+            })
+            .or_else(|| {
+                if has_specific_selection {
+                    None
+                } else {
+                    devices
+                        .iter()
+                        .find(|device| is_built_in_input_name(&device.name))
+                }
+            });
+
+        let Some(device) = resolved else {
+            if has_specific_selection {
+                let requested = device_label.or(device_id).unwrap_or("selected microphone");
+                let available = devices
+                    .iter()
+                    .map(|device| device.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(format!(
+                    "Selected microphone '{requested}' is not available to native speech. Available inputs: {available}"
+                ));
+            }
+            return Ok(None);
+        };
+
+        let object_id = audio_object_id_for_uid(&device.id)?;
+        Ok(Some((device.clone(), object_id)))
+    }
+
+    fn configure_engine_input_device(
+        engine: &AVAudioEngine,
+        device_id: Option<&str>,
+        device_label: Option<&str>,
+    ) -> Result<(), String> {
+        let Some((device, mut object_id)) = resolve_input_device(device_id, device_label)? else {
+            return Ok(());
+        };
+
+        let input = unsafe { engine.inputNode() };
+        let audio_unit = unsafe { input.audioUnit() };
+        let status = unsafe {
+            AudioUnitSetProperty(
+                audio_unit,
+                kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global,
+                0,
+                (&mut object_id as *mut AudioObjectID).cast::<c_void>(),
+                size_of::<AudioObjectID>() as u32,
+            )
+        };
+
+        if status != kAudioHardwareNoError {
+            return Err(format!(
+                "Could not set native speech microphone to {} (OSStatus {status}).",
+                device.name
+            ));
+        }
+
+        eprintln!(
+            "[voice-dictation] native speech microphone pinned to {} ({})",
+            device.name, device.id
+        );
+        Ok(())
+    }
+
     /// Tear down whatever session is currently running. Called from `start`
     /// to guarantee a fresh slate, and from `cancel` / `stop` for explicit
     /// teardown.
@@ -372,6 +529,8 @@ pub(crate) mod macos {
     pub async fn native_speech_start_impl(
         app: AppHandle,
         locale: Option<String>,
+        mic_device_id: Option<String>,
+        mic_device_label: Option<String>,
     ) -> Result<(), String> {
         let contextual_strings: Option<Vec<String>> = {
             let v = take_pending_vocabulary();
@@ -428,6 +587,11 @@ pub(crate) mod macos {
         // SAFETY: `AVAudioEngine::new()` returns a retained engine.
         // `inputNode` is the engine's singleton input — also retained.
         let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
+        configure_engine_input_device(
+            &engine,
+            mic_device_id.as_deref(),
+            mic_device_label.as_deref(),
+        )?;
         let input_node = unsafe { engine.inputNode() };
         let format = unsafe { input_node.outputFormatForBus(0) };
 

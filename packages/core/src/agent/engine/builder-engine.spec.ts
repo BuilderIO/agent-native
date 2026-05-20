@@ -12,6 +12,7 @@ const credentialState = vi.hoisted(() => ({
   builderPublicKey: "space-test" as string | null,
   builderUserId: "builder-user-123" as string | null,
   builderOrgName: null as string | null,
+  recordBuilderCredentialAuthFailure: vi.fn(async () => {}),
 }));
 
 // Mock the credential provider so tests do not hit the DB (app_secrets table).
@@ -32,6 +33,8 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
       const key = credentialState.builderPrivateKey;
       return key ? `Bearer ${key}` : null;
     }),
+    recordBuilderCredentialAuthFailure:
+      credentialState.recordBuilderCredentialAuthFailure,
     getBuilderGatewayBaseUrl: original.getBuilderGatewayBaseUrl,
   };
 });
@@ -78,6 +81,7 @@ describe("createBuilderEngine", () => {
     credentialState.builderPublicKey = "space-test";
     credentialState.builderUserId = "builder-user-123";
     credentialState.builderOrgName = null;
+    credentialState.recordBuilderCredentialAuthFailure.mockClear();
     vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
     vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
     vi.stubEnv("BUILDER_USER_ID", "builder-user-123");
@@ -393,6 +397,13 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_auth_error");
     expect(stop?.error).toContain("Builder authentication failed");
+    expect(
+      credentialState.recordBuilderCredentialAuthFailure,
+    ).toHaveBeenCalledWith({
+      status: 401,
+      code: "unauthorized",
+      message: "Invalid key",
+    });
   });
 
   it("maps 403 invalid token to Builder auth stop-error", async () => {
@@ -412,6 +423,13 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_auth_error");
     expect(stop?.error).toContain("Builder authentication failed");
+    expect(
+      credentialState.recordBuilderCredentialAuthFailure,
+    ).toHaveBeenCalledWith({
+      status: 403,
+      code: "http_403",
+      message: "Invalid token",
+    });
   });
 
   it("surfaces a non-JSON 4xx body (e.g. proxy HTML) in the error message", async () => {
@@ -478,6 +496,29 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("too_many_concurrent_requests");
     // Must contain "too many requests" so production-agent's isRetryableError triggers.
     expect(stop?.error?.toLowerCase()).toContain("too many requests");
+  });
+
+  it("maps daily gateway caps to a non-retryable error message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(429, {
+          code: "rate_limit_exceeded",
+          message:
+            "Daily gateway request cap reached (cap: 5000). Please try again tomorrow.",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("rate_limit_exceeded");
+    expect(stop?.error).toBe(
+      "Daily gateway request cap reached (cap: 5000). Please try again tomorrow.",
+    );
   });
 
   it("aborts hung gateway requests before the host function timeout", async () => {

@@ -1,5 +1,645 @@
 # @agent-native/core
 
+## 0.22.3
+
+### Patch Changes
+
+- 5a5b620: Isolate local dev auth cookies per app and stop first-party hosted apps from sharing incompatible agent-native.com session cookies.
+- 5a5b620: Derive production workspace auth and OAuth signing secrets from A2A_SECRET when explicit auth secrets are not configured.
+
+## 0.22.2
+
+### Patch Changes
+
+- 4a35c70: Preserve MCP Apps metadata during static action discovery and write hosted Codex MCP installs as HTTP server entries.
+
+## 0.22.1
+
+### Patch Changes
+
+- 570923a: Respect the persisted agent chat sidebar state inside Builder frames.
+- 570923a: Persist mutating action change markers so child-process actions refresh custom app UIs.
+
+## 0.22.0
+
+### Minor Changes
+
+- 819cf59: Add standard remote MCP OAuth discovery, authorization-code + PKCE, refresh-token rotation, scoped MCP access tokens, and OAuth-native `agent-native connect` config for Claude Code clients.
+
+### Patch Changes
+
+- 819cf59: Improve custom app action sync defaults and starter guidance.
+- 819cf59: Honor collapsed agent-sidebar deep links when an already-mounted app receives the URL hint.
+- 819cf59: Mount the local agent sidebar before delivering programmatic chat submissions so prompts are not dropped when the sidebar starts closed.
+- 819cf59: Address MCP app route hardening and Dispatch vault cleanup edge cases from review.
+- 819cf59: Fix dev-mode agent feedback issues around connection-reset overlays, request-scoped shell identity, and assistant markdown rendering.
+- 819cf59: Sign Builder connect URLs rendered in chat cards and return gateway callbacks to the preview opener.
+- 819cf59: Add granular extension content edits with marker/section operations and optional Prettier formatting.
+
+## 0.21.0
+
+### Minor Changes
+
+- 65d43fd: Add host-side MCP Apps rendering support for connected MCP tools.
+
+### Patch Changes
+
+- 65d43fd: Add `agent-native connect dev` and `agent-native connect prod` for switching first-party MCP entries between hosted apps and local dev-lazy gateways.
+- 65d43fd: Add optional MCP Apps UI resources for action tools while preserving deep-link fallbacks.
+- 15d9967: Clean up synced Dispatch vault secrets on delete and make DB timeout cleanup awaitable.
+
+## 0.20.9
+
+### Patch Changes
+
+- 482e9db: Make agent chat recovery continue after useful tool progress instead of prematurely surfacing connection failures.
+- 482e9db: Add an interactive hosted-app picker when `agent-native connect` is run without a URL, and default connect-minted MCP tokens to a 365-day lifetime.
+- 482e9db: Bound every DB init/query op with a timeout (`withDbTimeout`, `DB_OP_TIMEOUT_MS`, default 8s on serverless). A frozen→thawed serverless instance could leave the Neon WebSocket hung mid-query so the promise never settled and never errored — `retryOnConnectionError` only retries thrown errors, so authenticated requests (which run a session lookup on every navigation) hung until the platform killed the function (~30s on Netlify), surfacing as "the site won't load". The timeout reports as a retryable `CONNECT_TIMEOUT`, so the existing retry and reject-reset paths recover and the cached session-table init promise no longer stays poisoned. Also drop a failed/hung `getDbExec` init promise so the next call retries a fresh connection instead of re-awaiting a permanently rejected/pending one.
+- 482e9db: Add SEO-friendly extension URLs with generated name slugs and extension page titles.
+- 482e9db: Keep auth endpoints responsive when agent chat startup stalls, and expose framework session cookie helpers for custom auth plugins.
+
+## 0.20.8
+
+### Patch Changes
+
+- a07d19c: Fix session.orgId always being undefined
+
+## 0.20.7
+
+### Patch Changes
+
+- e06d8ab: Keep Builder iframe Google sign-in on the popup path when redirects cannot work.
+
+## 0.20.6
+
+### Patch Changes
+
+- 52adc2d: Keep Builder.io connect popups alive when the click-time status refresh fails by falling back to the recently fetched signed connect URL.
+
+## 0.20.5
+
+### Patch Changes
+
+- a470349: Clear the chat drop overlay when the composer consumes dropped files.
+
+## 0.20.4
+
+### Patch Changes
+
+- dab88cd: Prevent dropped screenshots in the agent composer from attaching twice.
+
+## 0.20.3
+
+### Patch Changes
+
+- 76b5268: Stop closed agent sidebars from mounting hidden polling surfaces on page load.
+
+## 0.20.2
+
+### Patch Changes
+
+- f343737: Use the shared popover primitive for the composer model picker and keep the menu stable while model groups expand.
+- f343737: Fall back to redirect Google sign-in when the popup OAuth window is blocked.
+- f343737: Quiet Builder credential and engine detection diagnostics unless debug tracing is enabled.
+- f343737: Prompt for target agent clients during `agent-native connect` and remember the selection.
+- f343737: Soften the MCP connect authorization UI and collapse existing connections by default.
+
+## 0.20.1
+
+### Patch Changes
+
+- 6f3002f: Prevent integration retry timers from keeping Netlify function invocations open and retry Postgres connection timeouts.
+
+## 0.20.0
+
+### Minor Changes
+
+- 3eb86c8: Add shared Code chat transcript replay, prompt attachment helpers, and injectable AssistantChat runtime adapters.
+
+### Patch Changes
+
+- 3eb86c8: Allow extensions to resolve vault-backed keys from the active workspace and mirror Dispatch vault saves into the shared credential store.
+- 3eb86c8: Respect externally supplied Builder-backed model availability in the shared composer model picker.
+- 3eb86c8: Preserve spaces between streamed Agent-Native Code transcript chunks.
+- 3eb86c8: Collapse the agent sidebar by default when opening external-agent deep links.
+- 3eb86c8: Bound agent chat startup/history size and surface stalled or quota-capped runs instead of retrying forever.
+
+## 0.19.3
+
+### Patch Changes
+
+- 39b4db3: Harden and complete external-agent MCP connect flows for hosted and local apps.
+  - A connect-minted token (or `mcp install` / ACCESS_TOKEN / production caller)
+    now gets the full MCP tool surface — including mutating template actions
+    like `create-document` — even in local dev, matching the documented
+    external-agents contract. Previously a connected Claude Code/Codex/Cowork
+    only saw framework builtins in dev, so "say it and it does it" didn't work
+    against a local app.
+  - `list_apps` now reports the live request origin and `running: true` for the
+    app serving the request, instead of a guessed `PORT || 5173` URL with
+    `running: false` (which mis-pointed cross-app deep links on non-default
+    dev ports).
+  - The in-app Connect page now auto-refreshes "Your connections" after a
+    device authorize, so the new connection appears (with a "Connected"
+    confirmation) without a manual reload.
+
+## 0.19.2
+
+### Patch Changes
+
+- 046a8f2: Improve the external-agent connect screen hierarchy and device-code presentation.
+
+## 0.19.1
+
+### Patch Changes
+
+- 310c02f: Add context-aware dynamic prompt suggestions to the agent chat empty state.
+- 310c02f: Tighten read-only bash command guards and scope org-directory/A2A routing auth by caller org identity.
+- 310c02f: Reduce production Sentry noise from expected transport and authorization errors.
+- 310c02f: Share the minimal bash/read/edit/write coding tool profile between Agent-Native Code and sidebar development mode.
+
+## 0.19.0
+
+### Minor Changes
+
+- b3de2db: Cross-app SSO ("Sign in with Agent-Native", Dispatch as identity authority).
+  New opt-in env `AGENT_NATIVE_IDENTITY_HUB_URL`: when set, an app exposes
+  `/_agent-native/identity/login` + `/callback`, redirects to the hub's
+  `/_agent-native/identity/authorize`, verifies the short-lived `A2A_SECRET`-
+  signed identity token (strict `scope:"identity"`, single-use CSRF state,
+  `iat`/`exp` bounds), and **JIT-links to the local Better Auth user strictly by
+  verified email** — existing same-email user is linked (additive `account` row
+  via the adapter; the user/session rows are never modified, renamed, or
+  deleted), new email is created via the normal signup path — then mints a normal
+  local session. Unset = zero behavior change (fully reversible; per-app canary
+  via one env var). Identity rows are only ever added to, so rolling this out
+  logs users out once and they log back into the _same_ account with data intact.
+  Includes the `redirect()` staged-`Set-Cookie`-on-302 fix so the session
+  survives the federated callback. The Dispatch-side identity authority lives in
+  the (private) dispatch template.
+- b3de2db: Frictionless connect for external agents. New `agent-native connect <url>`
+  (and `connect --all`) drives an OAuth-style device-code flow: a logged-in
+  browser session mints a per-user, scoped, **revocable** MCP token (an
+  `A2A_SECRET`-signed JWT with a `jti`) and the CLI writes the HTTP MCP server
+  entry for every detected client (Claude Code desktop/CLI, Codex, Cowork) — no
+  shared secret copying, no local server. Adds the framework-served
+  `/_agent-native/mcp/connect` page + token mint / device-code / list / revoke
+  endpoints (mounted by the core routes plugin, gated by `disableMcpConnect`),
+  two additive framework tables (`mcp_connect_tokens`, `mcp_device_codes`), a
+  `jti` revoke check in the MCP `verifyAuth`, and an optional `extraClaims` on
+  `signA2AToken`. Connecting to hosted apps is now the primary documented path;
+  local-dev `mcp install` / stdio remains as the advanced path.
+
+### Patch Changes
+
+- b3de2db: Fix local-dev zero-setup auto-sign-in: the session cookie is now emitted on
+  the 302 itself. `maybeAutoCreateDevSession` returned a bare
+  `new Response("", { status: 302, headers: { Location } })` after staging the
+  session cookie via `setFrameworkSessionCookie`. h3 v2's `prepareResponse`
+  only merges the event's staged response headers into a returned web
+  `Response` when that Response is 2xx — its `!val.ok` early-return hands a
+  non-2xx Response (like a 302) back as-is, dropping the staged `Set-Cookie`.
+  A fresh `pnpm dev` therefore 302'd straight to the app and bounced back to
+  the login form. A new `redirectWithStagedCookies` helper mirrors the staged
+  cookies onto the redirect Response's own headers so the 302 actually carries
+  the session.
+
+  Also hardens the dev auto-account so the convenience can't become an
+  exposure: it now (1) only fires for **loopback** requests — a new shared
+  `isLoopbackRequest` helper (also adopted by the desktop-SSO broker) so a
+  tunnelled / reverse-proxied / misconfigured-non-prod dev server never
+  auto-signs-in a remote visitor; and (2) mints a **random per-DB password**
+  printed to the server console once, instead of the source-code-known fixed
+  `local-dev-account`, so there is no shared credential to reuse. Still gated
+  on `NODE_ENV` and `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`.
+
+- b3de2db: Remove the "Effective context" card grid from the resources editor and replace the section-title hover tooltips (Workspace / Organization / Personal) with a dedicated small help icon. The inherited Workspace section is now hidden unless workspace context exists.
+- b3de2db: Share composer submit intent, transcript normalization, and conversation scroll primitives with Agent-Native Code.
+
+## 0.18.1
+
+### Patch Changes
+
+- 24049a6: External-agent bridge follow-up fixes: add `/_agent-native/mcp` to the auth
+  bypass allowlist so the stdio proxy / external MCP clients reach the endpoint's
+  own `verifyAuth` (was 401); static `ACCESS_TOKEN` requests now carry caller
+  identity via `AGENT_NATIVE_OWNER_EMAIL`/`X-Agent-Native-Owner-Email`; `open_app`
+  / `create_workspace_app` use the target app origin and `ask_app` routes
+  cross-app over A2A honestly; validate decoded compose `draft.id` in
+  `/_agent-native/open`; swallow benign post-flush `ERR_STREAM_WRITE_AFTER_END`;
+  fix the local-dev auto-account email (`dev@local` → `dev@local.test`, rejected
+  by better-auth 1.6.0) with legacy dual-exclusion.
+
+## 0.18.0
+
+### Minor Changes
+
+- 921715a: Seamless bridge to external coding agents (Claude Code, Cowork, Codex). Actions
+  gain an optional `link` builder; MCP tool results now append an "Open in … →"
+  deep link (`_meta["agent-native/openLink"]` + markdown). New
+  `/_agent-native/open` route bridges those links to the existing
+  `navigate`/`application_state` mechanism, scoped to the browser session. Adds
+  `buildDeepLink`/`toAbsoluteOpenUrl`/`toDesktopOpenUrl` helpers, an
+  `agent-native mcp` CLI (serve/install/uninstall/status/token) with stdio
+  transport + one-command install for Claude Code/Codex/Cowork, and generic
+  cross-app MCP tools (`list_apps`, `open_app`, `ask_app`, `create_workspace_app`,
+  `list_templates`). All additive and backward compatible.
+
+## 0.17.2
+
+### Patch Changes
+
+- 480c078: Cap the Postgres connection pool to a single connection per instance on serverless runtimes (Netlify Functions / AWS Lambda). Concurrent frozen Lambda instances each holding postgres.js's default 10-connection pool were exhausting Neon/Postgres' connection limit, causing "Max client connections reached" and HTTP 500s on every `/_agent-native/*` route. Long-lived Node servers keep the normal pool.
+
+## 0.17.1
+
+### Patch Changes
+
+- 8b0a941: Fix agent sidebar resurrecting an old closed tab on refresh. When all tabs were closed down to a single new empty tab, reloading the page replaced it with the most-recent old conversation because the empty tab is never persisted server-side and the in-memory newly-created marker is wiped by the reload. The saved tab is now restored verbatim as an optimistic empty tab instead of falling back to an unrelated old chat. Stale (>12h) tab clearing is unchanged.
+- 8b0a941: Composer toolbar: drop the leading pencil/clipboard icon from the Act/Plan mode picker, and hide the reasoning-level suffix ("· Auto") when the chatfield is narrower than 370px so the model name + version stays fully readable instead of truncating. The reasoning level is still reachable via the model picker popover. Also alias `@agent-native/core/styles/agent-native.css` to source in dev so CSS edits take effect live instead of silently loading the stale built copy.
+- 8b0a941: Refine Demo Mode redaction: only coerce a name-key value to a fake name when it's a 2–4 word person name (mail labels/tabs like "Important" no longer mangled); stable mappings via a bounded, TTL'd, leak-free cache plus produced-fake idempotency so names/emails don't drift when a draft is edited and refetched; realistic stand-in email domains instead of example.com; protect SQL/query/expression/code keys so analytics panel queries aren't corrupted by redaction (chart titles/names still faked, queries run intact); fetch interceptor hardened to be a zero-overhead pass-through when demo mode is off and to never touch agent/run/streaming transport. Plus DemoModeSection/action-routes wiring and tightened TiptapComposer, use-chat-threads, and use-db-sync behavior.
+- 8b0a941: Fix Google sign-in popup showing "[object Object]" instead of redirecting to Google. The `/_agent-native/google/auth-url?redirect=1` path used h3 v2's `sendRedirect`, which (in `2.0.1-rc.20`) ignores the event and returns a non-standard `HTTPResponse` instance; the request-handler shim stringified it to `[object Object]` with a 200 status and no `Location` header. It now returns a native web `Response` 302, matching the proven OAuth response idiom used by the callback route.
+
+## 0.17.0
+
+### Minor Changes
+
+- a21633b: Add demo mode: a settings toggle / `toggle-demo-mode` agent action / `DEMO_MODE` env that deterministically replaces real names, emails, and numbers with realistic fake data in every action result — for both the UI and what the agent sees. IDs, dates, URLs, and structure are preserved (protect-first tokenization + key denylist) so the app keeps working. The redaction walk is fully gated and only runs when demo mode is on.
+
+## 0.16.3
+
+### Patch Changes
+
+- dbf8db4: Tag Builder connect URLs with Agent Native signup source and flow attribution.
+- dbf8db4: Expose Agent Teams background runs through agent-chat Code hub-compatible run APIs.
+- dbf8db4: Deliver queued Agent Teams messages to running sub-agents at safe continuation points.
+- dbf8db4: Allow templates to answer inbound A2A messages through a deterministic fallback before loading an agent engine.
+- dbf8db4: Add regression coverage for public A2A skills built from static action registries.
+- dbf8db4: Expose local Agent-Native Code sessions through a shared background-agent run adapter.
+- dbf8db4: Improve the Agent-Native Code shell intro and status context.
+- dbf8db4: Polish the shared composer model menu and Code agent credential handling.
+- dbf8db4: Add a reusable provider reader metadata registry for workspace connections.
+- dbf8db4: Add a minimal provider reader runtime contract for granted workspace connections.
+- dbf8db4: Track last-used audit metadata for reusable workspace connections and grants.
+- dbf8db4: Add reusable runtime credential resolution for granted workspace connections.
+
+## 0.16.2
+
+### Patch Changes
+
+- 5b9bdd7: Fix chat dictation: "auto" mode now uses browser-native SpeechRecognition when available, matching the macros-app record-button experience. Words stream incrementally into the composer with no server API key required. Explicit server providers (builder, gemini, groq, openai) are unchanged.
+
+## 0.16.1
+
+### Patch Changes
+
+- 85d6554: Auto-hide sidebar tabs after 12 h of inactivity (previously 4 h, empty-only). Any tab inactive for more than 12 hours is now removed from the sidebar on load and the user is dropped into a fresh tab; older threads remain accessible via History.
+
+## 0.16.0
+
+### Minor Changes
+
+- 79a0eb9: Add host bridge, React iframe helpers, screen context snapshots, typed live client actions, session metadata, approval gates, and host tool adapters for embedding Agent-Native sidecars in existing SaaS apps.
+- 79a0eb9: Document the next Agent-Native Code follow-up features: session picker/run controls, permission modes, project slash commands, and migration as a Code workspace slash command instead of a template.
+- 79a0eb9: Expose local Agent-Native Code run helpers and document the reusable Code UI/template flow.
+- 79a0eb9: Add a batteries-included embedded Agent-Native runtime with host-auth server mounting, a React embedded sidebar/surface, and direct browser-session context/action registration.
+- 79a0eb9: Add a SQL-backed browser-session bridge so embedded sidecars can register live host tabs, let backend agent tools inspect page context, run client actions, and send host refresh/navigation/remount commands.
+- 79a0eb9: Add portable extension iframe and slot primitives for embedding SDK hosts, including manifest-gated permissions and storage adapters.
+
+### Patch Changes
+
+- 79a0eb9: Add org-scoped per-app default model settings for agent chat.
+- 79a0eb9: Expose server-side agent loop helpers for template background workers.
+- 79a0eb9: Register the Brain template in the public catalog and docs.
+- 79a0eb9: Add scoped built-in MCP capability toggles for browser and computer-use servers.
+- 79a0eb9: Record active Agent-Native Code follow-ups as steering or queued prompts.
+- 79a0eb9: Default Agent-Native Code sessions to auto mode and add plan/auto CLI aliases.
+- 79a0eb9: Expose package-provided actions through template action runners and add a full Dispatch Dreams settings editor.
+- 79a0eb9: Add explicit shared composer layout variants and toolbar slot hooks.
+- 79a0eb9: Expose Agent-Native Code project commands and skills as structured code-pack metadata.
+- 79a0eb9: Build the core package before packing local file dependencies so generated framework workspaces install a fresh dist snapshot.
+- 79a0eb9: Link the local Dispatch package during framework-development workspace creation and build Dispatch before local packing.
+- 79a0eb9: Inherit Dispatch-managed workspace instructions, skills, and reference resources at runtime; seed and restore starter company, brand, messaging, guardrail, and voice resources; show and inspect each app's effective workspace context stack; gate All-app resource edits through Dispatch approvals when enabled; preview global impact and overrides before save; and expose read-only inherited workspace resources in app panels.
+- 79a0eb9: Improve `/migrate` CLI handoff output with clearer Agent-Native Code resume commands and artifact guidance.
+- 79a0eb9: Add the generic Agent-Native Code `/migrate` CLI entrypoint, any-input migration seeding, and own-agent dossier emit output for code-agent handoff.
+- 79a0eb9: Export a reusable full-page agent chat surface backed by AgentPanel internals.
+- 79a0eb9: Expose safe public-agent read-only actions in the unauthenticated agent surface.
+- 79a0eb9: Expose shared workspace connection app-access semantics for reusable integrations.
+- 79a0eb9: Add SQL-backed remote integration relay device, command, run-event, management, and push-registration endpoints.
+- 79a0eb9: Remove legacy workspace-resource sync actions and clarify runtime inheritance docs.
+- 79a0eb9: Add runtime inheritance contract coverage for workspace resources.
+- 79a0eb9: Require authentication before dry-running arbitrary MCP server URLs.
+- 79a0eb9: Add shared workspace connection app-grant and provider-readiness helpers for reusable integrations.
+- 79a0eb9: Route Telegram `/code` commands from Dispatch to the remote code-agent relay.
+- 79a0eb9: Add a typed workspace connection provider catalog for reusable integration metadata.
+- 79a0eb9: Add scoped workspace connection grant storage and helpers for connect-once, grant-to-app integrations.
+- 79a0eb9: Add scoped workspace connection metadata storage for connect-once-use-everywhere foundations.
+
+## 0.15.14
+
+### Patch Changes
+
+- cbd1826: Keep extension previews fresh after agent-side edits and clarify chat recovery after repeated connection failures.
+
+## 0.15.13
+
+### Patch Changes
+
+- 3fda479: Fix migration template dev-port collision (8100 → 8101), emit a single canonical for /docs and /docs/getting-started, and JSON-escape generated route paths so Next.js dynamic segments can't break scaffolded TSX.
+
+## 0.15.12
+
+### Patch Changes
+
+- 2cb8220: Add Agent Web surface generators, public-agent action metadata, and an audit command for crawlable public routes.
+- 2cb8220: Stop the Builder connect card from spinning after popup completion when status does not confirm credentials, and show Builder as the active LLM source when connected.
+- 2cb8220: Add the Migration Workbench engine, hidden migration template, CLI entrypoint, and documentation for verified Next.js-to-agent-native migrations.
+
+## 0.15.11
+
+### Patch Changes
+
+- 31b3ffe: Always refresh the Builder cli-auth URL inside a freshly-opened about:blank popup on web (desktop keeps direct path), add a stable `authError` field to BuilderStatus for persisted old-credential rejection, and keep Fusion/workspace-runtime deploy keys out of the identity fallback when a signed-in user is present.
+
+## 0.15.10
+
+### Patch Changes
+
+- e2d812c: Keep Builder reconnect flows alive while replacing rejected deploy fallback credentials.
+
+## 0.15.9
+
+### Patch Changes
+
+- 5b2488b: Fix: default the Builder API host fallback to `https://api.builder.io` instead of the unreachable `https://ai-services.builder.io`, so calls succeed when `BUILDER_API_HOST` / `BUILDER_PROXY_ORIGIN` / `AIR_HOST` are unset.
+
+## 0.15.8
+
+### Patch Changes
+
+- 3084676: Handle Builder cli-auth callback fallback for preview hosts not in Builder's allow-list, surface rejected credentials on status / Settings, scope callback postMessage to the parent origin, and self-heal credential auth-failure markers after a successful gateway call.
+
+## 0.15.7
+
+### Patch Changes
+
+- d4c9097: Polish Builder connect completion by avoiding loopback callback URLs and refreshing connected chat UI.
+
+## 0.15.6
+
+### Patch Changes
+
+- 54e65a6: Keep Builder connect on the active preview deployment and route chat reconnect buttons through the signed popup flow.
+- 54e65a6: Keep Builder CLI auth connect URLs fresh and preview-aware in embedded Builder editor contexts.
+
+## 0.15.5
+
+### Patch Changes
+
+- 86dbcea: Refresh Builder connect links inside popup click flows and use Google OAuth popups for Builder iframes.
+
+## 0.15.4
+
+### Patch Changes
+
+- Refresh Builder connect links inside popup click flows and use Google OAuth popups for Builder iframes.
+
+## 0.15.3
+
+### Patch Changes
+
+- b2d1228: Use popup Google sign-in for Builder web iframes and bridge the returned session back into the embedded preview.
+
+## 0.15.2
+
+### Patch Changes
+
+- 73dbe40: Allow signed Builder connect flows to complete through workspace gateway origins without requiring the iframe host's session cookie.
+
+## 0.15.1
+
+### Patch Changes
+
+- 10dc17f: Improve Builder preview Google OAuth popup completion, diagnostics, and callback error propagation.
+- 10dc17f: Keep the pre-hydration theme script's resolved data-theme in sync with the html class.
+
+## 0.15.0
+
+### Minor Changes
+
+- f400c81: Two additions to core:
+  - **`AppearancePicker` + `change-appearance` action.** New per-user appearance presets (`warm` / `ocean` / `forest` / `rose` / `slate` + the default) that override the base HSL theme tokens. The runtime reads `localStorage["appearance"]` in the inline theme-init script and sets `<html data-appearance="...">` before hydration, so there's no first-paint flash. Exports: `APPEARANCE_PRESETS`, `applyAppearance`, `getStoredAppearance`, `useAppearance`, `AppearanceSync`, `AppearancePicker`. The agent can change the active preset via the new `change-appearance` core sharing action — auto-registered through `mergeCoreSharingActions`, so every template inherits it.
+  - **`guard-extension-no-public.mjs`.** New CI guard wired into `pnpm guards`. Statically refuses any change that drops `allowPublic: false` / `requireOrgMemberForUserShares: true` from the extension shareable registration, or that introduces a string literal / raw SQL flipping an extension row to `visibility = "public"` outside the framework-level `set-resource-visibility` action. `sharing` skill updated to document the two new registration flags and point at the guard.
+
+- b5b6f22: New optional `emptyStateAddon` prop on `AssistantChat` — content rendered in the empty state above the suggestion buttons. Used by `MultiTabAssistantChat` to surface "previous chats for this design" when the current thread is empty but the scope has other threads. No behaviour change when the prop isn't passed.
+- 2eb5064: `PromptComposer` + `TiptapComposer`: inline image attachments, attachment-only composer-mode sends, and active-voice cancellation on submit. Image files attached to the composer are now sent inline as `<uploaded-image name=… contentType=…>` data-URL blocks alongside the existing pasted-text / inline-text flattening. Composer modes (`/code`, `/research`, etc.) now also accept submissions with no text when attachments are present — the default prompt becomes "Use the attached context." and the attachments survive the wrap in the mode's prefix + `<context>` block. Every send / build intercept path also cancels any in-flight voice dictation so a late transcript can't land on top of the just-sent message.
+- 97ca0db: Export `useBuilderStatus` and `useBuilderConnectFlow` (plus `BuilderConnectFlow` / `BuilderConnectFlowOptions` types) from `@agent-native/core/client`. Both hooks already powered the in-framework SettingsPanel's Builder.io connect flow; surfacing them lets templates reuse the same status read + connect-flow state machine in their own settings UIs without duplicating the SSE / popup-handshake plumbing.
+- f400c81: Polish + appearance presets:
+  - Sign-in page: add a favicon `<link>` to the onboarding sign-in and reset-password HTML so tabs no longer show the default globe.
+  - Sign-in page: suppress the on-screen Google OAuth status overlay ("OAuth exchange redeemed; returning to the app (flow …)" and friends) for end users. Diagnostics still log to the browser console; the overlay can be opted back in with `#oauth-debug` or `?oauth_debug=1` for debugging.
+  - Feedback popover: placeholder now leads with concrete examples ("e.g. 'The Send button isn't obvious'…") so users have a clearer prompt than "Tell us what's on your mind…".
+  - **New: Appearance presets.** Users can pick a color theme without editing source. Adds a `change-appearance` action (auto-mounted everywhere) that the agent can invoke as a tool, a `<AppearancePicker />` React component for Settings pages, a `useAppearance` / `useAppearanceSync` hook pair, and CSS preset overrides (`warm`, `ocean`, `forest`, `rose`, `slate`) layered on top of each template's base palette via `<html data-appearance="…">`. The theme init script now also applies the stored preset on first paint to avoid FOUC.
+  - Agent system prompt now includes a short first-session personalization flow: greet, ask two yes/no questions (theme preset via `change-appearance` plus one template-specific preference), then mark `application_state.personalization = { done: true }` so it never re-asks.
+
+- d1a90ac: Image uploads and drag-and-drop, framework-wide.
+  - New `upload-image` agent action — converts a base64 data URL or remote URL into a hosted CDN URL via the active file-upload provider (Builder.io by default, or any provider registered with `registerFileUploadProvider` — S3, R2, GCS, etc.). Auto-registered for every template alongside the sharing actions; the agent now has an explicit tool to materialize chat-attached or generated images as stable URLs for slides, documents, and outbound messages.
+  - File-upload registry now uses a `globalThis`-backed singleton. The previous module-level `Map` could be evaluated more than once in some Vite/Nitro bundle-split scenarios — the plugin that called `registerFileUploadProvider()` lived in one module instance and the request handler / server-side pre-upload lived in another, so the call site saw an empty map even though registration succeeded. Custom providers (S3/R2/GCS) and the dev-mode upload path now both see the same map regardless of how the bundler chunked them; Builder.io was unaffected because it has an env-var fallback in `uploadFile()`.
+  - Server-side pre-upload of chat image attachments: when a user attaches an image to the agent composer, the framework now uploads it through `uploadFile()` before the model runs and injects a `<chat-image-attachment url="..." />` block at the bottom of the user message. The model still receives the image as multimodal vision content; it just also has the hosted URL to embed in HTML. If no provider is configured, the framework injects a `<chat-image-attachment-upload-error>` block instructing the agent to suggest connecting one.
+  - Chat-wide drag-and-drop: the agent sidebar now accepts file drops anywhere on the chat surface (thread, header, composer), not just inside the contenteditable. A "Drop to attach" affordance highlights the chat while files are being dragged over it.
+  - Slides drag-and-drop fixes: `/api/assets/upload` now routes uploads strictly through the framework `uploadFile()` provider chain. The previous local-disk path that wrote into `public/uploads/` is gone — it didn't persist on serverless deploys and polluted the source tree on dev runs. With no provider configured, the endpoint returns a clear 503 telling the caller to connect Builder.io (or any registered provider). `listAssets` / `deleteAsset` no longer scan local disk; listing is a no-op for now (until a SQL-backed asset index lands), and deletes go through the provider's own API. Drops anywhere on the slides editor — including the chrome and sidebars — are caught instead of letting the browser navigate to the file; drops outside a placeholder/`<img>` open a popover that hands the image off to the agent chat for the user to describe what to do with it.
+
+- f400c81: Two related additions to the realtime + agent layer:
+  - **Per-source change-version primitive.** New `useChangeVersion(source)` / `useChangeVersions(sources)` / `getChangeVersion` / `bumpChangeVersion` exported from `@agent-native/core/client`. Every `recordChange` event carries a `source` and `version`; `useDbSync` now bumps a per-source counter on each event and templates fold the counter into their React Query `queryKey`, so a change to `"dashboards"` only refetches dashboard queries instead of triggering a blanket cache invalidate across the app. Framework-level keys (`action`, `extension`, `application-state`, …) keep their universal invalidate; template data keys (`data`, `dashboards`, `analyses`, `dashboard-views`) no longer do — they react through the per-source counter. Analytics templates updated as the first consumer (CommandPalette / Sidebar / sql-dashboard / AnalysesList).
+  - **Scoped chat tabs in `AgentPanel` / `MultiTabAssistantChat`.** New optional `scope?: ChatThreadScope | null` prop on `AgentPanel`. When set, the tab bar partitions per `(storageKey, scope)` so each deck / dashboard / record shows its own thread list, new chats inherit the scope server-side, and the panel renders a "Working on {label}" badge with a Detach button to escape back to the unscoped tab list. Pairs with the server-side `scope_type` / `scope_id` / `scope_label` columns + `setThreadScope` already in `chat-threads/store.ts`.
+
+- ffd3d00: Add first-class workspace app audience metadata with route-level public/protected page access.
+- d1a90ac: `ShareButton` now accepts an optional `shareUrlPlaceholder` prop. When the primary `shareUrl` is undefined the popover shows the placeholder inside a subtle dashed-border slot instead of hiding the link section silently. Use it to tell respondents _why_ there's no link yet (e.g. "Publish this form to get a public response link") so the popover doesn't look broken on draft / unpublished resources.
+- 5f59f44: Browser tracking now sends a persistent `anonymousId` (visitor ID) and a `sessionId` with a 30-minute idle timeout on every event posted to the Agent Native Analytics `/track` endpoint. Both IDs are stored in `localStorage` and degrade gracefully to NULL when storage is unavailable (private browsing). Unique-visitor and session metrics in the analytics template now have real data to aggregate against; previously these columns were always NULL for anonymous traffic.
+- c6defe7: Real-time sync, take 2: per-source change counters.
+
+  The previous attempt — invalidating every active React Query on any non-own change event — caused a request storm on the analytics dashboard (461 pending requests, polls timing out at the 10s abort). This change replaces it with a targeted, default-on mechanism:
+  - New `useChangeVersion(source)` and `useChangeVersions(sources)` hooks return an integer that advances every time the server emits an event with that source (`"dashboards"`, `"analyses"`, `"action"`, `"settings"`, `"app-state"`, etc.). `useDbSync` keeps a per-source counter and bumps it from every poll/SSE event it sees.
+  - Templates fold the counter into the relevant React Query `queryKey`. When the source advances, the queryKey changes and React Query refetches that one query — no whole-cache invalidate, no fanned-out refetches across unrelated panels. `placeholderData: (prev) => prev` keeps the old data on screen during the refetch so there's no flicker.
+  - `useDbSync` reverts to invalidating a small fixed list of framework-internal prefixes (`["action"]`, `["app-state"]`, `["__set_url__"]`, etc.) and no longer touches templates' own data queries. The legacy `queryKeys` option remains in the type signature for backward compatibility but is ignored.
+  - Analytics' dashboard / analysis / sidebar / command-palette queries are wired up. Other templates can adopt the same pattern by importing `useChangeVersion` and including it in their query keys; recommended sources include `"dashboards"`, `"analyses"`, `"settings"`, and `"action"` (the agent runner emits `source: "action"` after every successful mutating tool call, so depending on it catches any agent-driven change to the underlying data).
+
+- 5f59f44: New `usePinchZoom` hook exported from `@agent-native/core/client` for canvas-style editors. Wires trackpad pinch (synthesized as `wheel` events with `ctrlKey: true`) and 2-pointer touchscreen pinch onto a scrolling container, with cursor-anchored zoom-to-cursor support and configurable `min` / `max` percentages. The slides template adopts it on the deck-editor canvas; any template with a zoomable surface can drop it in by attaching the returned ref to the scroll container.
+
+### Patch Changes
+
+- d1a90ac: Agent chat: when the user sends a new message after scrolling up to read history, scroll back to the bottom so the new message and reply land in view. Previously the sticky-bottom override (which exists to stop streaming from yanking the viewport) also swallowed direct sends, leaving the user stuck in old history.
+- ffd3d00: Emit agent sidebar open-state events so custom toolbar buttons can track when the chat panel opens or closes itself.
+- d1a90ac: Local-dev convenience: skip the sign-up wall on a freshly-scaffolded app. When `NODE_ENV=development` and the `user` table has no rows for any email other than `dev@local`, the auth guard transparently signs up + signs in an auto-managed `dev@local` account on the first page GET and 302s back to the original URL with the session cookie set. A developer who just ran `pnpm dev` lands in the app immediately instead of being asked to fill in name + email + password to try the framework. Once a real user signs up via the regular form, the email-filter short-circuit fires and this helper returns null on every subsequent request, so the normal login flow takes over. Set `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out.
+- 5f59f44: Docs only: spell out the auto-refresh contract in the default-template and starter `AGENTS.md` so newly-scaffolded apps know that agent writes must reflect in the UI without a manual refresh. Use `useActionQuery` (auto-covered) or fold `useChangeVersions([<source>, "action"])` into raw `useQuery` keys. Mirror the framework `adding-a-feature` and `real-time-sync` skills into `packages/core/src/templates/default/.agents/skills/` and `templates/starter/.agents/skills/` so scaffolded apps inherit the same guidance.
+- d1a90ac: Builder credential resolution: implicit-org fallback + trace logging.
+  - `agent-chat-plugin`: when `session.orgId` is null (Better Auth leaves it null until the user explicitly switches orgs), fall back to `getOrgContext()` to pick up implicit org membership. A fresh signup with a domain-matched org now sees its org-scoped Builder credentials instead of looking unconnected.
+  - `resolveSecret`: log every Builder credential lookup (`[resolve-secret]` lines covering hit/miss + scope + email + orgId). "I connected Builder but chat says no LLM" reports can now be diagnosed from server logs without rerunning the request. Other keys are gated behind `DEBUG_CREDENTIAL_RESOLVE=1` to keep noise low.
+  - `core-routes-plugin` builder-connect: log the resolved write scope so we can see which scope (user/org/workspace) a connect actually persisted to.
+
+- d1a90ac: Add inline "Start new chat" button to no-detail Builder gateway error messages. When the gateway returns `{type:"stop",reason:"error",requestId:...}` with no diagnostic, the error UI now renders a one-click CTA next to the message instead of just telling the user to start a new chat manually. The button dispatches an `agent-chat:new-chat` window event that `MultiTabAssistantChat` listens for, matching the existing close-tab event pattern.
+- a89082e: Builder reconnect now clears stale credentials before writing the new connection, so reconnecting with a different Builder space actually takes effect.
+
+  `writeBuilderCredentials` previously upserted each new key but left stale rows in place. Two failure modes:
+  - Reconnecting with a Builder space that doesn't carry every optional field (e.g. no `orgName`/`orgKind`/`userId`) left the previous connection's metadata behind at the target scope, so the gateway saw a mix of new and old credentials.
+  - When a user's first connect wrote at user scope (member or no-org) and a later reconnect wrote at org scope (now owner/admin), the old user-scope row still won resolution — user scope beats org scope by design — so the chat kept using the old Builder space's credentials even though the UI showed the new connection.
+
+  Fix: before writing, delete all five `BUILDER_*` keys at the target scope, and when writing at org scope also delete the writer's user-scope rows. The org-scope row is intentionally left alone when writing at user scope so a single user's personal override doesn't blow away the team's shared connection.
+
+  Reported as "I signed in again with my Builder space not my own one and still telling me I need to upgrade" on 2026-05-11.
+
+- d1a90ac: `builderFileUploadProvider`: retry transient 5xx once with backoff (600ms then 1.8s).
+
+  Builder.io's upload service occasionally returns a bodyless 500 ("Internal Error") on the first attempt — usually GCS write hiccups that succeed on retry. Three template surfaces that hit this on every recording / upload (Clips finalize, attachment uploads, generated-image uploads) now get those transient failures absorbed silently. Deterministic 500s still surface to the caller after the third attempt with the original status + body.
+
+- ad4f135: Keep the in-app agent panel active inside Builder web previews instead of treating them as local dev frames.
+- ffd3d00: Recover the agent panel automatically when assistant-ui renders a stale list index.
+- ffd3d00: Clarify scoped chat context copy in the assistant sidebar.
+- 64792af: Clarify Builder Cloud Agent waitlist guidance so agents do not send users to nonexistent org settings.
+- d1a90ac: CLI + dispatch shell fixes from create-workflow feedback:
+  - `create`: scaffold `packages/pinpoint` when the user selects `slides` or
+    `videos`. Their `package.json` declares `@agent-native/pinpoint:
+workspace:*`, but the templates-meta entries were missing
+    `requiredPackages: ["pinpoint"]`, so `pnpm install` blew up with
+    `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND`. The existing e2e test now covers
+    every template with `@agent-native/*` workspace deps so a regression
+    surfaces in CI instead of on the user's machine.
+  - `create`: per-template progress messages during scaffolding
+    (`Scaffolding Slides (3/4)...`, `Adding shared packages...`) and a
+    concrete "this is done" stop message, replacing the single static
+    "Working... no action needed" line that made a multi-app workspace
+    feel hung.
+  - `create`: detect `pnpm` on PATH before printing the outro. If it's
+    missing, the next-steps block now leads with `npm install -g pnpm`
+    instead of dumping the user at `zsh: command not found: pnpm`.
+  - `create`: Dispatch is now always scaffolded into a new workspace
+    rather than being a recommended-but-optional pick. The picker only
+    lists the optional apps; the workspace note explains that Dispatch is
+    always included as the control plane. `--template=forms` (or any
+    non-Dispatch list) still works — Dispatch gets unioned in. New
+    regression test asserts this.
+  - Auth guard: local-dev convenience for `NODE_ENV=development`. When
+    the `user` table has no real users yet, the first unauthenticated
+    page GET transparently signs up (and signs in) a `dev@local` account
+    and 302s back to the requested URL, instead of showing the sign-up
+    form. A developer running `pnpm dev` lands straight in the app. Once
+    any real account exists the auto-create short-circuit fires and the
+    regular login flow takes over. Opt out with
+    `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`. Production is unaffected.
+  - `DispatchShell`: page-title info icon is now a click-driven Popover
+    instead of a hover-only Tooltip, and the trigger button has a
+    proper hover background so it reads as clickable. Clicking the icon
+    (the natural gesture, and the only available one on touch) did
+    nothing before.
+  - `create`: clean up the partially-scaffolded directory when scaffolding
+    fails (e.g. flaky network during the template download). Without this
+    the first failure left the workspace dir on disk, and the next
+    `agent-native create <name>` rejected the same name with "Directory
+    already exists" — forcing a manual `rm -rf` before retrying.
+  - Dispatch apps list: filter dotfile directories (e.g.
+    `.agent-native-tmp-*` extraction sidecars) when reading the
+    workspace's `apps/` directory. The temp dir is a sibling of the
+    target so it appeared at the top of the apps grid mid-scaffold,
+    looking like a stray entry.
+  - Dispatch onboarding: register a "Create your first app" step at order
+    5 so it sits above the Slack/Telegram secret-onboarding steps. A
+    brand-new workspace was leading with "Connect Slack" before the user
+    had even added an app, which felt confusing.
+  - Agent system prompt (chat-in-browser-on-localdev): when a user asks to
+    scaffold a new workspace app from a localhost browser tab, point them
+    at \`npx @agent-native/core add-app\` first since they're already in
+    that terminal. The desktop / Claude Code / Codex / Builder.io
+    alternatives still follow for general source-editing work.
+
+- ffd3d00: Add Cmd/Ctrl+Backslash as a global shortcut for toggling the agent sidebar.
+- 04c3ed9: Coach users through stalled agent tasks with clearer troubleshooting and next-step guidance.
+- b5b6f22: `TiptapComposer`: when a caller passes a custom `actionButton`, render only the model selector + plan-mode toggle on the left side (skipping the voice/file/send cluster that the default action-button slot owns). Without this, callers that already render their own send button got a duplicate-looking trailing block. No behavior change when `actionButton` isn't passed.
+- 2eb5064: `AssistantChat`: hide the empty user-message bubble when the text content is nothing but an injected `<context>...</context>` block. Previously, sending an attachment-only composer-mode message (e.g. `/code` with a file but no prose) rendered an empty grey bubble in the chat after the context tags were stripped. The message now skips the bubble + expand/collapse UI entirely when the only attachment is context; attachment chips still render above.
+- 2eb5064: `useDbSync` + server poll: per-key invalidation for application_state one-shot commands. The poll loop now emits one event per changed (key, owner) pair instead of a single `key: "*"` wildcard, and the client only invalidates `navigate-command` / `show-questions` / `__set_url__` queries when those specific keys actually change. Noisy app-state keys (template-specific UI state, per-tab flags) no longer wake the navigation / question readers on every poll cycle.
+- 2eb5064: `useVoiceDictation`: cancelling while the transcription request is in flight now actually drops the response. Previously `cancel()` returned early for any state other than `recording` / `starting`, so once the network POST started, a cancel click was a no-op and the transcribed text would still be inserted into the composer after the user cancelled. The fetch handlers (both success and live-snapshot fallback) now check `cancelledRef` immediately after the await and bail without forwarding.
+- 64792af: Keep Builder connect popups from replacing the Agent Native desktop webview.
+- ddcc773: Raise shadcn floating-UI primitives (Dialog, AlertDialog, Sheet, Drawer, Popover, DropdownMenu, Tooltip, HoverCard, ContextMenu, Menubar, Select) from `z-50` to `z-[250]` so modal overlays cover the agent sidebar header (`z-[240]`). Fixes the case where the "Add Calendar" (and similar) modal opens but the agent chat panel underneath stays visible and interactive.
+- f400c81: Add `create-pylon-ticket` action to Dispatch for escalating blockers, unmatched `#customer-*` routing, or follow-ups that need tracking — uses `PYLON_API_KEY` from the Vault. Instrument the agent chat with Sentry captures when the auth-error card stays visible past auto-recovery (`auth_error_card_stuck`) and when SSE reconnect times out (`reconnect_no_progress`) so we can chase the "occasional Reload UI required" symptom.
+- b7e7d17: Route the Dispatch thread debugger through workspace root aliases.
+- 04c3ed9: `workspaceAppRouteAccessFromPackageJson` now returns optional `publicPaths` / `protectedPaths` so consumers can distinguish "field absent" from "field explicitly empty." `workspace-deploy`, `workspace-dev`, and `agent-discovery` prefer the package.json value whenever it was set (even `[]`), so an app owner can clear an inherited manifest override by writing `"publicPaths": []` in its `package.json`.
+- f400c81: Restrict extensions to private/org sharing only — extensions execute code in
+  the viewer's authentication context, so they must never be `visibility: "public"`
+  and user shares must target someone already in (or invited to) the org.
+  - Added `allowPublic` and `requireOrgMemberForUserShares` flags to
+    `registerShareableResource()`. Defaults match prior behavior; extensions
+    opt into both.
+  - `set-resource-visibility` rejects `"public"` for any resource registered
+    with `allowPublic: false`. `accessFilter` and `resolveAccess` treat any
+    stored `'public'` row as private for those resources (defense in depth).
+  - `share-resource` verifies the principal email against `org_members` and
+    pending `org_invitations` when `requireOrgMemberForUserShares: true`. The
+    same flag also pins `principalType: "org"` shares to the resource's own
+    org — cross-org org-principal shares would otherwise let an outside org's
+    members run extension code in the viewer's auth context (same threat
+    model as a public extension).
+  - `updateExtension` and the extension `PUT` route refuse `visibility: "public"`
+    directly. `list-resource-shares` returns a `policy` block so the share
+    popover hides the "Public" option and shows server errors inline.
+  - New `scripts/guard-extension-no-public.mjs` (wired into `pnpm guards` /
+    `pnpm prep`) statically enforces that the extension registration keeps
+    both flags set, and refuses `visibility: "public"` literals inside
+    `packages/core/src/extensions/`.
+
+- d1a90ac: Fixes for feedback from QA pass:
+  - **Content** (`templates/content`): deleting the page you're currently viewing now navigates to the landing page **before** the delete round-trip resolves, so the editor doesn't sit on a now-deleted page while the request is in flight. The page-id route also redirects to `/` when the document fetch returns 404, so refreshing on a stale URL no longer dead-ends at "Document not found".
+  - **Design** (`templates/design`): clicking the Edit tab no longer auto-collapses the agent chat. Previously, entering edit mode dispatched `agent-panel:close` so the EditPanel and canvas could share the screen, but the chat dropping out shifted the toolbar and removed the user's working context. Properties and chat now coexist as adjacent right-side panels.
+  - **OrgSwitcher** (`packages/core`): clicking "Create organization" or "Invite member" now clears any leftover input from a previous session before entering that mode. Previously, the create form could re-open prefilled with the just-created org's name, making the switcher look like a create dialog for the new org.
+
+- d1a90ac: Several feedback fixes:
+  - **Dispatch back-button to `/dispatch/dispatch/overview`.** `dispatchNavLinkTarget` (the helper that decides whether NavLink should manually prepend the workspace mount prefix) read `window.__reactRouterContext.basename` to detect the router's basename. If that global wasn't set yet at render time, the helper double-prefixed the `to` prop, the router then prepended its own basename, and the resulting `/dispatch/dispatch/<route>` landed in browser history — clicking back from any dispatch page later took the user to that 404. The helper now mirrors `entry.client.tsx`'s basename calculation directly from `window.location.pathname`, removing the context-global race. `routerPath` (in both the package and the template copy) also iteratively strips the basename so any doubly-prefixed path that snuck into `application_state.navigate` doesn't get partially-stripped here and re-prefixed by the router back to the bad URL.
+  - **"Use Builder" CTA stuck after connect (web).** The Builder upsell CTA in `AgentPanel` opens Builder in a `<a target="_blank">` tab, not a popup, so it never started the `useBuilderConnectFlow` polling loop — `useBuilderConnectUrl` was fetched once on mount and never refreshed, leaving the CTA in the "Use Builder" state after the user came back to the original tab. The callback success HTML now posts a `builder-connect-success` BroadcastChannel + window.opener message (mirroring the existing error-path broadcast), and `useBuilderConnectUrl` listens on BroadcastChannel + `window.message` + `focus` + `visibilitychange` + the existing `agent-engine:configured-changed` event, refetching `/builder/status` on any of them. Also dispatches `agent-engine:configured-changed` when status first reports configured so the rest of the chat tree updates without a full reload.
+  - **Firebase `auth/popup-blocked` in desktop Builder connect.** Builder's `/cli-auth` page signs into Google via `signInWithPopup`, which calls `window.open()`. Inside the Electron OAuth `BrowserWindow` we create for the Builder flow, there was no `setWindowOpenHandler`, so Electron's default silently blocked the popup — Firebase reported `auth/popup-blocked`, the parent OAuth window never received the result, and the user saw a blank screen that then closed. The OAuth window now returns `action: "allow"` for https child popups and constructs the child as another `BrowserWindow` sharing the same `session` so Firebase's `window.opener.postMessage` handshake reaches back.
+  - **`resolveScopedBuilderCredential` tracing.** The Builder credential lookup walked user → org → workspace silently; when "I connected Builder but chat says use Builder" reports come in, there was no way to tell which scope answered or whether none did. Each branch now logs the scope, email, orgId, and hit/miss outcome (matching the existing always-on tracing in `resolveSecret` for BUILDER\_\* keys).
+
+- ffd3d00: `forkThread` now overlays the in-memory snapshot on top of the persisted row when the snapshot is fresher (more messages) than what's in SQL. Previously, once any version of the source row existed in the database, the snapshot was ignored — so forks could lose the latest unflushed user message, which is exactly the scenario chat-fork-from-unflushed is meant to fix. Guarded with `snapshot.messageCount > stored.messageCount` so a stale snapshot from another tab can't clobber a fresher persisted row.
+- ffd3d00: `AgentPanel` no longer emits a synthetic `{ open: false }` sidebar-state event on mount when the parent frame owns the sidebar. The dispatch is now deferred until the frame sends its first `agentNative.sidebarMode` message, so listeners initialize with the real state instead of seeing a false → true flip a moment later.
+- 64792af: Avoid double-submitting Builder chat prompts from embedded app composers by using a single iframe transport when a parent frame is available.
+- 9c991e1: Keep Builder preview Google sign-in from returning to loopback preview URLs.
+- ce9e355: Open primary Google sign-in from Agent Native Desktop through the desktop exchange flow so OAuth can complete in the system browser.
+- ce9e355: Add LLM connection context to tracking events and track Builder connect clicks.
+- 97ca0db: Export `useBuilderStatus` and `useBuilderConnectFlow` from `@agent-native/core/client` so template settings pages can render a connect-builder button that polls for completion instead of a bare `<a target="_blank">` link.
+- 1fd5856: Allow owners to manage legacy unscoped shared resources after joining an organization.
+- d1a90ac: Org polish:
+  - `InvitationBanner`: while a join-by-domain or accept-invitation request is in flight, render an in-place "Joining {orgName}…" status so the chat panel doesn't look unchanged until the view abruptly swaps.
+  - `OrgSwitcher`: `settingsPath` is now optional. When unset, "Workspace settings" only opens the in-sidebar settings panel — suitable for templates without a dedicated team page. Templates that mount one (e.g. Dispatch's `/team`) pass it explicitly.
+  - `useOrgMembers` / `useOrgInvitations`: scope the React Query cache by active `orgId` so switching/creating an org forces a fresh fetch instead of briefly showing the previous org's members.
+  - `useCreateOrg`: invalidate all queries on success (creating an org switches into it server-side, so every org-scoped query is stale), matching `useSwitchOrg`.
+  - Create/invite forms: loader uses flex centering so the spinner stays vertically centred inside the button; close the create-org dialog via the unified `handleOpenChange` so cleanup runs.
+
+- ce9e355: Add app navigation links to the organization switcher, with Dispatch pinned as the workspace hub.
+- ffd3d00: Standardize the organization switcher settings link around template team pages.
+- ad4f135: Use polling file watchers for workspace dev in managed remote containers to avoid Linux inotify limits.
+- 64792af: Recover auth sessions when stale duplicate cookies shadow a fresh sign-in.
+- b7e7d17: Hide agent-created scratch resources from workspace file lists by default.
+- 64792af: Recover the agent chat message list when assistant-ui briefly renders a stale message index.
+- ad4f135: Seed shadcn-aware frontend design skills in generated apps and workspaces.
+- 13284b1: ErrorBoundary: "Go home" now triggers a full page reload (was client-side
+  `<Link>`), so a signed-out visitor who lands on an error page is taken
+  through the server auth guard's sign-in flow instead of getting stuck on
+  a logged-in route with failing API calls. Also softens the 404 message
+  to a plain "We couldn't find this page." for end users — the previous
+  copy mentioned Dispatch and "shipping" routes, which only made sense to
+  developers working on workspace apps.
+- ffd3d00: Make chat forking work when the source thread has not flushed to SQL yet.
+- ffd3d00: Redirect mounted Dispatch workspace roots to the overview page across workspace deploy presets.
+- 04c3ed9: Surface workspace app startup timeouts instead of looping forever on the gateway wake screen.
+- ce9e355: Send a larger default output-token budget through the Builder gateway so long Plan Mode responses do not inherit a short gateway default.
+- ce9e355: Scope agent chat screen and URL context to the originating browser tab.
+- d1a90ac: Fix Builder "Upgrade at builder.io" link in chat dropping users on `/app/projects` instead of billing. The link previously deep-linked to `/app/organizations/<BUILDER_ORG_NAME>/billing`, but `BUILDER_ORG_NAME` is the org's display name (e.g. `Nicholas kipchumba Space`), not a URL-safe slug — Builder's router didn't recognize it and silently redirected to `/app/projects`. The CLI-auth callback doesn't expose an org slug or id today, so the link now always points to `https://builder.io/account/billing`, which resolves the active org from session.
+- d1a90ac: Promote `upload-image` to a core sharing action: register it in `mergeCoreSharingActions` so every template inherits the agent-callable image-upload tool without each app having to re-declare it in `actions/`.
+- ce9e355: Default Dispatch vault access to all workspace apps, add manual grant mode, sync vault keys into encrypted app secrets, and fix org-scoped vault listing.
+- ce9e355: Save generated workspace app descriptions, make Dispatch app metadata editable, and include workspace app names/descriptions in A2A agent context.
+- ce9e355: Workspace dev gateway pages (loading + index) now respect `prefers-color-scheme` and render in dark mode when the user's OS is set to dark.
+- 64792af: Show workspace dev child-process failures on the startup page instead of hiding them behind a generic reload loop.
+- d1a90ac: CLI: probe each app's port before spawning Vite so the workspace dev server doesn't die on a single port conflict. `pnpm dev` previously assigned each app a fixed port (`8100`, `8101`, …) and spawned Vite with `--strictPort` for the gateway routing; if anything on the host already owned that port, Vite failed hard before the gateway could route around it. The workspace now binds a probe TCP socket on each candidate port before commiting to it, increments past collisions, and logs the substitution. The same probe runs in the live filesystem-sync path so a newly-scaffolded app added with `agent-native add-app` doesn't trip on a busy port either. Includes a related CLI scaffolding spinner tweak — the per-app message now distinguishes "Downloading X template…" (slow GitHub fetch) from "Configuring X…" (fast local rewrite) so users don't watch a frozen "Scaffolding…" message during the network step. `runWorkspaceDev` is now async (returns `Promise<WorkspaceDevHandle>`); the two in-tree callers already chained `.then()`, so no external API change.
+- ce9e355: Prefer the public auth origin (`APP_URL` / `BETTER_AUTH_URL` / `WORKSPACE_OAUTH_ORIGIN`) over the workspace gateway URL when resolving Google OAuth redirect URIs, on both server and client. Filter out loopback gateway origins so dev workspaces don't accidentally redirect to localhost in production. The workspace dev runner forwards the resolved origin to per-app processes via `VITE_WORKSPACE_OAUTH_ORIGIN`.
+- ad4f135: Keep workspace OAuth and app URL resolution on configured public origins before falling back to local workspace gateways.
+- b7e7d17: Allow the Workspace tab to load without desktop code access.
+
 ## 0.14.8
 
 ### Patch Changes

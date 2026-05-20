@@ -24,6 +24,22 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 | **`AUTH_DISABLED=true`**  | Skip auth entirely (for apps behind infrastructure-level auth like Cloudflare Access).                                                   |
 | **Custom**                | Pass your own `getSession` to `autoMountAuth(app, { getSession })`.                                                                     |
 
+## Remote MCP OAuth
+
+Every app's `/_agent-native/mcp` endpoint is also a standard protected MCP
+resource. OAuth-capable hosts connect with the remote MCP URL only, receive a
+`WWW-Authenticate` challenge, discover `/.well-known/oauth-protected-resource`
+and `/.well-known/oauth-authorization-server`, dynamically register a public
+client, and complete authorization-code + PKCE at
+`/_agent-native/mcp/oauth/authorize` / `/_agent-native/mcp/oauth/token`.
+Access tokens are audience-bound to the exact MCP URL and carry user/org
+identity plus `mcp:read`, `mcp:write`, and/or `mcp:apps`; refresh tokens are
+stored hashed and rotate. Keep `ACCESS_TOKEN` and `agent-native connect` for
+local stdio proxying, fallback clients, and simple private deployments. The CLI
+uses the OAuth-native URL-only entry for Claude Code/Claude Code CLI by
+default; use the Connect page or `agent-native connect --token <token>` when a
+client needs explicit bearer headers.
+
 ## Local → Real Account Migration
 
 Upgrading from `local@localhost` to a real account preserves SQL-backed workspace data. The built-in migration moves `application_state`, user-scoped `settings`, `oauth_tokens`, and any template table that uses `owner_email`.
@@ -47,6 +63,17 @@ Set `A2A_SECRET` (same value) on all apps that must verify each other's identity
 - Outbound A2A calls are signed with JWTs
 - Inbound calls are verified cryptographically
 - Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev)
+
+## Cross-App SSO (Dispatch identity hub)
+
+Each hosted `*.agent-native.com` app has its **own user store**, so "sign in once" is identity federation, not a shared cookie. **Dispatch is the identity authority.**
+
+- **Opt-in per app via one env var:** set `AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com` and the app shows a "Sign in with Agent-Native" option. **Unset = zero behavior change** — the whole path is dormant. Reversible at any time.
+- **Flow:** app → `GET <hub>/_agent-native/identity/authorize?app=&redirect_uri=&state=` → user logs in at Dispatch → 302 back with a short-lived (`≤5min`) `A2A_SECRET`-signed identity JWT (`sub`/`email`/`name`/`org_domain`/`scope:"identity"`). Strict `redirect_uri` allowlist (`*.agent-native.com` + localhost). App verifies the token, **JIT-links strictly by verified email** (existing same-email user → reused unchanged; new email → created), then mints a normal local session.
+- **Invariant (do not break):** identity rows are only ever **added** — never modified, renamed, or deleted. Enabling SSO logs users out, but they always log back into the **same email-matched account with data intact**. Email is the only thing that crosses the trust boundary; the app never trusts a user id, role, or org from the wire.
+- **Canary rollout:** deploy with the env unset everywhere (no-op) → set it on **one** app (mail) only → verify (logout → SSO → Dispatch → back to the same pre-existing account, data intact, direct logins still work) → expand app-by-app → rollback = unset the env on that app's deploy (instant, no data change).
+
+Full runbook + flow detail: [Cross-App SSO doc](/docs/cross-app-sso).
 
 ## Builder Browser Access
 
@@ -86,3 +113,4 @@ Bookmarked private paths already work without any plumbing — the framework's l
 
 - `security` — Data scoping, SQL injection, secrets
 - `actions` — Auto-protected by the auth guard
+- [Cross-App SSO doc](/docs/cross-app-sso) — Dispatch identity hub, federation flow, canary runbook

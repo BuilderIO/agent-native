@@ -1,4 +1,11 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
 import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
@@ -108,21 +115,37 @@ function ThemeToggleItem() {
   );
 }
 
-export default function Root() {
+function isStandalonePublicPath(pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  return (
+    path === "/download" ||
+    path.startsWith("/share/") ||
+    path.startsWith("/embed/")
+  );
+}
+
+function RootContent() {
+  const location = useLocation();
+  const standalonePublic = isStandalonePublicPath(location.pathname);
   const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  useCommandMenuShortcut(
+    useCallback(() => {
+      if (!standalonePublic) setCmdkOpen(true);
+    }, [standalonePublic]),
+  );
+
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <DbSyncSetup />
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      disableTransitionOnChange
+    >
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          {standalonePublic ? null : <DbSyncSetup />}
+          {standalonePublic ? null : (
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
               <CommandMenu.Group heading="Actions">
                 <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
@@ -131,12 +154,20 @@ export default function Root() {
                 <ThemeToggleItem />
               </CommandMenu.Group>
             </CommandMenu>
-            <DevOverlay />
-            <Outlet />
-            <Toaster richColors position="bottom-left" />
-          </TooltipProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
+          )}
+          {standalonePublic ? null : <DevOverlay />}
+          <Outlet />
+          <Toaster richColors position="bottom-left" />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
+  );
+}
+
+export default function Root() {
+  return (
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <RootContent />
     </ClientOnly>
   );
 }

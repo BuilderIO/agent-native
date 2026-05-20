@@ -30,6 +30,11 @@ interface Options {
    * page loads. Pass `null` to disable persistence.
    */
   storageKey?: string | null;
+  /**
+   * Disable server-backed model discovery for hosts that provide their own
+   * model list/state, such as Electron Code.
+   */
+  enabled?: boolean;
 }
 
 const DEFAULT_STORAGE_KEY = "agent-native:chat-models:selection";
@@ -65,6 +70,7 @@ function writePersisted(key: string | null, value: PersistedSelection) {
  */
 export function useChatModels({
   storageKey = DEFAULT_STORAGE_KEY,
+  enabled = true,
 }: Options = {}): UseChatModelsResult {
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
     [],
@@ -72,6 +78,7 @@ export function useChatModels({
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
 
   const initialPersisted = readPersisted(storageKey);
+  const hasExplicitSelectionRef = useRef(Boolean(initialPersisted.model));
   const [selectedModel, setSelectedModel] = useState<string>(
     initialPersisted.model ?? DEFAULT_MODEL,
   );
@@ -97,6 +104,7 @@ export function useChatModels({
 
   const onModelChange = useCallback(
     (model: string, engine: string) => {
+      hasExplicitSelectionRef.current = true;
       const effortOptions = getReasoningEffortOptionsForModel(model);
       setSelectedModel(model);
       setSelectedEngine(engine);
@@ -114,6 +122,7 @@ export function useChatModels({
 
   const onEffortChange = useCallback(
     (effort: ReasoningEffort) => {
+      hasExplicitSelectionRef.current = true;
       setSelectedEffort(effort);
       writePersisted(storageKey, {
         model: selectedModel,
@@ -125,6 +134,7 @@ export function useChatModels({
   );
 
   const refreshEngines = useCallback(() => {
+    if (!enabled) return;
     Promise.all([
       fetch(agentNativePath("/_agent-native/actions/manage-agent-engine"), {
         method: "POST",
@@ -255,6 +265,27 @@ export function useChatModels({
         setDefaultModel(nextDefaultModel);
 
         const selection = selectionRef.current;
+        if (!hasExplicitSelectionRef.current) {
+          const defaultGroup =
+            groups.find((group) => group.models.includes(nextDefaultModel)) ??
+            groups[0];
+          const nextModel =
+            defaultGroup?.models.find((model) => model === nextDefaultModel) ??
+            defaultGroup?.models[0] ??
+            nextDefaultModel;
+          const nextEngine = defaultGroup?.engine ?? "";
+          const effortOptions = getReasoningEffortOptionsForModel(nextModel);
+          const nextEffort =
+            selection.selectedEffort === "auto" ||
+            effortOptions.includes(selection.selectedEffort)
+              ? selection.selectedEffort
+              : "auto";
+          setSelectedModel(nextModel);
+          setSelectedEngine(nextEngine);
+          setSelectedEffort(nextEffort);
+          return;
+        }
+
         const selectedGroup = groups.find(
           (group) =>
             group.models.includes(selection.selectedModel) &&
@@ -287,11 +318,12 @@ export function useChatModels({
         }
       })
       .catch(() => {});
-  }, [storageKey]);
+  }, [enabled, storageKey]);
 
   useEffect(() => {
+    if (!enabled) return;
     refreshEngines();
-  }, [refreshEngines]);
+  }, [enabled, refreshEngines]);
 
   return {
     availableModels,

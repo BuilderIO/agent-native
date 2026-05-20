@@ -100,7 +100,9 @@ export default defineEventHandler(async (event) => {
         }
 
         case "github": {
-          const token = await resolveCredential("GITHUB_TOKEN", ctx);
+          const { getGitHubAccessToken } =
+            await import("../../lib/github-oauth");
+          const { token } = await getGitHubAccessToken(ctx);
           if (!token) return { ok: false, error: "Missing token" };
           const res = await fetch("https://api.github.com/user", {
             headers: { Authorization: `Bearer ${token}` },
@@ -217,6 +219,13 @@ export default defineEventHandler(async (event) => {
           );
           if (!res.ok) return { ok: false, error: "Invalid credentials" };
           return { ok: true };
+        }
+
+        case "prometheus": {
+          const url = await resolveCredential("PROMETHEUS_URL", ctx);
+          if (!url) return { ok: false, error: "Missing Prometheus URL" };
+          const { testConnection } = await import("../../lib/prometheus");
+          return await testConnection();
         }
 
         default:

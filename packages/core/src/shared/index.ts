@@ -19,3 +19,23 @@ export {
   getWorkspaceAppIdValidationError,
   isValidWorkspaceAppIdFormat,
 } from "./workspace-app-id.js";
+export {
+  DEFAULT_WORKSPACE_APP_AUDIENCE,
+  WORKSPACE_APP_AUDIENCES,
+  normalizeWorkspaceAppAudience,
+  normalizeWorkspaceAppPathList,
+  workspaceAppAudienceFromEnv,
+  workspaceAppAudienceFromPackageJson,
+  workspaceAppRouteAccessFromEnv,
+  workspaceAppRouteAccessFromPackageJson,
+  type WorkspaceAppRouteAccess,
+  type WorkspaceAppRouteAccessFromConfig,
+  type WorkspaceAppAudience,
+} from "./workspace-app-audience.js";
+export {
+  AGENT_NATIVE_OPEN_PATH,
+  AGENT_SIDEBAR_QUERY_PARAM,
+  AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
+  isAgentNativeOpenDeepLink,
+  withCollapsedAgentSidebarParam,
+} from "./agent-sidebar-url.js";

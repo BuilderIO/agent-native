@@ -29,6 +29,9 @@ describe("listWorkspaceApps", () => {
               name: "Todo",
               description: "Tracks personal tasks and follow-ups",
               path: "/todo",
+              audience: "public",
+              publicPaths: ["/"],
+              protectedPaths: ["/admin"],
             },
           ],
         }),
@@ -58,6 +61,42 @@ describe("listWorkspaceApps", () => {
     expect(apps.find((app) => app.id === "todo")?.description).toBe(
       "Tracks personal tasks and follow-ups",
     );
+    expect(apps.find((app) => app.id === "todo")?.audience).toBe("public");
+    expect(apps.find((app) => app.id === "todo")?.publicPaths).toEqual(["/"]);
+    expect(apps.find((app) => app.id === "todo")?.protectedPaths).toEqual([
+      "/admin",
+    ]);
+  });
+
+  it("filters workspace apps by audience", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          path: "/dispatch",
+          audience: "internal",
+        },
+        {
+          id: "portal",
+          name: "Portal",
+          path: "/portal",
+          audience: "public",
+        },
+      ]),
+    );
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () =>
+        listWorkspaceApps({
+          includeAgentCards: false,
+          audience: "public",
+        }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["portal"]);
   });
 
   it("generates a concise seed description from an app prompt", () => {

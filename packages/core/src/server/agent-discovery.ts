@@ -3,6 +3,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import {
+  DEFAULT_WORKSPACE_APP_AUDIENCE,
+  normalizeWorkspaceAppAudience,
+  normalizeWorkspaceAppPathList,
+  workspaceAppAudienceFromPackageJson,
+  workspaceAppRouteAccessFromPackageJson,
+  type WorkspaceAppAudience,
+} from "../shared/workspace-app-audience.js";
 
 export interface DiscoveredAgent {
   id: string;
@@ -70,6 +78,9 @@ export interface WorkspaceAppManifestEntry {
   path: string;
   url?: string | null;
   isDispatch?: boolean;
+  audience?: WorkspaceAppAudience;
+  publicPaths?: string[];
+  protectedPaths?: string[];
 }
 
 export function workspaceAppMetadataSettingsKey(input?: {
@@ -426,6 +437,12 @@ function parseWorkspaceAppsManifest(
           typeof entry.isDispatch === "boolean"
             ? entry.isDispatch
             : id === "dispatch",
+        audience:
+          entry.audience === undefined
+            ? DEFAULT_WORKSPACE_APP_AUDIENCE
+            : normalizeWorkspaceAppAudience(entry.audience),
+        publicPaths: normalizeWorkspaceAppPathList(entry.publicPaths),
+        protectedPaths: normalizeWorkspaceAppPathList(entry.protectedPaths),
       } satisfies WorkspaceAppManifestEntry;
     })
     .filter((app): app is WorkspaceAppManifestEntry => !!app)
@@ -495,12 +512,18 @@ function readWorkspaceAppsFromFilesystem(): WorkspaceAppManifestEntry[] | null {
       const appDir = path.join(appsDir, entry.name);
       const pkg = readJson(path.join(appDir, "package.json"));
       if (!pkg) return null;
+      const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
       return {
         id: entry.name,
         name: pkg.displayName || titleCase(entry.name),
         description: pkg.description || "",
         path: `/${entry.name}`,
         isDispatch: entry.name === "dispatch",
+        audience:
+          workspaceAppAudienceFromPackageJson(pkg) ??
+          DEFAULT_WORKSPACE_APP_AUDIENCE,
+        publicPaths: routeAccess.publicPaths ?? [],
+        protectedPaths: routeAccess.protectedPaths ?? [],
       } satisfies WorkspaceAppManifestEntry;
     })
     .filter((app): app is WorkspaceAppManifestEntry => !!app)

@@ -73,6 +73,50 @@ export const dispatchAuditEvents = table("dispatch_audit_events", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const dispatchDreams = table("dispatch_dreams", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  sourceId: text("source_id").notNull(),
+  title: text("title").notNull(),
+  status: text("status").notNull(),
+  query: text("query"),
+  report: text("report"),
+  summary: text("summary"),
+  sourceHealth: text("source_health"),
+  candidateCount: integer("candidate_count").notNull(),
+  inspectedThreadCount: integer("inspected_thread_count").notNull(),
+  createdBy: text("created_by").notNull(),
+  error: text("error"),
+  startedAt: integer("started_at").notNull(),
+  completedAt: integer("completed_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const dispatchDreamProposals = table("dispatch_dream_proposals", {
+  id: text("id").primaryKey(),
+  dreamId: text("dream_id").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  targetType: text("target_type").notNull(),
+  targetPath: text("target_path").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  rationale: text("rationale").notNull(),
+  content: text("content").notNull(),
+  evidence: text("evidence").notNull(),
+  confidence: integer("confidence").notNull(),
+  risk: text("risk").notNull(),
+  status: text("status").notNull(),
+  appliedBy: text("applied_by"),
+  appliedAt: integer("applied_at"),
+  rejectedBy: text("rejected_by"),
+  rejectedAt: integer("rejected_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 // ─── Vault: workspace-wide secret management ───────────────────────
 
 export const vaultSecrets = table("vault_secrets", {
@@ -141,7 +185,7 @@ export const workspaceResources = table("workspace_resources", {
   description: text("description"),
   path: text("path").notNull(), // resource path, e.g. "skills/designer.md"
   content: text("content").notNull(),
-  scope: text("scope").notNull(), // "all" (push to all apps) | "selected" (grant per-app)
+  scope: text("scope").notNull(), // "all" (runtime inherited) | "selected" (grant per-app)
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
@@ -154,7 +198,7 @@ export const workspaceResourceGrants = table("workspace_resource_grants", {
   resourceId: text("resource_id").notNull(),
   appId: text("app_id").notNull(),
   status: text("status").notNull(), // "active" | "revoked"
-  syncedAt: integer("synced_at"),
+  syncedAt: integer("synced_at"), // legacy column retained for older rows
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

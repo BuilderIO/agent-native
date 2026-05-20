@@ -18,6 +18,20 @@ export function mailLabelMatches(candidate: string, target: string): boolean {
   );
 }
 
+export function mailLabelsInclude(
+  candidates: readonly string[],
+  target: string,
+): boolean {
+  return candidates.some((candidate) => mailLabelMatches(candidate, target));
+}
+
+export function mailLabelsIncludeAny(
+  candidates: readonly string[],
+  targets: readonly string[],
+): boolean {
+  return targets.some((target) => mailLabelsInclude(candidates, target));
+}
+
 const INBOX_SCOPED_APP_LABEL_IDS = new Set([
   "important",
   "note-to-self",

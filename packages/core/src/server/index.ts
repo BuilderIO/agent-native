@@ -6,14 +6,27 @@ export {
 } from "./create-server.js";
 
 export { readBody, streamFile } from "./h3-helpers.js";
+export {
+  buildDeepLink,
+  toAbsoluteOpenUrl,
+  toDesktopOpenUrl,
+  OPEN_ROUTE_SUBPATH,
+  DESKTOP_OPEN_URL,
+  type DeepLinkInput,
+} from "./deep-link.js";
+export { createOpenRouteHandler, type OpenRouteOptions } from "./open-route.js";
 export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
 export {
   mountAuthMiddleware,
   autoMountAuth,
   getSession,
+  COOKIE_NAME,
   addSession,
   removeSession,
   getSessionEmail,
+  getFrameworkSessionCookieValues,
+  setFrameworkSessionCookie,
+  clearFrameworkSessionCookies,
   runAuthGuard,
   setDesktopExchange,
   setDesktopExchangeError,
@@ -22,6 +35,15 @@ export {
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
+export {
+  handleIdentitySso,
+  getIdentityHubUrl,
+  isIdentitySsoEnabled,
+  isIdentitySsoBypassPath,
+  identitySsoLoginButtonHtml,
+  IDENTITY_SSO_PROVIDER_ID,
+  IDENTITY_SSO_SCOPE,
+} from "./identity-sso.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export { verifyCaptcha, type CaptchaVerifyResult } from "./captcha.js";
 export {
@@ -44,6 +66,15 @@ export {
   type AgentLoopToolCallSummary,
   type AgentLoopToolResultSummary,
 } from "../agent/index.js";
+export {
+  actionsToEngineTools,
+  getOwnerActiveApiKey,
+  runAgentLoop,
+} from "../agent/production-agent.js";
+export {
+  getStoredModelForEngine,
+  resolveEngine,
+} from "../agent/engine/index.js";
 export { createDevScriptRegistry } from "../scripts/dev/index.js";
 
 export {
@@ -87,6 +118,17 @@ export {
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 export {
+  configureAgentNativeEmbeddedEnvironment,
+  createAgentNativeEmbeddedAuthOptions,
+  createAgentNativeEmbeddedPlugin,
+  mountAgentNativeEmbedded,
+  normalizeAgentNativeEmbeddedSession,
+  type AgentNativeEmbeddedAuthOptions,
+  type AgentNativeEmbeddedGetSession,
+  type AgentNativeEmbeddedHostSession,
+  type AgentNativeEmbeddedPluginOptions,
+} from "./embedded.js";
+export {
   createThread,
   getThread,
   listThreads,
@@ -108,6 +150,39 @@ export {
   FRAMEWORK_ROUTE_PREFIX,
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
+export {
+  createBrowserSessionActionEntries,
+  type CreateBrowserSessionActionEntriesOptions,
+} from "../browser-sessions/actions.js";
+export {
+  DEFAULT_BROWSER_SESSION_REQUEST_POLL_MS,
+  DEFAULT_BROWSER_SESSION_REQUEST_TIMEOUT_MS,
+  DEFAULT_BROWSER_SESSION_TTL_MS,
+  callBrowserSession,
+  claimBrowserSessionRequest,
+  completeBrowserSessionRequest,
+  createBrowserSessionRequest,
+  disconnectBrowserSession,
+  getBrowserSession,
+  getBrowserSessionRequest,
+  listBrowserSessions,
+  registerBrowserSession,
+  waitForBrowserSessionRequest,
+} from "../browser-sessions/store.js";
+export {
+  mountBrowserSessionRoutes,
+  type MountBrowserSessionRoutesOptions,
+} from "../browser-sessions/routes.js";
+export type {
+  AgentNativeBrowserSession,
+  AgentNativeBrowserSessionAction,
+  AgentNativeBrowserSessionRecord,
+  AgentNativeBrowserSessionRequest,
+  AgentNativeBrowserSessionRequestStatus,
+  AgentNativeBrowserSessionRequestType,
+  CreateAgentNativeBrowserSessionRequestInput,
+  RegisterAgentNativeBrowserSessionInput,
+} from "../browser-sessions/types.js";
 export {
   createTerminalPlugin,
   defaultTerminalPlugin,
@@ -182,6 +257,7 @@ export {
 export {
   createIntegrationsPlugin,
   defaultIntegrationsPlugin,
+  enqueueRemoteCommand,
   slackAdapter,
   telegramAdapter,
   whatsappAdapter,

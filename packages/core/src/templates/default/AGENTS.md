@@ -2,14 +2,14 @@
 
 This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
 
-This is an **@agent-native/core** application -- the AI agent and UI share state through a SQL database, with polling for real-time sync.
+This is an **@agent-native/core** application -- the AI agent and UI share state through a SQL database, with SSE for in-process live sync and polling as the cross-process/serverless fallback.
 
 ### Core Principles
 
 1. **Shared SQL database** -- All app state lives in SQL (SQLite locally, cloud DB via `DATABASE_URL` in production). Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
 2. **All AI through agent chat** -- No inline LLM calls. UI delegates to the AI via `sendToAgentChat()` / `agentChat.submit()`.
 3. **Actions for agent operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`.
-4. **Polling for real-time sync** -- Database writes trigger version counter increments that the UI polls to stay in sync. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` (auto-covered) or fold `useChangeVersions([<source>, "action"])` into raw `useQuery` keys. See the `real-time-sync` and `adding-a-feature` skills.
+4. **Live sync keeps the UI current** -- Database writes stream over `/_agent-native/events` first, with `/_agent-native/poll` as the fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
 5. **Agent can update code** -- The agent can modify this app's source code directly.
 
 ### Authentication
@@ -25,10 +25,10 @@ Use `getSession(event)` server-side and `useSession()` client-side.
 
 Resources are SQL-backed persistent files for notes, learnings, and context.
 
-**At the start of every conversation, read these resources (both personal and shared scopes):**
+**At the start of every conversation, read these resources (workspace, shared, and personal scopes as relevant):**
 
-1. **`AGENTS.md`** -- user-specific context. Read both `--scope personal` and `--scope shared`.
-2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read both scopes.
+1. **`AGENTS.md`** -- inherited workspace defaults, app/team instructions, and user-specific context.
+2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read personal and shared scopes.
 
 **Update `LEARNINGS.md` when you learn something important.**
 
@@ -100,6 +100,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | `self-modifying-code` | Before editing source, components, or styles                                      |
 | `capture-learnings`   | Before recording user preferences or corrections                                  |
 | `frontend-design`     | Before building or restyling any UI component, page, or layout                    |
+| `shadcn-ui`           | Before adding, updating, or debugging shadcn/ui components                        |
 | `agent-engines`       | Before switching LLM providers or registering a custom engine                     |
 | `notifications`       | Before surfacing alerts/progress to the user or adding channels                   |
 | `progress`            | Before running any task that takes more than a few seconds                        |
@@ -111,7 +112,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 1. **Add navigation state entries** — extend `app/hooks/use-navigation-state.ts` to track new routes
 2. **Enhance view-screen** — make the view-screen script return relevant context for the new view
 3. **Create domain actions** — add actions in `actions/` for CRUD operations on new data models
-4. **Wire UI for auto-refresh** — use `useActionQuery` (auto-covered) OR fold `useChangeVersions([<source>, "action"])` into raw `useQuery` keys with `placeholderData`. When the agent mutates this data, the UI must reflect the change without a manual refresh. See `real-time-sync` skill.
+4. **Wire UI for auto-refresh** — use `useActionQuery` / `useActionMutation` for normal CRUD. If a raw `useQuery` is unavoidable, fold `useChangeVersions([<source>, "action"])` into its key with `placeholderData`. When the agent mutates this data, the UI must reflect the change without a manual refresh. See `real-time-sync` skill.
 5. **Create domain skills** — add `.agents/skills/<feature>/SKILL.md` documenting the data model, storage patterns, and agent operations
 6. **Update this AGENTS.md** — add the new actions, state keys, and common tasks
 

@@ -231,6 +231,15 @@ export function pickMimeType(): string {
   return "";
 }
 
+function canStreamMediaRecorderChunks(mimeType: string): boolean {
+  // WebM chunks emitted by MediaRecorder are safe to concatenate. Browser MP4
+  // chunks are not reliably self-contained; in Safari/WebKit we have seen
+  // ftyp+mdat-only assemblies with no top-level moov atom, which storage will
+  // accept but browsers cannot play. Keep MP4/QuickTime as one final recorder
+  // blob and upload that blob in bounded slices after stop().
+  return /^video\/webm(?:;|$)/i.test(mimeType);
+}
+
 export class RecorderEngine {
   readonly opts: Required<
     Pick<RecorderEngineOptions, "chunkIntervalMs" | "uploadUrl" | "abortUrl">
@@ -243,6 +252,8 @@ export class RecorderEngine {
   private combinedStream: MediaStream | null = null;
   private previewStream: MediaStream | null = null;
   private cameraComposite: CameraCompositeHandle | null = null;
+  private audioMixCtx: AudioContext | null = null;
+  private audioMixSources: MediaStreamAudioSourceNode[] = [];
   private recorder: MediaRecorder | null = null;
   private mimeType: string = "video/webm";
 
@@ -278,6 +289,7 @@ export class RecorderEngine {
    * fetch quietly complete and the recording finalise server-side.
    */
   private uploadAbort: AbortController | null = null;
+  private streamChunksDuringRecording = true;
 
   private state: RecorderState = "idle";
 
@@ -389,6 +401,11 @@ export class RecorderEngine {
         surfaceSwitching: "include",
         systemAudio: wantsMic ? "include" : "exclude",
       };
+
+      if (wantsMic || wantsDisplay) {
+        this.audioMixCtx?.close().catch(() => {});
+        this.audioMixCtx = new AudioContext();
+      }
 
       if (wantsDisplay) {
         try {
@@ -548,6 +565,9 @@ export class RecorderEngine {
     this.localChunks = [];
     this.totalRecordedBytes = 0;
     this.uploadAbort = new AbortController();
+    this.streamChunksDuringRecording = canStreamMediaRecorderChunks(
+      this.mimeType,
+    );
 
     this.recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
@@ -557,8 +577,10 @@ export class RecorderEngine {
       // every chunk on the client side to assemble + re-encode.
       this.localChunks.push(blob);
       this.totalRecordedBytes += blob.size;
-      const index = this.chunkIndex++;
-      this.queueChunk(blob, index, /* isFinal */ false);
+      if (this.streamChunksDuringRecording) {
+        const index = this.chunkIndex++;
+        this.queueChunk(blob, index, /* isFinal */ false);
+      }
     });
 
     this.recorder.addEventListener("stop", () => {
@@ -572,7 +594,11 @@ export class RecorderEngine {
       this.emitError(err);
     });
 
-    this.recorder.start(this.opts.chunkIntervalMs);
+    if (this.streamChunksDuringRecording) {
+      this.recorder.start(this.opts.chunkIntervalMs);
+    } else {
+      this.recorder.start();
+    }
     this.startedAtMs = performance.now();
     this.transition("recording");
   }
@@ -723,6 +749,20 @@ export class RecorderEngine {
           hasAudio,
           hasCamera,
         });
+      } else if (!this.streamChunksDuringRecording) {
+        this.transition("uploading", { progress: 0 });
+        const assembled = new Blob(this.localChunks, { type: this.mimeType });
+        result = await this.uploadBlobInSlices(
+          assembled,
+          this.mimeType,
+          {
+            durationMs,
+            dimensions,
+            hasAudio,
+            hasCamera,
+          },
+          this.uploadAbort?.signal,
+        );
       } else {
         // Send a 0-byte isFinal sentinel — the actual final-chunk bytes
         // were already uploaded by the start()-time listener as a
@@ -931,51 +971,12 @@ export class RecorderEngine {
       }
 
       this.transition("uploading", { progress: 0 });
-
-      // Reset the upload index since the server just wiped its chunks.
-      this.chunkIndex = 0;
-
-      // Slice the (possibly compressed) blob into 5 MB chunks — the server's
-      // chunk handler caps each at ~6 MB so we need to slice. This is the
-      // same approach the file-upload code path uses in `record.tsx`.
-      const UPLOAD_SLICE_BYTES = 5 * 1024 * 1024;
-      const totalSlices = Math.max(
-        1,
-        Math.ceil(finalBlob.size / UPLOAD_SLICE_BYTES),
+      return this.uploadBlobInSlices(
+        finalBlob,
+        compression.outputMimeType,
+        meta,
+        abort.signal,
       );
-      const outputMimeType = compression.outputMimeType;
-
-      let lastResult: Record<string, unknown> | undefined;
-      for (let i = 0; i < totalSlices; i++) {
-        if (abort.signal.aborted) {
-          throw abort.signal.reason instanceof Error
-            ? abort.signal.reason
-            : new Error("Compression upload aborted");
-        }
-        const start = i * UPLOAD_SLICE_BYTES;
-        const end = Math.min(start + UPLOAD_SLICE_BYTES, finalBlob.size);
-        const slice = finalBlob.slice(start, end, outputMimeType);
-        const isFinal = i === totalSlices - 1;
-        const index = this.chunkIndex++;
-        lastResult = await this.uploadChunk(slice, index, {
-          isFinal,
-          total: totalSlices,
-          mimeType: outputMimeType,
-          durationMs: isFinal ? meta.durationMs : undefined,
-          width: isFinal ? meta.dimensions.width : undefined,
-          height: isFinal ? meta.dimensions.height : undefined,
-          hasAudio: isFinal ? meta.hasAudio : undefined,
-          hasCamera: isFinal ? meta.hasCamera : undefined,
-          signal: abort.signal,
-        });
-        this.opts.onChunk?.({
-          index,
-          bytes: slice.size,
-          total: totalSlices,
-        });
-      }
-
-      return lastResult;
     } finally {
       // Always release the controller reference even on throw — otherwise
       // a subsequent cancel() would abort a freshly-started compression.
@@ -1045,17 +1046,49 @@ export class RecorderEngine {
   // Internals
   // -------------------------------------------------------------------------
 
+  /**
+   * Mix audio tracks from multiple streams into a single track via Web Audio
+   * API. A single mixed track avoids the Chromium behaviour where only the
+   * first audio track in a MediaStream is reliably encoded by MediaRecorder,
+   * while still capturing both mic and system audio when both are present.
+   *
+   * Returns null when no audio tracks exist. Returns the single raw track
+   * directly when only one exists (avoids unnecessary AudioContext overhead).
+   */
+  private buildMixedAudioTrack(
+    streams: (MediaStream | null | undefined)[],
+  ): MediaStreamTrack | null {
+    const audioTracks = streams
+      .filter((s): s is MediaStream => s != null)
+      .flatMap((s) => s.getAudioTracks());
+    if (audioTracks.length === 0) return null;
+    if (audioTracks.length === 1) return audioTracks[0];
+
+    const ctx = this.audioMixCtx ?? new AudioContext();
+    this.audioMixCtx = ctx;
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+    this.audioMixSources = [];
+    const dest = ctx.createMediaStreamDestination();
+    for (const track of audioTracks) {
+      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+      source.connect(dest);
+      this.audioMixSources.push(source);
+    }
+    return dest.stream.getAudioTracks()[0];
+  }
+
   private buildCombinedStream(): MediaStream {
-    // Screen-only: just add mic audio if we have it.
     if (this.opts.mode === "screen") {
       const combined = new MediaStream();
       for (const t of this.displayStream!.getVideoTracks())
         combined.addTrack(t);
-      for (const t of this.displayStream!.getAudioTracks())
-        combined.addTrack(t);
-      if (this.micStream) {
-        for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
-      }
+      const audio = this.buildMixedAudioTrack([
+        this.micStream,
+        this.displayStream,
+      ]);
+      if (audio) combined.addTrack(audio);
       return combined;
     }
 
@@ -1063,9 +1096,8 @@ export class RecorderEngine {
     if (this.opts.mode === "camera") {
       const combined = new MediaStream();
       for (const t of this.cameraStream!.getVideoTracks()) combined.addTrack(t);
-      if (this.micStream) {
-        for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
-      }
+      const audio = this.buildMixedAudioTrack([this.micStream]);
+      if (audio) combined.addTrack(audio);
       return combined;
     }
 
@@ -1081,10 +1113,11 @@ export class RecorderEngine {
     const combined = new MediaStream();
     for (const t of this.cameraComposite.stream.getVideoTracks())
       combined.addTrack(t);
-    for (const t of this.displayStream!.getAudioTracks()) combined.addTrack(t);
-    if (this.micStream) {
-      for (const t of this.micStream.getAudioTracks()) combined.addTrack(t);
-    }
+    const audio = this.buildMixedAudioTrack([
+      this.micStream,
+      this.displayStream,
+    ]);
+    if (audio) combined.addTrack(audio);
     return combined;
   }
 
@@ -1139,6 +1172,61 @@ export class RecorderEngine {
     } catch {
       // ignore — the stop path will surface the original upload error.
     }
+  }
+
+  private async uploadBlobInSlices(
+    blob: Blob,
+    mimeType: string,
+    meta: {
+      durationMs: number;
+      dimensions: { width: number; height: number };
+      hasAudio: boolean;
+      hasCamera: boolean;
+    },
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown> | undefined> {
+    // Reset the upload index for post-stop blob uploads: MP4/QuickTime never
+    // streamed chunks, and the compression path has just cleared server chunks.
+    this.chunkIndex = 0;
+
+    // The server chunk handler caps each body at ~6 MB, so keep slices under
+    // that cap. This mirrors the local-file upload path in record.tsx.
+    const UPLOAD_SLICE_BYTES = 5 * 1024 * 1024;
+    const totalSlices = Math.max(1, Math.ceil(blob.size / UPLOAD_SLICE_BYTES));
+
+    let lastResult: Record<string, unknown> | undefined;
+    for (let i = 0; i < totalSlices; i++) {
+      if (signal?.aborted) {
+        throw signal.reason instanceof Error
+          ? signal.reason
+          : new Error("Upload aborted");
+      }
+
+      const start = i * UPLOAD_SLICE_BYTES;
+      const end = Math.min(start + UPLOAD_SLICE_BYTES, blob.size);
+      const slice = blob.slice(start, end, mimeType);
+      const isFinal = i === totalSlices - 1;
+      const index = this.chunkIndex++;
+
+      lastResult = await this.uploadChunk(slice, index, {
+        isFinal,
+        total: totalSlices,
+        mimeType,
+        durationMs: isFinal ? meta.durationMs : undefined,
+        width: isFinal ? meta.dimensions.width : undefined,
+        height: isFinal ? meta.dimensions.height : undefined,
+        hasAudio: isFinal ? meta.hasAudio : undefined,
+        hasCamera: isFinal ? meta.hasCamera : undefined,
+        signal,
+      });
+      this.opts.onChunk?.({
+        index,
+        bytes: slice.size,
+        total: totalSlices,
+      });
+    }
+
+    return lastResult;
   }
 
   private async uploadChunk(
@@ -1263,6 +1351,9 @@ export class RecorderEngine {
   }
 
   private cleanupTracks(): void {
+    this.audioMixSources = [];
+    this.audioMixCtx?.close().catch(() => {});
+    this.audioMixCtx = null;
     this.cameraComposite?.cleanup();
     this.cameraComposite = null;
     for (const s of [

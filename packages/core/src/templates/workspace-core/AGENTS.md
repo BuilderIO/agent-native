@@ -22,6 +22,18 @@ agent should know.
   `apps/<app>/.env` only for app-specific overrides.
 - Prefer framework defaults until the workspace has a real custom rule,
   component, plugin, action, or skill to share.
+- Keep the Workspace files view for user-authored or user-requested resources.
+  Agents may create hidden `agent_scratch` resources for temporary working
+  notes, scripts, task plans, or intermediate outputs, but should promote them
+  to normal workspace visibility only when the user explicitly asks to keep or
+  manage the file.
+- Runtime-editable global resources can be managed from Dispatch Resources.
+  Use `AGENTS.md` or `instructions/<slug>.md` for always-on guardrails,
+  `skills/<slug>/SKILL.md` for workspace skills, `context/<slug>.md` for
+  personas/positioning/messaging/company facts/brand guidelines, and
+  `agents/<slug>.md` for custom agent profiles. Scope them to All apps when
+  every workspace app should inherit them. All-app resources are inherited at
+  runtime; do not copy or sync them into individual apps.
 
 ## Adding Apps
 
@@ -51,7 +63,16 @@ port. React Router apps must preserve `APP_BASE_PATH` / `VITE_APP_BASE_PATH` in
 `app/entry.client.tsx` via `appBasePath()` so the app hydrates correctly when
 mounted at `/<app-name>`. Use the framework/template UI stack for standard UI:
 shadcn/ui components and `@tabler/icons-react`. Do not add `lucide-react` or
-another icon library.
+another icon library. Read `.agents/skills/shadcn-ui/SKILL.md` before adding,
+updating, or debugging shadcn components.
+
+Normal app data must flow through actions. For CRUD that the agent can perform,
+create `defineAction` files in `actions/`, mark reads with
+`http: { method: "GET" }`, and call them from React with `useActionQuery` /
+`useActionMutation`. Do not add duplicate JSON CRUD routes under `/api/*` for
+the same data unless the route is for uploads, streaming, webhooks, OAuth, or
+another route-only concern. Action-backed UI is what makes agent-created or
+agent-edited records appear without a manual refresh.
 
 In local development, run
 `pnpm exec agent-native create <app-name> --template=<template>` from the

@@ -6,6 +6,9 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
 const processIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn(async () => null));
+const resourceListMock = vi.hoisted(() => vi.fn(async () => []));
+const resourceListAccessibleMock = vi.hoisted(() => vi.fn(async () => []));
+const resourceGetMock = vi.hoisted(() => vi.fn(async () => null));
 const claimPendingTaskMock = vi.hoisted(() => vi.fn());
 const markTaskCompletedMock = vi.hoisted(() => vi.fn());
 const markTaskFailedMock = vi.hoisted(() => vi.fn());
@@ -34,7 +37,12 @@ vi.mock("./google-docs-poller.js", () => ({
 
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "shared",
+  WORKSPACE_OWNER: "workspace",
+  ensurePersonalDefaults: vi.fn(async () => {}),
+  resourceGet: resourceGetMock,
   resourceGetByPath: resourceGetByPathMock,
+  resourceList: resourceListMock,
+  resourceListAccessible: resourceListAccessibleMock,
 }));
 
 vi.mock("./pending-tasks-store.js", () => ({
@@ -273,6 +281,9 @@ describe("integrations plugin routes", () => {
       if (owner === "owner+qa@example.com" && path === "AGENTS.md") {
         return { content: "Personal Dispatch instruction" };
       }
+      if (owner === "owner+qa@example.com" && path === "memory/MEMORY.md") {
+        return { content: "Personal Dispatch memory" };
+      }
       return null;
     });
     const nitroApp = createNitroApp();
@@ -293,7 +304,7 @@ describe("integrations plugin routes", () => {
     const [, options] = processIntegrationTaskMock.mock.calls[0];
     expect(options.systemPrompt).toContain("Base prompt.");
     expect(options.systemPrompt).toContain("Shared Dispatch instruction");
-    expect(options.systemPrompt).toContain("Personal Dispatch instruction");
+    expect(options.systemPrompt).toContain("Personal Dispatch memory");
     expect(markTaskCompletedMock).toHaveBeenCalledWith("task-with-resources");
   });
 });

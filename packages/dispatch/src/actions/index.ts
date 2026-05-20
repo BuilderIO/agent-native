@@ -8,14 +8,19 @@ import createVaultGrant from "./create-vault-grant.js";
 import createVaultSecret from "./create-vault-secret.js";
 import createWorkspaceResourceGrant from "./create-workspace-resource-grant.js";
 import createWorkspaceResource from "./create-workspace-resource.js";
+import createDreamReport from "./create-dream-report.js";
 import deleteDestination from "./delete-destination.js";
 import deleteVaultSecret from "./delete-vault-secret.js";
 import deleteWorkspaceResource from "./delete-workspace-resource.js";
 import denyVaultRequest from "./deny-vault-request.js";
+import ensureDreamJob from "./ensure-dream-job.js";
 import getAppCreationSettings from "./get-app-creation-settings.js";
 import getAgentThreadDebug from "./get-agent-thread-debug.js";
+import getDream from "./get-dream.js";
+import getDreamSettings from "./get-dream-settings.js";
 import getDispatchSettings from "./get-dispatch-settings.js";
 import getVaultAccessSettings from "./get-vault-access-settings.js";
+import getWorkspaceResourceEffectiveContext from "./get-workspace-resource-effective-context.js";
 import getWorkspaceInfo from "./get-workspace-info.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
@@ -27,6 +32,8 @@ import listDispatchApprovals from "./list-dispatch-approvals.js";
 import listDispatchAudit from "./list-dispatch-audit.js";
 import listDispatchOverview from "./list-dispatch-overview.js";
 import listDispatchUsageMetrics from "./list-dispatch-usage-metrics.js";
+import listDreamCandidates from "./list-dream-candidates.js";
+import listDreams from "./list-dreams.js";
 import listIntegrationsCatalog from "./list-integrations-catalog.js";
 import listLinkedIdentities from "./list-linked-identities.js";
 import listVaultAudit from "./list-vault-audit.js";
@@ -37,23 +44,29 @@ import listVaultSecrets from "./list-vault-secrets.js";
 import listWorkspaceApps from "./list-workspace-apps.js";
 import listWorkspaceResourceOptions from "./list-workspace-resource-options.js";
 import listWorkspaceResourceGrants from "./list-workspace-resource-grants.js";
+import listWorkspaceResourcesForApp from "./list-workspace-resources-for-app.js";
 import listWorkspaceResources from "./list-workspace-resources.js";
 import navigate from "./navigate.js";
+import applyDreamProposal from "./apply-dream-proposal.js";
+import previewDreamProposal from "./preview-dream-proposal.js";
+import previewWorkspaceResourceChange from "./preview-workspace-resource-change.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
+import rejectDreamProposal from "./reject-dream-proposal.js";
 import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
 import requestVaultSecret from "./request-vault-secret.js";
 import revokeVaultGrant from "./revoke-vault-grant.js";
 import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
+import restoreStarterWorkspaceResources from "./restore-starter-workspace-resources.js";
 import scaffoldWorkspaceApp from "./scaffold-workspace-app.js";
 import searchAgentThreads from "./search-agent-threads.js";
+import sendCodeAgentRemoteCommand from "./send-code-agent-remote-command.js";
 import sendPlatformMessage from "./send-platform-message.js";
 import setAppCreationSettings from "./set-app-creation-settings.js";
 import setDispatchApprovalPolicy from "./set-dispatch-approval-policy.js";
+import setDreamSettings from "./set-dream-settings.js";
 import setVaultAccessSettings from "./set-vault-access-settings.js";
 import startWorkspaceAppCreation from "./start-workspace-app-creation.js";
 import syncVaultToApp from "./sync-vault-to-app.js";
-import syncWorkspaceResourcesToAll from "./sync-workspace-resources-to-all.js";
-import syncWorkspaceResourcesToApp from "./sync-workspace-resources-to-app.js";
 import unarchiveWorkspaceApp from "./unarchive-workspace-app.js";
 import updateWorkspaceAppMetadata from "./update-workspace-app-metadata.js";
 import updateVaultSecret from "./update-vault-secret.js";
@@ -77,14 +90,20 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "create-vault-secret": createVaultSecret,
   "create-workspace-resource-grant": createWorkspaceResourceGrant,
   "create-workspace-resource": createWorkspaceResource,
+  "create-dream-report": createDreamReport,
   "delete-destination": deleteDestination,
   "delete-vault-secret": deleteVaultSecret,
   "delete-workspace-resource": deleteWorkspaceResource,
   "deny-vault-request": denyVaultRequest,
+  "ensure-dream-job": ensureDreamJob,
   "get-app-creation-settings": getAppCreationSettings,
   "get-agent-thread-debug": getAgentThreadDebug,
+  "get-dream": getDream,
+  "get-dream-settings": getDreamSettings,
   "get-dispatch-settings": getDispatchSettings,
   "get-vault-access-settings": getVaultAccessSettings,
+  "get-workspace-resource-effective-context":
+    getWorkspaceResourceEffectiveContext,
   "get-workspace-info": getWorkspaceInfo,
   "grant-workspace-resources-to-app": grantWorkspaceResourcesToApp,
   "grant-vault-secrets-to-app": grantVaultSecretsToApp,
@@ -96,6 +115,8 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-dispatch-audit": listDispatchAudit,
   "list-dispatch-overview": listDispatchOverview,
   "list-dispatch-usage-metrics": listDispatchUsageMetrics,
+  "list-dream-candidates": listDreamCandidates,
+  "list-dreams": listDreams,
   "list-integrations-catalog": listIntegrationsCatalog,
   "list-linked-identities": listLinkedIdentities,
   "list-vault-audit": listVaultAudit,
@@ -106,23 +127,29 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-workspace-apps": listWorkspaceApps,
   "list-workspace-resource-options": listWorkspaceResourceOptions,
   "list-workspace-resource-grants": listWorkspaceResourceGrants,
+  "list-workspace-resources-for-app": listWorkspaceResourcesForApp,
   "list-workspace-resources": listWorkspaceResources,
   navigate: navigate,
+  "apply-dream-proposal": applyDreamProposal,
+  "preview-dream-proposal": previewDreamProposal,
+  "preview-workspace-resource-change": previewWorkspaceResourceChange,
   "reject-dispatch-change": rejectDispatchChange,
+  "reject-dream-proposal": rejectDreamProposal,
   "remove-pending-workspace-app": removePendingWorkspaceApp,
   "request-vault-secret": requestVaultSecret,
   "revoke-vault-grant": revokeVaultGrant,
   "revoke-workspace-resource-grant": revokeWorkspaceResourceGrant,
+  "restore-starter-workspace-resources": restoreStarterWorkspaceResources,
   "scaffold-workspace-app": scaffoldWorkspaceApp,
   "search-agent-threads": searchAgentThreads,
+  "send-code-agent-remote-command": sendCodeAgentRemoteCommand,
   "send-platform-message": sendPlatformMessage,
   "set-app-creation-settings": setAppCreationSettings,
   "set-dispatch-approval-policy": setDispatchApprovalPolicy,
+  "set-dream-settings": setDreamSettings,
   "set-vault-access-settings": setVaultAccessSettings,
   "start-workspace-app-creation": startWorkspaceAppCreation,
   "sync-vault-to-app": syncVaultToApp,
-  "sync-workspace-resources-to-all": syncWorkspaceResourcesToAll,
-  "sync-workspace-resources-to-app": syncWorkspaceResourcesToApp,
   "unarchive-workspace-app": unarchiveWorkspaceApp,
   "update-workspace-app-metadata": updateWorkspaceAppMetadata,
   "update-vault-secret": updateVaultSecret,

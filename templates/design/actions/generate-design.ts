@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -9,6 +10,19 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
+import {
+  designMcpAppResourceMeta,
+  designPreviewMcpAppHtml,
+} from "./_mcp-apps.js";
+
+/** Editor deep link so external agents can surface "Open design". */
+function designDeepLink(designId: string): string {
+  return buildDeepLink({
+    app: "design",
+    view: "editor",
+    params: { designId },
+  });
+}
 
 export default defineAction({
   description:
@@ -88,6 +102,14 @@ export default defineAction({
           "the design's `:root` block actually uses.",
       ),
   }),
+  mcpApp: {
+    resource: {
+      title: "Design preview",
+      description: "Preview generated Design files inline.",
+      html: designPreviewMcpAppHtml,
+      ...designMcpAppResourceMeta,
+    },
+  },
   run: async ({
     designId,
     prompt,
@@ -244,6 +266,16 @@ export default defineAction({
       renderable: true,
       savedFiles,
       fileCount: savedFiles.length,
+    };
+  },
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const designId = (result as { designId?: string }).designId;
+    if (!designId) return null;
+    return {
+      url: designDeepLink(designId),
+      label: "Open design",
+      view: "editor",
     };
   },
 });

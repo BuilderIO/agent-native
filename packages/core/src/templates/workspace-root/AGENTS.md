@@ -14,6 +14,24 @@ coding agents can discover the same workspace-wide guidance from the root.
   work, and read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md`
   before building agent-driven UI or "AI" features.
 
+## Workspace Resources
+
+- The Workspace files view is for user-authored or user-requested resources
+  they intentionally add, edit, or manage.
+- Agents may use hidden `agent_scratch` resources for temporary working notes,
+  scripts, task plans, or intermediate outputs. Keep those scratch files hidden
+  by default and promote them only when the user explicitly asks to keep or
+  manage the file.
+- Durable instructions, skills, jobs, memories, custom agents, and files the
+  user explicitly asked to save belong in normal workspace visibility.
+- Runtime-editable global resources are managed from Dispatch Resources. Use
+  `AGENTS.md` or `instructions/<slug>.md` for always-on guardrails,
+  `skills/<slug>/SKILL.md` for workspace skills, `context/<slug>.md` for
+  personas/positioning/messaging/company facts/brand guidelines, and
+  `agents/<slug>.md` for custom agent profiles.
+- Set Dispatch resources to All apps when every workspace app should inherit
+  them. Use selected-app grants only for resources that should not be global.
+
 ## Workspace Scope
 
 - Keep root changes focused on workspace orchestration, shared configuration,
@@ -42,15 +60,15 @@ coding agents can discover the same workspace-wide guidance from the root.
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/starter` or another existing app unless the user explicitly asks to
   modify that existing app.
-- Treat first-party apps such as Mail, Calendar, Analytics, and Dispatch as
+- Treat first-party apps such as Mail, Calendar, Analytics, Brain, and Dispatch as
   existing hosted/connected neighbors available through links and A2A/default
-  connected agents. For example, Mail, Calendar, and Analytics already exist at
+  connected agents. For example, Mail, Calendar, Analytics, and Brain already exist at
   `https://mail.agent-native.com`, `https://calendar.agent-native.com`, and
-  `https://analytics.agent-native.com`.
-- If a new app needs to use Mail, Calendar, Analytics, or similar first-party
+  `https://analytics.agent-native.com`, and `https://brain.agent-native.com`.
+- If a new app needs to use Mail, Calendar, Analytics, Brain, or similar first-party
   data/agents, build only the genuinely new workflow and delegate/link to those
   existing apps. Do not create wrapper apps, child apps, nested template copies,
-  or cloned Mail/Calendar/Analytics implementations inside the new app just to
+  or cloned Mail/Calendar/Analytics/Brain implementations inside the new app just to
   provide access.
 - Only create a first-party app copy when the user explicitly asks for a
   customized fork/copy of that app. Otherwise prefer the hosted/shared app so
@@ -75,6 +93,15 @@ coding agents can discover the same workspace-wide guidance from the root.
   when mounted at `/<app-id>`.
 - Use the framework/template UI stack for standard UI: shadcn/ui components and
   `@tabler/icons-react`. Do not add `lucide-react` or another icon library.
+  Read `packages/shared/.agents/skills/shadcn-ui/SKILL.md` before adding,
+  updating, or debugging shadcn components.
+- Normal app data must flow through actions. For CRUD that the agent can
+  perform, create `defineAction` files in `actions/`, mark reads with
+  `http: { method: "GET" }`, and call them from React with `useActionQuery` /
+  `useActionMutation`. Do not add duplicate JSON CRUD routes under `/api/*`
+  for the same data unless the route is for uploads, streaming, webhooks,
+  OAuth, or another route-only concern. Action-backed UI is what makes
+  agent-created or agent-edited records appear without a manual refresh.
 - In local development, scaffold the app from the workspace root with
   `pnpm exec agent-native create <app-id> --template=<template>`. In production
   Dispatch posts the request to Builder branch creation; the Builder branch

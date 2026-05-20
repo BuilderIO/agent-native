@@ -36,14 +36,19 @@ function search(query: string): SearchEntry[] {
       const textLower = entry.text.toLowerCase();
       const sectionLower = entry.section.toLowerCase();
       const pageLower = entry.page.toLowerCase();
+      const keywordsLower = entry.keywords.toLowerCase();
+      const isPageEntry = entry.sectionId === "";
 
       let score = 0;
       for (const word of words) {
         if (sectionLower.includes(word)) score += 10;
-        if (pageLower.includes(word)) score += 5;
+        if (keywordsLower.includes(word)) score += 8;
+        if (pageLower.includes(word)) score += isPageEntry ? 5 : 2;
         if (textLower.includes(word)) score += 3;
       }
       // exact phrase bonus
+      if (keywordsLower.includes(q)) score += 35;
+      if (pageLower.includes(q)) score += isPageEntry ? 25 : 5;
       if (textLower.includes(q)) score += 20;
       if (sectionLower.includes(q)) score += 30;
 

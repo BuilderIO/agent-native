@@ -7,7 +7,7 @@ import {
   IconShoppingCart,
   IconPhone,
   IconUserSearch,
-  IconGitPullRequest,
+  IconBrandGithub,
   IconTicket,
   IconBug,
   IconChartLine,
@@ -475,16 +475,21 @@ export const dataSources: DataSource[] = [
   {
     id: "github",
     name: "GitHub",
-    description: "Pull requests, issues, and code reviews",
+    description: "Repositories, code search, pull requests, and issues",
     category: "engineering",
-    icon: IconGitPullRequest,
+    icon: IconBrandGithub,
     envKeys: ["GITHUB_TOKEN"],
-    docsUrl: "https://docs.github.com/en/rest",
+    docsUrl: "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps",
     walkthroughSteps: [
       {
-        title: "Create a Personal Access Token",
+        title: "Connect with OAuth",
         description:
-          'Go to GitHub Settings > Developer settings > Personal access tokens > Fine-grained tokens. Create a token with "Contents" and "Pull requests" read access for your repos.',
+          "Use the Connect with GitHub button in this card to grant repository access. If OAuth is unavailable on this deployment, use a fine-grained personal access token instead.",
+      },
+      {
+        title: "Fallback: create a personal access token",
+        description:
+          'Go to GitHub Settings > Developer settings > Personal access tokens > Fine-grained tokens. Create a token with "Contents", "Metadata", "Issues", and "Pull requests" read access for the repos the agent should inspect.',
         url: "https://github.com/settings/tokens?type=beta",
         linkText: "GitHub Tokens",
       },
@@ -604,6 +609,70 @@ export const dataSources: DataSource[] = [
         inputLabel: "API Token",
         inputPlaceholder: "glsa_...",
         inputType: "password",
+      },
+    ],
+  },
+  {
+    id: "prometheus",
+    name: "Prometheus",
+    description:
+      "Query PromQL directly against any Prometheus-compatible endpoint",
+    category: "engineering",
+    icon: IconActivity,
+    envKeys: [
+      "PROMETHEUS_URL",
+      "PROMETHEUS_USERNAME",
+      "PROMETHEUS_PASSWORD",
+      "PROMETHEUS_BEARER_TOKEN",
+    ],
+    docsUrl: "https://prometheus.io/docs/prometheus/latest/querying/api/",
+    walkthroughSteps: [
+      {
+        title: "Find your Prometheus URL",
+        description:
+          "The base URL of a Prometheus-compatible endpoint (e.g. https://prometheus.yourcompany.com, or Grafana Cloud's Prometheus query URL).",
+      },
+      {
+        title: "Pick an auth mode",
+        description:
+          "Self-hosted Prometheus often has no auth — leave the credential fields blank. Managed services usually use basic auth (username + password) or a bearer token. Set whichever pair matches your provider; basic auth wins if both are configured.",
+      },
+      {
+        title: "Enter your Prometheus URL",
+        description: "The base URL of your Prometheus endpoint.",
+        inputKey: "PROMETHEUS_URL",
+        inputLabel: "Prometheus URL",
+        inputPlaceholder: "https://prometheus.example.com",
+        inputType: "text",
+      },
+      {
+        title: "Basic auth username (optional)",
+        description:
+          "For Grafana Cloud Prometheus this is your stack's instance ID. Leave blank for self-hosted.",
+        inputKey: "PROMETHEUS_USERNAME",
+        inputLabel: "Username",
+        inputPlaceholder: "123456",
+        inputType: "text",
+        optional: true,
+      },
+      {
+        title: "Basic auth password (optional)",
+        description: "API token or password to pair with the username.",
+        inputKey: "PROMETHEUS_PASSWORD",
+        inputLabel: "Password",
+        inputPlaceholder: "glc_...",
+        inputType: "password",
+        optional: true,
+      },
+      {
+        title: "Bearer token (optional)",
+        description:
+          "Used only if you did NOT set a basic-auth username. For services that issue a bearer token instead.",
+        inputKey: "PROMETHEUS_BEARER_TOKEN",
+        inputLabel: "Bearer Token",
+        inputPlaceholder: "eyJ...",
+        inputType: "password",
+        optional: true,
       },
     ],
   },

@@ -31,6 +31,7 @@ import {
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { toast } from "sonner";
+import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
 
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
@@ -97,6 +98,8 @@ export function EventDetailPanel({
   );
   const titleInputRef = useRef<HTMLInputElement>(null);
   const updateEvent = useUpdateEvent();
+  const { promptGuestNotification, guestNotificationDialog } =
+    useGuestNotificationPrompt();
   const isOverlay = !!event?.overlayEmail;
   const lastSavedDescriptionRef = useRef(event?.description || "");
   const meetingLink = event ? extractMeetingLink(event) : null;
@@ -121,21 +124,34 @@ export function EventDetailPanel({
     if (trimmed !== lastSavedDescriptionRef.current.trim()) {
       const prev = lastSavedDescriptionRef.current;
       lastSavedDescriptionRef.current = trimmed;
-      updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          description: trimmed,
-        },
-        {
-          onError: () => {
-            lastSavedDescriptionRef.current = prev;
+      void (async () => {
+        const updates = { description: trimmed };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) {
+          lastSavedDescriptionRef.current = prev;
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
           },
-        },
-      );
+          {
+            onError: () => {
+              lastSavedDescriptionRef.current = prev;
+            },
+          },
+        );
+      })();
     }
     setIsEditingDescription(false);
-  }, [editDescription, event, updateEvent]);
+  }, [editDescription, event, promptGuestNotification, updateEvent]);
 
   const handleUnpin = () => {
     setEventDetailSidebar(false);
@@ -144,35 +160,45 @@ export function EventDetailPanel({
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event || updateEvent.isPending) return;
-    updateEvent.mutate(
-      {
-        id: event.id,
-        accountEmail: event.accountEmail,
-        addGoogleMeet: true,
-      },
-      {
-        onSuccess: () => toast("Google Meet added"),
-        onError: () => toast.error("Failed to add Google Meet"),
-      },
-    );
-  }, [event, updateEvent]);
+    void (async () => {
+      const updates = { addGoogleMeet: true };
+      const guestNotification = await promptGuestNotification({
+        event,
+        action: "update",
+        updates,
+      });
+      if (!guestNotification) return;
+      updateEvent.mutate(
+        {
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        },
+        {
+          onSuccess: () => toast("Google Meet added"),
+          onError: () => toast.error("Failed to add Google Meet"),
+        },
+      );
+    })();
+  }, [event, promptGuestNotification, updateEvent]);
 
   return (
     <TooltipProvider>
       {isOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm 2xl:hidden"
           onClick={onClose}
         />
       )}
       <div
         className={cn(
-          "fixed inset-y-0 right-0 z-50 w-full max-w-sm overflow-hidden md:static md:z-auto md:max-w-none md:shrink-0",
-          isOpen ? "md:w-80" : "w-0 md:w-0",
+          "fixed inset-y-0 right-0 z-50 w-full max-w-sm overflow-hidden 2xl:static 2xl:z-auto 2xl:max-w-none 2xl:shrink-0",
+          isOpen ? "2xl:w-80" : "w-0 2xl:w-0",
           !isOpen && "pointer-events-none",
         )}
       >
-        <div className="h-full w-full border-l border-border bg-card flex flex-col md:w-80">
+        <div className="flex h-full w-full flex-col border-l border-border bg-card 2xl:w-80">
           {event && (
             <>
               {/* Header */}
@@ -398,6 +424,7 @@ export function EventDetailPanel({
           )}
         </div>
       </div>
+      {guestNotificationDialog}
     </TooltipProvider>
   );
 }

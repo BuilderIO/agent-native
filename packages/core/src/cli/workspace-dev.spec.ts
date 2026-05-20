@@ -10,6 +10,7 @@ import {
   isWorkspaceWatcherLimitError,
   runWorkspaceDev,
   shouldEagerStartWorkspaceApps,
+  shouldUsePollingFileWatcher,
   type WorkspaceDevHandle,
 } from "./workspace-dev.js";
 
@@ -87,6 +88,122 @@ describe("workspace dev startup", () => {
     expect(env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
       "https://workspace.example.test",
     );
+  });
+
+  it("passes workspace app route access through local dev manifests and env", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    makeApp(tmpDir, "portal", {
+      audience: "public",
+      publicPaths: ["/", "/pricing"],
+      protectedPaths: ["/admin"],
+    });
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const portalEnv = fake
+      .calls()
+      .find((call) => call.options?.env?.APP_NAME === "portal")?.options?.env;
+    expect(portalEnv?.AGENT_NATIVE_WORKSPACE_APP_AUDIENCE).toBe("public");
+    expect(portalEnv?.AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS).toBe(
+      '["/","/pricing"]',
+    );
+    expect(portalEnv?.AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS).toBe(
+      '["/admin"]',
+    );
+    expect(portalEnv?.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE).toBe("public");
+    expect(portalEnv?.VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS).toBe(
+      '["/","/pricing"]',
+    );
+    expect(portalEnv?.VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS).toBe(
+      '["/admin"]',
+    );
+    expect(
+      JSON.parse(portalEnv?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]").find(
+        (app: any) => app.id === "portal",
+      ),
+    ).toMatchObject({
+      audience: "public",
+      publicPaths: ["/", "/pricing"],
+      protectedPaths: ["/admin"],
+    });
+  });
+
+  it("uses polling watchers in Builder-style remote dev environments", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: {
+        ...testEnv(),
+        BUILDER_PROJECT_ID: "builder-project",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const env = fake.calls()[0]?.options?.env;
+    expect(env?.CHOKIDAR_USEPOLLING).toBe("1");
+    expect(env?.CHOKIDAR_INTERVAL).toBe("1000");
+    expect(env?.TSC_WATCHFILE).toBe("DynamicPriorityPolling");
+    expect(env?.TSC_WATCHDIRECTORY).toBe("DynamicPriorityPolling");
+  });
+
+  it("strips inherited watcher env vars when polling is explicitly disabled", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: {
+        ...testEnv(),
+        // Container detected (would normally auto-enable polling) ...
+        BUILDER_PROJECT_ID: "builder-project",
+        // ... but operator explicitly disabled it.
+        AGENT_NATIVE_DEV_USE_POLLING: "0",
+        // Inherited from a stale parent shell — must NOT leak through.
+        CHOKIDAR_USEPOLLING: "1",
+        CHOKIDAR_INTERVAL: "500",
+        TSC_WATCHFILE: "DynamicPriorityPolling",
+        TSC_WATCHDIRECTORY: "DynamicPriorityPolling",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const env = fake.calls()[0]?.options?.env;
+    expect(env?.CHOKIDAR_USEPOLLING).toBeUndefined();
+    expect(env?.CHOKIDAR_INTERVAL).toBeUndefined();
+    expect(env?.TSC_WATCHFILE).toBeUndefined();
+    expect(env?.TSC_WATCHDIRECTORY).toBeUndefined();
+  });
+
+  it("preserves user-set watcher env vars when polling is not explicitly disabled", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: {
+        ...testEnv(),
+        // No container, no explicit toggle — auto-detection says no polling.
+        // The user's custom TSC_WATCHFILE override must still pass through.
+        TSC_WATCHFILE: "UseFsEventsWithFallbackDynamicPolling",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const env = fake.calls()[0]?.options?.env;
+    expect(env?.TSC_WATCHFILE).toBe("UseFsEventsWithFallbackDynamicPolling");
+    expect(env?.CHOKIDAR_USEPOLLING).toBeUndefined();
   });
 
   it("uses the root list as fallback when Dispatch is absent", async () => {
@@ -279,6 +396,35 @@ describe("workspace dev startup", () => {
     expect(html).toContain("@agent-native/example");
     expect(fake.startedApps()).toEqual(["dispatch"]);
   });
+
+  it("turns a never-ready child process into a visible retrying failure", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_PROXY_READY_TIMEOUT_MS: "50" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+
+    const first = await fetch(`${url}/dispatch`, {
+      headers: { accept: "text/html" },
+    });
+    expect(await first.text()).toContain("Starting Dispatch");
+
+    await waitUntil(() => Boolean(handle?.apps[0]?.lastFailure), 500);
+
+    const res = await fetch(`${url}/dispatch`, {
+      headers: { accept: "text/html" },
+    });
+    const html = await res.text();
+
+    expect(html).toContain("App failed to start: Dispatch");
+    expect(html).toContain("Timed out waiting 50ms");
+    expect(html).toContain("127.0.0.1:");
+    expect(fake.calls().at(-1)?.child.kill).toHaveBeenCalledWith("SIGTERM");
+  });
 });
 
 describe("workspace dev helpers", () => {
@@ -307,6 +453,21 @@ describe("workspace dev helpers", () => {
     expect(isWorkspaceWatcherLimitError({ code: "EMFILE" })).toBe(true);
     expect(isWorkspaceWatcherLimitError({ code: "EACCES" })).toBe(false);
   });
+
+  it("enables polling watchers for managed remote dev unless explicitly disabled", () => {
+    expect(shouldUsePollingFileWatcher({ BUILDER_PROJECT_ID: "1" })).toBe(true);
+    expect(
+      shouldUsePollingFileWatcher({
+        BUILDER_PROJECT_ID: "1",
+        AGENT_NATIVE_DEV_USE_POLLING: "false",
+      }),
+    ).toBe(false);
+    expect(
+      shouldUsePollingFileWatcher({
+        CHOKIDAR_USEPOLLING: "1",
+      }),
+    ).toBe(true);
+  });
 });
 
 function testEnv(): NodeJS.ProcessEnv {
@@ -330,17 +491,29 @@ function makeWorkspace(apps: string[]): string {
 function makeApp(
   workspaceRoot: string,
   app: string,
-  opts: { installVite?: boolean } = {},
+  opts: {
+    audience?: "internal" | "public";
+    installVite?: boolean;
+    protectedPaths?: string[];
+    publicPaths?: string[];
+  } = {},
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   fs.mkdirSync(appDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(appDir, "package.json"),
-    JSON.stringify({
-      name: app,
-      displayName: app.charAt(0).toUpperCase() + app.slice(1),
-    }),
-  );
+  const pkg: Record<string, unknown> = {
+    name: app,
+    displayName: app.charAt(0).toUpperCase() + app.slice(1),
+  };
+  if (opts.audience || opts.protectedPaths || opts.publicPaths) {
+    pkg["agent-native"] = {
+      workspaceApp: {
+        ...(opts.audience ? { audience: opts.audience } : {}),
+        ...(opts.publicPaths ? { publicPaths: opts.publicPaths } : {}),
+        ...(opts.protectedPaths ? { protectedPaths: opts.protectedPaths } : {}),
+      },
+    };
+  }
+  fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
   if (opts.installVite !== false) createViteBin(appDir);
 }
 

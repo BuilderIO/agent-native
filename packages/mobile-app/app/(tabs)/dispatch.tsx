@@ -8,7 +8,7 @@ const dispatch = TEMPLATE_APPS.find((a) => a.id === "dispatch")!;
 export default function DispatchTab() {
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={getAppUrl(dispatch)} />
+      <AppWebView url={getAppUrl(dispatch)} captureSessionToken />
     </SafeAreaView>
   );
 }

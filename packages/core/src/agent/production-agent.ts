@@ -32,6 +32,8 @@ import {
 import { userFacingLlmCredentialError } from "./engine/credential-errors.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import { readAppState } from "../application-state/script-helpers.js";
+import { isDemoModeEnabled } from "../demo/config.js";
+import { redactDemoData, redactDemoString } from "../demo/redact.js";
 import {
   startRun,
   subscribeToRun,
@@ -42,6 +44,7 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
+import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import {
   getRequestRunContext,
   ensureRequestRunContext,
@@ -49,6 +52,7 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import { isMcpActionResult } from "../mcp-client/app-result.js";
 import {
   createToolSearchEntry,
   TOOL_SEARCH_ACTION_NAME,
@@ -256,7 +260,10 @@ export interface ActionEntry {
   ) => Promise<any>;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
   http?: import("../action.js").ActionHttpConfig | false;
-  /** If true, completion does NOT trigger a screen-refresh poll event.
+  /** Explicit opt-in metadata for public agent protocols. Public routes never
+   *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
+  publicAgent?: import("../action.js").PublicAgentActionConfig;
+  /** If true, completion does NOT trigger a screen-refresh change event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
   /** If true, this action can run concurrently with other same-turn
@@ -270,6 +277,14 @@ export interface ActionEntry {
    *  See `defineAction` (`packages/core/src/action.ts`) and audit H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /** Optional deep-link builder. When set, MCP/A2A surfaces append an
+   *  "Open in <app> →" link built from the call's args + result. Pure, sync,
+   *  best-effort. See `defineAction` and the `external-agents` skill. */
+  link?: import("../action.js").ActionLinkBuilder;
+  /** Optional MCP Apps UI resource for hosts that support inline interactive
+   *  app iframes. CLI/non-UI hosts still receive the normal tool result and
+   *  any deep link from `link`. */
+  mcpApp?: import("../action.js").ActionMcpAppConfig;
 }
 
 /** @deprecated Use `ActionEntry` instead */
@@ -282,7 +297,7 @@ export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
 You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
 
 Hard rules:
-- Use only read-only tools. Do not edit files, write resources, run shell commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
+- Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
 - If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
 - When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
 - Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector or /act before implementation.`;
@@ -379,12 +394,23 @@ export function isPlanModeToolCallAllowed(
     return PLAN_MODE_WEB_REQUEST_METHODS.has(getWebRequestMethod(input));
   }
 
+  if (name === "bash") {
+    return isPlanModeReadOnlyBashCall(input);
+  }
+
   const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
   if (allowedActions) {
     return allowedActions.includes(getToolAction(name, input));
   }
 
   return entry.readOnly === true;
+}
+
+function isPlanModeReadOnlyBashCall(input: unknown): boolean {
+  if (!input || typeof input !== "object") return false;
+  const command = (input as Record<string, unknown>).command;
+  if (typeof command !== "string") return false;
+  return isReadOnlyShellCommand(command);
 }
 
 function createPlanModeGuardedAction(
@@ -435,6 +461,23 @@ function createPlanModeWebRequestAction(entry: ActionEntry): ActionEntry {
   };
 }
 
+function createPlanModeBashAction(entry: ActionEntry): ActionEntry {
+  return {
+    ...entry,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description: `${entry.tool.description}\n\nPlan mode: only read-only inspection commands such as pwd, ls, find, rg, grep, cat, sed -n, head, tail, wc, and git status/diff/show/log are allowed.`,
+    },
+    run: async (args, context) => {
+      if (!isPlanModeReadOnlyBashCall(args)) {
+        return planModeBlockedMessage("bash", "command is not read-only");
+      }
+      return entry.run(args, context);
+    },
+  };
+}
+
 export function createPlanModeActionRegistry(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -452,6 +495,11 @@ export function createPlanModeActionRegistry(
 
     if (name === "web-request") {
       filtered[name] = createPlanModeWebRequestAction(entry);
+      continue;
+    }
+
+    if (name === "bash") {
+      filtered[name] = createPlanModeBashAction(entry);
       continue;
     }
 
@@ -483,6 +531,8 @@ export interface ProductionAgentOptions {
     | { name: string; config: Record<string, unknown> };
   /** Model to use. Defaults to the resolved engine's default model. */
   model?: string;
+  /** App/template id used for org-scoped per-app model defaults. */
+  appId?: string;
   /** Default reasoning effort for requests that do not supply an override. */
   reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
@@ -633,6 +683,11 @@ function isRetryableError(err: unknown): boolean {
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (code === "builder_gateway_timeout") return false;
+  if (
+    code === "rate_limit_exceeded" ||
+    msg.includes("daily gateway request cap")
+  )
+    return false;
   return (
     code === "builder_gateway_error" ||
     code === "builder_gateway_network_error" ||
@@ -889,7 +944,7 @@ function enrichMessage(
         skillRefs
           .map(
             (r) =>
-              `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read-file"}`,
+              `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read"}`,
           )
           .join("\n"),
     );
@@ -1635,6 +1690,9 @@ export async function runAgentLoop(opts: {
       const TOOL_TIMEOUT_MS = 60_000;
       let result: string;
       let isError = false;
+      let mcpApp:
+        | import("../mcp-client/app-result.js").AgentMcpAppPayload
+        | undefined;
       try {
         const timeoutSignal = AbortSignal.timeout(TOOL_TIMEOUT_MS);
         const raw = await Promise.race([
@@ -1645,8 +1703,36 @@ export async function runAgentLoop(opts: {
             );
           }),
         ]);
+        const mcpResult = isMcpActionResult(raw) ? raw : null;
+        const rawForAgent = mcpResult ? mcpResult.text : raw;
+        mcpApp = mcpResult?.mcpApp;
+        // Demo mode: the agent must see the same fake data the UI shows, so
+        // it can't read out a real name/email on a live screen share. Redact
+        // the structured result (not the JSON string) so IDs/dates/URLs stay
+        // intact and follow-up tool calls still work. Gated — the expensive
+        // walk only runs when demo mode is on.
+        let redacted: unknown = rawForAgent;
+        const demoMode = await isDemoModeEnabled();
+        if (demoMode) {
+          mcpApp = undefined;
+          if (typeof rawForAgent === "string") {
+            try {
+              redacted = JSON.stringify(
+                redactDemoData(JSON.parse(rawForAgent)),
+                null,
+                2,
+              );
+            } catch {
+              redacted = redactDemoString(rawForAgent);
+            }
+          } else {
+            redacted = redactDemoData(rawForAgent);
+          }
+        }
         let resultStr =
-          typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+          typeof redacted === "string"
+            ? redacted
+            : JSON.stringify(redacted, null, 2);
         if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
           const truncated = resultStr.slice(0, MAX_TOOL_RESULT_CHARS);
           resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${MAX_TOOL_RESULT_CHARS.toLocaleString()} shown]`;
@@ -1669,19 +1755,18 @@ export async function runAgentLoop(opts: {
 
       // Auto-refresh the UI after a successful mutating tool call. Any action
       // that isn't explicitly read-only is assumed to mutate. The client's
-      // useDbSync listener sees a poll event with source:"action" and
+      // useDbSync listener sees a change event with source:"action" and
       // invalidates ["action"] queries so list-* / get-* refetch. This makes
       // refresh after agent writes reliable without the model needing to
       // remember to call `refresh-screen` itself.
       if (!isError && actionEntry.readOnly !== true) {
         try {
-          const { recordChange } = await import("../server/poll.js");
+          const { notifyActionChange } =
+            await import("../server/action-change.js");
           const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
           const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-          recordChange({
-            source: "action",
-            type: "change",
-            key: toolCall.name,
+          await notifyActionChange({
+            actionName: toolCall.name,
             ...(owner ? { owner } : {}),
             ...(orgId ? { orgId } : {}),
           });
@@ -1690,7 +1775,12 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      send({ type: "tool_done", tool: toolCall.name, result });
+      send({
+        type: "tool_done",
+        tool: toolCall.name,
+        result,
+        ...(mcpApp ? { mcpApp } : {}),
+      });
       recordToolResult(result, isError);
       if (!isError) {
         if (cacheKey) {
@@ -1931,10 +2021,12 @@ export function createProductionAgentHandler(
         engineOption: requestEngine ?? options.engine,
         apiKey: effectiveApiKey,
         model: configuredModel,
+        appId: options.appId,
       });
     } catch {
       engine = await resolveEngine({
         apiKey: effectiveApiKey,
+        appId: options.appId,
       });
     }
 
@@ -1946,7 +2038,7 @@ export function createProductionAgentHandler(
     const model =
       requestModel ??
       configuredModel ??
-      (await getStoredModelForEngine(engine)) ??
+      (await getStoredModelForEngine(engine, { appId: options.appId })) ??
       engine.defaultModel;
     const reasoningEffort = normalizeReasoningEffortForModel(
       model,
@@ -2286,6 +2378,8 @@ export function createProductionAgentHandler(
       runId,
       threadId ?? runId,
       async (send, signal) => {
+        send({ type: "activity", label: "Starting agent" });
+
         // Notify listeners that a run has started (used by agent teams)
         if (options.onRunStart) {
           await options.onRunStart(send, threadId ?? runId);
@@ -2575,6 +2669,8 @@ export function createProductionAgentHandler(
           maxIterations: loopSettings.maxIterations,
           finalResponseGuard: options.finalResponseGuard,
         };
+
+        send({ type: "activity", label: "Contacting model" });
 
         let loopUsage: AgentLoopUsage;
         let instrumented = false;

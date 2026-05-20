@@ -17,7 +17,10 @@ import {
   getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { createAnthropicEngine } from "../agent/engine/index.js";
+import {
+  getStoredModelForEngine,
+  resolveEngine,
+} from "../agent/engine/index.js";
 import { createThread } from "../chat-threads/store.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { evaluateCondition } from "./condition-evaluator.js";
@@ -147,7 +150,9 @@ export interface TriggerDispatcherDeps {
   getActions: () => Record<string, ActionEntry>;
   getSystemPrompt: (owner: string) => Promise<string>;
   apiKey?: string;
-  model: string;
+  model?: string;
+  /** App/template id used for org-scoped per-app model defaults. */
+  appId?: string;
 }
 
 // Track active subscriptions to avoid double-subscribing
@@ -364,7 +369,14 @@ async function dispatchAgentic(
         const systemPrompt = await _deps!.getSystemPrompt(jobUserEmail);
         const tools = actionsToEngineTools(actions);
 
-        const engine = createAnthropicEngine({ apiKey });
+        const engine = await resolveEngine({
+          apiKey,
+          appId: _deps!.appId,
+        });
+        const model =
+          _deps!.model ??
+          (await getStoredModelForEngine(engine, { appId: _deps!.appId })) ??
+          engine.defaultModel;
         const thread = await createThread(jobUserEmail, {
           title: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
         });
@@ -403,7 +415,7 @@ ${body}`;
         try {
           await runAgentLoop({
             engine,
-            model: _deps!.model,
+            model,
             systemPrompt,
             tools,
             messages,

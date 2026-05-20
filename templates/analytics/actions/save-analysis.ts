@@ -3,10 +3,15 @@ import {
   getRequestRunContext,
   getRequestUserEmail,
   getRequestOrgId,
+  buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
 import { upsertAnalysis } from "../server/lib/dashboards-store";
 import { hasDataQueryAttempt } from "../server/lib/real-data-actions";
+import {
+  analyticsAnalysisMcpAppHtml,
+  analyticsMcpAppResourceMeta,
+} from "./_mcp-apps.js";
 
 function parseJsonArg(value: unknown, label: string): unknown {
   if (typeof value !== "string") return value;
@@ -99,6 +104,14 @@ export default defineAction({
       ),
   }),
   http: false,
+  mcpApp: {
+    resource: {
+      title: "Saved analysis",
+      description: "Preview the saved Analytics analysis inline.",
+      html: analyticsAnalysisMcpAppHtml,
+      ...analyticsMcpAppResourceMeta,
+    },
+  },
   run: async (args) => {
     const runCtx = getRequestRunContext();
     if (
@@ -126,8 +139,33 @@ export default defineAction({
       id: args.id,
       analysisId: args.id,
       name: args.name,
+      description: args.description,
+      resultMarkdown: args.resultMarkdown,
+      resultData: args.resultData,
       urlPath: `/analyses/${args.id}`,
+      deepLink: buildDeepLink({
+        app: "analytics",
+        view: "analyses",
+        params: { analysisId: args.id },
+      }),
       message: `Analysis "${args.name}" saved as ${args.id}. Users can view it at /analyses/${args.id} and re-run it anytime for fresh results.`,
+    };
+  },
+  link: ({ result }) => {
+    const id =
+      result && typeof result === "object"
+        ? ((result as { analysisId?: string; id?: string }).analysisId ??
+          (result as { id?: string }).id)
+        : undefined;
+    if (!id) return null;
+    return {
+      url: buildDeepLink({
+        app: "analytics",
+        view: "analyses",
+        params: { analysisId: id },
+      }),
+      label: "Open analysis in Analytics",
+      view: "analyses",
     };
   },
 });

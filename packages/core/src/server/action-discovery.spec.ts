@@ -43,4 +43,50 @@ describe("action discovery", () => {
 
     expect(registry["safe-write"].parallelSafe).toBe(true);
   });
+
+  it("preserves publicAgent metadata from static defineAction entries", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "public-search": {
+        default: {
+          tool: { description: "Public search", parameters: {} },
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+            isConsequential: false,
+          },
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["public-search"].publicAgent).toEqual({
+      expose: true,
+      readOnly: true,
+      requiresAuth: false,
+      isConsequential: false,
+    });
+  });
+
+  it("preserves MCP Apps metadata from static defineAction entries", () => {
+    const mcpApp = {
+      resource: {
+        title: "Preview",
+        html: "<!doctype html><p>Preview</p>",
+        csp: { connectDomains: ["https://example.com"] },
+      },
+      visibility: ["model", "app"],
+    };
+    const registry = loadActionsFromStaticRegistry({
+      "preview-thing": {
+        default: {
+          tool: { description: "Preview thing", parameters: {} },
+          mcpApp,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["preview-thing"].mcpApp).toBe(mcpApp);
+  });
 });

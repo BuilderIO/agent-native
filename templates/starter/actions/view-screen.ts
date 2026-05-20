@@ -16,6 +16,7 @@ export default defineAction({
     "See what the user is currently looking at on screen. Returns the current navigation state. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
+  readOnly: true,
   run: async () => {
     const navigation = await readAppState("navigation");
 
@@ -25,6 +26,6 @@ export default defineAction({
     if (Object.keys(screen).length === 0) {
       return "No application state found. Is the app running?";
     }
-    return JSON.stringify(screen, null, 2);
+    return screen;
   },
 });

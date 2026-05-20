@@ -8,6 +8,8 @@ import {
   set,
   isToday,
   addMinutes,
+  addDays,
+  min,
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
@@ -28,6 +30,24 @@ interface DayViewProps {
   quickEditEventId?: string | null;
   onQuickEditSave?: (eventId: string, title: string) => void;
   onQuickEditCancel?: (eventId: string) => void;
+  draftEventIds?: string[];
+  onDraftUpdate?: (
+    eventId: string,
+    updates: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+      workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+      workingLocationLabel?: string;
+    },
+  ) => void;
+  onDraftCreate?: (
+    eventId: string,
+    updates?: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+    },
+  ) => void;
+  onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
 }
 
@@ -100,6 +120,10 @@ export function DayView({
   quickEditEventId,
   onQuickEditSave,
   onQuickEditCancel,
+  draftEventIds = [],
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
   isLoading = false,
 }: DayViewProps) {
   const { setFocusedEvent } = useCalendarContext();
@@ -149,9 +173,15 @@ export function DayView({
   function getEventStyle(event: CalendarEvent) {
     const start = parseISO(event.start);
     const end = parseISO(event.end);
-    const dayStart = set(startOfDay(start), { hours: START_HOUR });
-    const topMinutes = Math.max(0, differenceInMinutes(start, dayStart));
-    const durationMinutes = Math.max(15, differenceInMinutes(end, start));
+    const dayStart = set(startOfDay(date), { hours: START_HOUR });
+    const dayEnd = addDays(startOfDay(date), 1);
+    const cappedEnd = min([end, dayEnd]);
+    const segStart = start > dayStart ? start : dayStart;
+    const topMinutes = Math.max(0, differenceInMinutes(segStart, dayStart));
+    const durationMinutes = Math.max(
+      15,
+      differenceInMinutes(cappedEnd, segStart),
+    );
     return {
       top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
       height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
@@ -221,6 +251,13 @@ export function DayView({
                   key={event.id}
                   event={event}
                   onDelete={onDeleteEvent}
+                  isDraft={draftEventIds.includes(event.id)}
+                  defaultOpen={quickEditEventId === event.id}
+                  onTitleSave={onQuickEditSave}
+                  onDismissNew={onQuickEditCancel}
+                  onDraftUpdate={onDraftUpdate}
+                  onDraftCreate={onDraftCreate}
+                  onDraftDiscard={onDraftDiscard}
                 >
                   <button
                     className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110"
@@ -361,12 +398,14 @@ export function DayView({
                   }
                 : getEventStyle(event);
               const color = getEventDisplayColor(event, prefs);
+              const evStart = parseISO(event.start);
+              const rawEnd = parseISO(event.end);
+              const midnight = addDays(startOfDay(date), 1);
+              const evEnd = min([rawEnd, midnight]);
+              const isOvernightCapped = rawEnd > midnight;
               const durationMin = overrides
                 ? (overrides.height / HOUR_HEIGHT) * 60
-                : differenceInMinutes(
-                    parseISO(event.end),
-                    parseISO(event.start),
-                  );
+                : differenceInMinutes(evEnd, evStart);
               // Compute display times (use drag overrides if active)
               const displayStart = overrides
                 ? addMinutes(
@@ -518,8 +557,8 @@ export function DayView({
                       style={{ touchAction: "none" }}
                     />
                   )}
-                  {/* Bottom resize handle */}
-                  {canDrag && (
+                  {/* Bottom resize handle — hidden on overnight events capped at midnight; drag math uses uncapped duration and would truncate the true end */}
+                  {canDrag && !isOvernightCapped && (
                     <div
                       data-resize-handle="true"
                       onPointerDown={(e) => {
@@ -547,9 +586,13 @@ export function DayView({
                   key={event._tempId ?? event.id}
                   event={event}
                   onDelete={onDeleteEvent}
+                  isDraft={draftEventIds.includes(event.id)}
                   defaultOpen={quickEditEventId === event.id}
                   onTitleSave={onQuickEditSave}
                   onDismissNew={onQuickEditCancel}
+                  onDraftUpdate={onDraftUpdate}
+                  onDraftCreate={onDraftCreate}
+                  onDraftDiscard={onDraftDiscard}
                 >
                   {eventButton}
                 </EventDetailPopover>

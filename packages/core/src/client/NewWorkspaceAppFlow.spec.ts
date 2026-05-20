@@ -216,6 +216,10 @@ describe("NewWorkspaceAppFlow", () => {
       "- Core GTM Messaging (knowledge, context/core-gtm-messaging.md)",
     );
     expect(message).toContain(
+      "Dispatch workspace resources with scope=all are inherited workspace context.",
+    );
+    expect(message).toContain("Do not copy or sync them into the new app");
+    expect(message).toContain(
       "After the app exists, grant the selected Dispatch vault keys",
     );
     expect(message).toContain(

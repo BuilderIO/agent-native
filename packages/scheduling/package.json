@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/scheduling",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "type": "module",
   "description": "Scheduling primitives for agent-native apps — event types, availability, bookings, team scheduling, workflows, routing forms. Powers the scheduling and calendar templates.",
   "license": "MIT",
@@ -81,6 +81,7 @@
   },
   "devDependencies": {
     "@agent-native/core": "workspace:*",
+    "@libsql/client": "^0.15.8",
     "@tabler/icons-react": "^3.0.0",
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",

@@ -11,6 +11,10 @@ import { readBody, getSession } from "@agent-native/core/server";
 import { emit } from "@agent-native/core/event-bus";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { prepareZoomMeetingPatch } from "../lib/event-video-conferencing.js";
+import {
+  normalizeGuestNotificationMessage,
+  sendEventGuestNotificationNote,
+} from "../lib/event-guest-notifications.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
 
 async function uEmail(event: H3Event): Promise<string> {
@@ -330,7 +334,16 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     const acctEmail = await resolveAccountEmail(body.accountEmail, email);
-    const { addGoogleMeet, addZoom, sendUpdates, ...rawUpdates } = body;
+    const {
+      addGoogleMeet,
+      addZoom,
+      sendUpdates,
+      notificationMessage,
+      ...rawUpdates
+    } = body;
+    const guestNotificationMessage = normalizeGuestNotificationMessage(
+      typeof notificationMessage === "string" ? notificationMessage : undefined,
+    );
     if (addGoogleMeet === true && addZoom === true) {
       setResponseStatus(event, 400);
       return { error: "Choose either Google Meet or Zoom, not both." };
@@ -341,13 +354,16 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
       accountEmail: acctEmail,
     };
 
+    let existingEvent: CalendarEvent | undefined;
+    const loadExistingEvent = async () => {
+      existingEvent ??= await googleCalendar.getEvent(googleEventId, acctEmail);
+      return existingEvent;
+    };
+
     let zoomMeetingLink: string | undefined;
     let zoomAlreadyPresent = false;
     if (addZoom === true) {
-      const existingEvent = await googleCalendar.getEvent(
-        googleEventId,
-        acctEmail,
-      );
+      const existingEvent = await loadExistingEvent();
       const eventForZoom: CalendarEvent = {
         ...existingEvent,
         ...updates,
@@ -362,6 +378,10 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
       zoomAlreadyPresent = zoom.alreadyPresent;
       Object.assign(updates, zoom.patch);
     }
+
+    const eventForNotification = guestNotificationMessage
+      ? await loadExistingEvent()
+      : undefined;
 
     const updatedKeys = Object.keys(updates).filter(
       (key) => key !== "accountEmail",
@@ -379,7 +399,8 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
 
     try {
       const result = await googleCalendar.updateEvent(googleEventId, updates, {
-        sendUpdates,
+        sendUpdates:
+          sendUpdates ?? (guestNotificationMessage ? "all" : undefined),
         addGoogleMeet: addGoogleMeet === true,
       });
       if (result.htmlLink) updates.htmlLink = result.htmlLink;
@@ -398,6 +419,22 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
       updatedAt: new Date().toISOString(),
     };
 
+    const guestNotification =
+      guestNotificationMessage && eventForNotification
+        ? await sendEventGuestNotificationNote({
+            event: {
+              ...eventForNotification,
+              ...updated,
+              id,
+              googleEventId,
+              accountEmail: acctEmail,
+            },
+            organizerEmail: email,
+            message: guestNotificationMessage,
+            kind: "update",
+          })
+        : undefined;
+
     try {
       emit(
         "calendar.event.updated",
@@ -415,7 +452,10 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
       // best-effort
     }
 
-    return updated;
+    return {
+      ...updated,
+      ...(guestNotification ? { guestNotification } : {}),
+    };
   } catch (error: any) {
     return handleError(event, error);
   }
@@ -453,7 +493,19 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
     const sendUpdates = (body?.sendUpdates || query.sendUpdates || "none") as
       | "all"
       | "none";
+    const guestNotificationMessage = normalizeGuestNotificationMessage(
+      typeof body?.notificationMessage === "string"
+        ? body.notificationMessage
+        : typeof query.notificationMessage === "string"
+          ? query.notificationMessage
+          : undefined,
+    );
     const removeOnly = body?.removeOnly === true;
+    const shouldNotifyGuests = !!guestNotificationMessage && !removeOnly;
+    const effectiveSendUpdates = removeOnly ? "none" : sendUpdates;
+    const eventForNotification = shouldNotifyGuests
+      ? await googleCalendar.getEvent(googleEventId, accountEmail)
+      : undefined;
 
     try {
       if (removeOnly) {
@@ -461,13 +513,13 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
         await googleCalendar.removeEventFromCalendar(
           googleEventId,
           accountEmail,
-          { scope, sendUpdates },
+          { scope, sendUpdates: effectiveSendUpdates },
         );
       } else {
         // Organizer: actually delete the event
         await googleCalendar.deleteEvent(googleEventId, accountEmail, {
           scope,
-          sendUpdates,
+          sendUpdates: effectiveSendUpdates,
         });
       }
     } catch (error: any) {
@@ -475,7 +527,21 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
       return { error: `Failed to delete Google event: ${error.message}` };
     }
 
-    return { success: true };
+    const guestNotification =
+      shouldNotifyGuests && guestNotificationMessage && eventForNotification
+        ? await sendEventGuestNotificationNote({
+            event: eventForNotification,
+            organizerEmail: email,
+            message: guestNotificationMessage,
+            kind: "cancellation",
+            scope,
+          })
+        : undefined;
+
+    return {
+      success: true,
+      ...(guestNotification ? { guestNotification } : {}),
+    };
   } catch (error: any) {
     return handleError(event, error);
   }
