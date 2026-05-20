@@ -119,6 +119,15 @@ function safeAppPath(raw: unknown): string | null {
   if (!value.startsWith("/")) return null;
   if (value.startsWith("//") || value.startsWith("/\\")) return null;
   if (/^\/[a-z][a-z0-9+.-]*:/i.test(value)) return null;
+  if (/%(?:2f|5c)/i.test(value)) return null;
+  const rawPath = value.split(/[?#]/, 1)[0] ?? value;
+  let parsed: URL;
+  try {
+    parsed = new URL(value, "http://agent-native.invalid");
+  } catch {
+    return null;
+  }
+  if (parsed.pathname !== rawPath) return null;
   return value;
 }
 
@@ -151,6 +160,14 @@ function isDispatchControlPath(path: string | null): boolean {
     route === "/tools" ||
     route.startsWith("/tools/")
   );
+}
+
+function assertAppCanOpenPath(app: DispatchMcpAccessibleApp, path: string) {
+  if (app.id !== DISPATCH_APP_ID && isDispatchControlPath(path)) {
+    throw new Error(
+      `Path "${path}" belongs to Dispatch. Use app: "dispatch" for Dispatch extension and tool routes.`,
+    );
+  }
 }
 
 function toAccessibleApp(
@@ -259,14 +276,14 @@ export async function openGrantedDispatchMcpApp(input: {
   chrome?: "full" | "minimal";
 }> {
   const view = input.view?.trim() ?? "";
+  const hasPathInput = input.path != null;
   const path = safeAppPath(input.path);
+  if (hasPathInput && !path) {
+    throw new Error("path must be a safe app-relative route");
+  }
   if (!view && !path) throw new Error("open_app requires view or path");
   const target = await resolveGrantedDispatchMcpApp(input.app);
-  if (target.id !== DISPATCH_APP_ID && isDispatchControlPath(path)) {
-    throw new Error(
-      `Path "${path}" belongs to Dispatch. Use app: "dispatch" for Dispatch extension and tool routes.`,
-    );
-  }
+  if (path) assertAppCanOpenPath(target, path);
   const relUrl = path
     ? appendParamsToPath(path, input.params)
     : buildDeepLink({
@@ -313,6 +330,7 @@ async function resolveDispatchEmbedTarget(input: {
   if (explicitApp && input.path) {
     const path = safeAppPath(input.path);
     if (!path) throw new Error("path must be a safe app-relative route");
+    assertAppCanOpenPath(explicitApp, path);
     return {
       app: explicitApp,
       path,
@@ -349,6 +367,7 @@ async function resolveDispatchEmbedTarget(input: {
   }
   const path = safeAppPath(`${parsed.pathname}${parsed.search}${parsed.hash}`);
   if (!path) throw new Error("Embed URL path is not safe.");
+  assertAppCanOpenPath(target, path);
   return { app: target, path, url: `${appBaseUrl(target)}${path}` };
 }
 

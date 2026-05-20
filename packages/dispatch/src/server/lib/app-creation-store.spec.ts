@@ -193,8 +193,13 @@ describe("listWorkspaceApps", () => {
     mocks.settings.set(settingsKey, {
       pendingApps: [
         pendingApp("mail", {
+          builderUrl: "https://builder.io/app/projects/project-123/branch/old",
+        }),
+        pendingApp("mail", {
           contextId: "branch:feature-a",
           contextLabel: "Branch: feature-a",
+          builderUrl:
+            "https://builder.io/app/projects/project-123/branch/feature-a",
         }),
         pendingApp("calendar", {
           contextId: "branch:feature-b",
@@ -212,6 +217,10 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "legacy", "mail"]);
     expect(apps.find((app) => app.id === "mail")?.statusLabel).toBe(
       "Pending Builder branch",
+    );
+    expect(apps.filter((app) => app.id === "mail")).toHaveLength(1);
+    expect(apps.find((app) => app.id === "mail")?.builderUrl).toContain(
+      "feature-a",
     );
   });
 

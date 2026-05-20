@@ -551,6 +551,32 @@ function pendingWorkspaceAppMatchesCurrentContext(
   return app.contextId === currentContext?.id;
 }
 
+function pendingWorkspaceAppContextRank(
+  app: Pick<PendingWorkspaceApp, "contextId">,
+): number {
+  const currentContext = pendingWorkspaceAppContext();
+  if (app.contextId && app.contextId === currentContext?.id) return 2;
+  if (!app.contextId) return 1;
+  return 0;
+}
+
+function dedupePendingWorkspaceAppsForCurrentContext(
+  apps: PendingWorkspaceApp[],
+): PendingWorkspaceApp[] {
+  const byId = new Map<string, PendingWorkspaceApp>();
+  for (const app of apps) {
+    const existing = byId.get(app.id);
+    if (
+      !existing ||
+      pendingWorkspaceAppContextRank(app) >
+        pendingWorkspaceAppContextRank(existing)
+    ) {
+      byId.set(app.id, app);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 function sortWorkspaceApps(a: WorkspaceAppSummary, b: WorkspaceAppSummary) {
   if (a.id === "dispatch") return -1;
   if (b.id === "dispatch") return 1;
@@ -713,10 +739,11 @@ async function appendPendingWorkspaceApps(
   apps: WorkspaceAppSummary[],
 ): Promise<WorkspaceAppSummary[]> {
   const readyIds = new Set(apps.map((app) => app.id));
-  const pendingApps = (await listPendingWorkspaceApps())
-    .filter(pendingWorkspaceAppMatchesCurrentContext)
-    .filter((app) => !readyIds.has(app.id))
-    .map(pendingAppToSummary);
+  const pendingApps = dedupePendingWorkspaceAppsForCurrentContext(
+    (await listPendingWorkspaceApps())
+      .filter(pendingWorkspaceAppMatchesCurrentContext)
+      .filter((app) => !readyIds.has(app.id)),
+  ).map(pendingAppToSummary);
   return [...apps, ...pendingApps].sort(sortWorkspaceApps);
 }
 
@@ -849,8 +876,10 @@ async function recordPendingWorkspaceApp(input: {
   const context = pendingWorkspaceAppContext();
   const raw = await readSettingsRecord();
   const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+  const contextId = context?.id ?? null;
   const samePendingEntry = (app: PendingWorkspaceApp) =>
-    app.id === input.appId && app.contextId === (context?.id ?? null);
+    app.id === input.appId &&
+    (app.contextId === contextId || (!!contextId && !app.contextId));
   const existing = pendingApps
     .filter((app) => !isPendingWorkspaceAppExpired(app))
     .find(samePendingEntry);

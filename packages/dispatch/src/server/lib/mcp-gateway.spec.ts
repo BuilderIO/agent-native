@@ -188,6 +188,22 @@ describe("openGrantedDispatchMcpApp", () => {
       ),
     ).rejects.toThrow(/belongs to Dispatch/);
   });
+
+  it("rejects traversal that normalizes into Dispatch-owned routes on sibling apps", async () => {
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "analytics",
+            path: "/../dispatch/extensions/ext-1",
+          }),
+      ),
+    ).rejects.toThrow(/safe app-relative route/);
+  });
 });
 
 describe("createGrantedDispatchMcpEmbedSession", () => {
@@ -219,5 +235,21 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       targetPath: "/extensions/ext-1/github-stars-over-time",
       expiresAt: 12345,
     });
+  });
+
+  it("rejects traversal into Dispatch-owned embed routes on sibling apps", async () => {
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/../dispatch/extensions/ext-1",
+          }),
+      ),
+    ).rejects.toThrow(/safe app-relative route/);
   });
 });
