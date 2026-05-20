@@ -2623,7 +2623,7 @@ export function createCoreRoutesPlugin(
       // here for a short-lived browser session cookie + bearer fallback.
       getH3App(nitroApp).use(
         `${P}/embed/start`,
-        createEmbedStartRouteHandler(),
+        createEmbedStartRouteHandler({ getExistingSession: getSession }),
       );
     }
 
