@@ -158,6 +158,7 @@ const config = {
         echoed: args.value,
         id: "thing-42",
       }),
+      readOnly: true,
       link: ({ result }: any) => ({
         label: "Open in Mail",
         view: "thing",
@@ -256,6 +257,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const echo = out.result.tools.find((t: any) => t.name === "echo-thing");
     // Actions with a `link` builder advertise the producesOpenLink annotation
     // and a description nudge — identical on both runtimes.
+    expect(echo.annotations?.readOnlyHint).toBe(true);
     expect(echo.annotations?.["agent-native/producesOpenLink"]).toBe(true);
     expect(echo.description).toContain("Open in");
     expect(echo._meta?.["ui/resourceUri"]).toBe("ui://mail/echo-thing");
