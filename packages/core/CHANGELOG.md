@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.22.6
+
+### Patch Changes
+
+- 789ba7d: Clarify starter app creation guidance, seed app descriptions, and remove starter/new-app leftovers from starter-derived apps.
+- 789ba7d: Add Dispatch unified MCP gateway guidance and app-grant controls.
+- 789ba7d: Add MCP App full-app embedding with short-lived browser sessions.
+- 789ba7d: Ignore test files when discovering and generating runtime action registries.
+- 789ba7d: Skip stored AI SDK agent engines when their optional runtime packages are not installed.
+
 ## 0.22.5
 
 ### Patch Changes
