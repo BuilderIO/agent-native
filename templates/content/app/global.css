@@ -271,6 +271,7 @@
 
 .visual-editor-wrapper {
   position: relative;
+  min-height: max(320px, 50vh);
 }
 
 .notion-editor {
@@ -283,6 +284,10 @@
   color: hsl(var(--foreground));
   line-height: 1.7;
   font-size: 1rem;
+}
+
+.visual-editor-wrapper .notion-editor {
+  min-height: max(320px, 50vh);
 }
 
 .notion-editor > *:first-child {
@@ -988,13 +993,14 @@ video.media-block__content {
   display: none;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 24px;
   height: 24px;
   border-radius: 4px;
   cursor: grab;
   color: hsl(var(--muted-foreground) / 0.4);
   z-index: 10;
   user-select: none;
+  touch-action: none;
 }
 .drag-handle:hover {
   color: hsl(var(--muted-foreground));
