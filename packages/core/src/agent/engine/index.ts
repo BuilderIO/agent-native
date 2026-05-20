@@ -26,6 +26,7 @@ export {
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
   isAgentEngineSettingConfigured,
+  isAgentEnginePackageInstalled,
   isStoredEngineUsable,
   isStoredEngineUsableForRequest,
   type AgentEngineEntry,

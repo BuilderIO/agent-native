@@ -25,7 +25,7 @@ If you're running a single template standalone, you don't need Dispatch — each
 
 ## What Dispatch does {#what-it-does}
 
-Five capabilities, all sitting on top of the same workspace database the other apps use.
+Six capabilities, all sitting on top of the same workspace database the other apps use.
 
 ### Central inbox
 
@@ -44,6 +44,12 @@ This is what makes "rotate the OpenAI key" a one-click operation across ten apps
 Dispatch auto-discovers the other apps in your workspace as A2A peers — no manual registration, no per-app config. When a user asks "summarize last week's signups" in Slack, Dispatch recognizes that as an analytics request and calls the analytics app over [A2A](/docs/a2a-protocol). When they ask "draft a reply to Alice", it routes to the mail app. Dispatch posts the final answer back in the originating thread.
 
 The behavioral rule lives in the dispatch agent's instructions: domain work belongs to the domain app. Dispatch is the orchestrator, not the specialist.
+
+### Unified MCP gateway
+
+Dispatch can also be the single MCP URL for external agents. Connect Claude, ChatGPT, Codex, Cursor, or another MCP host to `https://dispatch.agent-native.com/_agent-native/mcp` once, then manage which apps that gateway can reach from Dispatch's **Agents** page. The gateway exposes `list_apps`, `ask_app`, and `open_app`, filtered by the selected app grants, so external agents can route work to Mail, Calendar, Analytics, Brain, and workspace apps without a separate browser authorization for every app.
+
+Direct per-app MCP URLs still exist when you intentionally want one isolated app surface. For most workspace use, the Dispatch gateway is the lower-friction path.
 
 ### Workspace resources
 

@@ -42,6 +42,7 @@ import { ReactionsTray } from "@/components/player/reactions-tray";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { InsightsPanel } from "@/components/player/insights-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
@@ -188,6 +189,7 @@ export default function RecordingPage() {
     : "Untitled Clip";
 
   const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const canDelete = role === "owner";
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
@@ -645,6 +647,13 @@ export default function RecordingPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : null}
+
+          {canDelete ? (
+            <DeleteRecordingMenu
+              recordingId={recording.id}
+              onDeleted={() => navigate("/library", { replace: true })}
+            />
           ) : null}
 
           <ShareRecordingPopover

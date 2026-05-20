@@ -13,7 +13,6 @@ import {
   type KnowledgeResponse,
   type KnowledgeRow,
   formatPercent,
-  sampleKnowledgeRows,
   statusLabel,
 } from "@/lib/brain";
 import {
@@ -100,7 +99,8 @@ export default function KnowledgeRoute() {
 
   const actionRows =
     knowledgeQuery.data?.rows ?? knowledgeQuery.data?.knowledge;
-  const rows = actionRows?.length ? actionRows : sampleKnowledgeRows;
+  const rows = actionRows ?? [];
+  const hasActiveFilters = Boolean(query) || status !== "all" || type !== "all";
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
@@ -277,8 +277,16 @@ export default function KnowledgeRoute() {
           </Card>
         ) : (
           <EmptyActionState
-            title="No knowledge matches these filters"
-            detail="Clear the search or filters to broaden the memory set."
+            title={
+              hasActiveFilters
+                ? "No knowledge matches these filters"
+                : "No company knowledge yet"
+            }
+            detail={
+              hasActiveFilters
+                ? "Clear the search or filters to broaden the memory set."
+                : "Connect a source or approve review proposals to build company memory."
+            }
           />
         )}
 
@@ -296,7 +304,7 @@ export default function KnowledgeRoute() {
         {knowledgeQuery.isError ? (
           <EmptyActionState
             title="Waiting on search-knowledge"
-            detail="The route is wired to the intended search-knowledge action and is using scaffold rows until it is available."
+            detail="Brain could not load reviewed company memory yet."
           />
         ) : null}
 

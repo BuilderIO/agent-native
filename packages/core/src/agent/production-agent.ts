@@ -25,6 +25,11 @@ import type {
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
+  backfillEngineMessagesToolResults,
+  stringifyToolUseInputForGateway,
+  unmatchedToolResultReplayText,
+} from "./engine/translate-anthropic.js";
+import {
   resolveEngine,
   registerBuiltinEngines,
   getStoredModelForEngine,
@@ -840,10 +845,35 @@ export function buildUserContentWithAttachments(opts: {
   return userContent;
 }
 
+function coerceStructuredToolResultWire(part: {
+  toolCallId?: unknown;
+  content?: unknown;
+}): { toolCallId: string; content: string } {
+  const toolCallId =
+    typeof part.toolCallId === "string"
+      ? part.toolCallId.trim()
+      : part.toolCallId === undefined || part.toolCallId === null
+        ? ""
+        : String(part.toolCallId).trim();
+  let content = "";
+  if (typeof part.content === "string") {
+    content = part.content;
+  } else if (part.content !== undefined && part.content !== null) {
+    try {
+      content = JSON.stringify(part.content);
+    } catch {
+      content = String(part.content);
+    }
+  }
+  return { toolCallId, content };
+}
+
 export function structuredHistoryToEngineMessages(
   history: AgentChatStructuredMessage[] | undefined,
 ): EngineMessage[] | null {
   if (!Array.isArray(history)) return null;
+
+  const toolUseById = new Map<string, { name: string; input: unknown }>();
 
   const messages: EngineMessage[] = [];
   for (const message of history) {
@@ -879,29 +909,61 @@ export function structuredHistoryToEngineMessages(
               ? part.toolName
               : "";
         if (!id || !name) continue;
+        const input = part.input ?? part.args ?? {};
+        toolUseById.set(id, { name, input });
         content.push({
           type: "tool-call",
           id,
           name,
-          input: part.input ?? part.args ?? {},
+          input,
         });
         continue;
       }
 
       if (part.type === "tool-result" && message.role === "user") {
-        if (
-          typeof part.toolCallId !== "string" ||
-          typeof part.content !== "string"
-        ) {
+        const wire = coerceStructuredToolResultWire(part);
+        const lookup =
+          wire.toolCallId.length > 0
+            ? toolUseById.get(wire.toolCallId)
+            : undefined;
+        const toolName =
+          typeof part.toolName === "string" && part.toolName.trim().length > 0
+            ? part.toolName
+            : lookup?.name;
+        if (!toolName?.trim()) {
+          content.push({
+            type: "text",
+            text: unmatchedToolResultReplayText({
+              toolCallId:
+                wire.toolCallId.length > 0 ? wire.toolCallId : "(missing)",
+              content: wire.content,
+              isError: part.isError,
+            }),
+          });
           continue;
         }
+        if (!wire.toolCallId) {
+          // Named tool but no id — cannot emit a valid paired `tool-result`.
+          content.push({
+            type: "text",
+            text: unmatchedToolResultReplayText({
+              toolCallId: "(missing)",
+              content: wire.content,
+              isError: part.isError,
+            }),
+          });
+          continue;
+        }
+        const toolInput =
+          typeof part.toolInput === "string" && part.toolInput.length > 0
+            ? part.toolInput
+            : stringifyToolUseInputForGateway(lookup?.input);
         content.push({
           type: "tool-result",
-          toolCallId: part.toolCallId,
-          ...(typeof part.toolName === "string"
-            ? { toolName: part.toolName }
-            : {}),
-          content: part.content,
+          toolCallId: wire.toolCallId,
+          toolName,
+          toolInput,
+          content: wire.content,
           ...(part.isError ? { isError: true } : {}),
         });
       }
@@ -912,7 +974,9 @@ export function structuredHistoryToEngineMessages(
     }
   }
 
-  return messages.length > 0 ? messages : null;
+  return messages.length > 0
+    ? backfillEngineMessagesToolResults(messages)
+    : null;
 }
 
 /** Build enriched message with file/skill/mention references */
@@ -1582,6 +1646,7 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
+      const wireToolInput = JSON.stringify(toolCall.input ?? {});
       toolCallHistory.push({
         name: toolCall.name,
         input: normalizeToolCallInputForHistory(toolCall.input),
@@ -1607,6 +1672,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
           isError: true,
         };
@@ -1642,6 +1708,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
         };
       }
@@ -1665,6 +1732,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
           isError: true,
         };
@@ -1681,6 +1749,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
           isError: true,
         };
@@ -1794,6 +1863,7 @@ export async function runAgentLoop(opts: {
         type: "tool-result" as const,
         toolCallId: toolCall.id,
         toolName: toolCall.name,
+        toolInput: wireToolInput,
         content: result,
         ...(isError ? { isError } : {}),
       };
