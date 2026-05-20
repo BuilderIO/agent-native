@@ -146,6 +146,18 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(result.embed).toBe(true);
   });
 
+  it("uses a direct app route for embedded view links", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.open_app.run({
+      app: "mail",
+      view: "inbox",
+      params: { threadId: "abc" },
+      embed: true,
+    });
+    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.embed).toBe(true);
+  });
+
   it("rejects open_app calls without a view or path", async () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
     await expect(tools.open_app.run({ app: "mail" })).rejects.toThrow(

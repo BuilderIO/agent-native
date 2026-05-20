@@ -50,6 +50,13 @@ const SKIP_FILES = new Set([
   "registry",
 ]);
 
+function isRuntimeSourceFile(filename: string): boolean {
+  if (!/\.(ts|js)$/.test(filename)) return false;
+  if (/\.d\.ts$/.test(filename)) return false;
+  if (/\.(test|spec)\.(ts|js)$/.test(filename)) return false;
+  return true;
+}
+
 /**
  * Global registry of actions contributed by published packages
  * (e.g. `@agent-native/dispatch`). Populated by `registerPackageActions()`
@@ -266,7 +273,7 @@ async function loadActionsIntoRegistry(
   }
 
   const actionFiles = files.filter((f) => {
-    if (!f.endsWith(".ts") && !f.endsWith(".js")) return false;
+    if (!isRuntimeSourceFile(f)) return false;
     const name = f.replace(/\.(ts|js)$/, "");
     if (name.startsWith("_")) return false;
     if (SKIP_FILES.has(name)) return false;

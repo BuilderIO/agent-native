@@ -1,11 +1,14 @@
 import {
+  EMBED_CONTEXT_PATH_HEADER,
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 
-const STORAGE_KEY = "agent-native.embed-token.v1";
+const STORAGE_KEY_PREFIX = "agent-native.embed-token.v1:";
+const FRAME_NAME_PREFIX = "agent-native-embed-frame:";
 
 let installed = false;
+let activeEmbedToken: string | null = null;
 
 function browserWindow(): Window | null {
   return typeof window === "undefined" ? null : window;
@@ -20,9 +23,30 @@ function readTokenFromUrl(win: Window): string | null {
   }
 }
 
-function storeToken(win: Window, token: string): void {
+function frameStorageKey(win: Window): string {
   try {
-    win.sessionStorage.setItem(STORAGE_KEY, token);
+    if (!win.name || !win.name.startsWith(FRAME_NAME_PREFIX)) {
+      win.name = `${FRAME_NAME_PREFIX}${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+    }
+    return `${STORAGE_KEY_PREFIX}${win.name.slice(FRAME_NAME_PREFIX.length)}`;
+  } catch {
+    return `${STORAGE_KEY_PREFIX}memory`;
+  }
+}
+
+function readStoredToken(win: Window): string | null {
+  if (activeEmbedToken) return activeEmbedToken;
+  try {
+    return win.sessionStorage.getItem(frameStorageKey(win));
+  } catch {
+    return (win as any).__agentNativeEmbedToken ?? null;
+  }
+}
+
+function storeToken(win: Window, token: string): void {
+  activeEmbedToken = token;
+  try {
+    win.sessionStorage.setItem(frameStorageKey(win), token);
   } catch {
     (win as any).__agentNativeEmbedToken = token;
   }
@@ -33,11 +57,7 @@ export function getEmbedAuthToken(): string | null {
   if (!win) return null;
   const fromUrl = readTokenFromUrl(win);
   if (fromUrl) return fromUrl;
-  try {
-    return win.sessionStorage.getItem(STORAGE_KEY);
-  } catch {
-    return (win as any).__agentNativeEmbedToken ?? null;
-  }
+  return readStoredToken(win);
 }
 
 export function isEmbedAuthActive(): boolean {
@@ -80,6 +100,10 @@ function sameOrigin(input: RequestInfo | URL, win: Window): boolean {
   }
 }
 
+function currentEmbedPath(win: Window): string {
+  return `${win.location.pathname}${win.location.search}`;
+}
+
 export function ensureEmbedAuthFetchInterceptor(): void {
   const win = browserWindow();
   if (!win) return;
@@ -106,6 +130,9 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     );
     if (!headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`);
+    }
+    if (!headers.has(EMBED_CONTEXT_PATH_HEADER)) {
+      headers.set(EMBED_CONTEXT_PATH_HEADER, currentEmbedPath(win));
     }
 
     if (input instanceof Request) {

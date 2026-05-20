@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  isEmbedRequestPathAllowed,
   normalizeEmbedTargetPath,
   signEmbedSessionToken,
   verifyEmbedSessionToken,
@@ -90,5 +91,11 @@ describe("normalizeEmbedTargetPath", () => {
     expect(normalizeEmbedTargetPath("//evil.example.com")).toBeNull();
     expect(normalizeEmbedTargetPath("/http://evil.example.com")).toBeNull();
     expect(normalizeEmbedTargetPath("/foo\u0001bar")).toBeNull();
+  });
+
+  it("allows embed sessions only on the minted route unless rooted at the app", () => {
+    expect(isEmbedRequestPathAllowed("/inbox?thread=t1", "/inbox")).toBe(true);
+    expect(isEmbedRequestPathAllowed("/inbox", "/settings")).toBe(false);
+    expect(isEmbedRequestPathAllowed("/", "/settings")).toBe(true);
   });
 });

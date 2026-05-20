@@ -99,6 +99,12 @@ function appendParamsToPath(
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+function viewToAppPath(view: string): string | null {
+  const value = view.trim();
+  if (!value) return null;
+  return safeAppPath(value.startsWith("/") ? value : `/${value}`);
+}
+
 /**
  * Resolve the absolute origin of a *target* workspace app (e.g.
  * `http://127.0.0.1:8101`) so cross-app deep links / A2A calls point at the
@@ -293,9 +299,13 @@ function openAppTool(config: MCPConfig): ActionEntry {
           params = undefined;
         }
       }
+      const embed = args.embed === true;
+      const directViewPath = embed && view ? viewToAppPath(view) : null;
       const relUrl = path
         ? appendParamsToPath(path, params)
-        : buildDeepLink({ app, view, params });
+        : directViewPath
+          ? appendParamsToPath(directViewPath, params)
+          : buildDeepLink({ app, view, params });
 
       // Cross-app target in a workspace: resolve the TARGET app's origin and
       // return an absolute URL. Otherwise the MCP layer would prefix the
@@ -312,7 +322,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
         ...(view ? { view } : {}),
         ...(path ? { path } : {}),
         url,
-        embed: args.embed === true,
+        embed,
       };
     },
     link: ({ result }) => {

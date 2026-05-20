@@ -10,6 +10,7 @@ import createVaultSecret from "./create-vault-secret.js";
 import createWorkspaceResourceGrant from "./create-workspace-resource-grant.js";
 import createWorkspaceResource from "./create-workspace-resource.js";
 import createDreamReport from "./create-dream-report.js";
+import createEmbedSession from "./create_embed_session.js";
 import deleteDestination from "./delete-destination.js";
 import deleteVaultSecret from "./delete-vault-secret.js";
 import deleteWorkspaceResource from "./delete-workspace-resource.js";
@@ -97,6 +98,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "create-workspace-resource-grant": createWorkspaceResourceGrant,
   "create-workspace-resource": createWorkspaceResource,
   "create-dream-report": createDreamReport,
+  create_embed_session: createEmbedSession,
   "delete-destination": deleteDestination,
   "delete-vault-secret": deleteVaultSecret,
   "delete-workspace-resource": deleteWorkspaceResource,
