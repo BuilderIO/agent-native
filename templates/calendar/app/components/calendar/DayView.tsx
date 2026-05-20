@@ -8,6 +8,8 @@ import {
   set,
   isToday,
   addMinutes,
+  addDays,
+  min,
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
@@ -172,8 +174,10 @@ export function DayView({
     const start = parseISO(event.start);
     const end = parseISO(event.end);
     const dayStart = set(startOfDay(start), { hours: START_HOUR });
+    const dayEnd = addDays(startOfDay(start), 1);
+    const cappedEnd = min([end, dayEnd]);
     const topMinutes = Math.max(0, differenceInMinutes(start, dayStart));
-    const durationMinutes = Math.max(15, differenceInMinutes(end, start));
+    const durationMinutes = Math.max(15, differenceInMinutes(cappedEnd, start));
     return {
       top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
       height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
@@ -390,12 +394,11 @@ export function DayView({
                   }
                 : getEventStyle(event);
               const color = getEventDisplayColor(event, prefs);
+              const evStart = parseISO(event.start);
+              const evEnd = min([parseISO(event.end), addDays(startOfDay(evStart), 1)]);
               const durationMin = overrides
                 ? (overrides.height / HOUR_HEIGHT) * 60
-                : differenceInMinutes(
-                    parseISO(event.end),
-                    parseISO(event.start),
-                  );
+                : differenceInMinutes(evEnd, evStart);
               // Compute display times (use drag overrides if active)
               const displayStart = overrides
                 ? addMinutes(
