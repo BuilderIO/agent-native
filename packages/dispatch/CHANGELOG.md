@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 0.8.7
+
+### Patch Changes
+
+- bbaa675: Make Dispatch visible as an MCP app target and route Dispatch extension embeds through the local app session helper.
+- bbaa675: Clarify MCP app embeds can target focused app routes as well as full app surfaces.
+- bbaa675: Request taller full-app MCP App embeds.
+- bbaa675: Scope pending Builder app placeholders to the creating branch context, hide stale entries, and let workspace users edit app display metadata.
+
 ## 0.8.6
 
 ### Patch Changes
