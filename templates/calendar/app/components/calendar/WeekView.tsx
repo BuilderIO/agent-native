@@ -127,25 +127,25 @@ function computeLayout(dayEvents: CalendarEvent[], day: Date): Map<string, Layou
   if (dayEvents.length === 0) return result;
 
   const dayStartMs = startOfDay(day).getTime();
-  const dayEndMs = addDays(startOfDay(day), 1).getTime();
+  const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
 
-  // Sort using segment-capped times so continuation events sort correctly
+  // Cap each event's times to this day's boundaries once, reuse in sort + overlap
+  const times = new Map(
+    dayEvents.map((ev) => [
+      ev.id,
+      {
+        start: Math.max(parseISO(ev.start).getTime(), dayStartMs),
+        end: Math.min(parseISO(ev.end).getTime(), dayEndMs),
+      },
+    ]),
+  );
+
   const sorted = [...dayEvents].sort((a, b) => {
-    const aStart = Math.max(parseISO(a.start).getTime(), dayStartMs);
-    const bStart = Math.max(parseISO(b.start).getTime(), dayStartMs);
-    if (aStart !== bStart) return aStart - bStart;
-    const aEnd = Math.min(parseISO(a.end).getTime(), dayEndMs);
-    const bEnd = Math.min(parseISO(b.end).getTime(), dayEndMs);
-    return bEnd - aEnd;
+    const ta = times.get(a.id)!;
+    const tb = times.get(b.id)!;
+    if (ta.start !== tb.start) return ta.start - tb.start;
+    return tb.end - ta.end; // later end first when starts are equal
   });
-
-  const times = new Map<string, { start: number; end: number }>();
-  for (const ev of sorted) {
-    times.set(ev.id, {
-      start: Math.max(parseISO(ev.start).getTime(), dayStartMs),
-      end: Math.min(parseISO(ev.end).getTime(), dayEndMs),
-    });
-  }
 
   const INDENT_PX = 16;
 
@@ -297,7 +297,7 @@ export function WeekView({
     const evStart = parseISO(event.start);
     const evEnd = parseISO(event.end);
     const dayBase = set(startOfDay(day), { hours: START_HOUR });
-    const dayEnd = addDays(startOfDay(day), 1);
+    const dayEnd = addDays(dayBase, 1);
     const segStart = evStart > dayBase ? evStart : dayBase;
     const segEnd = min([evEnd, dayEnd]);
     const topMinutes = Math.max(0, differenceInMinutes(segStart, dayBase));
@@ -763,9 +763,12 @@ export function WeekView({
                     };
                     const overrides = getDragOverrides(event.id);
                     const isBeingDragged = dragEventId === event.id;
-                    const isStart = isSameDay(parseISO(event.start), day);
-                    const isEnd =
-                      parseISO(event.end) <= addDays(startOfDay(day), 1);
+                    const start = parseISO(event.start);
+                    const end = parseISO(event.end);
+                    const dayBase = startOfDay(day);
+                    const segDayEnd = addDays(dayBase, 1);
+                    const isStart = isSameDay(start, day);
+                    const isEnd = end <= segDayEnd;
 
                     // Hide from original column if dragged to a different day
                     if (
@@ -788,10 +791,7 @@ export function WeekView({
                         }
                       : getSegmentStyle(event, day);
                     const color = getEventDisplayColor(event, prefs);
-                    const start = parseISO(event.start);
-                    const end = parseISO(event.end);
-                    const segDayEnd = addDays(startOfDay(day), 1);
-                    const segStart = isStart ? start : startOfDay(day);
+                    const segStart = isStart ? start : dayBase;
                     const segEnd = min([end, segDayEnd]);
                     const durationMin = overrides
                       ? (overrides.height / HOUR_HEIGHT) * 60
