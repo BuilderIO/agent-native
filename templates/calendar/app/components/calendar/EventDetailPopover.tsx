@@ -739,6 +739,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     const recurrence = buildRecurrenceRules(
       editRecurrencePreset,
       masterEvent.data?.start || event.start,
+      masterEvent.data?.startTimeZone || event.startTimeZone || editTimezone,
     );
     if (!recurrence) {
       toast.error("Custom repeat schedules must be edited in Google Calendar.");
@@ -746,7 +747,15 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     }
     saveField({ recurrence, scope: "all" });
     setEditingField(null);
-  }, [editRecurrencePreset, event.start, masterEvent.data?.start, saveField]);
+  }, [
+    editRecurrencePreset,
+    editTimezone,
+    event.start,
+    event.startTimeZone,
+    masterEvent.data?.start,
+    masterEvent.data?.startTimeZone,
+    saveField,
+  ]);
 
   const handleAddAttendee = useCallback(
     (attendee: AttendeeRecipient) => {

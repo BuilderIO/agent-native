@@ -35,6 +35,15 @@ export const REMINDER_PRESETS = [
 export const MAX_EVENT_ATTACHMENTS = 25;
 
 const DAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
+const DAY_CODE_BY_LABEL: Record<string, (typeof DAY_CODES)[number]> = {
+  Sun: "SU",
+  Mon: "MO",
+  Tue: "TU",
+  Wed: "WE",
+  Thu: "TH",
+  Fri: "FR",
+  Sat: "SA",
+};
 const DAY_LABELS: Record<string, string> = {
   MO: "Mon",
   TU: "Tue",
@@ -243,6 +252,33 @@ function recurrenceField(rule: string, key: string): string | undefined {
   return rule.match(new RegExp(`${key}=([^;]+)`))?.[1];
 }
 
+function eventWeekdayCode(
+  startIso: string,
+  timeZone?: string,
+): (typeof DAY_CODES)[number] {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(startIso)) {
+    const [year, month, day] = startIso.split("-").map(Number);
+    return DAY_CODES[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+  }
+
+  const start = new Date(startIso);
+  if (Number.isNaN(start.getTime())) return "MO";
+
+  if (timeZone) {
+    try {
+      const label = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        weekday: "short",
+      }).format(start);
+      return DAY_CODE_BY_LABEL[label] || "MO";
+    } catch {
+      // Fall through to the browser-local day if the timezone is invalid.
+    }
+  }
+
+  return DAY_CODES[start.getDay()] || "MO";
+}
+
 export function formatRecurrenceText(recurrence?: string[]): string | null {
   const rule = recurrenceRule(recurrence);
   if (!rule) return null;
@@ -295,6 +331,7 @@ export function getRecurrencePreset(recurrence?: string[]): RecurrencePreset {
 export function buildRecurrenceRules(
   preset: RecurrencePreset,
   startIso: string,
+  timeZone?: string,
 ): string[] | null {
   switch (preset) {
     case "none":
@@ -304,7 +341,7 @@ export function buildRecurrenceRules(
     case "weekdays":
       return ["RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"];
     case "weekly": {
-      const day = DAY_CODES[new Date(startIso).getDay()] || "MO";
+      const day = eventWeekdayCode(startIso, timeZone);
       return [`RRULE:FREQ=WEEKLY;BYDAY=${day}`];
     }
     case "monthly":

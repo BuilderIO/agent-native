@@ -50,4 +50,10 @@ describe("recurrence helpers", () => {
       "RRULE:FREQ=WEEKLY;BYDAY=WE",
     ]);
   });
+
+  it("builds weekly rules using the event timezone", () => {
+    expect(
+      buildRecurrenceRules("weekly", "2026-05-17T15:30:00.000Z", "Asia/Tokyo"),
+    ).toEqual(["RRULE:FREQ=WEEKLY;BYDAY=MO"]);
+  });
 });

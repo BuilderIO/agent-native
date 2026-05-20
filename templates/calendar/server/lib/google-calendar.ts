@@ -22,6 +22,10 @@ import {
   calendarPatchEvent,
   peopleGetProfile,
 } from "./google-api.js";
+import {
+  alignSeriesRecurrenceToStart,
+  shiftSeriesDateValue,
+} from "./series-recurrence.js";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
@@ -163,27 +167,6 @@ function googleEventStartValue(event: any): string | undefined {
 
 function googleEventEndValue(event: any): string | undefined {
   return event.end?.dateTime || event.end?.date || undefined;
-}
-
-function shiftSeriesDateValue(
-  nextValue: string | undefined,
-  instanceValue: string | undefined,
-  masterValue: string | undefined,
-): string | undefined {
-  if (!nextValue || !instanceValue || !masterValue) return nextValue;
-  const next = new Date(nextValue);
-  const instance = new Date(instanceValue);
-  const master = new Date(masterValue);
-  if (
-    Number.isNaN(next.getTime()) ||
-    Number.isNaN(instance.getTime()) ||
-    Number.isNaN(master.getTime())
-  ) {
-    return nextValue;
-  }
-  return new Date(master.getTime() + (next.getTime() - instance.getTime()))
-    .toISOString()
-    .replace(".000Z", "Z");
 }
 
 function alignSeriesUpdateToMaster(
@@ -900,14 +883,20 @@ export async function updateEvent(
     );
     const recurringEventId = instance.recurringEventId || googleEventId;
     targetEventId = recurringEventId;
+    let master = instance;
     if (recurringEventId !== googleEventId) {
-      const master = await calendarGetEvent(
+      master = await calendarGetEvent(
         client.accessToken,
         "primary",
         recurringEventId,
       );
       eventPatch = alignSeriesUpdateToMaster(event, instance, master);
     }
+    eventPatch = alignSeriesRecurrenceToStart(eventPatch, {
+      startValue: googleEventStartValue(master),
+      startTimeZone: master.start?.timeZone,
+      recurrence: master.recurrence,
+    });
   }
 
   const requestBody: any = {};
