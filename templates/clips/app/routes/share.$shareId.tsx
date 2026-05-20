@@ -6,10 +6,11 @@ import {
   type ReactNode,
 } from "react";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconAlertTriangle,
+  IconDownload,
   IconExternalLink,
   IconLogin2,
   IconShare3,
@@ -33,6 +34,7 @@ import { AccessPasswordPrompt } from "@/components/player/access-password-prompt
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
@@ -185,6 +187,7 @@ const STORAGE_KEY_PREFIX = "clips-share-pw-";
 
 export default function ShareRoute() {
   const { shareId } = useParams<{ shareId: string }>();
+  const navigate = useNavigate();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const [password, setPassword] = useState<string | null>(() => {
     if (typeof window === "undefined" || !shareId) return null;
@@ -237,6 +240,7 @@ export default function ShareRoute() {
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
   const viewerCanEdit = Boolean(dataQ.data?.data?.viewer?.canEdit);
+  const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
   const showTitleSkeleton = recording
     ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
     : false;
@@ -500,61 +504,69 @@ export default function ShareRoute() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-2">
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
-            aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
-          />
-          <span className="truncate font-medium">Clips</span>
-        </div>
-        <div className="flex w-full min-w-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
-          {viewerCanEdit ? (
-            <Button variant="ghost" size="sm" asChild>
-              <a
-                href={appPath(`/r/${recording.id}`)}
-                className="min-w-0 gap-1.5"
-              >
-                <span className="truncate">Open dashboard</span>
-                <IconExternalLink className="h-3.5 w-3.5 shrink-0" />
-              </a>
-            </Button>
-          ) : (
-            <a
-              href={appPath("/")}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-            >
-              Try Clips <IconExternalLink className="h-3 w-3" />
-            </a>
-          )}
-          {viewerCanEdit ? (
-            <ShareRecordingPopover
-              recordingId={recording.id}
-              recordingTitle={recording.title}
-              videoUrl={recording.videoUrl}
-              animatedThumbnailUrl={recording.animatedThumbnailUrl}
-            >
-              <Button size="sm" className="shrink-0 gap-1.5">
-                <IconShare3 className="h-4 w-4" />
-                Share
-              </Button>
-            </ShareRecordingPopover>
-          ) : null}
-        </div>
-      </div>
+    <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 lg:flex-nowrap">
+          <div className="min-w-0 flex-1">
+            {showTitleSkeleton ? (
+              <Skeleton
+                aria-label="Generating title"
+                className="h-4 w-56 max-w-full"
+              />
+            ) : (
+              <h1 className="truncate text-sm font-medium">{visibleTitle}</h1>
+            )}
+            <p className="truncate text-xs text-muted-foreground">
+              Shared with Clips
+              {recording.visibility !== "private" ? (
+                <> · {capitalize(recording.visibility)}</>
+              ) : null}
+            </p>
+          </div>
 
-      <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-5 px-4 pb-8 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6">
-        <div className="min-w-0 space-y-4">
-          <div className="aspect-video rounded-xl overflow-hidden bg-black">
+          <div className="flex w-full min-w-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
+            {viewerCanEdit ? (
+              <Button variant="outline" size="sm" asChild>
+                <a
+                  href={appPath(`/r/${recording.id}`)}
+                  className="min-w-0 gap-1.5"
+                >
+                  <span className="truncate">Open dashboard</span>
+                  <IconExternalLink className="h-3.5 w-3.5 shrink-0" />
+                </a>
+              </Button>
+            ) : (
+              <Button variant="ghost" size="sm" asChild>
+                <a href={appPath("/")} className="gap-1.5">
+                  Try Clips
+                  <IconExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </Button>
+            )}
+            {viewerIsOwner ? (
+              <DeleteRecordingMenu
+                recordingId={recording.id}
+                onDeleted={() => navigate("/library", { replace: true })}
+              />
+            ) : null}
+            {viewerCanEdit ? (
+              <ShareRecordingPopover
+                recordingId={recording.id}
+                recordingTitle={recording.title}
+                videoUrl={recording.videoUrl}
+                animatedThumbnailUrl={recording.animatedThumbnailUrl}
+              >
+                <Button size="sm" className="shrink-0 gap-1.5">
+                  <IconShare3 className="h-4 w-4" />
+                  Share
+                </Button>
+              </ShareRecordingPopover>
+            ) : null}
+          </div>
+        </header>
+
+        <div className="flex flex-1 flex-col gap-4 overflow-visible p-4 lg:min-h-0 lg:overflow-hidden">
+          <div className="min-h-[240px] flex-1 lg:min-h-0">
             <VideoPlayer
               ref={playerRef}
               recordingId={recording.id}
@@ -562,6 +574,7 @@ export default function ShareRoute() {
               durationMs={recording.durationMs}
               editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}
+              role={viewerCanEdit ? "owner" : "viewer"}
               defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
               comments={comments}
               chapters={chapters}
@@ -570,30 +583,30 @@ export default function ShareRoute() {
               cta={firstCta}
               onCtaClick={() => tracking.reportCtaClick()}
               onTimeUpdate={(ms) => setCurrentMs(ms)}
-              className="w-full h-full"
+              className="h-full w-full"
             />
           </div>
 
-          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
+          <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start">
             <div className="min-w-0 flex-1">
               {showTitleSkeleton ? (
                 <Skeleton
                   aria-label="Generating title"
-                  className="h-7 w-80 max-w-full"
+                  className="h-5 w-72 max-w-full"
                 />
               ) : (
-                <h1 className="break-words text-lg font-semibold leading-tight sm:text-xl">
+                <h2 className="break-words text-base font-semibold leading-tight">
                   {visibleTitle}
-                </h1>
+                </h2>
               )}
               {recording.description ? (
-                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground/70">
+                <p className="text-sm text-muted-foreground line-clamp-2">
                   {recording.description}
                 </p>
               ) : null}
             </div>
-            {recording.enableReactions ? (
-              <div className="max-w-full self-start">
+            <div className="flex max-w-full flex-col items-stretch gap-2 sm:items-end">
+              {recording.enableReactions ? (
                 <ReactionsTray
                   onReact={(emoji) => {
                     if (!session) {
@@ -619,78 +632,87 @@ export default function ShareRoute() {
                       .catch(() => {});
                   }}
                 />
-              </div>
-            ) : null}
-          </div>
-
-          {recording.enableDownloads && recording.videoUrl ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={downloadRecording}
-              disabled={downloading}
-              className="w-full border-foreground/20 bg-muted/50 text-foreground hover:bg-accent sm:w-auto"
-            >
-              {downloading ? "Downloading..." : "Download MP4"}
-            </Button>
-          ) : null}
-        </div>
-
-        <aside className="min-w-0 lg:sticky lg:top-4 lg:self-start">
-          <Tabs defaultValue="transcript" className="flex flex-col">
-            <TabsList className="w-full bg-muted/50">
-              <TabsTrigger value="transcript" className="flex-1">
-                Transcript
-              </TabsTrigger>
-              {recording.enableComments ? (
-                <TabsTrigger value="comments" className="flex-1">
-                  Comments
-                </TabsTrigger>
               ) : null}
-            </TabsList>
-            <TabsContent value="transcript" className="mt-3">
-              <div className="h-[420px] overflow-hidden rounded-lg border border-border bg-muted/50 sm:h-[520px] lg:h-[600px]">
-                <TranscriptPanel
-                  segments={transcriptSegments}
-                  fullText={transcriptFullText}
-                  durationMs={recording.durationMs}
-                  currentMs={currentMs}
-                  onSeek={(ms) => playerRef.current?.seek(ms)}
-                  status={transcriptStatus}
-                  failureReason={transcriptFailureReason}
-                  recordingTitle={recording.title}
-                />
-              </div>
-            </TabsContent>
-            {recording.enableComments ? (
-              <TabsContent value="comments" className="mt-3">
-                <div className="h-[420px] overflow-hidden rounded-lg border border-border bg-muted/50 sm:h-[520px] lg:h-[600px]">
-                  <CommentsPanel
-                    recordingId={recording.id}
-                    comments={comments}
-                    currentMs={currentMs}
-                    currentUserEmail={session?.email}
-                    enableComments={recording.enableComments}
-                    onSeek={(ms) => playerRef.current?.seek(ms)}
-                    onUnauthenticated={requireSignIn}
-                    queryKey={["public-recording", shareId, password]}
-                    selectComments={(d: any) => d?.data?.comments}
-                    applyComments={(d: any, next) =>
-                      d
-                        ? { ...d, data: { ...(d.data ?? {}), comments: next } }
-                        : d
-                    }
-                  />
-                </div>
-              </TabsContent>
-            ) : null}
-          </Tabs>
-        </aside>
+              {recording.enableDownloads && recording.videoUrl ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={downloadRecording}
+                  disabled={downloading}
+                  className="gap-1.5"
+                >
+                  <IconDownload className="h-4 w-4" />
+                  {downloading ? "Downloading..." : "Download MP4"}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="mx-auto flex max-w-6xl justify-center px-4 pb-6 sm:px-6">
-        <PoweredByBadge />
-      </div>
+      <aside className="flex min-h-[420px] w-full shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-l lg:border-t-0">
+        <Tabs defaultValue="transcript" className="flex h-full flex-col">
+          <TabsList
+            className={`mx-3 mt-3 grid w-auto ${
+              recording.enableComments ? "grid-cols-2" : "grid-cols-1"
+            }`}
+          >
+            <TabsTrigger value="transcript" className="text-xs">
+              Transcript
+            </TabsTrigger>
+            {recording.enableComments ? (
+              <TabsTrigger value="comments" className="text-xs gap-1">
+                Comments
+                {comments.length > 0 ? (
+                  <span className="ml-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
+                    {comments.length}
+                  </span>
+                ) : null}
+              </TabsTrigger>
+            ) : null}
+          </TabsList>
+          <TabsContent
+            value="transcript"
+            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+          >
+            <TranscriptPanel
+              segments={transcriptSegments}
+              fullText={transcriptFullText}
+              durationMs={recording.durationMs}
+              currentMs={currentMs}
+              onSeek={(ms) => playerRef.current?.seek(ms)}
+              status={transcriptStatus}
+              failureReason={transcriptFailureReason}
+              recordingTitle={recording.title}
+            />
+          </TabsContent>
+          {recording.enableComments ? (
+            <TabsContent
+              value="comments"
+              className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+            >
+              <CommentsPanel
+                recordingId={recording.id}
+                comments={comments}
+                currentMs={currentMs}
+                currentUserEmail={session?.email}
+                enableComments={recording.enableComments}
+                onSeek={(ms) => playerRef.current?.seek(ms)}
+                onUnauthenticated={requireSignIn}
+                queryKey={["public-recording", shareId, password]}
+                selectComments={(d: any) => d?.data?.comments}
+                applyComments={(d: any, next) =>
+                  d ? { ...d, data: { ...(d.data ?? {}), comments: next } } : d
+                }
+              />
+            </TabsContent>
+          ) : null}
+        </Tabs>
+
+        <div className="flex justify-center border-t border-border p-3">
+          <PoweredByBadge />
+        </div>
+      </aside>
 
       <SignInPromptDialog
         open={signInIntent !== null}
@@ -711,6 +733,10 @@ function sanitizeFilename(name: string): string {
       .replace(/^-+|-+$/g, "")
       .slice(0, 80) || "clip"
   );
+}
+
+function capitalize(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function EndState({

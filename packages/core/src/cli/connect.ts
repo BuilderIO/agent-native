@@ -10,7 +10,7 @@
  *                               [--name <serverName>]
  *   agent-native connect <url> --token <token>   (no-browser fallback)
  *   agent-native connect        [--client ...]   (pick first-party apps)
- *   agent-native connect --all  [--client ...]   (every first-party app)
+ *   agent-native connect --all  [--client ...]   (separate first-party app MCP resources)
  *
  * Server contract (implemented by another agent on `<url>`):
  *   POST <url>/_agent-native/mcp/connect/device/start  (no auth)
@@ -1604,12 +1604,15 @@ Usage:
       Re-running over an older Claude bearer entry upgrades it to URL-only
       OAuth config and prompts you to authenticate with /mcp.
 
+      For cross-app access, prefer the unified Dispatch gateway:
+      agent-native connect https://dispatch.agent-native.com
+
   agent-native connect <url> --token <token>
       No-browser fallback. Skip the device flow and write the entry with
       the supplied token (get it from the app's Connect page).
 
   agent-native connect --all [--client <c>] [--scope user|project]
-      Connect every first-party hosted app at once.
+      Connect every first-party hosted app as separate MCP resources.
 
 Developer:
   agent-native connect dev [--apps mail,calendar] [--client <c>]

@@ -10,7 +10,7 @@ import { captureKindSchema, optionalJsonRecordSchema } from "./_schemas.js";
 
 export default defineAction({
   description:
-    "Import a generic raw capture into Brain. Use this for notes, docs, messages, and arbitrary text.",
+    "Import a generic capture into Brain. Transcript-kind captures are sanitized before storage by default.",
   schema: z.object({
     sourceId: z.string().optional(),
     sourceTitle: z

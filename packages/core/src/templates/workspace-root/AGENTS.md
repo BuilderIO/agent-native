@@ -108,6 +108,11 @@ coding agents can discover the same workspace-wide guidance from the root.
   should still create the separate workspace app, not patch starter. The local
   workspace gateway detects new app directories automatically and starts each
   app server lazily on first visit.
+- When using the starter template, treat it as scaffolding only. The finished
+  app must be branded as the requested app, with its own home screen,
+  navigation, package metadata, manifest, and domain workflow. Do not leave
+  visible `Starter`, `Blank app`, `Start building`, or `New app` UI in a
+  starter-derived app.
 
 ## Workspace Identity
 
