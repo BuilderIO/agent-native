@@ -30,18 +30,12 @@ export default defineAction({
       ])
       .default("query")
       .describe("Prometheus API endpoint to call"),
-    query: z
-      .string()
-      .optional()
-      .describe("PromQL for mode=query|query_range"),
+    query: z.string().optional().describe("PromQL for mode=query|query_range"),
     time: z
       .string()
       .optional()
       .describe("RFC3339 evaluation time for mode=query"),
-    start: z
-      .string()
-      .optional()
-      .describe("RFC3339 start for mode=query_range"),
+    start: z.string().optional().describe("RFC3339 start for mode=query_range"),
     end: z.string().optional().describe("RFC3339 end for mode=query_range"),
     step: z
       .string()
@@ -53,9 +47,7 @@ export default defineAction({
     match: z
       .array(z.string())
       .optional()
-      .describe(
-        'Series matchers for mode=series, e.g. [\'up{job="api"}\']',
-      ),
+      .describe("Series matchers for mode=series, e.g. ['up{job=\"api\"}']"),
     metric: z.string().optional().describe("Metric name for mode=metadata"),
   }),
   readOnly: true,
@@ -129,5 +121,5 @@ function parseStepSec(s: string): number {
   const m = /^(\d+)(s|m|h)$/.exec(s.trim());
   if (!m) throw new Error(`invalid step: ${s}`);
   const n = parseInt(m[1], 10);
-  return n * ({ s: 1, m: 60, h: 3600 }[m[2] as "s" | "m" | "h"]);
+  return n * { s: 1, m: 60, h: 3600 }[m[2] as "s" | "m" | "h"];
 }

@@ -146,7 +146,11 @@ export default defineEventHandler(async (event) => {
       if (!existing) {
         const seed = loadDashboardSeed("node-exporter");
         if (seed) {
-          await putScopedSettingRecord(scope, "sql-dashboard-node-exporter", seed);
+          await putScopedSettingRecord(
+            scope,
+            "sql-dashboard-node-exporter",
+            seed,
+          );
         }
       }
     } catch (err: any) {

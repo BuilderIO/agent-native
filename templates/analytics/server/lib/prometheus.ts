@@ -241,7 +241,7 @@ function parseStepSec(s: string): number {
   const m = /^(\d+)(s|m|h)$/.exec(s.trim());
   if (!m) throw new Error(`invalid step: ${s}`);
   const n = parseInt(m[1], 10);
-  return n * ({ s: 1, m: 60, h: 3600 }[m[2] as "s" | "m" | "h"]);
+  return n * { s: 1, m: 60, h: 3600 }[m[2] as "s" | "m" | "h"];
 }
 
 export function resolveRangeWindow(

@@ -51,9 +51,9 @@ describe("parsePanelDescriptor", () => {
     expect(() => parsePanelDescriptor("not json")).toThrow(/JSON/);
   });
   it("accepts mode=instant", () => {
-    expect(
-      parsePanelDescriptor('{"promql":"up","mode":"instant"}').mode,
-    ).toBe("instant");
+    expect(parsePanelDescriptor('{"promql":"up","mode":"instant"}').mode).toBe(
+      "instant",
+    );
   });
 });
 
@@ -168,9 +168,9 @@ describe("testConnection", () => {
       if (key === "PROMETHEUS_URL") return "http://prom.test";
       return null;
     });
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response("Unauthorized", { status: 401 }),
-    );
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }));
 
     const { testConnection } = await import("./prometheus");
     const result = await testConnection();
