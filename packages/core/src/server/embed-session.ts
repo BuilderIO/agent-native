@@ -11,9 +11,9 @@ import { getDbExec, intType } from "../db/client.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
-  EMBED_CONTEXT_PATH_HEADER,
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
+  EMBED_TARGET_HEADER,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 
@@ -21,6 +21,7 @@ const TOKEN_KIND = "agent-native-embed-session";
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_TICKET_TTL_SECONDS = 5 * 60;
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
+const OPEN_ROUTE_PATH = "/_agent-native/open";
 
 let _initPromise: Promise<void> | undefined;
 let _devSigningKey: string | undefined;
@@ -153,6 +154,89 @@ function stripConfiguredBasePath(pathname: string): string {
   if (pathname.startsWith(`${base}/`))
     return pathname.slice(base.length) || "/";
   return pathname;
+}
+
+function pathnameFromPath(path: string): string | null {
+  const normalized = normalizeEmbedTargetPath(path);
+  if (!normalized) return null;
+  try {
+    return new URL(normalized, "http://agent-native.invalid").pathname;
+  } catch {
+    return null;
+  }
+}
+
+function safeOpenRouteTargetPathname(targetPath: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(targetPath, "http://agent-native.invalid");
+  } catch {
+    return null;
+  }
+  if (url.pathname !== OPEN_ROUTE_PATH) {
+    return null;
+  }
+
+  const to = normalizeEmbedTargetPath(url.searchParams.get("to"));
+  if (to) return pathnameFromPath(to);
+
+  const view = url.searchParams.get("view")?.trim();
+  if (!view || CONTROL_CHARS.test(view)) return null;
+  const viewPath = view.startsWith("/") ? view : `/${view}`;
+  return pathnameFromPath(viewPath);
+}
+
+function allowedEmbedTargetPathnames(targetPath: string): Set<string> {
+  const allowed = new Set<string>();
+  const direct = pathnameFromPath(targetPath);
+  if (direct) allowed.add(direct);
+  const openTarget = safeOpenRouteTargetPathname(targetPath);
+  if (openTarget) allowed.add(openTarget);
+  return allowed;
+}
+
+function requestPathname(event: H3Event): string | null {
+  const raw =
+    (event as any).path ??
+    (event as any).node?.req?.url ??
+    ((event as any).req?.url as string | undefined) ??
+    (event as any).url?.toString?.() ??
+    "/";
+  try {
+    const pathname = new URL(raw, "http://agent-native.invalid").pathname;
+    return stripConfiguredBasePath(pathname);
+  } catch {
+    return null;
+  }
+}
+
+function headerTargetPathname(event: H3Event): string | null {
+  const direct =
+    (event as any).request?.headers?.get?.(EMBED_TARGET_HEADER) ??
+    (event as any).headers?.get?.(EMBED_TARGET_HEADER) ??
+    (event as any).node?.req?.headers?.[EMBED_TARGET_HEADER] ??
+    (event as any).node?.req?.headers?.[EMBED_TARGET_HEADER.toLowerCase()];
+  if (typeof direct === "string") return pathnameFromPath(direct);
+  try {
+    const raw = getHeader(event, EMBED_TARGET_HEADER);
+    return typeof raw === "string" ? pathnameFromPath(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function requestMatchesEmbedTarget(
+  event: H3Event,
+  targetPath: string,
+): boolean {
+  const allowed = allowedEmbedTargetPathnames(targetPath);
+  if (allowed.size === 0) return false;
+
+  const current = requestPathname(event);
+  if (current && allowed.has(current)) return true;
+
+  const headerTarget = headerTargetPathname(event);
+  return !!headerTarget && allowed.has(headerTarget);
 }
 
 export function normalizeEmbedTargetPath(
@@ -389,48 +473,6 @@ function queryToken(event: H3Event): string | undefined {
   return Array.isArray(raw) ? raw[0] : raw;
 }
 
-function eventPath(event: H3Event): string {
-  const raw =
-    (event as any).node?.req?.url ??
-    (event.url
-      ? `${event.url.pathname}${event.url.search}`
-      : (event as any).path) ??
-    "/";
-  try {
-    const url = new URL(String(raw), "http://agent-native.invalid");
-    return `${url.pathname}${url.search}`;
-  } catch {
-    return "/";
-  }
-}
-
-function embedContextPath(event: H3Event): string {
-  const header = getHeader(event, EMBED_CONTEXT_PATH_HEADER);
-  const value = Array.isArray(header) ? header[0] : header;
-  return typeof value === "string" && value.trim() ? value : eventPath(event);
-}
-
-function pathnameOf(path: string): string | null {
-  try {
-    return new URL(path, "http://agent-native.invalid").pathname;
-  } catch {
-    return null;
-  }
-}
-
-export function isEmbedRequestPathAllowed(
-  targetPath: string,
-  currentPath: string,
-): boolean {
-  const normalizedTarget = normalizeEmbedTargetPath(targetPath);
-  const normalizedCurrent = normalizeEmbedTargetPath(currentPath);
-  if (!normalizedTarget || !normalizedCurrent) return false;
-  const targetPathname = pathnameOf(normalizedTarget);
-  const currentPathname = pathnameOf(normalizedCurrent);
-  if (!targetPathname || !currentPathname) return false;
-  return targetPathname === "/" || currentPathname === targetPathname;
-}
-
 export async function resolveEmbedSessionFromRequest(
   event: H3Event,
 ): Promise<ResolvedEmbedSession | null> {
@@ -442,12 +484,7 @@ export async function resolveEmbedSessionFromRequest(
   for (const candidate of candidates) {
     const verified = verifyEmbedSessionToken(candidate.token);
     if (!verified.ok) continue;
-    if (
-      !isEmbedRequestPathAllowed(
-        verified.claims.targetPath,
-        embedContextPath(event),
-      )
-    ) {
+    if (!requestMatchesEmbedTarget(event, verified.claims.targetPath)) {
       continue;
     }
     if (candidate.source === "query" && candidate.token) {
@@ -468,9 +505,19 @@ export async function resolveEmbedSessionFromRequest(
 export function requestHasEmbedAuthMarker(event: H3Event): boolean {
   try {
     const q = getQuery(event) ?? {};
-    if (typeof q[EMBED_TOKEN_QUERY_PARAM] === "string") return true;
-    if (Array.isArray(q[EMBED_TOKEN_QUERY_PARAM])) return true;
-    if (getCookie(event, EMBED_SESSION_COOKIE)) return true;
+    const queryToken = Array.isArray(q[EMBED_TOKEN_QUERY_PARAM])
+      ? q[EMBED_TOKEN_QUERY_PARAM][0]
+      : q[EMBED_TOKEN_QUERY_PARAM];
+    const cookieToken = getCookie(event, EMBED_SESSION_COOKIE);
+    for (const token of [queryToken, cookieToken]) {
+      const verified = verifyEmbedSessionToken(token);
+      if (
+        verified.ok &&
+        requestMatchesEmbedTarget(event, verified.claims.targetPath)
+      ) {
+        return true;
+      }
+    }
   } catch {
     // ignore
   }

@@ -1,5 +1,4 @@
-import { callAgent } from "@agent-native/core/a2a";
-import { signA2AToken } from "@agent-native/core/a2a";
+import { callAgent, signA2AToken } from "@agent-native/core/a2a";
 import {
   buildMcpToolName,
   McpClientManager,
@@ -55,12 +54,6 @@ function appendParamsToPath(
     url.searchParams.set(key, String(value));
   }
   return `${url.pathname}${url.search}${url.hash}`;
-}
-
-function viewToAppPath(view: string | undefined): string | null {
-  const value = String(view ?? "").trim();
-  if (!value) return null;
-  return safeAppPath(value.startsWith("/") ? value : `/${value}`);
 }
 
 function appOrigin(app: DispatchMcpAccessibleApp): string {
@@ -168,29 +161,27 @@ export async function openGrantedDispatchMcpApp(input: {
   view?: string;
   path?: string;
   url: string;
-  embed: boolean;
+  embed?: boolean;
+  chrome?: "full" | "minimal";
 }> {
-  const view = input.view?.trim();
+  const view = input.view?.trim() ?? "";
   const path = safeAppPath(input.path);
   if (!view && !path) throw new Error("open_app requires view or path");
   const target = await resolveGrantedDispatchMcpApp(input.app);
-  const embed = input.embed === true;
-  const directViewPath = embed && view ? viewToAppPath(view) : null;
   const relUrl = path
     ? appendParamsToPath(path, input.params)
-    : directViewPath
-      ? appendParamsToPath(directViewPath, input.params)
-      : buildDeepLink({
-          app: target.id,
-          view: view!,
-          params: input.params,
-        });
+    : buildDeepLink({
+        app: target.id,
+        view,
+        params: input.params,
+      });
   return {
     app: target.id,
     ...(view ? { view } : {}),
     ...(path ? { path } : {}),
     url: `${appBaseUrl(target)}${relUrl}`,
-    embed,
+    ...(input.embed === true ? { embed: true } : {}),
+    ...(input.chrome ? { chrome: input.chrome } : {}),
   };
 }
 
@@ -323,12 +314,19 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
     if (!parsed.startUrl) {
       throw new Error("Target app did not return an embed start URL.");
     }
-    return {
+    const output: {
+      startUrl: string;
+      targetPath?: string;
+      expiresAt?: number;
+      app: string;
+    } = {
       startUrl: parsed.startUrl,
-      targetPath: parsed.targetPath,
-      expiresAt: parsed.expiresAt,
       app: target.app.id,
     };
+    if (parsed.targetPath) output.targetPath = parsed.targetPath;
+    if (typeof parsed.expiresAt === "number")
+      output.expiresAt = parsed.expiresAt;
+    return output;
   } finally {
     await manager.stop();
   }

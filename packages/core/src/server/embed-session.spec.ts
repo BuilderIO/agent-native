@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  isEmbedRequestPathAllowed,
+  requestMatchesEmbedTarget,
   normalizeEmbedTargetPath,
   signEmbedSessionToken,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
+import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -92,10 +93,53 @@ describe("normalizeEmbedTargetPath", () => {
     expect(normalizeEmbedTargetPath("/http://evil.example.com")).toBeNull();
     expect(normalizeEmbedTargetPath("/foo\u0001bar")).toBeNull();
   });
+});
 
-  it("allows embed sessions only on the minted route unless rooted at the app", () => {
-    expect(isEmbedRequestPathAllowed("/inbox?thread=t1", "/inbox")).toBe(true);
-    expect(isEmbedRequestPathAllowed("/inbox", "/settings")).toBe(false);
-    expect(isEmbedRequestPathAllowed("/", "/settings")).toBe(true);
+describe("requestMatchesEmbedTarget", () => {
+  function fakeEvent(path: string, headers: Record<string, string> = {}) {
+    return {
+      path,
+      request: { headers: new Headers(headers) },
+      headers: new Headers(headers),
+      node: { req: { url: path, headers } },
+    } as any;
+  }
+
+  it("allows the route produced by an embedded open deep link", () => {
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/inbox?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=mail&view=inbox&threadId=t1",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects unrelated page routes for the same token", () => {
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/settings?embedded=1"),
+        "/_agent-native/open?app=mail&view=inbox",
+      ),
+    ).toBe(false);
+  });
+
+  it("allows same-origin fetches only when the embed target header matches", () => {
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/_agent-native/actions/list-emails", {
+          [EMBED_TARGET_HEADER]: "/inbox?embedded=1",
+        }),
+        "/_agent-native/open?app=mail&view=inbox",
+      ),
+    ).toBe(true);
+
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/_agent-native/actions/list-emails", {
+          [EMBED_TARGET_HEADER]: "/settings?embedded=1",
+        }),
+        "/_agent-native/open?app=mail&view=inbox",
+      ),
+    ).toBe(false);
   });
 });

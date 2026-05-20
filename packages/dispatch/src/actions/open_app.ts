@@ -3,18 +3,15 @@ import { z } from "zod";
 import { openGrantedDispatchMcpApp } from "../server/lib/mcp-gateway.js";
 
 const deepLinkParam = z.union([z.string(), z.number(), z.boolean()]);
-
-export default defineAction({
-  description:
-    "Build a deep link or inline embed for an app available through Dispatch MCP. No side effects; surface the returned Open link to the user.",
-  schema: z.object({
+const openAppSchema = z
+  .object({
     app: z.string().describe("Granted app id, e.g. mail or calendar."),
     view: z.string().optional().describe("Target view in the app, e.g. inbox."),
     path: z
       .string()
       .optional()
       .describe(
-        "Optional app route to open directly, e.g. /extensions/abc or /dashboards/q2. Must be same-origin relative.",
+        "Optional same-origin app route to open directly, e.g. /dashboards/q2.",
       ),
     params: z
       .record(z.string(), deepLinkParam)
@@ -23,14 +20,21 @@ export default defineAction({
     embed: z
       .boolean()
       .optional()
-      .describe(
-        "Render the full app inline in MCP Apps when the host supports it.",
-      ),
+      .describe("Render the app inline in MCP Apps when supported."),
     chrome: z
       .enum(["full", "minimal"])
       .optional()
       .describe("Embed chrome preference for compatible app routes."),
-  }),
+  })
+  .refine((input) => input.view?.trim() || input.path?.trim(), {
+    message: "open_app requires either view or path",
+    path: ["view"],
+  });
+
+export default defineAction({
+  description:
+    "Build a deep link or embeddable app route for an app available through Dispatch MCP. No side effects; surface the returned Open link to the user.",
+  schema: openAppSchema,
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
@@ -48,8 +52,8 @@ export default defineAction({
   mcpApp: {
     resource: embedApp({
       title: "Open app",
-      description: "Render the requested workspace app route inline.",
-      iframeTitle: "Agent Native app",
+      description: "Render the requested granted app route inline.",
+      iframeTitle: "Dispatch MCP app",
       openLabel: "Open app",
       frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
     }),

@@ -70,6 +70,17 @@ ChatGPT's full MCP connector flow is currently workspace/admin gated. Use ChatGP
 
 If the ChatGPT workspace does not expose custom MCP connectors, ask a workspace admin to enable them first.
 
+#### Recovering "Connector name already exists" {#chatgpt-drafts}
+
+ChatGPT creates a **draft** the moment you click **Create app** — even if you closed the OAuth popup before approving the scopes. The draft is not visible under **Enabled apps**, but it still owns the name, so retrying with the same name surfaces a `"Connector name already exists"` toast. Recovery is fully self-service in the ChatGPT UI:
+
+1. Open **Settings → Apps**.
+2. Scroll past **Enabled apps** and **Advanced settings** to the **Drafts** section (labeled _"Private apps you've created in developer mode"_).
+3. Click the draft with the conflicting name.
+4. Either press **Connect** to finish OAuth in place (no rename needed), or open the **⋯** overflow menu and choose **Delete** and re-add via **Advanced settings → Create app**.
+
+There is no "Drafts" tab on the **Add more / app directory** dialog, so non-admins sometimes miss the section entirely — it lives further down the same Settings → Apps page that lists enabled apps.
+
 ### Cursor {#cursor}
 
 1. Open Cursor → **Settings → MCP**.
@@ -414,7 +425,7 @@ If `connect dev` cannot infer your local owner identity from an existing connect
 
 The standard OAuth path never exposes tokens to MCP Apps: the host stores OAuth access/refresh tokens and mediates tool calls and `resources/read` over the authenticated MCP connection. Embedded iframes receive app data and tool results, not bearer secrets.
 
-Full-app embeds also avoid handing the MCP bearer token to the browser. The MCP caller mints a one-time embed ticket in SQL; the iframe launch route consumes it and sets a short-lived, iframe-safe browser session cookie. The landing URL carries a temporary `__an_embed_token` query param only long enough for the client to capture it, remove it from the address bar, and attach it to same-origin `fetch` calls when third-party cookies are blocked. Production `X-Frame-Options: DENY` stays in place for normal page loads and is omitted only when that embed session marker is present.
+Full-app embeds also avoid handing the MCP bearer token to the browser. The MCP caller mints a one-time embed ticket in SQL; the iframe launch route consumes it and sets a short-lived, iframe-safe browser session cookie. The landing URL carries a temporary `__an_embed_token` query param only long enough for the client to capture it, remove it from the address bar, and attach it to same-origin `fetch` calls when third-party cookies are blocked. Embed sessions are route-scoped; app fetches include the current embedded target, and the server rejects token reuse outside the minted route. Production `X-Frame-Options: DENY` stays in place for normal page loads and is omitted only when that embed session marker is present.
 
 The fallback hosted `connect` flow never copies the deployment's shared secret. Instead:
 
