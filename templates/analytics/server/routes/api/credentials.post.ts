@@ -17,12 +17,14 @@ import {
 } from "../../lib/scoped-settings";
 import { loadDashboardSeed } from "../../lib/dashboard-seeds";
 
-const GA4_CREDENTIAL_KEYS = new Set([
-  "GA4_PROPERTY_ID",
-  "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-]);
-const GA_DASHBOARD_ID = "google-analytics";
-const SQL_DASHBOARD_KEY = `sql-dashboard-${GA_DASHBOARD_ID}`;
+// Map: saved credential key → seed dashboard ID.
+// When any listed key is saved, the corresponding seed is auto-created once
+// (idempotent — skipped if a dashboard with that ID already exists).
+// To wire up a new data source, add one line here.
+const SEED_TRIGGERS: Record<string, string> = {
+  GA4_PROPERTY_ID: "google-analytics",
+  GOOGLE_APPLICATION_CREDENTIALS_JSON: "google-analytics",
+};
 
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));
 
@@ -110,26 +112,26 @@ export default defineEventHandler(async (event) => {
     await deleteCredential(key, ctx);
   }
 
-  // Auto-seed the Google Analytics SQL dashboard the first time a user
-  // wires up either GA4 credential. Idempotent: if the dashboard already
-  // exists (even empty) we leave it alone so a user who deleted panels
-  // doesn't get them resurrected on the next reconnect.
+  // Auto-seed dashboards when their trigger credentials are saved.
   const savedKeys = new Set(toSave.map((v) => v.key));
-  const savedGaCred = [...GA4_CREDENTIAL_KEYS].some((k) => savedKeys.has(k));
-  if (savedGaCred) {
+  const seedIds = new Set(
+    Object.entries(SEED_TRIGGERS)
+      .filter(([key]) => savedKeys.has(key))
+      .map(([, id]) => id),
+  );
+  for (const seedId of seedIds) {
+    const dashKey = `sql-dashboard-${seedId}`;
     try {
       const scope = await resolveSettingsScope(event);
-      const existing = await getScopedSettingRecord(scope, SQL_DASHBOARD_KEY);
+      const existing = await getScopedSettingRecord(scope, dashKey);
       if (!existing) {
-        const seed = loadDashboardSeed(GA_DASHBOARD_ID);
-        if (seed) {
-          await putScopedSettingRecord(scope, SQL_DASHBOARD_KEY, seed);
-        }
+        const seed = loadDashboardSeed(seedId);
+        if (seed) await putScopedSettingRecord(scope, dashKey, seed);
       }
     } catch (err: any) {
       // Don't fail the credential save if seeding hiccups — log and move on.
       console.warn(
-        "[credentials] failed to seed google-analytics dashboard:",
+        `[credentials] failed to seed ${seedId} dashboard:`,
         err?.message ?? err,
       );
     }
