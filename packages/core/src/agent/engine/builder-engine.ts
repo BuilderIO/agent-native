@@ -21,9 +21,10 @@ import type {
   EngineStreamOptions,
 } from "./types.js";
 import {
-  engineMessagesToAnthropic,
+  engineMessagesToBuilderGatewayAnthropic,
   engineToolsToAnthropic,
 } from "./translate-anthropic.js";
+import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
 import {
   clearBuilderCredentialAuthFailure,
   resolveBuilderAuthHeader,
@@ -138,7 +139,7 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
-    const messages = engineMessagesToAnthropic(opts.messages);
+    const messages = engineMessagesToBuilderGatewayAnthropic(opts.messages);
     const tools = engineToolsToAnthropic(opts.tools);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
@@ -188,6 +189,7 @@ class BuilderEngine implements AgentEngine {
             "Content-Type": "application/json",
             Authorization: authHeader,
             "x-builder-api-key": spaceId,
+            ...getBuilderGatewayRequestHeaders(),
             ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
           },
           body: JSON.stringify(body),

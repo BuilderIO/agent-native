@@ -174,6 +174,8 @@ describe("createBuilderEngine", () => {
     expect(init.headers["Content-Type"]).toBe("application/json");
     expect(init.headers["x-builder-api-key"]).toBe("space-test");
     expect(init.headers["x-builder-user-id"]).toBe("builder-user-123");
+    expect(init.headers["x-client-name"]).toBe("@agent-native/core");
+    expect(String(init.headers["x-client-version"])).toMatch(/\d+\.\d+\.\d+/);
 
     const body = JSON.parse(init.body);
     expect(body.model).toBe("claude-sonnet-4-6");

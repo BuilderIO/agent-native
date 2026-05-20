@@ -39,7 +39,9 @@ export type AgentChatStructuredContentPart =
   | {
       type: "tool-result";
       toolCallId: string;
+      /** Persisted for replay; omitted in older rows is backfilled server-side. */
       toolName?: string;
+      toolInput?: string;
       content: string;
       isError?: boolean;
     };

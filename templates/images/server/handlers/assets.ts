@@ -27,6 +27,25 @@ const MIME_BY_EXT: Record<string, string> = {
   avif: "image/avif",
 };
 
+/**
+ * Decode a multipart text field as UTF-8.
+ *
+ * Nitro / h3 returns each part's `data` as a `Uint8Array`. Calling `.toString()`
+ * directly on a `Uint8Array` inherits `Array.prototype.toString`, so a libraryId
+ * like "TXHoc9..." becomes "84,88,72,..." (the bytes joined with commas), and
+ * downstream code (e.g. `assertAccess("image-library", id, ...)`) gets a
+ * nonsense id and throws "No access". Wrap with `Buffer.from` so UTF-8 decoding
+ * runs regardless of whether `data` is a Buffer or a Uint8Array.
+ */
+function readField(
+  parts: Array<{ name?: string; data?: Uint8Array | Buffer }> | undefined,
+  name: string,
+): string | null {
+  const data = parts?.find((part) => part.name === name)?.data;
+  if (!data) return null;
+  return Buffer.from(data).toString("utf-8");
+}
+
 function cleanMime(type: string | undefined, filename: string | undefined) {
   const raw = type?.split(";")[0].trim().toLowerCase();
   if (raw && Object.values(MIME_BY_EXT).includes(raw)) return raw;
@@ -63,22 +82,15 @@ async function withUserContext(event: any, fn: () => Promise<unknown>) {
 export const uploadAssets = defineEventHandler(async (event) =>
   withUserContext(event, async () => {
     const parts = await readMultipartFormData(event);
-    const libraryId = parts
-      ?.find((part) => part.name === "libraryId")
-      ?.data?.toString();
+    const libraryId = readField(parts, "libraryId");
     if (!libraryId) {
       setResponseStatus(event, 400);
       return { error: "libraryId is required" };
     }
     await assertAccess("image-library", libraryId, "editor");
-    const collectionId =
-      parts?.find((part) => part.name === "collectionId")?.data?.toString() ||
-      null;
-    const category = categoryFromForm(
-      parts?.find((part) => part.name === "category")?.data?.toString(),
-    );
-    const title =
-      parts?.find((part) => part.name === "title")?.data?.toString() || null;
+    const collectionId = readField(parts, "collectionId") || null;
+    const category = categoryFromForm(readField(parts, "category"));
+    const title = readField(parts, "title") || null;
     const files =
       parts?.filter((part) => part.name === "files" && part.data) ?? [];
     if (!files.length) {

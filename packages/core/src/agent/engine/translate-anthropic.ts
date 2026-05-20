@@ -6,6 +6,11 @@
  * EngineMessage / EngineTool shapes were modeled on Anthropic's types.
  * The main differences are: camelCase vs snake_case, and that
  * Anthropic uses `input_schema` while we use `inputSchema`.
+ *
+ * Builder's Gemini-backed gateway requires `tool_name` and `tool_input` on
+ * every `tool_result` block. Use `engineMessagesToBuilderGatewayAnthropic` for
+ * that path. The native Anthropic API keeps the strict `tool_result` shape
+ * (`engineMessagesToAnthropic`).
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -33,26 +38,167 @@ export function engineToolsToAnthropic(tools: EngineTool[]): Anthropic.Tool[] {
 }
 
 // ---------------------------------------------------------------------------
+// Tool result backfill (Gemini / Builder gateway)
+// ---------------------------------------------------------------------------
+
+/** JSON.stringify for tool_use inputs; never throws. */
+export function stringifyToolUseInputForGateway(input: unknown): string {
+  try {
+    if (input === undefined || input === null) return "{}";
+    return JSON.stringify(input);
+  } catch {
+    return "{}";
+  }
+}
+
+/** Same lead-in as structured-history replay when a tool_result cannot be paired. */
+export const UNMATCHED_TOOL_RESULT_REPLAY_PREFIX =
+  "(Omitted unmatched tool results from replayed history.)";
+
+/**
+ * Human/LLM-visible note when a tool_result cannot be matched to a tool_use
+ * (replay from DB, or malformed engine history). Preserves tool_use_id and
+ * a truncated payload instead of silently dropping the turn.
+ */
+export function unmatchedToolResultReplayText(part: {
+  toolCallId: string;
+  content: unknown;
+  isError?: boolean;
+}): string {
+  const max = 2000;
+  let body =
+    typeof part.content === "string"
+      ? part.content
+      : part.content === undefined || part.content === null
+        ? ""
+        : (() => {
+            try {
+              return JSON.stringify(part.content);
+            } catch {
+              return String(part.content);
+            }
+          })();
+  if (body.length > max) body = `${body.slice(0, max)}…`;
+  const err = part.isError ? " isError=true" : "";
+  return `${UNMATCHED_TOOL_RESULT_REPLAY_PREFIX} [tool_use_id=${part.toolCallId}${err}] ${body}`;
+}
+
+/**
+ * Ensure every `tool-result` has a non-empty `toolName` and `toolInput` string,
+ * using the matching assistant `tool-call` in the same conversation.
+ * Orphan tool-results (no resolvable tool name) become `text` notes so nothing
+ * is silently dropped from replayed history.
+ */
+export function backfillEngineMessagesToolResults(
+  messages: EngineMessage[],
+): EngineMessage[] {
+  const toolUseById = new Map<string, { name: string; input: unknown }>();
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    for (const part of msg.content) {
+      if (part.type === "tool-call") {
+        toolUseById.set(part.id, { name: part.name, input: part.input });
+      }
+    }
+  }
+
+  return messages.map((msg) => {
+    if (msg.role !== "user") return msg;
+    const newContent: EngineContentPart[] = [];
+    for (const part of msg.content) {
+      if (part.type !== "tool-result") {
+        newContent.push(part);
+        continue;
+      }
+      const lookup = toolUseById.get(part.toolCallId);
+      const toolName =
+        typeof part.toolName === "string" && part.toolName.trim().length > 0
+          ? part.toolName
+          : lookup?.name;
+      if (!toolName?.trim()) {
+        const id =
+          typeof part.toolCallId === "string"
+            ? part.toolCallId.trim()
+            : part.toolCallId != null
+              ? String(part.toolCallId).trim()
+              : "";
+        newContent.push({
+          type: "text",
+          text: unmatchedToolResultReplayText({
+            toolCallId: id.length > 0 ? id : "(missing)",
+            content: part.content,
+            isError: part.isError,
+          }),
+        });
+        continue;
+      }
+      const toolInput =
+        typeof part.toolInput === "string" && part.toolInput.length > 0
+          ? part.toolInput
+          : stringifyToolUseInputForGateway(lookup?.input);
+      newContent.push({
+        type: "tool-result",
+        toolCallId: part.toolCallId,
+        toolName,
+        toolInput,
+        content: part.content,
+        ...(part.isError ? { isError: true } : {}),
+      });
+    }
+    if (newContent.length === 0) {
+      return {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: UNMATCHED_TOOL_RESULT_REPLAY_PREFIX,
+          },
+        ],
+      };
+    }
+    return { role: "user", content: newContent };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // EngineMessage → Anthropic.MessageParam
 // ---------------------------------------------------------------------------
 
 export function engineMessageToAnthropic(
   msg: EngineMessage,
+  opts?: { builderGateway?: boolean },
 ): Anthropic.MessageParam {
+  const builderGateway = opts?.builderGateway === true;
   return {
     role: msg.role,
-    content: msg.content.map(enginePartToAnthropic),
+    content: msg.content.map((p) => enginePartToAnthropic(p, builderGateway)),
   };
 }
 
+/** Messages for the Anthropic HTTP API (strict schema — no extra tool_result fields). */
 export function engineMessagesToAnthropic(
   messages: EngineMessage[],
 ): Anthropic.MessageParam[] {
-  return messages.map(engineMessageToAnthropic);
+  const normalized = backfillEngineMessagesToolResults(messages);
+  return normalized.map((m) => engineMessageToAnthropic(m));
+}
+
+/**
+ * Messages for the Builder LLM gateway (Gemini-backed). Same Anthropic-shaped
+ * envelope, but every `tool_result` includes `tool_name` and `tool_input`.
+ */
+export function engineMessagesToBuilderGatewayAnthropic(
+  messages: EngineMessage[],
+): Anthropic.MessageParam[] {
+  const normalized = backfillEngineMessagesToolResults(messages);
+  return normalized.map((m) =>
+    engineMessageToAnthropic(m, { builderGateway: true }),
+  );
 }
 
 function enginePartToAnthropic(
   part: EngineContentPart,
+  builderGateway: boolean,
 ): Anthropic.ContentBlockParam {
   switch (part.type) {
     case "text":
@@ -93,13 +239,26 @@ function enginePartToAnthropic(
         input: part.input as Record<string, unknown>,
       } as any; // tool_use is a ContentBlockParam in Anthropic SDK
 
-    case "tool-result":
+    case "tool-result": {
+      if (builderGateway) {
+        const tool_name = part.toolName.trim();
+        const tool_input = part.toolInput;
+        return {
+          type: "tool_result",
+          tool_use_id: part.toolCallId,
+          tool_name,
+          tool_input,
+          content: part.content,
+          ...(part.isError ? { is_error: true } : {}),
+        } as any;
+      }
       return {
         type: "tool_result",
         tool_use_id: part.toolCallId,
         content: part.content,
         ...(part.isError ? { is_error: true } : {}),
       } as any;
+    }
 
     case "thinking":
       // Anthropic thinking blocks — pass through with signature for context window continuity
@@ -181,12 +340,16 @@ export function anthropicChunkToEngineEvents(chunk: any): EngineEvent[] {
 
 export function buildToolResultPart(
   toolCallId: string,
+  toolName: string,
   content: string,
+  toolInput: unknown = {},
   isError = false,
 ): EngineContentPart {
   return {
     type: "tool-result",
     toolCallId,
+    toolName,
+    toolInput: stringifyToolUseInputForGateway(toolInput),
     content,
     ...(isError ? { isError } : {}),
   };
