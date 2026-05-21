@@ -27,7 +27,17 @@ function parentWindow() {
 }
 
 function dispatchHostMessage(data: Record<string, unknown>) {
-  window.dispatchEvent(new MessageEvent("message", { data }));
+  window.dispatchEvent(
+    new MessageEvent("message", { data, source: window.parent }),
+  );
+}
+
+function enableMcpEmbedBridge(): void {
+  window.history.replaceState(
+    null,
+    "",
+    "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1",
+  );
 }
 
 describe("MCP app host client helpers", () => {
@@ -36,6 +46,7 @@ describe("MCP app host client helpers", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    enableMcpEmbedBridge();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -47,10 +58,12 @@ describe("MCP app host client helpers", () => {
     container.remove();
     vi.unstubAllGlobals();
     setParent(window);
+    window.history.replaceState(null, "", "/");
     _resetMcpAppHostForTests();
   });
 
   it("caches host context and exposes it through the React hook", async () => {
+    setParent(parentWindow());
     const snapshots: unknown[] = [];
 
     function Probe() {

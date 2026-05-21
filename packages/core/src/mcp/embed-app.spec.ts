@@ -21,6 +21,12 @@ describe("embedApp", () => {
     expect(html).toContain('document.createElement("iframe")');
     expect(html).toContain('"agentNative.submitChat"');
     expect(html).toContain('"agentNative.frameOrigin"');
+    expect(html).toContain('"agentNative.mcpHostContext"');
+    expect(html).toContain('"agentNative.mcpHost.updateModelContext"');
+    expect(html).toContain('"agentNative.mcpHost.openLink"');
+    expect(html).toContain('"agentNative.mcpHost.requestDisplayMode"');
+    expect(html).toContain('"agentNative.mcpHost.response"');
+    expect(html).toContain("app.requestDisplayMode");
     expect(html).toContain("__an_mcp_chat_bridge");
     expect(html).toContain('data-app-title="Dashboard"');
     expect(html).toContain("data-title-label>Dashboard");
@@ -103,9 +109,15 @@ describe("embedApp", () => {
     expect(fixture.html).toContain("app.callServerTool");
     expect(fixture.html).toContain("app.openLink");
     expect(fixture.html).toContain("app.updateModelContext");
+    expect(fixture.html).toContain("app.requestDisplayMode");
     expect(fixture.html).toContain("app.sendMessage");
     expect(fixture.html).toContain('"agentNative.frameOrigin"');
     expect(fixture.html).toContain('"agentNative.submitChat"');
+    expect(fixture.html).toContain('"agentNative.mcpHostContext"');
+    expect(fixture.html).toContain('"agentNative.mcpHost.updateModelContext"');
+    expect(fixture.html).toContain('"agentNative.mcpHost.openLink"');
+    expect(fixture.html).toContain('"agentNative.mcpHost.requestDisplayMode"');
+    expect(fixture.html).toContain('"agentNative.mcpHost.response"');
     expect(fixture.html).toContain("event.source !== appFrame.contentWindow");
     expect(fixture.html).toContain(
       'url.searchParams.set(chatBridgeParam, "1")',

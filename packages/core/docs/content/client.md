@@ -123,7 +123,7 @@ The wire contract is:
 | wrapper → route | `agentNative.mcpHostContext`             | Push host context such as theme/display mode      |
 | route → wrapper | `agentNative.mcpHost.updateModelContext` | Add hidden model context                          |
 | route → wrapper | `agentNative.mcpHost.openLink`           | Ask the host to open a URL                        |
-| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | Ask for `inline`, `fullscreen`, `sidebar`, etc.   |
+| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | Ask for `inline`, `fullscreen`, or `pip`          |
 | wrapper → route | `agentNative.mcpHost.response`           | Resolve or reject a request by matching requestId |
 
 Use the exported helpers from `@agent-native/core/client` inside embedded

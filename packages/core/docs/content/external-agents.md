@@ -224,13 +224,13 @@ same URL reconstructs the same view.
 
 The host bridge is deliberately small:
 
-| Direction       | Message type                             | Use it for                                      |
-| --------------- | ---------------------------------------- | ----------------------------------------------- |
-| wrapper → route | `agentNative.mcpHostContext`             | Theme, locale, host platform, dimensions        |
-| route → wrapper | `agentNative.mcpHost.updateModelContext` | Hidden context for the host model               |
-| route → wrapper | `agentNative.mcpHost.openLink`           | Open an external or app URL via the host        |
-| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | Request `inline`, `fullscreen`, `sidebar`, etc. |
-| wrapper → route | `agentNative.mcpHost.response`           | Correlate async request results                 |
+| Direction       | Message type                             | Use it for                               |
+| --------------- | ---------------------------------------- | ---------------------------------------- |
+| wrapper → route | `agentNative.mcpHostContext`             | Theme, locale, host platform, dimensions |
+| route → wrapper | `agentNative.mcpHost.updateModelContext` | Hidden context for the host model        |
+| route → wrapper | `agentNative.mcpHost.openLink`           | Open an external or app URL via the host |
+| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | Request `inline`, `fullscreen`, or `pip` |
+| wrapper → route | `agentNative.mcpHost.response`           | Correlate async request results          |
 
 Embedded routes can use `updateMcpAppModelContext()`,
 `openMcpAppHostLink()`, `requestMcpAppDisplayMode()`,

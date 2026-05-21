@@ -86,13 +86,13 @@ state from the URL and normal app data fetching.
 The bridge between the wrapper and the embedded route uses Agent-Native
 postMessage types:
 
-| Direction       | Type                                     | Payload shape                        |
-| --------------- | ---------------------------------------- | ------------------------------------ |
-| wrapper → route | `agentNative.mcpHostContext`             | `{ context, capabilities, version }` |
-| route → wrapper | `agentNative.mcpHost.updateModelContext` | `{ requestId, content? }`            |
-| route → wrapper | `agentNative.mcpHost.openLink`           | `{ requestId, url }`                 |
-| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | `{ requestId, mode }`                |
-| wrapper → route | `agentNative.mcpHost.response`           | `{ requestId, ok, result?, error? }` |
+| Direction       | Type                                     | Payload shape                                 |
+| --------------- | ---------------------------------------- | --------------------------------------------- |
+| wrapper → route | `agentNative.mcpHostContext`             | `{ context, capabilities, version }`          |
+| route → wrapper | `agentNative.mcpHost.updateModelContext` | `{ requestId, content?, structuredContent? }` |
+| route → wrapper | `agentNative.mcpHost.openLink`           | `{ requestId, url }`                          |
+| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | `{ requestId, mode }`                         |
+| wrapper → route | `agentNative.mcpHost.response`           | `{ requestId, ok, result?, error? }`          |
 
 Host-mediated open links keep the iframe from choosing its own browser target.
 Model context updates are opt-in and hidden from the user-facing transcript.

@@ -1,4 +1,9 @@
 import { useSyncExternalStore } from "react";
+import {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 
 export const AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES = {
   HOST_CONTEXT: "agentNative.mcpHostContext",
@@ -11,13 +16,7 @@ export const AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES = {
 export type AgentNativeMcpAppHostMessageType =
   (typeof AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES)[keyof typeof AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES];
 
-export type McpAppDisplayMode =
-  | "inline"
-  | "pip"
-  | "fullscreen"
-  | "sidebar"
-  | "popup"
-  | (string & {});
+export type McpAppDisplayMode = "inline" | "pip" | "fullscreen" | (string & {});
 
 export interface McpAppModelContextContentPart {
   type: string;
@@ -44,7 +43,7 @@ export interface McpAppHostContext {
 export interface McpAppHostContextSnapshot {
   context: McpAppHostContext | null;
   capabilities: McpAppHostCapabilities | null;
-  version: string | null;
+  version: unknown;
 }
 
 type PendingRequest = {
@@ -101,6 +100,21 @@ function isInChildFrame(): boolean {
   }
 }
 
+function isMcpAppBridgeEnabled(): boolean {
+  if (!isBrowserWindow()) return false;
+  const params = new URLSearchParams(window.location.search || "");
+  return (
+    params.get(EMBED_MODE_QUERY_PARAM) === "1" &&
+    params.has(EMBED_TOKEN_QUERY_PARAM) &&
+    params.get(MCP_APP_CHAT_BRIDGE_QUERY_PARAM) === "1"
+  );
+}
+
+function isTrustedParentMessage(event: MessageEvent): boolean {
+  if (!isInChildFrame()) return false;
+  return event.source === window.parent;
+}
+
 function requestId(): string {
   return `mcp-host-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -118,7 +132,7 @@ function updateSnapshot(data: HostContextMessage["data"]): void {
     capabilities: isRecord(data.capabilities)
       ? (data.capabilities as McpAppHostCapabilities)
       : snapshot.capabilities,
-    version: typeof data.version === "string" ? data.version : snapshot.version,
+    version: data.version !== undefined ? data.version : snapshot.version,
   };
   notify();
 }
@@ -133,6 +147,7 @@ function resolvePending(data: HostResponseMessage["data"]): void {
 }
 
 function onMessage(event: MessageEvent): void {
+  if (!isTrustedParentMessage(event)) return;
   const message = event.data;
   if (!isRecord(message) || typeof message.type !== "string") return;
 
@@ -160,7 +175,7 @@ function postHostRequest(
   data: Record<string, unknown>,
 ): Promise<boolean> | false {
   ensureListener();
-  if (!isInChildFrame()) return false;
+  if (!isInChildFrame() || !isMcpAppBridgeEnabled()) return false;
 
   const id =
     typeof data.requestId === "string" && data.requestId

@@ -85,6 +85,11 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import {
+  resourceCanEdit,
+  resourceCanManage,
+  type ResourceAccess,
+} from "@/lib/resource-access";
+import {
   DashboardTitleSkeleton,
   useSetPageTitle,
   useSetHeaderActions,
@@ -123,7 +128,7 @@ type FetchedDashboard = {
   id: string;
   config: SqlDashboardConfig;
   archivedAt: string | null;
-};
+} & ResourceAccess;
 
 async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   const res = await fetchWithAuth(`/api/sql-dashboards/${id}`);
@@ -140,6 +145,10 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
       panels: data.panels ?? [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    role: typeof data.role === "string" ? data.role : undefined,
+    canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
+    canManage:
+      typeof data.canManage === "boolean" ? data.canManage : undefined,
   };
 }
 
@@ -174,6 +183,9 @@ export default function SqlDashboardPage() {
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
+    null,
+  );
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [editingDescription, setEditingDescription] = useState(false);
@@ -181,6 +193,8 @@ export default function SqlDashboardPage() {
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const viewedDashboardIdRef = useRef<string | null>(null);
+  const canEdit = resourceCanEdit(resourceAccess);
+  const canManage = resourceCanManage(resourceAccess);
 
   // Refetch the dashboard whenever the `dashboards` source bumps OR any
   // agent action runs. We depend on both because:
@@ -321,6 +335,7 @@ export default function SqlDashboardPage() {
     setLoaded(false);
     setDashboard(null);
     setArchivedAt(null);
+    setResourceAccess(null);
     if (!dashboardId) setLoaded(true);
   }, [dashboardId]);
 
@@ -330,6 +345,15 @@ export default function SqlDashboardPage() {
     if (fetched && fetched.id !== dashboardId) return;
     setDashboard(fetched?.config ?? null);
     setArchivedAt(fetched?.archivedAt ?? null);
+    setResourceAccess(
+      fetched
+        ? {
+            role: fetched.role,
+            canEdit: fetched.canEdit,
+            canManage: fetched.canManage,
+          }
+        : null,
+    );
     setLoaded(true);
     if (fetched && viewedDashboardIdRef.current !== dashboardId) {
       viewedDashboardIdRef.current = dashboardId;
@@ -432,6 +456,10 @@ export default function SqlDashboardPage() {
   const persist = useCallback(
     (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
+      if (!canEdit) {
+        toast.error("You have view-only access to this dashboard.");
+        return;
+      }
       setDashboard(updated);
       pushToCollab(updated);
       saveDashboard(dashboardId, updated)
@@ -457,7 +485,7 @@ export default function SqlDashboardPage() {
           );
         });
     },
-    [dashboardId, queryClient, pushToCollab],
+    [dashboardId, canEdit, queryClient, pushToCollab],
   );
 
   /**
@@ -467,6 +495,9 @@ export default function SqlDashboardPage() {
   const persistThrow = useCallback(
     async (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
+      if (!canEdit) {
+        throw new Error("You have view-only access to this dashboard.");
+      }
       await saveDashboard(dashboardId, updated);
       setDashboard(updated);
       pushToCollab(updated);
@@ -479,7 +510,7 @@ export default function SqlDashboardPage() {
         queryKey: ["data", "sql-dashboard", dashboardId],
       });
     },
-    [dashboardId, queryClient, pushToCollab],
+    [dashboardId, canEdit, queryClient, pushToCollab],
   );
 
   const removePanel = useCallback(
@@ -682,6 +713,7 @@ export default function SqlDashboardPage() {
 
   const handleDelete = useCallback(async () => {
     if (!dashboardId) return;
+    if (!canManage) return;
     await fetchWithAuth(`/api/sql-dashboards/${dashboardId}`, {
       method: "DELETE",
     });
@@ -697,11 +729,12 @@ export default function SqlDashboardPage() {
       queryKey: ["data", "sql-dashboard", dashboardId],
     });
     navigate("/");
-  }, [dashboardId, queryClient, navigate]);
+  }, [dashboardId, canManage, queryClient, navigate]);
 
   const handleArchiveToggle = useCallback(
     async (action: "archive" | "restore") => {
       if (!dashboardId) return;
+      if (!canEdit) return;
       const path =
         action === "archive"
           ? `/api/sql-dashboards/${dashboardId}/archive`
@@ -741,7 +774,7 @@ export default function SqlDashboardPage() {
         );
       }
     },
-    [dashboardId, queryClient, navigate, dashboard?.name],
+    [dashboardId, canEdit, queryClient, navigate, dashboard?.name],
   );
 
   const handleSaveView = useCallback(
