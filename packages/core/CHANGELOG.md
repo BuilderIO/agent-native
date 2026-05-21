@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.22.13
+
+### Patch Changes
+
+- 0b4ade2: Use the official Gemini 3.5 Flash model ID for the Google provider.
+- 9482ec9: Harden serverless database pool cleanup and chat thread conflict retries.
+- 54f295b: Make MCP App embeds launch real app routes reliably and keep web-host discovery compact.
+
 ## 0.22.12
 
 ### Patch Changes
