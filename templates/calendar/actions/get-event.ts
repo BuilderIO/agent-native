@@ -85,6 +85,7 @@ export default defineAction({
             email: a.email,
             displayName: a.displayName || undefined,
             photoUrl: a.photoUrl || undefined,
+            comment: a.comment || undefined,
             responseStatus: a.responseStatus || undefined,
             organizer: a.organizer || undefined,
             self: a.self || undefined,

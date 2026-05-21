@@ -22,6 +22,8 @@ let _initPromise: Promise<void> | undefined;
  * remerges message history before retrying.
  */
 const _threadDataLocks = new Map<string, Promise<unknown>>();
+const DEFAULT_THREAD_DATA_UPDATE_ATTEMPTS = 12;
+const THREAD_DATA_CONFLICT_BACKOFF_MS = 25;
 
 export function withThreadDataLock<T>(
   threadId: string,
@@ -483,7 +485,8 @@ export async function updateThreadData(
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
-  const maxAttempts = options.maxAttempts ?? 5;
+  const maxAttempts =
+    options.maxAttempts ?? DEFAULT_THREAD_DATA_UPDATE_ATTEMPTS;
   let lastConflict = false;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -531,7 +534,14 @@ export async function updateThreadData(
     }
 
     lastConflict = true;
-    await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+    if (attempt < maxAttempts - 1) {
+      await new Promise((resolve) =>
+        setTimeout(
+          resolve,
+          Math.min(250, THREAD_DATA_CONFLICT_BACKOFF_MS * (attempt + 1)),
+        ),
+      );
+    }
   }
 
   if (lastConflict) {

@@ -193,7 +193,11 @@ export function CreateEventPopover({
   const today = defaultDate || new Date();
   const defaultDateStr = format(today, "yyyy-MM-dd");
   const { data: settings } = useSettings();
-  const defaultDurationMinutes = settings?.defaultEventDuration ?? 60;
+  const rawDefaultDuration = settings?.defaultEventDuration ?? 30;
+  const defaultDurationMinutes = Number.isFinite(rawDefaultDuration)
+    ? Math.max(5, rawDefaultDuration)
+    : 30;
+  const defaultTimezone = settings?.timezone || getLocalTimezone();
   const fallbackStart = "09:00";
   const fallbackEnd = addMinutesToTimeString(
     fallbackStart,
@@ -211,7 +215,7 @@ export function CreateEventPopover({
   const [eventType, setEventType] = useState<EventType>("default");
   const [availability, setAvailability] = useState<Availability>("opaque");
   const [visibility, setVisibility] = useState<Visibility>("default");
-  const [timezone, setTimezone] = useState(getLocalTimezone());
+  const [timezone, setTimezone] = useState(defaultTimezone);
   const [colorId, setColorId] = useState<string | undefined>();
   const [reminderMode, setReminderMode] = useState<ReminderMode>("default");
   const [reminders, setReminders] = useState<ReminderDraft[]>(() => [
@@ -250,7 +254,7 @@ export function CreateEventPopover({
 
     if (draft) {
       const draftTimezone =
-        draft.startTimeZone || draft.endTimeZone || getLocalTimezone();
+        draft.startTimeZone || draft.endTimeZone || defaultTimezone;
       const startParts = draft.start
         ? dateTimePartsInTimezone(draft.start, draftTimezone)
         : null;
@@ -309,7 +313,7 @@ export function CreateEventPopover({
     setEventType("default");
     setAvailability("opaque");
     setVisibility("default");
-    setTimezone(getLocalTimezone());
+    setTimezone(defaultTimezone);
     setColorId(undefined);
     setReminderMode("default");
     setReminders([createReminderDraft()]);
@@ -325,6 +329,7 @@ export function CreateEventPopover({
     defaultEnd,
     fallbackStart,
     fallbackEnd,
+    defaultTimezone,
   ]);
 
   useEffect(() => {

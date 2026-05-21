@@ -596,6 +596,7 @@ export async function listEvents(
               email: a.email,
               displayName: a.displayName || undefined,
               photoUrl: a.photoUrl || undefined,
+              comment: a.comment || undefined,
               responseStatus: a.responseStatus || undefined,
               organizer: a.organizer || undefined,
               self: a.self || undefined,
@@ -759,6 +760,7 @@ export async function getEvent(
       email: a.email,
       displayName: a.displayName || undefined,
       photoUrl: a.photoUrl || undefined,
+      comment: a.comment || undefined,
       responseStatus: a.responseStatus || undefined,
       organizer: a.organizer || undefined,
       self: a.self || undefined,
@@ -822,6 +824,7 @@ export async function createEvent(
     body.attendees = event.attendees.map((a) => ({
       email: a.email,
       ...(a.displayName ? { displayName: a.displayName } : {}),
+      ...(a.comment ? { comment: a.comment } : {}),
     }));
   }
 
@@ -929,6 +932,7 @@ export async function updateEvent(
     requestBody.attendees = eventPatch.attendees.map((a) => ({
       email: a.email,
       ...(a.displayName ? { displayName: a.displayName } : {}),
+      ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
     }));
   }

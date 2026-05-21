@@ -31,6 +31,7 @@ import {
   getDatabaseAuthToken,
   pgPoolOptions,
   neonPoolMax,
+  attachNeonPoolErrorLogger,
 } from "../db/client.js";
 import {
   pgTable,
@@ -920,6 +921,7 @@ async function buildDatabaseConfig(
         connectionString: url,
         max: neonPoolMax(),
       });
+      attachNeonPoolErrorLogger(_neonAuthPool, "db/neon-auth");
       const { drizzle } = await import("drizzle-orm/neon-serverless");
       const db = drizzle(_neonAuthPool, { schema: pgAuthSchema });
       const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
