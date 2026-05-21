@@ -35,7 +35,8 @@ describe("embedApp", () => {
     expect(html).toContain(
       'toolInput.embed === false || toolInput.embed === "false"',
     );
-    expect(html).toContain("min-height: 900px");
+    expect(html).toContain("min-height: 764px");
+    expect(html).toContain("height: 720px");
     expect(resource.csp?.frameDomains).toContain(
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
     );
