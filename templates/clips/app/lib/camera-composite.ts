@@ -262,8 +262,11 @@ export function createCameraCompositeStream(
       { type: "application/javascript" },
     );
     const workerUrl = URL.createObjectURL(workerBlob);
-    worker = new Worker(workerUrl);
-    URL.revokeObjectURL(workerUrl);
+    try {
+      worker = new Worker(workerUrl);
+    } finally {
+      URL.revokeObjectURL(workerUrl);
+    }
     worker.onmessage = () => drawFrame();
     worker.postMessage("start");
   } catch (err) {
