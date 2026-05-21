@@ -64,6 +64,11 @@ export function embedApp(
     .stage { position: relative; min-height: ${viewportHeight}px; }
     iframe { display: block; width: 100%; height: ${viewportHeight}px; border: 0; background: Canvas; }
     .message { display: grid; place-items: center; min-height: ${viewportHeight}px; padding: 18px; color: color-mix(in srgb, CanvasText 62%, Canvas); font-size: 13px; line-height: 1.45; text-align: center; }
+    .fallback { display: grid; align-content: center; justify-items: center; gap: 12px; min-height: ${viewportHeight}px; padding: 24px; background: Canvas; color: CanvasText; text-align: center; }
+    .fallback-title { max-width: 440px; font-size: 14px; font-weight: 700; }
+    .fallback-copy { max-width: 520px; color: color-mix(in srgb, CanvasText 64%, Canvas); font-size: 13px; line-height: 1.45; }
+    .fallback-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+    .fallback-url { max-width: min(560px, 100%); overflow-wrap: anywhere; color: color-mix(in srgb, CanvasText 76%, Canvas); font-size: 12px; }
   </style>
 </head>
 <body
@@ -86,9 +91,6 @@ export function embedApp(
     </section>
   </main>
   <script type="module">
-    import { App } from "${MCP_APP_IMPORT}";
-
-    const app = new App({ name: "Agent Native Embed", version: "1.0.0" }, {});
     const body = document.body;
     const stage = document.querySelector("[data-stage]");
     const titleEl = document.querySelector("[data-title-label]");
@@ -97,10 +99,16 @@ export function embedApp(
     const startTool = body.dataset.startTool || "create_embed_session";
     const embedByDefault = body.dataset.embedDefault !== "0";
     const chatBridgeParam = ${JSON.stringify(MCP_APP_CHAT_BRIDGE_QUERY_PARAM)};
+    const intrinsicHeight = ${height};
+    let app = null;
+    let openAiBridge = null;
     let toolInput = {};
     let openUrl = "";
     let startedFor = "";
     let appFrame = null;
+    let appFrameReady = false;
+    let appFrameReadyTimer = null;
+    let lastFrameSrc = "";
 
     function esc(value) {
       return String(value ?? "")
@@ -116,8 +124,20 @@ export function embedApp(
       try { return JSON.parse(value); } catch { return fallback; }
     }
 
+    function objectValue(value) {
+      return value && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : {};
+    }
+
     function parseToolResult(params) {
       if (!params) return {};
+      if (params.result && typeof params.result === "object") {
+        return parseToolResult(params.result);
+      }
+      if (params.toolResult && typeof params.toolResult === "object") {
+        return parseToolResult(params.toolResult);
+      }
       if (params.structuredContent && typeof params.structuredContent === "object") {
         return params.structuredContent;
       }
@@ -134,10 +154,26 @@ export function embedApp(
     }
 
     function hostState() {
+      if (openAiBridge) {
+        return {
+          context: {
+            displayMode: openAiBridge.displayMode,
+            availableDisplayModes: typeof openAiBridge.requestDisplayMode === "function"
+              ? ["inline", "fullscreen", "pip"]
+              : [],
+            maxHeight: openAiBridge.maxHeight,
+            locale: openAiBridge.locale,
+            theme: openAiBridge.theme,
+            view: openAiBridge.view
+          },
+          capabilities: { openai: true },
+          version: openAiBridge.userAgent
+        };
+      }
       return {
-        context: app.getHostContext ? app.getHostContext() : undefined,
-        capabilities: app.getHostCapabilities ? app.getHostCapabilities() : undefined,
-        version: app.getHostVersion ? app.getHostVersion() : undefined
+        context: app && app.getHostContext ? app.getHostContext() : undefined,
+        capabilities: app && app.getHostCapabilities ? app.getHostCapabilities() : undefined,
+        version: app && app.getHostVersion ? app.getHostVersion() : undefined
       };
     }
 
@@ -181,12 +217,23 @@ export function embedApp(
     }
 
     function supportedDisplayMode(mode) {
+      if (openAiBridge && typeof openAiBridge.requestDisplayMode === "function") {
+        return mode === "inline" || mode === "fullscreen" || mode === "pip";
+      }
       const modes = hostState().context && hostState().context.availableDisplayModes;
       return Array.isArray(modes) && modes.includes(mode);
     }
 
     async function requestHostDisplayMode(mode) {
-      const result = await app.requestDisplayMode({ mode });
+      let result;
+      if (openAiBridge && typeof openAiBridge.requestDisplayMode === "function") {
+        result = await openAiBridge.requestDisplayMode({ mode });
+      } else {
+        if (!app || typeof app.requestDisplayMode !== "function") {
+          throw new Error("Display mode changes are not available in this host.");
+        }
+        result = await app.requestDisplayMode({ mode });
+      }
       updateDisplayButton();
       sendHostContext();
       return result;
@@ -211,14 +258,74 @@ export function embedApp(
       stage.innerHTML = '<div class="message">' + esc(message) + '</div>';
     }
 
+    function clearFrameReadyTimer() {
+      if (!appFrameReadyTimer) return;
+      clearTimeout(appFrameReadyTimer);
+      appFrameReadyTimer = null;
+    }
+
+    function renderFrameFallback() {
+      clearFrameReadyTimer();
+      appFrame = null;
+      stage.innerHTML =
+        '<div class="fallback">' +
+          '<div class="fallback-title">Open this app in its own tab</div>' +
+          '<div class="fallback-copy">This chat host did not allow the embedded app frame to load inline. You can still open the same app route through the host or use the URL below.</div>' +
+          '<div class="fallback-actions">' +
+            '<button type="button" data-fallback-open>Open app</button>' +
+            '<button type="button" data-fallback-retry>Try inline again</button>' +
+          '</div>' +
+          (openUrl ? '<a class="fallback-url" href="' + esc(openUrl) + '" target="_blank" rel="noreferrer">' + esc(openUrl) + '</a>' : '') +
+        '</div>';
+      const fallbackOpen = stage.querySelector("[data-fallback-open]");
+      const fallbackRetry = stage.querySelector("[data-fallback-retry]");
+      if (fallbackOpen) {
+        fallbackOpen.disabled = !openUrl;
+        fallbackOpen.onclick = () => {
+          if (openUrl) void openFallbackExternal();
+        };
+      }
+      if (fallbackRetry) {
+        fallbackRetry.disabled = !lastFrameSrc;
+        fallbackRetry.onclick = () => {
+          if (lastFrameSrc) renderFrame(lastFrameSrc);
+        };
+      }
+    }
+
+    async function openFallbackExternal() {
+      let url = openUrl;
+      try {
+        const embedUrl = withChatBridgeParam(openUrl);
+        const result = await callEmbedSessionTool({
+          url: embedUrl,
+          chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
+        });
+        const data = parseToolResult(result);
+        if (typeof data.startUrl === "string" && data.startUrl) {
+          url = data.startUrl;
+        }
+      } catch (err) {
+        console.warn("[agent-native] MCP fallback could not mint a fresh app session", err);
+      }
+      await openHostLink({ url });
+    }
+
     function renderFrame(src) {
+      clearFrameReadyTimer();
       const frame = document.createElement("iframe");
       frame.title = body.dataset.iframeTitle || "Agent Native app";
       frame.src = src;
       frame.allow = "clipboard-read; clipboard-write";
       appFrame = frame;
+      appFrameReady = false;
+      lastFrameSrc = src;
       frame.addEventListener("load", () => sendFrameReadyMessages(frame));
       stage.replaceChildren(frame);
+      notifyHostHeight();
+      appFrameReadyTimer = setTimeout(() => {
+        if (!appFrameReady && appFrame === frame) renderFrameFallback();
+      }, 7000);
     }
 
     async function updateHostModelContext(data) {
@@ -227,13 +334,40 @@ export function embedApp(
       if (data && data.structuredContent && typeof data.structuredContent === "object") {
         params.structuredContent = data.structuredContent;
       }
+      if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
+        openAiBridge.setWidgetState({
+          ...objectValue(openAiBridge.widgetState),
+          agentNativeModelContext: params
+        });
+        return { ok: true };
+      }
+      if (!app || typeof app.updateModelContext !== "function") return { ok: false };
       await app.updateModelContext(params);
+      return { ok: true };
     }
 
     async function openHostLink(data) {
       const url = typeof (data && data.url) === "string" ? data.url : "";
       if (!url) return { isError: true };
-      return await app.openLink({ url });
+      if (openAiBridge && typeof openAiBridge.openExternal === "function") {
+        return await openAiBridge.openExternal({ href: url, redirectUrl: false });
+      }
+      if (app && typeof app.openLink === "function") {
+        return await app.openLink({ url });
+      }
+      window.open(url, "_blank", "noopener,noreferrer");
+      return { ok: true };
+    }
+
+    function notifyHostHeight() {
+      if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") {
+        return;
+      }
+      try {
+        openAiBridge.notifyIntrinsicHeight({ height: intrinsicHeight });
+      } catch (err) {
+        console.warn("[agent-native] ChatGPT rejected intrinsic height update", err);
+      }
     }
 
     function respondToAppFrame(requestId, work) {
@@ -264,14 +398,29 @@ export function embedApp(
       const context = typeof chat.context === "string" ? chat.context : "";
       if (context.trim()) {
         try {
-          await app.updateModelContext({
-            content: [{ type: "text", text: context }]
-          });
+          if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
+            openAiBridge.setWidgetState({
+              ...objectValue(openAiBridge.widgetState),
+              agentNativeChatContext: context
+            });
+          } else if (app && typeof app.updateModelContext === "function") {
+            await app.updateModelContext({
+              content: [{ type: "text", text: context }]
+            });
+          }
         } catch (err) {
           console.warn("[agent-native] MCP host rejected model context update", err);
         }
       }
       try {
+        if (openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function") {
+          await openAiBridge.sendFollowUpMessage({
+            prompt: context.trim() ? context.trim() + "\\n\\n" + message : message,
+            scrollToBottom: true
+          });
+          return;
+        }
+        if (!app || typeof app.sendMessage !== "function") return;
         const result = await app.sendMessage({
           role: "user",
           content: [{ type: "text", text: message }]
@@ -288,6 +437,11 @@ export function embedApp(
       if (!appFrame || event.source !== appFrame.contentWindow) return;
       if (!event.data) return;
       const data = event.data.data || {};
+      if (event.data.type === "agentNative.embeddedAppReady") {
+        appFrameReady = true;
+        clearFrameReadyTimer();
+        return;
+      }
       if (event.data.type === "agentNative.submitChat") {
         void sendHostChat(data);
         return;
@@ -319,12 +473,9 @@ export function embedApp(
       setMessage("Loading app");
       try {
         const embedUrl = withChatBridgeParam(openUrl);
-        const result = await app.callServerTool({
-          name: startTool,
-          arguments: {
-            url: embedUrl,
-            chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
-          }
+        const result = await callEmbedSessionTool({
+          url: embedUrl,
+          chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
         });
         const data = parseToolResult(result);
         if (!data.startUrl) {
@@ -339,11 +490,33 @@ export function embedApp(
       }
     }
 
+    async function callEmbedSessionTool(args) {
+      if (openAiBridge && typeof openAiBridge.callTool === "function") {
+        return await openAiBridge.callTool(startTool, args);
+      }
+      if (!app || typeof app.callServerTool !== "function") {
+        throw new Error("Host tool calls are not available.");
+      }
+      return await app.callServerTool({ name: startTool, arguments: args });
+    }
+
+    function updateHostOpenInAppUrl() {
+      if (!openAiBridge || !openUrl || typeof openAiBridge.setOpenInAppUrl !== "function") {
+        return;
+      }
+      try {
+        openAiBridge.setOpenInAppUrl({ href: openUrl });
+      } catch (err) {
+        console.warn("[agent-native] ChatGPT rejected open-in-app URL", err);
+      }
+    }
+
     function updateOpenButton() {
       openButton.disabled = !openUrl;
       openButton.onclick = () => {
-        if (openUrl) void app.openLink({ url: openUrl });
+        if (openUrl) void openHostLink({ url: openUrl });
       };
+      updateHostOpenInAppUrl();
     }
 
     function updateTitle(data) {
@@ -351,23 +524,96 @@ export function embedApp(
       titleEl.textContent = String(label);
     }
 
-    app.ontoolinput = (params) => {
-      toolInput = params.arguments || {};
-    };
-    app.ontoolresult = (params) => {
+    function readOpenAiBridge() {
+      return window.openai && typeof window.openai === "object"
+        ? window.openai
+        : null;
+    }
+
+    function openAiToolResultParams(bridge) {
+      const params = {};
+      if (bridge && bridge.toolOutput !== undefined) {
+        if (bridge.toolOutput && typeof bridge.toolOutput === "object") {
+          params.structuredContent = bridge.toolOutput;
+        } else {
+          params.content = [{ type: "text", text: String(bridge.toolOutput) }];
+        }
+      }
+      if (bridge && bridge.toolResponseMetadata && typeof bridge.toolResponseMetadata === "object") {
+        params._meta = bridge.toolResponseMetadata;
+      }
+      return params;
+    }
+
+    function syncOpenAiBridge(bridge) {
+      if (!bridge) return false;
+      openAiBridge = bridge;
+      toolInput = objectValue(bridge.toolInput);
+      const params = openAiToolResultParams(bridge);
       const data = parseToolResult(params);
       openUrl = openLinkFrom(params, data);
       updateTitle(data);
       updateOpenButton();
-      void launchEmbed();
-    };
-    app.onhostcontextchanged = () => {
+      updateDisplayButton();
+      notifyHostHeight();
+      sendHostContext();
+      if (openUrl) {
+        void launchEmbed();
+      } else if (!appFrame) {
+        setMessage("Waiting for app result");
+      }
+      return true;
+    }
+
+    function waitForOpenAiBridge() {
+      const existing = readOpenAiBridge();
+      if (existing) return Promise.resolve(existing);
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (bridge) => {
+          if (settled) return;
+          settled = true;
+          window.removeEventListener("openai:set_globals", onGlobals);
+          clearTimeout(timer);
+          resolve(bridge || readOpenAiBridge());
+        };
+        const onGlobals = () => finish(readOpenAiBridge());
+        const timer = setTimeout(() => finish(null), 200);
+        window.addEventListener("openai:set_globals", onGlobals, { passive: true });
+      });
+    }
+
+    window.addEventListener("openai:set_globals", () => {
+      const bridge = readOpenAiBridge();
+      if (bridge && (!appFrame || openAiBridge)) syncOpenAiBridge(bridge);
+    }, { passive: true });
+
+    async function startMcpAppsBridge() {
+      const { App } = await import("${MCP_APP_IMPORT}");
+      app = new App({ name: "Agent Native Embed", version: "1.0.0" }, {});
+      app.ontoolinput = (params) => {
+        toolInput = params.arguments || {};
+      };
+      app.ontoolresult = (params) => {
+        const data = parseToolResult(params);
+        openUrl = openLinkFrom(params, data);
+        updateTitle(data);
+        updateOpenButton();
+        void launchEmbed();
+      };
+      app.onhostcontextchanged = () => {
+        updateDisplayButton();
+        sendHostContext();
+      };
+      await app.connect();
       updateDisplayButton();
       sendHostContext();
-    };
-    await app.connect();
-    updateDisplayButton();
-    sendHostContext();
+    }
+
+    const initialOpenAiBridge = await waitForOpenAiBridge();
+    if (!syncOpenAiBridge(initialOpenAiBridge)) {
+      await startMcpAppsBridge();
+    }
   </script>
 </body>
 </html>`,

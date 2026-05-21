@@ -18,15 +18,27 @@ describe("embedApp", () => {
     expect(html).toContain("app.callServerTool");
     expect(html).toContain("app.updateModelContext");
     expect(html).toContain("app.sendMessage");
+    expect(html).toContain("window.openai");
+    expect(html).toContain('"openai:set_globals"');
+    expect(html).toContain("bridge.toolInput");
+    expect(html).toContain("bridge.toolOutput");
+    expect(html).toContain("bridge.toolResponseMetadata");
+    expect(html).toContain("openAiBridge.callTool(startTool, args)");
+    expect(html).toContain("openAiBridge.openExternal");
+    expect(html).toContain("openAiBridge.setOpenInAppUrl");
+    expect(html).toContain("openAiBridge.sendFollowUpMessage");
     expect(html).toContain('document.createElement("iframe")');
     expect(html).toContain('"agentNative.submitChat"');
     expect(html).toContain('"agentNative.frameOrigin"');
+    expect(html).toContain('"agentNative.embeddedAppReady"');
     expect(html).toContain('"agentNative.mcpHostContext"');
     expect(html).toContain('"agentNative.mcpHost.updateModelContext"');
     expect(html).toContain('"agentNative.mcpHost.openLink"');
     expect(html).toContain('"agentNative.mcpHost.requestDisplayMode"');
     expect(html).toContain('"agentNative.mcpHost.response"');
     expect(html).toContain("app.requestDisplayMode");
+    expect(html).toContain("renderFrameFallback");
+    expect(html).toContain("openFallbackExternal");
     expect(html).toContain("__an_mcp_chat_bridge");
     expect(html).toContain('data-app-title="Dashboard"');
     expect(html).toContain("data-title-label>Dashboard");
@@ -44,6 +56,21 @@ describe("embedApp", () => {
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
     );
     expect(resource.csp?.resourceDomains).toContain("https://esm.sh");
+  });
+
+  it("checks for ChatGPT's window.openai bridge before loading the standard bridge module", () => {
+    const resource = embedApp({ title: "Mail" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "manage-draft", appId: "mail" })
+        : resource.html;
+
+    const openAiIndex = html.indexOf("window.openai");
+    const dynamicImportIndex = html.indexOf("await import");
+
+    expect(openAiIndex).toBeGreaterThanOrEqual(0);
+    expect(dynamicImportIndex).toBeGreaterThan(openAiIndex);
+    expect(html).not.toContain('import { App } from "https://esm.sh');
   });
 
   it("allows full-app embeds to request a 900px canvas", () => {
@@ -119,7 +146,14 @@ describe("embedApp", () => {
     expect(fixture.html).toContain("app.updateModelContext");
     expect(fixture.html).toContain("app.requestDisplayMode");
     expect(fixture.html).toContain("app.sendMessage");
+    expect(fixture.html).toContain("window.openai");
+    expect(fixture.html).toContain('"openai:set_globals"');
+    expect(fixture.html).toContain("openAiBridge.callTool(startTool, args)");
+    expect(fixture.html).toContain("openAiBridge.openExternal");
+    expect(fixture.html).toContain("openAiBridge.setOpenInAppUrl");
+    expect(fixture.html).toContain("openAiBridge.sendFollowUpMessage");
     expect(fixture.html).toContain('"agentNative.frameOrigin"');
+    expect(fixture.html).toContain('"agentNative.embeddedAppReady"');
     expect(fixture.html).toContain('"agentNative.submitChat"');
     expect(fixture.html).toContain('"agentNative.mcpHostContext"');
     expect(fixture.html).toContain('"agentNative.mcpHost.updateModelContext"');
@@ -130,8 +164,10 @@ describe("embedApp", () => {
     expect(fixture.html).toContain(
       'url.searchParams.set(chatBridgeParam, "1")',
     );
+    expect(fixture.html).toContain("Open this app in its own tab");
+    expect(fixture.html).toContain("use the URL below");
     expect(fixture.html).toContain("name: startTool");
-    expect(fixture.html).toContain("arguments: {");
+    expect(fixture.html).toContain("arguments: args");
   });
 });
 

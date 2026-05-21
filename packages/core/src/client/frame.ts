@@ -82,6 +82,10 @@ if (typeof window !== "undefined") {
       event.source === window.parent
     ) {
       _frameOrigin = origin;
+      window.parent.postMessage(
+        { type: "agentNative.embeddedAppReady" },
+        origin,
+      );
     }
   });
 }

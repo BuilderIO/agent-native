@@ -222,11 +222,25 @@ starts from the action's `link` target, creates a short-lived embed session,
 and loads that URL in an iframe. Design embedded routes so a reload with the
 same URL reconstructs the same view.
 
+ChatGPT gets a dedicated compatibility path through `window.openai`: the
+wrapper reads `toolInput`, `toolOutput`, and `toolResponseMetadata` directly,
+then calls `create_embed_session` via `window.openai.callTool(...)`. Other MCP
+Apps hosts use the standard `ui/*` bridge. Keep the result shape identical for
+both paths: return a focused `link` and concise structured content.
+
+Some hosts support MCP Apps but still block nested iframes for a returned UI
+resource. `embedApp()` detects that case with a route-ready handshake and
+replaces the broken frame with an open-app fallback: the user can retry inline,
+open a freshly minted embed session through the host, or use the visible route
+URL. Keep the action's `link` target useful on its own because it is still the
+universal escape hatch.
+
 The host bridge is deliberately small:
 
 | Direction       | Message type                             | Use it for                               |
 | --------------- | ---------------------------------------- | ---------------------------------------- |
 | wrapper → route | `agentNative.mcpHostContext`             | Theme, locale, host platform, dimensions |
+| route → wrapper | `agentNative.embeddedAppReady`           | Confirm the nested route iframe loaded   |
 | route → wrapper | `agentNative.mcpHost.updateModelContext` | Hidden context for the host model        |
 | route → wrapper | `agentNative.mcpHost.openLink`           | Open an external or app URL via the host |
 | route → wrapper | `agentNative.mcpHost.requestDisplayMode` | Request `inline`, `fullscreen`, or `pip` |

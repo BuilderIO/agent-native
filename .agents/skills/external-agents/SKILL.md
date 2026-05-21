@@ -244,6 +244,13 @@ Expose the operation as a normal action/tool, return a focused deep link with
 `link`, and add `mcpApp.resource = embedApp(...)` so capable hosts load that
 same route inline instead of opening a new tab.
 
+`embedApp()` supports both host bridges. Standard MCP Apps hosts use the
+`ui/*` bridge; ChatGPT uses the `window.openai` compatibility bridge, reading
+`toolInput` / `toolOutput` / `toolResponseMetadata` and calling
+`create_embed_session` through `window.openai.callTool(...)`. Do not build a
+ChatGPT-only HTML surface. Keep the action result and `link` target focused so
+both bridges land on the same real app route.
+
 That means full-app embeds can do anything the route can do once opened:
 review or edit an email draft, show a filtered inbox/search, open a calendar
 event or event draft, load an extension page, inspect a full analytics
