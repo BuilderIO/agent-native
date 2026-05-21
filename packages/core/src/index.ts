@@ -39,6 +39,13 @@ export {
   MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
   type EmbedAppOptions,
 } from "./mcp/embed-app.js";
+export {
+  embedRoute,
+  type EmbedRouteContext,
+  type EmbedRouteOptions,
+  type EmbedRoutePathBuilder,
+  type EmbedRouteResult,
+} from "./mcp/embed-route.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
   createAgentChatPlugin,

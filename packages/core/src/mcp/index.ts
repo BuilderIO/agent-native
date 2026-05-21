@@ -22,6 +22,13 @@ export {
   MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
   type EmbedAppOptions,
 } from "./embed-app.js";
+export {
+  embedRoute,
+  type EmbedRouteContext,
+  type EmbedRouteOptions,
+  type EmbedRoutePathBuilder,
+  type EmbedRouteResult,
+} from "./embed-route.js";
 
 // Workspace / app resolution helpers (Node-only).
 export {
