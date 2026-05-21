@@ -229,7 +229,7 @@ On top of the per-action tools the MCP server exposes a stable verb set, so an e
 
 `create_workspace_app` rejects any non-allow-listed template — the public template allow-list in `packages/shared-app-config/templates.ts` is authoritative and CI-guarded; an external agent cannot widen it. A same-named template action overrides a builtin (template-over-core precedence). Disable the whole set with `MCPConfig.builtinCrossAppTools: false`.
 
-For OAuth callers that request `mcp:apps`, the server intentionally advertises a compact `tools/list` catalog so app hosts do not ingest every internal action schema. The model sees app-facing builtins (`list_apps`, `open_app`, app-only `create_embed_session`), actions with `mcpApp`, and actions explicitly marked `publicAgent.expose`. Stdio/static-token developer clients still get the full connected action surface. If a host should be able to call a new action from an MCP App conversation, mark it with `mcpApp` for UI-producing work or `publicAgent` for safe read/ingest work.
+For OAuth callers that request `mcp:apps`, the server intentionally advertises a compact `tools/list` catalog so app hosts do not ingest every internal action schema. The model sees app-facing builtins (`list_apps`, `open_app`, app-only `create_embed_session`) and actions with `mcpApp`. Stdio/static-token developer clients still get the full connected action surface, and `publicAgent.expose` remains the opt-in for safe read/ingest tools outside the compact app catalog. If a UI-capable host should be able to call a new action from an MCP App conversation, mark it with `mcpApp`; use `publicAgent` for non-UI read/ingest handoff tools.
 
 ### Per-app tour {#tour}
 

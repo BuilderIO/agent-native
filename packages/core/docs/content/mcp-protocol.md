@@ -76,7 +76,7 @@ If an action declares `mcpApp`, the server also advertises the official MCP Apps
 
 ## Tools {#tools}
 
-Stdio/static-token developer clients see all connected app actions as MCP tools. OAuth callers that request `mcp:apps` get a compact app-host catalog: app-facing builtins, actions with `mcpApp`, and actions explicitly marked `publicAgent.expose`. This keeps ChatGPT/Claude app-host discovery small while preserving the full developer surface for local agents.
+Stdio/static-token developer clients see all connected app actions as MCP tools. OAuth callers that request `mcp:apps` get a compact app-host catalog: app-facing builtins and actions with `mcpApp`. `publicAgent.expose` remains the opt-in for safe read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude app-host discovery small while preserving the full developer surface for local agents.
 
 The mapping is direct:
 
