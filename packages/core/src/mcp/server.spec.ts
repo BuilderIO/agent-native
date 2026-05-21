@@ -350,9 +350,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
     expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "public-search", "review-draft"]),
+      expect.arrayContaining(["echo-thing", "review-draft"]),
     );
     expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("public-search");
     expect(names).not.toContain("ask-agent");
   });
 

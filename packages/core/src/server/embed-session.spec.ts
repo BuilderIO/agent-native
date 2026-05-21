@@ -96,6 +96,16 @@ describe("normalizeEmbedTargetPath", () => {
 });
 
 describe("requestMatchesEmbedTarget", () => {
+  beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+  });
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
   function fakeEvent(path: string, headers: Record<string, string> = {}) {
     return {
       path,
@@ -110,6 +120,107 @@ describe("requestMatchesEmbedTarget", () => {
       requestMatchesEmbedTarget(
         fakeEvent("/inbox?embedded=1&__an_embed_token=tok"),
         "/_agent-native/open?app=mail&view=inbox&threadId=t1",
+      ),
+    ).toBe(true);
+  });
+
+  it("allows record routes produced by template open-route resolvers", () => {
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/adhoc/q2-traffic?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=analytics&view=adhoc&dashboardId=q2-traffic",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/analyses/analysis-1?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=analytics&view=analyses&analysisId=analysis-1",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/design/design-1?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=design&view=editor&designId=design-1",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/page/doc-1?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=content&view=editor&documentId=doc-1",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/deck/deck-1?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=slides&view=editor&deckId=deck-1",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/deck/deck-1/present?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=slides&view=present&deckId=deck-1",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=slides&view=list",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/search?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=brain&view=capture&captureId=capture-1",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=calendar&view=calendar&eventId=event-1",
+      ),
+    ).toBe(true);
+  });
+
+  it("allows resolved open routes when the app is deployed under APP_BASE_PATH", () => {
+    process.env.APP_BASE_PATH = "/mail";
+
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/mail/inbox?embedded=1&__an_embed_token=tok"),
+        "/mail/_agent-native/open?app=mail&view=inbox",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not build thread record paths from unsafe view paths", () => {
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/evil/t1?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=mail&view=//evil&threadId=t1",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects dot-segment record ids before route matching", () => {
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/deck?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=slides&view=editor&deckId=..",
+      ),
+    ).toBe(false);
+  });
+
+  it("uses the browser URL, not the mounted handler path, for framework routes", () => {
+    const event = fakeEvent("/");
+    event.context = { _mountedPathname: "/_agent-native/open" };
+    event.url = {
+      search: "?app=mail&view=inbox&embedded=1&__an_embed_token=tok",
+    };
+
+    expect(
+      requestMatchesEmbedTarget(
+        event,
+        "/_agent-native/open?app=mail&view=inbox",
       ),
     ).toBe(true);
   });

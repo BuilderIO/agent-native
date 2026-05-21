@@ -152,7 +152,7 @@ If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discov
 
 ## Exposing it over MCP {#mcp}
 
-With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Stdio/static-token developer clients see the full connected action surface. OAuth app hosts that request `mcp:apps` get a compact catalog containing app-facing builtins, actions with `mcpApp`, and actions explicitly marked `publicAgent.expose`, so ChatGPT/Claude discovery stays small. See [MCP Protocol](/docs/mcp-protocol).
+With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Stdio/static-token developer clients see the full connected action surface. OAuth app hosts that request `mcp:apps` get a compact catalog containing app-facing builtins and actions with `mcpApp`; `publicAgent.expose` is still the opt-in for safe read/ingest tools outside that compact app catalog. See [MCP Protocol](/docs/mcp-protocol).
 
 For UI-capable MCP hosts, actions can also attach an optional MCP Apps resource.
 Use the shared full-app embed helper when the action needs an inline experience.

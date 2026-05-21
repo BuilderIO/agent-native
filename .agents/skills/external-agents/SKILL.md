@@ -154,12 +154,13 @@ precedence). Disable the set with `MCPConfig.builtinCrossAppTools: false`.
 For OAuth callers that request `mcp:apps`, the advertised `tools/list` catalog
 is intentionally compact so ChatGPT/Claude app hosts do not ingest every
 internal action schema. The model sees app-facing builtins (`list_apps`,
-`open_app`, app-only `create_embed_session`), actions with `mcpApp`, and
-actions explicitly marked `publicAgent.expose`. Stdio/static-token developer
-clients still get the full connected action surface. If a host should be able
-to call a new action from an MCP App conversation, mark it with `mcpApp` (for
-UI-producing work) or `publicAgent` (for safe read/ingest work) instead of
-relying on incidental full-surface discovery.
+`open_app`, app-only `create_embed_session`) and actions with `mcpApp`.
+Stdio/static-token developer clients still get the full connected action
+surface, and `publicAgent.expose` remains the opt-in for safe read/ingest tools
+outside the compact MCP Apps catalog. If a UI-capable host should be able to
+call a new action from an MCP App conversation, mark it with `mcpApp`; use
+`publicAgent` for non-UI read/ingest handoff tools instead of relying on
+incidental full-surface discovery.
 
 ### 2. Add a `link` builder to an action
 

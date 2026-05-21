@@ -58,7 +58,7 @@ export function embedApp(
   </style>
 </head>
 <body
-  data-title="${attr(title)}"
+  data-app-title="${attr(title)}"
   data-iframe-title="${attr(iframeTitle)}"
   data-open-label="${attr(openLabel)}"
   data-start-tool="${attr(startToolName)}"
@@ -66,7 +66,7 @@ export function embedApp(
 >
   <main class="shell">
     <div class="bar">
-      <div class="title" data-title>${attr(title)}</div>
+      <div class="title" data-title-label>${attr(title)}</div>
       <div class="actions">
         <button type="button" data-open disabled>${attr(openLabel)}</button>
       </div>
@@ -81,7 +81,7 @@ export function embedApp(
     const app = new App({ name: "Agent Native Embed", version: "1.0.0" }, {});
     const body = document.body;
     const stage = document.querySelector("[data-stage]");
-    const titleEl = document.querySelector("[data-title]");
+    const titleEl = document.querySelector("[data-title-label]");
     const openButton = document.querySelector("[data-open]");
     const startTool = body.dataset.startTool || "create_embed_session";
     const embedByDefault = body.dataset.embedDefault !== "0";
@@ -179,7 +179,7 @@ export function embedApp(
     }
 
     function updateTitle(data) {
-      const label = data.label || data.app || data.view || body.dataset.title || "App";
+      const label = data.label || data.app || data.view || body.dataset.appTitle || "App";
       titleEl.textContent = String(label);
     }
 

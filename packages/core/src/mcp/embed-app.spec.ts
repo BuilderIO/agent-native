@@ -15,6 +15,10 @@ describe("embedApp", () => {
     expect(html).toContain("create_embed_session");
     expect(html).toContain("app.callServerTool");
     expect(html).toContain('document.createElement("iframe")');
+    expect(html).toContain('data-app-title="Dashboard"');
+    expect(html).toContain("data-title-label>Dashboard");
+    expect(html).toContain('document.querySelector("[data-title-label]")');
+    expect(html).not.toContain('document.querySelector("[data-title]")');
     expect(html).toContain(
       'toolInput.embed === false || toolInput.embed === "false"',
     );
