@@ -302,7 +302,8 @@ export default function CalendarView() {
 
   const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
-  const { data: settings } = useSettings();
+  const settingsQuery = useSettings();
+  const { data: settings } = settingsQuery;
   const { data: rawOverlayPeople } = useOverlayPeople();
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const overlayEmails = useMemo(
@@ -920,15 +921,30 @@ export default function CalendarView() {
     );
   }
 
-  function handleClickTimeSlot(
+  async function handleClickTimeSlot(
     clickedDate: Date,
     startTime: string,
     _endTime: string,
   ) {
+    let activeSettings = settings;
+    if (!activeSettings) {
+      const result = await settingsQuery.refetch();
+      activeSettings = result.data;
+    }
+    if (!activeSettings?.timezone) {
+      toast.error(
+        "Calendar settings are still loading. Try again in a moment.",
+      );
+      return;
+    }
+
     setSelectedDate(clickedDate);
     setEventDraft(null);
-    const defaultDuration = Math.max(5, settings?.defaultEventDuration ?? 30);
-    const timezone = settings?.timezone || getLocalTimezone();
+    const defaultDuration = Math.max(
+      5,
+      activeSettings.defaultEventDuration ?? 30,
+    );
+    const timezone = activeSettings.timezone;
     setCreateDefaultStart(startTime);
     setCreateDialogOpen(false);
 

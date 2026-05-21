@@ -246,15 +246,15 @@ export function CreateEventPopover({
     }
 
     const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
+    const draftTimezone =
+      draft?.startTimeZone || draft?.endTimeZone || defaultTimezone;
     const initKey = draft?.id
-      ? `draft:${draft.id}`
-      : `new:${nextDate}:${defaultStart || fallbackStart}:${defaultEnd || fallbackEnd}`;
+      ? `draft:${draft.id}:${draftTimezone}`
+      : `new:${nextDate}:${defaultStart || fallbackStart}:${defaultEnd || fallbackEnd}:${defaultTimezone}`;
     if (initializedKeyRef.current === initKey) return;
     initializedKeyRef.current = initKey;
 
     if (draft) {
-      const draftTimezone =
-        draft.startTimeZone || draft.endTimeZone || defaultTimezone;
       const startParts = draft.start
         ? dateTimePartsInTimezone(draft.start, draftTimezone)
         : null;

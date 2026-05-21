@@ -362,7 +362,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
-  it("uses a compact tool catalog for OAuth MCP Apps callers", async () => {
+  it("uses a compact tool catalog when the OAuth token has mcp:apps", async () => {
     const out = await callWeb(
       {
         jsonrpc: "2.0",
@@ -410,10 +410,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).toContain("Unknown tool");
   });
 
-  it("uses the compact catalog for known ChatGPT/Claude OAuth registrations even when an older token lacks mcp:apps", async () => {
-    mockOAuthClients.set("agent-native-oauth-client-generated-chatgpt", {
-      clientId: "agent-native-oauth-client-generated-chatgpt",
-      clientName: "ChatGPT",
+  it("uses the compact catalog for known ChatGPT redirect registrations even when an older token lacks mcp:apps", async () => {
+    mockOAuthClients.set("agent-native-oauth-client-generated-hosted-app", {
+      clientId: "agent-native-oauth-client-generated-hosted-app",
+      clientName: "MCP Apps Host",
       redirectUris: ["https://chatgpt.com/aip/mcp/oauth/callback"],
     });
 
@@ -426,7 +426,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       {
         headers: await mcpAppsAuthHeaders({
-          clientId: "agent-native-oauth-client-generated-chatgpt",
+          clientId: "agent-native-oauth-client-generated-hosted-app",
           scope: "mcp:read mcp:write",
         }),
         config: compactSurfaceConfig,
@@ -477,7 +477,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
-  it("defaults remote web OAuth clients to the compact MCP App catalog", async () => {
+  it("keeps the full catalog for generic remote web OAuth clients without mcp:apps", async () => {
     mockOAuthClients.set("agent-native-oauth-client-generated-web-host", {
       clientId: "agent-native-oauth-client-generated-web-host",
       clientName: "Acme Web MCP Host",
@@ -503,16 +503,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
     expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "review-draft"]),
+      expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
     );
-    expect(names).not.toContain("internal-heavy");
-    expect(names).not.toContain("public-search");
-    expect(names).not.toContain("ask-agent");
-    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
-    expect(JSON.stringify(out).length).toBeLessThan(12_000);
+    expect(JSON.stringify(out)).toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
   });
 
-  it("defaults unknown standard OAuth clients without mcp:apps to the compact catalog", async () => {
+  it("keeps the full catalog for unknown standard OAuth clients without mcp:apps", async () => {
     const out = await callWeb(
       {
         jsonrpc: "2.0",
@@ -532,12 +528,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
     expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "review-draft"]),
+      expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
     );
-    expect(names).not.toContain("internal-heavy");
-    expect(names).not.toContain("public-search");
-    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
-    expect(JSON.stringify(out).length).toBeLessThan(12_000);
+    expect(JSON.stringify(out)).toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
   });
 
   it("keeps the full catalog for code-oriented OAuth clients without mcp:apps", async () => {
