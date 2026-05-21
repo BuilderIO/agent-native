@@ -95,6 +95,76 @@ describe("AgentEngine registry", () => {
     expect(resolved).toBe(fakeEngine);
   });
 
+  it("resolveEngine rejects explicit string engines whose optional runtime packages are missing", async () => {
+    const { registerAgentEngine, resolveEngine } =
+      await import("./registry.js");
+    const create = vi.fn();
+
+    registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      installPackage: "@agent-native/definitely-missing-ai-provider",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.4",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create,
+    });
+
+    await expect(
+      resolveEngine({ engineOption: "ai-sdk:openai" }),
+    ).rejects.toThrow(/requires optional packages/);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("resolveEngine rejects explicit object engines whose optional runtime packages are missing", async () => {
+    const { registerAgentEngine, resolveEngine } =
+      await import("./registry.js");
+    const create = vi.fn();
+
+    registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      installPackage: "@agent-native/definitely-missing-ai-provider",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.4",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create,
+    });
+
+    await expect(
+      resolveEngine({ engineOption: { name: "ai-sdk:openai", config: {} } }),
+    ).rejects.toThrow(/requires optional packages/);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("resolveEngine rejects AGENT_ENGINE when optional runtime packages are missing", async () => {
+    process.env.AGENT_ENGINE = "ai-sdk:openai";
+    const { registerAgentEngine, resolveEngine } =
+      await import("./registry.js");
+    const create = vi.fn();
+
+    registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      installPackage: "@agent-native/definitely-missing-ai-provider",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.4",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create,
+    });
+
+    await expect(resolveEngine({})).rejects.toThrow(
+      /requires optional packages/,
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it("resolveEngine falls back to default anthropic when nothing configured", async () => {
     const { registerAgentEngine, resolveEngine } =
       await import("./registry.js");

@@ -237,7 +237,10 @@ export function useChatModels({
             "ai-sdk:google",
           ]);
           groups = enginesData.engines
-            .filter((e: any) => allowedEngines.has(e.name))
+            .filter(
+              (e: any) =>
+                allowedEngines.has(e.name) && e.packageInstalled !== false,
+            )
             .map((e: any) => {
               const models = [...e.supportedModels];
               if (
@@ -252,12 +255,11 @@ export function useChatModels({
                 label: e.label,
                 models,
                 configured:
-                  e.packageInstalled !== false &&
-                  (e.requiredEnvVars.length === 0 ||
-                    e.requiredEnvVars.some((v: string) =>
-                      configuredKeys.has(v),
-                    ) ||
-                    e.name === currentEngineName),
+                  e.requiredEnvVars.length === 0 ||
+                  e.requiredEnvVars.some((v: string) =>
+                    configuredKeys.has(v),
+                  ) ||
+                  e.name === currentEngineName,
               };
             });
         }
