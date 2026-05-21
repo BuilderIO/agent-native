@@ -106,6 +106,43 @@ describe("embed auth client", () => {
     expect(headers.get(EMBED_TARGET_HEADER)).toBe("/inbox?embedded=1");
   });
 
+  it("uses location.href as the app origin when the sandbox origin is opaque", async () => {
+    window.history.replaceState(null, "", "/inbox?embedded=1");
+    sessionStorage.setItem(STORAGE_KEY, "stored-token");
+    const originalOrigin = Object.getOwnPropertyDescriptor(
+      window.location,
+      "origin",
+    );
+    Object.defineProperty(window.location, "origin", {
+      configurable: true,
+      get: () => "null",
+    });
+    const originalFetch = vi.fn(async () => new Response("ok"));
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+
+    try {
+      const { ensureEmbedAuthFetchInterceptor } = await loadEmbedAuth();
+      ensureEmbedAuthFetchInterceptor();
+
+      await window.fetch("/api/emails?view=inbox");
+
+      const [, init] = originalFetch.mock.calls[0]!;
+      const headers = new Headers(init?.headers);
+      expect(headers.get("Authorization")).toBe("Bearer stored-token");
+      expect(headers.get(EMBED_TARGET_HEADER)).toBe("/inbox?embedded=1");
+    } finally {
+      if (originalOrigin) {
+        Object.defineProperty(window.location, "origin", originalOrigin);
+      } else {
+        delete (window.location as unknown as { origin?: string }).origin;
+      }
+    }
+  });
+
   it("does not add embed credentials to cross-origin fetches", async () => {
     window.history.replaceState(null, "", "/inbox?embedded=1");
     sessionStorage.setItem(STORAGE_KEY, "stored-token");

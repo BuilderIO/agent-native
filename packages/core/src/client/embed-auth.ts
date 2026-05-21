@@ -189,11 +189,22 @@ function currentEmbedTarget(win: Window): string {
   return `${win.location.pathname}${win.location.search}`;
 }
 
+function currentAppOrigin(win: Window): string | null {
+  const url = currentUrl(win);
+  if (url?.origin && url.origin !== "null") return url.origin;
+  try {
+    const origin = win.location.origin;
+    return origin && origin !== "null" ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
 function inputUrl(input: RequestInfo | URL, win: Window): URL | null {
   try {
     return input instanceof Request
       ? new URL(input.url)
-      : new URL(String(input), win.location.origin);
+      : new URL(String(input), currentUrl(win)?.href ?? win.location.href);
   } catch {
     return null;
   }
@@ -201,7 +212,8 @@ function inputUrl(input: RequestInfo | URL, win: Window): URL | null {
 
 function sameOrigin(input: RequestInfo | URL, win: Window): boolean {
   const url = inputUrl(input, win);
-  return !!url && url.origin === win.location.origin;
+  const origin = currentAppOrigin(win);
+  return !!url && !!origin && url.origin === origin;
 }
 
 function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
@@ -340,7 +352,8 @@ function requestUrlAndKey(
     }
   | undefined {
   const url = inputUrl(input, win);
-  if (!url || url.origin !== win.location.origin) return undefined;
+  const origin = currentAppOrigin(win);
+  if (!url || !origin || url.origin !== origin) return undefined;
   const method = requestMethod(input, init);
   return {
     key: authFailureKey(method, url),
