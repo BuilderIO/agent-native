@@ -40,6 +40,9 @@ describe("embedApp", () => {
     expect(resource.csp?.frameDomains).toContain(
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
     );
+    expect(resource.csp?.resourceDomains).toContain(
+      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+    );
     expect(resource.csp?.resourceDomains).toContain("https://esm.sh");
   });
 
@@ -76,6 +79,10 @@ describe("embedApp", () => {
             prefersBorder: false,
             csp: {
               frameDomains: [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE],
+              resourceDomains: [
+                "https://esm.sh",
+                MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+              ],
             },
           },
         },

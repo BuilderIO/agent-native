@@ -373,7 +373,11 @@ export function embedApp(
 </html>`,
     csp: {
       connectDomains: ["https://esm.sh"],
-      resourceDomains: ["https://esm.sh"],
+      resourceDomains: [
+        "https://esm.sh",
+        MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+        ...(options.frameDomains ?? []),
+      ],
       frameDomains: [
         MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
         ...(options.frameDomains ?? []),
