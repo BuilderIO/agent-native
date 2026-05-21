@@ -258,6 +258,11 @@ export function embedApp(
       stage.innerHTML = '<div class="message">' + esc(message) + '</div>';
     }
 
+    function shouldDirectRenderEmbed() {
+      const host = window.location.hostname.toLowerCase();
+      return host === "claudemcpcontent.com" || host.endsWith(".claudemcpcontent.com");
+    }
+
     function clearFrameReadyTimer() {
       if (!appFrameReadyTimer) return;
       clearTimeout(appFrameReadyTimer);
@@ -481,6 +486,10 @@ export function embedApp(
         if (!data.startUrl) {
           startedFor = "";
           setMessage(data.error || "This app can be opened, but not embedded from this MCP server.");
+          return;
+        }
+        if (shouldDirectRenderEmbed()) {
+          window.location.href = data.startUrl;
           return;
         }
         renderFrame(data.startUrl);
