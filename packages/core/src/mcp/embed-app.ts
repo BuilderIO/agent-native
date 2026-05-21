@@ -148,8 +148,9 @@ export function embedApp(
     }
 
     function openLinkFrom(params, data) {
-      const metaUrl = params && params._meta && params._meta["agent-native/openLink"]
-        ? params._meta["agent-native/openLink"].webUrl
+      const openLink = params && params._meta && params._meta["agent-native/openLink"];
+      const metaUrl = openLink && typeof openLink === "object" && typeof openLink.webUrl === "string"
+        ? openLink.webUrl
         : "";
       return metaUrl || data.url || data.deepLink || data.openUrl || "";
     }
@@ -349,6 +350,25 @@ export function embedApp(
       }, 30000);
     }
 
+    function shouldSelfNavigateToApp() {
+      const mode = typeof toolInput.embedMode === "string"
+        ? toolInput.embedMode
+        : typeof toolInput.renderMode === "string"
+          ? toolInput.renderMode
+          : "";
+      if (mode === "iframe" || mode === "nested") return false;
+      if (toolInput.nested === true || toolInput.frame === "iframe") return false;
+      return true;
+    }
+
+    function navigateToAppFrame(src) {
+      clearFrameReadyTimer();
+      clearFrameLoadTimer();
+      appFrame = null;
+      setMessage("Opening app");
+      window.location.replace(src);
+    }
+
     async function updateHostModelContext(data) {
       const params = {};
       if (Array.isArray(data && data.content)) params.content = data.content;
@@ -505,7 +525,11 @@ export function embedApp(
           setMessage(data.error || "This app can be opened, but not embedded from this MCP server.");
           return;
         }
-        renderFrame(data.startUrl);
+        if (shouldSelfNavigateToApp()) {
+          navigateToAppFrame(data.startUrl);
+        } else {
+          renderFrame(data.startUrl);
+        }
       } catch (err) {
         startedFor = "";
         setMessage(err && err.message ? err.message : "Could not launch embedded app.");

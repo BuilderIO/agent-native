@@ -301,22 +301,23 @@ Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients,
 older hosts, and any host that does not render MCP Apps will ignore the UI
 metadata and still need the "Open in … →" link. `embedApp()` uses that link as
 its launch target, calls the app-only `create_embed_session` helper, exchanges
-a one-time SQL ticket at `/_agent-native/embed/start`, and loads the target
-route in an iframe with a short-lived browser session. `open_app({ app, path,
-embed: true })` is the generic escape hatch for routes like full dashboards,
-filtered inboxes, calendar drafts, analyses, or extension pages, and should be
-used liberally when the full app is the clearest review/edit surface.
+a one-time SQL ticket at `/_agent-native/embed/start`, then navigates the MCP
+App resource frame itself to the real app route with a short-lived browser
+session. This avoids the fragile "iframe inside the host's iframe" shape that
+Claude and some ChatGPT surfaces block or paint blank. A nested iframe remains
+available only as an explicit diagnostic fallback (`embedMode: "iframe"` /
+`renderMode: "iframe"` / `nested: true`). `open_app({ app, path, embed: true })`
+is the generic escape hatch for routes like full dashboards, filtered inboxes,
+calendar drafts, analyses, or extension pages, and should be used liberally
+when the full app is the clearest review/edit surface.
 
-Some hosts, especially Claude web/desktop, may render the MCP App resource in a
-host-owned sandbox and block nested app iframes even when frame domains are
-declared. Keep `embedApp()`'s ready-handshake fallback intact: it retries inline
-or opens a freshly minted embed session via `ui/open-link`. Do not special-case
-Claude by assigning `window.location` to `/_agent-native/embed/start`; Claude's
-initial iframe is the returned `ui://` resource HTML on a
-`*.claudemcpcontent.com` origin, not our app URL, and redirecting that document
-can bypass the fallback. If true nested-frame-free Claude support is needed,
-build a distinct MCP resource shell that bootstraps the app route inside the
-resource document with declared CSP/CORS/auth.
+For known first-party handoffs, prefer a direct action with `mcpApp` over
+letting the model hunt through screens. Examples: Mail `manage-draft` for email
+drafts, Analytics `open-traffic-dashboard` for the first-party traffic
+dashboard, Calendar `manage-event-draft` for invite drafts, and create/search
+actions for Forms, Content, Clips, Slides, and Design. The action should return
+concise structured content plus the link; it should not dump large catalogs or
+HTML.
 
 Compatibility target: build to the standard once, not per-client shims. MCP
 Apps-capable hosts should include Claude/Claude Desktop/Claude Code, ChatGPT

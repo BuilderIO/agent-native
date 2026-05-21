@@ -28,6 +28,8 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
     expect(html).toContain('document.createElement("iframe")');
+    expect(html).toContain("shouldSelfNavigateToApp");
+    expect(html).toContain("window.location.replace(src)");
     expect(html).toContain('"agentNative.submitChat"');
     expect(html).toContain('"agentNative.frameOrigin"');
     expect(html).toContain('"agentNative.embeddedAppReady"');
@@ -42,6 +44,7 @@ describe("embedApp", () => {
     expect(html).toContain("appFrameLoadTimer");
     expect(html).toContain("startFrameReadyTimer(frame)");
     expect(html).toContain("}, 30000)");
+    expect(html).toContain('typeof openLink === "object"');
     expect(html).not.toContain("shouldDirectRenderEmbed");
     expect(html).not.toContain("claudemcpcontent.com");
     expect(html).not.toContain("window.location.href = data.startUrl");
