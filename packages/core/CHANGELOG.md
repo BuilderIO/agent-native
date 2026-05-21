@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.14
+
+### Patch Changes
+
+- b09db79: Prevent unavailable optional agent engines from being selected by chat model pickers or explicit runtime overrides.
+
 ## 0.22.13
 
 ### Patch Changes
