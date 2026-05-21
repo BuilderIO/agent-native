@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.12
+
+### Patch Changes
+
+- c43d534: Fix MCP App full-app embed launching through open routes and keep app-host discovery compact.
+
 ## 0.22.11
 
 ### Patch Changes
