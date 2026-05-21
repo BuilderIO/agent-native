@@ -1,4 +1,8 @@
-import { AgentActionStopError, defineAction } from "@agent-native/core";
+import {
+  AgentActionStopError,
+  defineAction,
+  embedApp,
+} from "@agent-native/core";
 import {
   getRequestRunContext,
   getRequestUserEmail,
@@ -8,10 +12,12 @@ import {
 import { z } from "zod";
 import { upsertAnalysis } from "../server/lib/dashboards-store";
 import { hasDataQueryAttempt } from "../server/lib/real-data-actions";
-import {
-  analyticsAnalysisMcpAppHtml,
-  analyticsMcpAppResourceMeta,
-} from "./_mcp-apps.js";
+
+const MCP_APP_FRAME_DOMAINS = [
+  "https:",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+];
 
 function parseJsonArg(value: unknown, label: string): unknown {
   if (typeof value !== "string") return value;
@@ -105,12 +111,14 @@ export default defineAction({
   }),
   http: false,
   mcpApp: {
-    resource: {
+    resource: embedApp({
       title: "Saved analysis",
-      description: "Preview the saved Analytics analysis inline.",
-      html: analyticsAnalysisMcpAppHtml,
-      ...analyticsMcpAppResourceMeta,
-    },
+      description: "Open the saved analysis in the real Analytics UI.",
+      iframeTitle: "Agent-Native Analytics",
+      openLabel: "Open analysis",
+      frameDomains: MCP_APP_FRAME_DOMAINS,
+      height: 680,
+    }),
   },
   run: async (args) => {
     const runCtx = getRequestRunContext();

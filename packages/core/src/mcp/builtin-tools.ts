@@ -251,10 +251,12 @@ function listAppsTool(
 function openAppTool(config: MCPConfig): ActionEntry {
   return {
     tool: tool(
-      "Build a deep link that opens an app at a specific view/record. No side " +
+      "Build a deep link that opens an app at a specific view/record or " +
+        "focused route/component. No side " +
         "effects — returns a URL the user can click to land in the running UI. " +
         "Set embed:true when a UI-capable MCP host should render the live app " +
-        'inline. After calling, surface the returned "Open in … →" link to the user.',
+        "or focused route/component inline. After calling, surface the returned " +
+        '"Open in … →" link to the user.',
       {
         app: { type: "string", description: "App id, e.g. 'mail'" },
         view: {
@@ -265,7 +267,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
         path: {
           type: "string",
           description:
-            "Optional app route to open directly, e.g. '/extensions/abc' or '/dashboards/q2'. Must be same-origin relative.",
+            "Optional app route to open directly, e.g. '/extensions/abc', '/adhoc/q2', or '/chart?panel=...'. Must be same-origin relative.",
         },
         params: {
           type: "object",
@@ -275,7 +277,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
         embed: {
           type: "boolean",
           description:
-            "Render the full app inline in MCP Apps when the host supports it.",
+            "Render the full app or focused route/component inline in MCP Apps when the host supports it.",
         },
         chrome: {
           type: "string",
@@ -306,7 +308,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
           params = undefined;
         }
       }
-      const embed = args.embed === true;
+      const embed = args.embed === true || args.embed === "true";
       const directViewPath = embed && view ? viewToAppPath(view) : null;
       const relUrl = path
         ? appendParamsToPath(path, params)
@@ -350,6 +352,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
         description: "Render the requested app route inline.",
         iframeTitle: "Agent Native app",
         openLabel: "Open app",
+        height: 900,
       }),
     },
   };
@@ -385,8 +388,8 @@ function createEmbedSessionTool(requestMeta?: {
       ),
       _meta: { ui: { visibility: ["app"] } },
     } as ActionTool,
-    // Minting a browser session lets the iframe operate the real app as the
-    // caller, so OAuth callers must have mcp:write rather than only mcp:read.
+    // App-only bootstrap helper: the ticket becomes a normal browser session,
+    // so keep it write-scoped until embed sessions can enforce MCP scopes.
     readOnly: false,
     parallelSafe: true,
     run: async (args: Record<string, any>) => {

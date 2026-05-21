@@ -196,6 +196,7 @@ describe("createAgentChatAdapter", () => {
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe("/_agent-native/agent-chat");
     expect(init.method).toBe("POST");
+    expect(init.headers["x-agent-native-surface"]).toBe("app");
 
     const body = JSON.parse(init.body);
     expect(body).toMatchObject({
@@ -477,6 +478,31 @@ describe("createAgentChatAdapter", () => {
         },
       ],
     });
+  });
+
+  it("sends the explicit dev-frame surface for outer frame-hosted chat", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      surface: "dev-frame",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Add a feature" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init.headers["x-agent-native-surface"]).toBe("dev-frame");
   });
 
   it("truncates large outbound text attachments before posting", async () => {

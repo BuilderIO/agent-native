@@ -11,6 +11,14 @@ fn add_swift_runtime_rpaths() {
         return;
     }
 
+    // Native pause/resume concatenates MP4 segments via AVFoundation +
+    // CoreMedia (see `concat_mp4_segments` in `native_screen.rs`). These
+    // frameworks may already be pulled in transitively, but declaring them
+    // explicitly guarantees the linker resolves the AVAssetExportSession /
+    // CMTime symbols we touch via raw `msg_send!` / `extern "C"`.
+    println!("cargo:rustc-link-lib=framework=AVFoundation");
+    println!("cargo:rustc-link-lib=framework=CoreMedia");
+
     // The screencapturekit crate builds a Swift bridge. Its build script adds
     // these rpaths for its own crate, but Cargo does not propagate them to the
     // final Tauri binary, so the dev executable can fail to find

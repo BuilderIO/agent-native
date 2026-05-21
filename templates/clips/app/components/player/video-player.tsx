@@ -615,6 +615,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         if (initialVisibleFrameSeekedRef.current) return false;
         if (autoPlay) return false;
         if (startMs && startMs > 0) return false;
+        if (hasPlaybackStarted) return false;
+        if (playAttemptPendingRef.current || !v.paused) return false;
         if (!Number.isFinite(v.duration) || v.duration < 0.8) return false;
         if (v.currentTime > 0.05) return false;
         const targetMs = Math.min(350, Math.max(120, v.duration * 100));
@@ -633,7 +635,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           return false;
         }
       },
-      [autoPlay, excludedRanges, resolvedDurationMs, startMs],
+      [
+        autoPlay,
+        excludedRanges,
+        hasPlaybackStarted,
+        resolvedDurationMs,
+        startMs,
+      ],
     );
 
     // Reset the "Preparing your clip…" overlay whenever the video source
@@ -722,6 +730,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       cta.placement === "end" &&
       resolvedDurationMs > 0 &&
       currentMs >= resolvedDurationMs - 200;
+
+    const fullscreenMenuContainer = isFullscreen ? containerRef.current : null;
 
     const showThroughoutCta = cta && cta.placement === "throughout";
     const centerOverlayMode =
@@ -891,6 +901,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             playError={playError}
             onPlay={requestPlay}
             onSpeedChange={applySpeed}
+            menuPortalContainer={fullscreenMenuContainer}
           />
         ) : null}
 
@@ -981,6 +992,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onTogglePip={() => void togglePipInternal()}
               onToggleFullscreen={() => void toggleFullscreenInternal()}
               onToggleTheater={onTheaterToggle}
+              menuPortalContainer={fullscreenMenuContainer}
             />
           </div>
         ) : null}
@@ -997,6 +1009,7 @@ function CenterPlaybackOverlay({
   playError,
   onPlay,
   onSpeedChange,
+  menuPortalContainer,
 }: {
   mode: "loading" | "ready";
   label: string;
@@ -1005,6 +1018,7 @@ function CenterPlaybackOverlay({
   playError: string | null;
   onPlay: () => void;
   onSpeedChange: (rate: number) => void;
+  menuPortalContainer?: HTMLElement | null;
 }) {
   const showLoading = mode === "loading" && !playError;
   const adjustedDurationMs = speed > 0 ? durationMs / speed : durationMs;
@@ -1057,6 +1071,7 @@ function CenterPlaybackOverlay({
                   align="center"
                   side="top"
                   className="min-w-[96px]"
+                  container={menuPortalContainer}
                 >
                   <DropdownMenuLabel>Speed</DropdownMenuLabel>
                   <DropdownMenuSeparator />

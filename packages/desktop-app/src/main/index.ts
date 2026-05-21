@@ -688,6 +688,12 @@ app.on("open-url", (event, url) => {
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
+const DEFAULT_DESKTOP_UPDATE_FEED_URL =
+  "https://agent-native.com/api/desktop-updates";
+const DESKTOP_UPDATE_FEED_URL = (
+  process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
+  DEFAULT_DESKTOP_UPDATE_FEED_URL
+).replace(/\/+$/, "");
 
 let currentUpdateStatus: UpdateStatus = IS_DEV
   ? { state: "unsupported", reason: "Auto-update is disabled in development" }
@@ -755,6 +761,13 @@ function showUpdateReadyNotification(version: string) {
 }
 
 if (!IS_DEV) {
+  // The GitHub provider reads the repository-wide latest release feed, which
+  // also contains npm package releases and Clips desktop releases. Use the
+  // Agent Native feed that filters the shared repo down to desktop assets.
+  autoUpdater.setFeedURL({
+    provider: "generic",
+    url: DESKTOP_UPDATE_FEED_URL,
+  });
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 

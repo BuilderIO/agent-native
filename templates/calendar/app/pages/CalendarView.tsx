@@ -13,8 +13,8 @@ import {
   subWeeks,
   addDays,
   subDays,
-  isSameDay,
   parseISO,
+  startOfDay,
 } from "date-fns";
 import {
   IconCheck,
@@ -419,11 +419,18 @@ export default function CalendarView() {
       });
   }, [rawEvents, draftEvent, overlayPeople, hiddenCalendars, quickEditTempIds]);
 
-  // Filter events for day view
+  // Filter events for day view — use overlap check so multi-day continuation
+  // events (started on a prior day) still appear on the selected day.
   const dayEvents = useMemo(
     () =>
       viewMode === "day"
-        ? events.filter((e) => isSameDay(parseISO(e.start), selectedDate))
+        ? events.filter((e) => {
+            const evStart = parseISO(e.start);
+            const evEnd = parseISO(e.end);
+            const dayStart = startOfDay(selectedDate);
+            const dayEnd = addDays(dayStart, 1);
+            return evStart < dayEnd && evEnd > dayStart;
+          })
         : events,
     [events, viewMode, selectedDate],
   );

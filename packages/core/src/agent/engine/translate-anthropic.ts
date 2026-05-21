@@ -83,49 +83,109 @@ export function unmatchedToolResultReplayText(part: {
   return `${UNMATCHED_TOOL_RESULT_REPLAY_PREFIX} [tool_use_id=${part.toolCallId}${err}] ${body}`;
 }
 
+function interruptedToolResultPart(part: {
+  id: string;
+  name: string;
+  input: unknown;
+}): EngineContentPart {
+  return {
+    type: "tool-result",
+    toolCallId: part.id,
+    toolName: part.name,
+    toolInput: stringifyToolUseInputForGateway(part.input),
+    content: "Interrupted before this tool returned a result.",
+  };
+}
+
 /**
  * Ensure every `tool-result` has a non-empty `toolName` and `toolInput` string,
  * using the matching assistant `tool-call` in the same conversation.
+ * Assistant `tool-call` blocks without an immediately following result get a
+ * synthetic interrupted result so replayed history stays provider-protocol safe.
  * Orphan tool-results (no resolvable tool name) become `text` notes so nothing
  * is silently dropped from replayed history.
  */
 export function backfillEngineMessagesToolResults(
   messages: EngineMessage[],
 ): EngineMessage[] {
-  // Walk messages in order. For each user message, only consider tool-calls
-  // from assistant messages that appeared earlier in the conversation. This
-  // prevents an older tool-result from being backfilled with a later,
-  // unrelated tool-call when ids are reused (e.g. `continuation_tc_1` reset
-  // across adapter recreations).
+  // Walk messages in order. User tool-result blocks are valid only when they
+  // answer the immediately preceding assistant tool-call turn. This prevents
+  // older tool-results from being backfilled with later, unrelated tool-calls
+  // when ids are reused (e.g. `continuation_tc_1` reset across adapter
+  // recreations).
   const toolUseById = new Map<string, { name: string; input: unknown }>();
   const out: EngineMessage[] = [];
+  let pendingToolUses: Array<{ id: string; name: string; input: unknown }> = [];
+
+  const flushInterruptedToolResults = () => {
+    if (pendingToolUses.length === 0) return;
+    out.push({
+      role: "user",
+      content: pendingToolUses.map(interruptedToolResultPart),
+    });
+    pendingToolUses = [];
+  };
 
   for (const msg of messages) {
     if (msg.role === "assistant") {
+      flushInterruptedToolResults();
       for (const part of msg.content) {
         if (part.type === "tool-call") {
           toolUseById.set(part.id, { name: part.name, input: part.input });
         }
       }
       out.push(msg);
+      pendingToolUses = msg.content
+        .filter(
+          (part): part is Extract<EngineContentPart, { type: "tool-call" }> =>
+            part.type === "tool-call",
+        )
+        .map((part) => ({
+          id: part.id,
+          name: part.name,
+          input: part.input,
+        }));
       continue;
     }
     if (msg.role !== "user") {
+      flushInterruptedToolResults();
       out.push(msg);
       continue;
     }
     const newContent: EngineContentPart[] = [];
+    const pendingById = new Map(
+      pendingToolUses.map((part) => [part.id, part] as const),
+    );
+    const matchedPendingToolResults = new Map<string, EngineContentPart>();
     for (const part of msg.content) {
       if (part.type !== "tool-result") {
         newContent.push(part);
         continue;
       }
       const lookup = toolUseById.get(part.toolCallId);
+      const pendingLookup = pendingById.get(part.toolCallId);
       const toolName =
         typeof part.toolName === "string" && part.toolName.trim().length > 0
           ? part.toolName
-          : lookup?.name;
+          : pendingLookup?.name;
       if (!toolName?.trim()) {
+        const id =
+          typeof part.toolCallId === "string"
+            ? part.toolCallId.trim()
+            : part.toolCallId != null
+              ? String(part.toolCallId).trim()
+              : "";
+        newContent.push({
+          type: "text",
+          text: unmatchedToolResultReplayText({
+            toolCallId: id.length > 0 ? id : "(missing)",
+            content: part.content,
+            isError: part.isError,
+          }),
+        });
+        continue;
+      }
+      if (pendingToolUses.length > 0 && !pendingLookup) {
         const id =
           typeof part.toolCallId === "string"
             ? part.toolCallId.trim()
@@ -145,15 +205,31 @@ export function backfillEngineMessagesToolResults(
       const toolInput =
         typeof part.toolInput === "string" && part.toolInput.length > 0
           ? part.toolInput
-          : stringifyToolUseInputForGateway(lookup?.input);
-      newContent.push({
+          : stringifyToolUseInputForGateway(
+              pendingLookup?.input ?? lookup?.input,
+            );
+      const filled: EngineContentPart = {
         type: "tool-result",
         toolCallId: part.toolCallId,
         toolName,
         toolInput,
         content: part.content,
         ...(part.isError ? { isError: true } : {}),
-      });
+      };
+      if (pendingLookup) {
+        matchedPendingToolResults.set(part.toolCallId, filled);
+      } else {
+        newContent.push(filled);
+      }
+    }
+    if (pendingToolUses.length > 0) {
+      const pairedResults = pendingToolUses.map(
+        (part) =>
+          matchedPendingToolResults.get(part.id) ??
+          interruptedToolResultPart(part),
+      );
+      newContent.unshift(...pairedResults);
+      pendingToolUses = [];
     }
     if (newContent.length === 0) {
       out.push({
@@ -169,6 +245,8 @@ export function backfillEngineMessagesToolResults(
     }
     out.push({ role: "user", content: newContent });
   }
+
+  flushInterruptedToolResults();
 
   return out;
 }

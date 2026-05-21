@@ -54,6 +54,7 @@ export interface PlayerControlsProps {
   onTogglePip: () => void;
   onToggleFullscreen: () => void;
   onToggleTheater?: () => void;
+  menuPortalContainer?: HTMLElement | null;
 }
 
 export function PlayerControls(props: PlayerControlsProps) {
@@ -82,6 +83,7 @@ export function PlayerControls(props: PlayerControlsProps) {
     onTogglePip,
     onToggleFullscreen,
     onToggleTheater,
+    menuPortalContainer,
   } = props;
 
   const [volumeHover, setVolumeHover] = useState(false);
@@ -168,7 +170,12 @@ export function PlayerControls(props: PlayerControlsProps) {
             </TooltipTrigger>
             <TooltipContent>Playback speed</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" side="top" className="min-w-[90px]">
+          <DropdownMenuContent
+            align="end"
+            side="top"
+            className="min-w-[90px]"
+            container={menuPortalContainer}
+          >
             <DropdownMenuLabel>Speed</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {SPEED_OPTIONS.map((rate) => (
@@ -192,7 +199,11 @@ export function PlayerControls(props: PlayerControlsProps) {
               <IconSettings className="h-5 w-5" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" side="top">
+          <DropdownMenuContent
+            align="end"
+            side="top"
+            container={menuPortalContainer}
+          >
             <DropdownMenuLabel>Quality</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled>Auto</DropdownMenuItem>

@@ -2947,6 +2947,59 @@ function isLocalhost(event: any): boolean {
   }
 }
 
+type AgentChatRequestSurface = "app" | "dev-frame" | "desktop";
+
+function normalizeAgentChatRequestSurface(
+  value: string | null | undefined,
+): AgentChatRequestSurface | null {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (
+    normalized === "app" ||
+    normalized === "dev-frame" ||
+    normalized === "desktop"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function isBrowserUserAgent(userAgent: string | null | undefined): boolean {
+  return /Mozilla\/|Chrome\/|Safari\/|Firefox\/|Edg\//i.test(userAgent ?? "");
+}
+
+export function shouldBlockInProductCodeEditingSurface(input: {
+  surface?: string | null;
+  userAgent?: string | null;
+  host?: string | null;
+}): boolean {
+  const surface = normalizeAgentChatRequestSurface(input.surface);
+  if (surface === "dev-frame") return false;
+  if (surface === "desktop") return false;
+  if (surface === "app") return true;
+
+  // Legacy clients used to send `frame` for any iframe, which includes the
+  // app-rendered sidebar inside preview frames. Treat unknown explicit surface
+  // values as app-owned so they cannot accidentally receive dev code tools.
+  if (input.surface && input.surface.trim()) return true;
+
+  const userAgent = input.userAgent ?? "";
+  if (/AgentNativeDesktop/i.test(userAgent)) return false;
+
+  // Missing header from an older browser client. Be conservative for browser
+  // UAs on any host, because preview URLs can be non-local while still running
+  // a dev-mode app whose in-product chat would be reloaded by source edits.
+  if (isBrowserUserAgent(userAgent)) return true;
+
+  const host = (input.host ?? "").toLowerCase();
+  const hostname = host.split(":")[0] ?? "";
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
@@ -4455,72 +4508,49 @@ export function createAgentChatPlugin(
         return buildRuntimeContextPrompt({ timezone });
       };
 
-      // Chat-in-browser-on-localdev is the one surface where the agent must
-      // not edit code: source-file edits trigger Vite HMR / page reloads and
-      // kill the chat session mid-run. The client sends an
-      // `x-agent-native-surface` header (desktop | frame | browser); we fall
-      // back to UA + Host inspection when the header is missing (older clients,
-      // server-to-server callers, etc.). Returning true forces the prod
-      // handler (no shell / no fs) AND injects a redirect-prompt block telling
-      // the agent to point users at Desktop / Claude Code / Codex / Builder.io.
-      const isChatInBrowserOnLocalDev = (event: any): boolean => {
-        const surface = (
-          getHeader(event, "x-agent-native-surface") || ""
-        ).toLowerCase();
-        const ua = getHeader(event, "user-agent") || "";
-        const isDesktop =
-          surface === "desktop" || /AgentNativeDesktop/i.test(ua);
-        if (isDesktop) return false;
-        if (surface === "frame") return false;
-        const host = (getHeader(event, "host") || "").toLowerCase();
-        const hostname = host.split(":")[0] ?? "";
-        const isLocal =
-          hostname === "localhost" ||
-          hostname === "127.0.0.1" ||
-          hostname === "::1" ||
-          hostname === "[::1]";
-        if (!isLocal) return false;
-        // No header from an older client + non-desktop UA: be conservative and
-        // only trip on plain browser UAs. Treat unknown clients as safe (frame
-        // / desktop / scripting) so we don't break their tool access.
-        if (!surface) {
-          return /Mozilla\/|Chrome\/|Safari\/|Firefox\/|Edg\//i.test(ua);
-        }
-        return surface === "browser";
-      };
+      // The app-rendered sidebar must never edit the app's source code
+      // directly. Source-file edits can trigger HMR or full reloads of the
+      // same React tree that is hosting the chat, interrupting the run and
+      // losing in-progress UI state. Code edits are allowed only from the
+      // outer dev frame (x-agent-native-surface: dev-frame) or from separate
+      // agent surfaces such as Builder/A2A/MCP handoffs.
+      const shouldBlockInProductCodeEditing = (event: any): boolean =>
+        shouldBlockInProductCodeEditingSurface({
+          surface: getHeader(event, "x-agent-native-surface"),
+          userAgent: getHeader(event, "user-agent"),
+          host: getHeader(event, "host"),
+        });
 
-      const CHAT_IN_BROWSER_LOCAL_DEV_PROMPT = `
+      const APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT = `
 
-<chat-in-browser-on-localdev>
-This chat is running in a plain browser tab on localhost. Source-code edits would trigger Vite HMR or a full page reload, which kills the chat session mid-run, so source-code work cannot happen on this surface.
+<app-rendered-chat-no-direct-code-edits>
+This chat is rendered by the app itself. It must never edit this app's source files directly, because source edits can hot-reload or replace the same UI that is hosting the chat.
 
-When the user asks for ANY of the following — add a feature, edit a component, fix a bug in the app itself, change styles, add a route, scaffold a new app, run shell commands that modify code, or anything else that requires touching source files:
+When the user asks to add a feature, edit a component, fix a bug in the app itself, change styles, add a route, scaffold a new app, run shell commands that modify code, or do anything else that requires touching source files:
 
-1. Do NOT call \`connect-builder\`, \`scaffold-workspace-app\`, \`start-workspace-app-creation\`, or any other tool that creates or edits source.
-2. Do NOT write code, list files, propose patches, or describe what you would change.
-3. Reply with one short message saying chat-in-browser on localhost can't edit code (page reloads kill the session). If — and only if — the request is specifically to **add or scaffold a new workspace app**, lead with the CLI option since it runs in the same terminal the user is already using:
-   - **Agent Native CLI** — \`npx @agent-native/core add-app\` in this workspace directory (best for template apps like Mail/Calendar/Slides; the workspace gateway picks them up automatically)
+1. Do NOT use dev shell/filesystem tools, write code inline, list source files, propose patches, or describe file-level implementation steps from this chat.
+2. For host-app source changes in Act mode, call \`connect-builder\` when that tool is available so a separate Builder/cloud agent can do the work. If Builder is unavailable, give a short handoff to the outer dev frame, Agent Native Desktop, Claude Code, or Codex in the project directory.
+3. If the request is specifically to add or scaffold a new workspace app and no Builder handoff is available, mention \`npx @agent-native/core add-app\` in this workspace directory as the CLI path.
 
-   Then offer these alternatives for general source-editing work, in this order:
-   - **Agent Native Desktop** — https://www.agent-native.com/download (recommended; same chat, no reload risk)
-   - **Claude Code** — \`claude\` in the project directory
-   - **Codex** — \`codex\` in the project directory
-   - **Builder.io** — open the project in Builder for cloud-based code changes
-
-Non-code requests are still fine on this surface — read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about editing the app's own source files.
-</chat-in-browser-on-localdev>`;
+Non-code requests are still fine on this surface: read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about direct edits to the host app's own source files.
+</app-rendered-chat-no-direct-code-edits>`;
 
       const prodHandler = createProductionAgentHandler({
         actions: leanPrompt ? leanActions : prodActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
           const runtimeContext = runtimeContextForEvent(event);
-          const browserLocalDev = isChatInBrowserOnLocalDev(event)
-            ? CHAT_IN_BROWSER_LOCAL_DEV_PROMPT
+          const codeEditingSurfaceRestriction = shouldBlockInProductCodeEditing(
+            event,
+          )
+            ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
             : "";
           if (leanPrompt) {
             return setSystemPromptOnContext(
-              leanBasePrompt + runtimeContext + browserLocalDev + extra,
+              leanBasePrompt +
+                runtimeContext +
+                codeEditingSurfaceRestriction +
+                extra,
             );
           }
           const resources = await loadResourcesForPrompt(
@@ -4538,7 +4568,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
               runtimeContext +
               resources +
               schemaBlock +
-              browserLocalDev +
+              codeEditingSurfaceRestriction +
               extra,
           );
         },
@@ -6145,16 +6175,17 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
               timezone,
             },
             () => {
-              // Chat-in-browser on localhost can't host code edits — Vite HMR
-              // and full reloads would kill the chat mid-run. Force the prod
-              // handler (no shell / no fs); the prompt block injected by
-              // `prodHandler.systemPrompt` then steers the agent to suggest
-              // Desktop / Claude Code / Codex / Builder.io instead.
-              const browserLocalDev = isChatInBrowserOnLocalDev(event);
+              // App-rendered chat can't host direct code edits — HMR/full
+              // reloads would kill the same chat surface mid-run. Force the
+              // prod handler (no shell / no fs); the prompt block injected by
+              // `prodHandler.systemPrompt` then steers source changes to a
+              // separate agent surface such as Builder or the dev frame.
+              const blockInProductCodeEditing =
+                shouldBlockInProductCodeEditing(event);
               const handler =
                 ownerContext.anonymous && anonymousHandler
                   ? anonymousHandler
-                  : !browserLocalDev && currentDevMode && devHandler
+                  : !blockInProductCodeEditing && currentDevMode && devHandler
                     ? devHandler
                     : prodHandler;
               return handler(event);
