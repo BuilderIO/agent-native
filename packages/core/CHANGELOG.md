@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.19
+
+### Patch Changes
+
+- 1750384: Make MCP App embeds navigate the host frame into the real app route, keep the MCP chat bridge alive after embed-token redirects, and cache-bust the shared MCP App shell resource.
+
 ## 0.22.18
 
 ### Patch Changes
