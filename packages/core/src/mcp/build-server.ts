@@ -316,8 +316,19 @@ function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   return `ui://${app}/${action}`;
 }
 
-function defaultMcpAppUri(config: MCPConfig, actionName: string): string {
-  return `${legacyDefaultMcpAppUri(config, actionName)}/${MCP_APP_RESOURCE_SHELL_VERSION}`;
+function versionMcpAppResourceUri(
+  rawUri: string,
+): { uri: string; legacyUris?: string[] } | null {
+  const uri = rawUri.trim().replace(/\/+$/g, "");
+  if (!uri.startsWith("ui://")) return null;
+  const versionSuffix = `/${MCP_APP_RESOURCE_SHELL_VERSION}`;
+  const versionedUri = /\/shell-v\d+$/.test(uri)
+    ? uri.replace(/\/shell-v\d+$/, versionSuffix)
+    : `${uri}${versionSuffix}`;
+  return {
+    uri: versionedUri,
+    ...(versionedUri !== uri ? { legacyUris: [uri] } : {}),
+  };
 }
 
 function expandRequestOriginSources(
@@ -422,16 +433,15 @@ function resolveMcpAppResource(
 ): ResolvedMcpAppResource | null {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
-  const configuredUri = resource.uri?.trim();
-  const uri = configuredUri || defaultMcpAppUri(config, actionName);
-  if (!uri.startsWith("ui://")) return null;
+  const baseUri =
+    resource.uri?.trim() || legacyDefaultMcpAppUri(config, actionName);
+  const resolvedUri = versionMcpAppResourceUri(baseUri);
+  if (!resolvedUri) return null;
   const description = resource.description ?? entry.tool.description;
   const resourceMeta = mcpAppUiMeta(resource, requestMeta, description);
   return {
-    uri,
-    ...(!configuredUri
-      ? { legacyUris: [legacyDefaultMcpAppUri(config, actionName)] }
-      : {}),
+    uri: resolvedUri.uri,
+    ...(resolvedUri.legacyUris ? { legacyUris: resolvedUri.legacyUris } : {}),
     name: resource.name?.trim() || actionName,
     ...(resource.title ? { title: resource.title } : {}),
     ...(description ? { description } : {}),
