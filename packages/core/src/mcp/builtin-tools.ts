@@ -248,7 +248,48 @@ function listAppsTool(
 // open_app
 // ---------------------------------------------------------------------------
 
-function openAppTool(config: MCPConfig): ActionEntry {
+function absolutizeMaybe(pathOrUrl: string, origin?: string): string {
+  if (!origin) return pathOrUrl;
+  try {
+    return new URL(pathOrUrl, origin).toString();
+  } catch {
+    return pathOrUrl;
+  }
+}
+
+async function tryCreateSameAppEmbedStartUrl(
+  targetPath: string,
+  requestMeta?: { origin?: string },
+  chrome?: unknown,
+): Promise<string | null> {
+  try {
+    const { getRequestContext } = await import("../server/request-context.js");
+    const ctx = getRequestContext();
+    const ownerEmail = ctx?.userEmail?.trim();
+    if (!ownerEmail) return null;
+
+    const { createEmbedSessionTicket } =
+      await import("../server/embed-session.js");
+    const { buildEmbedStartPath } = await import("../server/embed-route.js");
+    const ticket = await createEmbedSessionTicket({
+      ownerEmail,
+      orgId: ctx?.orgId,
+      targetPath,
+      scope: typeof chrome === "string" ? chrome : null,
+    });
+    return absolutizeMaybe(
+      buildEmbedStartPath(ticket.ticket),
+      requestMeta?.origin,
+    );
+  } catch {
+    return null;
+  }
+}
+
+function openAppTool(
+  config: MCPConfig,
+  requestMeta?: { origin?: string },
+): ActionEntry {
   return {
     tool: tool(
       "Build a deep link that opens an app at a specific view/record or " +
@@ -323,21 +364,37 @@ function openAppTool(config: MCPConfig): ActionEntry {
       // the wrong app (e.g. open_app({app:"calendar"}) served from Mail).
       // Same-app / standalone keeps the relative path (current behavior).
       const targetApp = await resolveTargetAppOrigin(config, app);
-      const url = targetApp
+      const appUrl = targetApp
         ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
         : sameAppUrl;
+      const embedStartUrl =
+        embed && !targetApp
+          ? await tryCreateSameAppEmbedStartUrl(
+              sameAppUrl,
+              requestMeta,
+              args.chrome,
+            )
+          : null;
+      const url = embedStartUrl ?? appUrl;
 
       return {
         app,
         ...(view ? { view } : {}),
         ...(path ? { path } : {}),
         url,
+        ...(embedStartUrl ? { embedStartUrl, deepLinkUrl: appUrl } : {}),
         embed,
       };
     },
     link: ({ result }) => {
       if (!result || typeof result !== "object") return null;
-      const r = result as { url?: string; app?: string; view?: string };
+      const r = result as {
+        url?: string;
+        app?: string;
+        view?: string;
+        embed?: boolean;
+      };
+      if (r.embed) return null;
       if (!r.url) return null;
       return {
         url: r.url,
@@ -735,7 +792,7 @@ export function getBuiltinCrossAppTools(
 ): Record<string, ActionEntry> {
   return {
     list_apps: listAppsTool(config, requestMeta),
-    open_app: openAppTool(config),
+    open_app: openAppTool(config, requestMeta),
     create_embed_session: createEmbedSessionTool(requestMeta),
     ask_app: askAppTool(config),
     create_workspace_app: createWorkspaceAppTool(),

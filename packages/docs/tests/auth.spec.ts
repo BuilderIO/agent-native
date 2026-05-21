@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldCreateDocsSessionForPath } from "./auth.js";
+import { shouldCreateDocsSessionForPath } from "../server/plugins/auth.js";
 
 describe("docs auth session scoping", () => {
   it("creates anonymous sessions for framework and API routes under a mount path", () => {

@@ -220,6 +220,16 @@ export function embedApp(
       return /^[a-f0-9]{32}\\.claudemcpcontent\\.com$/i.test(window.location.hostname);
     }
 
+    function isEmbedStartUrl(value) {
+      if (typeof value !== "string" || !value) return false;
+      try {
+        const url = new URL(value, window.location.href);
+        return /\\/_agent-native\\/embed\\/start$/.test(url.pathname);
+      } catch {
+        return false;
+      }
+    }
+
     function localPathFromUrl(url, includeToken) {
       const next = new URL(url.href);
       if (!includeToken) next.searchParams.delete("__an_embed_token");
@@ -622,6 +632,14 @@ export function embedApp(
       try {
         const selfNavigate = shouldSelfNavigateToApp();
         const embedUrl = withChatBridgeParam(openUrl);
+        if (selfNavigate && isEmbedStartUrl(embedUrl)) {
+          if (isClaudeMcpContentHost()) {
+            await transplantAppDocument(embedUrl);
+          } else {
+            navigateToAppFrame(embedUrl);
+          }
+          return;
+        }
         const result = await callEmbedSessionTool({
           url: embedUrl,
           chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
