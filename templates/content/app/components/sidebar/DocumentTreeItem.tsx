@@ -6,9 +6,13 @@ import {
   IconStar,
   IconTrash,
   IconDots,
-  IconArrowUp,
-  IconArrowDown,
 } from "@tabler/icons-react";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { cn } from "@/lib/utils";
 import type { DocumentTreeNode } from "@shared/api";
 import {
@@ -43,8 +47,6 @@ interface DocumentTreeItemProps {
   onSelect: (id: string) => void;
   onCreateChild: (parentId: string) => void;
   onDelete: (id: string) => void;
-  onMove: (id: string, direction: "up" | "down") => void;
-  moveAvailability: Map<string, { up: boolean; down: boolean }>;
   onToggleFavorite: (id: string, isFavorite: boolean) => void;
 }
 
@@ -57,14 +59,11 @@ export function DocumentTreeItem({
   onSelect,
   onCreateChild,
   onDelete,
-  onMove,
-  moveAvailability,
   onToggleFavorite,
 }: DocumentTreeItemProps) {
   const expanded = expandedIds.has(node.id);
   const hasChildren = node.children.length > 0;
   const isActive = node.id === activeId;
-  const movement = moveAvailability.get(node.id) ?? { up: false, down: false };
   const canEdit = node.canEdit !== false;
   const canManage =
     node.canManage === true ||
@@ -73,12 +72,35 @@ export function DocumentTreeItem({
   const hasMenuActions = canEdit || canManage;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const indent = depth * 12 + 12;
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: node.id,
+    disabled: !canEdit,
+  });
 
   return (
-    <div>
+    <div
+      ref={setNodeRef}
+      className={cn("relative", isDragging && "z-10")}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+    >
       <div
+        {...attributes}
+        {...listeners}
+        aria-label={node.title || "Untitled"}
         className={cn(
-          "group relative flex min-w-56 items-center gap-1.5 rounded-md py-[5px] pr-2 text-sm cursor-pointer",
+          "group relative flex min-w-56 items-center gap-1.5 rounded-md py-[5px] pr-2 text-sm cursor-pointer select-none",
+          canEdit && "cursor-grab active:cursor-grabbing",
+          isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
           isActive
             ? "bg-accent text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -100,6 +122,7 @@ export function DocumentTreeItem({
           {hasChildren && (
             <button
               className="absolute inset-0 flex items-center justify-center rounded hover:bg-accent opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleExpanded(node.id);
@@ -117,7 +140,10 @@ export function DocumentTreeItem({
           {node.title || "Untitled"}
         </span>
 
-        <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 bg-inherit">
+        <div
+          className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 bg-inherit"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           {hasMenuActions && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -130,46 +156,20 @@ export function DocumentTreeItem({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-48">
                 {canEdit && (
-                  <>
-                    <DropdownMenuItem
-                      disabled={!movement.up}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onMove(node.id, "up");
-                      }}
-                    >
-                      <IconArrowUp size={14} className="mr-2" />
-                      Move up
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={!movement.down}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onMove(node.id, "down");
-                      }}
-                    >
-                      <IconArrowDown size={14} className="mr-2" />
-                      Move down
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleFavorite(node.id, !node.isFavorite);
-                      }}
-                    >
-                      <IconStar
-                        size={14}
-                        className={cn(
-                          "mr-2",
-                          node.isFavorite && "fill-current",
-                        )}
-                      />
-                      {node.isFavorite
-                        ? "Remove from favorites"
-                        : "Add to favorites"}
-                    </DropdownMenuItem>
-                  </>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleFavorite(node.id, !node.isFavorite);
+                    }}
+                  >
+                    <IconStar
+                      size={14}
+                      className={cn("mr-2", node.isFavorite && "fill-current")}
+                    />
+                    {node.isFavorite
+                      ? "Remove from favorites"
+                      : "Add to favorites"}
+                  </DropdownMenuItem>
                 )}
                 {canEdit && canManage && <DropdownMenuSeparator />}
                 {canManage && (
@@ -208,7 +208,10 @@ export function DocumentTreeItem({
       </div>
 
       {hasChildren && expanded && (
-        <div>
+        <SortableContext
+          items={node.children.map((child) => child.id)}
+          strategy={verticalListSortingStrategy}
+        >
           {node.children.map((child) => (
             <DocumentTreeItem
               key={child.id}
@@ -220,12 +223,10 @@ export function DocumentTreeItem({
               onSelect={onSelect}
               onCreateChild={onCreateChild}
               onDelete={onDelete}
-              onMove={onMove}
-              moveAvailability={moveAvailability}
               onToggleFavorite={onToggleFavorite}
             />
           ))}
-        </div>
+        </SortableContext>
       )}
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

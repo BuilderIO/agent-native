@@ -20,6 +20,16 @@ import type {
 } from "../agent/types.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 
+export type AgentChatSurfaceKind =
+  /**
+   * Chat rendered by the app itself, including the normal AgentSidebar. This
+   * surface must not receive code-editing dev tools because source edits can
+   * reload the same React tree that is hosting the chat.
+   */
+  | "app"
+  /** Chat rendered by the outer local dev frame, outside the app iframe. */
+  | "dev-frame";
+
 type AdapterHistoryMessage = {
   role: "user" | "assistant";
   content: string;
@@ -776,6 +786,7 @@ export function createAgentChatAdapter(options?: {
   execModeRef?: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef?: { current: ChatThreadScope | null | undefined };
+  surface?: AgentChatSurfaceKind;
 }): ChatModelAdapter {
   const apiUrl =
     options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
@@ -787,6 +798,7 @@ export function createAgentChatAdapter(options?: {
   const execModeRef = options?.execModeRef;
   const browserTabId = options?.browserTabId;
   const scopeRef = options?.scopeRef;
+  const surface = options?.surface ?? "app";
 
   return {
     async *run({ messages, abortSignal, runConfig }) {
@@ -1019,26 +1031,11 @@ export function createAgentChatAdapter(options?: {
         } catch {
           // Non-browser or Intl unavailable — tool calls will fall back to UTC.
         }
-        // Surface hint — the server uses this to gate code-editing dev tools
-        // when the chat is running in a plain browser tab on localhost. Editing
-        // source files there would trigger HMR/page reloads and kill the chat
-        // session, so the agent must redirect users to Desktop / Claude Code /
-        // Codex / Builder.io instead of attempting code work.
-        try {
-          const ua =
-            typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
-          const inIframe =
-            typeof window !== "undefined" && window.parent !== window;
-          const surface = /AgentNativeDesktop/i.test(ua)
-            ? "desktop"
-            : inIframe
-              ? "frame"
-              : "browser";
-          headers["x-agent-native-surface"] = surface;
-        } catch {
-          // Non-browser environment — leave the header off and let the server
-          // fall back to its own UA/host detection.
-        }
+        // Surface hint — the server uses this to keep code-editing dev tools
+        // out of the app-rendered sidebar. The outer dev frame passes
+        // "dev-frame" explicitly; the reusable in-product chat defaults to
+        // "app" even when it is running in Desktop or inside a preview iframe.
+        headers["x-agent-native-surface"] = surface;
 
         const reconnectCurrentRun = async function* (): AsyncGenerator<
           ChatModelRunResult,

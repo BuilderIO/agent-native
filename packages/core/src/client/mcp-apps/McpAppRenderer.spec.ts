@@ -27,7 +27,13 @@ describe("McpAppRenderer security helpers", () => {
         "https://cdn.example.com/assets",
         "http://localhost:5173",
       ],
-      frameDomains: ["https://frames.example.com"],
+      frameDomains: [
+        "https:",
+        "https://frames.example.com",
+        "http://localhost:*",
+        "http://127.0.0.1:*",
+        "http://evil.example:*",
+      ],
     });
 
     expect(csp).toContain("default-src 'none'");
@@ -36,6 +42,9 @@ describe("McpAppRenderer security helpers", () => {
     expect(csp).not.toContain("bad.example.com");
     expect(csp).toContain("style-src 'unsafe-inline' https://cdn.example.com");
     expect(csp).toContain("http://localhost:5173");
-    expect(csp).toContain("frame-src https://frames.example.com");
+    expect(csp).toContain(
+      "frame-src https: https://frames.example.com http://localhost:* http://127.0.0.1:*",
+    );
+    expect(csp).not.toContain("http://evil.example:*");
   });
 });

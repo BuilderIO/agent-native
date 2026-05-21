@@ -22,6 +22,20 @@ const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_TICKET_TTL_SECONDS = 5 * 60;
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const OPEN_ROUTE_PATH = "/_agent-native/open";
+const OPEN_ROUTE_VIEW_PATHS: Record<string, string> = {
+  ask: "/",
+  calendar: "/",
+  capture: "/search",
+  knowledge: "/knowledge",
+  list: "/",
+  ops: "/ops",
+  proposals: "/review",
+  review: "/review",
+  search: "/search",
+  source: "/sources",
+  sources: "/sources",
+  settings: "/settings",
+};
 
 let _initPromise: Promise<void> | undefined;
 let _devSigningKey: string | undefined;
@@ -170,42 +184,150 @@ function pathnameFromPath(path: string): string | null {
   }
 }
 
-function safeOpenRouteTargetPathname(targetPath: string): string | null {
+function safePathSegment(value: string | null | undefined): string | null {
+  const segment = value?.trim();
+  if (!segment || CONTROL_CHARS.test(segment)) return null;
+  if (segment === "." || segment === "..") return null;
+  if (
+    segment.includes("/") ||
+    segment.includes("\\") ||
+    segment.includes("?")
+  ) {
+    return null;
+  }
+  if (segment.includes("#")) return null;
+  return segment;
+}
+
+function addResolvedOpenRoutePath(
+  targets: Set<string>,
+  path: string | null | undefined,
+): void {
+  if (!path) return;
+  const pathname = pathnameFromPath(path);
+  if (pathname) targets.add(pathname);
+}
+
+function openRouteTargetPathnames(targetPath: string): Set<string> {
+  const targets = new Set<string>();
   let url: URL;
   try {
     url = new URL(targetPath, "http://agent-native.invalid");
   } catch {
-    return null;
+    return targets;
   }
-  if (url.pathname !== OPEN_ROUTE_PATH) {
-    return null;
+  if (stripConfiguredBasePath(url.pathname) !== OPEN_ROUTE_PATH) {
+    return targets;
   }
 
   const to = normalizeEmbedTargetPath(url.searchParams.get("to"));
-  if (to) return pathnameFromPath(to);
+  addResolvedOpenRoutePath(targets, to);
 
   const view = url.searchParams.get("view")?.trim();
-  if (!view || CONTROL_CHARS.test(view)) return null;
+  if (!view || CONTROL_CHARS.test(view)) return targets;
   const viewPath = view.startsWith("/") ? view : `/${view}`;
-  return pathnameFromPath(viewPath);
+  const viewPathname = pathnameFromPath(viewPath);
+  addResolvedOpenRoutePath(targets, viewPathname);
+  addResolvedOpenRoutePath(targets, OPEN_ROUTE_VIEW_PATHS[view]);
+
+  const dashboardId = safePathSegment(url.searchParams.get("dashboardId"));
+  if (view === "adhoc" && dashboardId) {
+    addResolvedOpenRoutePath(
+      targets,
+      `/adhoc/${encodeURIComponent(dashboardId)}`,
+    );
+  }
+  const analysisId = safePathSegment(url.searchParams.get("analysisId"));
+  if (view === "analyses" && analysisId) {
+    addResolvedOpenRoutePath(
+      targets,
+      `/analyses/${encodeURIComponent(analysisId)}`,
+    );
+  }
+  const extensionId = safePathSegment(url.searchParams.get("extensionId"));
+  if (view === "extensions" && extensionId) {
+    addResolvedOpenRoutePath(
+      targets,
+      `/extensions/${encodeURIComponent(extensionId)}`,
+    );
+  }
+  const designId = safePathSegment(url.searchParams.get("designId"));
+  if (designId) {
+    addResolvedOpenRoutePath(
+      targets,
+      view === "present"
+        ? `/present/${encodeURIComponent(designId)}`
+        : `/design/${encodeURIComponent(designId)}`,
+    );
+  }
+  const documentId = safePathSegment(url.searchParams.get("documentId"));
+  if (documentId) {
+    addResolvedOpenRoutePath(
+      targets,
+      `/page/${encodeURIComponent(documentId)}`,
+    );
+  }
+  const deckId = safePathSegment(url.searchParams.get("deckId"));
+  if (deckId) {
+    addResolvedOpenRoutePath(
+      targets,
+      view === "present"
+        ? `/deck/${encodeURIComponent(deckId)}/present`
+        : `/deck/${encodeURIComponent(deckId)}`,
+    );
+  }
+  if (
+    safePathSegment(url.searchParams.get("captureId")) ||
+    safePathSegment(url.searchParams.get("knowledgeId")) ||
+    safePathSegment(url.searchParams.get("sourceId"))
+  ) {
+    addResolvedOpenRoutePath(targets, OPEN_ROUTE_VIEW_PATHS[view]);
+  }
+  if (
+    view === "calendar" &&
+    (safePathSegment(url.searchParams.get("eventId")) ||
+      safePathSegment(url.searchParams.get("eventDraftId")))
+  ) {
+    addResolvedOpenRoutePath(targets, "/");
+  }
+  const threadId = safePathSegment(url.searchParams.get("threadId"));
+  if (viewPathname && threadId) {
+    addResolvedOpenRoutePath(
+      targets,
+      `${viewPathname}/${encodeURIComponent(threadId)}`,
+    );
+  }
+
+  return targets;
 }
 
 function allowedEmbedTargetPathnames(targetPath: string): Set<string> {
   const allowed = new Set<string>();
   const direct = pathnameFromPath(targetPath);
   if (direct) allowed.add(direct);
-  const openTarget = safeOpenRouteTargetPathname(targetPath);
-  if (openTarget) allowed.add(openTarget);
+  for (const openTarget of openRouteTargetPathnames(targetPath)) {
+    allowed.add(openTarget);
+  }
   return allowed;
 }
 
-function requestPathname(event: H3Event): string | null {
-  const raw =
-    (event as any).path ??
+function requestUrlFromEvent(event: H3Event): string {
+  const mountedPathname = (event as any).context?._mountedPathname;
+  if (typeof mountedPathname === "string" && mountedPathname) {
+    return `${mountedPathname}${(event as any).url?.search ?? ""}`;
+  }
+  return (
     (event as any).node?.req?.url ??
     ((event as any).req?.url as string | undefined) ??
+    ((event as any).request?.url as string | undefined) ??
+    (event as any).path ??
     (event as any).url?.toString?.() ??
-    "/";
+    "/"
+  );
+}
+
+function requestPathname(event: H3Event): string | null {
+  const raw = requestUrlFromEvent(event);
   try {
     const pathname = new URL(raw, "http://agent-native.invalid").pathname;
     return stripConfiguredBasePath(pathname);
@@ -477,7 +599,18 @@ function bearerToken(event: H3Event): string | undefined {
 
 function queryToken(event: H3Event): string | undefined {
   const raw = getQuery(event)?.[EMBED_TOKEN_QUERY_PARAM];
-  return Array.isArray(raw) ? raw[0] : raw;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value) return value;
+  try {
+    return (
+      new URL(
+        requestUrlFromEvent(event),
+        "http://agent-native.invalid",
+      ).searchParams.get(EMBED_TOKEN_QUERY_PARAM) ?? undefined
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 export async function resolveEmbedSessionFromRequest(

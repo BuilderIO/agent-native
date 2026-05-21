@@ -464,6 +464,7 @@ export function App() {
                 onToggleFullscreen={() => setSidebarFullscreen((prev) => !prev)}
                 devAppUrl={appUrl}
                 storageKey={appId}
+                agentChatSurface="dev-frame"
                 codeAccess={{
                   enabled: isDesktop,
                   unavailableTitle: "Open Desktop to use CLI",

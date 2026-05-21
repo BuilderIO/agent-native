@@ -32,7 +32,7 @@ export function embedApp(
   const openLabel = options.openLabel ?? "Open in app";
   const startToolName = options.startToolName ?? "create_embed_session";
   const embedByDefault = options.embedByDefault !== false;
-  const height = Math.max(320, Math.min(680, options.height ?? 640));
+  const height = Math.max(320, Math.min(900, options.height ?? 900));
 
   return {
     title,
@@ -58,7 +58,7 @@ export function embedApp(
   </style>
 </head>
 <body
-  data-title="${attr(title)}"
+  data-app-title="${attr(title)}"
   data-iframe-title="${attr(iframeTitle)}"
   data-open-label="${attr(openLabel)}"
   data-start-tool="${attr(startToolName)}"
@@ -66,7 +66,7 @@ export function embedApp(
 >
   <main class="shell">
     <div class="bar">
-      <div class="title" data-title>${attr(title)}</div>
+      <div class="title" data-title-label>${attr(title)}</div>
       <div class="actions">
         <button type="button" data-open disabled>${attr(openLabel)}</button>
       </div>
@@ -81,7 +81,7 @@ export function embedApp(
     const app = new App({ name: "Agent Native Embed", version: "1.0.0" }, {});
     const body = document.body;
     const stage = document.querySelector("[data-stage]");
-    const titleEl = document.querySelector("[data-title]");
+    const titleEl = document.querySelector("[data-title-label]");
     const openButton = document.querySelector("[data-open]");
     const startTool = body.dataset.startTool || "create_embed_session";
     const embedByDefault = body.dataset.embedDefault !== "0";
@@ -121,9 +121,9 @@ export function embedApp(
     }
 
     function wantsEmbed() {
-      if (toolInput.embed === false) return false;
-      if (toolInput.embed === true) return true;
-      return embedByDefault;
+      if (toolInput.embed === false || toolInput.embed === "false") return false;
+      if (embedByDefault) return true;
+      return toolInput.embed === true || toolInput.embed === "true";
     }
 
     function setMessage(message) {
@@ -179,7 +179,7 @@ export function embedApp(
     }
 
     function updateTitle(data) {
-      const label = data.label || data.app || data.view || body.dataset.title || "App";
+      const label = data.label || data.app || data.view || body.dataset.appTitle || "App";
       titleEl.textContent = String(label);
     }
 

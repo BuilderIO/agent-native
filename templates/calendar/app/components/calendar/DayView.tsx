@@ -5,6 +5,7 @@ import {
   parseISO,
   differenceInMinutes,
   startOfDay,
+  isSameDay,
   set,
   isToday,
   addMinutes,
@@ -59,7 +60,7 @@ const DAY_SKELETONS: [number, number, number, number][] = [
   [16, 30, 30, 60],
 ];
 
-const START_HOUR = 6;
+const START_HOUR = 0;
 const END_HOUR = 23;
 const HOUR_HEIGHT = 72;
 
@@ -403,23 +404,24 @@ export function DayView({
               const midnight = addDays(startOfDay(date), 1);
               const evEnd = min([rawEnd, midnight]);
               const isOvernightCapped = rawEnd > midnight;
+              const isStart = isSameDay(evStart, date);
+              const isEnd = rawEnd <= midnight;
+              const dayGridStart = set(startOfDay(date), { hours: START_HOUR });
+              // For continuation segments (started a prior day), measure visible
+              // duration from the grid start, not from the event's true start.
+              const visibleSegStart = isStart ? evStart : dayGridStart;
               const durationMin = overrides
                 ? (overrides.height / HOUR_HEIGHT) * 60
-                : differenceInMinutes(evEnd, evStart);
+                : differenceInMinutes(evEnd, visibleSegStart);
               // Compute display times (use drag overrides if active)
               const displayStart = overrides
-                ? addMinutes(
-                    set(startOfDay(date), {
-                      hours: START_HOUR,
-                      minutes: 0,
-                      seconds: 0,
-                    }),
-                    (overrides.top / HOUR_HEIGHT) * 60,
-                  )
-                : parseISO(event.start);
+                ? addMinutes(dayGridStart, (overrides.top / HOUR_HEIGHT) * 60)
+                : visibleSegStart;
               const displayEnd = overrides
                 ? addMinutes(displayStart, durationMin)
-                : parseISO(event.end);
+                : isEnd
+                  ? evEnd
+                  : midnight;
               const isPast = parseISO(event.end) < now;
               const isDeclined = event.responseStatus === "declined";
               const allOthersOut = allOtherDeclined(event);
@@ -432,6 +434,7 @@ export function DayView({
                     setFocusedEvent(event);
                     if (
                       canDrag &&
+                      isStart &&
                       !(e.target as HTMLElement).dataset.resizeHandle
                     ) {
                       startDrag(e, event.id, "move", 0);
@@ -446,10 +449,12 @@ export function DayView({
                   className={cn(
                     "absolute overflow-hidden rounded-lg px-2 py-0.5 text-left text-xs flex flex-col hover:brightness-110 hover:shadow-lg group",
                     durationMin <= 30 ? "justify-center" : "justify-start",
+                    !isStart && "rounded-t-none",
+                    isOvernightCapped && "rounded-b-none",
                     isDeclined && "saturate-[0.3]",
                     isBeingDragged && isDragging && "shadow-lg z-[100]",
                     isBeingDragged && isDragging && "ring-2 ring-primary/40",
-                    canDrag && "cursor-grab",
+                    canDrag && isStart && "cursor-grab",
                     isBeingDragged && isDragging && "cursor-grabbing",
                   )}
                   style={{
@@ -470,6 +475,9 @@ export function DayView({
                         ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
                         : (color ?? "hsl(var(--primary))")
                     }`,
+                    borderTop: !isStart
+                      ? `2px dashed ${color ?? "hsl(var(--primary))"}`
+                      : undefined,
                     opacity: isBeingDragged && isDragging ? 0.9 : undefined,
                   }}
                 >
@@ -493,19 +501,21 @@ export function DayView({
                       >
                         {event.title}
                       </span>
-                      <span
-                        className={cn(
-                          "shrink-0 text-[11px] leading-tight",
-                          isPast || isDeclined
-                            ? "text-muted-foreground/50"
-                            : "text-foreground/60",
-                        )}
-                      >
-                        {format(
-                          displayStart,
-                          displayStart.getMinutes() === 0 ? "h a" : "h:mm a",
-                        )}
-                      </span>
+                      {isStart && (
+                        <span
+                          className={cn(
+                            "shrink-0 text-[11px] leading-tight",
+                            isPast || isDeclined
+                              ? "text-muted-foreground/50"
+                              : "text-foreground/60",
+                          )}
+                        >
+                          {format(
+                            displayStart,
+                            displayStart.getMinutes() === 0 ? "h a" : "h:mm a",
+                          )}
+                        </span>
+                      )}
                     </div>
                   ) : (
                     <>
@@ -527,17 +537,19 @@ export function DayView({
                         )}
                         <span className="truncate">{event.title}</span>
                       </div>
-                      <div
-                        className={cn(
-                          "mt-0.5 truncate text-[10px] leading-tight",
-                          isPast || isDeclined
-                            ? "text-muted-foreground/50"
-                            : "text-foreground/60",
-                        )}
-                      >
-                        {format(displayStart, "h:mm a")} –{" "}
-                        {format(displayEnd, "h:mm a")}
-                      </div>
+                      {isStart && (
+                        <div
+                          className={cn(
+                            "mt-0.5 truncate text-[10px] leading-tight",
+                            isPast || isDeclined
+                              ? "text-muted-foreground/50"
+                              : "text-foreground/60",
+                          )}
+                        >
+                          {format(displayStart, "h:mm a")} –{" "}
+                          {format(displayEnd, "h:mm a")}
+                        </div>
+                      )}
                       {durationMin >= 45 && event.location && (
                         <div className="truncate text-[11px] leading-tight text-foreground/50">
                           {event.location}
@@ -545,8 +557,8 @@ export function DayView({
                       )}
                     </>
                   )}
-                  {/* Top resize handle */}
-                  {canDrag && (
+                  {/* Top resize handle — only on segments that start today */}
+                  {canDrag && isStart && (
                     <div
                       data-resize-handle="true"
                       onPointerDown={(e) => {
@@ -557,8 +569,8 @@ export function DayView({
                       style={{ touchAction: "none" }}
                     />
                   )}
-                  {/* Bottom resize handle — hidden on overnight events capped at midnight; drag math uses uncapped duration and would truncate the true end */}
-                  {canDrag && !isOvernightCapped && (
+                  {/* Bottom resize handle — only when event both starts and ends today */}
+                  {canDrag && isEnd && isStart && (
                     <div
                       data-resize-handle="true"
                       onPointerDown={(e) => {

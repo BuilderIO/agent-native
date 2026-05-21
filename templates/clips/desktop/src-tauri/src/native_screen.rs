@@ -43,12 +43,43 @@ pub struct NativeFullscreenRecordingState {
 }
 
 struct NativeFullscreenSession {
-    backend: NativeFullscreenBackend,
+    /// Active capture backend. `None` while paused — pause finalizes the
+    /// current segment and tears the backend down so the OS stops capturing.
+    backend: Option<NativeFullscreenBackend>,
+    /// Path the caller expects the final (single-file) recording at. When
+    /// only one segment was recorded, this points directly at it. When the
+    /// session was paused / resumed at least once, the segments live next
+    /// to it (`{stem}-segN.mp4`) and are concatenated into `path` on stop.
     path: PathBuf,
     mime_type: &'static str,
     started_at: Instant,
     width: Option<u32>,
     height: Option<u32>,
+    /// All finalized segment file paths in capture order. The currently
+    /// active backend writes into the LAST entry (it's added at start /
+    /// resume time before the backend begins capturing).
+    segments: Vec<PathBuf>,
+    /// Total time spent paused so far. Subtracted from elapsed wall-clock
+    /// time when reporting `duration_ms`, so the upload metadata matches
+    /// the actual recorded content rather than wall-clock time.
+    paused_total: Duration,
+    /// When the current pause began, if paused. Folded into `paused_total`
+    /// on resume.
+    paused_at: Option<Instant>,
+    /// Info needed to spin up a fresh SCStream / screencapture child on
+    /// resume so the new segment captures the same source with the same
+    /// audio configuration as the initial start.
+    restart: RestartInfo,
+}
+
+#[derive(Clone)]
+struct RestartInfo {
+    safe_id: String,
+    include_audio: bool,
+    mic_device_id: Option<String>,
+    mic_device_label: Option<String>,
+    /// Monotonic counter feeding the per-segment filename suffix.
+    segment_counter: u32,
 }
 
 enum NativeFullscreenBackend {
@@ -307,8 +338,7 @@ pub async fn native_fullscreen_recording_start(
             guard.take()
         };
         if let Some(mut previous) = previous {
-            let _ = stop_native_recording(&mut previous.backend, false);
-            let _ = std::fs::remove_file(previous.path);
+            discard_session(&mut previous);
         }
 
         {
@@ -335,20 +365,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
-    let mut session = {
-        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
-        guard.take()
-    }
-    .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+    let StoppedSession {
+        session,
+        duration_ms,
+        stop_outcome,
+        consolidate_outcome,
+        multi_segment,
+    } = take_and_finalize_active_session(&state)?;
 
-    // Try to finalize the ScreenCaptureKit stream, but don't early-return on
-    // failure: the underlying MP4 file is already on disk after stop_capture(),
-    // and ScreenCaptureKit's StreamError("invalid parameter") on
-    // remove_recording_output occasionally fires even though the file is
-    // playable. Persist the recovery metadata first so a finalize failure
-    // doesn't orphan the file — pending-uploads can then retry it.
-    let stop_outcome = stop_native_recording(&mut session.backend, true);
-    let duration_ms = session.started_at.elapsed().as_millis();
     let mut saved = saved_recording_from_session(
         &session,
         &server_url,
@@ -359,12 +383,21 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     )?;
     if let Err(stop_err) = &stop_outcome {
         saved.last_error = Some(stop_err.clone());
+    } else if let Err(merge_err) = &consolidate_outcome {
+        saved.last_error = Some(merge_err.clone());
     }
     write_saved_recording_metadata(&app, &saved)?;
     if let Err(stop_err) = stop_outcome {
         return Err(format!(
             "{stop_err}. The clip was saved locally and can be retried from the Clips menu."
         ));
+    }
+    if multi_segment {
+        if let Err(merge_err) = consolidate_outcome {
+            return Err(format!(
+                "{merge_err}. The clip segments were saved locally and can be retried from the Clips menu."
+            ));
+        }
     }
 
     let result = upload_recording_file(
@@ -403,18 +436,24 @@ pub async fn native_fullscreen_recording_stop_and_save(
     folder_name: String,
     file_role: String,
 ) -> Result<NativeFullscreenSaveResult, String> {
-    let mut session = {
-        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
-        guard.take()
-    }
-    .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
-
-    let stop_outcome = stop_native_recording(&mut session.backend, true);
-    let duration_ms = session.started_at.elapsed().as_millis();
+    let StoppedSession {
+        session,
+        duration_ms,
+        stop_outcome,
+        consolidate_outcome,
+        multi_segment,
+    } = take_and_finalize_active_session(&state)?;
     if let Err(err) = &stop_outcome {
         eprintln!(
             "[clips-tray] native local recording stop reported an error; attempting to save file anyway: {err}"
         );
+    }
+    if multi_segment {
+        if let Err(merge_err) = consolidate_outcome {
+            return Err(format!(
+                "segment consolidation failed: {merge_err}. The raw segments remain in the pending recordings folder."
+            ));
+        }
     }
 
     save_native_recording_to_local_export(&app, &session, &folder_name, &file_role, duration_ms)
@@ -454,10 +493,405 @@ pub async fn native_fullscreen_recording_cancel(
         guard.take()
     };
     if let Some(mut session) = session {
-        let _ = stop_native_recording(&mut session.backend, false);
-        let _ = std::fs::remove_file(session.path);
+        discard_session(&mut session);
     }
     Ok(())
+}
+
+/// True OS-level pause for the native ScreenCaptureKit recording. SCStream
+/// has no pause primitive — instead we stop the current stream entirely
+/// (finalizing the current segment file) and remember enough state to spin
+/// up a fresh stream on resume. The new stream writes to a numbered
+/// sibling file; on stop all segments are concatenated together via
+/// AVFoundation so the caller still sees a single output file.
+#[tauri::command]
+pub async fn native_fullscreen_recording_pause(
+    state: State<'_, NativeFullscreenRecordingState>,
+) -> Result<(), String> {
+    let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let session = guard
+        .as_mut()
+        .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+    if session.paused_at.is_some() {
+        return Ok(());
+    }
+    if session.backend.is_none() {
+        // No active backend means we're already paused (or never started).
+        session.paused_at = Some(Instant::now());
+        return Ok(());
+    }
+    finalize_active_backend(session, true)?;
+    session.paused_at = Some(Instant::now());
+    Ok(())
+}
+
+/// Resume after `native_fullscreen_recording_pause`. Starts a brand-new
+/// SCStream / screencapture child writing to the next segment file and
+/// appends its path to `session.segments`.
+#[tauri::command]
+pub async fn native_fullscreen_recording_resume(
+    app: AppHandle,
+    state: State<'_, NativeFullscreenRecordingState>,
+) -> Result<(), String> {
+    let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let session = guard
+        .as_mut()
+        .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+    let Some(paused_at) = session.paused_at else {
+        // Already running — nothing to do.
+        return Ok(());
+    };
+
+    let restart = session.restart.clone();
+    let next_counter = restart.segment_counter.saturating_add(1);
+    let extension = native_extension_for_mime_type(session.mime_type);
+    let segment_path = segment_path_for(&app, &restart.safe_id, extension, next_counter)?;
+    let _ = std::fs::remove_file(&segment_path);
+
+    // Start the new segment backend FIRST. Only clear paused state if it
+    // succeeds — otherwise the session would be left with no backend but
+    // appear running, which silently drops everything after the resume.
+    let (backend, _w, _h) = start_segment_backend(
+        &app,
+        &restart.safe_id,
+        restart.include_audio,
+        restart.mic_device_id.as_deref(),
+        restart.mic_device_label.as_deref(),
+        &segment_path,
+    )?;
+    session.backend = Some(backend);
+    session.segments.push(segment_path);
+    session.restart.segment_counter = next_counter;
+    session.paused_total = session
+        .paused_total
+        .checked_add(paused_at.elapsed())
+        .unwrap_or(session.paused_total);
+    session.paused_at = None;
+    Ok(())
+}
+
+/// Outcome of taking the active session out of state and finalizing
+/// every backend / segment it owns. Both the upload and the save-locally
+/// stop commands need exactly this prelude, so it lives in one place.
+struct StoppedSession {
+    session: NativeFullscreenSession,
+    /// Wall-clock time minus accumulated pause time, in ms.
+    duration_ms: u128,
+    /// Result of tearing down the active capture backend.
+    stop_outcome: Result<(), String>,
+    /// Result of merging segment files into `session.path`.
+    consolidate_outcome: Result<(), String>,
+    /// True when more than one segment was captured (i.e. the user
+    /// paused at least once). Used to decide whether a consolidation
+    /// failure is fatal — single-segment consolidation is just a rename.
+    multi_segment: bool,
+}
+
+/// Take the active session out of state, finalize its backend, and merge
+/// any pause/resume segments into the canonical output path. Shared by
+/// the upload and save-locally stop commands.
+fn take_and_finalize_active_session(
+    state: &State<'_, NativeFullscreenRecordingState>,
+) -> Result<StoppedSession, String> {
+    let mut session = {
+        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+        guard.take()
+    }
+    .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+
+    // Try to finalize capture, but don't early-return on failure: the
+    // underlying MP4 file is already on disk after stop_capture(), and
+    // ScreenCaptureKit's StreamError("invalid parameter") on
+    // remove_recording_output occasionally fires even though the file is
+    // playable. The caller persists recovery metadata so a finalize
+    // failure doesn't orphan the file.
+    let stop_outcome = finalize_active_backend(&mut session, true);
+    // With one segment this is a cheap rename. With multiple segments a
+    // failure would silently lose everything after the first pause, so
+    // callers check `multi_segment` and surface the merge error.
+    let consolidate_outcome = consolidate_segments_into_path(&mut session);
+    let multi_segment = session.segments.len() > 1;
+    if let Err(err) = &consolidate_outcome {
+        eprintln!("[clips-tray] segment consolidation failed: {err}");
+    }
+    let duration_ms = session
+        .started_at
+        .elapsed()
+        .saturating_sub(session.paused_total)
+        .as_millis();
+    Ok(StoppedSession {
+        session,
+        duration_ms,
+        stop_outcome,
+        consolidate_outcome,
+        multi_segment,
+    })
+}
+
+/// Tears down the active backend (if any) and forwards to the
+/// existing `stop_native_recording` helper.
+fn finalize_active_backend(
+    session: &mut NativeFullscreenSession,
+    wait_for_finalize: bool,
+) -> Result<(), String> {
+    let Some(mut backend) = session.backend.take() else {
+        return Ok(());
+    };
+    stop_native_recording(&mut backend, wait_for_finalize)
+}
+
+/// Best-effort cleanup of a session being discarded (cancel, or a stale
+/// session displaced by a new start). Finalizes any active backend and
+/// deletes every on-disk artifact — segment files and the final path.
+fn discard_session(session: &mut NativeFullscreenSession) {
+    let _ = finalize_active_backend(session, false);
+    for segment in &session.segments {
+        let _ = std::fs::remove_file(segment);
+    }
+    let _ = std::fs::remove_file(&session.path);
+}
+
+/// Sibling path next to the original pending recording, numbered with
+/// the segment counter so multiple resume cycles don't clobber each
+/// other. Example: `clips-fullscreen-<id>-<pid>-seg2.mp4`.
+fn segment_path_for(
+    app: &AppHandle,
+    safe_id: &str,
+    extension: &str,
+    counter: u32,
+) -> Result<PathBuf, String> {
+    pending_recording_path(app, &format!("{safe_id}-seg{counter}"), extension)
+}
+
+/// Dispatches to the right backend starter for resume. Mirrors the
+/// ScreenCaptureKit-first / screencapture-fallback logic from the start
+/// command, but writes to a caller-provided segment path instead of the
+/// default pending path.
+fn start_segment_backend(
+    app: &AppHandle,
+    safe_id: &str,
+    include_audio: bool,
+    mic_device_id: Option<&str>,
+    mic_device_label: Option<&str>,
+    segment_path: &Path,
+) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
+    #[cfg(target_os = "macos")]
+    {
+        // app / safe_id aren't needed on macOS — the segment path is
+        // pre-computed by the caller and the segment backends don't take
+        // them. Consume to silence unused-variable warnings.
+        let _ = (app, safe_id);
+        match start_screencapturekit_backend_at(
+            segment_path,
+            include_audio,
+            mic_device_id,
+            mic_device_label,
+        ) {
+            Ok((backend, w, h)) => return Ok((backend, w, h)),
+            Err(sck_err) => {
+                eprintln!(
+                    "[clips-tray] ScreenCaptureKit resume failed; falling back to screencapture: {sck_err}"
+                );
+            }
+        }
+        let (backend, w, h) =
+            start_screencapture_backend_at(segment_path, include_audio).map_err(|fallback_err| {
+                format!("ScreenCaptureKit resume failed; screencapture fallback failed ({fallback_err})")
+            })?;
+        Ok((backend, w, h))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (
+            app,
+            safe_id,
+            include_audio,
+            mic_device_id,
+            mic_device_label,
+            segment_path,
+        );
+        Err("Native full-screen recording is currently macOS-only.".into())
+    }
+}
+
+/// Configure and start a fresh ScreenCaptureKit capture writing into
+/// `output_path`. Shared by the initial start and the resume path.
+#[cfg(target_os = "macos")]
+fn start_screencapturekit_backend_at(
+    output_path: &Path,
+    include_audio: bool,
+    mic_device_id: Option<&str>,
+    mic_device_label: Option<&str>,
+) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
+    let content =
+        SCShareableContent::get().map_err(|e| format!("shareable content lookup failed: {e:?}"))?;
+    let displays = content.displays();
+    let display = displays
+        .first()
+        .ok_or_else(|| "No displays available for ScreenCaptureKit recording.".to_string())?;
+
+    let width = display.width();
+    let height = display.height();
+    let filter = SCContentFilter::create()
+        .with_display(display)
+        .with_excluding_windows(&[])
+        .build();
+    let selected_mic = if include_audio {
+        resolve_microphone_capture_device(mic_device_id, mic_device_label)?
+    } else {
+        None
+    };
+
+    let mut config = SCStreamConfiguration::new()
+        .with_width(width)
+        .with_height(height)
+        .with_fps(60)
+        .with_queue_depth(8)
+        .with_shows_cursor(true)
+        .with_captures_audio(false)
+        .with_captures_microphone(include_audio)
+        .with_excludes_current_process_audio(true)
+        .with_sample_rate(48000)
+        .with_channel_count(2);
+    if let Some(device) = selected_mic.as_ref() {
+        config.set_microphone_capture_device_id(&device.id);
+        eprintln!(
+            "[clips-tray] ScreenCaptureKit microphone pinned to {} ({})",
+            device.name, device.id
+        );
+    }
+    config.set_stream_name(Some("Clips full-screen recording"));
+
+    let recording_config = SCRecordingOutputConfiguration::new()
+        .with_output_url(output_path)
+        .with_video_codec(SCRecordingOutputCodec::H264)
+        .with_output_file_type(SCRecordingOutputFileType::MP4);
+    let finish = Arc::new(RecordingFinish::new());
+    let recording = SCRecordingOutput::new_with_delegate(
+        &recording_config,
+        FinishDelegate {
+            finish: Arc::clone(&finish),
+        },
+    )
+    .ok_or_else(|| {
+        "ScreenCaptureKit recording output could not be created. macOS 15+ is required.".to_string()
+    })?;
+    let stream = SCStream::new(&filter, &config);
+    stream
+        .add_recording_output(&recording)
+        .map_err(|e| format!("add recording output failed: {e:?}"))?;
+    if let Err(err) = stream.start_capture() {
+        let _ = stream.remove_recording_output(&recording);
+        let _ = std::fs::remove_file(output_path);
+        return Err(format!("capture start failed: {err:?}"));
+    }
+    eprintln!(
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ 60fps, microphone={include_audio}"
+    );
+    Ok((
+        NativeFullscreenBackend::ScreenCaptureKit {
+            stream,
+            recording,
+            finish,
+        },
+        Some(width),
+        Some(height),
+    ))
+}
+
+/// Spawn the macOS `screencapture` fallback writing into `output_path`.
+/// Shared by the initial start and the resume path.
+#[cfg(target_os = "macos")]
+fn start_screencapture_backend_at(
+    output_path: &Path,
+    include_audio: bool,
+) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
+    if !std::path::Path::new("/usr/sbin/screencapture").exists() {
+        return Err("macOS screencapture is unavailable on this machine.".into());
+    }
+    let mut command = Command::new("/usr/sbin/screencapture");
+    command
+        .arg("-v")
+        .arg("-x")
+        .arg("-C")
+        .arg("-D1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if include_audio {
+        command.arg("-g");
+    }
+    command.arg(output_path);
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("screencapture spawn failed: {e}"))?;
+    std::thread::sleep(Duration::from_millis(300));
+    if let Some(status) = child
+        .try_wait()
+        .map_err(|e| format!("screencapture startup check failed: {e}"))?
+    {
+        let _ = std::fs::remove_file(output_path);
+        return Err(format!(
+            "screencapture exited before recording started ({status}). Check Screen Recording and Microphone permissions for Clips."
+        ));
+    }
+    eprintln!("[clips-tray] screencapture recording started");
+    Ok((
+        NativeFullscreenBackend::Screencapture { child },
+        None,
+        None,
+    ))
+}
+
+/// After all segments are finalized, make sure `session.path` contains a
+/// single playable file. With one segment we just rename it into place;
+/// with multiple, we concatenate via AVFoundation (passthrough export so
+/// there's no re-encoding cost).
+fn consolidate_segments_into_path(
+    session: &mut NativeFullscreenSession,
+) -> Result<(), String> {
+    if session.segments.is_empty() {
+        return Err("No recorded segments to consolidate.".into());
+    }
+    if session.segments.len() == 1 {
+        let only = &session.segments[0];
+        if only == &session.path {
+            return Ok(());
+        }
+        move_or_copy_file(only, &session.path)?;
+        session.segments[0] = session.path.clone();
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let segments = session.segments.clone();
+        // Concatenate into a temp sibling first so a failure mid-export
+        // doesn't leave a half-written file at the real output path.
+        let target_stem = session
+            .path
+            .file_stem()
+            .and_then(|v| v.to_str())
+            .unwrap_or("recording");
+        let combined_path = session
+            .path
+            .with_file_name(format!("{target_stem}-combined.mp4"));
+        let _ = std::fs::remove_file(&combined_path);
+
+        concat_mp4_segments(&segments, &combined_path)?;
+        move_or_copy_file(&combined_path, &session.path)?;
+        for segment in &segments {
+            if segment != &session.path {
+                let _ = std::fs::remove_file(segment);
+            }
+        }
+        session.segments = vec![session.path.clone()];
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Segment concat is only available on macOS.".into())
+    }
 }
 
 #[tauri::command]
@@ -912,88 +1346,27 @@ fn start_screencapturekit_recording(
 ) -> Result<NativeFullscreenSession, String> {
     let path = pending_recording_path(app, safe_id, "mp4")?;
     let _ = std::fs::remove_file(&path);
-
-    let content =
-        SCShareableContent::get().map_err(|e| format!("shareable content lookup failed: {e:?}"))?;
-    let displays = content.displays();
-    let display = displays
-        .first()
-        .ok_or_else(|| "No displays available for ScreenCaptureKit recording.".to_string())?;
-
-    let width = display.width();
-    let height = display.height();
-    let filter = SCContentFilter::create()
-        .with_display(display)
-        .with_excluding_windows(&[])
-        .build();
-    let selected_mic = if include_audio {
-        resolve_microphone_capture_device(mic_device_id, mic_device_label)?
-    } else {
-        None
-    };
-
-    let mut config = SCStreamConfiguration::new()
-        .with_width(width)
-        .with_height(height)
-        .with_fps(60)
-        .with_queue_depth(8)
-        .with_shows_cursor(true)
-        .with_captures_audio(false)
-        .with_captures_microphone(include_audio)
-        .with_excludes_current_process_audio(true)
-        .with_sample_rate(48000)
-        .with_channel_count(2);
-
-    if let Some(device) = selected_mic.as_ref() {
-        config.set_microphone_capture_device_id(&device.id);
-        eprintln!(
-            "[clips-tray] ScreenCaptureKit microphone pinned to {} ({})",
-            device.name, device.id
-        );
-    }
-
-    config.set_stream_name(Some("Clips full-screen recording"));
-
-    let recording_config = SCRecordingOutputConfiguration::new()
-        .with_output_url(&path)
-        .with_video_codec(SCRecordingOutputCodec::H264)
-        .with_output_file_type(SCRecordingOutputFileType::MP4);
-    let finish = Arc::new(RecordingFinish::new());
-    let recording = SCRecordingOutput::new_with_delegate(
-        &recording_config,
-        FinishDelegate {
-            finish: Arc::clone(&finish),
-        },
-    )
-    .ok_or_else(|| {
-        "ScreenCaptureKit recording output could not be created. macOS 15+ is required.".to_string()
-    })?;
-    let stream = SCStream::new(&filter, &config);
-    stream
-        .add_recording_output(&recording)
-        .map_err(|e| format!("add recording output failed: {e:?}"))?;
-    if let Err(err) = stream.start_capture() {
-        let _ = stream.remove_recording_output(&recording);
-        let _ = std::fs::remove_file(&path);
-        return Err(format!("capture start failed: {err:?}"));
-    }
-    eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ 60fps, microphone={include_audio}"
-    );
-
+    let (backend, width, height) = start_screencapturekit_backend_at(
+        &path,
+        include_audio,
+        mic_device_id,
+        mic_device_label,
+    )?;
     let (fallback_width, fallback_height) = primary_monitor_size(app);
-    Ok(NativeFullscreenSession {
-        backend: NativeFullscreenBackend::ScreenCaptureKit {
-            stream,
-            recording,
-            finish,
-        },
+    Ok(new_fullscreen_session(
+        backend,
         path,
-        mime_type: MP4_RECORDING_MIME_TYPE,
-        started_at: Instant::now(),
-        width: Some(width).or(fallback_width),
-        height: Some(height).or(fallback_height),
-    })
+        MP4_RECORDING_MIME_TYPE,
+        width.or(fallback_width),
+        height.or(fallback_height),
+        RestartInfo {
+            safe_id: safe_id.to_string(),
+            include_audio,
+            mic_device_id: mic_device_id.map(str::to_string),
+            mic_device_label: mic_device_label.map(str::to_string),
+            segment_counter: 0,
+        },
+    ))
 }
 
 #[cfg(target_os = "macos")]
@@ -1002,53 +1375,49 @@ fn start_screencapture_recording(
     safe_id: &str,
     include_audio: bool,
 ) -> Result<NativeFullscreenSession, String> {
-    if !std::path::Path::new("/usr/sbin/screencapture").exists() {
-        return Err("macOS screencapture is unavailable on this machine.".into());
-    }
-
     let path = pending_recording_path(app, safe_id, "mov")?;
     let _ = std::fs::remove_file(&path);
-
+    let (backend, _w, _h) = start_screencapture_backend_at(&path, include_audio)?;
     let (width, height) = primary_monitor_size(app);
-
-    let mut command = Command::new("/usr/sbin/screencapture");
-    command
-        .arg("-v")
-        .arg("-x")
-        .arg("-C")
-        .arg("-D1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    if include_audio {
-        command.arg("-g");
-    }
-    command.arg(&path);
-
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("screencapture spawn failed: {e}"))?;
-
-    std::thread::sleep(Duration::from_millis(300));
-    if let Some(status) = child
-        .try_wait()
-        .map_err(|e| format!("screencapture startup check failed: {e}"))?
-    {
-        let _ = std::fs::remove_file(&path);
-        return Err(format!(
-            "screencapture exited before recording started ({status}). Check Screen Recording and Microphone permissions for Clips."
-        ));
-    }
-    eprintln!("[clips-tray] screencapture recording started");
-
-    Ok(NativeFullscreenSession {
-        backend: NativeFullscreenBackend::Screencapture { child },
+    Ok(new_fullscreen_session(
+        backend,
         path,
-        mime_type: QUICKTIME_RECORDING_MIME_TYPE,
+        QUICKTIME_RECORDING_MIME_TYPE,
+        width,
+        height,
+        RestartInfo {
+            safe_id: safe_id.to_string(),
+            include_audio,
+            mic_device_id: None,
+            mic_device_label: None,
+            segment_counter: 0,
+        },
+    ))
+}
+
+/// Build a fresh `NativeFullscreenSession` around a freshly-started
+/// backend. Centralizes the bookkeeping so the two starters (and any
+/// future ones) can't drift on default field values.
+fn new_fullscreen_session(
+    backend: NativeFullscreenBackend,
+    path: PathBuf,
+    mime_type: &'static str,
+    width: Option<u32>,
+    height: Option<u32>,
+    restart: RestartInfo,
+) -> NativeFullscreenSession {
+    NativeFullscreenSession {
+        backend: Some(backend),
+        path: path.clone(),
+        mime_type,
         started_at: Instant::now(),
         width,
         height,
-    })
+        segments: vec![path],
+        paused_total: Duration::ZERO,
+        paused_at: None,
+        restart,
+    }
 }
 
 fn primary_monitor_size(app: &AppHandle) -> (Option<u32>, Option<u32>) {
@@ -1675,4 +2044,303 @@ fn transcode_with_avconvert(source: &Path, output: &Path, preset: &str) -> Resul
         }
         std::thread::sleep(Duration::from_millis(250));
     }
+}
+
+
+/// Concatenate finalized MP4 segments into a single output file using
+/// AVFoundation. We build an `AVMutableComposition` with the video and
+/// audio tracks of each segment appended sequentially, then export it
+/// via `AVAssetExportSession` with the passthrough preset — no
+/// re-encoding, so concat is roughly disk-IO bound. Called from
+/// `consolidate_segments_into_path` after every segment has been
+/// finalized by `stop_native_recording(_, wait_for_finalize=true)`.
+#[cfg(target_os = "macos")]
+fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String> {
+    use std::ffi::CString;
+    use std::sync::mpsc;
+    use std::time::Duration as StdDuration;
+
+    use block2::RcBlock;
+    use objc2::encode::{Encode, Encoding, RefEncode};
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::{class, msg_send};
+
+    /// CoreMedia `CMTime`. 24-byte repr-C struct, ABI-stable across
+    /// macOS versions.
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct CMTime {
+        value: i64,
+        timescale: i32,
+        flags: u32,
+        epoch: i64,
+    }
+
+    unsafe impl RefEncode for CMTime {
+        const ENCODING_REF: Encoding = Encoding::Pointer(&Self::ENCODING);
+    }
+    unsafe impl Encode for CMTime {
+        const ENCODING: Encoding = Encoding::Struct(
+            "CMTime",
+            &[i64::ENCODING, i32::ENCODING, u32::ENCODING, i64::ENCODING],
+        );
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct CMTimeRange {
+        start: CMTime,
+        duration: CMTime,
+    }
+
+    unsafe impl RefEncode for CMTimeRange {
+        const ENCODING_REF: Encoding = Encoding::Pointer(&Self::ENCODING);
+    }
+    unsafe impl Encode for CMTimeRange {
+        const ENCODING: Encoding = Encoding::Struct(
+            "CMTimeRange",
+            &[CMTime::ENCODING, CMTime::ENCODING],
+        );
+    }
+
+    // `CMTimeFlags::Valid` == 1. kCMTimeZero is value=0, timescale=1, flags=Valid.
+    const CM_TIME_ZERO: CMTime = CMTime {
+        value: 0,
+        timescale: 1,
+        flags: 1,
+        epoch: 0,
+    };
+    /// `kCMPersistentTrackID_Invalid` per CoreMedia headers.
+    const KCM_PERSISTENT_TRACK_ID_INVALID: i32 = 0;
+
+    fn class_named(name: &str) -> Option<&'static AnyClass> {
+        let bytes = CString::new(name).ok()?;
+        AnyClass::get(&bytes)
+    }
+
+    // String constants exported by AVFoundation. We read them via dlsym
+    // through `extern "C"` so we don't depend on a particular binding
+    // crate's surface.
+    #[link(name = "AVFoundation", kind = "framework")]
+    extern "C" {
+        static AVMediaTypeVideo: *const AnyObject;
+        static AVMediaTypeAudio: *const AnyObject;
+        static AVFileTypeMPEG4: *const AnyObject;
+        static AVAssetExportPresetPassthrough: *const AnyObject;
+    }
+
+    unsafe fn ns_string_from(s: &str) -> Option<Retained<AnyObject>> {
+        let cls = class!(NSString);
+        let cstr = CString::new(s).ok()?;
+        let allocated: *mut AnyObject = msg_send![cls, alloc];
+        if allocated.is_null() {
+            return None;
+        }
+        let inited: *mut AnyObject =
+            msg_send![allocated, initWithUTF8String: cstr.as_ptr()];
+        if inited.is_null() {
+            return None;
+        }
+        Retained::from_raw(inited)
+    }
+
+    unsafe fn file_url(path: &Path) -> Option<Retained<AnyObject>> {
+        let path_str = path.to_str()?;
+        let nsstr = ns_string_from(path_str)?;
+        let cls = class!(NSURL);
+        let url: *mut AnyObject = msg_send![cls, fileURLWithPath: &*nsstr];
+        if url.is_null() {
+            return None;
+        }
+        Retained::from_raw(url)
+    }
+
+    unsafe fn first_track(asset: &AnyObject, media_type: *const AnyObject) -> Option<*mut AnyObject> {
+        let tracks: *mut AnyObject = msg_send![asset, tracksWithMediaType: media_type];
+        if tracks.is_null() {
+            return None;
+        }
+        let count: usize = msg_send![tracks, count];
+        if count == 0 {
+            return None;
+        }
+        let track: *mut AnyObject = msg_send![tracks, objectAtIndex: 0usize];
+        if track.is_null() {
+            None
+        } else {
+            Some(track)
+        }
+    }
+
+    unsafe fn cmtime_add(a: CMTime, b: CMTime) -> CMTime {
+        #[link(name = "CoreMedia", kind = "framework")]
+        extern "C" {
+            fn CMTimeAdd(a: CMTime, b: CMTime) -> CMTime;
+        }
+        CMTimeAdd(a, b)
+    }
+
+    if segments.is_empty() {
+        return Err("concat called with no segments".into());
+    }
+
+    unsafe {
+        let composition_cls =
+            class_named("AVMutableComposition").ok_or_else(|| "AVMutableComposition missing".to_string())?;
+        let composition: *mut AnyObject = msg_send![composition_cls, composition];
+        if composition.is_null() {
+            return Err("AVMutableComposition allocation failed".into());
+        }
+        let composition = Retained::<AnyObject>::from_raw(composition)
+            .ok_or_else(|| "AVMutableComposition retain failed".to_string())?;
+
+        let video_track: *mut AnyObject = msg_send![
+            &*composition,
+            addMutableTrackWithMediaType: AVMediaTypeVideo,
+            preferredTrackID: KCM_PERSISTENT_TRACK_ID_INVALID
+        ];
+        let audio_track: *mut AnyObject = msg_send![
+            &*composition,
+            addMutableTrackWithMediaType: AVMediaTypeAudio,
+            preferredTrackID: KCM_PERSISTENT_TRACK_ID_INVALID
+        ];
+        if video_track.is_null() && audio_track.is_null() {
+            return Err("composition has no tracks to write into".into());
+        }
+
+        let mut cursor = CM_TIME_ZERO;
+        let asset_cls = class_named("AVURLAsset").ok_or_else(|| "AVURLAsset missing".to_string())?;
+        let mut appended_any = false;
+
+        for path in segments {
+            // Skip segments that vanished or are empty (e.g. a pause
+            // that fired before the segment captured a single sample).
+            match std::fs::metadata(path) {
+                Ok(meta) if meta.len() > 0 => {}
+                _ => {
+                    eprintln!(
+                        "[clips-tray] concat: skipping empty/missing segment {}",
+                        path.display()
+                    );
+                    continue;
+                }
+            }
+            let url = file_url(path)
+                .ok_or_else(|| format!("could not build NSURL for {}", path.display()))?;
+            let asset: *mut AnyObject =
+                msg_send![asset_cls, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
+            if asset.is_null() {
+                return Err(format!("AVURLAsset URLAssetWithURL returned nil for {}", path.display()));
+            }
+            let duration: CMTime = msg_send![asset, duration];
+            if duration.flags & 1 == 0 || duration.timescale == 0 || duration.value <= 0 {
+                eprintln!(
+                    "[clips-tray] concat: skipping segment with invalid duration: {}",
+                    path.display()
+                );
+                continue;
+            }
+            let range = CMTimeRange {
+                start: CM_TIME_ZERO,
+                duration,
+            };
+
+            if !video_track.is_null() {
+                if let Some(seg_video) = first_track(&*asset, AVMediaTypeVideo) {
+                    let mut err_ptr: *mut AnyObject = std::ptr::null_mut();
+                    let ok: bool = msg_send![
+                        video_track,
+                        insertTimeRange: range,
+                        ofTrack: seg_video,
+                        atTime: cursor,
+                        error: &mut err_ptr
+                    ];
+                    if !ok {
+                        return Err(format!(
+                            "AVMutableCompositionTrack insertTimeRange (video) failed for {}",
+                            path.display()
+                        ));
+                    }
+                }
+            }
+            if !audio_track.is_null() {
+                if let Some(seg_audio) = first_track(&*asset, AVMediaTypeAudio) {
+                    let mut err_ptr: *mut AnyObject = std::ptr::null_mut();
+                    let ok: bool = msg_send![
+                        audio_track,
+                        insertTimeRange: range,
+                        ofTrack: seg_audio,
+                        atTime: cursor,
+                        error: &mut err_ptr
+                    ];
+                    if !ok {
+                        return Err(format!(
+                            "AVMutableCompositionTrack insertTimeRange (audio) failed for {}",
+                            path.display()
+                        ));
+                    }
+                }
+            }
+            cursor = cmtime_add(cursor, duration);
+            appended_any = true;
+        }
+
+        if !appended_any {
+            return Err("no usable segments to concatenate".into());
+        }
+
+        let export_cls = class_named("AVAssetExportSession")
+            .ok_or_else(|| "AVAssetExportSession missing".to_string())?;
+        let allocated: *mut AnyObject = msg_send![export_cls, alloc];
+        let export_raw: *mut AnyObject = msg_send![
+            allocated,
+            initWithAsset: &*composition,
+            presetName: AVAssetExportPresetPassthrough
+        ];
+        if export_raw.is_null() {
+            return Err("AVAssetExportSession init failed (passthrough preset)".into());
+        }
+        let export = Retained::<AnyObject>::from_raw(export_raw)
+            .ok_or_else(|| "AVAssetExportSession retain failed".to_string())?;
+
+        let out_url = file_url(output)
+            .ok_or_else(|| format!("could not build NSURL for output {}", output.display()))?;
+        let _: () = msg_send![&*export, setOutputURL: &*out_url];
+        let _: () = msg_send![&*export, setOutputFileType: AVFileTypeMPEG4];
+        let _: () = msg_send![&*export, setShouldOptimizeForNetworkUse: true];
+
+        let (tx, rx) = mpsc::sync_channel::<()>(1);
+        let block = RcBlock::new(move || {
+            let _ = tx.send(());
+        });
+        let _: () = msg_send![&*export, exportAsynchronouslyWithCompletionHandler: &*block];
+
+        // Cap the wait so a stuck export can't hang the stop button forever.
+        // A typical multi-segment passthrough export of a ~30 minute clip
+        // finishes in well under a minute, so 10 minutes is plenty.
+        if rx.recv_timeout(StdDuration::from_secs(600)).is_err() {
+            return Err("AVAssetExportSession concat timed out".into());
+        }
+
+        let status: i64 = msg_send![&*export, status];
+        // AVAssetExportSessionStatusCompleted == 3
+        if status != 3 {
+            let err_obj: *mut AnyObject = msg_send![&*export, error];
+            let mut detail = format!("status={status}");
+            if !err_obj.is_null() {
+                let desc_obj: *mut AnyObject = msg_send![err_obj, localizedDescription];
+                if !desc_obj.is_null() {
+                    let utf8: *const i8 = msg_send![desc_obj, UTF8String];
+                    if !utf8.is_null() {
+                        let cstr = std::ffi::CStr::from_ptr(utf8);
+                        detail = format!("{detail}: {}", cstr.to_string_lossy());
+                    }
+                }
+            }
+            return Err(format!("AVAssetExportSession concat failed ({detail})"));
+        }
+    }
+
+    Ok(())
 }

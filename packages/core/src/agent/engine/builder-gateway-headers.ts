@@ -24,14 +24,12 @@ export function getAgentNativeCorePackageVersion(): string {
 
 /**
  * Version string for `x-client-version`: npm version plus a short git SHA when
- * available from common CI / deploy env vars.
+ * available from allowlisted deploy env vars.
  */
 export function getBuilderGatewayClientVersion(): string {
   const v = getAgentNativeCorePackageVersion();
   const sha =
     process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
-    process.env.GITHUB_SHA?.trim() ||
-    process.env.CI_COMMIT_SHA?.trim() ||
     process.env.AGENT_NATIVE_BUILD_SHA?.trim() ||
     "";
   return sha.length >= 7 ? `${v}+${sha.slice(0, 7)}` : v;

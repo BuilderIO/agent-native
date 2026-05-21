@@ -1,5 +1,38 @@
 # @agent-native/core
 
+## 0.22.12
+
+### Patch Changes
+
+- c43d534: Fix MCP App full-app embed launching through open routes and keep app-host discovery compact.
+
+## 0.22.11
+
+### Patch Changes
+
+- e3b219b: Emit compact MCP Apps tool catalogs for OAuth app hosts and include ChatGPT-compatible widget metadata for real app embeds.
+
+## 0.22.10
+
+### Patch Changes
+
+- ce325de: Include chat session context in feedback submissions and harden chat debug clipboard actions.
+
+## 0.22.9
+
+### Patch Changes
+
+- e834a27: Improve MCP App embed startup reliability.
+
+## 0.22.8
+
+### Patch Changes
+
+- bbaa675: Allow MCP App frame CSP sources emitted by the built-in app embed helper so local and HTTPS app frames render correctly, and expose the helper through the browser-safe core entry used by template actions.
+- bbaa675: Clarify MCP app embeds can target focused app routes as well as full app surfaces.
+- bbaa675: Request taller full-app MCP App embeds.
+- bbaa675: Prevent replayed chat history with interrupted tool calls from sending malformed tool-use messages to model gateways.
+
 ## 0.22.7
 
 ### Patch Changes

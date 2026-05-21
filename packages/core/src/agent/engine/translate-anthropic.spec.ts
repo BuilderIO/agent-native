@@ -47,7 +47,7 @@ describe("engineMessagesToAnthropic", () => {
     expect(textPart?.text ?? content).toBe("Hello");
   });
 
-  it("converts assistant message with tool-call", () => {
+  it("converts assistant message with tool-call and appends a replay-safe interrupted result", () => {
     const messages: EngineMessage[] = [
       {
         role: "assistant",
@@ -64,13 +64,19 @@ describe("engineMessagesToAnthropic", () => {
     ];
 
     const result = engineMessagesToAnthropic(messages);
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
     const content = result[0].content as any[];
     const tc = content.find((p: any) => p.type === "tool_use");
     expect(tc).toBeDefined();
     expect(tc.id).toBe("tc-1");
     expect(tc.name).toBe("my-tool");
     expect(tc.input).toEqual({ msg: "hi" });
+    const replay = result[1].content as any[];
+    expect(replay[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "tc-1",
+      content: "Interrupted before this tool returned a result.",
+    });
   });
 
   it("converts PDF file parts to Anthropic document blocks", () => {
@@ -221,6 +227,42 @@ describe("engineMessagesToAnthropic", () => {
     );
     expect(trWire.tool_name).toBe("generate-image-batch");
     expect(JSON.parse(trWire.tool_input)).toEqual({ slots: ["a"] });
+  });
+
+  it("adds missing tool_results before the next user content for Builder gateway history replay", () => {
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "search first" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "history_tc_1",
+            name: "chat-history",
+            input: { action: "search" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Actually, try another route." }],
+      },
+    ];
+
+    const anthropic = engineMessagesToBuilderGatewayAnthropic(messages);
+    const replay = anthropic[2].content as any[];
+
+    expect(replay[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "history_tc_1",
+      tool_name: "chat-history",
+      tool_input: '{"action":"search"}',
+      content: "Interrupted before this tool returned a result.",
+    });
+    expect(replay[1]).toMatchObject({
+      type: "text",
+      text: "Actually, try another route.",
+    });
   });
 
   it("turns orphan tool_result blocks into replay text when no tool_use matches", () => {

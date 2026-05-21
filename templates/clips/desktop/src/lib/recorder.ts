@@ -1410,11 +1410,23 @@ async function startNativeFullscreenRecording(
   let cancelPromise: Promise<void> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
   let tickHandle: ReturnType<typeof setInterval> | null = null;
+  // Pause/resume tracking. The Rust side actually stops the SCStream on
+  // pause and starts a new segment on resume; on stop it concatenates
+  // segments via AVFoundation. We keep the JS-side timer in sync so the
+  // toolbar / pill show the right paused state and elapsed time.
+  let pausedAt: number | null = null;
+  let accumulatedPauseMs = 0;
 
   function emitState() {
+    const now = Date.now();
+    const pausedNowMs = pausedAt != null ? now - pausedAt : 0;
+    const elapsedMs = Math.max(
+      0,
+      now - startedAt - accumulatedPauseMs - pausedNowMs,
+    );
     emit("clips:recorder-state", {
-      paused: false,
-      elapsedMs: Date.now() - startedAt,
+      paused: pausedAt != null,
+      elapsedMs,
     }).catch(() => {});
   }
 
@@ -1431,6 +1443,12 @@ async function startNativeFullscreenRecording(
         }
         stateUnlistens.forEach((u) => u());
         stateUnlistens = [];
+        // If the user hits Stop while paused, account for the open pause
+        // interval so the reported elapsed/duration excludes it.
+        if (pausedAt != null) {
+          accumulatedPauseMs += Date.now() - pausedAt;
+          pausedAt = null;
+        }
 
         if (localOnly) {
           const durationMs = Math.max(0, Date.now() - startedAt);
@@ -1622,10 +1640,30 @@ async function startNativeFullscreenRecording(
 
   const toolbarUnlistens = await Promise.all([
     listen("clips:recorder-pause", () => {
-      emitState();
+      if (pausedAt != null) return;
+      const at = Date.now();
+      invoke("native_fullscreen_recording_pause")
+        .then(() => {
+          pausedAt = at;
+          emitState();
+        })
+        .catch((err) => {
+          console.warn("[clips-recorder] native pause failed:", err);
+        });
     }),
     listen("clips:recorder-resume", () => {
-      emitState();
+      if (pausedAt == null) return;
+      invoke("native_fullscreen_recording_resume")
+        .then(() => {
+          if (pausedAt != null) {
+            accumulatedPauseMs += Date.now() - pausedAt;
+            pausedAt = null;
+          }
+          emitState();
+        })
+        .catch((err) => {
+          console.warn("[clips-recorder] native resume failed:", err);
+        });
     }),
     listen("clips:recorder-stop", () => {
       console.log("[clips-recorder] native stop event received");

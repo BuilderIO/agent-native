@@ -4,10 +4,6 @@ import type { ChartJSNodeCanvas as ChartJSNodeCanvasType } from "chartjs-node-ca
 import type { ChartConfiguration, ChartType } from "chart.js";
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "path";
-import {
-  analyticsChartMcpAppHtml,
-  analyticsMcpAppResourceMeta,
-} from "./_mcp-apps.js";
 import { getAnalyticsMediaDir } from "../server/lib/media-dir.js";
 import { signedSvgMediaUrl } from "../server/lib/signed-media.js";
 
@@ -346,14 +342,6 @@ export default defineAction({
       .describe("Output filename stem (without extension)"),
   }),
   http: false,
-  mcpApp: {
-    resource: {
-      title: "Chart preview",
-      description: "Preview the generated Analytics chart inline.",
-      html: analyticsChartMcpAppHtml,
-      ...analyticsMcpAppResourceMeta,
-    },
-  },
   run: async (args) => {
     if (!args.title) {
       return { error: "--title is required", fallback: CHART_FALLBACK_HINT };

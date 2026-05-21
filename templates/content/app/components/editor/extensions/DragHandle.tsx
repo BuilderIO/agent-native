@@ -28,6 +28,21 @@ export const DragHandle = Extension.create({
     let currentBlock: HTMLElement | null = null;
     let dragStartPos: number | null = null;
 
+    const selectCurrentBlock = (editorView: EditorView) => {
+      if (dragStartPos === null) return null;
+
+      try {
+        const sel = NodeSelection.create(editorView.state.doc, dragStartPos);
+        editorView.dispatch(editorView.state.tr.setSelection(sel));
+        editorView.focus();
+        return sel;
+      } catch {
+        return null;
+      }
+    };
+
+    const getDragText = () => currentBlock?.textContent?.trim() || " ";
+
     const createHandle = () => {
       const el = document.createElement("div");
       el.className = "drag-handle";
@@ -59,37 +74,65 @@ export const DragHandle = Extension.create({
 
           // On mousedown, select the block node
           handle.addEventListener("mousedown", (e) => {
-            e.preventDefault();
-            if (!editor.isEditable) return;
-            if (dragStartPos === null) return;
-            const sel = NodeSelection.create(
-              editorView.state.doc,
-              dragStartPos,
-            );
-            editorView.dispatch(editorView.state.tr.setSelection(sel));
-            editorView.focus();
-          });
-
-          // On dragstart, set up ProseMirror's drag state
-          handle.addEventListener("dragstart", (e) => {
+            e.stopPropagation();
             if (!editor.isEditable) {
               e.preventDefault();
               return;
             }
-            if (dragStartPos === null || !e.dataTransfer) return;
 
-            const sel = NodeSelection.create(
-              editorView.state.doc,
-              dragStartPos,
-            );
-            editorView.dispatch(editorView.state.tr.setSelection(sel));
+            selectCurrentBlock(editorView);
+          });
+
+          // On dragstart, set up ProseMirror's drag state
+          handle.addEventListener("dragstart", (e) => {
+            e.stopPropagation();
+            if (!editor.isEditable) {
+              e.preventDefault();
+              return;
+            }
+            if (!e.dataTransfer) {
+              e.preventDefault();
+              return;
+            }
+
+            const sel = selectCurrentBlock(editorView);
+            if (!sel) {
+              e.preventDefault();
+              return;
+            }
 
             const slice = sel.content();
             e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.setData("text/plain", "");
+            e.dataTransfer.setData("text/plain", getDragText());
+            e.dataTransfer.setData(
+              "text/html",
+              currentBlock?.outerHTML ?? getDragText(),
+            );
 
-            // Tell ProseMirror this is an internal drag
-            (editorView as any).dragging = { slice, move: true };
+            // Tell ProseMirror this is an internal move, including the source
+            // node so the drop handler deletes the original block reliably.
+            (editorView as any).dragging = { slice, move: true, node: sel };
+          });
+
+          handle.addEventListener("dragend", () => {
+            const dragging = (editorView as any).dragging;
+            window.setTimeout(() => {
+              if ((editorView as any).dragging === dragging) {
+                (editorView as any).dragging = null;
+              }
+            }, 50);
+            hideHandle();
+          });
+
+          handle.addEventListener("mouseleave", () => {
+            window.setTimeout(() => {
+              if (
+                !handle?.matches(":hover") &&
+                !editorView.dom.matches(":hover")
+              ) {
+                hideHandle();
+              }
+            }, 100);
           });
 
           return {
@@ -136,11 +179,18 @@ export const DragHandle = Extension.create({
               handle.style.display = "flex";
               handle.draggable = true;
               handle.style.top = `${blockRect.top - wrapperRect.top + 2}px`;
-              handle.style.left = "-28px";
+              handle.style.left = "-24px";
 
               return false;
             },
-            mouseleave() {
+            mouseleave(_view, event) {
+              if (
+                event.relatedTarget instanceof Node &&
+                handle?.contains(event.relatedTarget)
+              ) {
+                return false;
+              }
+
               setTimeout(() => {
                 if (!handle?.matches(":hover")) {
                   hideHandle();
