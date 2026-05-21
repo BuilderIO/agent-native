@@ -131,6 +131,29 @@ function isActionVisibleForOAuthScope(
   return hasMcpOAuthScope(scopes, required);
 }
 
+const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
+  "list_apps",
+  "open_app",
+  "create_embed_session",
+]);
+
+function isDispatchConfig(config: MCPConfig): boolean {
+  const id = (config.appId ?? "").toLowerCase();
+  const name = (config.name ?? "").toLowerCase();
+  return id === "dispatch" || name.includes("dispatch");
+}
+
+function isActionAdvertisedInCompactMcpAppCatalog(
+  config: MCPConfig,
+  name: string,
+  entry: ActionEntry,
+): boolean {
+  if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
+  if (name === "ask_app" && isDispatchConfig(config)) return true;
+  if (entry.mcpApp?.resource) return true;
+  return entry.publicAgent?.expose === true;
+}
+
 interface ResolvedMcpAppResource {
   uri: string;
   name: string;
@@ -234,9 +257,34 @@ function expandRequestOriginSources(
   );
 }
 
+function openAiWidgetCsp(
+  resource: ActionMcpAppResourceConfig,
+  requestMeta?: MCPRequestMeta,
+): Record<string, string[]> | undefined {
+  if (!resource.csp) return undefined;
+  const csp: Record<string, string[]> = {};
+  const connectDomains = expandRequestOriginSources(
+    resource.csp.connectDomains,
+    requestMeta,
+  );
+  const resourceDomains = expandRequestOriginSources(
+    resource.csp.resourceDomains,
+    requestMeta,
+  );
+  const frameDomains = expandRequestOriginSources(
+    resource.csp.frameDomains,
+    requestMeta,
+  );
+  if (connectDomains?.length) csp.connect_domains = connectDomains;
+  if (resourceDomains?.length) csp.resource_domains = resourceDomains;
+  if (frameDomains?.length) csp.frame_domains = frameDomains;
+  return Object.keys(csp).length > 0 ? csp : undefined;
+}
+
 function mcpAppUiMeta(
   resource: ActionMcpAppResourceConfig,
   requestMeta?: MCPRequestMeta,
+  description?: string,
 ): Record<string, unknown> | undefined {
   const base =
     resource._meta && typeof resource._meta === "object"
@@ -274,6 +322,19 @@ function mcpAppUiMeta(
     ui.prefersBorder = resource.prefersBorder;
   }
   if (Object.keys(ui).length > 0) base.ui = ui;
+  if (description && base["openai/widgetDescription"] == null) {
+    base["openai/widgetDescription"] = description;
+  }
+  if (
+    typeof resource.prefersBorder === "boolean" &&
+    base["openai/widgetPrefersBorder"] == null
+  ) {
+    base["openai/widgetPrefersBorder"] = resource.prefersBorder;
+  }
+  const openAiCsp = openAiWidgetCsp(resource, requestMeta);
+  if (openAiCsp && base["openai/widgetCSP"] == null) {
+    base["openai/widgetCSP"] = openAiCsp;
+  }
   return Object.keys(base).length > 0 ? base : undefined;
 }
 
@@ -287,14 +348,13 @@ function resolveMcpAppResource(
   if (!resource) return null;
   const uri = resource.uri?.trim() || defaultMcpAppUri(config, actionName);
   if (!uri.startsWith("ui://")) return null;
-  const resourceMeta = mcpAppUiMeta(resource, requestMeta);
+  const description = resource.description ?? entry.tool.description;
+  const resourceMeta = mcpAppUiMeta(resource, requestMeta, description);
   return {
     uri,
     name: resource.name?.trim() || actionName,
     ...(resource.title ? { title: resource.title } : {}),
-    ...((resource.description ?? entry.tool.description)
-      ? { description: resource.description ?? entry.tool.description }
-      : {}),
+    ...(description ? { description } : {}),
     html: resource.html,
     mimeType: resource.mimeType ?? MCP_APP_MIME_TYPE,
     ...(resourceMeta ? { _meta: resourceMeta } : {}),
@@ -326,6 +386,83 @@ function renderMcpAppHtml(
     });
   }
   return resource.html;
+}
+
+function openAiToolDescriptorMeta(
+  resource: ResolvedMcpAppResource,
+): Record<string, unknown> {
+  const label = resource.title ?? resource.name;
+  return {
+    "openai/outputTemplate": resource.uri,
+    "openai/toolInvocation/invoking": `Opening ${label}`,
+    "openai/toolInvocation/invoked": `${label} ready`,
+    "openai/widgetAccessible": true,
+  };
+}
+
+function openAiToolResultMeta(
+  resource: ResolvedMcpAppResource,
+): Record<string, unknown> {
+  const label = resource.title ?? resource.name;
+  return {
+    "openai/outputTemplate": resource.uri,
+    "openai/toolInvocation/invoking": `Opening ${label}`,
+    "openai/toolInvocation/invoked": `${label} ready`,
+    "openai/widgetAccessible": true,
+  };
+}
+
+function primitiveValue(value: unknown): value is string | number | boolean {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  );
+}
+
+function mcpAppStructuredContent(
+  result: unknown,
+  meta: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> =
+    result && typeof result === "object" && !Array.isArray(result)
+      ? { ...(result as Record<string, unknown>) }
+      : primitiveValue(result)
+        ? { result }
+        : {};
+  const openLink = meta?.["agent-native/openLink"];
+  if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
+    out.openLink = openLink;
+    const webUrl = (openLink as Record<string, unknown>).webUrl;
+    if (typeof webUrl === "string" && !out.url) out.url = webUrl;
+  }
+  return Object.keys(out).length > 0 ? out : { status: "ok" };
+}
+
+function truncateToolText(value: string, max = 2000): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1)}…`;
+}
+
+function conciseMcpAppToolText(
+  name: string,
+  result: unknown,
+  structuredContent: Record<string, unknown>,
+): string {
+  if (typeof result === "string") return truncateToolText(result);
+  const message = structuredContent.message;
+  if (typeof message === "string" && message.trim()) {
+    return truncateToolText(message.trim());
+  }
+  const title = structuredContent.title ?? structuredContent.name;
+  if (typeof title === "string" && title.trim()) {
+    return `${title.trim()} is ready.`;
+  }
+  const id = structuredContent.id;
+  if (typeof id === "string" && id.trim()) {
+    return `${name} completed for ${id.trim()}.`;
+  }
+  return `${name} completed.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -388,11 +525,18 @@ export async function createMCPServerForRequest(
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
   );
-  const mcpAppResources = hasMcpOAuthScope(
-    effectiveIdentity?.oauthScopes,
-    "mcp:apps",
-  )
-    ? getMcpAppResources(config, visibleActions, requestMeta)
+  const compactMcpAppCatalog =
+    Array.isArray(effectiveIdentity?.oauthScopes) &&
+    hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps");
+  const advertisedActions = compactMcpAppCatalog
+    ? Object.fromEntries(
+        Object.entries(visibleActions).filter(([name, entry]) =>
+          isActionAdvertisedInCompactMcpAppCatalog(config, name, entry),
+        ),
+      )
+    : visibleActions;
+  const mcpAppResources = compactMcpAppCatalog
+    ? getMcpAppResources(config, advertisedActions, requestMeta)
     : [];
   const supportsMcpApps = mcpAppResources.length > 0;
   const server = new Server(
@@ -449,7 +593,7 @@ export async function createMCPServerForRequest(
   // applies to the listing too.
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return withCallerContext(async () => {
-      const tools = Object.entries(visibleActions).map(([name, entry]) => {
+      const tools = Object.entries(advertisedActions).map(([name, entry]) => {
         const hasLink = typeof entry.link === "function";
         const mcpAppResource = resolveMcpAppResource(
           config,
@@ -467,6 +611,7 @@ export async function createMCPServerForRequest(
           ...rawToolMeta,
           ...(mcpAppResource
             ? {
+                ...openAiToolDescriptorMeta(mcpAppResource),
                 [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
                 ui: {
                   ...(((rawToolMeta.ui as any) &&
@@ -483,6 +628,8 @@ export async function createMCPServerForRequest(
         const baseDescription = entry.tool.description ?? name;
         const annotations: Record<string, unknown> = {
           readOnlyHint: entry.readOnly === true,
+          destructiveHint: entry.publicAgent?.isConsequential === true,
+          openWorldHint: false,
         };
         if (hasLink) annotations["agent-native/producesOpenLink"] = true;
         return {
@@ -500,6 +647,7 @@ export async function createMCPServerForRequest(
       });
 
       if (
+        !compactMcpAppCatalog &&
         config.askAgent &&
         hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")
       ) {
@@ -519,7 +667,11 @@ export async function createMCPServerForRequest(
             },
             required: ["message"],
           },
-          annotations: { readOnlyHint: false },
+          annotations: {
+            readOnlyHint: false,
+            destructiveHint: false,
+            openWorldHint: false,
+          },
         });
       }
 
@@ -584,19 +736,42 @@ export async function createMCPServerForRequest(
         const resultForClient = isMcpActionResult(result)
           ? result.text
           : result;
-        const text =
-          typeof resultForClient === "string"
-            ? resultForClient
-            : JSON.stringify(resultForClient);
-        const content: any[] = [{ type: "text", text }];
+        const mcpAppResource = resolveMcpAppResource(
+          config,
+          name,
+          entry,
+          requestMeta,
+        );
         const { block, _meta } = buildLinkArtifacts(
           entry,
           (args as Record<string, any>) ?? {},
           isMcpActionResult(result) ? result.raw : result,
           requestMeta,
         );
+        const responseMeta: Record<string, unknown> = {
+          ...(_meta ?? {}),
+          ...(mcpAppResource ? openAiToolResultMeta(mcpAppResource) : {}),
+        };
+        const structuredContent = mcpAppResource
+          ? mcpAppStructuredContent(
+              isMcpActionResult(result) ? result.raw : result,
+              responseMeta,
+            )
+          : undefined;
+        const text = mcpAppResource
+          ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
+          : typeof resultForClient === "string"
+            ? resultForClient
+            : JSON.stringify(resultForClient);
+        const content: any[] = [{ type: "text", text }];
         if (block) content.push(block);
-        return { content, ...(_meta ? { _meta } : {}) };
+        return {
+          content,
+          ...(structuredContent ? { structuredContent } : {}),
+          ...(Object.keys(responseMeta).length > 0
+            ? { _meta: responseMeta }
+            : {}),
+        };
       } catch (err: any) {
         return {
           content: [{ type: "text", text: `Error: ${err.message}` }],
@@ -623,7 +798,18 @@ export async function createMCPServerForRequest(
     });
 
     server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-      return { resourceTemplates: [] };
+      return {
+        resourceTemplates: mcpAppResources.map((resource) => ({
+          uriTemplate: resource.uri,
+          name: resource.name,
+          ...(resource.title ? { title: resource.title } : {}),
+          ...(resource.description
+            ? { description: resource.description }
+            : {}),
+          mimeType: resource.mimeType,
+          ...(resource._meta ? { _meta: resource._meta } : {}),
+        })),
+      };
     });
 
     server.setRequestHandler(
@@ -631,7 +817,7 @@ export async function createMCPServerForRequest(
       async (request: any) => {
         return withCallerContext(async () => {
           const uri = request.params?.uri;
-          const found = Object.entries(visibleActions)
+          const found = Object.entries(advertisedActions)
             .map(([name, entry]) => ({
               actionName: name,
               resource: resolveMcpAppResource(config, name, entry, requestMeta),

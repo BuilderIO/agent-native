@@ -151,6 +151,16 @@ agent has a predictable surface without guessing per-app action names:
 A same-named template action overrides a builtin (template-over-core
 precedence). Disable the set with `MCPConfig.builtinCrossAppTools: false`.
 
+For OAuth callers that request `mcp:apps`, the advertised `tools/list` catalog
+is intentionally compact so ChatGPT/Claude app hosts do not ingest every
+internal action schema. The model sees app-facing builtins (`list_apps`,
+`open_app`, app-only `create_embed_session`), actions with `mcpApp`, and
+actions explicitly marked `publicAgent.expose`. Stdio/static-token developer
+clients still get the full connected action surface. If a host should be able
+to call a new action from an MCP App conversation, mark it with `mcpApp` (for
+UI-producing work) or `publicAgent` (for safe read/ingest work) instead of
+relying on incidental full-surface discovery.
+
 ### 2. Add a `link` builder to an action
 
 `defineAction` accepts an optional `link` builder. When set, every MCP/A2A
@@ -247,10 +257,12 @@ export default defineAction({
 
 The MCP server advertises extension `io.modelcontextprotocol/ui`, adds
 `_meta.ui.resourceUri` plus the legacy-compatible `_meta["ui/resourceUri"]` to
-`tools/list`, and exposes the HTML through `resources/list` + `resources/read`
-using MIME `text/html;profile=mcp-app`. The stdio proxy forwards those
-resource handlers from the live app, so local desktop/CLI clients see the same
-resources as HTTP clients.
+`tools/list`, and also emits ChatGPT Apps SDK compatibility metadata
+(`openai/outputTemplate`, widget CSP/description/accessibility). It exposes the
+HTML through `resources/list`, `resources/templates/list`, and `resources/read`
+using MIME `text/html;profile=mcp-app`. The stdio proxy forwards those resource
+handlers from the live app, so local desktop/CLI clients see the same resources
+as HTTP clients.
 
 Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients,
 older hosts, and any host that does not render MCP Apps will ignore the UI
