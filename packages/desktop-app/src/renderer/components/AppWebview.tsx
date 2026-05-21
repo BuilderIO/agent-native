@@ -37,6 +37,8 @@ interface AppWebviewProps {
   urlParams?: Record<string, string | null | undefined>;
   /** Increment to trigger a webview reload (Cmd+R) */
   refreshKey?: number;
+  /** Emits the guest page's document title so the shell tab can stay current. */
+  onTitleChange?: (title: string) => void;
   onAppsChanged?: (apps: AppConfig[]) => void;
 }
 
@@ -144,6 +146,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       isActive,
       urlParams,
       refreshKey = 0,
+      onTitleChange,
       onAppsChanged,
     }: AppWebviewProps,
     ref,
@@ -157,6 +160,11 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const isDevMode = appConfig?.mode === "dev";
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
+    const onTitleChangeRef = useRef(onTitleChange);
+
+    useEffect(() => {
+      onTitleChangeRef.current = onTitleChange;
+    }, [onTitleChange]);
 
     useImperativeHandle(
       ref,
@@ -241,6 +249,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         setSlowLoad(false);
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
+        const title = wv.getTitle().trim();
+        if (title) onTitleChangeRef.current?.(title);
+      };
+      const onTitleUpdated = (e: Event) => {
+        const title = String((e as { title?: string }).title ?? "").trim();
+        if (title) onTitleChangeRef.current?.(title);
       };
       const onFailed = (e: Event) => {
         const details = e as any;
@@ -271,6 +285,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const onLeaveFullscreen = () => setIsFullscreen(false);
 
       wv.addEventListener("dom-ready", onReady);
+      wv.addEventListener("page-title-updated", onTitleUpdated);
       wv.addEventListener("did-fail-load", onFailed);
       wv.addEventListener("console-message", onConsoleMessage);
       wv.addEventListener("enter-html-full-screen", onEnterFullscreen);
@@ -278,6 +293,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
       return () => {
         wv.removeEventListener("dom-ready", onReady);
+        wv.removeEventListener("page-title-updated", onTitleUpdated);
         wv.removeEventListener("did-fail-load", onFailed);
         wv.removeEventListener("console-message", onConsoleMessage);
         wv.removeEventListener("enter-html-full-screen", onEnterFullscreen);

@@ -353,8 +353,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(echo.annotations?.readOnlyHint).toBe(true);
     expect(echo.annotations?.["agent-native/producesOpenLink"]).toBe(true);
     expect(echo.description).toContain("Open in");
-    expect(echo._meta?.["ui/resourceUri"]).toBe("ui://mail/echo-thing");
-    expect(echo._meta?.["openai/outputTemplate"]).toBe("ui://mail/echo-thing");
+    expect(echo._meta?.["ui/resourceUri"]).toBe(
+      "ui://mail/echo-thing/shell-v3",
+    );
+    expect(echo._meta?.["openai/outputTemplate"]).toBe(
+      "ui://mail/echo-thing/shell-v3",
+    );
     expect(echo._meta?.["openai/widgetAccessible"]).toBe(true);
     expect(echo._meta?.["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],
@@ -364,7 +368,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         connectDomains: ["https://mail.agent-native.com"],
       },
       prefersBorder: true,
-      resourceUri: "ui://mail/echo-thing",
+      resourceUri: "ui://mail/echo-thing/shell-v3",
       visibility: ["model", "app"],
     });
   });
@@ -478,8 +482,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resources.map((r: any) => r.uri)).toEqual(
       expect.arrayContaining([
-        "ui://mail/echo-thing",
-        "ui://mail/review-draft",
+        "ui://mail/echo-thing/shell-v3",
+        "ui://mail/review-draft/shell-v3",
       ]),
     );
   });
@@ -607,7 +611,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/echo-thing",
+        uri: "ui://mail/echo-thing/shell-v3",
         name: "echo-thing",
         title: "Mail Review",
         description: "Review the echoed thing in an inline MCP App.",
@@ -643,7 +647,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resourceTemplates).toEqual([
       expect.objectContaining({
-        uriTemplate: "ui://mail/echo-thing",
+        uriTemplate: "ui://mail/echo-thing/shell-v3",
         name: "echo-thing",
         title: "Mail Review",
         description: "Review the echoed thing in an inline MCP App.",
@@ -658,14 +662,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 6,
         method: "resources/read",
-        params: { uri: "ui://mail/echo-thing" },
+        params: { uri: "ui://mail/echo-thing/shell-v3" },
       },
       { headers: await mcpAppsAuthHeaders() },
     );
     expect(out.error).toBeUndefined();
     expect(out.result.contents).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/echo-thing",
+        uri: "ui://mail/echo-thing/shell-v3",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining('data-action="echo-thing"'),
         _meta: expect.objectContaining({
@@ -684,6 +688,198 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.contents[0].text).toContain(
       'data-origin="https://mail.agent-native.com"',
     );
+  });
+
+  it("keeps legacy unversioned MCP App resource reads working", async () => {
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 16,
+        method: "resources/read",
+        params: { uri: "ui://mail/echo-thing" },
+      },
+      { headers: await mcpAppsAuthHeaders() },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.contents).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/echo-thing",
+        mimeType: "text/html;profile=mcp-app",
+        text: expect.stringContaining('data-action="echo-thing"'),
+      }),
+    ]);
+  });
+
+  it("cache-busts custom MCP App resource URIs and keeps legacy reads working", async () => {
+    const customResourceConfig = {
+      ...config,
+      actions: {
+        "custom-review": {
+          tool: {
+            description: "Review with a custom resource URI",
+          },
+          run: async () => ({ ok: true }),
+          mcpApp: {
+            resource: {
+              uri: "ui://mail/custom-review",
+              title: "Custom review",
+              html: "<!doctype html><html><body>Custom review</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const list = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 28,
+        method: "resources/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+    );
+
+    expect(list.error).toBeUndefined();
+    expect(list.result.resources).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/custom-review/shell-v3",
+        name: "custom-review",
+      }),
+    ]);
+
+    const read = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 29,
+        method: "resources/read",
+        params: { uri: "ui://mail/custom-review" },
+      },
+      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+    );
+
+    expect(read.error).toBeUndefined();
+    expect(read.result.contents).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/custom-review",
+        text: expect.stringContaining("Custom review"),
+      }),
+    ]);
+  });
+
+  it("upgrades older custom MCP App shell-version suffixes", async () => {
+    const customResourceConfig = {
+      ...config,
+      actions: {
+        "custom-review": {
+          tool: {
+            description: "Review with an older custom resource URI",
+          },
+          run: async () => ({ ok: true }),
+          mcpApp: {
+            resource: {
+              uri: "ui://mail/custom-review/shell-v2",
+              title: "Custom review",
+              html: "<!doctype html><html><body>Custom review</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const list = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 30,
+        method: "resources/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+    );
+
+    expect(list.error).toBeUndefined();
+    expect(list.result.resources).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/custom-review/shell-v3",
+        name: "custom-review",
+      }),
+    ]);
+
+    const legacyRead = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 31,
+        method: "resources/read",
+        params: { uri: "ui://mail/custom-review/shell-v2" },
+      },
+      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+    );
+
+    expect(legacyRead.error).toBeUndefined();
+    expect(legacyRead.result.contents).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/custom-review/shell-v2",
+        text: expect.stringContaining("Custom review"),
+      }),
+    ]);
+  });
+
+  it("cache-busts custom MCP App resource URI paths before query strings and fragments", async () => {
+    const customResourceConfig = {
+      ...config,
+      actions: {
+        "custom-review": {
+          tool: {
+            description: "Review with a custom resource URI",
+          },
+          run: async () => ({ ok: true }),
+          mcpApp: {
+            resource: {
+              uri: "ui://mail/custom-review?mode=compact#preview",
+              title: "Custom review",
+              html: "<!doctype html><html><body>Custom review</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const list = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 32,
+        method: "resources/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+    );
+
+    expect(list.error).toBeUndefined();
+    expect(list.result.resources).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/custom-review/shell-v3?mode=compact#preview",
+        name: "custom-review",
+      }),
+    ]);
+
+    const legacyRead = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 33,
+        method: "resources/read",
+        params: { uri: "ui://mail/custom-review?mode=compact#preview" },
+      },
+      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+    );
+
+    expect(legacyRead.error).toBeUndefined();
+    expect(legacyRead.result.contents).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/custom-review?mode=compact#preview",
+        text: expect.stringContaining("Custom review"),
+      }),
+    ]);
   });
 
   it("handles `tools/call` and appends the deep-link block + `_meta`", async () => {
@@ -712,7 +908,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         "https://mail.agent-native.com/_agent-native/open?view=thing&id=thing-42&agentSidebar=closed",
     });
     expect(out.result._meta["openai/outputTemplate"]).toBe(
-      "ui://mail/echo-thing",
+      "ui://mail/echo-thing/shell-v3",
     );
     expect(out.result._meta["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],

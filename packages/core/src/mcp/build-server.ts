@@ -217,6 +217,7 @@ async function isKnownMcpAppOAuthClient(
 
 interface ResolvedMcpAppResource {
   uri: string;
+  legacyUris?: string[];
   name: string;
   title?: string;
   description?: string;
@@ -305,10 +306,37 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
   return normalized || fallback;
 }
 
-function defaultMcpAppUri(config: MCPConfig, actionName: string): string {
+// ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
+// when the shared shell changes in a way that must invalidate host caches.
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v3";
+
+function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
   const action = safeUiSegment(actionName, "tool");
   return `ui://${app}/${action}`;
+}
+
+function versionMcpAppResourceUri(
+  rawUri: string,
+): { uri: string; legacyUris?: string[] } | null {
+  const uri = rawUri.trim();
+  if (!uri.startsWith("ui://")) return null;
+  const versionSuffix = `/${MCP_APP_RESOURCE_SHELL_VERSION}`;
+  let versionedUri: string;
+  try {
+    const parsed = new URL(uri);
+    const path = parsed.pathname.replace(/\/+$/g, "");
+    parsed.pathname = /\/shell-v\d+$/.test(path)
+      ? path.replace(/\/shell-v\d+$/, versionSuffix)
+      : `${path}${versionSuffix}`;
+    versionedUri = parsed.toString();
+  } catch {
+    return null;
+  }
+  return {
+    uri: versionedUri,
+    ...(versionedUri !== uri ? { legacyUris: [uri] } : {}),
+  };
 }
 
 function expandRequestOriginSources(
@@ -413,12 +441,15 @@ function resolveMcpAppResource(
 ): ResolvedMcpAppResource | null {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
-  const uri = resource.uri?.trim() || defaultMcpAppUri(config, actionName);
-  if (!uri.startsWith("ui://")) return null;
+  const baseUri =
+    resource.uri?.trim() || legacyDefaultMcpAppUri(config, actionName);
+  const resolvedUri = versionMcpAppResourceUri(baseUri);
+  if (!resolvedUri) return null;
   const description = resource.description ?? entry.tool.description;
   const resourceMeta = mcpAppUiMeta(resource, requestMeta, description);
   return {
-    uri,
+    uri: resolvedUri.uri,
+    ...(resolvedUri.legacyUris ? { legacyUris: resolvedUri.legacyUris } : {}),
     name: resource.name?.trim() || actionName,
     ...(resource.title ? { title: resource.title } : {}),
     ...(description ? { description } : {}),
@@ -910,14 +941,18 @@ export async function createMCPServerForRequest(
               actionName: name,
               resource: resolveMcpAppResource(config, name, entry, requestMeta),
             }))
-            .find((candidate) => candidate.resource?.uri === uri);
+            .find(
+              (candidate) =>
+                candidate.resource?.uri === uri ||
+                candidate.resource?.legacyUris?.includes(uri),
+            );
           if (!found?.resource) {
             throw new Error(`MCP App resource not found: ${uri}`);
           }
           return {
             contents: [
               {
-                uri: found.resource.uri,
+                uri,
                 mimeType: found.resource.mimeType,
                 text: renderMcpAppHtml(
                   found.resource,

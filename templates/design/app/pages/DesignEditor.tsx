@@ -470,6 +470,18 @@ export default function DesignEditor() {
 
   const design = isDesignData(designResult) ? designResult : null;
 
+  useEffect(() => {
+    if (!design?.title) return;
+    const nextTitle = `${design.title} — Design`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) {
+        document.title = previousTitle;
+      }
+    };
+  }, [design?.title]);
+
   const commitTitleEdit = useCallback(() => {
     setTitleEditing(false);
     if (!id) return;

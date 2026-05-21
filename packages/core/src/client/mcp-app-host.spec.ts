@@ -9,15 +9,37 @@ import {
   getMcpAppHostContext,
   openMcpAppHostLink,
   requestMcpAppDisplayMode,
+  sendMcpAppHostMessage,
   updateMcpAppModelContext,
   useMcpAppHostContext,
 } from "./mcp-app-host.js";
+import { _resetEmbedAuthForTests } from "./embed-auth.js";
 
 function setParent(parent: Window): void {
   Object.defineProperty(window, "parent", {
     configurable: true,
     value: parent,
   });
+}
+
+function setDirectParent(parent: Window): void {
+  setParent(parent);
+  window.history.replaceState(
+    null,
+    "",
+    "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1",
+  );
+  _resetMcpAppHostForTests();
+}
+
+function setNestedParent(parent: Window): void {
+  setParent(parent);
+  window.history.replaceState(
+    null,
+    "",
+    "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&embedMode=iframe",
+  );
+  _resetMcpAppHostForTests();
 }
 
 function parentWindow() {
@@ -32,11 +54,30 @@ function dispatchHostMessage(data: Record<string, unknown>) {
   );
 }
 
+function getJsonRpcCalls(parent: Window) {
+  return vi
+    .mocked(parent.postMessage)
+    .mock.calls.map(([message]) => message)
+    .filter(
+      (message): message is Record<string, unknown> =>
+        Boolean(message) &&
+        typeof message === "object" &&
+        (message as Record<string, unknown>).jsonrpc === "2.0",
+    );
+}
+
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 function enableMcpEmbedBridge(): void {
   window.history.replaceState(
     null,
     "",
-    "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1",
+    "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&embedMode=iframe",
   );
 }
 
@@ -60,6 +101,8 @@ describe("MCP app host client helpers", () => {
     setParent(window);
     window.history.replaceState(null, "", "/");
     _resetMcpAppHostForTests();
+    _resetEmbedAuthForTests();
+    sessionStorage.clear();
   });
 
   it("caches host context and exposes it through the React hook", async () => {
@@ -96,7 +139,7 @@ describe("MCP app host client helpers", () => {
 
   it("posts model context, link, and display mode requests to the parent", async () => {
     const parent = parentWindow();
-    setParent(parent);
+    setNestedParent(parent);
 
     const modelContextResult = updateMcpAppModelContext({
       content: [{ type: "text", text: "Selected customer: Acme" }],
@@ -140,7 +183,7 @@ describe("MCP app host client helpers", () => {
     expect(openMcpAppHostLink("https://example.com")).toBe(false);
 
     const parent = parentWindow();
-    setParent(parent);
+    setNestedParent(parent);
     const result = requestMcpAppDisplayMode("fullscreen");
     const message = vi.mocked(parent.postMessage).mock.calls[0][0] as {
       data: { requestId: string };
@@ -168,5 +211,173 @@ describe("MCP app host client helpers", () => {
 
     await vi.advanceTimersByTimeAsync(5000);
     await expect(result).resolves.toBe(false);
+  });
+
+  it("talks directly to the MCP Apps host after direct frame navigation", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+
+    const modelContextResult = updateMcpAppModelContext({
+      content: [{ type: "text", text: "Selected customer: Acme" }],
+      structuredContent: { customerId: "acme" },
+    });
+    await flushMicrotasks();
+
+    let calls = getJsonRpcCalls(parent);
+    expect(calls[0]).toMatchObject({
+      method: "ui/initialize",
+      params: {
+        appCapabilities: {
+          availableDisplayModes: ["inline", "fullscreen", "pip"],
+        },
+      },
+    });
+    const initId = calls[0].id;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initId,
+      result: {
+        protocolVersion: "2026-01-26",
+        hostCapabilities: { openLinks: {} },
+        hostContext: {
+          displayMode: "inline",
+          availableDisplayModes: ["inline", "fullscreen"],
+        },
+      },
+    });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: "ui/notifications/initialized",
+        }),
+        expect.objectContaining({
+          method: "ui/update-model-context",
+          params: {
+            content: [{ type: "text", text: "Selected customer: Acme" }],
+            structuredContent: { customerId: "acme" },
+          },
+        }),
+      ]),
+    );
+    const contextCall = calls.find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: contextCall.id,
+      result: {},
+    });
+
+    await expect(modelContextResult).resolves.toBe(true);
+
+    const linkResult = openMcpAppHostLink("https://example.com/customer/acme");
+    const displayResult = requestMcpAppDisplayMode("fullscreen");
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const linkCall = calls.find((call) => call.method === "ui/open-link")!;
+    const displayCall = calls.find(
+      (call) => call.method === "ui/request-display-mode",
+    )!;
+    expect(linkCall).toMatchObject({
+      params: { url: "https://example.com/customer/acme" },
+    });
+    expect(displayCall).toMatchObject({
+      params: { mode: "fullscreen" },
+    });
+    dispatchHostMessage({ jsonrpc: "2.0", id: linkCall.id, result: {} });
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: displayCall.id,
+      result: { mode: "fullscreen" },
+    });
+
+    await expect(linkResult).resolves.toBe(true);
+    await expect(displayResult).resolves.toBe(true);
+  });
+
+  it("sends direct MCP Apps chat messages with hidden context first", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+
+    const result = sendMcpAppHostMessage({
+      context: "Selected row ids: a, b",
+      message: "Continue with this selection",
+    });
+    await flushMicrotasks();
+
+    let calls = getJsonRpcCalls(parent);
+    const initCall = calls.find((call) => call.method === "ui/initialize")!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const contextCall = calls.find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    expect(contextCall).toMatchObject({
+      params: {
+        content: [{ type: "text", text: "Selected row ids: a, b" }],
+      },
+    });
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: contextCall.id,
+      result: {},
+    });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const messageCall = calls.find((call) => call.method === "ui/message")!;
+    expect(messageCall).toMatchObject({
+      params: {
+        role: "user",
+        content: { type: "text", text: "Continue with this selection" },
+      },
+    });
+
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: messageCall.id,
+      result: {},
+    });
+
+    await expect(result).resolves.toBe(true);
+  });
+
+  it("keeps direct MCP host helpers enabled after the URL token is stripped", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+    window.history.replaceState(
+      null,
+      "",
+      "/?embedded=1&__an_mcp_chat_bridge=1",
+    );
+    sessionStorage.setItem("agent-native:embed-auth-token", "signed-token");
+    sessionStorage.setItem("agent-native:mcp-chat-bridge", "1");
+
+    const result = openMcpAppHostLink("https://example.com");
+    await flushMicrotasks();
+
+    const calls = getJsonRpcCalls(parent);
+    expect(calls[0]).toMatchObject({ method: "ui/initialize" });
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: calls[0].id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushMicrotasks();
+    const linkCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/open-link",
+    )!;
+    dispatchHostMessage({ jsonrpc: "2.0", id: linkCall.id, result: {} });
+    await expect(result).resolves.toBe(true);
   });
 });

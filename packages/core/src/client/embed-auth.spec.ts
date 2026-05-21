@@ -4,9 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EMBED_TARGET_HEADER,
   EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 
 const STORAGE_KEY = "agent-native:embed-auth-token";
+const BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 
 async function loadEmbedAuth() {
   vi.resetModules();
@@ -15,6 +17,7 @@ async function loadEmbedAuth() {
 
 describe("embed auth client", () => {
   beforeEach(() => {
+    vi.resetModules();
     sessionStorage.clear();
     window.history.replaceState(null, "", "/");
     Object.defineProperty(window, "fetch", {
@@ -40,6 +43,43 @@ describe("embed auth client", () => {
 
     const reloadedModule = await loadEmbedAuth();
     expect(reloadedModule.getEmbedAuthToken()).toBe("signed-token");
+  });
+
+  it("persists the MCP chat bridge flag when stripping the URL token", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+
+    const first = await loadEmbedAuth();
+    first.ensureEmbedAuthFetchInterceptor();
+
+    expect(window.location.search).toBe(
+      `?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
+    );
+    expect(sessionStorage.getItem(BRIDGE_STORAGE_KEY)).toBe("signed-token");
+
+    window.history.replaceState(null, "", "/inbox?embedded=1");
+    const reloadedModule = await loadEmbedAuth();
+    expect(reloadedModule.isEmbedMcpChatBridgeActive()).toBe(true);
+  });
+
+  it("does not leak a stored MCP chat bridge flag to a different embed token", async () => {
+    sessionStorage.setItem(STORAGE_KEY, "old-token");
+    sessionStorage.setItem(BRIDGE_STORAGE_KEY, "old-token");
+
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=new-token`,
+    );
+
+    const reloadedModule = await loadEmbedAuth();
+
+    expect(reloadedModule.isEmbedMcpChatBridgeActive()).toBe(false);
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBe("new-token");
+    expect(sessionStorage.getItem(BRIDGE_STORAGE_KEY)).toBeNull();
   });
 
   it("adds the stored embed bearer token and target header to same-origin fetches", async () => {

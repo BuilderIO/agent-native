@@ -143,4 +143,47 @@ describe("getThemeInitScript", () => {
       vi.stubGlobal("process", originalProcess);
     }
   });
+
+  it("installs memory storage fallbacks in sandboxed frames", () => {
+    const localStorageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    const sessionStorageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "sessionStorage",
+    );
+
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("Blocked", "SecurityError");
+      },
+    });
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("Blocked", "SecurityError");
+      },
+    });
+
+    try {
+      expect(() => runThemeScript(getThemeInitScript("dark"))).not.toThrow();
+      expect(window.localStorage.getItem("theme")).toBe(null);
+      window.sessionStorage.setItem("scroll", "ok");
+      expect(window.sessionStorage.getItem("scroll")).toBe("ok");
+      expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    } finally {
+      if (localStorageDescriptor) {
+        Object.defineProperty(window, "localStorage", localStorageDescriptor);
+      }
+      if (sessionStorageDescriptor) {
+        Object.defineProperty(
+          window,
+          "sessionStorage",
+          sessionStorageDescriptor,
+        );
+      }
+    }
+  });
 });

@@ -6,11 +6,16 @@ const selfPostMessageSpy = vi.fn();
 const dispatchEventSpy = vi.fn();
 const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
 const sendToBuilderChatMock = vi.hoisted(() => vi.fn());
+const sendMcpAppHostMessageMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("./builder-frame.js", () => ({
   isInBuilderFrame: () => frameState.inBuilderFrame,
   isTrustedBuilderMessage: () => false,
   sendToBuilderChat: sendToBuilderChatMock,
+}));
+
+vi.mock("./mcp-app-host.js", () => ({
+  sendMcpAppHostMessage: sendMcpAppHostMessageMock,
 }));
 
 vi.stubGlobal("window", {
@@ -25,6 +30,7 @@ vi.stubGlobal("window", {
 });
 
 const { sendToAgentChat, generateTabId } = await import("./agent-chat.js");
+const { _resetEmbedAuthForTests } = await import("./embed-auth.js");
 
 describe("sendToAgentChat", () => {
   beforeEach(() => {
@@ -36,7 +42,11 @@ describe("sendToAgentChat", () => {
     selfPostMessageSpy.mockClear();
     dispatchEventSpy.mockClear();
     sendToBuilderChatMock.mockClear();
+    sendMcpAppHostMessageMock.mockClear();
+    sendMcpAppHostMessageMock.mockReturnValue(false);
     window.location.search = "";
+    window.sessionStorage?.clear();
+    _resetEmbedAuthForTests();
   });
 
   afterEach(() => {
@@ -167,6 +177,10 @@ describe("sendToAgentChat", () => {
     });
 
     expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "continue with this selection",
+      context: "Selected item ids: a, b",
+    });
     const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
     expect(targetOrigin).toBe("*");
     expect(payload.type).toBe("agentNative.submitChat");
@@ -174,6 +188,53 @@ describe("sendToAgentChat", () => {
     expect(payload.data.message).toBe("continue with this selection");
     expect(payload.data.context).toBe("Selected item ids: a, b");
     expect(dispatchEventSpy).not.toHaveBeenCalled();
+  });
+
+  it("lets direct MCP App frames handle auto-submitted prompts via JSON-RPC", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    sendToAgentChat({
+      message: "continue with this selection",
+      context: "Selected item ids: a, b",
+      submit: true,
+    });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "continue with this selection",
+      context: "Selected item ids: a, b",
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(dispatchEventSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps direct MCP App embed sessions on the local app chat path", () => {
+    vi.useFakeTimers();
+    window.location.search = "?embedded=1&__an_embed_token=signed-token";
+
+    const tabId = sendToAgentChat({
+      message: "summarize this dashboard",
+      context: "Dashboard: traffic",
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agent-panel:set-mode",
+      "agent-panel:open",
+    ]);
+
+    vi.runOnlyPendingTimers();
+
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.message).toBe("summarize this dashboard");
+    expect(payload.data.context).toBe("Dashboard: traffic");
   });
 
   it("keeps MCP App prefill-only messages on the existing local path", () => {

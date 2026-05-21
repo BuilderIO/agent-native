@@ -24,6 +24,11 @@ vi.mock("../application-state/store.js", () => ({
 }));
 
 import { createOpenRouteHandler } from "./open-route.js";
+import {
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 
 /** Build a fake H3 event the open route understands. */
 function fakeEvent(url: string, method = "GET") {
@@ -172,15 +177,16 @@ describe("createOpenRouteHandler", () => {
 
     const res: Response = await handler(
       fakeEvent(
-        "/_agent-native/open?view=inbox&threadId=t1&embedded=1&__an_embed_token=tok_123",
+        `/_agent-native/open?view=inbox&threadId=t1&${EMBED_MODE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=tok_123&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
       ),
     );
 
     expect(res.status).toBe(302);
     const loc = res.headers.get("Location")!;
     const sp = new URL(loc, "http://x.invalid").searchParams;
-    expect(sp.get("embedded")).toBe("1");
-    expect(sp.get("__an_embed_token")).toBe("tok_123");
+    expect(sp.get(EMBED_MODE_QUERY_PARAM)).toBe("1");
+    expect(sp.get(EMBED_TOKEN_QUERY_PARAM)).toBe("tok_123");
+    expect(sp.get(MCP_APP_CHAT_BRIDGE_QUERY_PARAM)).toBe("1");
 
     const [, , payload] = appStatePut.mock.calls[0];
     expect(payload).toEqual({ threadId: "t1", view: "inbox" });
@@ -196,13 +202,13 @@ describe("createOpenRouteHandler", () => {
       node: { req: { url: "/" } },
       context: { _mountedPathname: "/_agent-native/open" },
       url: {
-        search: "?view=inbox&threadId=t1&embedded=1&__an_embed_token=tok_123",
+        search: `?view=inbox&threadId=t1&${EMBED_MODE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=tok_123&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
       },
     } as any);
 
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(
-      "/inbox?embedded=1&__an_embed_token=tok_123&agentSidebar=closed",
+      `/inbox?${EMBED_MODE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=tok_123&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&agentSidebar=closed`,
     );
 
     const [, , payload] = appStatePut.mock.calls[0];

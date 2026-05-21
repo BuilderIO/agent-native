@@ -75,8 +75,8 @@ Send a message to the agent chat via postMessage. Used to delegate AI tasks from
 
 When the app route is running inside an MCP App embed created with `embedApp()`,
 auto-submitted messages (`submit` omitted or `true`) are forwarded to the MCP
-App wrapper, which asks the containing host to add hidden context and send the
-visible user turn. `context` is sent as model context before the visible
+App host bridge, which asks the containing host to add hidden context and send
+the visible user turn. `context` is sent as model context before the visible
 message, so it stays model-visible without being posted as user-facing chat.
 `submit: false` keeps the local prefill/review behavior because MCP Apps do not
 define a standard draft-prefill API.
@@ -116,7 +116,10 @@ Routes embedded by `embedApp()` should be URL-first: load the current artifact
 from path/query params, render the real React route or a focused shared
 component, and use host bridge messages only for host-owned behavior.
 
-The wire contract is:
+Default direct route embeds use the standard MCP Apps `ui/*` JSON-RPC bridge.
+The exported helpers below send `ui/update-model-context`, `ui/open-link`, and
+`ui/request-display-mode` directly to the host. The explicit nested diagnostic
+mode still uses the wrapper relay:
 
 | Direction       | Message type                             | Purpose                                           |
 | --------------- | ---------------------------------------- | ------------------------------------------------- |

@@ -3,11 +3,15 @@ import {
   EMBED_START_PATH,
   EMBED_TARGET_HEADER,
   EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 
 let installed = false;
 let memoryToken: string | null = null;
+let mcpChatBridgeActive = false;
+let mcpChatBridgeScope: string | null = null;
 const EMBED_TOKEN_STORAGE_KEY = "agent-native:embed-auth-token";
+const MCP_CHAT_BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 
 const AUTH_FAILURE_COOLDOWN_MS = 60_000;
 const GUARDED_METHODS = new Set(["GET", "HEAD"]);
@@ -28,12 +32,93 @@ function browserWindow(): Window | null {
   return typeof window === "undefined" ? null : window;
 }
 
-function readTokenFromUrl(win: Window): string | null {
+function currentUrl(win: Window): URL | null {
   try {
-    const url = new URL(win.location.href);
-    return url.searchParams.get(EMBED_TOKEN_QUERY_PARAM);
+    return new URL(win.location.href);
   } catch {
-    return null;
+    try {
+      return new URL(
+        `${win.location.pathname || "/"}${win.location.search || ""}${win.location.hash || ""}`,
+        win.location.origin || "http://agent-native.invalid",
+      );
+    } catch {
+      return null;
+    }
+  }
+}
+
+function readTokenFromUrl(win: Window): string | null {
+  return currentUrl(win)?.searchParams.get(EMBED_TOKEN_QUERY_PARAM) ?? null;
+}
+
+export function readEmbedMcpChatBridgeFlagFromUrl(): boolean {
+  const win = browserWindow();
+  if (!win) return false;
+  const value = currentUrl(win)?.searchParams.get(
+    MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  );
+  return value === "1" || value === "true";
+}
+
+function currentMcpChatBridgeScope(win: Window): string | null {
+  return readTokenFromUrl(win) ?? memoryToken ?? storedToken(win);
+}
+
+function clearMcpChatBridge(win: Window): void {
+  mcpChatBridgeActive = false;
+  mcpChatBridgeScope = null;
+  try {
+    win.sessionStorage?.removeItem(MCP_CHAT_BRIDGE_STORAGE_KEY);
+  } catch {
+    // ignore unavailable session storage
+  }
+}
+
+export function markEmbedMcpChatBridgeActive(): void {
+  const win = browserWindow();
+  const scope = win ? currentMcpChatBridgeScope(win) : null;
+  mcpChatBridgeActive = true;
+  mcpChatBridgeScope = scope;
+  try {
+    if (scope) {
+      win?.sessionStorage?.setItem(MCP_CHAT_BRIDGE_STORAGE_KEY, scope);
+    } else {
+      win?.sessionStorage?.removeItem(MCP_CHAT_BRIDGE_STORAGE_KEY);
+    }
+  } catch {
+    // Session storage may be unavailable in some sandboxed hosts. The
+    // in-memory fallback still covers the normal single-page boot path.
+  }
+}
+
+export function isEmbedMcpChatBridgeActive(): boolean {
+  const win = browserWindow();
+  if (!win) return false;
+  if (!isEmbedAuthActive()) {
+    clearMcpChatBridge(win);
+    return false;
+  }
+  if (readEmbedMcpChatBridgeFlagFromUrl()) {
+    markEmbedMcpChatBridgeActive();
+    return true;
+  }
+  const scope = currentMcpChatBridgeScope(win);
+  if (mcpChatBridgeActive) {
+    if (scope && mcpChatBridgeScope === scope) return true;
+    clearMcpChatBridge(win);
+    return false;
+  }
+  try {
+    const storedScope = win.sessionStorage?.getItem(
+      MCP_CHAT_BRIDGE_STORAGE_KEY,
+    );
+    if (scope && storedScope === scope) return true;
+    if (storedScope && storedScope !== scope) {
+      win.sessionStorage?.removeItem(MCP_CHAT_BRIDGE_STORAGE_KEY);
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 
@@ -70,18 +155,24 @@ export function isEmbedAuthActive(): boolean {
   const win = browserWindow();
   if (!win) return false;
   if (getEmbedAuthToken()) return true;
-  try {
-    const url = new URL(win.location.href);
-    const mode = url.searchParams.get(EMBED_MODE_QUERY_PARAM);
-    return mode === "1" || mode === "true";
-  } catch {
-    return false;
-  }
+  const mode = currentUrl(win)?.searchParams.get(EMBED_MODE_QUERY_PARAM);
+  return mode === "1" || mode === "true";
+}
+
+/** Internal test helper. Do not use in app code. */
+export function _resetEmbedAuthForTests(): void {
+  installed = false;
+  memoryToken = null;
+  mcpChatBridgeActive = false;
+  mcpChatBridgeScope = null;
+  authFailureCache.clear();
+  embedAuthFailure = null;
 }
 
 function stripTokenFromUrl(win: Window): void {
   try {
-    const url = new URL(win.location.href);
+    const url = currentUrl(win);
+    if (!url) return;
     if (!url.searchParams.has(EMBED_TOKEN_QUERY_PARAM)) return;
     url.searchParams.delete(EMBED_TOKEN_QUERY_PARAM);
     win.history.replaceState(
@@ -260,6 +351,8 @@ function requestUrlAndKey(
 export function ensureEmbedAuthFetchInterceptor(): void {
   const win = browserWindow();
   if (!win) return;
+
+  if (readEmbedMcpChatBridgeFlagFromUrl()) markEmbedMcpChatBridgeActive();
 
   const urlToken = readTokenFromUrl(win);
   if (urlToken) {

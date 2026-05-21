@@ -148,8 +148,9 @@ export function embedApp(
     }
 
     function openLinkFrom(params, data) {
-      const metaUrl = params && params._meta && params._meta["agent-native/openLink"]
-        ? params._meta["agent-native/openLink"].webUrl
+      const openLink = params && params._meta && params._meta["agent-native/openLink"];
+      const metaUrl = openLink && typeof openLink === "object" && typeof openLink.webUrl === "string"
+        ? openLink.webUrl
         : "";
       return metaUrl || data.url || data.deepLink || data.openUrl || "";
     }
@@ -309,11 +310,10 @@ export function embedApp(
     }
 
     async function openFallbackExternal() {
-      let url = openUrl;
+      let url = withChatBridgeParam(openUrl);
       try {
-        const embedUrl = withChatBridgeParam(openUrl);
         const result = await callEmbedSessionTool({
-          url: embedUrl,
+          url,
           chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
         });
         const data = parseToolResult(result);
@@ -347,6 +347,31 @@ export function embedApp(
       appFrameLoadTimer = setTimeout(() => {
         if (!appFrameReady && appFrame === frame) renderFrameFallback();
       }, 30000);
+    }
+
+    function shouldSelfNavigateToApp() {
+      const mode = typeof toolInput.embedMode === "string"
+        ? toolInput.embedMode
+        : typeof toolInput.renderMode === "string"
+          ? toolInput.renderMode
+          : "";
+      if (mode === "iframe" || mode === "nested") return false;
+      if (toolInput.nested === true || toolInput.frame === "iframe") return false;
+      return true;
+    }
+
+    function navigateToAppFrame(src) {
+      clearFrameReadyTimer();
+      clearFrameLoadTimer();
+      appFrame = null;
+      lastFrameSrc = src;
+      setMessage("Opening app");
+      try {
+        window.location.replace(src);
+      } catch (err) {
+        console.warn("[agent-native] MCP app self-navigation failed", err);
+        renderFrameFallback();
+      }
     }
 
     async function updateHostModelContext(data) {
@@ -494,18 +519,23 @@ export function embedApp(
       startedFor = openUrl;
       setMessage("Loading app");
       try {
+        const selfNavigate = shouldSelfNavigateToApp();
         const embedUrl = withChatBridgeParam(openUrl);
         const result = await callEmbedSessionTool({
           url: embedUrl,
           chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
         });
         const data = parseToolResult(result);
-        if (!data.startUrl) {
+        if (typeof data.startUrl !== "string" || !data.startUrl) {
           startedFor = "";
           setMessage(data.error || "This app can be opened, but not embedded from this MCP server.");
           return;
         }
-        renderFrame(data.startUrl);
+        if (selfNavigate) {
+          navigateToAppFrame(data.startUrl);
+        } else {
+          renderFrame(data.startUrl);
+        }
       } catch (err) {
         startedFor = "";
         setMessage(err && err.message ? err.message : "Could not launch embedded app.");

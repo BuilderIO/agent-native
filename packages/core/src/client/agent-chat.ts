@@ -10,10 +10,12 @@
 import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
-  EMBED_MODE_QUERY_PARAM,
-  EMBED_TOKEN_QUERY_PARAM,
-  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
-} from "../shared/embed-auth.js";
+  isEmbedAuthActive,
+  isEmbedMcpChatBridgeActive,
+  markEmbedMcpChatBridgeActive,
+  readEmbedMcpChatBridgeFlagFromUrl,
+} from "./embed-auth.js";
+import { sendMcpAppHostMessage } from "./mcp-app-host.js";
 import {
   isInBuilderFrame,
   isTrustedBuilderMessage,
@@ -107,12 +109,14 @@ export function generateTabId(): string {
 
 function isMcpAppChatBridgeEnabled(): boolean {
   if (typeof window === "undefined" || window.parent === window) return false;
-  const params = new URLSearchParams(window.location.search || "");
-  return (
-    params.get(EMBED_MODE_QUERY_PARAM) === "1" &&
-    params.has(EMBED_TOKEN_QUERY_PARAM) &&
-    params.get(MCP_APP_CHAT_BRIDGE_QUERY_PARAM) === "1"
-  );
+  if (readEmbedMcpChatBridgeFlagFromUrl()) markEmbedMcpChatBridgeActive();
+  return isEmbedMcpChatBridgeActive() && isEmbedAuthActive();
+}
+
+function isDirectMcpAppEmbedSession(): boolean {
+  if (typeof window === "undefined" || window.parent === window) return false;
+  if (readEmbedMcpChatBridgeFlagFromUrl()) markEmbedMcpChatBridgeActive();
+  return isEmbedAuthActive() && !isEmbedMcpChatBridgeActive();
 }
 
 /**
@@ -140,13 +144,19 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   };
 
   if (opts.submit !== false && isMcpAppChatBridgeEnabled()) {
+    const directHostMessage = sendMcpAppHostMessage({
+      message: opts.message,
+      context: opts.context,
+    });
+    if (directHostMessage) return tabId;
     window.parent.postMessage(payload, getFrameOrigin() || "*");
     return tabId;
   }
 
   const shouldOpenSidebar = opts.openSidebar !== false && !opts.background;
 
-  const targetSelf = !isCodeRequest && isInBuilderFrame();
+  const targetSelf =
+    !isCodeRequest && (isInBuilderFrame() || isDirectMcpAppEmbedSession());
   const target = targetSelf
     ? window
     : window.parent !== window
