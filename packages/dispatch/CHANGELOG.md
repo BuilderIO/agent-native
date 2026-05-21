@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.9
+
+### Patch Changes
+
+- 5173662: Lower default full-app MCP App embeds to a 720px app viewport.
+
 ## 0.8.8
 
 ### Patch Changes
