@@ -107,6 +107,33 @@ describe("dbOpTimeoutMs", () => {
   });
 });
 
+describe("attachNeonPoolErrorLogger", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it("attaches one error listener and logs pool errors without throwing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const on = vi.fn();
+    const pool = { on };
+    const { attachNeonPoolErrorLogger } = await import("./client.js");
+
+    attachNeonPoolErrorLogger(pool, "db/neon-auth");
+    attachNeonPoolErrorLogger(pool, "db/neon-auth");
+
+    expect(on).toHaveBeenCalledTimes(1);
+    expect(on).toHaveBeenCalledWith("error", expect.any(Function));
+
+    const listener = on.mock.calls[0]![1] as (err: unknown) => void;
+    expect(() => listener(new Error("connection dropped"))).not.toThrow();
+    expect(warn).toHaveBeenCalledWith(
+      "[db/neon-auth] pool error (will reconnect on next query):",
+      "connection dropped",
+    );
+  });
+});
+
 describe("withDbTimeout", () => {
   afterEach(() => {
     vi.unstubAllEnvs();

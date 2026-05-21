@@ -1,4 +1,5 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -20,6 +21,15 @@ function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 60);
+}
+
+function formDeepLink(formId: string): string {
+  return buildDeepLink({
+    app: "forms",
+    view: "form",
+    to: `/forms/${encodeURIComponent(formId)}`,
+    params: { formId },
+  });
 }
 
 export default defineAction({
@@ -44,6 +54,17 @@ export default defineAction({
       .optional()
       .describe("Form status"),
   }),
+  mcpApp: {
+    resource: embedApp({
+      title: "Edit form",
+      description:
+        "Open the generated form in the real Forms editor so the user can edit fields, settings, publishing, and integrations.",
+      iframeTitle: "Agent-Native Forms",
+      openLabel: "Open in Forms",
+      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
+      height: 900,
+    }),
+  },
   run: async (args) => {
     const id = nanoid(10);
     const now = new Date().toISOString();
@@ -127,6 +148,15 @@ export default defineAction({
       responseCount: 0,
       createdAt: now,
       updatedAt: now,
+    };
+  },
+  link: ({ result }) => {
+    const id = (result as { id?: string } | null)?.id;
+    if (!id) return null;
+    return {
+      url: formDeepLink(id),
+      label: "Open form in Forms",
+      view: "form",
     };
   },
 });

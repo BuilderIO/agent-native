@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
@@ -23,6 +23,12 @@ function deckDeepLink(deckId: string): string {
     params: { deckId },
   });
 }
+
+const MCP_APP_FRAME_DOMAINS = [
+  "https:",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+];
 
 // In-process serialization per deckId. `add-slide` is intentionally advertised
 // as a sequential write, but the lock still protects against accidental
@@ -81,6 +87,16 @@ export default defineAction({
         "Optional 0-based index to insert at. If not provided, appends to the end of the deck.",
       ),
   }),
+  mcpApp: {
+    resource: embedApp({
+      title: "Deck editor",
+      description: "Open the updated deck in the real Slides editor.",
+      iframeTitle: "Agent-Native Slides",
+      openLabel: "Open deck",
+      frameDomains: MCP_APP_FRAME_DOMAINS,
+      height: 680,
+    }),
+  },
   http: false,
   run: async ({ deckId, content, slideId, layout, notes, position }) =>
     withDeckLock(deckId, async () => {

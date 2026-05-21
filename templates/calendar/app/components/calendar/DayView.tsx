@@ -14,6 +14,7 @@ import {
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
+import { RsvpStatusIcon } from "@/lib/rsvp-status";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { EventDetailPopover } from "./EventDetailPopover";
@@ -280,6 +281,10 @@ export function DayView({
                         className="shrink-0 text-current opacity-70"
                       />
                     )}
+                    <RsvpStatusIcon
+                      status={event.responseStatus}
+                      className="shrink-0"
+                    />
                     <span className="truncate">{event.title}</span>
                   </button>
                 </EventDetailPopover>
@@ -489,6 +494,10 @@ export function DayView({
                           className="shrink-0 text-current opacity-70 relative top-[1px]"
                         />
                       )}
+                      <RsvpStatusIcon
+                        status={event.responseStatus}
+                        className="relative top-[1px] shrink-0"
+                      />
                       <span
                         className={cn(
                           "truncate leading-tight",
@@ -535,6 +544,10 @@ export function DayView({
                             className="shrink-0 text-current opacity-70"
                           />
                         )}
+                        <RsvpStatusIcon
+                          status={event.responseStatus}
+                          className="shrink-0"
+                        />
                         <span className="truncate">{event.title}</span>
                       </div>
                       {isStart && (

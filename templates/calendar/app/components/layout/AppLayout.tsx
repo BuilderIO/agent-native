@@ -290,6 +290,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               {!googleStatus.isLoading &&
               !googleStatus.isError &&
               !hasAccounts &&
+              !eventDraft &&
               isCalendarPage &&
               !isSettingsPage ? (
                 <main className="flex-1 overflow-y-auto">

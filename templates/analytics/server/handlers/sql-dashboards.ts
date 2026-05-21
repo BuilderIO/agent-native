@@ -20,6 +20,7 @@ import { dryRunQuery } from "../lib/bigquery";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { validateFirstPartyAnalyticsSql } from "../lib/first-party-analytics";
 import { parsePanelDescriptor as parsePrometheusPanelDescriptor } from "../lib/prometheus";
+import { loadDashboardSeed } from "../lib/dashboard-seeds";
 
 async function ctxFromEvent(event: any) {
   const ctx = await getOrgContext(event);
@@ -92,6 +93,24 @@ function parseArchivedFilter(raw: unknown): DashboardArchiveFilter {
   return "active";
 }
 
+function isEmptyDashboardConfig(config: Record<string, unknown>): boolean {
+  return !Array.isArray(config.panels) || config.panels.length === 0;
+}
+
+function seededSqlDashboardResponse(
+  id: string,
+  seed: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    id,
+    ...seed,
+    ownerEmail: null,
+    orgId: null,
+    visibility: "org",
+    archivedAt: null,
+  };
+}
+
 export const listSqlDashboards = defineEventHandler(async (event) => {
   try {
     const ctx = await ctxFromEvent(event);
@@ -122,12 +141,19 @@ export const getSqlDashboard = defineEventHandler(async (event) => {
     const ctx = await ctxFromEvent(event);
     const dash = await getDashboard(id, ctx);
     if (!dash || dash.kind !== "sql") {
+      const seed = loadDashboardSeed(id);
+      if (seed) return seededSqlDashboardResponse(id, seed);
       setResponseStatus(event, 404);
       return { error: "Dashboard not found" };
     }
+    const config = dash.config as Record<string, unknown>;
+    if (isEmptyDashboardConfig(config)) {
+      const seed = loadDashboardSeed(id);
+      if (seed) return seededSqlDashboardResponse(id, seed);
+    }
     return {
       id,
-      ...(dash.config as Record<string, unknown>),
+      ...config,
       ownerEmail: dash.ownerEmail,
       orgId: dash.orgId,
       visibility: dash.visibility,

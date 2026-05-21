@@ -176,6 +176,7 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
           attendees: evt.attendees?.map((a: any) => ({
             email: a.email,
             displayName: a.displayName || undefined,
+            comment: a.comment || undefined,
             responseStatus: a.responseStatus || undefined,
             organizer: a.organizer || undefined,
             self: a.self || undefined,

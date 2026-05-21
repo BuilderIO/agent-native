@@ -36,6 +36,8 @@ export interface CalendarEvent {
     email: string;
     displayName?: string;
     photoUrl?: string;
+    /** Google Calendar RSVP note/comment from the attendee */
+    comment?: string;
     responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
     organizer?: boolean;
     self?: boolean;

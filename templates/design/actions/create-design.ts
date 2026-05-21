@@ -1,4 +1,5 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { getDb, schema } from "../server/db/index.js";
@@ -7,6 +8,22 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+
+const MCP_APP_FRAME_DOMAINS = [
+  "https:",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+];
+
+/** Editor deep link so external agents can surface "Open design". */
+function designDeepLink(designId: string): string {
+  return buildDeepLink({
+    app: "design",
+    view: "editor",
+    params: { designId },
+    to: `/design/${encodeURIComponent(designId)}`,
+  });
+}
 
 export default defineAction({
   description:
@@ -33,6 +50,16 @@ export default defineAction({
       .optional()
       .describe("Design system ID to link to this design"),
   }),
+  mcpApp: {
+    resource: embedApp({
+      title: "Design project",
+      description: "Open the new design project in the real Design editor.",
+      iframeTitle: "Agent-Native Design",
+      openLabel: "Open design",
+      frameDomains: MCP_APP_FRAME_DOMAINS,
+      height: 680,
+    }),
+  },
   run: async ({
     id: providedId,
     title,
@@ -70,6 +97,16 @@ export default defineAction({
       projectType,
       renderable: false,
       nextRequiredAction: "generate-design",
+    };
+  },
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const designId = (result as { id?: string }).id;
+    if (!designId) return null;
+    return {
+      url: designDeepLink(designId),
+      label: "Open design",
+      view: "editor",
     };
   },
 });

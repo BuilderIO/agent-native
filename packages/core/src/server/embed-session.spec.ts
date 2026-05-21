@@ -192,6 +192,46 @@ describe("requestMatchesEmbedTarget", () => {
     ).toBe(true);
   });
 
+  it("allows known dashboard alias redirects used by app embeds", () => {
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent(
+          "/adhoc/agent-native-templates-first-party?embedded=1&__an_embed_token=tok",
+        ),
+        "/dashboards",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent(
+          "/adhoc/agent-native-templates-first-party?embedded=1&__an_embed_token=tok",
+        ),
+        "/traffic-dashboard",
+      ),
+    ).toBe(true);
+  });
+
+  it("allows app runtime requests from the embedded target referrer", () => {
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/_agent-native/application-state/compose", {
+          host: "mail.agent-native.com",
+          referer: "https://mail.agent-native.com/inbox?embedded=1",
+        }),
+        "/_agent-native/open?app=mail&view=inbox&composeDraftId=d1",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/api/emails?view=inbox", {
+          host: "mail.agent-native.com",
+          referer: "https://evil.example/inbox?embedded=1",
+        }),
+        "/_agent-native/open?app=mail&view=inbox&composeDraftId=d1",
+      ),
+    ).toBe(false);
+  });
+
   it("does not build thread record paths from unsafe view paths", () => {
     expect(
       requestMatchesEmbedTarget(
