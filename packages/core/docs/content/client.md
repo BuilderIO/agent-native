@@ -73,6 +73,14 @@ navigate(`/inbox/${threadId}`);
 
 Send a message to the agent chat via postMessage. Used to delegate AI tasks from UI interactions.
 
+When the app route is running inside an MCP App embed created with `embedApp()`,
+auto-submitted messages (`submit` omitted or `true`) are forwarded to the
+containing chat client through the MCP Apps `ui/message` bridge when supported.
+`context` is sent first with `ui/update-model-context`, so it remains
+model-visible without being posted as the user-facing message. `submit: false`
+keeps the local prefill/review behavior because MCP Apps do not define a
+standard draft-prefill API.
+
 ```ts
 import { sendToAgentChat } from "@agent-native/core";
 

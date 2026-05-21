@@ -86,9 +86,11 @@ export function embedApp(
     const openButton = document.querySelector("[data-open]");
     const startTool = body.dataset.startTool || "create_embed_session";
     const embedByDefault = body.dataset.embedDefault !== "0";
+    const chatBridgeParam = ${JSON.stringify(MCP_APP_CHAT_BRIDGE_QUERY_PARAM)};
     let toolInput = {};
     let openUrl = "";
     let startedFor = "";
+    let appFrame = null;
 
     function esc(value) {
       return String(value ?? "")
@@ -121,6 +123,20 @@ export function embedApp(
       return metaUrl || data.url || data.deepLink || data.openUrl || "";
     }
 
+    function withChatBridgeParam(value) {
+      if (typeof value !== "string" || !value) return value;
+      try {
+        const base = "http://agent-native.invalid";
+        const url = value.startsWith("/") ? new URL(value, base) : new URL(value);
+        url.searchParams.set(chatBridgeParam, "1");
+        return value.startsWith("/")
+          ? url.pathname + url.search + url.hash
+          : url.toString();
+      } catch {
+        return value;
+      }
+    }
+
     function wantsEmbed() {
       if (toolInput.embed === false || toolInput.embed === "false") return false;
       if (embedByDefault) return true;
@@ -136,8 +152,50 @@ export function embedApp(
       frame.title = body.dataset.iframeTitle || "Agent Native app";
       frame.src = src;
       frame.allow = "clipboard-read; clipboard-write";
+      appFrame = frame;
+      frame.addEventListener("load", () => {
+        const payload = { type: "agentNative.frameOrigin", origin: window.location.origin };
+        [0, 200, 500, 1500].forEach((delay) => {
+          setTimeout(() => {
+            try { frame.contentWindow && frame.contentWindow.postMessage(payload, "*"); } catch {}
+          }, delay);
+        });
+      });
       stage.replaceChildren(frame);
     }
+
+    async function sendHostChat(chat) {
+      if (!chat || chat.submit === false) return;
+      const message = typeof chat.message === "string" ? chat.message : "";
+      if (!message.trim()) return;
+      const context = typeof chat.context === "string" ? chat.context : "";
+      if (context.trim()) {
+        try {
+          await app.updateModelContext({
+            content: [{ type: "text", text: context }]
+          });
+        } catch (err) {
+          console.warn("[agent-native] MCP host rejected model context update", err);
+        }
+      }
+      try {
+        const result = await app.sendMessage({
+          role: "user",
+          content: [{ type: "text", text: message }]
+        });
+        if (result && result.isError) {
+          console.warn("[agent-native] MCP host rejected chat message", result);
+        }
+      } catch (err) {
+        console.warn("[agent-native] MCP host chat bridge failed", err);
+      }
+    }
+
+    window.addEventListener("message", (event) => {
+      if (!appFrame || event.source !== appFrame.contentWindow) return;
+      if (!event.data || event.data.type !== "agentNative.submitChat") return;
+      void sendHostChat(event.data.data || {});
+    });
 
     async function launchEmbed() {
       if (!openUrl) {
@@ -152,10 +210,11 @@ export function embedApp(
       startedFor = openUrl;
       setMessage("Loading app");
       try {
+        const embedUrl = withChatBridgeParam(openUrl);
         const result = await app.callServerTool({
           name: startTool,
           arguments: {
-            url: openUrl,
+            url: embedUrl,
             chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
           }
         });

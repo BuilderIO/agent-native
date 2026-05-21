@@ -14,7 +14,12 @@ describe("embedApp", () => {
 
     expect(html).toContain("create_embed_session");
     expect(html).toContain("app.callServerTool");
+    expect(html).toContain("app.updateModelContext");
+    expect(html).toContain("app.sendMessage");
     expect(html).toContain('document.createElement("iframe")');
+    expect(html).toContain('"agentNative.submitChat"');
+    expect(html).toContain('"agentNative.frameOrigin"');
+    expect(html).toContain("__an_mcp_chat_bridge");
     expect(html).toContain('data-app-title="Dashboard"');
     expect(html).toContain("data-title-label>Dashboard");
     expect(html).toContain('document.querySelector("[data-title-label]")');

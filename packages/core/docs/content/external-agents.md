@@ -314,6 +314,12 @@ The MCP server advertises extension `io.modelcontextprotocol/ui`, adds `_meta.ui
 
 Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. `embedApp()` uses that link as its launch target, calls the app-only `create_embed_session` helper, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and loads the target route in an iframe with a short-lived browser session plus a bearer fallback for same-origin fetches. `open_app({ app, path, embed: true })` is the generic escape hatch for routes such as full dashboards, filtered inboxes, calendar draft views, analyses, and extension pages, and should be used liberally when the full app is the clearest review/edit surface.
 
+Inside those `embedApp()` full-app iframes, `sendToAgentChat()` is host-aware:
+auto-submitted prompts are relayed to the containing MCP Apps chat host with
+`ui/update-model-context` for hidden context and `ui/message` for the visible
+user turn. Hosts without MCP Apps messaging support simply ignore the bridge,
+and `submit: false` remains a local review/prefill path.
+
 ### The `link` contract {#link-contract}
 
 The `link` builder is **pure and synchronous — no I/O, no awaits**. It runs best-effort: a throw, `null`, or `undefined` is swallowed and **never** fails the tool call. It only reads the call's `args` and `result`; it must not query the DB, read app-state, or call other actions. Return `null` when there's nothing to open.
