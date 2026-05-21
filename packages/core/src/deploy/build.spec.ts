@@ -270,7 +270,9 @@ describe("runNitroBuildPipeline", () => {
   });
 
   function setupFixture() {
-    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-nitro-pipeline-"));
+    const cwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-nitro-pipeline-"),
+    );
     dirs.push(cwd);
 
     // Simulate a React Router client build with a hashed asset chunk.
@@ -354,7 +356,9 @@ describe("runNitroBuildPipeline", () => {
   });
 
   it("skips the client copy when the React Router build is absent", async () => {
-    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-nitro-pipeline-"));
+    const cwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-nitro-pipeline-"),
+    );
     dirs.push(cwd);
     const publicOutputDir = path.join(cwd, ".output", "public");
     fs.mkdirSync(publicOutputDir, { recursive: true });
