@@ -21,6 +21,9 @@ import { getSentryClientConfigScript } from "./sentry-config.js";
 import { getSession } from "./auth.js";
 import { runWithRequestContext } from "./request-context.js";
 
+export const DEFAULT_SSR_CACHE_CONTROL =
+  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+
 /**
  * Read the active org for a request without forcing every template to bundle
  * the org module. Mirrors what `core-routes-plugin` does for action handlers.
@@ -135,6 +138,21 @@ function injectHeadScript(html: string, script: string | null): string {
   return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
 }
 
+function requestHasAuthSignal(event: H3Event): boolean {
+  const headers = event.req.headers;
+  return Boolean(headers.get("authorization") || headers.get("cookie"));
+}
+
+function applyDefaultSsrCacheHeader(headers: Headers, status: number) {
+  if (headers.has("cache-control")) return;
+  if (status < 200 || status >= 400) return;
+
+  const contentType = headers.get("content-type")?.toLowerCase() ?? "";
+  if (!contentType.includes("text/html")) return;
+
+  headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
+}
+
 function isFrameworkOrAssetPath(pathname: string): boolean {
   return (
     pathname.startsWith("/.well-known/") ||
@@ -158,12 +176,20 @@ async function rewriteMountedResponse(
   basePath: string,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
-  if (!basePath && !sentryClientConfigScript) return response;
-
   const headers = new Headers(response.headers);
+  applyDefaultSsrCacheHeader(headers, response.status);
+
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
     headers.set("location", prefixMountedPath(location, basePath));
+  }
+
+  if (!basePath && !sentryClientConfigScript) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   }
 
   const contentType = headers.get("content-type") ?? "";
@@ -210,10 +236,12 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       // unauthenticated branch even when the user is logged in — which broke
       // shared-deck "Presentation link" access for non-public decks.
       let session: Awaited<ReturnType<typeof getSession>> | null = null;
-      try {
-        session = await getSession(event);
-      } catch {
-        // Auth lookup failures must not break SSR; treat as unauthenticated.
+      if (requestHasAuthSignal(event)) {
+        try {
+          session = await getSession(event);
+        } catch {
+          // Auth lookup failures must not break SSR; treat as unauthenticated.
+        }
       }
       const orgId = session?.email ? await readOrgIdForEvent(event) : undefined;
       const ctx = {

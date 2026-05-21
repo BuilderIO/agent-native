@@ -8,6 +8,9 @@ import {
   runNitroBuildPipeline,
 } from "./build.js";
 
+const DEFAULT_SSR_CACHE_CONTROL =
+  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+
 const tempDirs: string[] = [];
 
 function makeTempDir(): string {
@@ -155,6 +158,9 @@ export default (event) =>
     expect(html).toContain('href="/docs/next"');
     expect(html).toContain('action="/docs/api/search"');
     expect(html).toContain('url("/docs/hero.png")');
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
 
     const redirect = await worker.fetch(
       new Request("https://app.test/docs/redirect", { method: "GET" }),

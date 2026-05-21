@@ -5,6 +5,12 @@ const headers = new Map<string, string>();
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getCookie: (event: any, name: string) => event.cookies?.[name],
+  getHeader: (event: any, name: string) =>
+    event.headers?.get?.(name) ??
+    event.headers?.[name] ??
+    event.headers?.[name.toLowerCase()] ??
+    event.node?.req?.headers?.[name] ??
+    event.node?.req?.headers?.[name.toLowerCase()],
   getQuery: (event: any) => event.query ?? {},
   setResponseHeader: (_event: any, name: string, value: string) => {
     headers.set(name, value);
@@ -92,6 +98,35 @@ describe("security headers middleware", () => {
     expect(headers.get("Referrer-Policy")).toBe("no-referrer");
     expect(headers.get("Cross-Origin-Embedder-Policy")).toBe("require-corp");
     expect(headers.get("Cross-Origin-Resource-Policy")).toBe("cross-origin");
+    vi.unstubAllEnvs();
+  });
+
+  it("allows Claude MCP content frames to fetch embed-token page HTML", () => {
+    headers.clear();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("OAUTH_STATE_SECRET", "embed-test-secret");
+    const token = signEmbedSessionToken({
+      ownerEmail: "user@example.test",
+      targetPath: "/inbox",
+      ttlSeconds: 60,
+    });
+
+    const handler = createSecurityHeadersMiddleware();
+    handler({
+      path: "/inbox",
+      query: { __an_embed_token: token },
+      url: { protocol: "https:" },
+      headers: new Headers({
+        origin: "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+      }),
+      node: { req: { headers: {} } },
+    });
+
+    expect(headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+    );
+    expect(headers.get("Access-Control-Allow-Credentials")).toBeUndefined();
+    expect(headers.get("Vary")).toBe("Origin");
     vi.unstubAllEnvs();
   });
 });

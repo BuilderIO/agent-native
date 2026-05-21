@@ -282,7 +282,6 @@ export default defineAction({
       description: "Open the generated draft in the real Mail compose UI.",
       iframeTitle: "Agent-Native Mail",
       openLabel: "Open in Mail",
-      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
     }),
   },
 });
@@ -306,10 +305,13 @@ App resource frame itself to the real app route with a short-lived browser
 session. This avoids the fragile "iframe inside the host's iframe" shape that
 Claude and some ChatGPT surfaces block or paint blank. A nested iframe remains
 available only as an explicit diagnostic fallback (`embedMode: "iframe"` /
-`renderMode: "iframe"` / `nested: true`). `open_app({ app, path, embed: true })`
-is the generic escape hatch for routes like full dashboards, filtered inboxes,
-calendar drafts, analyses, or extension pages, and should be used liberally
-when the full app is the clearest review/edit surface.
+`renderMode: "iframe"` / `nested: true`); pass `frameDomains` only for that
+diagnostic or for a custom MCP App that truly embeds a third-party frame.
+Claude currently restricts third-party `frameDomains`, so normal product UI
+must stay on the direct route-navigation path. `open_app({ app, path, embed:
+true })` is the generic escape hatch for routes like full dashboards, filtered
+inboxes, calendar drafts, analyses, or extension pages, and should be used
+liberally when the full app is the clearest review/edit surface.
 
 For known first-party handoffs, prefer a direct action with `mcpApp` over
 letting the model hunt through screens. Examples: Mail `manage-draft` for email

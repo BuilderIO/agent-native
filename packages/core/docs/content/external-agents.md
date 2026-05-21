@@ -234,11 +234,14 @@ concise structured content.
 
 An explicit nested iframe diagnostic path remains available with
 `embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true`, or
-`frame: "iframe"`. Use it only when debugging host behavior. If that diagnostic
-iframe is blocked, `embedApp()` replaces it with an open-app fallback: the user
-can retry inline, open a freshly minted embed session through the host, or use
-the visible route URL. Keep the action's `link` target useful on its own because
-it is still the universal escape hatch.
+`frame: "iframe"`. Use it only when debugging host behavior, and pass
+`frameDomains` explicitly if the target host supports nested third-party
+frames. Claude currently restricts `frameDomains`, so the default route is the
+direct frame navigation path. If that diagnostic iframe is blocked,
+`embedApp()` replaces it with an open-app fallback: the user can retry inline,
+open a freshly minted embed session through the host, or use the visible route
+URL. Keep the action's `link` target useful on its own because it is still the
+universal escape hatch.
 
 The host bridge is deliberately small:
 
@@ -352,7 +355,6 @@ export default defineAction({
       description: "Open the generated draft in the real Mail compose UI.",
       iframeTitle: "Agent-Native Mail",
       openLabel: "Open in Mail",
-      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
     }),
   },
 });
@@ -361,6 +363,11 @@ export default defineAction({
 The MCP server advertises extension `io.modelcontextprotocol/ui`, adds `_meta.ui.resourceUri` plus `_meta["ui/resourceUri"]` to `tools/list`, and also emits ChatGPT Apps SDK compatibility metadata (`openai/outputTemplate`, widget CSP/description/accessibility). It exposes the HTML through `resources/list`, `resources/templates/list`, and `resources/read` using MIME `text/html;profile=mcp-app`. The stdio proxy forwards those resource handlers from the live app, so desktop and CLI clients see the same resources as HTTP clients.
 
 Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. `embedApp()` uses that link as its launch target, calls the app-only `create_embed_session` helper, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the target route with a short-lived browser session plus a bearer fallback for same-origin fetches. `open_app({ app, path, embed: true })` is the generic escape hatch for routes such as full dashboards, filtered inboxes, calendar draft views, analyses, and extension pages, and should be used liberally when the full app is the clearest review/edit surface.
+
+`embedApp()` does not request `frameDomains` by default. That keeps Claude and
+other hosts on the supported single-frame path. Only pass `frameDomains` for an
+explicit nested-iframe diagnostic or for a custom MCP App that truly embeds a
+third-party player.
 
 Inside those `embedApp()` routes, `sendToAgentChat()` is embed-aware.
 Auto-submitted prompts relay to the MCP host as `ui/update-model-context` plus

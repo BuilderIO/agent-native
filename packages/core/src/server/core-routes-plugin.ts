@@ -23,6 +23,12 @@ import { createPollHandler } from "./poll.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
+import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import {
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+  shouldAllowMcpEmbedCredentials,
+} from "../shared/mcp-embed-headers.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -496,18 +502,41 @@ export function createCoreRoutesPlugin(
             String(event.node?.req?.url ?? event.path ?? "/").split("?")[0],
         );
         if (!pathname.startsWith(P) && !pathname.startsWith("/api/")) return;
-        const origin = getHeader(event, "origin");
+        const readRequestHeader = (name: string): string | undefined => {
+          const lower = name.toLowerCase();
+          const raw =
+            (event as any).node?.req?.headers?.[lower] ??
+            (event as any).node?.req?.headers?.[name];
+          if (Array.isArray(raw)) return raw[0];
+          if (typeof raw === "string") return raw;
+          return getHeader(event, name) ?? undefined;
+        };
+        const origin = readRequestHeader("origin");
         const method = getMethod(event);
+        const requestedHeaders = readRequestHeader(
+          "access-control-request-headers",
+        );
+        const requestedHeaderNames = String(requestedHeaders ?? "")
+          .toLowerCase()
+          .split(",")
+          .map((header) => header.trim());
+        const mcpEmbedCorsRequest =
+          isMcpEmbedCorsOrigin(origin) &&
+          (requestedHeaderNames.includes(EMBED_TARGET_HEADER.toLowerCase()) ||
+            Boolean(readRequestHeader(EMBED_TARGET_HEADER)) ||
+            Boolean(readRequestHeader("authorization")));
 
         // Decide whether this origin is allowed. We never fall back to the
         // first allowlist entry — that previously echoed `Access-Control-
         // Allow-Origin: <unrelated-allowed-origin>` for disallowed callers,
         // which is permissive enough that some clients followed through.
-        const allowedOrigin = getAllowedCorsOrigin(origin, {
-          allowedOrigins: allowlist,
-          allowAnyOriginWhenNoAllowlist: false,
-          allowLocalhostWhenNoAllowlist: true,
-        });
+        const allowedOrigin = mcpEmbedCorsRequest
+          ? origin
+          : getAllowedCorsOrigin(origin, {
+              allowedOrigins: allowlist,
+              allowAnyOriginWhenNoAllowlist: false,
+              allowLocalhostWhenNoAllowlist: true,
+            });
 
         // Reject preflights from disallowed cross-origin callers BEFORE
         // returning 204. Previously the OPTIONS short-circuit returned 204
@@ -526,11 +555,13 @@ export function createCoreRoutesPlugin(
               allowedOrigin,
             );
             setResponseHeader(event, "Vary", "Origin");
-            setResponseHeader(
-              event,
-              "Access-Control-Allow-Credentials",
-              "true",
-            );
+            if (shouldAllowMcpEmbedCredentials(allowedOrigin)) {
+              setResponseHeader(
+                event,
+                "Access-Control-Allow-Credentials",
+                "true",
+              );
+            }
             setResponseHeader(
               event,
               "Access-Control-Allow-Methods",
@@ -539,7 +570,7 @@ export function createCoreRoutesPlugin(
             setResponseHeader(
               event,
               "Access-Control-Allow-Headers",
-              "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+              MCP_EMBED_CORS_ALLOW_HEADERS,
             );
           }
           setResponseStatus(event, 204);
@@ -553,7 +584,9 @@ export function createCoreRoutesPlugin(
         if (!allowedOrigin) return;
         setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
         setResponseHeader(event, "Vary", "Origin");
-        setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+        if (shouldAllowMcpEmbedCredentials(allowedOrigin)) {
+          setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+        }
         setResponseHeader(
           event,
           "Access-Control-Allow-Methods",
@@ -562,7 +595,7 @@ export function createCoreRoutesPlugin(
         setResponseHeader(
           event,
           "Access-Control-Allow-Headers",
-          "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+          MCP_EMBED_CORS_ALLOW_HEADERS,
         );
       }),
     );

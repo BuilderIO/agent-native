@@ -29,6 +29,11 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
     expect(html).toContain("shouldSelfNavigateToApp");
     expect(html).toContain("window.location.replace(src)");
+    expect(html).toContain("isClaudeMcpContentHost");
+    expect(html).toContain("transplantAppDocument");
+    expect(html).toContain("document.write(prepared)");
+    expect(html).toContain("__AGENT_NATIVE_EXTERNAL_EMBED");
+    expect(html).toContain("claudemcpcontent");
     expect(html).toContain("const embedUrl = withChatBridgeParam(openUrl)");
     expect(html).toContain('typeof data.startUrl !== "string"');
     expect(html).toContain("if (selfNavigate)");
@@ -53,17 +58,24 @@ describe("embedApp", () => {
     );
     expect(html).toContain("min-height: 764px");
     expect(html).toContain("height: 720px");
-    expect(resource.csp?.frameDomains).toContain(
-      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-    );
+    expect(resource.csp?.frameDomains).toBeUndefined();
     expect(resource.csp?.resourceDomains).toContain(
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
     );
     expect(resource.csp?.resourceDomains).toContain("https://esm.sh");
+    expect(resource.csp?.connectDomains).toContain(
+      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+    );
+    expect(resource.csp?.baseUriDomains).toEqual([
+      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+    ]);
   });
 
   it("retains nested iframe mode as an explicit diagnostic fallback", () => {
-    const resource = embedApp({ title: "Dashboard" });
+    const resource = embedApp({
+      title: "Dashboard",
+      frameDomains: ["https://analytics.example.com"],
+    });
     const html =
       typeof resource.html === "function"
         ? resource.html({ actionName: "open_app", appId: "analytics" })
@@ -80,6 +92,10 @@ describe("embedApp", () => {
     expect(html).toContain('toolInput.frame === "iframe"');
     expect(html).toContain('"agentNative.frameOrigin"');
     expect(html).toContain('"agentNative.embeddedAppReady"');
+    expect(resource.csp?.frameDomains).toEqual([
+      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+      "https://analytics.example.com",
+    ]);
   });
 
   it("checks for ChatGPT's window.openai bridge before loading the standard bridge module", () => {
@@ -129,11 +145,15 @@ describe("embedApp", () => {
           ui: {
             prefersBorder: false,
             csp: {
-              frameDomains: [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE],
               resourceDomains: [
                 "https://esm.sh",
                 MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
               ],
+              connectDomains: [
+                "https://esm.sh",
+                MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+              ],
+              baseUriDomains: [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE],
             },
           },
         },

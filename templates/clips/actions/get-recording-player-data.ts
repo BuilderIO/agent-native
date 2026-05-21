@@ -30,12 +30,6 @@ import {
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
 
-const MCP_APP_FRAME_DOMAINS = [
-  "https:",
-  "http://localhost:*",
-  "http://127.0.0.1:*",
-];
-
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
     app: "clips",
@@ -57,7 +51,6 @@ export default defineAction({
       description: "Open this recording in the real Clips player.",
       iframeTitle: "Agent-Native Clips",
       openLabel: "Open clip",
-      frameDomains: MCP_APP_FRAME_DOMAINS,
       height: 680,
     }),
   },

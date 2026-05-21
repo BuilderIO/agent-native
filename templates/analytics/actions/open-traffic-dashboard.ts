@@ -4,11 +4,6 @@ import { z } from "zod";
 
 const TRAFFIC_DASHBOARD_PATH = "/adhoc/agent-native-templates-first-party";
 const TRAFFIC_DASHBOARD_ID = "agent-native-templates-first-party";
-const MCP_APP_FRAME_DOMAINS = [
-  "https:",
-  "http://localhost:*",
-  "http://127.0.0.1:*",
-];
 
 function trafficDashboardDeepLink(): string {
   return buildDeepLink({
@@ -33,7 +28,6 @@ export default defineAction({
         "Open the first-party traffic dashboard in the real Analytics app.",
       iframeTitle: "Agent-Native Analytics",
       openLabel: "Open traffic dashboard",
-      frameDomains: MCP_APP_FRAME_DOMAINS,
       height: 900,
     }),
   },

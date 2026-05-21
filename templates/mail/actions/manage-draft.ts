@@ -116,7 +116,6 @@ export default defineAction({
         "Open the generated draft in the real Mail compose UI with contact autocomplete, aliases, formatting, attachments, and sending controls.",
       iframeTitle: "Agent-Native Mail",
       openLabel: "Open in Mail",
-      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
       height: 900,
     }),
   },

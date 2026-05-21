@@ -104,6 +104,10 @@ keeps the old wrapper-to-route postMessage relay:
 | route → wrapper | `agentNative.mcpHost.requestDisplayMode` | `{ requestId, mode }`                         |
 | wrapper → route | `agentNative.mcpHost.response`           | `{ requestId, ok, result?, error? }`          |
 
+`embedApp()` only includes `frameDomains` when you pass them explicitly.
+Claude currently restricts third-party nested iframe domains, so normal
+full-app embeds should stay on the direct route-navigation path.
+
 Host-mediated open links keep the iframe from choosing its own browser target.
 Model context updates are opt-in and hidden from the user-facing transcript.
 Display mode requests are best-effort: a host can honor, ignore, or reject the

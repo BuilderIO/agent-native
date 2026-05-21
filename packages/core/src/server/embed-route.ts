@@ -1,5 +1,11 @@
 import type { H3Event } from "h3";
-import { defineEventHandler, getMethod, getQuery, setResponseHeader } from "h3";
+import {
+  defineEventHandler,
+  getHeader,
+  getMethod,
+  getQuery,
+  setResponseHeader,
+} from "h3";
 import {
   consumeEmbedSessionTicket,
   normalizeEmbedTargetPath,
@@ -13,6 +19,10 @@ import {
   EMBED_START_PATH,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import {
+  isClaudeMcpContentOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+} from "../shared/mcp-embed-headers.js";
 import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
 
 function withConfiguredBasePath(path: string): string {
@@ -35,12 +45,7 @@ function redirectWithStagedCookies(
   status = 302,
 ): Response {
   setEmbedStartResponseHeaders(event);
-  const headers = new Headers({
-    "Cross-Origin-Embedder-Policy": "require-corp",
-    "Cross-Origin-Opener-Policy": "same-origin",
-    "Cross-Origin-Resource-Policy": "cross-origin",
-    Location: location,
-  });
+  const headers = embedStartResponseHeaders(event, { Location: location });
   const staged = event.res?.headers?.getSetCookie?.() ?? [];
   for (const cookie of staged) headers.append("set-cookie", cookie);
   headers.set("Referrer-Policy", "no-referrer");
@@ -51,6 +56,48 @@ function setEmbedStartResponseHeaders(event: H3Event): void {
   setResponseHeader(event, "Cross-Origin-Embedder-Policy", "require-corp");
   setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
   setResponseHeader(event, "Cross-Origin-Resource-Policy", "cross-origin");
+  const origin = embedStartCorsOrigin(event);
+  if (origin) {
+    setResponseHeader(event, "Access-Control-Allow-Origin", origin);
+    setResponseHeader(event, "Vary", "Origin");
+    setResponseHeader(
+      event,
+      "Access-Control-Allow-Methods",
+      "GET,HEAD,OPTIONS",
+    );
+    setResponseHeader(
+      event,
+      "Access-Control-Allow-Headers",
+      MCP_EMBED_CORS_ALLOW_HEADERS,
+    );
+    setResponseHeader(event, "Access-Control-Expose-Headers", "Location");
+  }
+}
+
+function embedStartCorsOrigin(event: H3Event): string | null {
+  const origin = getHeader(event, "origin");
+  return isClaudeMcpContentOrigin(origin) ? origin : null;
+}
+
+function embedStartResponseHeaders(
+  event: H3Event,
+  init: Record<string, string> = {},
+): Headers {
+  const headers = new Headers({
+    "Cross-Origin-Embedder-Policy": "require-corp",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    ...init,
+  });
+  const origin = embedStartCorsOrigin(event);
+  if (origin) {
+    headers.set("Access-Control-Allow-Origin", origin);
+    headers.set("Vary", "Origin");
+    headers.set("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
+    headers.set("Access-Control-Allow-Headers", MCP_EMBED_CORS_ALLOW_HEADERS);
+    headers.set("Access-Control-Expose-Headers", "Location");
+  }
+  return headers;
 }
 
 function textResponse(
@@ -61,12 +108,9 @@ function textResponse(
   setEmbedStartResponseHeaders(event);
   return new Response(message, {
     status,
-    headers: {
+    headers: embedStartResponseHeaders(event, {
       "Content-Type": "text/plain; charset=utf-8",
-      "Cross-Origin-Embedder-Policy": "require-corp",
-      "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Resource-Policy": "cross-origin",
-    },
+    }),
   });
 }
 
@@ -84,16 +128,23 @@ export function createEmbedStartRouteHandler(
 ) {
   return defineEventHandler(async (event: H3Event) => {
     const method = getMethod(event);
+    if (method === "OPTIONS") {
+      setEmbedStartResponseHeaders(event);
+      return new Response(null, {
+        status: 204,
+        headers: embedStartResponseHeaders(event, {
+          "Cache-Control": "no-store",
+        }),
+      });
+    }
+
     if (method === "HEAD") {
       setEmbedStartResponseHeaders(event);
       return new Response(null, {
         status: 204,
-        headers: {
+        headers: embedStartResponseHeaders(event, {
           "Cache-Control": "no-store",
-          "Cross-Origin-Embedder-Policy": "require-corp",
-          "Cross-Origin-Opener-Policy": "same-origin",
-          "Cross-Origin-Resource-Policy": "cross-origin",
-        },
+        }),
       });
     }
 

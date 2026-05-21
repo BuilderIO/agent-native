@@ -1,15 +1,22 @@
 import { createAuthPlugin } from "@agent-native/core/server";
-import { getCookie, setCookie } from "h3";
+import { getCookie, getRequestURL, setCookie, type H3Event } from "h3";
 import { randomUUID } from "crypto";
+
+function shouldCreateDocsSession(event: H3Event): boolean {
+  const pathname = getRequestURL(event).pathname;
+  return pathname.startsWith("/_agent-native/") || pathname.startsWith("/api/");
+}
 
 export default createAuthPlugin({
   getSession: async (event) => {
     const cookieName = "an_docs_session";
-    let sessionId = getCookie(event as any, cookieName);
+    let sessionId = getCookie(event, cookieName);
 
     if (!sessionId) {
+      if (!shouldCreateDocsSession(event)) return null;
+
       sessionId = randomUUID();
-      setCookie(event as any, cookieName, sessionId, {
+      setCookie(event, cookieName, sessionId, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",

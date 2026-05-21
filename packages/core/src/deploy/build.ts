@@ -33,9 +33,12 @@ import {
   type WorkspaceCoreExports,
 } from "./workspace-core.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+const DEFAULT_SSR_CACHE_CONTROL =
+  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 
 function normalizeConfiguredAppBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH;
@@ -302,14 +305,34 @@ function injectHeadScript(html, script) {
   return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
 }
 
+const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
+
+function applyDefaultSsrCacheHeader(headers, status) {
+  if (headers.has("cache-control")) return;
+  if (status < 200 || status >= 400) return;
+
+  const contentType = (headers.get("content-type") || "").toLowerCase();
+  if (!contentType.includes("text/html")) return;
+
+  headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
+}
+
 async function rewriteMountedResponse(response, basePath) {
   const sentryClientConfigScript = getSentryClientConfigScript();
-  if (!basePath && !sentryClientConfigScript) return response;
-
   const headers = new Headers(response.headers);
+  applyDefaultSsrCacheHeader(headers, response.status);
+
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
     headers.set("location", prefixMountedPath(location, basePath));
+  }
+
+  if (!basePath && !sentryClientConfigScript) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   }
 
   const contentType = headers.get("content-type") || "";
@@ -381,7 +404,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -1296,6 +1319,7 @@ export default bundle;
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
+    routeRules: mcpEmbedStaticAssetRouteRules(appBasePath),
     // For edge presets (cloudflare, deno), bundle all deps — node_modules
     // aren't available at runtime. Netlify/Vercel/Node have node_modules.
     ...(preset.startsWith("cloudflare") || preset.startsWith("deno")

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createH3SSRHandler } from "./ssr-handler.js";
+import {
+  createH3SSRHandler,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "./ssr-handler.js";
 
 const mocks = vi.hoisted(() => {
   const requestHandler = vi.fn(async (request: Request) => {
@@ -8,11 +11,16 @@ const mocks = vi.hoisted(() => {
       headers: { "x-rr-path": url.pathname },
     });
   });
-  return { requestHandler };
+  const getSession = vi.fn(async () => null);
+  return { getSession, requestHandler };
 });
 
 vi.mock("react-router", () => ({
   createRequestHandler: vi.fn(() => mocks.requestHandler),
+}));
+
+vi.mock("./auth.js", () => ({
+  getSession: mocks.getSession,
 }));
 
 function createEvent(pathname: string, method = "GET", init: RequestInit = {}) {
@@ -31,6 +39,7 @@ describe("createH3SSRHandler", () => {
     delete process.env.SENTRY_DSN;
     delete process.env.SENTRY_ENVIRONMENT;
     mocks.requestHandler.mockClear();
+    mocks.getSession.mockClear();
   });
 
   it("strips APP_BASE_PATH before handing requests to React Router", async () => {
@@ -86,6 +95,63 @@ describe("createH3SSRHandler", () => {
     expect(response.headers.get("x-rr-path")).toBe("/settings");
     await expect(response.text()).resolves.toBe("");
     expect(mocks.requestHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies the default public SSR cache policy to HTML responses", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/"));
+
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
+  });
+
+  it("preserves explicit SSR cache policies from routes", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: {
+          "cache-control": "private, no-store",
+          "content-type": "text/html; charset=utf-8",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/"));
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("does not resolve auth for anonymous SSR page requests", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    await handler(createEvent("/"));
+
+    expect(mocks.getSession).not.toHaveBeenCalled();
+  });
+
+  it("resolves auth context when an SSR page request carries credentials", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    await handler(createEvent("/", "GET", { headers: { cookie: "sid=1" } }));
+
+    expect(mocks.getSession).toHaveBeenCalledTimes(1);
   });
 
   it("does not SSR framework routes under APP_BASE_PATH", async () => {

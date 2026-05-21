@@ -42,6 +42,10 @@ export function embedApp(
     Math.min(900, options.height ?? DEFAULT_MCP_APP_SHELL_HEIGHT),
   );
   const viewportHeight = height - MCP_APP_WRAPPER_CHROME_HEIGHT;
+  const frameDomains =
+    options.frameDomains && options.frameDomains.length > 0
+      ? [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE, ...options.frameDomains]
+      : undefined;
 
   return {
     title,
@@ -210,6 +214,103 @@ export function embedApp(
       } catch {
         return value;
       }
+    }
+
+    function isClaudeMcpContentHost() {
+      return /^[a-f0-9]{32}\\.claudemcpcontent\\.com$/i.test(window.location.hostname);
+    }
+
+    function localPathFromUrl(url, includeToken) {
+      const next = new URL(url.href);
+      if (!includeToken) next.searchParams.delete("__an_embed_token");
+      return next.pathname + next.search + next.hash;
+    }
+
+    function rewriteRootRelativeHtmlUrls(html, appOrigin) {
+      return String(html).replace(
+        /\\b(src|href|poster|action)\\s*=\\s*(["'])\\/(?!\\/)/gi,
+        (_match, name, quote) => String(name) + "=" + quote + appOrigin + "/"
+      );
+    }
+
+    function removeHtmlCspMeta(html) {
+      return String(html).replace(
+        /<meta\\s+[^>]*http-equiv\\s*=\\s*(["'])?content-security-policy\\1?[^>]*>/gi,
+        ""
+      );
+    }
+
+    function safeJsonForInlineScript(value) {
+      return JSON.stringify(value).replace(/</g, "\\\\u003c");
+    }
+
+    function externalEmbedBootstrapMarkup(config) {
+      const json = safeJsonForInlineScript(config);
+      const script =
+        '<script>' +
+        '(function(){' +
+        'var config=' + json + ';' +
+        'window.__AGENT_NATIVE_EXTERNAL_EMBED=config;' +
+        'try{' +
+        'if(config.token){sessionStorage.setItem("agent-native:embed-auth-token",config.token);}' +
+        'if(config.chatBridgeActive&&config.token){sessionStorage.setItem("agent-native:mcp-chat-bridge",config.token);}' +
+        '}catch(_err){}' +
+        'function appOrigin(){try{return new URL(config.origin).origin;}catch(_err){return "";}}' +
+        'function targetPath(){return config.target||location.pathname+location.search;}' +
+        'function rewrittenUrl(value,appendToken){var origin=appOrigin();if(!origin)return null;var url;try{url=new URL(value,location.href);}catch(_err){return null;}if(url.origin!==location.origin&&url.origin!==origin)return null;if(url.origin!==origin){var app=new URL(origin);url.protocol=app.protocol;url.host=app.host;}if(appendToken&&config.token&&url.pathname==="/_agent-native/events"){url.searchParams.set(config.embedTokenParam,config.token);}return url.toString();}' +
+        'function authHeaders(input,init){var headers=new Headers(init&&init.headers?init.headers:(input instanceof Request?input.headers:undefined));if(config.token&&!headers.has("Authorization"))headers.set("Authorization","Bearer "+config.token);if(!headers.has(config.embedTargetHeader))headers.set(config.embedTargetHeader,targetPath());return headers;}' +
+        'if(typeof fetch==="function"){var originalFetch=fetch.bind(window);window.fetch=function(input,init){var raw=input instanceof Request?input.url:String(input);var url=rewrittenUrl(raw,false);if(!url)return originalFetch(input,init);var nextInit=Object.assign({},init||{},{headers:authHeaders(input,init),credentials:"omit"});if(input instanceof Request){return originalFetch(new Request(url,input),nextInit);}return originalFetch(url,nextInit);};}' +
+        'if(typeof XMLHttpRequest!=="undefined"){var originalOpen=XMLHttpRequest.prototype.open;var originalSend=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(method,url){var rewritten=rewrittenUrl(url,false);this.__agentNativeExternalEmbed=!!rewritten;return originalOpen.call(this,method,rewritten||url,arguments.length>2?arguments[2]:true,arguments[3],arguments[4]);};XMLHttpRequest.prototype.send=function(body){if(this.__agentNativeExternalEmbed){try{if(config.token)this.setRequestHeader("Authorization","Bearer "+config.token);this.setRequestHeader(config.embedTargetHeader,targetPath());}catch(_err){}}return originalSend.call(this,body);};}' +
+        'if(typeof EventSource!=="undefined"){var OriginalEventSource=EventSource;window.EventSource=function(url,options){return new OriginalEventSource(rewrittenUrl(url,true)||url,options);};window.EventSource.prototype=OriginalEventSource.prototype;}' +
+        '})();' +
+        '<\\/script>';
+      return script + '<base href="' + esc(config.baseHref) + '">';
+    }
+
+    function prepareTransplantedHtml(html, appUrl) {
+      const sanitizedTarget = localPathFromUrl(appUrl, false);
+      const config = {
+        origin: appUrl.origin,
+        href: appUrl.href,
+        baseHref: appUrl.origin + appUrl.pathname,
+        target: sanitizedTarget,
+        token: appUrl.searchParams.get("__an_embed_token") || "",
+        chatBridgeActive: appUrl.searchParams.get(chatBridgeParam) === "1",
+        chatBridgeParam,
+        embedTokenParam: "__an_embed_token",
+        embedTargetHeader: "x-agent-native-embed-target"
+      };
+      const bootstrap = externalEmbedBootstrapMarkup(config);
+      const rewritten = rewriteRootRelativeHtmlUrls(removeHtmlCspMeta(html), appUrl.origin);
+      if (/<head[\\s>]/i.test(rewritten)) {
+        return rewritten.replace(/<head([^>]*)>/i, "<head$1>" + bootstrap);
+      }
+      return bootstrap + rewritten;
+    }
+
+    async function transplantAppDocument(src) {
+      clearFrameReadyTimer();
+      clearFrameLoadTimer();
+      appFrame = null;
+      lastFrameSrc = src;
+      setMessage("Loading app");
+      const response = await fetch(src, {
+        credentials: "omit",
+        redirect: "follow",
+        headers: { Accept: "text/html" }
+      });
+      if (!response.ok) {
+        throw new Error("Embedded app returned HTTP " + response.status + ".");
+      }
+      const html = await response.text();
+      const appUrl = new URL(response.url || src);
+      try {
+        window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
+      } catch {}
+      const prepared = prepareTransplantedHtml(html, appUrl);
+      document.open();
+      document.write(prepared);
+      document.close();
     }
 
     function wantsEmbed() {
@@ -532,7 +633,11 @@ export function embedApp(
           return;
         }
         if (selfNavigate) {
-          navigateToAppFrame(data.startUrl);
+          if (isClaudeMcpContentHost()) {
+            await transplantAppDocument(data.startUrl);
+          } else {
+            navigateToAppFrame(data.startUrl);
+          }
         } else {
           renderFrame(data.startUrl);
         }
@@ -670,16 +775,14 @@ export function embedApp(
 </body>
 </html>`,
     csp: {
-      connectDomains: ["https://esm.sh"],
+      connectDomains: ["https://esm.sh", MCP_APP_REQUEST_ORIGIN_CSP_SOURCE],
       resourceDomains: [
         "https://esm.sh",
         MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
         ...(options.frameDomains ?? []),
       ],
-      frameDomains: [
-        MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-        ...(options.frameDomains ?? []),
-      ],
+      baseUriDomains: [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE],
+      ...(frameDomains ? { frameDomains } : {}),
     },
     prefersBorder: false,
   };
