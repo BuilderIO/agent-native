@@ -1,5 +1,12 @@
 # @agent-native/frame
 
+## 0.1.123
+
+### Patch Changes
+
+- Updated dependencies [bf1cb24]
+  - @agent-native/core@0.22.18
+
 ## 0.1.122
 
 ### Patch Changes
