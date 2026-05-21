@@ -72,11 +72,13 @@ POST https://your-app.example.com/_agent-native/mcp
 
 The server supports the standard MCP handshake: `initialize` → `initialized` → `tools/list` → `tools/call`.
 
-If an action declares `mcpApp`, the server also advertises the official MCP Apps extension (`io.modelcontextprotocol/ui`) and supports `resources/list`, `resources/templates/list`, and `resources/read` for the app resource. Hosts that render MCP Apps can show the UI inline; hosts that do not can still call the tool and use the deep-link fallback. Product UIs should use `embedApp()` so the inline surface is the real React app route, or a focused route that renders a shared React component such as an Analytics chart, not a separate plain HTML implementation. The current official extension matrix includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support varies by version and plan, so use the [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) for the user-facing guidance.
+If an action declares `mcpApp`, the server also advertises the official MCP Apps extension (`io.modelcontextprotocol/ui`) and supports `resources/list`, `resources/templates/list`, and `resources/read` for the app resource. Hosts that render MCP Apps can show the UI inline; hosts that do not can still call the tool and use the deep-link fallback. Product UIs should use `embedApp()` so the inline surface is the real React app route, or a focused route that renders a shared React component such as an Analytics chart, not a separate plain HTML implementation. The server emits both standard MCP Apps metadata and ChatGPT Apps SDK compatibility metadata so app-capable hosts can find the same `ui://` resource. The current official extension matrix includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support varies by version and plan, so use the [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) for the user-facing guidance.
 
 ## Tools {#tools}
 
-All actions registered in your app are exposed as MCP tools. The mapping is direct:
+Stdio/static-token developer clients see all connected app actions as MCP tools. OAuth callers that request `mcp:apps` get a compact app-host catalog: app-facing builtins, actions with `mcpApp`, and actions explicitly marked `publicAgent.expose`. This keeps ChatGPT/Claude app-host discovery small while preserving the full developer surface for local agents.
+
+The mapping is direct:
 
 | Action property    | MCP tool property |
 | ------------------ | ----------------- |
@@ -84,7 +86,7 @@ All actions registered in your app are exposed as MCP tools. The mapping is dire
 | `tool.parameters`  | `inputSchema`     |
 | Action name        | Tool name         |
 
-When `mcpApp` is present, the tool entry also includes `_meta.ui.resourceUri` and `_meta["ui/resourceUri"]`, and the corresponding `ui://` resource is returned as `text/html;profile=mcp-app`.
+When `mcpApp` is present, the tool entry also includes `_meta.ui.resourceUri`, `_meta["ui/resourceUri"]`, and `_meta["openai/outputTemplate"]`, and the corresponding `ui://` resource is returned as `text/html;profile=mcp-app`.
 
 ### The `ask-agent` tool {#ask-agent}
 

@@ -152,7 +152,7 @@ If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discov
 
 ## Exposing it over MCP {#mcp}
 
-With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Any MCP client — Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, etc. — can connect and see them as tools. See [MCP Protocol](/docs/mcp-protocol).
+With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Stdio/static-token developer clients see the full connected action surface. OAuth app hosts that request `mcp:apps` get a compact catalog containing app-facing builtins, actions with `mcpApp`, and actions explicitly marked `publicAgent.expose`, so ChatGPT/Claude discovery stays small. See [MCP Protocol](/docs/mcp-protocol).
 
 For UI-capable MCP hosts, actions can also attach an optional MCP Apps resource.
 Use the shared full-app embed helper when the action needs an inline experience.
@@ -188,7 +188,7 @@ export default defineAction({
 });
 ```
 
-This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes the HTML via MCP resources, and includes both current and legacy UI resource metadata for compatible hosts. Keep `link` as the fallback for CLI and non-UI MCP clients; see [External Agents](/docs/external-agents#mcp-apps).
+This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes the HTML via MCP resources/templates, and includes standard MCP Apps plus ChatGPT Apps SDK widget metadata for compatible hosts. Keep `link` as the fallback for CLI and non-UI MCP clients; see [External Agents](/docs/external-agents#mcp-apps).
 
 The helper launches the action's `link` target through `/_agent-native/embed/start` with a short-lived browser session, so routes such as full dashboards, filtered inboxes, drafts, and extension pages can reuse the app's React components directly.
 
