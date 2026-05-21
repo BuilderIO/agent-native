@@ -62,7 +62,14 @@ export function createEmbedStartRouteHandler(
 ) {
   return defineEventHandler(async (event: H3Event) => {
     const method = getMethod(event);
-    if (method !== "GET" && method !== "HEAD") {
+    if (method === "HEAD") {
+      return new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
+    if (method !== "GET") {
       return textResponse("Method not allowed", 405);
     }
 

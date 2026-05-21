@@ -49,8 +49,13 @@ import {
   analysisDetailPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
+import {
+  resourceCanEdit,
+  resourceCanManage,
+  type ResourceAccess,
+} from "@/lib/resource-access";
 
-interface Analysis {
+interface Analysis extends ResourceAccess {
   id: string;
   name: string;
   description: string;
@@ -124,13 +129,15 @@ export default function AnalysisDetail() {
       return queryClient.getQueryState(queryKey)?.dataUpdatedAt;
     },
   });
+  const canEdit = resourceCanEdit(analysis);
+  const canManage = resourceCanManage(analysis);
 
   useEffect(() => {
     if (analysis?.id) incrementItemView("analysis", analysis.id);
   }, [analysis?.id]);
 
   const handleRerun = () => {
-    if (!analysis) return;
+    if (!analysis || !canEdit) return;
     send({
       message: `Re-run the analysis "${analysis.name}" with the latest data and update the saved results.`,
       context:
@@ -145,7 +152,7 @@ export default function AnalysisDetail() {
   };
 
   const handleDelete = async () => {
-    if (!id) return;
+    if (!id || !canManage) return;
     await deleteAnalysis(id);
     queryClient.removeQueries({ queryKey: analysisDetailPrefetchKey(id) });
     queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
@@ -169,44 +176,49 @@ export default function AnalysisDetail() {
           resourceTitle={analysis.name}
           variant="compact"
         />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={handleRerun}
-              disabled={isGenerating}
-            >
-              <IconRefresh className="h-4 w-4" />
-              Re-run
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            Re-run this analysis with the latest data and update the saved
-            results
-          </TooltipContent>
-        </Tooltip>
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="ghost" size="sm">
-              <IconTrash className="h-4 w-4" />
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete analysis?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will permanently delete "{analysis.name}" and its results.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDelete}>
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {canEdit ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleRerun}
+                disabled={isGenerating}
+              >
+                <IconRefresh className="h-4 w-4" />
+                Re-run
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Re-run this analysis with the latest data and update the saved
+              results
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
+        {canManage ? (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="sm">
+                <IconTrash className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete analysis?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete "{analysis.name}" and its
+                  results.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDelete}>
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
       </>
     ) : null,
   );

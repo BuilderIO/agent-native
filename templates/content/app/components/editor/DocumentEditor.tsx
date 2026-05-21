@@ -382,6 +382,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           isSaving={isSaving}
           currentUserEmail={session?.email}
           canEdit={canEdit}
+          hideFromSearch={document.hideFromSearch}
         />
 
         <NotionConflictBanner documentId={documentId} canEdit={canEdit} />

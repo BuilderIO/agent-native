@@ -2,7 +2,10 @@ import { defineEventHandler, createError } from "h3";
 import { eq, and } from "drizzle-orm";
 import { getDb } from "../../../../../db/index.js";
 import { schema } from "../../../../../db/index.js";
-import { parseDocumentFavorite } from "../../../../../lib/documents.js";
+import {
+  parseDocumentFavorite,
+  parseDocumentHideFromSearch,
+} from "../../../../../lib/documents.js";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 
@@ -101,6 +104,7 @@ export default defineEventHandler(async (event) => {
         icon: updated.icon,
         position: updated.position,
         isFavorite: parseDocumentFavorite(updated.isFavorite),
+        hideFromSearch: parseDocumentHideFromSearch(updated.hideFromSearch),
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
       };

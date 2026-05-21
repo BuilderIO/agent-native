@@ -870,16 +870,21 @@ Write a short, useful meeting description. If I ask you to apply it, update this
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
       if (!newOpen && open) {
+        const trimmedTitle = editingTitle.trim();
         // Popover is closing — handle saves
         if (isEditingTitle) {
-          const trimmed = editingTitle.trim();
-          if (trimmed && trimmed !== "(No title)") {
-            onTitleSave?.(event.id, trimmed);
+          if (trimmedTitle && trimmedTitle !== "(No title)") {
+            onTitleSave?.(event.id, trimmedTitle);
             isNewEventRef.current = false;
-          } else if (isNewEventRef.current && onDismissNew) {
-            onDismissNew(event.id);
           }
           setIsEditingTitle(false);
+        }
+        if (
+          isNewEventRef.current &&
+          (!trimmedTitle || trimmedTitle === "(No title)") &&
+          onDismissNew
+        ) {
+          onDismissNew(event.id);
         }
         // Save any pending field edits
         if (editingField === "description") handleSaveDescription();

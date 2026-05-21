@@ -50,7 +50,14 @@ export default defineAction({
             email,
             orgId,
           });
-          if (dashboard) screen.dashboard = dashboard.config;
+          if (dashboard) {
+            screen.dashboard = dashboard.config;
+            screen.dashboardAccess = {
+              role: dashboard.role,
+              canEdit: dashboard.canEdit,
+              canManage: dashboard.canManage,
+            };
+          }
         }
       } catch {
         // Dashboard config not found
@@ -80,6 +87,9 @@ export default defineAction({
                 author: analysis.author,
                 updatedAt: analysis.updatedAt,
                 visibility: analysis.visibility,
+                role: analysis.role,
+                canEdit: analysis.canEdit,
+                canManage: analysis.canManage,
               };
             }
           }

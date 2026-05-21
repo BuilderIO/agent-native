@@ -85,6 +85,11 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import {
+  resourceCanEdit,
+  resourceCanManage,
+  type ResourceAccess,
+} from "@/lib/resource-access";
+import {
   DashboardTitleSkeleton,
   useSetPageTitle,
   useSetHeaderActions,
@@ -123,7 +128,7 @@ type FetchedDashboard = {
   id: string;
   config: SqlDashboardConfig;
   archivedAt: string | null;
-};
+} & ResourceAccess;
 
 async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   const res = await fetchWithAuth(`/api/sql-dashboards/${id}`);
@@ -140,6 +145,9 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
       panels: data.panels ?? [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    role: typeof data.role === "string" ? data.role : undefined,
+    canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
+    canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
   };
 }
 
@@ -174,6 +182,9 @@ export default function SqlDashboardPage() {
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
+    null,
+  );
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [editingDescription, setEditingDescription] = useState(false);
@@ -181,6 +192,8 @@ export default function SqlDashboardPage() {
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const viewedDashboardIdRef = useRef<string | null>(null);
+  const canEdit = resourceCanEdit(resourceAccess);
+  const canManage = resourceCanManage(resourceAccess);
 
   // Refetch the dashboard whenever the `dashboards` source bumps OR any
   // agent action runs. We depend on both because:
@@ -321,6 +334,7 @@ export default function SqlDashboardPage() {
     setLoaded(false);
     setDashboard(null);
     setArchivedAt(null);
+    setResourceAccess(null);
     if (!dashboardId) setLoaded(true);
   }, [dashboardId]);
 
@@ -330,6 +344,15 @@ export default function SqlDashboardPage() {
     if (fetched && fetched.id !== dashboardId) return;
     setDashboard(fetched?.config ?? null);
     setArchivedAt(fetched?.archivedAt ?? null);
+    setResourceAccess(
+      fetched
+        ? {
+            role: fetched.role,
+            canEdit: fetched.canEdit,
+            canManage: fetched.canManage,
+          }
+        : null,
+    );
     setLoaded(true);
     if (fetched && viewedDashboardIdRef.current !== dashboardId) {
       viewedDashboardIdRef.current = dashboardId;
@@ -432,6 +455,10 @@ export default function SqlDashboardPage() {
   const persist = useCallback(
     (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
+      if (!canEdit) {
+        toast.error("You have view-only access to this dashboard.");
+        return;
+      }
       setDashboard(updated);
       pushToCollab(updated);
       saveDashboard(dashboardId, updated)
@@ -457,7 +484,7 @@ export default function SqlDashboardPage() {
           );
         });
     },
-    [dashboardId, queryClient, pushToCollab],
+    [dashboardId, canEdit, queryClient, pushToCollab],
   );
 
   /**
@@ -467,6 +494,9 @@ export default function SqlDashboardPage() {
   const persistThrow = useCallback(
     async (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
+      if (!canEdit) {
+        throw new Error("You have view-only access to this dashboard.");
+      }
       await saveDashboard(dashboardId, updated);
       setDashboard(updated);
       pushToCollab(updated);
@@ -479,7 +509,7 @@ export default function SqlDashboardPage() {
         queryKey: ["data", "sql-dashboard", dashboardId],
       });
     },
-    [dashboardId, queryClient, pushToCollab],
+    [dashboardId, canEdit, queryClient, pushToCollab],
   );
 
   const removePanel = useCallback(
@@ -682,6 +712,7 @@ export default function SqlDashboardPage() {
 
   const handleDelete = useCallback(async () => {
     if (!dashboardId) return;
+    if (!canManage) return;
     await fetchWithAuth(`/api/sql-dashboards/${dashboardId}`, {
       method: "DELETE",
     });
@@ -697,11 +728,12 @@ export default function SqlDashboardPage() {
       queryKey: ["data", "sql-dashboard", dashboardId],
     });
     navigate("/");
-  }, [dashboardId, queryClient, navigate]);
+  }, [dashboardId, canManage, queryClient, navigate]);
 
   const handleArchiveToggle = useCallback(
     async (action: "archive" | "restore") => {
       if (!dashboardId) return;
+      if (!canEdit) return;
       const path =
         action === "archive"
           ? `/api/sql-dashboards/${dashboardId}/archive`
@@ -741,7 +773,7 @@ export default function SqlDashboardPage() {
         );
       }
     },
-    [dashboardId, queryClient, navigate, dashboard?.name],
+    [dashboardId, canEdit, queryClient, navigate, dashboard?.name],
   );
 
   const handleSaveView = useCallback(
@@ -759,7 +791,7 @@ export default function SqlDashboardPage() {
   useSetPageTitle(
     dashboard ? (
       <div className="flex items-center gap-2 min-w-0">
-        {editingName ? (
+        {editingName && canEdit ? (
           <Input
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
@@ -768,7 +800,7 @@ export default function SqlDashboardPage() {
             className="h-8 w-full sm:w-64 text-lg font-semibold"
             autoFocus
           />
-        ) : (
+        ) : canEdit ? (
           <button
             className="group text-lg font-semibold hover:text-primary flex items-center gap-1 truncate"
             onClick={() => {
@@ -779,6 +811,10 @@ export default function SqlDashboardPage() {
             <span className="truncate">{dashboard.name}</span>
             <IconPencil className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />
           </button>
+        ) : (
+          <span className="truncate text-lg font-semibold">
+            {dashboard.name}
+          </span>
         )}
       </div>
     ) : dashboardId && !loaded ? (
@@ -795,7 +831,9 @@ export default function SqlDashboardPage() {
           agentActive={agentActive}
           currentUserEmail={session?.email}
         />
-        {dashboardId && <ViewsMenu dashboardId={dashboardId} />}
+        {dashboardId && (
+          <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
+        )}
         {dashboardId ? (
           <ShareButton
             resourceType="dashboard"
@@ -804,18 +842,20 @@ export default function SqlDashboardPage() {
             variant="compact"
           />
         ) : null}
-        <AddPanelPopover
-          onSave={handleSavePanel}
-          dashboardId={dashboardId ?? ""}
-          existingPanelTitles={dashboard.panels.map((p) => p.title)}
-          align="end"
-        >
-          <Button size="sm" variant="outline">
-            <IconPlus className="h-4 w-4 mr-1" />
-            Add panel
-          </Button>
-        </AddPanelPopover>
-        {archivedAt ? (
+        {canEdit ? (
+          <AddPanelPopover
+            onSave={handleSavePanel}
+            dashboardId={dashboardId ?? ""}
+            existingPanelTitles={dashboard.panels.map((p) => p.title)}
+            align="end"
+          >
+            <Button size="sm" variant="outline">
+              <IconPlus className="h-4 w-4 mr-1" />
+              Add panel
+            </Button>
+          </AddPanelPopover>
+        ) : null}
+        {archivedAt && canEdit ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -830,81 +870,89 @@ export default function SqlDashboardPage() {
             <TooltipContent>This dashboard is archived</TooltipContent>
           </Tooltip>
         ) : null}
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label="Dashboard actions"
+        {canEdit || canManage ? (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label="Dashboard actions"
+                  >
+                    <IconDots className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>More actions</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-44">
+              {canEdit ? (
+                archivedAt ? (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void handleArchiveToggle("restore");
+                    }}
+                  >
+                    <IconArchiveOff className="mr-2 h-3.5 w-3.5" />
+                    Restore
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void handleArchiveToggle("archive");
+                    }}
+                  >
+                    <IconArchive className="mr-2 h-3.5 w-3.5" />
+                    Archive
+                  </DropdownMenuItem>
+                )
+              ) : null}
+              {canEdit && canManage ? <DropdownMenuSeparator /> : null}
+              {canManage ? (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setConfirmDeleteOpen(true);
+                  }}
+                  className="text-destructive focus:text-destructive"
                 >
-                  <IconDots className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>More actions</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-44">
-            {archivedAt ? (
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  void handleArchiveToggle("restore");
-                }}
-              >
-                <IconArchiveOff className="mr-2 h-3.5 w-3.5" />
-                Restore
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  void handleArchiveToggle("archive");
-                }}
-              >
-                <IconArchive className="mr-2 h-3.5 w-3.5" />
-                Archive
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                setConfirmDeleteOpen(true);
-              }}
-              className="text-destructive focus:text-destructive"
-            >
-              <IconTrash className="mr-2 h-3.5 w-3.5" />
-              Delete permanently
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <AlertDialog
-          open={confirmDeleteOpen}
-          onOpenChange={setConfirmDeleteOpen}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This permanently deletes &ldquo;{dashboard?.name}&rdquo; and
-                cannot be undone. To keep it recoverable, choose Archive
-                instead.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDelete}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                Delete permanently
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+                  <IconTrash className="mr-2 h-3.5 w-3.5" />
+                  Delete permanently
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        {canManage ? (
+          <AlertDialog
+            open={confirmDeleteOpen}
+            onOpenChange={setConfirmDeleteOpen}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This permanently deletes &ldquo;{dashboard?.name}&rdquo; and
+                  cannot be undone. To keep it recoverable, choose Archive
+                  instead.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDelete}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete permanently
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
       </>
     ) : null,
   );
@@ -949,7 +997,7 @@ export default function SqlDashboardPage() {
   return (
     <div className="space-y-4">
       {/* Description (click to edit) */}
-      {editingDescription ? (
+      {editingDescription && canEdit ? (
         <Textarea
           value={descriptionInput}
           onChange={(e) => setDescriptionInput(e.target.value)}
@@ -967,16 +1015,23 @@ export default function SqlDashboardPage() {
         />
       ) : dashboard.description ? (
         <button
-          className="text-sm text-muted-foreground hover:text-foreground text-left flex items-start gap-1.5 w-full group"
+          className={
+            canEdit
+              ? "text-sm text-muted-foreground hover:text-foreground text-left flex items-start gap-1.5 w-full group"
+              : "text-sm text-muted-foreground text-left flex items-start gap-1.5 w-full"
+          }
           onClick={() => {
+            if (!canEdit) return;
             setDescriptionInput(dashboard.description ?? "");
             setEditingDescription(true);
           }}
         >
           <span className="flex-1">{dashboard.description}</span>
-          <IconPencil className="h-3 w-3 mt-0.5 shrink-0 opacity-0 group-hover:opacity-60" />
+          {canEdit ? (
+            <IconPencil className="h-3 w-3 mt-0.5 shrink-0 opacity-0 group-hover:opacity-60" />
+          ) : null}
         </button>
-      ) : (
+      ) : canEdit ? (
         <button
           className="text-xs text-muted-foreground/60 hover:text-muted-foreground flex items-center gap-1"
           onClick={() => {
@@ -987,7 +1042,7 @@ export default function SqlDashboardPage() {
           <IconPencil className="h-3 w-3" />
           Add description
         </button>
-      )}
+      ) : null}
 
       {/* Tabs */}
       {tabs.length > 0 && activeTab && (
@@ -1009,7 +1064,7 @@ export default function SqlDashboardPage() {
       {dashboard.filters && dashboard.filters.length > 0 && (
         <DashboardFilterBar
           filters={dashboard.filters}
-          onSaveView={handleSaveView}
+          onSaveView={canEdit ? handleSaveView : undefined}
         />
       )}
 
@@ -1018,24 +1073,26 @@ export default function SqlDashboardPage() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center h-64 text-muted-foreground text-sm gap-3">
             <p>This dashboard has no panels yet.</p>
-            <AddPanelPopover
-              onSave={handleSavePanel}
-              dashboardId={dashboardId ?? ""}
-              existingPanelTitles={dashboard.panels.map((p) => p.title)}
-              align="center"
-            >
-              <Button size="sm" variant="outline">
-                <IconPlus className="h-4 w-4 mr-1" />
-                Add your first panel
-              </Button>
-            </AddPanelPopover>
+            {canEdit ? (
+              <AddPanelPopover
+                onSave={handleSavePanel}
+                dashboardId={dashboardId ?? ""}
+                existingPanelTitles={dashboard.panels.map((p) => p.title)}
+                align="center"
+              >
+                <Button size="sm" variant="outline">
+                  <IconPlus className="h-4 w-4 mr-1" />
+                  Add your first panel
+                </Button>
+              </AddPanelPopover>
+            ) : null}
           </CardContent>
         </Card>
       ) : (
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
+          onDragEnd={canEdit ? handleDragEnd : undefined}
         >
           <SortableContext
             items={visiblePanels.map((p) => p.id)}
@@ -1096,6 +1153,7 @@ export default function SqlDashboardPage() {
                         }
                         onEdit={() => openEditPanel(panel)}
                         onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
+                        editable={canEdit}
                       />
                     </div>
                   );
@@ -1144,6 +1202,7 @@ export default function SqlDashboardPage() {
                         resolvedSql=""
                         onRemove={() => removePanel(section.id)}
                         onEdit={() => openEditPanel(section)}
+                        editable={canEdit}
                       />
                     </div>
                   );
@@ -1172,14 +1231,16 @@ export default function SqlDashboardPage() {
         </DndContext>
       )}
 
-      <PanelEditorDialog
-        open={editorOpen}
-        onOpenChange={handleEditorOpenChange}
-        panel={editingPanel}
-        onSave={handleSavePanel}
-        dashboardId={dashboardId ?? ""}
-        existingPanelTitles={dashboard.panels.map((p) => p.title)}
-      />
+      {canEdit ? (
+        <PanelEditorDialog
+          open={editorOpen}
+          onOpenChange={handleEditorOpenChange}
+          panel={editingPanel}
+          onSave={handleSavePanel}
+          dashboardId={dashboardId ?? ""}
+          existingPanelTitles={dashboard.panels.map((p) => p.title)}
+        />
+      ) : null}
     </div>
   );
 }

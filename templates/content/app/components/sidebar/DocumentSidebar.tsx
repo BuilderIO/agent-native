@@ -202,6 +202,7 @@ export function DocumentSidebar({
         icon: null,
         position: 9999,
         isFavorite: false,
+        hideFromSearch: false,
         visibility: "private",
         accessRole: "owner",
         canEdit: true,

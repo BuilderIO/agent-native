@@ -91,18 +91,19 @@ cd templates/content && pnpm action <name> [args]
 
 ### Document Operations
 
-| Action             | Args                                               | Purpose                                          |
-| ------------------ | -------------------------------------------------- | ------------------------------------------------ |
-| `list-documents`   | `[--format json]`                                  | List document metadata/tree; no full bodies      |
-| `search-documents` | `--query <text> [--format json]`                   | Search by title/content and return snippets      |
-| `get-document`     | `--id <id> [--format json]`                        | Get a single document with content               |
-| `pull-document`    | `--id <id> [--format markdown\|text]`              | Collab-aware "ingest the final" read             |
-| `create-document`  | `--title <text> [--content] [--parentId] [--icon]` | Create a new document                            |
-| `edit-document`    | `--id <id> --find <text> --replace <text>`         | Surgical text edit (preferred for modifications) |
-| `edit-document`    | `--id <id> --edits <json>`                         | Batch surgical text edits                        |
-| `update-document`  | `--id <id> [--title] [--content] [--icon]`         | Full rewrite of document fields                  |
-| `move-document`    | `--id <id> [--parentId] [--position]`              | Move or reorder a document in the page tree      |
-| `delete-document`  | `--id <id>`                                        | Delete with recursive children                   |
+| Action                         | Args                                                                     | Purpose                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `list-documents`               | `[--format json]`                                                        | List document metadata/tree; no full bodies                                           |
+| `search-documents`             | `--query <text> [--format json]`                                         | Search by title/content and return snippets                                           |
+| `get-document`                 | `--id <id> [--format json]`                                              | Get a single document with content                                                    |
+| `pull-document`                | `--id <id> [--format markdown\|text]`                                    | Collab-aware "ingest the final" read                                                  |
+| `create-document`              | `--title <text> [--content] [--parentId] [--icon]`                       | Create a new document                                                                 |
+| `edit-document`                | `--id <id> --find <text> --replace <text>`                               | Surgical text edit (preferred for modifications)                                      |
+| `edit-document`                | `--id <id> --edits <json>`                                               | Batch surgical text edits                                                             |
+| `update-document`              | `--id <id> [--title] [--content] [--icon]`                               | Full rewrite of document fields                                                       |
+| `set-document-discoverability` | `--id <id> --hideFromSearch true\|false [--includeChildren true\|false]` | Hide/show an org-accessible document in Organization/search while keeping link access |
+| `move-document`                | `--id <id> [--parentId] [--position]`                                    | Move or reorder a document in the page tree                                           |
+| `delete-document`              | `--id <id>`                                                              | Delete with recursive children                                                        |
 
 **`pull-document` is the collab-aware "ingest the final" read** — prefer it over
 `get-document` for external ingest (another app, an external coding agent over
@@ -163,6 +164,8 @@ Documents are **private by default** — only the creator can see them. To grant
 
 Read (`get-document`, `list-documents`, `search-documents`) admits rows the current user owns, has been shared on, or that match the resource's visibility. Write (`update-document`, `edit-document`) requires `editor` role or above; `delete-document` requires `admin` (owners always satisfy). See the `sharing` skill for the full model.
 
+For Notion-style "workspace access but don't list it everywhere," set `visibility` to `org` and then run `set-document-discoverability --id <id> --hideFromSearch true`. Organization members can still open the document with the link, but it is omitted from their Organization sidebar and document search unless they own it or have an explicit share grant. Use `--includeChildren true` (default) when hiding a page with sub-pages so descendants do not leak into the org list.
+
 Public documents are reachable at `/p/<id>` once visibility is `public`. Anyone with the link can read the page. The public page mounts a read-only agent chat with the document injected as context; public viewers must not create, edit, comment on, delete, or share documents through that chat.
 
 ## Common Tasks
@@ -190,20 +193,21 @@ After any create, update, or delete operation, the scripts automatically trigger
 
 Documents are stored in the SQL `documents` table via Drizzle ORM:
 
-| Column        | Type    | Description                                                 |
-| ------------- | ------- | ----------------------------------------------------------- |
-| `id`          | text    | Primary key (12-char hex)                                   |
-| `owner_email` | text    | Per-user owner; local mode starts as `local@localhost`      |
-| `org_id`      | text    | Owner's active org at creation time (nullable)              |
-| `visibility`  | text    | `'private' \| 'org' \| 'public'` — coarse default (private) |
-| `parent_id`   | text    | Parent document ID (null for root)                          |
-| `title`       | text    | Document title                                              |
-| `content`     | text    | Markdown content                                            |
-| `icon`        | text    | Emoji icon                                                  |
-| `position`    | integer | Sort order within parent                                    |
-| `is_favorite` | integer | Whether favorited (0 or 1)                                  |
-| `created_at`  | text    | ISO timestamp                                               |
-| `updated_at`  | text    | ISO timestamp                                               |
+| Column             | Type    | Description                                                                      |
+| ------------------ | ------- | -------------------------------------------------------------------------------- |
+| `id`               | text    | Primary key (12-char hex)                                                        |
+| `owner_email`      | text    | Per-user owner; local mode starts as `local@localhost`                           |
+| `org_id`           | text    | Owner's active org at creation time (nullable)                                   |
+| `visibility`       | text    | `'private' \| 'org' \| 'public'` — coarse default (private)                      |
+| `hide_from_search` | integer | `1` hides org-accessible docs from Organization/search while keeping link access |
+| `parent_id`        | text    | Parent document ID (null for root)                                               |
+| `title`            | text    | Document title                                                                   |
+| `content`          | text    | Markdown content                                                                 |
+| `icon`             | text    | Emoji icon                                                                       |
+| `position`         | integer | Sort order within parent                                                         |
+| `is_favorite`      | integer | Whether favorited (0 or 1)                                                       |
+| `created_at`       | text    | ISO timestamp                                                                    |
+| `updated_at`       | text    | ISO timestamp                                                                    |
 
 A companion `document_shares` table holds per-user or per-org grants with a `role` (`viewer | editor | admin`). See the Sharing section above for the share actions.
 
