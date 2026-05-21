@@ -283,6 +283,14 @@ describe("requestMatchesEmbedTarget", () => {
         "/_agent-native/open?app=mail&view=inbox",
       ),
     ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/api/emails?view=inbox&limit=25", {
+          [EMBED_TARGET_HEADER]: "/inbox?embedded=1",
+        }),
+        "/_agent-native/open?app=mail&view=inbox",
+      ),
+    ).toBe(true);
 
     expect(
       requestMatchesEmbedTarget(
