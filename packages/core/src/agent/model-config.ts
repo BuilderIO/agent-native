@@ -85,8 +85,8 @@ export const AGENT_MODEL_CONFIG = {
       ],
     },
     google: {
-      defaultModel: "gemini-3-5-flash-preview",
-      supportedModels: ["gemini-3-5-flash-preview", "gemini-3.1-pro-preview"],
+      defaultModel: "gemini-3.5-flash",
+      supportedModels: ["gemini-3.5-flash", "gemini-3.1-pro-preview"],
     },
     groq: {
       defaultModel: "llama-3.3-70b-versatile",
