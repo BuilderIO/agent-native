@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.22.17
+
+### Patch Changes
+
+- 5173662: Add COEP-compatible dev headers for MCP embed page loads.
+- 5173662: Emit Cross-Origin-Embedder-Policy for validated MCP embed-session page loads.
+- 5173662: Relax Cross-Origin-Resource-Policy for validated MCP embed-session page loads.
+- 5173662: Allow MCP app runtime requests to resolve validated embed-session cookies.
+- 5173662: Allow MCP App full-app embeds to load in hosted chat clients with stricter iframe and resource policies.
+- 5173662: Lower default full-app MCP App embeds to a 720px app viewport.
+- 5173662: Allow MCP app embeds to load resources from the request origin.
+- 5173662: Prevent same-origin 401/403 responses from causing client retry storms.
+
 ## 0.22.16
 
 ### Patch Changes
