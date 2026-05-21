@@ -8,7 +8,7 @@ import {
   type H3Event,
 } from "h3";
 import { nanoid } from "nanoid";
-import { eq, and, gte, lte, ne, inArray } from "drizzle-orm";
+import { eq, and, gt, gte, lt, lte, ne, inArray } from "drizzle-orm";
 import {
   getSession,
   recordChange,
@@ -766,18 +766,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    if (
-      !(await requestedSlotIsCurrentlyAvailable({
-        slug: requestedSlug,
-        start: requestedRange.start,
-        end: requestedRange.end,
-        duration: requestedRange.duration,
-      }))
-    ) {
-      setResponseStatus(event, 409);
-      return { error: "This time slot is no longer available" };
-    }
-
     // Check for conflicts + insert atomically in a transaction
     const db = getDb();
     const conflictSlugs = bookingLink?.ownerEmail
@@ -786,14 +774,32 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         ? [requestedSlug]
         : [];
     const insertResult = await db.transaction(async (tx) => {
+      // Serialize booking creation per host. The no-op write takes a row lock
+      // on all of the host's booking links without changing user-visible data.
+      await tx
+        .update(schema.bookingLinks)
+        .set({ ownerEmail: hostEmail })
+        .where(eq(schema.bookingLinks.ownerEmail, hostEmail));
+
+      if (
+        !(await requestedSlotIsCurrentlyAvailable({
+          slug: requestedSlug,
+          start: requestedRange.start,
+          end: requestedRange.end,
+          duration: requestedRange.duration,
+        }))
+      ) {
+        return { conflict: true } as const;
+      }
+
       const conflicting = await tx
         .select()
         .from(schema.bookings)
         .where(
           and(
             ne(schema.bookings.status, "cancelled"),
-            lte(schema.bookings.start, requestedRange.end.toISOString()),
-            gte(schema.bookings.end, requestedRange.start.toISOString()),
+            lt(schema.bookings.start, requestedRange.end.toISOString()),
+            gt(schema.bookings.end, requestedRange.start.toISOString()),
             conflictSlugs.length > 0
               ? inArray(schema.bookings.slug, conflictSlugs)
               : undefined,
