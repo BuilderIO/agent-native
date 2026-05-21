@@ -356,7 +356,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(echo._meta?.["ui/resourceUri"]).toBe("ui://mail/echo-thing");
     expect(echo._meta?.["openai/outputTemplate"]).toBe("ui://mail/echo-thing");
     expect(echo._meta?.["openai/widgetAccessible"]).toBe(true);
+    expect(echo._meta?.["openai/widgetCSP"]).toEqual({
+      connect_domains: ["https://mail.agent-native.com"],
+    });
     expect(echo._meta?.ui).toEqual({
+      csp: {
+        connectDomains: ["https://mail.agent-native.com"],
+      },
+      prefersBorder: true,
       resourceUri: "ui://mail/echo-thing",
       visibility: ["model", "app"],
     });
@@ -477,7 +484,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
-  it("keeps the full catalog for generic remote web OAuth clients without mcp:apps", async () => {
+  it("uses the compact catalog for generic remote web OAuth clients without mcp:apps", async () => {
     mockOAuthClients.set("agent-native-oauth-client-generated-web-host", {
       clientId: "agent-native-oauth-client-generated-web-host",
       clientName: "Acme Web MCP Host",
@@ -503,12 +510,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
     expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
+      expect.arrayContaining(["echo-thing", "review-draft"]),
     );
-    expect(JSON.stringify(out)).toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("ask-agent");
+    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
+    expect(JSON.stringify(out).length).toBeLessThan(12_000);
   });
 
-  it("keeps the full catalog for unknown standard OAuth clients without mcp:apps", async () => {
+  it("uses the compact catalog for unknown standard OAuth clients without mcp:apps", async () => {
     const out = await callWeb(
       {
         jsonrpc: "2.0",
@@ -528,9 +538,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
     expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
+      expect.arrayContaining(["echo-thing", "review-draft"]),
     );
-    expect(JSON.stringify(out)).toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("ask-agent");
+    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
+    expect(JSON.stringify(out).length).toBeLessThan(12_000);
   });
 
   it("keeps the full catalog for code-oriented OAuth clients without mcp:apps", async () => {
@@ -701,6 +714,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result._meta["openai/outputTemplate"]).toBe(
       "ui://mail/echo-thing",
     );
+    expect(out.result._meta["openai/widgetCSP"]).toEqual({
+      connect_domains: ["https://mail.agent-native.com"],
+    });
+    expect(out.result._meta.ui).toMatchObject({
+      csp: {
+        connectDomains: ["https://mail.agent-native.com"],
+      },
+      prefersBorder: true,
+    });
     expect(out.result.structuredContent).toMatchObject({
       echoed: "hello",
       id: "thing-42",

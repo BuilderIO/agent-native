@@ -197,12 +197,21 @@ async function isKnownMcpAppOAuthClient(
   try {
     const { getOAuthClient } = await import("./oauth-store.js");
     const client = await getOAuthClient(clientId);
-    if (!client) return false;
+    // If the token carries an OAuth client id but its registration is missing,
+    // keep the model on the compact MCP Apps surface instead of exposing every
+    // private action/schema.
+    if (!client) return true;
     if (isKnownAppClientName(client.clientName)) return true;
     if (isKnownNonAppClientName(client.clientName)) return false;
-    return client.redirectUris.some(isKnownMcpAppRedirectUri);
+    if (client.redirectUris.some(isKnownMcpAppRedirectUri)) return true;
+    // Most OAuth hosts are UI-oriented MCP clients. Preserve the full catalog
+    // only for known code/CLI clients so unknown browser hosts cannot trigger
+    // massive resources/list payloads.
+    return true;
   } catch {
-    return false;
+    // On metadata lookup errors, fail compact instead of falling back to the
+    // full action surface; ChatGPT/Claude old tokens otherwise get huge lists.
+    return true;
   }
 }
 
@@ -214,6 +223,12 @@ interface ResolvedMcpAppResource {
   html: ActionMcpAppResourceConfig["html"];
   mimeType: typeof MCP_APP_MIME_TYPE;
   _meta?: Record<string, unknown>;
+}
+
+function metadataObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 /**
@@ -444,11 +459,15 @@ function openAiToolDescriptorMeta(
   resource: ResolvedMcpAppResource,
 ): Record<string, unknown> {
   const label = resource.title ?? resource.name;
+  const widgetCsp = metadataObject(resource._meta?.["openai/widgetCSP"]);
   return {
     "openai/outputTemplate": resource.uri,
     "openai/toolInvocation/invoking": `Opening ${label}`,
     "openai/toolInvocation/invoked": `${label} ready`,
     "openai/widgetAccessible": true,
+    ...(Object.keys(widgetCsp).length > 0
+      ? { "openai/widgetCSP": widgetCsp }
+      : {}),
   };
 }
 
@@ -456,11 +475,17 @@ function openAiToolResultMeta(
   resource: ResolvedMcpAppResource,
 ): Record<string, unknown> {
   const label = resource.title ?? resource.name;
+  const ui = metadataObject(resource._meta?.ui);
+  const widgetCsp = metadataObject(resource._meta?.["openai/widgetCSP"]);
   return {
     "openai/outputTemplate": resource.uri,
     "openai/toolInvocation/invoking": `Opening ${label}`,
     "openai/toolInvocation/invoked": `${label} ready`,
     "openai/widgetAccessible": true,
+    ...(Object.keys(ui).length > 0 ? { ui } : {}),
+    ...(Object.keys(widgetCsp).length > 0
+      ? { "openai/widgetCSP": widgetCsp }
+      : {}),
   };
 }
 
@@ -667,6 +692,7 @@ export async function createMCPServerForRequest(
                 ...openAiToolDescriptorMeta(mcpAppResource),
                 [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
                 ui: {
+                  ...metadataObject(mcpAppResource._meta?.ui),
                   ...(((rawToolMeta.ui as any) &&
                   typeof rawToolMeta.ui === "object" &&
                   !Array.isArray(rawToolMeta.ui)

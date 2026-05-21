@@ -222,11 +222,35 @@ starts from the action's `link` target, creates a short-lived embed session,
 and loads that URL in an iframe. Design embedded routes so a reload with the
 same URL reconstructs the same view.
 
+ChatGPT gets a dedicated compatibility path through `window.openai`: the
+wrapper reads `toolInput`, `toolOutput`, and `toolResponseMetadata` directly,
+then calls `create_embed_session` via `window.openai.callTool(...)`. Other MCP
+Apps hosts use the standard `ui/*` bridge. Keep the result shape identical for
+both paths: return a focused `link` and concise structured content.
+
+Some hosts support MCP Apps but still block nested iframes for a returned UI
+resource. `embedApp()` detects that case with a route-ready handshake and
+replaces the broken frame with an open-app fallback: the user can retry inline,
+open a freshly minted embed session through the host, or use the visible route
+URL. Keep the action's `link` target useful on its own because it is still the
+universal escape hatch.
+
+Do not try to make Claude render full app routes inline by redirecting the MCP
+App resource document to `/_agent-native/embed/start`. Claude first renders the
+`ui://` resource HTML on a `*.claudemcpcontent.com` sandbox origin; our app URL
+is only reached later by wrapper code. The `/embed/start` 302 works for the
+nested app iframe and for `ui/open-link` external opens, but it is not a
+portable substitute for the MCP resource document itself. True nested-frame-free
+Claude support would need a separate resource-shell mode that bootstraps the
+route inside the returned MCP App HTML document, with explicit asset/API CSP,
+CORS, and embed-session auth.
+
 The host bridge is deliberately small:
 
 | Direction       | Message type                             | Use it for                               |
 | --------------- | ---------------------------------------- | ---------------------------------------- |
 | wrapper → route | `agentNative.mcpHostContext`             | Theme, locale, host platform, dimensions |
+| route → wrapper | `agentNative.embeddedAppReady`           | Confirm the nested route iframe loaded   |
 | route → wrapper | `agentNative.mcpHost.updateModelContext` | Hidden context for the host model        |
 | route → wrapper | `agentNative.mcpHost.openLink`           | Open an external or app URL via the host |
 | route → wrapper | `agentNative.mcpHost.requestDisplayMode` | Request `inline`, `fullscreen`, or `pip` |
