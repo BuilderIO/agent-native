@@ -37,6 +37,37 @@ function createMarkdownEditor(content: string) {
   });
 }
 
+function createFullEditor(content = "") {
+  return new Editor({
+    extensions: createVisualEditorExtensions(),
+    content: content
+      ? parseNfmForEditor(content)
+      : { type: "doc", content: [{ type: "paragraph" }] },
+  });
+}
+
+function triggerTextInput(editor: Editor, text: string) {
+  const { from, to } = editor.state.selection;
+  let handled = false;
+
+  editor.view.someProp("handleTextInput", (handler: any) => {
+    if (handled) return true;
+    handled = handler(editor.view, from, to, text) === true;
+    return handled;
+  });
+
+  if (!handled) {
+    insertPlainText(editor, text);
+  }
+
+  return handled;
+}
+
+function insertPlainText(editor: Editor, text: string) {
+  const { from, to } = editor.state.selection;
+  editor.view.dispatch(editor.state.tr.insertText(text, from, to));
+}
+
 describe("VisualEditor markdown round-tripping", () => {
   it("preserves intentional empty paragraphs through the real TipTap serializer", () => {
     const editor = createMarkdownEditor("A\n<empty-block/>\n<empty-block/>\nB");
@@ -135,6 +166,228 @@ describe("VisualEditor markdown round-tripping", () => {
     } finally {
       awareness.destroy();
       ydoc.destroy();
+    }
+  });
+
+  it("labels empty quote blocks with the quote placeholder", () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "blockquote",
+            content: [{ type: "paragraph" }],
+          },
+        ],
+      },
+    });
+
+    try {
+      editor.commands.setTextSelection(2);
+      expect(
+        editor.view.dom
+          .querySelector("blockquote p")
+          ?.getAttribute("data-placeholder"),
+      ).toBe("Empty quote");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("uses the Notion empty-line placeholder for focused paragraphs", () => {
+    const editor = createFullEditor();
+
+    try {
+      editor.commands.setTextSelection(1);
+
+      expect(
+        editor.view.dom.querySelector("p")?.getAttribute("data-placeholder"),
+      ).toBe("Press ‘space’ for AI or ‘/’ for commands");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("uses the editable empty paragraph as the toggle body placeholder", () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "notionToggle",
+            attrs: { summary: "Toggle", open: true },
+            content: [{ type: "paragraph" }],
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Outside" }],
+          },
+        ],
+      },
+    });
+
+    try {
+      editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+
+      expect(
+        editor.view.dom.querySelector(".notion-toggle__empty-placeholder"),
+      ).toBeNull();
+      expect(
+        editor.view.dom
+          .querySelector(
+            "[data-notion-toggle-content] p, .notion-toggle__content p",
+          )
+          ?.getAttribute("data-placeholder"),
+      ).toBe("Empty toggle. Click or drop blocks inside.");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("uses the normal empty-block placeholder when the toggle body is focused", () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "notionToggle",
+            attrs: { summary: "Toggle", open: true },
+            content: [{ type: "paragraph" }],
+          },
+        ],
+      },
+    });
+
+    try {
+      editor.commands.setTextSelection(2);
+
+      expect(
+        editor.view.dom
+          .querySelector(
+            "[data-notion-toggle-content] p, .notion-toggle__content p",
+          )
+          ?.getAttribute("data-placeholder"),
+      ).toBe("Press ‘space’ for AI or ‘/’ for commands");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("removes the toggle body placeholder after typing into the body", () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "notionToggle",
+            attrs: { summary: "Toggle", open: true },
+            content: [{ type: "paragraph" }],
+          },
+        ],
+      },
+    });
+
+    try {
+      editor.commands.setTextSelection(2);
+      insertPlainText(editor, "Body text");
+
+      expect(
+        editor.view.dom.querySelector(
+          "[data-placeholder='Empty toggle. Click or drop blocks inside.']",
+        ),
+      ).toBeNull();
+      expect(editor.view.dom.textContent).toContain("Body text");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("replaces the empty toggle placeholder after dropped content fills the body", () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "notionToggle",
+            attrs: { summary: "Toggle", open: true },
+            content: [],
+          },
+        ],
+      },
+    });
+
+    try {
+      expect(editor.view.dom.querySelector(".notion-toggle__content p")).toBe(
+        null,
+      );
+
+      editor.commands.insertContentAt(1, {
+        type: "paragraph",
+        content: [{ type: "text", text: "Dropped block" }],
+      });
+
+      expect(
+        editor.view.dom.querySelector(
+          "[data-placeholder='Empty toggle. Click or drop blocks inside.']",
+        ),
+      ).toBeNull();
+      expect(editor.getText()).toContain("Dropped block");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("turns > space into an empty open toggle without storing placeholder text", () => {
+    const editor = createFullEditor();
+
+    try {
+      insertPlainText(editor, ">");
+      expect(triggerTextInput(editor, " ")).toBe(true);
+
+      const json = editor.getJSON();
+      expect(json.content?.[0]?.type).toBe("notionToggle");
+      expect(json.content?.[0]?.attrs?.summary).toBe("");
+      expect(json.content?.[0]?.attrs?.open).toBe(true);
+
+      const markdown = (editor.storage as any).markdown.getMarkdown();
+      expect(markdown).toContain("<summary></summary>");
+      expect(markdown).not.toContain("<summary>Toggle</summary>");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("handles batched > space text input as an empty open toggle", () => {
+    const editor = createFullEditor();
+
+    try {
+      expect(triggerTextInput(editor, "> ")).toBe(true);
+
+      const json = editor.getJSON();
+      expect(json.content?.[0]?.type).toBe("notionToggle");
+      expect(json.content?.[0]?.attrs?.summary).toBe("");
+      expect(json.content?.[0]?.attrs?.open).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("turns pipe space into a blockquote shortcut", () => {
+    const editor = createFullEditor();
+
+    try {
+      insertPlainText(editor, "|");
+      expect(triggerTextInput(editor, " ")).toBe(true);
+
+      const json = editor.getJSON();
+      expect(json.content?.[0]?.type).toBe("blockquote");
+    } finally {
+      editor.destroy();
     }
   });
 });

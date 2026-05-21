@@ -1,4 +1,5 @@
 import { useLocation } from "react-router";
+import type { ReactNode } from "react";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import {
   AgentToggleButton,
@@ -19,14 +20,19 @@ function resolveTitle(pathname: string): string {
   return "Content";
 }
 
-export function Header() {
+interface HeaderProps {
+  sidebarTrigger?: ReactNode;
+}
+
+export function Header({ sidebarTrigger }: HeaderProps) {
   const location = useLocation();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
 
   return (
-    <header className="flex h-12 items-center gap-3 border-b border-border bg-background pl-16 pr-4 md:pl-4 lg:px-6 shrink-0">
+    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 lg:px-6">
       <div className="flex items-center gap-3 flex-1 min-w-0">
+        {sidebarTrigger}
         {title ?? (
           <h1 className="text-lg font-semibold tracking-tight truncate">
             {resolveTitle(location.pathname)}

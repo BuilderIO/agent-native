@@ -2151,6 +2151,9 @@ importers:
       '@tiptap/core':
         specifier: ^3.22.2
         version: 3.22.2(@tiptap/pm@3.22.2)
+      '@tiptap/extension-blockquote':
+        specifier: ^3.22.2
+        version: 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))
       '@tiptap/extension-bubble-menu':
         specifier: ^3.22.2
         version: 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
