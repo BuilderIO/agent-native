@@ -32,6 +32,8 @@ function fakeEvent(url: string, method = "GET") {
 
 describe("createOpenRouteHandler", () => {
   beforeEach(() => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
     getSession.mockReset();
     getConfiguredLoginHtml.mockReset();
     appStatePut.mockReset();
@@ -41,6 +43,8 @@ describe("createOpenRouteHandler", () => {
   });
 
   afterEach(() => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
     vi.restoreAllMocks();
   });
 
@@ -203,6 +207,36 @@ describe("createOpenRouteHandler", () => {
 
     const [, , payload] = appStatePut.mock.calls[0];
     expect(payload).toEqual({ threadId: "t1", view: "inbox" });
+  });
+
+  it("preserves APP_BASE_PATH when redirecting mounted app routes", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("/mail/_agent-native/open?view=inbox&threadId=t1"),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/mail/inbox?agentSidebar=closed");
+  });
+
+  it("does not duplicate APP_BASE_PATH when a safe to param is already mounted", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/mail/_agent-native/open?view=inbox&to=%2Fmail%2Finbox%2Fabc123",
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/mail/inbox/abc123?agentSidebar=closed",
+    );
   });
 
   it("honors a safe same-origin relative `to` override", async () => {

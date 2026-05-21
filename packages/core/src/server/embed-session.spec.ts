@@ -163,6 +163,12 @@ describe("requestMatchesEmbedTarget", () => {
     ).toBe(true);
     expect(
       requestMatchesEmbedTarget(
+        fakeEvent("/?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=slides&view=list",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
         fakeEvent("/search?embedded=1&__an_embed_token=tok"),
         "/_agent-native/open?app=brain&view=capture&captureId=capture-1",
       ),
@@ -191,6 +197,15 @@ describe("requestMatchesEmbedTarget", () => {
       requestMatchesEmbedTarget(
         fakeEvent("/evil/t1?embedded=1&__an_embed_token=tok"),
         "/_agent-native/open?app=mail&view=//evil&threadId=t1",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects dot-segment record ids before route matching", () => {
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/deck?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=slides&view=editor&deckId=..",
       ),
     ).toBe(false);
   });

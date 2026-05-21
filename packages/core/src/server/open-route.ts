@@ -33,6 +33,7 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 
 /** Query keys that are route control, not navigation payload. */
 const RESERVED = new Set([
@@ -104,6 +105,21 @@ function appendSearchParams(target: string, params: URLSearchParams): string {
   try {
     const url = new URL(target, "http://an.invalid");
     for (const [k, v] of params.entries()) url.searchParams.set(k, v);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return target;
+  }
+}
+
+function withConfiguredRedirectBasePath(target: string): string {
+  const base = getConfiguredAppBasePath();
+  if (!base) return target;
+  try {
+    const url = new URL(target, "http://an.invalid");
+    if (url.pathname === base || url.pathname.startsWith(`${base}/`)) {
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+    url.pathname = url.pathname === "/" ? base : `${base}${url.pathname}`;
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return target;
@@ -234,6 +250,7 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
     }
     target = appendSearchParams(target, embedParams);
     target = withCollapsedAgentSidebarParam(target);
+    target = withConfiguredRedirectBasePath(target);
 
     return redirect(target);
   });

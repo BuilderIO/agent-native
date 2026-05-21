@@ -27,6 +27,7 @@ const OPEN_ROUTE_VIEW_PATHS: Record<string, string> = {
   calendar: "/",
   capture: "/search",
   knowledge: "/knowledge",
+  list: "/",
   ops: "/ops",
   proposals: "/review",
   review: "/review",
@@ -186,6 +187,7 @@ function pathnameFromPath(path: string): string | null {
 function safePathSegment(value: string | null | undefined): string | null {
   const segment = value?.trim();
   if (!segment || CONTROL_CHARS.test(segment)) return null;
+  if (segment === "." || segment === "..") return null;
   if (
     segment.includes("/") ||
     segment.includes("\\") ||
