@@ -25,6 +25,16 @@ import {
 
 const EMAIL_PAGE_SIZE = 25;
 
+function isAuthFailure(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    ((error as { status?: unknown }).status === 401 ||
+      (error as { status?: unknown }).status === 403)
+  );
+}
+
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -37,7 +47,9 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.error || `Request failed (${res.status})`);
+    const error = new Error(body?.error || `Request failed (${res.status})`);
+    (error as Error & { status?: number }).status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -464,9 +476,10 @@ export function useEmails(
     // the interval based on consecutive failures, capped at 5 minutes, so the
     // UI keeps trying without hammering Gmail.
     refetchInterval: (query: {
-      state: { status: string; fetchFailureCount: number };
+      state: { status: string; fetchFailureCount: number; error: unknown };
     }) => {
       if (search) return false;
+      if (isAuthFailure(query.state.error)) return false;
       const base = 2 * 60_000;
       if (query.state.status === "error") {
         return Math.min(base * (1 + query.state.fetchFailureCount), 5 * 60_000);
@@ -507,6 +520,7 @@ export function useEmail(id: string | undefined) {
     queryKey: ["email", id],
     queryFn: () => apiFetch(`/api/emails/${id}`),
     enabled: !!id,
+    retry: (failureCount, error) => !isAuthFailure(error) && failureCount < 1,
   });
 }
 

@@ -52,6 +52,16 @@ function getHydrationStableThemeInitScript() {
 
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
 
+function isAuthFailure(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    ((error as { status?: unknown }).status === 401 ||
+      (error as { status?: unknown }).status === 403)
+  );
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -246,7 +256,8 @@ export default function Root() {
         defaultOptions: {
           queries: {
             staleTime: 30_000,
-            retry: 1,
+            retry: (failureCount, error) =>
+              !isAuthFailure(error) && failureCount < 1,
             refetchOnWindowFocus: true,
           },
         },

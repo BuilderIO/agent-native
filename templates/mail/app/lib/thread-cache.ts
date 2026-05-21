@@ -21,6 +21,7 @@ const STORAGE_TTL = 60 * 60 * 1000; // 1 hour
 const STORAGE_MAX_ENTRIES = 50;
 const STORAGE_MAX_BYTES = 3 * 1024 * 1024; // ~3MB, well under the 5MB cap
 const BACKGROUND_RATE_LIMIT_COOLDOWN_MS = 90 * 1000;
+const BACKGROUND_AUTH_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 const WARM_BATCH_LIMIT = 4;
 
 // Park state on globalThis so Vite HMR module reloads don't wipe the cache.
@@ -63,6 +64,10 @@ function isRateLimitMessage(message: string): boolean {
   return /\b(?:429|quota|rate limit)\b/i.test(message);
 }
 
+function isAuthFailureStatus(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
 function retryDelayFromMessage(message: string): number {
   const match = message.match(/retry in\s+(\d+)s/i);
   if (!match) return BACKGROUND_RATE_LIMIT_COOLDOWN_MS;
@@ -73,12 +78,20 @@ function retryDelayFromMessage(message: string): number {
   return Math.min(Math.max(seconds * 1000, 15_000), 5 * 60_000);
 }
 
-function noteFetchError(message: string) {
-  if (!isRateLimitMessage(message)) return;
-  backgroundCooldownUntil = Math.max(
-    backgroundCooldownUntil,
-    Date.now() + retryDelayFromMessage(message),
-  );
+function noteFetchError(message: string, status?: number) {
+  if (status !== undefined && isAuthFailureStatus(status)) {
+    backgroundCooldownUntil = Math.max(
+      backgroundCooldownUntil,
+      Date.now() + BACKGROUND_AUTH_FAILURE_COOLDOWN_MS,
+    );
+    return;
+  }
+  if (isRateLimitMessage(message)) {
+    backgroundCooldownUntil = Math.max(
+      backgroundCooldownUntil,
+      Date.now() + retryDelayFromMessage(message),
+    );
+  }
 }
 
 function canRunBackgroundFetch() {
@@ -104,8 +117,10 @@ async function fetchThread(
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     const message = body?.error || `Request failed (${res.status})`;
-    noteFetchError(message);
-    throw new Error(message);
+    noteFetchError(message, res.status);
+    const error = new Error(message);
+    (error as Error & { status?: number }).status = res.status;
+    throw error;
   }
   return res.json();
 }

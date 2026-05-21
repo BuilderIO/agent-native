@@ -29,6 +29,24 @@ import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 
 const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
 
+function isAuthFailure(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    ((error as { status?: unknown }).status === 401 ||
+      (error as { status?: unknown }).status === 403)
+  );
+}
+
+function defaultActionQueryRetry(
+  failureCount: number,
+  error: unknown,
+): boolean {
+  if (isAuthFailure(error)) return false;
+  return failureCount < 3;
+}
+
 // ---------------------------------------------------------------------------
 // Action type registry — augmented by generated code
 // ---------------------------------------------------------------------------
@@ -224,6 +242,7 @@ export function useActionQuery<
   return useQuery<R>({
     queryKey: ["action", actionName, params],
     queryFn: () => actionFetch<R>(actionName, "GET", params),
+    retry: defaultActionQueryRetry,
     ...options,
   });
 }
