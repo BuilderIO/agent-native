@@ -25,6 +25,8 @@ import { EMBED_TOKEN_QUERY_PARAM } from "../shared/embed-auth.js";
 
 export const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+export const AUTHENTICATED_SSR_CACHE_CONTROL =
+  "private, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 
 /**
  * Read the active org for a request without forcing every template to bundle
@@ -151,14 +153,21 @@ function requestHasAuthSignal(event: H3Event): boolean {
   );
 }
 
-function applyDefaultSsrCacheHeader(headers: Headers, status: number) {
+function applyDefaultSsrCacheHeader(
+  headers: Headers,
+  status: number,
+  hasAuthSignal: boolean,
+) {
   if (headers.has("cache-control")) return;
   if (status < 200 || status >= 400) return;
 
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.includes("text/html")) return;
 
-  headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
+  headers.set(
+    "cache-control",
+    hasAuthSignal ? AUTHENTICATED_SSR_CACHE_CONTROL : DEFAULT_SSR_CACHE_CONTROL,
+  );
 }
 
 function isFrameworkOrAssetPath(pathname: string): boolean {
@@ -182,10 +191,11 @@ function isFrameworkOrAssetPath(pathname: string): boolean {
 async function rewriteMountedResponse(
   response: Response,
   basePath: string,
+  hasAuthSignal: boolean,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status);
+  applyDefaultSsrCacheHeader(headers, response.status, hasAuthSignal);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -244,7 +254,8 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       // unauthenticated branch even when the user is logged in — which broke
       // shared-deck "Presentation link" access for non-public decks.
       let session: Awaited<ReturnType<typeof getSession>> | null = null;
-      if (requestHasAuthSignal(event)) {
+      const hasAuthSignal = requestHasAuthSignal(event);
+      if (hasAuthSignal) {
         try {
           session = await getSession(event);
         } catch {
@@ -272,11 +283,13 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
             headers: response.headers,
           }),
           basePath,
+          hasAuthSignal,
         );
       }
       return await rewriteMountedResponse(
         await runWithRequestContext(ctx, () => handler(request)),
         basePath,
+        hasAuthSignal,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.

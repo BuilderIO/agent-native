@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  AUTHENTICATED_SSR_CACHE_CONTROL,
   createH3SSRHandler,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "./ssr-handler.js";
@@ -116,6 +117,25 @@ describe("createH3SSRHandler", () => {
 
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
+    );
+  });
+
+  it("uses private SSR caching when a page request carries auth signals", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/slides/private", "GET", {
+        headers: { cookie: "sid=1" },
+      }),
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      AUTHENTICATED_SSR_CACHE_CONTROL,
     );
   });
 
