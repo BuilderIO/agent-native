@@ -384,8 +384,13 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     let stop_outcome = finalize_active_backend(&mut session, true);
     // If the user paused / resumed during this recording we now have N
     // segments on disk; merge them into `session.path` so the upload path
-    // is unchanged. With a single segment this is a cheap rename.
-    if let Err(err) = consolidate_segments_into_path(&mut session) {
+    // is unchanged. With a single segment this is a cheap rename. If
+    // there are multiple segments and the merge fails, uploading would
+    // silently lose everything after the first pause — fail loudly so
+    // the user can retry from the local copy instead.
+    let consolidate_outcome = consolidate_segments_into_path(&mut session);
+    let multi_segment = session.segments.len() > 1;
+    if let Err(err) = &consolidate_outcome {
         eprintln!("[clips-tray] segment consolidation failed: {err}");
     }
     let duration_ms = session
@@ -403,12 +408,21 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     )?;
     if let Err(stop_err) = &stop_outcome {
         saved.last_error = Some(stop_err.clone());
+    } else if let Err(merge_err) = &consolidate_outcome {
+        saved.last_error = Some(merge_err.clone());
     }
     write_saved_recording_metadata(&app, &saved)?;
     if let Err(stop_err) = stop_outcome {
         return Err(format!(
             "{stop_err}. The clip was saved locally and can be retried from the Clips menu."
         ));
+    }
+    if multi_segment {
+        if let Err(merge_err) = consolidate_outcome {
+            return Err(format!(
+                "{merge_err}. The clip segments were saved locally and can be retried from the Clips menu."
+            ));
+        }
     }
 
     let result = upload_recording_file(
@@ -454,7 +468,9 @@ pub async fn native_fullscreen_recording_stop_and_save(
     .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
 
     let stop_outcome = finalize_active_backend(&mut session, true);
-    if let Err(err) = consolidate_segments_into_path(&mut session) {
+    let consolidate_outcome = consolidate_segments_into_path(&mut session);
+    let multi_segment = session.segments.len() > 1;
+    if let Err(err) = &consolidate_outcome {
         eprintln!("[clips-tray] segment consolidation failed: {err}");
     }
     let duration_ms = session
@@ -466,6 +482,13 @@ pub async fn native_fullscreen_recording_stop_and_save(
         eprintln!(
             "[clips-tray] native local recording stop reported an error; attempting to save file anyway: {err}"
         );
+    }
+    if multi_segment {
+        if let Err(merge_err) = consolidate_outcome {
+            return Err(format!(
+                "segment consolidation failed: {merge_err}. The raw segments remain in the pending recordings folder."
+            ));
+        }
     }
 
     save_native_recording_to_local_export(&app, &session, &folder_name, &file_role, duration_ms)
@@ -553,14 +576,10 @@ pub async fn native_fullscreen_recording_resume(
     let session = guard
         .as_mut()
         .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
-    let Some(paused_at) = session.paused_at.take() else {
+    let Some(paused_at) = session.paused_at else {
         // Already running — nothing to do.
         return Ok(());
     };
-    session.paused_total = session
-        .paused_total
-        .checked_add(paused_at.elapsed())
-        .unwrap_or(session.paused_total);
 
     let restart = session.restart.clone();
     let next_counter = restart.segment_counter.saturating_add(1);
@@ -568,6 +587,9 @@ pub async fn native_fullscreen_recording_resume(
     let segment_path = segment_path_for(&app, &restart.safe_id, extension, next_counter)?;
     let _ = std::fs::remove_file(&segment_path);
 
+    // Start the new segment backend FIRST. Only clear paused state if it
+    // succeeds — otherwise the session would be left with no backend but
+    // appear running, which silently drops everything after the resume.
     let (backend, _w, _h) = start_segment_backend(
         &app,
         &restart.safe_id,
@@ -579,6 +601,11 @@ pub async fn native_fullscreen_recording_resume(
     session.backend = Some(backend);
     session.segments.push(segment_path);
     session.restart.segment_counter = next_counter;
+    session.paused_total = session
+        .paused_total
+        .checked_add(paused_at.elapsed())
+        .unwrap_or(session.paused_total);
+    session.paused_at = None;
     Ok(())
 }
 
@@ -2262,16 +2289,15 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
                 duration,
             };
 
-            let mut had_video = false;
             if !video_track.is_null() {
                 if let Some(seg_video) = first_track(&*asset, AVMediaTypeVideo) {
-                    let err_ptr: *mut AnyObject = std::ptr::null_mut();
+                    let mut err_ptr: *mut AnyObject = std::ptr::null_mut();
                     let ok: bool = msg_send![
                         video_track,
                         insertTimeRange: range,
                         ofTrack: seg_video,
                         atTime: cursor,
-                        error: &err_ptr
+                        error: &mut err_ptr
                     ];
                     if !ok {
                         return Err(format!(
@@ -2279,20 +2305,19 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
                             path.display()
                         ));
                     }
-                    had_video = true;
                 }
             }
             if !audio_track.is_null() {
                 if let Some(seg_audio) = first_track(&*asset, AVMediaTypeAudio) {
-                    let err_ptr: *mut AnyObject = std::ptr::null_mut();
+                    let mut err_ptr: *mut AnyObject = std::ptr::null_mut();
                     let ok: bool = msg_send![
                         audio_track,
                         insertTimeRange: range,
                         ofTrack: seg_audio,
                         atTime: cursor,
-                        error: &err_ptr
+                        error: &mut err_ptr
                     ];
-                    if !ok && !had_video {
+                    if !ok {
                         return Err(format!(
                             "AVMutableCompositionTrack insertTimeRange (audio) failed for {}",
                             path.display()
