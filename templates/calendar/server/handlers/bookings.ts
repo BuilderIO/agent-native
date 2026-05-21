@@ -57,8 +57,9 @@ async function requireRequestContext<T>(
 
 async function getBookingLinkSlugsForOwner(
   ownerEmail: string,
+  db: ConflictDb = getDb(),
 ): Promise<string[]> {
-  const rows = await getDb()
+  const rows = await db
     .select({ slug: schema.bookingLinks.slug })
     .from(schema.bookingLinks)
     .where(eq(schema.bookingLinks.ownerEmail, ownerEmail));
@@ -348,14 +349,18 @@ function dateEndIso(date: string, timezone: string): string {
   ).toISOString();
 }
 
-async function resolveAvailabilityContext(
-  slug: string,
-): Promise<AvailabilityContext> {
+async function resolveAvailabilityContext({
+  slug,
+  db = getDb(),
+}: {
+  slug: string;
+  db?: ConflictDb;
+}): Promise<AvailabilityContext> {
   const config = (await getSetting(
     "calendar-availability",
   )) as unknown as AvailabilityConfig | null;
   const bookingLink = slug
-    ? await getDb()
+    ? await db
         .select()
         .from(schema.bookingLinks)
         .where(eq(schema.bookingLinks.slug, slug))
@@ -374,7 +379,7 @@ async function resolveAvailabilityContext(
       } | null)
     : null;
   const conflictSlugs = ownerEmail
-    ? await getBookingLinkSlugsForOwner(ownerEmail)
+    ? await getBookingLinkSlugsForOwner(ownerEmail, db)
     : slug
       ? [slug]
       : [];
@@ -567,7 +572,7 @@ async function requestedSlotIsCurrentlyAvailable({
   end: Date;
   duration: number;
 }): Promise<boolean> {
-  const context = await resolveAvailabilityContext(slug);
+  const context = await resolveAvailabilityContext({ slug, db });
   if (!context.effectiveConfig) return false;
 
   const timezone = context.effectiveConfig.timezone || "UTC";
@@ -774,11 +779,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
     // Check for conflicts + insert atomically in a transaction
     const db = getDb();
-    const conflictSlugs = bookingLink?.ownerEmail
-      ? await getBookingLinkSlugsForOwner(bookingLink.ownerEmail)
-      : requestedSlug
-        ? [requestedSlug]
-        : [];
     const insertResult = await db.transaction(async (tx) => {
       // Serialize booking creation per host. The no-op write takes a row lock
       // on all of the host's booking links without changing user-visible data.
@@ -786,6 +786,12 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         .update(schema.bookingLinks)
         .set({ ownerEmail: hostEmail })
         .where(eq(schema.bookingLinks.ownerEmail, hostEmail));
+
+      const conflictSlugs = bookingLink?.ownerEmail
+        ? await getBookingLinkSlugsForOwner(bookingLink.ownerEmail, tx)
+        : requestedSlug
+          ? [requestedSlug]
+          : [];
 
       if (
         !(await requestedSlotIsCurrentlyAvailable({
@@ -1061,7 +1067,7 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
       return { error: "date query parameter is required" };
     }
 
-    const context = await resolveAvailabilityContext(slug);
+    const context = await resolveAvailabilityContext({ slug });
     if (!context.effectiveConfig) {
       return hasRangeQuery ? { dates: [] } : { slots: [] };
     }
