@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentFavorite } from "../server/lib/documents.js";
@@ -32,6 +32,17 @@ export default defineAction({
     parentId: z.string().nullish().describe("Parent document ID for nesting"),
     icon: z.string().optional().describe("Emoji icon"),
   }),
+  mcpApp: {
+    resource: embedApp({
+      title: "Edit document",
+      description:
+        "Open the generated draft in the real Content editor so the user can revise, format, organize, and publish it.",
+      iframeTitle: "Agent-Native Content",
+      openLabel: "Open in Content",
+      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
+      height: 900,
+    }),
+  },
   run: async (args) => {
     const title = args.title;
 

@@ -255,8 +255,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
         "focused route/component. No side " +
         "effects — returns a URL the user can click to land in the running UI. " +
         "Set embed:true when a UI-capable MCP host should render the live app " +
-        "or focused route/component inline. After calling, surface the returned " +
-        '"Open in … →" link to the user.',
+        "or focused route/component inline.",
       {
         app: { type: "string", description: "App id, e.g. 'mail'" },
         view: {
@@ -610,8 +609,7 @@ function createWorkspaceAppTool(): ActionEntry {
     tool: tool(
       "Scaffold a new app into the current workspace from an allow-listed " +
         "template, then return a deep link to open it. Idempotent: if an app " +
-        "with that name already exists it is reused. After calling, surface " +
-        'the returned "Open … →" link to the user.',
+        "with that name already exists it is reused.",
       {
         name: {
           type: "string",

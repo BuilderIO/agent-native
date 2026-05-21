@@ -23,6 +23,15 @@ vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
 }));
 
+const mockOAuthClients = vi.hoisted(() => new Map<string, any>());
+
+vi.mock("./oauth-store.js", () => ({
+  MCP_OAUTH_ACCESS_TOKEN_TTL: "1h",
+  getOAuthClient: vi.fn(async (clientId: string) => {
+    return mockOAuthClients.get(clientId) ?? null;
+  }),
+}));
+
 const { handleMcpRequest } = await import("./server.js");
 
 // --- minimal h3 event doubles -------------------------------------------------
@@ -178,6 +187,10 @@ const config = {
   },
 };
 
+const veryLongInternalDescription = "INTERNAL_TOOL_BLOAT_SENTINEL ".repeat(
+  1_000,
+);
+
 const compactSurfaceConfig = {
   ...config,
   askAgent: async () => "agent answer",
@@ -185,7 +198,16 @@ const compactSurfaceConfig = {
     ...config.actions,
     "internal-heavy": {
       tool: {
-        description: "Internal verbose tool that should not be advertised",
+        description: veryLongInternalDescription,
+        parameters: {
+          type: "object" as const,
+          properties: {
+            hugePayload: {
+              type: "string",
+              description: veryLongInternalDescription,
+            },
+          },
+        },
       },
       readOnly: true,
       run: async () => ({ ok: true }),
@@ -252,13 +274,18 @@ async function callWeb(
   return JSON.parse(text);
 }
 
-async function mcpAppsAuthHeaders() {
+async function mcpAppsAuthHeaders(
+  options: {
+    clientId?: string;
+    scope?: string;
+  } = {},
+) {
   process.env.BETTER_AUTH_SECRET = "oauth-secret";
   const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
   const token = await signMcpOAuthAccessToken({
     ownerEmail: "oauth@example.com",
-    clientId: "client-123",
-    scope: "mcp:read mcp:write mcp:apps",
+    clientId: options.clientId ?? "client-123",
+    scope: options.scope ?? "mcp:read mcp:write mcp:apps",
     resource: "https://mail.agent-native.com/_agent-native/mcp",
     issuer: "https://mail.agent-native.com",
   });
@@ -274,10 +301,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
+    mockOAuthClients.clear();
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
+    mockOAuthClients.clear();
     vi.clearAllMocks();
   });
 
@@ -355,6 +384,190 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("public-search");
     expect(names).not.toContain("ask-agent");
+    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
+    expect(JSON.stringify(out).length).toBeLessThan(12_000);
+  });
+
+  it("blocks compact MCP Apps callers from invoking hidden tools by name", async () => {
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 26,
+        method: "tools/call",
+        params: {
+          name: "internal-heavy",
+          arguments: {},
+        },
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: compactSurfaceConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.isError).toBe(true);
+    expect(out.result.content[0].text).toContain("Unknown tool");
+  });
+
+  it("uses the compact catalog for known ChatGPT/Claude OAuth registrations even when an older token lacks mcp:apps", async () => {
+    mockOAuthClients.set("agent-native-oauth-client-generated-chatgpt", {
+      clientId: "agent-native-oauth-client-generated-chatgpt",
+      clientName: "ChatGPT",
+      redirectUris: ["https://chatgpt.com/aip/mcp/oauth/callback"],
+    });
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 22,
+        method: "tools/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders({
+          clientId: "agent-native-oauth-client-generated-chatgpt",
+          scope: "mcp:read mcp:write",
+        }),
+        config: compactSurfaceConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    const names = out.result.tools.map((t: any) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["echo-thing", "review-draft"]),
+    );
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("public-search");
+    expect(names).not.toContain("ask-agent");
+    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
+    expect(JSON.stringify(out).length).toBeLessThan(12_000);
+  });
+
+  it("advertises MCP App resources for known ChatGPT/Claude OAuth registrations even when an older token lacks mcp:apps", async () => {
+    mockOAuthClients.set("agent-native-oauth-client-generated-claude", {
+      clientId: "agent-native-oauth-client-generated-claude",
+      clientName: "Anthropic Claude",
+      redirectUris: ["https://claude.ai/api/mcp/auth_callback"],
+    });
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 23,
+        method: "resources/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders({
+          clientId: "agent-native-oauth-client-generated-claude",
+          scope: "mcp:read mcp:write",
+        }),
+        config: compactSurfaceConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.resources.map((r: any) => r.uri)).toEqual(
+      expect.arrayContaining([
+        "ui://mail/echo-thing",
+        "ui://mail/review-draft",
+      ]),
+    );
+  });
+
+  it("defaults remote web OAuth clients to the compact MCP App catalog", async () => {
+    mockOAuthClients.set("agent-native-oauth-client-generated-web-host", {
+      clientId: "agent-native-oauth-client-generated-web-host",
+      clientName: "Acme Web MCP Host",
+      redirectUris: ["https://mcp.example.com/oauth/callback"],
+    });
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 25,
+        method: "tools/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders({
+          clientId: "agent-native-oauth-client-generated-web-host",
+          scope: "mcp:read mcp:write",
+        }),
+        config: compactSurfaceConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    const names = out.result.tools.map((t: any) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["echo-thing", "review-draft"]),
+    );
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("public-search");
+    expect(names).not.toContain("ask-agent");
+    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
+    expect(JSON.stringify(out).length).toBeLessThan(12_000);
+  });
+
+  it("defaults unknown standard OAuth clients without mcp:apps to the compact catalog", async () => {
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 27,
+        method: "tools/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders({
+          clientId: "agent-native-oauth-client-generated-random",
+          scope: "mcp:read mcp:write",
+        }),
+        config: compactSurfaceConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    const names = out.result.tools.map((t: any) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["echo-thing", "review-draft"]),
+    );
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("public-search");
+    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
+    expect(JSON.stringify(out).length).toBeLessThan(12_000);
+  });
+
+  it("keeps the full catalog for code-oriented OAuth clients without mcp:apps", async () => {
+    mockOAuthClients.set("agent-native-oauth-client-generated-claude-code", {
+      clientId: "agent-native-oauth-client-generated-claude-code",
+      clientName: "Claude Code",
+      redirectUris: ["http://127.0.0.1:49152/oauth/callback"],
+    });
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 24,
+        method: "tools/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders({
+          clientId: "agent-native-oauth-client-generated-claude-code",
+          scope: "mcp:read mcp:write",
+        }),
+        config: compactSurfaceConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    const names = out.result.tools.map((t: any) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
+    );
   });
 
   it("keeps the full tool catalog for non-OAuth callers without mcp:apps", async () => {

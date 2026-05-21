@@ -97,6 +97,8 @@ export interface MCPCallerIdentity {
   orgDomain: string | undefined;
   /** Present only for standard remote MCP OAuth access tokens. */
   oauthScopes?: string[];
+  /** Present only for standard remote MCP OAuth access tokens. */
+  oauthClientId?: string;
 }
 
 /** Per-request context used to turn an action's relative deep link into the
@@ -151,6 +153,74 @@ function isActionAdvertisedInCompactMcpAppCatalog(
   if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
   if (name === "ask_app" && isDispatchConfig(config)) return true;
   return Boolean(entry.mcpApp?.resource);
+}
+
+const MCP_APP_OAUTH_CLIENT_RE = /\b(chatgpt|openai|claude|anthropic)\b/i;
+const NON_APP_OAUTH_CLIENT_RE =
+  /\b(code|desktop|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
+const MCP_APP_OAUTH_REDIRECT_HOST_RE =
+  /(^|\.)((chatgpt|openai)\.com|claude\.ai|anthropic\.com)$/i;
+
+async function isKnownMcpAppOAuthClient(
+  identity: MCPCallerIdentity | undefined,
+): Promise<boolean> {
+  const clientId = identity?.oauthClientId?.trim();
+  if (!clientId) return false;
+
+  function isKnownAppClientName(value: string | undefined | null): boolean {
+    if (!value) return false;
+    return (
+      MCP_APP_OAUTH_CLIENT_RE.test(value) &&
+      !NON_APP_OAUTH_CLIENT_RE.test(value)
+    );
+  }
+
+  function isKnownNonAppClientName(value: string | undefined | null): boolean {
+    return Boolean(value && NON_APP_OAUTH_CLIENT_RE.test(value));
+  }
+
+  function isLoopbackHost(hostname: string): boolean {
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]" ||
+      hostname.startsWith("127.")
+    );
+  }
+
+  function isRemoteRedirectUri(uri: string): boolean {
+    try {
+      const url = new URL(uri);
+      return url.protocol === "https:" && !isLoopbackHost(url.hostname);
+    } catch {
+      return false;
+    }
+  }
+
+  if (isKnownAppClientName(clientId)) return true;
+  if (isKnownNonAppClientName(clientId)) return false;
+
+  try {
+    const { getOAuthClient } = await import("./oauth-store.js");
+    const client = await getOAuthClient(clientId);
+    if (!client) return true;
+    if (isKnownAppClientName(client.clientName)) return true;
+    if (isKnownNonAppClientName(client.clientName)) return false;
+    return client.redirectUris.some((uri) => {
+      try {
+        const hostname = new URL(uri).hostname;
+        return (
+          MCP_APP_OAUTH_REDIRECT_HOST_RE.test(hostname) ||
+          isRemoteRedirectUri(uri)
+        );
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return true;
+  }
 }
 
 interface ResolvedMcpAppResource {
@@ -525,8 +595,9 @@ export async function createMCPServerForRequest(
     ),
   );
   const compactMcpAppCatalog =
-    Array.isArray(effectiveIdentity?.oauthScopes) &&
-    hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps");
+    (Array.isArray(effectiveIdentity?.oauthScopes) &&
+      hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps")) ||
+    (await isKnownMcpAppOAuthClient(effectiveIdentity));
   const advertisedActions = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
@@ -686,6 +757,12 @@ export async function createMCPServerForRequest(
       const { name, arguments: args } = request.params;
 
       if (name === "ask-agent" && config.askAgent) {
+        if (compactMcpAppCatalog) {
+          return {
+            content: [{ type: "text", text: `Unknown tool: ${name}` }],
+            isError: true,
+          };
+        }
         if (!hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")) {
           return {
             content: [
@@ -709,7 +786,10 @@ export async function createMCPServerForRequest(
         }
       }
 
-      const entry = actions[name];
+      const callableActions = compactMcpAppCatalog
+        ? advertisedActions
+        : actions;
+      const entry = callableActions[name];
       if (!entry) {
         return {
           content: [{ type: "text", text: `Unknown tool: ${name}` }],
@@ -966,6 +1046,7 @@ export async function verifyAuth(
           userEmail: oauthIdentity.userEmail,
           orgDomain: oauthIdentity.orgDomain,
           oauthScopes: oauthIdentity.scopes,
+          oauthClientId: oauthIdentity.clientId,
         },
         fullSurface: true,
       };
