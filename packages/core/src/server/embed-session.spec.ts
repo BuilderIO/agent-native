@@ -114,6 +114,36 @@ describe("requestMatchesEmbedTarget", () => {
     ).toBe(true);
   });
 
+  it("allows record routes produced by template open-route resolvers", () => {
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/adhoc/q2-traffic?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=analytics&view=adhoc&dashboardId=q2-traffic",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/analyses/analysis-1?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=analytics&view=analyses&analysisId=analysis-1",
+      ),
+    ).toBe(true);
+  });
+
+  it("uses the browser URL, not the mounted handler path, for framework routes", () => {
+    const event = fakeEvent("/");
+    event.context = { _mountedPathname: "/_agent-native/open" };
+    event.url = {
+      search: "?app=mail&view=inbox&embedded=1&__an_embed_token=tok",
+    };
+
+    expect(
+      requestMatchesEmbedTarget(
+        event,
+        "/_agent-native/open?app=mail&view=inbox",
+      ),
+    ).toBe(true);
+  });
+
   it("rejects unrelated page routes for the same token", () => {
     expect(
       requestMatchesEmbedTarget(

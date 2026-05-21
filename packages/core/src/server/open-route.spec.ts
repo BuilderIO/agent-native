@@ -182,6 +182,29 @@ describe("createOpenRouteHandler", () => {
     expect(payload).toEqual({ threadId: "t1", view: "inbox" });
   });
 
+  it("parses the original browser URL when mounted under the framework route", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler({
+      method: "GET",
+      path: "/",
+      node: { req: { url: "/" } },
+      context: { _mountedPathname: "/_agent-native/open" },
+      url: {
+        search: "?view=inbox&threadId=t1&embedded=1&__an_embed_token=tok_123",
+      },
+    } as any);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/inbox?embedded=1&__an_embed_token=tok_123&agentSidebar=closed",
+    );
+
+    const [, , payload] = appStatePut.mock.calls[0];
+    expect(payload).toEqual({ threadId: "t1", view: "inbox" });
+  });
+
   it("honors a safe same-origin relative `to` override", async () => {
     getSession.mockResolvedValue({ email: "user@example.com" });
     const handler = createOpenRouteHandler();

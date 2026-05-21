@@ -150,8 +150,7 @@ function isActionAdvertisedInCompactMcpAppCatalog(
 ): boolean {
   if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
   if (name === "ask_app" && isDispatchConfig(config)) return true;
-  if (entry.mcpApp?.resource) return true;
-  return entry.publicAgent?.expose === true;
+  return Boolean(entry.mcpApp?.resource);
 }
 
 interface ResolvedMcpAppResource {

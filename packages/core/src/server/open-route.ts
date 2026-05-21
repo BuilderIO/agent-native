@@ -67,6 +67,10 @@ export interface OpenRouteOptions {
 }
 
 function getRequestUrl(event: H3Event): string {
+  const mountedPathname = (event as any).context?._mountedPathname;
+  if (typeof mountedPathname === "string" && mountedPathname) {
+    return `${mountedPathname}${(event as any).url?.search ?? ""}`;
+  }
   return (event as any).node?.req?.url ?? (event as any).path ?? "/";
 }
 

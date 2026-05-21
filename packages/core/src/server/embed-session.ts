@@ -170,42 +170,89 @@ function pathnameFromPath(path: string): string | null {
   }
 }
 
-function safeOpenRouteTargetPathname(targetPath: string): string | null {
+function safePathSegment(value: string | null | undefined): string | null {
+  const segment = value?.trim();
+  if (!segment || CONTROL_CHARS.test(segment)) return null;
+  if (
+    segment.includes("/") ||
+    segment.includes("\\") ||
+    segment.includes("?")
+  ) {
+    return null;
+  }
+  if (segment.includes("#")) return null;
+  return segment;
+}
+
+function openRouteTargetPathnames(targetPath: string): Set<string> {
+  const targets = new Set<string>();
   let url: URL;
   try {
     url = new URL(targetPath, "http://agent-native.invalid");
   } catch {
-    return null;
+    return targets;
   }
   if (url.pathname !== OPEN_ROUTE_PATH) {
-    return null;
+    return targets;
   }
 
   const to = normalizeEmbedTargetPath(url.searchParams.get("to"));
-  if (to) return pathnameFromPath(to);
+  const toPathname = to ? pathnameFromPath(to) : null;
+  if (toPathname) targets.add(toPathname);
 
   const view = url.searchParams.get("view")?.trim();
-  if (!view || CONTROL_CHARS.test(view)) return null;
+  if (!view || CONTROL_CHARS.test(view)) return targets;
   const viewPath = view.startsWith("/") ? view : `/${view}`;
-  return pathnameFromPath(viewPath);
+  const viewPathname = pathnameFromPath(viewPath);
+  if (viewPathname) targets.add(viewPathname);
+
+  const dashboardId = safePathSegment(url.searchParams.get("dashboardId"));
+  if (view === "adhoc" && dashboardId) {
+    targets.add(`/adhoc/${encodeURIComponent(dashboardId)}`);
+  }
+  const analysisId = safePathSegment(url.searchParams.get("analysisId"));
+  if (view === "analyses" && analysisId) {
+    targets.add(`/analyses/${encodeURIComponent(analysisId)}`);
+  }
+  const extensionId = safePathSegment(url.searchParams.get("extensionId"));
+  if (view === "extensions" && extensionId) {
+    targets.add(`/extensions/${encodeURIComponent(extensionId)}`);
+  }
+  const threadId = safePathSegment(url.searchParams.get("threadId"));
+  if (view && threadId) {
+    targets.add(`${viewPathname ?? viewPath}/${encodeURIComponent(threadId)}`);
+  }
+
+  return targets;
 }
 
 function allowedEmbedTargetPathnames(targetPath: string): Set<string> {
   const allowed = new Set<string>();
   const direct = pathnameFromPath(targetPath);
   if (direct) allowed.add(direct);
-  const openTarget = safeOpenRouteTargetPathname(targetPath);
-  if (openTarget) allowed.add(openTarget);
+  for (const openTarget of openRouteTargetPathnames(targetPath)) {
+    allowed.add(openTarget);
+  }
   return allowed;
 }
 
-function requestPathname(event: H3Event): string | null {
-  const raw =
-    (event as any).path ??
+function requestUrlFromEvent(event: H3Event): string {
+  const mountedPathname = (event as any).context?._mountedPathname;
+  if (typeof mountedPathname === "string" && mountedPathname) {
+    return `${mountedPathname}${(event as any).url?.search ?? ""}`;
+  }
+  return (
     (event as any).node?.req?.url ??
     ((event as any).req?.url as string | undefined) ??
+    ((event as any).request?.url as string | undefined) ??
+    (event as any).path ??
     (event as any).url?.toString?.() ??
-    "/";
+    "/"
+  );
+}
+
+function requestPathname(event: H3Event): string | null {
+  const raw = requestUrlFromEvent(event);
   try {
     const pathname = new URL(raw, "http://agent-native.invalid").pathname;
     return stripConfiguredBasePath(pathname);
@@ -477,7 +524,18 @@ function bearerToken(event: H3Event): string | undefined {
 
 function queryToken(event: H3Event): string | undefined {
   const raw = getQuery(event)?.[EMBED_TOKEN_QUERY_PARAM];
-  return Array.isArray(raw) ? raw[0] : raw;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value) return value;
+  try {
+    return (
+      new URL(
+        requestUrlFromEvent(event),
+        "http://agent-native.invalid",
+      ).searchParams.get(EMBED_TOKEN_QUERY_PARAM) ?? undefined
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 export async function resolveEmbedSessionFromRequest(
