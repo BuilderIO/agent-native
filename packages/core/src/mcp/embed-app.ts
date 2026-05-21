@@ -108,6 +108,7 @@ export function embedApp(
     let appFrame = null;
     let appFrameReady = false;
     let appFrameReadyTimer = null;
+    let appFrameLoadTimer = null;
     let lastFrameSrc = "";
 
     function esc(value) {
@@ -258,19 +259,28 @@ export function embedApp(
       stage.innerHTML = '<div class="message">' + esc(message) + '</div>';
     }
 
-    function shouldDirectRenderEmbed() {
-      const host = window.location.hostname.toLowerCase();
-      return host === "claudemcpcontent.com" || host.endsWith(".claudemcpcontent.com");
-    }
-
     function clearFrameReadyTimer() {
       if (!appFrameReadyTimer) return;
       clearTimeout(appFrameReadyTimer);
       appFrameReadyTimer = null;
     }
 
+    function clearFrameLoadTimer() {
+      if (!appFrameLoadTimer) return;
+      clearTimeout(appFrameLoadTimer);
+      appFrameLoadTimer = null;
+    }
+
+    function startFrameReadyTimer(frame) {
+      clearFrameReadyTimer();
+      appFrameReadyTimer = setTimeout(() => {
+        if (!appFrameReady && appFrame === frame) renderFrameFallback();
+      }, 7000);
+    }
+
     function renderFrameFallback() {
       clearFrameReadyTimer();
+      clearFrameLoadTimer();
       appFrame = null;
       stage.innerHTML =
         '<div class="fallback">' +
@@ -318,6 +328,7 @@ export function embedApp(
 
     function renderFrame(src) {
       clearFrameReadyTimer();
+      clearFrameLoadTimer();
       const frame = document.createElement("iframe");
       frame.title = body.dataset.iframeTitle || "Agent Native app";
       frame.src = src;
@@ -325,12 +336,17 @@ export function embedApp(
       appFrame = frame;
       appFrameReady = false;
       lastFrameSrc = src;
-      frame.addEventListener("load", () => sendFrameReadyMessages(frame));
+      frame.addEventListener("load", () => {
+        if (appFrame !== frame) return;
+        clearFrameLoadTimer();
+        sendFrameReadyMessages(frame);
+        startFrameReadyTimer(frame);
+      });
       stage.replaceChildren(frame);
       notifyHostHeight();
-      appFrameReadyTimer = setTimeout(() => {
+      appFrameLoadTimer = setTimeout(() => {
         if (!appFrameReady && appFrame === frame) renderFrameFallback();
-      }, 7000);
+      }, 30000);
     }
 
     async function updateHostModelContext(data) {
@@ -444,6 +460,7 @@ export function embedApp(
       const data = event.data.data || {};
       if (event.data.type === "agentNative.embeddedAppReady") {
         appFrameReady = true;
+        clearFrameLoadTimer();
         clearFrameReadyTimer();
         return;
       }
@@ -486,10 +503,6 @@ export function embedApp(
         if (!data.startUrl) {
           startedFor = "";
           setMessage(data.error || "This app can be opened, but not embedded from this MCP server.");
-          return;
-        }
-        if (shouldDirectRenderEmbed()) {
-          window.location.href = data.startUrl;
           return;
         }
         renderFrame(data.startUrl);

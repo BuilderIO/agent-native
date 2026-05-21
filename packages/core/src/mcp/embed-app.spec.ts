@@ -39,9 +39,12 @@ describe("embedApp", () => {
     expect(html).toContain("app.requestDisplayMode");
     expect(html).toContain("renderFrameFallback");
     expect(html).toContain("openFallbackExternal");
-    expect(html).toContain("shouldDirectRenderEmbed");
-    expect(html).toContain("claudemcpcontent.com");
-    expect(html).toContain("window.location.href = data.startUrl");
+    expect(html).toContain("appFrameLoadTimer");
+    expect(html).toContain("startFrameReadyTimer(frame)");
+    expect(html).toContain("}, 30000)");
+    expect(html).not.toContain("shouldDirectRenderEmbed");
+    expect(html).not.toContain("claudemcpcontent.com");
+    expect(html).not.toContain("window.location.href = data.startUrl");
     expect(html).toContain("__an_mcp_chat_bridge");
     expect(html).toContain('data-app-title="Dashboard"');
     expect(html).toContain("data-title-label>Dashboard");

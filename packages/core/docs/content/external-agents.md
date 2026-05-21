@@ -235,6 +235,16 @@ open a freshly minted embed session through the host, or use the visible route
 URL. Keep the action's `link` target useful on its own because it is still the
 universal escape hatch.
 
+Do not try to make Claude render full app routes inline by redirecting the MCP
+App resource document to `/_agent-native/embed/start`. Claude first renders the
+`ui://` resource HTML on a `*.claudemcpcontent.com` sandbox origin; our app URL
+is only reached later by wrapper code. The `/embed/start` 302 works for the
+nested app iframe and for `ui/open-link` external opens, but it is not a
+portable substitute for the MCP resource document itself. True nested-frame-free
+Claude support would need a separate resource-shell mode that bootstraps the
+route inside the returned MCP App HTML document, with explicit asset/API CSP,
+CORS, and embed-session auth.
+
 The host bridge is deliberately small:
 
 | Direction       | Message type                             | Use it for                               |
