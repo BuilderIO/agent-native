@@ -37,6 +37,7 @@ function redirectWithStagedCookies(
   setEmbedStartResponseHeaders(event);
   const headers = new Headers({
     "Cross-Origin-Embedder-Policy": "require-corp",
+    "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "cross-origin",
     Location: location,
   });
@@ -48,6 +49,7 @@ function redirectWithStagedCookies(
 
 function setEmbedStartResponseHeaders(event: H3Event): void {
   setResponseHeader(event, "Cross-Origin-Embedder-Policy", "require-corp");
+  setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
   setResponseHeader(event, "Cross-Origin-Resource-Policy", "cross-origin");
 }
 
@@ -62,6 +64,7 @@ function textResponse(
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cross-Origin-Embedder-Policy": "require-corp",
+      "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Resource-Policy": "cross-origin",
     },
   });
@@ -88,6 +91,7 @@ export function createEmbedStartRouteHandler(
         headers: {
           "Cache-Control": "no-store",
           "Cross-Origin-Embedder-Policy": "require-corp",
+          "Cross-Origin-Opener-Policy": "same-origin",
           "Cross-Origin-Resource-Policy": "cross-origin",
         },
       });

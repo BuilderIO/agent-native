@@ -117,6 +117,10 @@ describe("Vite MCP embed headers", () => {
       "require-corp",
     );
     expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Opener-Policy",
+      "same-origin",
+    );
+    expect(setHeader).toHaveBeenCalledWith(
       "Cross-Origin-Resource-Policy",
       "cross-origin",
     );
@@ -146,6 +150,10 @@ describe("Vite MCP embed headers", () => {
     expect(setHeader).toHaveBeenCalledWith(
       "Cross-Origin-Embedder-Policy",
       "require-corp",
+    );
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Opener-Policy",
+      "same-origin",
     );
     expect(setHeader).toHaveBeenCalledWith(
       "Cross-Origin-Resource-Policy",

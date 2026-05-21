@@ -52,6 +52,7 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBe(
       "require-corp",
     );
+    expect(res.headers.get("Cross-Origin-Opener-Policy")).toBe("same-origin");
     expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
       "cross-origin",
     );
@@ -59,6 +60,11 @@ describe("createEmbedStartRouteHandler", () => {
       expect.anything(),
       "Cross-Origin-Embedder-Policy",
       "require-corp",
+    );
+    expect(setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Opener-Policy",
+      "same-origin",
     );
     expect(setResponseHeader).toHaveBeenCalledWith(
       expect.anything(),
@@ -95,6 +101,7 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBe(
       "require-corp",
     );
+    expect(res.headers.get("Cross-Origin-Opener-Policy")).toBe("same-origin");
     expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
       "cross-origin",
     );
@@ -102,6 +109,11 @@ describe("createEmbedStartRouteHandler", () => {
       expect.anything(),
       "Cross-Origin-Embedder-Policy",
       "require-corp",
+    );
+    expect(setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Opener-Policy",
+      "same-origin",
     );
     expect(setResponseHeader).toHaveBeenCalledWith(
       expect.anything(),
