@@ -34,6 +34,7 @@ function redirectWithStagedCookies(
   location: string,
   status = 302,
 ): Response {
+  setEmbedStartResponseHeaders(event);
   const headers = new Headers({
     "Cross-Origin-Embedder-Policy": "require-corp",
     "Cross-Origin-Resource-Policy": "cross-origin",
@@ -45,7 +46,17 @@ function redirectWithStagedCookies(
   return new Response("", { status, headers });
 }
 
-function textResponse(message: string, status: number): Response {
+function setEmbedStartResponseHeaders(event: H3Event): void {
+  setResponseHeader(event, "Cross-Origin-Embedder-Policy", "require-corp");
+  setResponseHeader(event, "Cross-Origin-Resource-Policy", "cross-origin");
+}
+
+function textResponse(
+  event: H3Event,
+  message: string,
+  status: number,
+): Response {
+  setEmbedStartResponseHeaders(event);
   return new Response(message, {
     status,
     headers: {
@@ -71,6 +82,7 @@ export function createEmbedStartRouteHandler(
   return defineEventHandler(async (event: H3Event) => {
     const method = getMethod(event);
     if (method === "HEAD") {
+      setEmbedStartResponseHeaders(event);
       return new Response(null, {
         status: 204,
         headers: {
@@ -82,7 +94,7 @@ export function createEmbedStartRouteHandler(
     }
 
     if (method !== "GET") {
-      return textResponse("Method not allowed", 405);
+      return textResponse(event, "Method not allowed", 405);
     }
 
     const rawTicket = getQuery(event)?.ticket;
@@ -94,12 +106,12 @@ export function createEmbedStartRouteHandler(
       expectedOrgId: existingSession?.orgId ?? null,
     });
     if (!consumed) {
-      return textResponse("Invalid or expired embed session.", 401);
+      return textResponse(event, "Invalid or expired embed session.", 401);
     }
 
     const target = normalizeEmbedTargetPath(consumed.targetPath);
     if (!target) {
-      return textResponse("Invalid embed target.", 400);
+      return textResponse(event, "Invalid embed target.", 400);
     }
 
     const token = signEmbedSessionToken({

@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const setResponseHeader = vi.hoisted(() => vi.fn());
+
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getMethod: (event: any) => event.method ?? "GET",
   getQuery: (event: any) => event.query ?? {},
-  setResponseHeader: vi.fn(),
+  setResponseHeader: (...a: any[]) => setResponseHeader(...a),
 }));
 
 const consumeEmbedSessionTicket = vi.hoisted(() => vi.fn());
@@ -35,6 +37,7 @@ describe("createEmbedStartRouteHandler", () => {
   beforeEach(() => {
     consumeEmbedSessionTicket.mockReset();
     setEmbedSessionCookie.mockReset();
+    setResponseHeader.mockReset();
   });
 
   it("does not consume one-time embed tickets for HEAD probes", async () => {
@@ -50,6 +53,16 @@ describe("createEmbedStartRouteHandler", () => {
       "require-corp",
     );
     expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
+      "cross-origin",
+    );
+    expect(setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Embedder-Policy",
+      "require-corp",
+    );
+    expect(setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Resource-Policy",
       "cross-origin",
     );
     expect(consumeEmbedSessionTicket).not.toHaveBeenCalled();
@@ -83,6 +96,16 @@ describe("createEmbedStartRouteHandler", () => {
       "require-corp",
     );
     expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
+      "cross-origin",
+    );
+    expect(setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Embedder-Policy",
+      "require-corp",
+    );
+    expect(setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Resource-Policy",
       "cross-origin",
     );
   });
