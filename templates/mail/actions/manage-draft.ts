@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import {
   readAppState,
   writeAppState,
@@ -9,7 +9,6 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { appendSignatureToBody } from "../shared/signature.js";
-import { mailDraftMcpAppHtml, mailMcpAppResourceMeta } from "./_mcp-apps.js";
 
 /**
  * Cap for the base64url `compose=` query param. A full draft (recipients +
@@ -111,12 +110,15 @@ export default defineAction({
       .describe("The 'from' account email address to send from"),
   }),
   mcpApp: {
-    resource: {
+    resource: embedApp({
       title: "Review email draft",
-      description: "Review and edit a generated Mail draft inline.",
-      html: mailDraftMcpAppHtml,
-      ...mailMcpAppResourceMeta,
-    },
+      description:
+        "Open the generated draft in the real Mail compose UI with contact autocomplete, aliases, formatting, attachments, and sending controls.",
+      iframeTitle: "Agent-Native Mail",
+      openLabel: "Open in Mail",
+      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
+      height: 900,
+    }),
   },
   run: async (args) => {
     const action = args.action;

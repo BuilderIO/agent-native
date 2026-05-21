@@ -53,6 +53,7 @@ export function WorkspaceAppCard({
   const href = workspaceAppHref(app);
   const openInNewTab = isPendingBuilderHref(app);
   const isPending = app.status === "pending";
+  const pendingLabel = app.statusLabel || "Builder branch";
   const isArchived = !!app.archived;
   const audience = app.audience ?? "internal";
   const [editOpen, setEditOpen] = useState(false);
@@ -145,7 +146,7 @@ export function WorkspaceAppCard({
                 className="shrink-0 gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
               >
                 <IconClockHour4 size={12} />
-                Building
+                {pendingLabel}
               </Badge>
             ) : null}
             {isArchived ? (
@@ -166,7 +167,7 @@ export function WorkspaceAppCard({
           </p>
           {isPending && app.branchName ? (
             <p className="mt-1 truncate text-xs text-muted-foreground">
-              Branch: {app.branchName}
+              Builder branch: {app.branchName}
             </p>
           ) : null}
           {app.description ? (

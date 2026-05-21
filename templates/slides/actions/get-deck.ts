@@ -1,9 +1,14 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import { slidesDeckMcpAppHtml, slidesMcpAppResourceMeta } from "./_mcp-apps.js";
+
+const MCP_APP_FRAME_DOMAINS = [
+  "https:",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+];
 
 function stripHtml(html: string): string {
   return html
@@ -35,12 +40,14 @@ export default defineAction({
   }),
   http: { method: "GET" },
   mcpApp: {
-    resource: {
+    resource: embedApp({
       title: "Deck preview",
-      description: "Preview a Slides deck inline.",
-      html: slidesDeckMcpAppHtml,
-      ...slidesMcpAppResourceMeta,
-    },
+      description: "Open the deck in the real Slides editor.",
+      iframeTitle: "Agent-Native Slides",
+      openLabel: "Open deck",
+      frameDomains: MCP_APP_FRAME_DOMAINS,
+      height: 680,
+    }),
   },
   run: async (args) => {
     if (!args.id) {

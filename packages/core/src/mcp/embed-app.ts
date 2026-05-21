@@ -32,7 +32,7 @@ export function embedApp(
   const openLabel = options.openLabel ?? "Open in app";
   const startToolName = options.startToolName ?? "create_embed_session";
   const embedByDefault = options.embedByDefault !== false;
-  const height = Math.max(320, Math.min(680, options.height ?? 640));
+  const height = Math.max(320, Math.min(900, options.height ?? 900));
 
   return {
     title,
@@ -121,9 +121,9 @@ export function embedApp(
     }
 
     function wantsEmbed() {
-      if (toolInput.embed === false) return false;
-      if (toolInput.embed === true) return true;
-      return embedByDefault;
+      if (toolInput.embed === false || toolInput.embed === "false") return false;
+      if (embedByDefault) return true;
+      return toolInput.embed === true || toolInput.embed === "true";
     }
 
     function setMessage(message) {

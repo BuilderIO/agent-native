@@ -4,7 +4,7 @@ import { listGrantedDispatchMcpApps } from "../server/lib/mcp-gateway.js";
 
 export default defineAction({
   description:
-    "List the apps this Dispatch MCP gateway can route to. The result is filtered by Dispatch's MCP app access policy.",
+    'List the apps this Dispatch MCP gateway can route to, including "dispatch" itself for Dispatch-owned pages such as extensions. The result is filtered by Dispatch\'s MCP app access policy.',
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,

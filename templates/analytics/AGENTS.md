@@ -511,6 +511,13 @@ Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, persis
 
 Use base64url (replace `+` → `-`, `/` → `_`, strip `=` padding) so the payload is URL-safe.
 
+For MCP Apps, the same rule applies: this is a focused app-route embed, not a
+plain HTML one-off. Use `open_app` with `app: "analytics"`,
+`path: "/chart?panel=<base64url-panel>"`, and `embed: true` (or an action
+`link` that targets that path plus `mcpApp: { resource: embedApp(...) }`) when
+the host should show just the live chart instead of a whole dashboard or saved
+analysis route.
+
 ### Static image via `generate-chart` (save-analysis only)
 
 Use only when writing an analysis artifact via `save-analysis` — the markdown body needs to render later in contexts where the live embed isn't available (exports, emails, archived reports). Pass `--title`, `--labels` (JSON array), `--data` (JSON array of numbers OR `[{label,data,color}]`). The action may return a `.png` or `.svg` URL; both are valid generated chart images. If the action returns an `error`, do not retry — the user is in chat, switch to the live embed above instead.

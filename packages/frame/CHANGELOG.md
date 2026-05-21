@@ -1,5 +1,55 @@
 # @agent-native/frame
 
+## 0.1.116
+
+### Patch Changes
+
+- Updated dependencies [e3b219b]
+  - @agent-native/core@0.22.11
+
+## 0.1.115
+
+### Patch Changes
+
+- Updated dependencies [ce325de]
+  - @agent-native/core@0.22.10
+
+## 0.1.114
+
+### Patch Changes
+
+- Updated dependencies [e834a27]
+  - @agent-native/core@0.22.9
+
+## 0.1.113
+
+### Patch Changes
+
+- Updated dependencies [bbaa675]
+- Updated dependencies [bbaa675]
+- Updated dependencies [bbaa675]
+- Updated dependencies [bbaa675]
+  - @agent-native/core@0.22.8
+
+## 0.1.112
+
+### Patch Changes
+
+- Updated dependencies [2fcecb9]
+- Updated dependencies [2fcecb9]
+  - @agent-native/core@0.22.7
+
+## 0.1.111
+
+### Patch Changes
+
+- Updated dependencies [789ba7d]
+- Updated dependencies [789ba7d]
+- Updated dependencies [789ba7d]
+- Updated dependencies [789ba7d]
+- Updated dependencies [789ba7d]
+  - @agent-native/core@0.22.6
+
 ## 0.1.110
 
 ### Patch Changes
