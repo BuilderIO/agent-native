@@ -46,6 +46,9 @@ describe("createEmbedStartRouteHandler", () => {
 
     expect(res.status).toBe(204);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBe(
+      "require-corp",
+    );
     expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
       "cross-origin",
     );
@@ -75,6 +78,9 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(
       "/inbox?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
+    );
+    expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBe(
+      "require-corp",
     );
     expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
       "cross-origin",

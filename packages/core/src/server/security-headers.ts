@@ -35,6 +35,9 @@
  *     override this on their own routes.
  *   - `Cross-Origin-Opener-Policy: same-origin` — isolates window.opener so
  *     a popup-window opener reference can't read or modify our document.
+ *   - `Cross-Origin-Embedder-Policy: require-corp` — emitted only for
+ *     validated MCP embed-session page loads. COEP hosts such as Claude's MCP
+ *     Apps proxy require framed cross-origin documents to opt in explicitly.
  *   - `Cross-Origin-Resource-Policy: same-site` — prevents other origins from
  *     embedding our endpoints as `<img>` / `<script>` / `<audio>`, blocking
  *     the simplest data-leak chain when combined with auth cookies. Validated
@@ -97,6 +100,9 @@ export function createSecurityHeadersMiddleware() {
     );
     setResponseHeader(event, "Permissions-Policy", PERMISSIONS_POLICY);
     setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
+    if (embedFrameRequest) {
+      setResponseHeader(event, "Cross-Origin-Embedder-Policy", "require-corp");
+    }
     setResponseHeader(
       event,
       "Cross-Origin-Resource-Policy",

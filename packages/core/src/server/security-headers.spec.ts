@@ -24,6 +24,7 @@ describe("security headers middleware", () => {
     expect(headers.get("Permissions-Policy")).toBe(
       "camera=(), microphone=(self), geolocation=(), screen-wake-lock=()",
     );
+    expect(headers.get("Cross-Origin-Embedder-Policy")).toBeUndefined();
     expect(headers.get("Cross-Origin-Resource-Policy")).toBe("same-site");
   });
 
@@ -47,6 +48,7 @@ describe("security headers middleware", () => {
 
     expect(headers.get("X-Frame-Options")).toBeUndefined();
     expect(headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(headers.get("Cross-Origin-Embedder-Policy")).toBe("require-corp");
     expect(headers.get("Cross-Origin-Resource-Policy")).toBe("cross-origin");
     vi.unstubAllEnvs();
   });

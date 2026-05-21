@@ -35,6 +35,7 @@ function redirectWithStagedCookies(
   status = 302,
 ): Response {
   const headers = new Headers({
+    "Cross-Origin-Embedder-Policy": "require-corp",
     "Cross-Origin-Resource-Policy": "cross-origin",
     Location: location,
   });
@@ -49,6 +50,7 @@ function textResponse(message: string, status: number): Response {
     status,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
+      "Cross-Origin-Embedder-Policy": "require-corp",
       "Cross-Origin-Resource-Policy": "cross-origin",
     },
   });
@@ -73,6 +75,7 @@ export function createEmbedStartRouteHandler(
         status: 204,
         headers: {
           "Cache-Control": "no-store",
+          "Cross-Origin-Embedder-Policy": "require-corp",
           "Cross-Origin-Resource-Policy": "cross-origin",
         },
       });
