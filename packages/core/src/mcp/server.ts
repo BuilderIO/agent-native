@@ -80,6 +80,22 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
   return { origin, target };
 }
 
+function isLoopbackOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  try {
+    const hostname = new URL(origin).hostname;
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]" ||
+      hostname.startsWith("127.")
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Reconstruct a Web Standard `Request` for the web-standard MCP transport.
  *
@@ -198,7 +214,8 @@ export async function handleMcpRequest(
   // `fullSurface` would otherwise escalate to the full mutating surface.
   const requestMeta = deriveRequestMeta(event);
   const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
-    allowDevOpen: isLoopbackRequest(event),
+    allowDevOpen:
+      isLoopbackRequest(event) && isLoopbackOrigin(requestMeta.origin),
     resourceUrl: getMcpOAuthResource(event),
   });
   if (!authResult.authed) {

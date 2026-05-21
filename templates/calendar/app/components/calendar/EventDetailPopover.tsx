@@ -1886,6 +1886,23 @@ Write a short, useful meeting description. If I ask you to apply it, update this
               >
                 {isDraft ? "Discard" : "Delete"}
               </Button>
+              {event.htmlLink && !isDraft && (
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto gap-1.5 text-xs"
+                >
+                  <a
+                    href={event.htmlLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <IconExternalLink className="h-3.5 w-3.5" />
+                    Google Calendar
+                  </a>
+                </Button>
+              )}
               {isDraft && (
                 <Button
                   size="sm"

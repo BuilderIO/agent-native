@@ -9,7 +9,11 @@ import {
   ReactNode,
 } from "react";
 import { nanoid } from "nanoid";
-import { appBasePath, appPath } from "@agent-native/core/client";
+import {
+  appBasePath,
+  appPath,
+  isEmbedAuthActive,
+} from "@agent-native/core/client";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 export type SlideLayout =
@@ -579,6 +583,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   // Listen for file changes via SSE (so agent edits show up in real-time)
   useEffect(() => {
+    if (isEmbedAuthActive()) return;
     const evtSource = new EventSource(`${appBasePath()}/api/decks/events`);
     evtSource.onmessage = async (event) => {
       try {

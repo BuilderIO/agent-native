@@ -56,9 +56,9 @@ function deckDeepLink(deckId: string): string {
 
 export default defineAction({
   description:
-    "Create an empty deck, or atomically replace all slides in an existing deck. " +
-    "For AI-generated decks, create the deck with slides: [] and then use add-slide so progress appears live. " +
-    "Use non-empty slides here only for imports or intentional bulk replacement. " +
+    "Create a new deck, optionally already populated with slides, or atomically replace all slides in an existing deck. " +
+    "For short AI-generated decks in MCP app hosts, pass all generated slides in this call so the real deck editor opens inline already populated. " +
+    "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live. " +
     "Pass deckId to replace an existing deck. " +
     "Returns the deck id, title, and slide count.",
   schema: z.object({

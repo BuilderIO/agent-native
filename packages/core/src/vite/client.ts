@@ -412,6 +412,8 @@ export interface NitroOptions {
 export interface ClientConfigOptions {
   /** Port for dev server. Default: 8080 */
   port?: number;
+  /** Additional hostnames allowed to access the dev server. */
+  allowedHosts?: NonNullable<NonNullable<UserConfig["server"]>["allowedHosts"]>;
   /** Vite log level. Workspace child apps default to "warn" so only the gateway URL is advertised. */
   logLevel?: UserConfig["logLevel"];
   /** Additional Vite plugins */
@@ -958,6 +960,11 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     server: {
       host: "::",
       port: options.port ?? 8080,
+      allowedHosts: options.allowedHosts ?? [
+        ".ngrok-free.dev",
+        ".ngrok-free.app",
+        ".ngrok.io",
+      ],
       fs: {
         allow: [
           ".",

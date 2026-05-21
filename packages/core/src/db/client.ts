@@ -11,6 +11,7 @@
 import path from "path";
 
 const recyclingPostgresPools = new WeakSet<object>();
+const loggedNeonPools = new WeakSet<object>();
 
 // ---------------------------------------------------------------------------
 // Types
@@ -497,6 +498,41 @@ export function neonPoolMax(): number {
   return isServerlessRuntime() ? 2 : 10;
 }
 
+export function attachNeonPoolErrorLogger(
+  pool: unknown,
+  label = "db/neon",
+): void {
+  if (!pool || typeof pool !== "object") return;
+  if (loggedNeonPools.has(pool)) return;
+  const withEvents = pool as {
+    on?: (event: "error", listener: (err: unknown) => void) => unknown;
+  };
+  if (typeof withEvents.on !== "function") return;
+
+  loggedNeonPools.add(pool);
+  withEvents.on("error", (err: unknown) => {
+    console.warn(
+      `[${label}] pool error (will reconnect on next query):`,
+      err instanceof Error ? err.message : err,
+    );
+  });
+}
+
+function disposePostgresPoolEventually(
+  pool: { end: () => Promise<unknown> },
+  label: string,
+): void {
+  if (!pool || typeof pool !== "object") return;
+  if (recyclingPostgresPools.has(pool)) return;
+  recyclingPostgresPools.add(pool);
+  void pool.end().catch((err: unknown) => {
+    console.warn(
+      `[db/postgres] ${label} cleanup failed:`,
+      err instanceof Error ? err.message : err,
+    );
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Singleton client — lazy-initialized on first execute() call
 // ---------------------------------------------------------------------------
@@ -553,18 +589,7 @@ async function createDbExecInternal(
     if (isNeonUrl(url)) {
       const { Pool } = await import("@neondatabase/serverless");
       const pool = new Pool({ connectionString: url, max: neonPoolMax() });
-      // Neon's serverless Pool extends EventEmitter and emits 'error'
-      // when its WebSocket connection drops (idle timeout, Lambda
-      // suspend, network blip). Without a listener, Node 24 surfaces
-      // these as fatal `Unhandled error` / `Connection terminated
-      // unexpectedly` uncaught exceptions, even though the next query
-      // would have transparently re-connected. Log and swallow.
-      pool.on("error", (err: unknown) => {
-        console.warn(
-          "[db/neon] pool error (will reconnect on next query):",
-          err instanceof Error ? err.message : err,
-        );
-      });
+      attachNeonPoolErrorLogger(pool);
       if (trackSingletonResources) _neonPool = pool;
       return {
         async execute(sql) {
@@ -640,7 +665,7 @@ async function createDbExecInternal(
               dbOpTimeoutMs(),
               () => {
                 timedOut = true;
-                return conn.end({ timeout: 1 });
+                disposePostgresPoolEventually(conn, "timed-out worker query");
               },
             );
             return {
@@ -648,7 +673,14 @@ async function createDbExecInternal(
               rowsAffected: result.count ?? 0,
             };
           } finally {
-            if (!timedOut) await conn.end();
+            if (!timedOut) {
+              await conn.end().catch((err: unknown) => {
+                console.warn(
+                  "[db/postgres] worker query cleanup failed:",
+                  err instanceof Error ? err.message : err,
+                );
+              });
+            }
           }
         },
       };
@@ -662,14 +694,12 @@ async function createDbExecInternal(
       type PostgresPool = ReturnType<typeof createPool>;
       let pool = createPool();
       if (trackSingletonResources) _pgPool = pool;
-      const recyclePool = async (timedOutPool: PostgresPool) => {
-        if (recyclingPostgresPools.has(timedOutPool)) return;
-        recyclingPostgresPools.add(timedOutPool);
+      const recyclePool = (timedOutPool: PostgresPool) => {
         if (pool === timedOutPool) {
           pool = createPool();
           if (trackSingletonResources) _pgPool = pool;
         }
-        await timedOutPool.end({ timeout: 1 });
+        disposePostgresPoolEventually(timedOutPool, "timed-out pooled query");
       };
 
       return {

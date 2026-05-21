@@ -8,7 +8,6 @@
 import {
   defineEventHandler,
   getQuery,
-  sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -21,6 +20,15 @@ import {
 import { getZoomAuthUrl, isZoomConfigured } from "../../../lib/zoom.js";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "calendar";
+
+function oauthRedirectResponse(url: string) {
+  // h3 v2 sendRedirect returns an object that can render as "[object Object]"
+  // in production auth popups. Native Response stays a real 302.
+  return new Response(null, {
+    status: 302,
+    headers: { Location: url },
+  });
+}
 
 export default defineEventHandler(async (event: H3Event) => {
   if (!isZoomConfigured()) {
@@ -53,7 +61,7 @@ export default defineEventHandler(async (event: H3Event) => {
   });
   const url = getZoomAuthUrl(redirectUri, state);
   if (getQuery(event).redirect === "1") {
-    return sendRedirect(event, url, 302);
+    return oauthRedirectResponse(url);
   }
   return { url };
 });

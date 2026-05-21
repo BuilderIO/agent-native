@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import {
   readAppState,
   writeAppState,
@@ -180,6 +180,17 @@ export default defineAction({
       .optional()
       .describe("Account email to create the event on"),
   }),
+  mcpApp: {
+    resource: embedApp({
+      title: "Review calendar invite",
+      description:
+        "Open the draft in the real Calendar event editor so the user can review attendees, time, location, conferencing, and reminders.",
+      iframeTitle: "Agent-Native Calendar",
+      openLabel: "Open in Calendar",
+      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
+      height: 900,
+    }),
+  },
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

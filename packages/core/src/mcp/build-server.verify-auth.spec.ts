@@ -110,6 +110,7 @@ describe("verifyAuth — connect-token revoke check", () => {
       userEmail: "oauth@example.com",
       orgDomain: "builder.io",
       oauthScopes: ["mcp:read", "mcp:apps"],
+      oauthClientId: "client-123",
     });
     expect(isJtiRevokedMock).not.toHaveBeenCalled();
   });

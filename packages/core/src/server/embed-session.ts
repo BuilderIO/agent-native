@@ -36,6 +36,12 @@ const OPEN_ROUTE_VIEW_PATHS: Record<string, string> = {
   sources: "/sources",
   settings: "/settings",
 };
+const EMBED_ROUTE_ALIASES: Record<string, string[]> = {
+  "/dashboard": ["/adhoc/agent-native-templates-first-party"],
+  "/dashboards": ["/adhoc/agent-native-templates-first-party"],
+  "/traffic": ["/adhoc/agent-native-templates-first-party"],
+  "/traffic-dashboard": ["/adhoc/agent-native-templates-first-party"],
+};
 
 let _initPromise: Promise<void> | undefined;
 let _devSigningKey: string | undefined;
@@ -304,7 +310,12 @@ function openRouteTargetPathnames(targetPath: string): Set<string> {
 function allowedEmbedTargetPathnames(targetPath: string): Set<string> {
   const allowed = new Set<string>();
   const direct = pathnameFromPath(targetPath);
-  if (direct) allowed.add(direct);
+  if (direct) {
+    allowed.add(direct);
+    for (const aliasTarget of EMBED_ROUTE_ALIASES[direct] ?? []) {
+      allowed.add(aliasTarget);
+    }
+  }
   for (const openTarget of openRouteTargetPathnames(targetPath)) {
     allowed.add(openTarget);
   }
@@ -351,6 +362,44 @@ function headerTargetPathname(event: H3Event): string | null {
   }
 }
 
+function requestHost(event: H3Event): string | null {
+  const direct =
+    (event as any).request?.headers?.get?.("host") ??
+    (event as any).headers?.get?.("host") ??
+    (event as any).node?.req?.headers?.host;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  try {
+    return getHeader(event, "host") ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function referrerTargetPathname(event: H3Event): string | null {
+  let raw: string | null =
+    (event as any).request?.headers?.get?.("referer") ??
+    (event as any).request?.headers?.get?.("referrer") ??
+    (event as any).headers?.get?.("referer") ??
+    (event as any).headers?.get?.("referrer") ??
+    (event as any).node?.req?.headers?.referer ??
+    (event as any).node?.req?.headers?.referrer ??
+    null;
+  try {
+    raw = raw ?? getHeader(event, "referer") ?? getHeader(event, "referrer");
+  } catch {
+    raw = raw ?? null;
+  }
+  if (!raw) return null;
+  try {
+    const referrer = new URL(raw);
+    const host = requestHost(event);
+    if (host && referrer.host !== host) return null;
+    return pathnameFromPath(`${referrer.pathname}${referrer.search}`);
+  } catch {
+    return pathnameFromPath(raw);
+  }
+}
+
 export function requestMatchesEmbedTarget(
   event: H3Event,
   targetPath: string,
@@ -362,7 +411,10 @@ export function requestMatchesEmbedTarget(
   if (current && allowed.has(current)) return true;
 
   const headerTarget = headerTargetPathname(event);
-  return !!headerTarget && allowed.has(headerTarget);
+  if (headerTarget && allowed.has(headerTarget)) return true;
+
+  const referrerTarget = referrerTargetPathname(event);
+  return !!referrerTarget && allowed.has(referrerTarget);
 }
 
 export function normalizeEmbedTargetPath(
