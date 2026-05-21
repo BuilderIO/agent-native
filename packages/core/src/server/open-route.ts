@@ -32,6 +32,7 @@ import {
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 
@@ -43,6 +44,7 @@ const RESERVED = new Set([
   "compose",
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_PARAM,
 ]);
 
@@ -244,7 +246,11 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
     }
     target = appendSearchParams(target, filters);
     const embedParams = new URLSearchParams();
-    for (const key of [EMBED_MODE_QUERY_PARAM, EMBED_TOKEN_QUERY_PARAM]) {
+    for (const key of [
+      EMBED_MODE_QUERY_PARAM,
+      EMBED_TOKEN_QUERY_PARAM,
+      MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+    ]) {
       const value = search.get(key);
       if (value) embedParams.set(key, value);
     }

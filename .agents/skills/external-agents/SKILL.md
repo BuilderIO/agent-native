@@ -166,7 +166,7 @@ incidental full-surface discovery.
 
 Keep ChatGPT/Claude paths short. For a known app-facing intent, the external
 agent should call the specific action that creates or opens the thing, then let
-the MCP App widget launch the iframe. Do **not** route simple UI handoffs
+the MCP App launch the route. Do **not** route simple UI handoffs
 through `ask_app`, broad `list_resources`, or generic app-agent delegation just
 to find a screen.
 

@@ -78,13 +78,23 @@ If an action declares `mcpApp`, the server also advertises the official MCP Apps
 
 `embedApp()` is the low-level URL-first MCP App helper. It reads the action
 result's open link, asks the app-only `create_embed_session` tool to mint a
-route-scoped session, then loads the resulting route in an iframe. For normal
-action authoring, use `embedRoute()` when the action's `link` and `mcpApp`
-should come from the same pure route builder. The route itself should derive
-state from the URL and normal app data fetching.
+route-scoped session, then navigates the MCP App frame itself to the resulting
+app route. For normal action authoring, use `embedRoute()` when the action's
+`link` and `mcpApp` should come from the same pure route builder. The route
+itself should derive state from the URL and normal app data fetching.
 
-The bridge between the wrapper and the embedded route uses Agent-Native
-postMessage types:
+Default direct embeds talk to the MCP Apps host through standard `ui/*`
+JSON-RPC messages:
+
+| Type                      | Payload shape                      |
+| ------------------------- | ---------------------------------- |
+| `ui/update-model-context` | `{ content?, structuredContent? }` |
+| `ui/message`              | `{ role: "user", content }`        |
+| `ui/open-link`            | `{ url }`                          |
+| `ui/request-display-mode` | `{ mode }`                         |
+
+An explicit `embedMode: "iframe"` / `renderMode: "iframe"` diagnostic path
+keeps the old wrapper-to-route postMessage relay:
 
 | Direction       | Type                                     | Payload shape                                 |
 | --------------- | ---------------------------------------- | --------------------------------------------- |

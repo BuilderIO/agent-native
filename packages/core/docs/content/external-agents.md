@@ -219,42 +219,38 @@ Claude Code and other CLI-first clients still receive the same resources and met
 
 MCP App embeds are route embeds, not separate mini-products. `embedApp()`
 starts from the action's `link` target, creates a short-lived embed session,
-and loads that URL in an iframe. Design embedded routes so a reload with the
-same URL reconstructs the same view.
+and by default navigates the MCP App frame itself to that app route. That keeps
+Claude and ChatGPT on a single iframe instead of relying on a nested app iframe.
+Design embedded routes so a reload with the same URL reconstructs the same view.
 
-ChatGPT gets a dedicated compatibility path through `window.openai`: the
-wrapper reads `toolInput`, `toolOutput`, and `toolResponseMetadata` directly,
-then calls `create_embed_session` via `window.openai.callTool(...)`. Other MCP
-Apps hosts use the standard `ui/*` bridge. Keep the result shape identical for
-both paths: return a focused `link` and concise structured content.
+ChatGPT gets a dedicated compatibility path through `window.openai`: the launch
+document reads `toolInput`, `toolOutput`, and `toolResponseMetadata` directly,
+then calls `create_embed_session` via `window.openai.callTool(...)`. Standard
+MCP Apps hosts use the `ui/*` JSON-RPC bridge. After the direct navigation, the
+loaded app route can still call `ui/update-model-context`, `ui/message`,
+`ui/open-link`, and `ui/request-display-mode` through the host bridge helpers.
+Keep the result shape identical for both paths: return a focused `link` and
+concise structured content.
 
-Some hosts support MCP Apps but still block nested iframes for a returned UI
-resource. `embedApp()` detects that case with a route-ready handshake and
-replaces the broken frame with an open-app fallback: the user can retry inline,
-open a freshly minted embed session through the host, or use the visible route
-URL. Keep the action's `link` target useful on its own because it is still the
-universal escape hatch.
-
-Do not try to make Claude render full app routes inline by redirecting the MCP
-App resource document to `/_agent-native/embed/start`. Claude first renders the
-`ui://` resource HTML on a `*.claudemcpcontent.com` sandbox origin; our app URL
-is only reached later by wrapper code. The `/embed/start` 302 works for the
-nested app iframe and for `ui/open-link` external opens, but it is not a
-portable substitute for the MCP resource document itself. True nested-frame-free
-Claude support would need a separate resource-shell mode that bootstraps the
-route inside the returned MCP App HTML document, with explicit asset/API CSP,
-CORS, and embed-session auth.
+An explicit nested iframe diagnostic path remains available with
+`embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true`, or
+`frame: "iframe"`. Use it only when debugging host behavior. If that diagnostic
+iframe is blocked, `embedApp()` replaces it with an open-app fallback: the user
+can retry inline, open a freshly minted embed session through the host, or use
+the visible route URL. Keep the action's `link` target useful on its own because
+it is still the universal escape hatch.
 
 The host bridge is deliberately small:
 
-| Direction       | Message type                             | Use it for                               |
-| --------------- | ---------------------------------------- | ---------------------------------------- |
-| wrapper → route | `agentNative.mcpHostContext`             | Theme, locale, host platform, dimensions |
-| route → wrapper | `agentNative.embeddedAppReady`           | Confirm the nested route iframe loaded   |
-| route → wrapper | `agentNative.mcpHost.updateModelContext` | Hidden context for the host model        |
-| route → wrapper | `agentNative.mcpHost.openLink`           | Open an external or app URL via the host |
-| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | Request `inline`, `fullscreen`, or `pip` |
-| wrapper → route | `agentNative.mcpHost.response`           | Correlate async request results          |
+| Mode              | Message type                          | Use it for                               |
+| ----------------- | ------------------------------------- | ---------------------------------------- |
+| direct            | `ui/update-model-context`             | Hidden context for the host model        |
+| direct            | `ui/message`                          | Post a visible user turn into the host   |
+| direct            | `ui/open-link`                        | Open an external or app URL via the host |
+| direct            | `ui/request-display-mode`             | Request `inline`, `fullscreen`, or `pip` |
+| nested diagnostic | `agentNative.mcpHostContext`          | Theme, locale, host platform, dimensions |
+| nested diagnostic | `agentNative.embeddedAppReady`        | Confirm the route iframe loaded          |
+| nested diagnostic | `agentNative.mcpHost.*` / `.response` | Wrapper relay for host requests          |
 
 Embedded routes can use `updateMcpAppModelContext()`,
 `openMcpAppHostLink()`, `requestMcpAppDisplayMode()`,
@@ -283,7 +279,7 @@ On top of the per-action tools the MCP server exposes a stable verb set, so an e
 
 For OAuth callers that request `mcp:apps`, the server intentionally advertises a compact `tools/list` catalog so app hosts do not ingest every internal action schema. The model sees app-facing builtins (`list_apps`, `open_app`, app-only `create_embed_session`) and actions with `mcpApp`. Stdio/static-token developer clients still get the full connected action surface, and `publicAgent.expose` remains the opt-in for safe read/ingest tools outside the compact app catalog. If a UI-capable host should be able to call a new action from an MCP App conversation, mark it with `mcpApp`; use `publicAgent` for non-UI read/ingest handoff tools.
 
-For fast ChatGPT/Claude handoffs, the ideal path is direct: call the action that creates or opens the artifact, then let the MCP App widget launch the iframe. A Mail request should call `manage_draft` and render the real compose route. A dashboard request should call `open_app({ path, embed: true })` or a dashboard action with `mcpApp` and render the full Analytics route. Calendar, Forms, Content, Slides, Design, and Clips should follow the same pattern with their draft/create/search actions. `list_apps` is useful when the model must choose among granted apps; broad `resources/list`, full-catalog discovery, or `ask_app` delegation should not be the normal route for an obvious UI handoff.
+For fast ChatGPT/Claude handoffs, the ideal path is direct: call the action that creates or opens the artifact, then let the MCP App launch the route. A Mail request should call `manage_draft` and render the real compose route. A dashboard request should call `open_app({ path, embed: true })` or a dashboard action with `mcpApp` and render the full Analytics route. Calendar, Forms, Content, Slides, Design, and Clips should follow the same pattern with their draft/create/search actions. `list_apps` is useful when the model must choose among granted apps; broad `resources/list`, full-catalog discovery, or `ask_app` delegation should not be the normal route for an obvious UI handoff.
 
 ### Per-app tour {#tour}
 
@@ -364,13 +360,11 @@ export default defineAction({
 
 The MCP server advertises extension `io.modelcontextprotocol/ui`, adds `_meta.ui.resourceUri` plus `_meta["ui/resourceUri"]` to `tools/list`, and also emits ChatGPT Apps SDK compatibility metadata (`openai/outputTemplate`, widget CSP/description/accessibility). It exposes the HTML through `resources/list`, `resources/templates/list`, and `resources/read` using MIME `text/html;profile=mcp-app`. The stdio proxy forwards those resource handlers from the live app, so desktop and CLI clients see the same resources as HTTP clients.
 
-Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. `embedApp()` uses that link as its launch target, calls the app-only `create_embed_session` helper, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and loads the target route in an iframe with a short-lived browser session plus a bearer fallback for same-origin fetches. `open_app({ app, path, embed: true })` is the generic escape hatch for routes such as full dashboards, filtered inboxes, calendar draft views, analyses, and extension pages, and should be used liberally when the full app is the clearest review/edit surface.
+Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. `embedApp()` uses that link as its launch target, calls the app-only `create_embed_session` helper, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the target route with a short-lived browser session plus a bearer fallback for same-origin fetches. `open_app({ app, path, embed: true })` is the generic escape hatch for routes such as full dashboards, filtered inboxes, calendar draft views, analyses, and extension pages, and should be used liberally when the full app is the clearest review/edit surface.
 
-Inside those `embedApp()` full-app iframes, `sendToAgentChat()` is host-aware:
-auto-submitted prompts are relayed to the wrapper, which uses the host's model
-context and message APIs for hidden context plus the visible user turn. Hosts
-without MCP Apps messaging support simply ignore the bridge, and
-`submit: false` remains a local review/prefill path.
+Inside those `embedApp()` routes, `sendToAgentChat()` is embed-aware.
+Auto-submitted prompts relay to the MCP host as `ui/update-model-context` plus
+`ui/message`; `submit: false` remains local prefill/review behavior.
 
 ### The `link` contract {#link-contract}
 

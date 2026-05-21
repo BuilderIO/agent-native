@@ -354,10 +354,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(echo.annotations?.["agent-native/producesOpenLink"]).toBe(true);
     expect(echo.description).toContain("Open in");
     expect(echo._meta?.["ui/resourceUri"]).toBe(
-      "ui://mail/echo-thing/shell-v2",
+      "ui://mail/echo-thing/shell-v3",
     );
     expect(echo._meta?.["openai/outputTemplate"]).toBe(
-      "ui://mail/echo-thing/shell-v2",
+      "ui://mail/echo-thing/shell-v3",
     );
     expect(echo._meta?.["openai/widgetAccessible"]).toBe(true);
     expect(echo._meta?.["openai/widgetCSP"]).toEqual({
@@ -368,7 +368,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         connectDomains: ["https://mail.agent-native.com"],
       },
       prefersBorder: true,
-      resourceUri: "ui://mail/echo-thing/shell-v2",
+      resourceUri: "ui://mail/echo-thing/shell-v3",
       visibility: ["model", "app"],
     });
   });
@@ -482,8 +482,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resources.map((r: any) => r.uri)).toEqual(
       expect.arrayContaining([
-        "ui://mail/echo-thing/shell-v2",
-        "ui://mail/review-draft/shell-v2",
+        "ui://mail/echo-thing/shell-v3",
+        "ui://mail/review-draft/shell-v3",
       ]),
     );
   });
@@ -611,7 +611,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/echo-thing/shell-v2",
+        uri: "ui://mail/echo-thing/shell-v3",
         name: "echo-thing",
         title: "Mail Review",
         description: "Review the echoed thing in an inline MCP App.",
@@ -647,7 +647,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resourceTemplates).toEqual([
       expect.objectContaining({
-        uriTemplate: "ui://mail/echo-thing/shell-v2",
+        uriTemplate: "ui://mail/echo-thing/shell-v3",
         name: "echo-thing",
         title: "Mail Review",
         description: "Review the echoed thing in an inline MCP App.",
@@ -662,14 +662,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 6,
         method: "resources/read",
-        params: { uri: "ui://mail/echo-thing/shell-v2" },
+        params: { uri: "ui://mail/echo-thing/shell-v3" },
       },
       { headers: await mcpAppsAuthHeaders() },
     );
     expect(out.error).toBeUndefined();
     expect(out.result.contents).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/echo-thing/shell-v2",
+        uri: "ui://mail/echo-thing/shell-v3",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining('data-action="echo-thing"'),
         _meta: expect.objectContaining({
@@ -688,6 +688,27 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.contents[0].text).toContain(
       'data-origin="https://mail.agent-native.com"',
     );
+  });
+
+  it("keeps legacy unversioned MCP App resource reads working", async () => {
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 16,
+        method: "resources/read",
+        params: { uri: "ui://mail/echo-thing" },
+      },
+      { headers: await mcpAppsAuthHeaders() },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.contents).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/echo-thing",
+        mimeType: "text/html;profile=mcp-app",
+        text: expect.stringContaining('data-action="echo-thing"'),
+      }),
+    ]);
   });
 
   it("handles `tools/call` and appends the deep-link block + `_meta`", async () => {
@@ -716,7 +737,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         "https://mail.agent-native.com/_agent-native/open?view=thing&id=thing-42&agentSidebar=closed",
     });
     expect(out.result._meta["openai/outputTemplate"]).toBe(
-      "ui://mail/echo-thing/shell-v2",
+      "ui://mail/echo-thing/shell-v3",
     );
     expect(out.result._meta["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],

@@ -312,9 +312,8 @@ export function embedApp(
     async function openFallbackExternal() {
       let url = openUrl;
       try {
-        const embedUrl = withChatBridgeParam(openUrl);
         const result = await callEmbedSessionTool({
-          url: embedUrl,
+          url: openUrl,
           chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
         });
         const data = parseToolResult(result);
@@ -365,8 +364,14 @@ export function embedApp(
       clearFrameReadyTimer();
       clearFrameLoadTimer();
       appFrame = null;
+      lastFrameSrc = src;
       setMessage("Opening app");
-      window.location.replace(src);
+      try {
+        window.location.replace(src);
+      } catch (err) {
+        console.warn("[agent-native] MCP app self-navigation failed", err);
+        renderFrameFallback();
+      }
     }
 
     async function updateHostModelContext(data) {
@@ -514,18 +519,19 @@ export function embedApp(
       startedFor = openUrl;
       setMessage("Loading app");
       try {
+        const selfNavigate = shouldSelfNavigateToApp();
         const embedUrl = withChatBridgeParam(openUrl);
         const result = await callEmbedSessionTool({
           url: embedUrl,
           chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
         });
         const data = parseToolResult(result);
-        if (!data.startUrl) {
+        if (typeof data.startUrl !== "string" || !data.startUrl) {
           startedFor = "";
           setMessage(data.error || "This app can be opened, but not embedded from this MCP server.");
           return;
         }
-        if (shouldSelfNavigateToApp()) {
+        if (selfNavigate) {
           navigateToAppFrame(data.startUrl);
         } else {
           renderFrame(data.startUrl);

@@ -1,12 +1,23 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 const TRAFFIC_DASHBOARD_PATH = "/adhoc/agent-native-templates-first-party";
+const TRAFFIC_DASHBOARD_ID = "agent-native-templates-first-party";
 const MCP_APP_FRAME_DOMAINS = [
   "https:",
   "http://localhost:*",
   "http://127.0.0.1:*",
 ];
+
+function trafficDashboardDeepLink(): string {
+  return buildDeepLink({
+    app: "analytics",
+    view: "adhoc",
+    to: TRAFFIC_DASHBOARD_PATH,
+    params: { dashboardId: TRAFFIC_DASHBOARD_ID },
+  });
+}
 
 export default defineAction({
   description:
@@ -41,8 +52,9 @@ export default defineAction({
   run: async () => ({
     app: "analytics",
     view: "adhoc",
+    dashboardId: TRAFFIC_DASHBOARD_ID,
     path: TRAFFIC_DASHBOARD_PATH,
-    url: TRAFFIC_DASHBOARD_PATH,
+    url: trafficDashboardDeepLink(),
     embed: true,
     title: "Traffic dashboard",
     message: "Traffic dashboard is ready.",

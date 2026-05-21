@@ -4,7 +4,7 @@ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 
 describe("embedApp", () => {
-  it("returns an MCP App resource that calls the embed session helper", () => {
+  it("defaults to direct no-nested-frame navigation after minting an embed session", () => {
     const resource = embedApp({
       title: "Dashboard",
       openLabel: "Open dashboard",
@@ -27,23 +27,18 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.openExternal");
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
-    expect(html).toContain('document.createElement("iframe")');
     expect(html).toContain("shouldSelfNavigateToApp");
     expect(html).toContain("window.location.replace(src)");
+    expect(html).toContain("const embedUrl = withChatBridgeParam(openUrl)");
+    expect(html).toContain('typeof data.startUrl !== "string"');
+    expect(html).toContain("if (selfNavigate)");
     expect(html).toContain('"agentNative.submitChat"');
-    expect(html).toContain('"agentNative.frameOrigin"');
-    expect(html).toContain('"agentNative.embeddedAppReady"');
     expect(html).toContain('"agentNative.mcpHostContext"');
     expect(html).toContain('"agentNative.mcpHost.updateModelContext"');
     expect(html).toContain('"agentNative.mcpHost.openLink"');
     expect(html).toContain('"agentNative.mcpHost.requestDisplayMode"');
     expect(html).toContain('"agentNative.mcpHost.response"');
     expect(html).toContain("app.requestDisplayMode");
-    expect(html).toContain("renderFrameFallback");
-    expect(html).toContain("openFallbackExternal");
-    expect(html).toContain("appFrameLoadTimer");
-    expect(html).toContain("startFrameReadyTimer(frame)");
-    expect(html).toContain("}, 30000)");
     expect(html).toContain('typeof openLink === "object"');
     expect(html).not.toContain("shouldDirectRenderEmbed");
     expect(html).not.toContain("claudemcpcontent.com");
@@ -65,6 +60,25 @@ describe("embedApp", () => {
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
     );
     expect(resource.csp?.resourceDomains).toContain("https://esm.sh");
+  });
+
+  it("retains nested iframe mode as an explicit diagnostic fallback", () => {
+    const resource = embedApp({ title: "Dashboard" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "analytics" })
+        : resource.html;
+
+    expect(html).toContain('document.createElement("iframe")');
+    expect(html).toContain("renderFrameFallback");
+    expect(html).toContain("openFallbackExternal");
+    expect(html).toContain("appFrameLoadTimer");
+    expect(html).toContain("startFrameReadyTimer(frame)");
+    expect(html).toContain("}, 30000)");
+    expect(html).toContain('mode === "iframe" || mode === "nested"');
+    expect(html).toContain('toolInput.frame === "iframe"');
+    expect(html).toContain('"agentNative.frameOrigin"');
+    expect(html).toContain('"agentNative.embeddedAppReady"');
   });
 
   it("checks for ChatGPT's window.openai bridge before loading the standard bridge module", () => {
