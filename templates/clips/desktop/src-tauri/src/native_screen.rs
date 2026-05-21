@@ -2077,6 +2077,7 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
     use std::time::Duration as StdDuration;
 
     use block2::RcBlock;
+    use objc2::encode::{Encode, Encoding, RefEncode};
     use objc2::rc::Retained;
     use objc2::runtime::{AnyClass, AnyObject};
     use objc2::{class, msg_send};
@@ -2092,11 +2093,31 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
         epoch: i64,
     }
 
+    unsafe impl RefEncode for CMTime {
+        const ENCODING_REF: Encoding = Encoding::Pointer(&Self::ENCODING);
+    }
+    unsafe impl Encode for CMTime {
+        const ENCODING: Encoding = Encoding::Struct(
+            "CMTime",
+            &[i64::ENCODING, i32::ENCODING, u32::ENCODING, i64::ENCODING],
+        );
+    }
+
     #[repr(C)]
     #[derive(Copy, Clone)]
     struct CMTimeRange {
         start: CMTime,
         duration: CMTime,
+    }
+
+    unsafe impl RefEncode for CMTimeRange {
+        const ENCODING_REF: Encoding = Encoding::Pointer(&Self::ENCODING);
+    }
+    unsafe impl Encode for CMTimeRange {
+        const ENCODING: Encoding = Encoding::Struct(
+            "CMTimeRange",
+            &[CMTime::ENCODING, CMTime::ENCODING],
+        );
     }
 
     // `CMTimeFlags::Valid` == 1. kCMTimeZero is value=0, timescale=1, flags=Valid.
