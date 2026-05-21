@@ -188,6 +188,8 @@ export function SqlChartCard({
     );
   }
 
+  const showPanelMenu = editable || panel.chartType === "table";
+
   return (
     <div
       ref={setNodeRef}
@@ -200,77 +202,82 @@ export function SqlChartCard({
             {panel.title}
           </CardTitle>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="p-1 rounded text-muted-foreground hover:text-foreground"
-                      aria-label="Panel options"
+            {showPanelMenu ? (
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="p-1 rounded text-muted-foreground hover:text-foreground"
+                        aria-label="Panel options"
+                      >
+                        <IconDotsVertical className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Panel options</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="end" className="w-44">
+                  {panel.chartType === "table" && (
+                    <DropdownMenuItem
+                      disabled={!exportCsv}
+                      onSelect={() => exportCsv?.()}
                     >
-                      <IconDotsVertical className="h-3.5 w-3.5" />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Panel options</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="w-44">
-                {panel.chartType === "table" && (
-                  <DropdownMenuItem
-                    disabled={!exportCsv}
-                    onSelect={() => exportCsv?.()}
-                  >
-                    <IconDownload className="h-4 w-4 mr-2" />
-                    Download CSV
-                  </DropdownMenuItem>
-                )}
-                {panel.chartType === "table" ? <DropdownMenuSeparator /> : null}
-                <ViewSqlPopover
-                  panel={panel}
-                  resolvedSql={resolvedSql}
-                  onSaveSql={editable ? onSaveSql : undefined}
-                  editable={editable}
-                >
-                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                    <IconCode className="h-4 w-4 mr-2" />
-                    View SQL
-                  </DropdownMenuItem>
-                </ViewSqlPopover>
-                {editable && onToggleWidth && (gridColumns ?? 2) > 1 && (
-                  <DropdownMenuItem onSelect={onToggleWidth}>
-                    {panel.width >= (gridColumns ?? 2) ? (
-                      <>
-                        <IconArrowsMinimize className="h-4 w-4 mr-2" />
-                        Span 1 column
-                      </>
-                    ) : (
-                      <>
-                        <IconArrowsMaximize className="h-4 w-4 mr-2" />
-                        Span full row
-                      </>
-                    )}
-                  </DropdownMenuItem>
-                )}
-                {editable ? <DropdownMenuSeparator /> : null}
-                {editable && onEdit && (
-                  <DropdownMenuItem onSelect={() => onEdit()}>
-                    <IconPencil className="h-4 w-4 mr-2" />
-                    Edit
-                  </DropdownMenuItem>
-                )}
-                {editable ? (
-                  <DropdownMenuItem
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      setConfirmOpen(true);
-                    }}
-                  >
-                    <IconTrash className="h-4 w-4 mr-2" />
-                    Delete
-                  </DropdownMenuItem>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                      <IconDownload className="h-4 w-4 mr-2" />
+                      Download CSV
+                    </DropdownMenuItem>
+                  )}
+                  {editable && panel.chartType === "table" ? (
+                    <DropdownMenuSeparator />
+                  ) : null}
+                  {editable && onSaveSql ? (
+                    <ViewSqlPopover
+                      panel={panel}
+                      resolvedSql={resolvedSql}
+                      onSaveSql={onSaveSql}
+                    >
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <IconCode className="h-4 w-4 mr-2" />
+                        View SQL
+                      </DropdownMenuItem>
+                    </ViewSqlPopover>
+                  ) : null}
+                  {editable && onToggleWidth && (gridColumns ?? 2) > 1 && (
+                    <DropdownMenuItem onSelect={onToggleWidth}>
+                      {panel.width >= (gridColumns ?? 2) ? (
+                        <>
+                          <IconArrowsMinimize className="h-4 w-4 mr-2" />
+                          Span 1 column
+                        </>
+                      ) : (
+                        <>
+                          <IconArrowsMaximize className="h-4 w-4 mr-2" />
+                          Span full row
+                        </>
+                      )}
+                    </DropdownMenuItem>
+                  )}
+                  {editable ? <DropdownMenuSeparator /> : null}
+                  {editable && onEdit && (
+                    <DropdownMenuItem onSelect={() => onEdit()}>
+                      <IconPencil className="h-4 w-4 mr-2" />
+                      Edit
+                    </DropdownMenuItem>
+                  )}
+                  {editable ? (
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        setConfirmOpen(true);
+                      }}
+                    >
+                      <IconTrash className="h-4 w-4 mr-2" />
+                      Delete
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             {editable ? (
               <Tooltip>
                 <TooltipTrigger asChild>
