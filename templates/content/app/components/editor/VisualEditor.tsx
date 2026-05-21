@@ -5,13 +5,14 @@ import {
   Node as TiptapNode,
   mergeAttributes,
 } from "@tiptap/react";
-import type { Extensions } from "@tiptap/core";
+import type { Editor as CoreEditor, Extensions } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import type { Doc as YDoc } from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
+import Blockquote from "@tiptap/extension-blockquote";
 import Link from "@tiptap/extension-link";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
@@ -21,8 +22,9 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
-import { Plugin, PluginKey, AllSelection } from "@tiptap/pm/state";
-import type { EditorView } from "@tiptap/pm/view";
+import { Plugin, PluginKey, AllSelection, Selection } from "@tiptap/pm/state";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { useEffect, useRef, useMemo, useState } from "react";
 import { IconPhoto } from "@tabler/icons-react";
 import { BubbleToolbar } from "./BubbleToolbar";
@@ -30,7 +32,11 @@ import { SlashCommandMenu } from "./SlashCommandMenu";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import { TableHoverControls } from "./TableHoverControls";
 import { ImageNode } from "./extensions/ImageNode";
-import { notionEditorExtensions } from "./extensions/NotionExtensions";
+import {
+  EMPTY_TOGGLE_BODY_PLACEHOLDER,
+  focusMostRecentEmptyToggleSummary,
+  notionEditorExtensions,
+} from "./extensions/NotionExtensions";
 import { DragHandle } from "./extensions/DragHandle";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { toast } from "sonner";
@@ -247,10 +253,147 @@ const SelectAllDocument = Extension.create({
   },
 });
 
+const NotionBlockquote = Blockquote.extend({
+  addInputRules() {
+    return [];
+  },
+});
+
+const DEFAULT_EMPTY_BLOCK_PLACEHOLDER =
+  "Press ‘space’ for AI or ‘/’ for commands";
+
+const NotionMarkdownShortcuts = Extension.create({
+  name: "notionMarkdownShortcuts",
+  priority: 1000,
+
+  addProseMirrorPlugins() {
+    const editor = this.editor;
+
+    const readBlockShortcut = (
+      view: EditorView,
+      from: number,
+      text: string,
+    ) => {
+      if (!view.state.selection.empty) return null;
+
+      const { $from } = view.state.selection;
+      if (!$from.parent.isTextblock) return null;
+
+      const blockStart = $from.start();
+      const textBeforeCursor = view.state.doc.textBetween(blockStart, from);
+      const marker =
+        text === " " && (textBeforeCursor === ">" || textBeforeCursor === "|")
+          ? textBeforeCursor
+          : textBeforeCursor === "" && (text === "> " || text === "| ")
+            ? text[0]
+            : null;
+
+      if (!marker) return null;
+
+      return {
+        marker,
+        blockFrom: $from.before(),
+        blockTo: $from.after(),
+      };
+    };
+
+    return [
+      new Plugin({
+        key: new PluginKey("notionMarkdownShortcuts"),
+        props: {
+          handleTextInput(view, from, _to, text) {
+            const shortcut = readBlockShortcut(view, from, text);
+            if (!shortcut) return false;
+
+            const { schema } = view.state;
+            const paragraph = schema.nodes.paragraph;
+            if (!paragraph) return false;
+
+            if (shortcut.marker === ">") {
+              const toggle = schema.nodes.notionToggle;
+              if (!toggle) return false;
+
+              view.dispatch(
+                view.state.tr
+                  .replaceWith(
+                    shortcut.blockFrom,
+                    shortcut.blockTo,
+                    toggle.create(
+                      { summary: "", open: true },
+                      paragraph.create(),
+                    ),
+                  )
+                  .scrollIntoView(),
+              );
+              focusMostRecentEmptyToggleSummary(editor);
+              return true;
+            }
+
+            const blockquote = schema.nodes.blockquote;
+            if (!blockquote) return false;
+
+            const tr = view.state.tr.replaceWith(
+              shortcut.blockFrom,
+              shortcut.blockTo,
+              blockquote.create(null, paragraph.create()),
+            );
+            tr.setSelection(
+              Selection.near(tr.doc.resolve(shortcut.blockFrom + 2)),
+            );
+            view.dispatch(tr.scrollIntoView());
+            return true;
+          },
+        },
+      }),
+    ];
+  },
+});
+
+const NotionToggleBodyPlaceholder = Extension.create({
+  name: "notionToggleBodyPlaceholder",
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey("notionToggleBodyPlaceholder"),
+        props: {
+          decorations: ({ doc, selection }) => {
+            const decorations: Decoration[] = [];
+
+            doc.descendants((node, pos, parent) => {
+              const selectionIsInsideNode =
+                selection.from >= pos && selection.to <= pos + node.nodeSize;
+
+              if (
+                node.type.name !== "paragraph" ||
+                parent?.type.name !== "notionToggle" ||
+                node.content.size > 0 ||
+                node.textContent.trim() ||
+                selectionIsInsideNode
+              ) {
+                return;
+              }
+
+              decorations.push(
+                Decoration.node(pos, pos + node.nodeSize, {
+                  class: "is-empty notion-toggle__body-placeholder",
+                  "data-placeholder": EMPTY_TOGGLE_BODY_PLACEHOLDER,
+                }),
+              );
+            });
+
+            return DecorationSet.create(doc, decorations);
+          },
+        },
+      }),
+    ];
+  },
+});
+
 /**
  * Tab / Shift-Tab indents any block (paragraph, heading, blockquote, etc.)
  * by wrapping it in a blockquote — which the NFM pipeline already serializes
- * as tab indentation and renders without a border bar.
+ * as tab indentation while the editor renders it with quote styling.
  *
  * Runs at lower priority than ListItem/TaskItem (which bind Tab to sinkListItem),
  * so list sinking still works and we only kick in for non-list blocks.
@@ -362,6 +505,68 @@ interface VisualEditorExtensionOptions {
   user?: { name: string; color: string } | null;
 }
 
+function hasAncestorType(
+  editor: CoreEditor,
+  pos: number,
+  typeName: string,
+): boolean {
+  const doc = editor.state.doc;
+  const positions = [
+    Math.max(0, pos - 1),
+    pos,
+    Math.min(doc.content.size, pos + 1),
+  ];
+
+  return positions.some((candidatePos) => {
+    const resolvedPos = doc.resolve(candidatePos);
+
+    for (let depth = resolvedPos.depth; depth >= 0; depth -= 1) {
+      if (resolvedPos.node(depth).type.name === typeName) return true;
+    }
+
+    return false;
+  });
+}
+
+function getVisualEditorPlaceholder({
+  editor,
+  node,
+  pos,
+  hasAnchor,
+}: {
+  editor: CoreEditor;
+  node: ProseMirrorNode;
+  pos: number;
+  hasAnchor: boolean;
+}): string {
+  const isToggleBody =
+    node.type.name === "paragraph" &&
+    hasAncestorType(editor, pos, "notionToggle");
+
+  if (isToggleBody) {
+    return hasAnchor
+      ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER
+      : EMPTY_TOGGLE_BODY_PLACEHOLDER;
+  }
+
+  if (node.type.name === "heading") {
+    if (!hasAnchor) return "";
+    const level = node.attrs.level;
+    if (level === 1) return "Heading 1";
+    if (level === 2) return "Heading 2";
+    return "Heading 3";
+  }
+
+  if (
+    node.type.name === "paragraph" &&
+    hasAncestorType(editor, pos, "blockquote")
+  ) {
+    return hasAnchor ? "Empty quote" : "";
+  }
+
+  return hasAnchor ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER : "";
+}
+
 async function uploadAndInsertImageFiles(
   view: EditorView,
   files: File[],
@@ -411,6 +616,7 @@ export function createVisualEditorExtensions({
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
+      blockquote: false,
       codeBlock: false,
       paragraph: false,
       link: false,
@@ -420,20 +626,15 @@ export function createVisualEditorExtensions({
       ...(ydoc ? { undoRedo: false } : {}),
     }),
     EmptyLineParagraph,
+    NotionBlockquote,
     CodeBlock,
     Placeholder.configure({
-      placeholder: ({ node }) => {
-        if (node.type.name === "heading") {
-          const level = node.attrs.level;
-          if (level === 1) return "Heading 1";
-          if (level === 2) return "Heading 2";
-          return "Heading 3";
-        }
-        return "Type /generate to generate...";
-      },
+      placeholder: getVisualEditorPlaceholder,
       showOnlyWhenEditable: true,
       showOnlyCurrent: true,
+      includeChildren: true,
     }),
+    NotionToggleBodyPlaceholder,
     Link.configure({
       openOnClick: false,
       HTMLAttributes: { class: "notion-link" },
@@ -457,6 +658,7 @@ export function createVisualEditorExtensions({
     ...notionEditorExtensions,
     DragHandle,
     TypographyReplacements,
+    NotionMarkdownShortcuts,
     MarkdownPasteDetection,
     SelectAllDocument,
     NotionBlockIndent,

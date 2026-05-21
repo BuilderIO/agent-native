@@ -27,10 +27,16 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
+import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
 
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
+}
+
+interface EditorMenuPosition {
+  top: number;
+  left: number;
 }
 
 interface CommandItem {
@@ -44,6 +50,18 @@ export function parseInlineGeneratePrompt(textBeforeCursor: string) {
   const match = textBeforeCursor.match(/^\/generate\s+([\s\S]+)$/i);
   const prompt = match?.[1]?.trim();
   return prompt || null;
+}
+
+export function shouldOpenGenerateOnSpace(editor: Editor) {
+  const { selection } = editor.state;
+  if (!selection.empty) return false;
+
+  const { $from } = selection;
+  if (!$from.parent.isTextblock) return false;
+  if ($from.parent.type.name !== "paragraph") return false;
+  if ($from.parentOffset !== 0) return false;
+
+  return $from.parent.textContent.trim().length === 0;
 }
 
 const commands: CommandItem[] = [
@@ -96,16 +114,18 @@ const commands: CommandItem[] = [
     title: "Toggle",
     description: "Notion-style toggle line",
     icon: IconChevronRight,
-    action: (editor) =>
+    action: (editor) => {
       editor
         .chain()
         .focus()
         .insertContent({
           type: "notionToggle",
-          attrs: { summary: "Toggle" },
+          attrs: { summary: "", open: true },
           content: [{ type: "paragraph" }],
         })
-        .run(),
+        .run();
+      focusMostRecentEmptyToggleSummary(editor);
+    },
   },
   {
     title: "Code Block",
@@ -215,10 +235,11 @@ const turnIntoCommands: CommandItem[] = [
         .deleteRange({ from: blockStart, to: blockEnd })
         .insertContent({
           type: "notionToggle",
-          attrs: { summary: text },
+          attrs: { summary: text, open: true },
           content: [{ type: "paragraph" }],
         })
         .run();
+      if (!text) focusMostRecentEmptyToggleSummary(editor);
     },
   },
   {
@@ -269,10 +290,7 @@ export function SlashCommandMenu({
   const [isTurnInto, setIsTurnInto] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [position, setPosition] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
+  const [position, setPosition] = useState<EditorMenuPosition | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const slashPosRef = useRef<number | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -281,10 +299,9 @@ export function SlashCommandMenu({
   // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
-  const [generatePos, setGeneratePos] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
+  const [generatePos, setGeneratePos] = useState<EditorMenuPosition | null>(
+    null,
+  );
   const generateTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const submitGeneratePrompt = useCallback(
@@ -303,6 +320,33 @@ export function SlashCommandMenu({
       });
     },
     [documentId, editor, send],
+  );
+
+  const getSelectionMenuPosition = useCallback(() => {
+    const coords = editor.view.coordsAtPos(editor.state.selection.from);
+    const editorRect = editor.view.dom
+      .closest(".visual-editor-wrapper")
+      ?.getBoundingClientRect();
+    if (!editorRect) return null;
+
+    return {
+      top: coords.bottom - editorRect.top + 4,
+      left: coords.left - editorRect.left,
+    };
+  }, [editor]);
+
+  const openGeneratePopover = useCallback(
+    (menuPosition: EditorMenuPosition | null = null) => {
+      const nextPosition = menuPosition ?? getSelectionMenuPosition();
+      if (!nextPosition) return false;
+
+      setGeneratePos(nextPosition);
+      setGeneratePrompt("");
+      setGenerateOpen(true);
+      setTimeout(() => generateTextareaRef.current?.focus(), 0);
+      return true;
+    },
+    [getSelectionMenuPosition],
   );
 
   const readInlineGenerateCommand = useCallback(() => {
@@ -325,11 +369,7 @@ export function SlashCommandMenu({
     description: "Generate content with AI",
     icon: IconPencil,
     action: () => {
-      // Show the prompt popover at current position
-      setGeneratePos(position);
-      setGeneratePrompt("");
-      setGenerateOpen(true);
-      setTimeout(() => generateTextareaRef.current?.focus(), 0);
+      openGeneratePopover(position);
     },
   };
 
@@ -418,6 +458,25 @@ export function SlashCommandMenu({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) {
         if (
+          (e.key === " " || e.code === "Space") &&
+          !e.shiftKey &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          editor.isFocused &&
+          shouldOpenGenerateOnSpace(editor)
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsOpen(false);
+          setIsTurnInto(false);
+          setQuery("");
+          slashPosRef.current = null;
+          openGeneratePopover();
+          return;
+        }
+
+        if (
           e.key === "Enter" &&
           !e.shiftKey &&
           !e.metaKey &&
@@ -470,6 +529,7 @@ export function SlashCommandMenu({
     filteredCommands,
     executeCommand,
     editor,
+    openGeneratePopover,
     readInlineGenerateCommand,
     submitGeneratePrompt,
   ]);
